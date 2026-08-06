@@ -1,0 +1,3690 @@
+{
+  "acceptance_policy": {
+    "active_bound_tolerance_m": 1e-09,
+    "coverage_reference": {
+      "factor_count": 454,
+      "factor_ids_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+      "mapping_cell_counts": {
+        "mapping.asymmetric_datum_flat.cylinder.band-1": {
+          "z00.a00": 3,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 4,
+          "z01.a00": 3,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 4,
+          "z03.a00": 3,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 4,
+          "z04.a00": 3,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 4
+        },
+        "mapping.asymmetric_datum_flat.cylinder.band-2": {
+          "z00.a00": 2,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 3,
+          "z01.a00": 2,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 3,
+          "z03.a00": 2,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 3,
+          "z04.a00": 2,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 3
+        },
+        "mapping.asymmetric_datum_flat.cylinder.band-3": {
+          "z00.a00": 3,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 4,
+          "z01.a00": 3,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 4,
+          "z03.a00": 3,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 4,
+          "z04.a00": 3,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 4
+        },
+        "mapping.asymmetric_datum_flat.plane.datum-flat": {
+          "z00.y00": 1,
+          "z00.y01": 1,
+          "z00.y03": 1,
+          "z00.y04": 1,
+          "z01.y00": 1,
+          "z01.y01": 1,
+          "z01.y03": 1,
+          "z01.y04": 1,
+          "z03.y00": 1,
+          "z03.y01": 1,
+          "z03.y03": 1,
+          "z03.y04": 1,
+          "z04.y00": 1,
+          "z04.y01": 1,
+          "z04.y03": 1,
+          "z04.y04": 1
+        },
+        "mapping.asymmetric_datum_flat.plane.station-0": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.asymmetric_datum_flat.plane.station-20": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.asymmetric_datum_flat.plane.station-50": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 1,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 1
+        },
+        "mapping.asymmetric_datum_flat.plane.station-80": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.axisymmetric.cylinder.band-1": {
+          "z00.a00": 3,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 4,
+          "z01.a00": 3,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 4,
+          "z03.a00": 3,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 4,
+          "z04.a00": 3,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 4
+        },
+        "mapping.axisymmetric.cylinder.band-2": {
+          "z00.a00": 3,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 4,
+          "z01.a00": 3,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 4,
+          "z03.a00": 3,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 4,
+          "z04.a00": 3,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 4
+        },
+        "mapping.axisymmetric.cylinder.band-3": {
+          "z00.a00": 3,
+          "z00.a01": 3,
+          "z00.a02": 4,
+          "z00.a03": 4,
+          "z01.a00": 3,
+          "z01.a01": 3,
+          "z01.a02": 4,
+          "z01.a03": 4,
+          "z03.a00": 3,
+          "z03.a01": 3,
+          "z03.a02": 4,
+          "z03.a03": 4,
+          "z04.a00": 3,
+          "z04.a01": 3,
+          "z04.a02": 4,
+          "z04.a03": 4
+        },
+        "mapping.axisymmetric.plane.station-0": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.axisymmetric.plane.station-20": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.axisymmetric.plane.station-50": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        },
+        "mapping.axisymmetric.plane.station-80": {
+          "r00.a00": 2,
+          "r00.a01": 1,
+          "r00.a02": 2,
+          "r00.a03": 2,
+          "r01.a00": 2,
+          "r01.a01": 1,
+          "r01.a02": 2,
+          "r01.a03": 2
+        }
+      },
+      "mapping_cell_counts_sha256": "b28d937bdda773d5105ad3074503599b75f20ceb101412a0327659d1418d6ff3",
+      "mapping_count": 15,
+      "source": "complete explicit training-factor corpus"
+    },
+    "dispositions": [
+      "passed",
+      "review-required",
+      "failed",
+      "unclassified"
+    ],
+    "fixed_outliers": "no approved robustness or product threshold; execution remains unclassified",
+    "mismatch_analytic_tolerance_m": 2e-09,
+    "mismatch_nonzero_tolerance_m": 2e-15,
+    "scope": "runner-local preregistered frozen-scenario policy; non-public-contract"
+  },
+  "checks": {
+    "active_factor_projection_exact": true,
+    "analytic_directional_jacobians_all_points": true,
+    "analytic_jacobians_all_points": true,
+    "analytic_solver_jacobians_used": true,
+    "asymmetric_pose_recovery": true,
+    "balanced_noise_behavior": true,
+    "callback_domain_stencils_use_all_active_factors": true,
+    "corrupted_mapping_rejected": true,
+    "coverage_adequate": true,
+    "coverage_inadequate": true,
+    "coverage_reference_independent": true,
+    "coverage_uneven": true,
+    "datum_flat_restores_roll_observability": true,
+    "derivative_element_coverage_all_points": true,
+    "dimensionless_rank_5_6_5": true,
+    "factor_count_frozen": true,
+    "fixed_outlier_linear_control": true,
+    "flat_ablation_retains_inputs": true,
+    "held_out_absent_from_callbacks": true,
+    "held_out_absent_from_factors": true,
+    "held_out_oracle_separate": true,
+    "invalid_geometry_scenario_rejected": true,
+    "legal_active_bound": true,
+    "noiseless_fixed_pose_recovery": true,
+    "oracle_invalid_cases_rejected": true,
+    "oracle_raw_residuals": true,
+    "oracle_supports": true,
+    "out_of_contract_mismatch_detected": true,
+    "rank_and_gauge_5_6_5": true,
+    "raw_derivative_probes_use_all_active_factors": true,
+    "recovered_pose_rank_bindings": true,
+    "roll_gauge_equivalence_and_null_alignment": true,
+    "scenario_execution_complete": true,
+    "termination_disposition_separate": true
+  },
+  "contract": {
+    "contract": "stepped-rotational-v1",
+    "contract_logical_sha256": "2c77ce6c586a5f5ebc29f1dfe93f6f19264a8849a8dd62ccb22ef3b5338ca175",
+    "generator_source_sha256": "995a067d7f4bd247defd092a7e8501224ce7393e9e9e09dc47726f13b610a1e8",
+    "generator_version": "1.0.5",
+    "scope": "provisional/experiment-local/non-public-contract"
+  },
+  "data_separation": {
+    "active_factors_selected_only_by": "scenario.active_factor_ids",
+    "factor_count": 454,
+    "held_out_count": 167,
+    "mapping_count": 15,
+    "membership_count": 1888,
+    "observation_count": 621,
+    "scenario_count": 15,
+    "training_count": 454
+  },
+  "declared_evidence_boundaries": {
+    "cad_evidence_consumed": false,
+    "classification": "declared experiment input/provenance boundary; not established by executable checks",
+    "generated_held_out_used_for_fit_or_tuning": false,
+    "generated_truth": "fit and evaluator oracle only",
+    "physical_reference_consumed": false,
+    "supports_physical_or_product_claims": false
+  },
+  "derivatives": {
+    "absolute_tolerance": 3e-09,
+    "callback_domain_probes": [
+      {
+        "active_factor_count": 230,
+        "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "callback_evaluation_count": 98,
+        "callback_paths_per_candidate": [
+          "shape.residual",
+          "shape.analytic_jacobian"
+        ],
+        "callback_trace_sha256": "9ed769556cc5007bb80f1b8ace80219ee4843380564195574c2ea7d42979e815",
+        "candidate_coordinates_sha256": "a6e9aaa0b9ac110d01f615b2b5d90dd06938532e6c662822b50bc045502b554f",
+        "candidate_labels_sha256": "bdbdf5560032d632bd4161d84ca24ceffc15e37c10b1916bcad9ee054d13bbb4",
+        "coordinate_count": 7,
+        "coordinates": [
+          0.012,
+          0.018,
+          0.014,
+          0.02,
+          0.05,
+          0.08,
+          0.016
+        ],
+        "factor_element_counts": {
+          "cylinder.band-1": 56,
+          "cylinder.band-2": 48,
+          "cylinder.band-3": 56,
+          "plane.datum-flat": 16,
+          "plane.station-0": 14,
+          "plane.station-20": 14,
+          "plane.station-50": 12,
+          "plane.station-80": 14
+        },
+        "factor_element_counts_exact_every_candidate": true,
+        "ordered_factor_ids_exact_active_every_evaluation": true,
+        "ordered_factor_ids_sha256_every_evaluation": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "point": "shape-nominal",
+        "row_count_every_evaluation": 230,
+        "stencil": "unique center and coordinate/directional candidates used by five-point checks at h and h/2",
+        "stencil_candidate_count": 49,
+        "unique_stencil_candidate_count": 49
+      },
+      {
+        "active_factor_count": 230,
+        "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "callback_evaluation_count": 98,
+        "callback_paths_per_candidate": [
+          "shape.residual",
+          "shape.analytic_jacobian"
+        ],
+        "callback_trace_sha256": "c4c74b61c397ae2b6c1802da6042a2874f7167d1dcc164cfa17300ea263f3785",
+        "candidate_coordinates_sha256": "f6061c815b20cbc2e4365dfa0098db6498bfe7ceef6ad085db3a4a1c767a6a0e",
+        "candidate_labels_sha256": "bdbdf5560032d632bd4161d84ca24ceffc15e37c10b1916bcad9ee054d13bbb4",
+        "coordinate_count": 7,
+        "coordinates": [
+          0.0112,
+          0.019,
+          0.0132,
+          0.0192,
+          0.051,
+          0.079,
+          0.0164
+        ],
+        "factor_element_counts": {
+          "cylinder.band-1": 56,
+          "cylinder.band-2": 48,
+          "cylinder.band-3": 56,
+          "plane.datum-flat": 16,
+          "plane.station-0": 14,
+          "plane.station-20": 14,
+          "plane.station-50": 12,
+          "plane.station-80": 14
+        },
+        "factor_element_counts_exact_every_candidate": true,
+        "ordered_factor_ids_exact_active_every_evaluation": true,
+        "ordered_factor_ids_sha256_every_evaluation": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "point": "shape-perturbed",
+        "row_count_every_evaluation": 230,
+        "stencil": "unique center and coordinate/directional candidates used by five-point checks at h and h/2",
+        "stencil_candidate_count": 49,
+        "unique_stencil_candidate_count": 49
+      },
+      {
+        "active_factor_count": 230,
+        "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "callback_evaluation_count": 86,
+        "callback_paths_per_candidate": [
+          "pose.residual",
+          "pose.analytic_jacobian"
+        ],
+        "callback_trace_sha256": "666637cb4e38520f87f0018a761d24073fc346065e33706781f09589e0571aab",
+        "candidate_coordinates_sha256": "f97aec64797a36f4bbedc454c978236c5ea3d2574798e60e167fd73ea938b8d5",
+        "candidate_labels_sha256": "f98447425391c0ca2acb2835c00defad8b465f96ea9c110fde5fb7e6e1bb6ebf",
+        "coordinate_count": 6,
+        "coordinates": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "factor_element_counts": {
+          "cylinder.band-1": 56,
+          "cylinder.band-2": 48,
+          "cylinder.band-3": 56,
+          "plane.datum-flat": 16,
+          "plane.station-0": 14,
+          "plane.station-20": 14,
+          "plane.station-50": 12,
+          "plane.station-80": 14
+        },
+        "factor_element_counts_exact_every_candidate": true,
+        "ordered_factor_ids_exact_active_every_evaluation": true,
+        "ordered_factor_ids_sha256_every_evaluation": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "point": "pose-nominal",
+        "row_count_every_evaluation": 230,
+        "stencil": "unique center and coordinate/directional candidates used by five-point checks at h and h/2",
+        "stencil_candidate_count": 43,
+        "unique_stencil_candidate_count": 43
+      },
+      {
+        "active_factor_count": 230,
+        "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "callback_evaluation_count": 86,
+        "callback_paths_per_candidate": [
+          "pose.residual",
+          "pose.analytic_jacobian"
+        ],
+        "callback_trace_sha256": "93cb6c35e32c9ea48c000e2db747ae69e0a607dd5aea48e54330571366c4040c",
+        "candidate_coordinates_sha256": "7f9dd0f15f9b1ea081fbd0ee11ada7bbf4a376d841648a7360e88f838aeed904",
+        "candidate_labels_sha256": "f98447425391c0ca2acb2835c00defad8b465f96ea9c110fde5fb7e6e1bb6ebf",
+        "coordinate_count": 6,
+        "coordinates": [
+          0.0004,
+          -0.0003,
+          0.0002,
+          0.012,
+          -0.009,
+          0.025
+        ],
+        "factor_element_counts": {
+          "cylinder.band-1": 56,
+          "cylinder.band-2": 48,
+          "cylinder.band-3": 56,
+          "plane.datum-flat": 16,
+          "plane.station-0": 14,
+          "plane.station-20": 14,
+          "plane.station-50": 12,
+          "plane.station-80": 14
+        },
+        "factor_element_counts_exact_every_candidate": true,
+        "ordered_factor_ids_exact_active_every_evaluation": true,
+        "ordered_factor_ids_sha256_every_evaluation": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "point": "pose-perturbed",
+        "row_count_every_evaluation": 230,
+        "stencil": "unique center and coordinate/directional candidates used by five-point checks at h and h/2",
+        "stencil_candidate_count": 43,
+        "unique_stencil_candidate_count": 43
+      }
+    ],
+    "dimensionless_absolute_tolerance": 3e-06,
+    "method": "independent five-point central differences at h and h/2 plus five-point directional differences",
+    "numerical_stencil_executions": [
+      {
+        "kind": "shape",
+        "point": "nominal",
+        "raw_residual_coordinate_sequence_sha256": "c873da9750c1ac754cc58b34e41de7f18c35a1726ff16aa1e2c6ebf3b8534378",
+        "raw_residual_evaluation_count": 64,
+        "raw_residual_unique_coordinate_count": 48,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "shape",
+        "point": "perturbed",
+        "raw_residual_coordinate_sequence_sha256": "2cc6c9e84f4815162455afd2f15a2dc803ccd01a5dfa46e0a74f70026778a689",
+        "raw_residual_evaluation_count": 64,
+        "raw_residual_unique_coordinate_count": 48,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "shape",
+        "point": "near-parameter-bound-raw",
+        "raw_residual_coordinate_sequence_sha256": "88acbd46255d1a25c4cea53328948355284b4c574f9cf27fab02311a88fb3d1e",
+        "raw_residual_evaluation_count": 64,
+        "raw_residual_unique_coordinate_count": 48,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "pose",
+        "point": "nominal",
+        "raw_residual_coordinate_sequence_sha256": "14ce56222caacc023d928d45bbd467f342c16eed16a310881b11d4c8dacdaa3b",
+        "raw_residual_evaluation_count": 56,
+        "raw_residual_unique_coordinate_count": 42,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "pose",
+        "point": "perturbed",
+        "raw_residual_coordinate_sequence_sha256": "f412fda2ab06e1adb7d197c45a0c5218c523ee9da2eb68ce67f695fd1d863414",
+        "raw_residual_evaluation_count": 56,
+        "raw_residual_unique_coordinate_count": 42,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "pose",
+        "point": "small-angle",
+        "raw_residual_coordinate_sequence_sha256": "956e054be3628563ea9df3eb217c8df891cef1f3c65cdc2e5d143f57dc792625",
+        "raw_residual_evaluation_count": 56,
+        "raw_residual_unique_coordinate_count": 42,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      },
+      {
+        "kind": "pose",
+        "point": "near-parameter-bound-raw",
+        "raw_residual_coordinate_sequence_sha256": "37764b7edf836e08497445e1bfb13ef158d14aff4d5f7d1730df8af68637e7ac",
+        "raw_residual_evaluation_count": 56,
+        "raw_residual_unique_coordinate_count": 42,
+        "validated_steps": [
+          3e-06,
+          1.5e-06
+        ]
+      }
+    ],
+    "probes": {
+      "pose": [
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 230,
+          "coordinates": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "directional_max_abs_error": 1.1762563145722993e-11,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 3.4967341522307294e-12,
+          "max_dimensionless_abs_error": 3.4967341522307294e-09,
+          "max_relative_error_above_floor": 1.4017683102940217e-09,
+          "point": "nominal",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 3.854941105913001e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        },
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 230,
+          "coordinates": [
+            0.0004,
+            -0.0003,
+            0.0002,
+            0.012,
+            -0.009,
+            0.025
+          ],
+          "directional_max_abs_error": 4.001632358807683e-12,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 5.986293532818203e-12,
+          "max_dimensionless_abs_error": 5.986293532818203e-09,
+          "max_relative_error_above_floor": 6.219172071373894e-07,
+          "point": "perturbed",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 6.55340018362871e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        },
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 230,
+          "coordinates": [
+            0.0,
+            0.0,
+            0.0,
+            0.0001,
+            -0.0002,
+            0.0003
+          ],
+          "directional_max_abs_error": 1.0128425875777225e-11,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 6.82413457339659e-12,
+          "max_dimensionless_abs_error": 6.82413457339659e-09,
+          "max_relative_error_above_floor": 1.7341852880210708e-06,
+          "point": "small-angle",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 6.938893903907228e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        },
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 171,
+          "coordinates": [
+            0.00297,
+            -0.00297,
+            0.00297,
+            0.0792,
+            -0.0792,
+            0.0792
+          ],
+          "directional_max_abs_error": 9.019285318601078e-12,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 5.229419328123264e-12,
+          "max_dimensionless_abs_error": 5.229419328123264e-09,
+          "max_relative_error_above_floor": 9.626182919369111e-08,
+          "point": "near-parameter-bound-raw",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 6.938893903907228e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        }
+      ],
+      "shape": [
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 230,
+          "coordinates": [
+            0.012,
+            0.018,
+            0.014,
+            0.02,
+            0.05,
+            0.08,
+            0.016
+          ],
+          "directional_max_abs_error": 5.710543149461955e-12,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 1.3855583347321954e-12,
+          "max_dimensionless_abs_error": 1.3855583347321954e-12,
+          "max_relative_error_above_floor": 1.3855583347302756e-12,
+          "point": "nominal",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 1.54198875890188e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        },
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 230,
+          "coordinates": [
+            0.0112,
+            0.019,
+            0.0132,
+            0.0192,
+            0.051,
+            0.079,
+            0.0164
+          ],
+          "directional_max_abs_error": 5.710543149461955e-12,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 1.3855583347321954e-12,
+          "max_dimensionless_abs_error": 1.3855583347321954e-12,
+          "max_relative_error_above_floor": 1.3855583347302756e-12,
+          "point": "perturbed",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 1.54198875890188e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        },
+        {
+          "active_factor_ids_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+          "all_active_factor_count": 230,
+          "callback_supported_factor_count": 200,
+          "coordinates": [
+            0.010045,
+            0.01703,
+            0.012025000000000001,
+            0.018039999999999997,
+            0.04706,
+            0.07706,
+            0.015014999999999999
+          ],
+          "directional_max_abs_error": 5.710543149461955e-12,
+          "factor_element_counts": {
+            "cylinder.band-1": 56,
+            "cylinder.band-2": 48,
+            "cylinder.band-3": 56,
+            "plane.datum-flat": 16,
+            "plane.station-0": 14,
+            "plane.station-20": 14,
+            "plane.station-50": 12,
+            "plane.station-80": 14
+          },
+          "factor_kind_counts": {
+            "axial_plane": 54,
+            "cylinder": 160,
+            "datum_flat": 16
+          },
+          "finite_difference_step": 3e-06,
+          "max_abs_error": 1.3855583347321954e-12,
+          "max_dimensionless_abs_error": 1.3855583347321954e-12,
+          "max_relative_error_above_floor": 1.3855583347302756e-12,
+          "point": "near-parameter-bound-raw",
+          "raw_factor_count": 230,
+          "stencil_refinement_max_abs_change": 1.54198875890188e-12,
+          "validation_scope": "all active raw residual equations; support-domain acceptance is checked separately"
+        }
+      ]
+    },
+    "relative_evaluation_floor": 1e-06,
+    "relative_tolerance": 3e-06,
+    "scope": "raw derivative probes evaluate every active factor independent of domain; callback-domain probes independently require complete support"
+  },
+  "format": "scansor-generated-solver-evaluator-v1-experiment-local",
+  "format_status": "provisional/experiment-local/non-public-contract",
+  "gauge_evidence": {
+    "asymmetric-full-pose": {
+      "analytic_solver_jacobians_used": true,
+      "datum_flat_roll_column_norm_m_per_rad": 0.022914531960642207,
+      "full_roll_column_norm_m_per_rad": 0.022914531960642207,
+      "held_out_seen": [],
+      "initial_rolls_rad": [
+        -0.05,
+        0.05
+      ],
+      "minus_max_abs_residual_m": 0.00038215545237712395,
+      "plus_max_abs_residual_m": 0.0003821554523771274,
+      "residual_vector_difference_max_abs_m": 0.0007243192373931687,
+      "solution_minus": {
+        "max_abs_nonroll_error": 2.972104963277482e-18,
+        "max_abs_residual_m": 3.8163916471489756e-17,
+        "roll_rad": -5.4586876224577774e-15,
+        "success": true
+      },
+      "solution_plus": {
+        "max_abs_nonroll_error": 1.5471707568269128e-17,
+        "max_abs_residual_m": 4.163336342344337e-17,
+        "roll_rad": 5.141852003774326e-15,
+        "success": true
+      }
+    },
+    "axisymmetric-free-roll": {
+      "analytic_solver_jacobians_used": true,
+      "held_out_seen": [],
+      "initial_rolls_rad": [
+        -0.05,
+        0.05
+      ],
+      "minus_max_abs_residual_m": 1.3877787807814457e-17,
+      "null_alignment_error": 0.0,
+      "plus_max_abs_residual_m": 1.3877787807814457e-17,
+      "raw_roll_column_max_abs": 1.734723475976807e-18,
+      "residual_vector_difference_max_abs_m": 3.469446951953614e-18,
+      "solution_minus": {
+        "max_abs_nonroll_error": 0.0,
+        "max_abs_residual_m": 1.3877787807814457e-17,
+        "roll_rad": -0.05,
+        "success": true
+      },
+      "solution_plus": {
+        "max_abs_nonroll_error": 0.0,
+        "max_abs_residual_m": 1.3877787807814457e-17,
+        "roll_rad": 0.05,
+        "success": true
+      }
+    },
+    "flat-factor-ablation": {
+      "analytic_solver_jacobians_used": true,
+      "held_out_seen": [],
+      "initial_rolls_rad": [
+        -0.05,
+        0.05
+      ],
+      "minus_max_abs_residual_m": 1.3877787807814457e-17,
+      "null_alignment_error": 0.0,
+      "plus_max_abs_residual_m": 1.3877787807814457e-17,
+      "raw_roll_column_max_abs": 1.734723475976807e-18,
+      "residual_vector_difference_max_abs_m": 3.469446951953614e-18,
+      "solution_minus": {
+        "max_abs_nonroll_error": 0.0,
+        "max_abs_residual_m": 1.3877787807814457e-17,
+        "roll_rad": -0.05,
+        "success": true
+      },
+      "solution_plus": {
+        "max_abs_nonroll_error": 0.0,
+        "max_abs_residual_m": 1.3877787807814457e-17,
+        "roll_rad": 0.05,
+        "success": true
+      }
+    }
+  },
+  "oracle": {
+    "factor_kind_counts": {
+      "axial_plane": 110,
+      "cylinder": 328,
+      "datum_flat": 16
+    },
+    "invalid_geometry_diagnostic": "radii must be positive",
+    "invalid_geometry_rejected": true,
+    "max_abs_raw_residual_m": 1.3877787807814457e-17,
+    "oracle_tolerance_m": 2e-15,
+    "out_of_support_diagnostic": "outside guarded axial cylinder domain",
+    "out_of_support_rejected": true,
+    "support_failures": []
+  },
+  "pose_convention": {
+    "coordinates": "local observation-to-model increment [translation_m, rotation_vector_rad] about generator truth",
+    "raw_truth_jacobian": "[g^T, (q cross g)^T]",
+    "runner": "scipy.optimize.least_squares(method='trf', loss='linear')",
+    "scope": "truth-centered local recovery fixture; not a reusable global pose initializer"
+  },
+  "runtime": {
+    "implementation": "cpython",
+    "numpy": "2.3.1",
+    "policy": "exact CPython runtime required for retained evidence equality",
+    "python": "3.12.12",
+    "scipy": "1.16.1"
+  },
+  "scenarios": {
+    "asymmetric-full-pose": {
+      "active_factor_count": 230,
+      "callbacks": {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "13a4aab3e64dd427294aaf7902191aec7415dfb3cf782d613c8ba822c878ae9e",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 230
+      },
+      "diagnostics": {
+        "recovered_pose_observability": "rank-6"
+      },
+      "disposition": "passed",
+      "raw": {
+        "evaluation_coordinates": [
+          1.5884336492723234e-14,
+          2.190131681565055e-14,
+          4.411791177828575e-17,
+          6.859677001988029e-13,
+          -3.364039155832078e-13,
+          1.0547341071490257e-10
+        ],
+        "evaluation_coordinates_sha256": "d5f12806dbc56996de21f2a1533b7caac86f19249e4dfc7f4687bf7848f11a89",
+        "jacobian_evaluation_coordinates_sha256": "d5f12806dbc56996de21f2a1533b7caac86f19249e4dfc7f4687bf7848f11a89",
+        "jacobian_sha256": "c0c47a926d24f231b43e2d4f8668b761541275739e2bcd508073b81f77a31e4a",
+        "jacobian_shape": [
+          230,
+          6
+        ],
+        "max_abs_residual_m": 7.731038031977278e-13,
+        "residual_count": 230,
+        "residuals_sha256": "4000bc4804cb03af34c7c1b60ad9f9628769763a732ae91ec0cff83c0922ef06",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 92.3726549054718,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "dimensionless_rank": 6,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            446.5554266283293,
+            379.8897486638066,
+            22.914531960642222,
+            7.350513669380083,
+            5.639989279009382,
+            4.834281607314472
+          ],
+          "dimensionless_smallest_vector_roll_alignment": 5.02689339640099e-13,
+          "raw_condition_nonnull": 444.03811054960244,
+          "raw_rank": 6,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.174925475932044,
+            8.52682137934513,
+            7.3484781412908555,
+            0.24754139454800392,
+            0.21542555309829534,
+            0.02291453196064221
+          ],
+          "raw_smallest_vector_roll_alignment": 1.0
+        },
+        "spectrum_jacobian_sha256": "c0c47a926d24f231b43e2d4f8668b761541275739e2bcd508073b81f77a31e4a"
+      },
+      "solver": {
+        "active_factor_count": 230,
+        "cost": 2.93622870051737e-24,
+        "estimate_local_observation_to_model": [
+          1.5884336492723234e-14,
+          2.190131681565055e-14,
+          4.411791177828575e-17,
+          6.859677001988029e-13,
+          -3.364039155832078e-13,
+          1.0547341071490257e-10
+        ],
+        "max_abs_nonroll_error": 6.859677001988029e-13,
+        "max_abs_residual_m": 7.731038031977278e-13,
+        "roll_rad": 1.0547341071490257e-10
+      },
+      "support": {
+        "factor_traversal_count": 230,
+        "factor_traversal_sha256": "69e8fcc2682557f3daa257ed1999e7818996cd0050ff6cfc27f6a905b3770991",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 5,
+        "status": 1,
+        "success": true
+      }
+    },
+    "axisymmetric-free-roll": {
+      "active_factor_count": 224,
+      "callbacks": {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "821a70389fcdded2bde28dcdf12284a4c7d31bcf728a1883ac6707868475a876",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 224
+      },
+      "diagnostics": {
+        "recovered_pose_observability": "rank-5"
+      },
+      "disposition": "passed",
+      "raw": {
+        "evaluation_coordinates": [
+          -1.6394947887553708e-16,
+          2.4786178005158224e-14,
+          6.4938659368677054e-18,
+          6.664012631517884e-13,
+          3.125126344976512e-15,
+          0.019872478742161245
+        ],
+        "evaluation_coordinates_sha256": "2f0411a5c2e79a55f0413f7a4775e8b44ec97e769ca51c8e934bc198675766a4",
+        "jacobian_evaluation_coordinates_sha256": "2f0411a5c2e79a55f0413f7a4775e8b44ec97e769ca51c8e934bc198675766a4",
+        "jacobian_sha256": "e87e9968679ffe6a2d5ff73aa18bcee07765ef4f30169d55b72f385b04fda88c",
+        "jacobian_shape": [
+          224,
+          6
+        ],
+        "max_abs_residual_m": 2.6683516507475247e-14,
+        "residual_count": 224,
+        "residuals_sha256": "a2a6fa740d7f60833da21651785ac0c26869635c5a511e6330ee8c15e2b95363",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 89.66799944725051,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "dimensionless_rank": 5,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            434.2099789359013,
+            380.5190858485403,
+            7.485668351576694,
+            5.528916630168903,
+            4.842418495032182,
+            1.055164138943983e-14
+          ],
+          "dimensionless_smallest_vector_roll_alignment": 1.0,
+          "raw_condition_nonnull": 45.24126813087983,
+          "raw_rank": 5,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            9.757790235245354,
+            8.5446786828284,
+            7.483324630287915,
+            0.24606547369783258,
+            0.2156833934675913,
+            1.0551641389440945e-17
+          ],
+          "raw_smallest_vector_roll_alignment": 1.0
+        },
+        "spectrum_jacobian_sha256": "e87e9968679ffe6a2d5ff73aa18bcee07765ef4f30169d55b72f385b04fda88c"
+      },
+      "solver": {
+        "active_factor_count": 224,
+        "cost": 1.0382070520593667e-26,
+        "estimate_local_observation_to_model": [
+          -1.6394947887553708e-16,
+          2.4786178005158224e-14,
+          6.4938659368677054e-18,
+          6.664012631517884e-13,
+          3.125126344976512e-15,
+          0.019872478742161245
+        ],
+        "max_abs_nonroll_error": 6.664012631517884e-13,
+        "max_abs_residual_m": 2.6683516507475247e-14,
+        "roll_rad": 0.019872478742161245
+      },
+      "support": {
+        "factor_traversal_count": 224,
+        "factor_traversal_sha256": "668a084c0661d1340f4f12c6ed75d264d16505a5542ea9fc42050ccb67cb5352",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 5,
+        "status": 1,
+        "success": true
+      }
+    },
+    "balanced-normal-noise": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "classification": "balanced-normal-noise",
+        "offset_count": 454
+      },
+      "disposition": "passed",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 2.0000000000020002e-05,
+        "residual_count": 454,
+        "residuals_sha256": "49a4f3d20a9557139fb4f4e8f609de7f38a4ac6a81b1bb029538f810a3892adc",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 9.080000000000026e-08,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.018000000000000002,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 1.5612511283791264e-17,
+        "max_abs_residual_m": 2.0000000000020002e-05
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "coherent-held-out-strips-sectors": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "classification": "held-out-consistent"
+      },
+      "disposition": "passed",
+      "raw": {
+        "evaluated_count": 167,
+        "factor_count": 0,
+        "fit_callback_used": false,
+        "max_abs_residual_m": 1.9081958235744878e-17,
+        "support_failures": []
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 1.6034307366175389e-32,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.018000000000000002,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 1.5612511283791264e-17,
+        "max_abs_residual_m": 1.9081958235744878e-17
+      },
+      "support": {
+        "failures": []
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "corrupted-mapping": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 0,
+        "callback_invocation_count": 0,
+        "held_out_seen": [],
+        "jacobian_calls": 0
+      },
+      "diagnostics": {
+        "classification": "mapping-suspect",
+        "original_mapping_id": "mapping.asymmetric_datum_flat.cylinder.band-1",
+        "overridden_factor_id": "factor.obs.asymmetric_datum_flat.cylinder.band-1.z00.a13",
+        "overridden_observation_id": "obs.asymmetric_datum_flat.cylinder.band-1.z00.a13",
+        "override_mapping_id": "mapping.axisymmetric.cylinder.band-3",
+        "retarget_attempt_count": 0,
+        "support_attempt_mapping_ids": [
+          "mapping.axisymmetric.cylinder.band-3"
+        ],
+        "unmodified_factor_count": 453
+      },
+      "disposition": "failed",
+      "raw": {
+        "jacobian_traversal_count": 0,
+        "residual_traversal_count": 0
+      },
+      "solver": {
+        "invoked": false
+      },
+      "support": {
+        "factor_traversal_count": 1,
+        "failures": [
+          {
+            "factor_id": "factor.obs.asymmetric_datum_flat.cylinder.band-1.z00.a13",
+            "reason": "outside bounded cylinder support"
+          }
+        ]
+      },
+      "termination": {
+        "class": "rejected-before-solve"
+      }
+    },
+    "coverage-adequate": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "covered_mapping_count": 15,
+        "mapping_cell_counts": {
+          "mapping.asymmetric_datum_flat.cylinder.band-1": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.asymmetric_datum_flat.cylinder.band-2": {
+            "z00.a00": 2,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 3,
+            "z01.a00": 2,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 3,
+            "z03.a00": 2,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 3,
+            "z04.a00": 2,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 3
+          },
+          "mapping.asymmetric_datum_flat.cylinder.band-3": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.asymmetric_datum_flat.plane.datum-flat": {
+            "z00.y00": 1,
+            "z00.y01": 1,
+            "z00.y03": 1,
+            "z00.y04": 1,
+            "z01.y00": 1,
+            "z01.y01": 1,
+            "z01.y03": 1,
+            "z01.y04": 1,
+            "z03.y00": 1,
+            "z03.y01": 1,
+            "z03.y03": 1,
+            "z03.y04": 1,
+            "z04.y00": 1,
+            "z04.y01": 1,
+            "z04.y03": 1,
+            "z04.y04": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-0": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.asymmetric_datum_flat.plane.station-20": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.asymmetric_datum_flat.plane.station-50": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 1,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-80": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.axisymmetric.cylinder.band-1": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.axisymmetric.cylinder.band-2": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.axisymmetric.cylinder.band-3": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.axisymmetric.plane.station-0": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.axisymmetric.plane.station-20": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.axisymmetric.plane.station-50": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          },
+          "mapping.axisymmetric.plane.station-80": {
+            "r00.a00": 2,
+            "r00.a01": 1,
+            "r00.a02": 2,
+            "r00.a03": 2,
+            "r01.a00": 2,
+            "r01.a01": 1,
+            "r01.a02": 2,
+            "r01.a03": 2
+          }
+        },
+        "missing_coverage_cells": {},
+        "missing_required_mappings": [],
+        "reference_factor_count": 454,
+        "reference_factor_ids_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "reference_mapping_cell_counts_sha256": "b28d937bdda773d5105ad3074503599b75f20ceb101412a0327659d1418d6ff3",
+        "reference_source": "complete explicit training-factor corpus",
+        "required_mapping_count": 15
+      },
+      "disposition": "passed",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 1.9081958235744878e-17,
+        "residual_count": 454,
+        "residuals_sha256": "9e5df7febcf59de0dcee1f6725aa3bf550b9f3e3e63eb5755d5f52d3b6f8fd9b",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 1.6034307366175389e-32,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.018000000000000002,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 1.5612511283791264e-17,
+        "max_abs_residual_m": 1.9081958235744878e-17
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "coverage-inadequate": {
+      "active_factor_count": 112,
+      "callbacks": {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "9b443281af10b0bcabc93a33786d8bbf894f3c58ec1478cda356f087b1495abb",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 112
+      },
+      "diagnostics": {
+        "covered_mapping_count": 2,
+        "mapping_cell_counts": {
+          "mapping.asymmetric_datum_flat.cylinder.band-1": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          },
+          "mapping.axisymmetric.cylinder.band-1": {
+            "z00.a00": 3,
+            "z00.a01": 3,
+            "z00.a02": 4,
+            "z00.a03": 4,
+            "z01.a00": 3,
+            "z01.a01": 3,
+            "z01.a02": 4,
+            "z01.a03": 4,
+            "z03.a00": 3,
+            "z03.a01": 3,
+            "z03.a02": 4,
+            "z03.a03": 4,
+            "z04.a00": 3,
+            "z04.a01": 3,
+            "z04.a02": 4,
+            "z04.a03": 4
+          }
+        },
+        "missing_coverage_cells": {
+          "mapping.asymmetric_datum_flat.cylinder.band-2": [
+            "z00.a00",
+            "z00.a01",
+            "z00.a02",
+            "z00.a03",
+            "z01.a00",
+            "z01.a01",
+            "z01.a02",
+            "z01.a03",
+            "z03.a00",
+            "z03.a01",
+            "z03.a02",
+            "z03.a03",
+            "z04.a00",
+            "z04.a01",
+            "z04.a02",
+            "z04.a03"
+          ],
+          "mapping.asymmetric_datum_flat.cylinder.band-3": [
+            "z00.a00",
+            "z00.a01",
+            "z00.a02",
+            "z00.a03",
+            "z01.a00",
+            "z01.a01",
+            "z01.a02",
+            "z01.a03",
+            "z03.a00",
+            "z03.a01",
+            "z03.a02",
+            "z03.a03",
+            "z04.a00",
+            "z04.a01",
+            "z04.a02",
+            "z04.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.datum-flat": [
+            "z00.y00",
+            "z00.y01",
+            "z00.y03",
+            "z00.y04",
+            "z01.y00",
+            "z01.y01",
+            "z01.y03",
+            "z01.y04",
+            "z03.y00",
+            "z03.y01",
+            "z03.y03",
+            "z03.y04",
+            "z04.y00",
+            "z04.y01",
+            "z04.y03",
+            "z04.y04"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-0": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-20": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-50": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-80": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.axisymmetric.cylinder.band-2": [
+            "z00.a00",
+            "z00.a01",
+            "z00.a02",
+            "z00.a03",
+            "z01.a00",
+            "z01.a01",
+            "z01.a02",
+            "z01.a03",
+            "z03.a00",
+            "z03.a01",
+            "z03.a02",
+            "z03.a03",
+            "z04.a00",
+            "z04.a01",
+            "z04.a02",
+            "z04.a03"
+          ],
+          "mapping.axisymmetric.cylinder.band-3": [
+            "z00.a00",
+            "z00.a01",
+            "z00.a02",
+            "z00.a03",
+            "z01.a00",
+            "z01.a01",
+            "z01.a02",
+            "z01.a03",
+            "z03.a00",
+            "z03.a01",
+            "z03.a02",
+            "z03.a03",
+            "z04.a00",
+            "z04.a01",
+            "z04.a02",
+            "z04.a03"
+          ],
+          "mapping.axisymmetric.plane.station-0": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.axisymmetric.plane.station-20": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.axisymmetric.plane.station-50": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ],
+          "mapping.axisymmetric.plane.station-80": [
+            "r00.a00",
+            "r00.a01",
+            "r00.a02",
+            "r00.a03",
+            "r01.a00",
+            "r01.a01",
+            "r01.a02",
+            "r01.a03"
+          ]
+        },
+        "missing_required_mappings": [
+          "mapping.asymmetric_datum_flat.cylinder.band-2",
+          "mapping.asymmetric_datum_flat.cylinder.band-3",
+          "mapping.asymmetric_datum_flat.plane.datum-flat",
+          "mapping.asymmetric_datum_flat.plane.station-0",
+          "mapping.asymmetric_datum_flat.plane.station-20",
+          "mapping.asymmetric_datum_flat.plane.station-50",
+          "mapping.asymmetric_datum_flat.plane.station-80",
+          "mapping.axisymmetric.cylinder.band-2",
+          "mapping.axisymmetric.cylinder.band-3",
+          "mapping.axisymmetric.plane.station-0",
+          "mapping.axisymmetric.plane.station-20",
+          "mapping.axisymmetric.plane.station-50",
+          "mapping.axisymmetric.plane.station-80"
+        ],
+        "reference_factor_count": 454,
+        "reference_factor_ids_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "reference_mapping_cell_counts_sha256": "b28d937bdda773d5105ad3074503599b75f20ceb101412a0327659d1418d6ff3",
+        "reference_source": "complete explicit training-factor corpus",
+        "required_mapping_count": 15
+      },
+      "disposition": "failed",
+      "raw": {
+        "jacobian_sha256": "2e367aa468bf95970ba06d7112b7b474094a2c0af084c611d2688f4cef9424ad",
+        "jacobian_shape": [
+          112,
+          7
+        ],
+        "max_abs_residual_m": 3.557640293472275e-13,
+        "residual_count": 112,
+        "residuals_sha256": "ba3f57b9f01b654076e16b3967cbe4f0890693b89adc3f8c087d9e57c3b6f4bb",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 1.0,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 1,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258361,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "raw_condition_nonnull": 1.0,
+          "raw_rank": 1,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258361,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 112,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 7.087642632032285e-24,
+        "estimate": {
+          "datum-flat-x_m": 0.0164,
+          "radius.band-1_m": 0.011999999999644241,
+          "radius.band-2_m": 0.019,
+          "radius.band-3_m": 0.0132,
+          "station-20_m": 0.0192,
+          "station-50_m": 0.051,
+          "station-80_m": 0.079
+        },
+        "max_abs_error": 0.0010000000000000009,
+        "max_abs_residual_m": 3.557640293472275e-13
+      },
+      "support": {
+        "factor_traversal_count": 112,
+        "factor_traversal_sha256": "ce1db2e4dfaff0c3a85c93edb7d06267c7e65b5fb1c12fbd807e37c71088c2b0",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 5,
+        "status": 1,
+        "success": true
+      }
+    },
+    "coverage-uneven": {
+      "active_factor_count": 163,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "a61ba94a6caf1cfe210bafd492db7d57c378d52bd5430b1a9225db7917d04381",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 163
+      },
+      "diagnostics": {
+        "covered_mapping_count": 15,
+        "mapping_cell_counts": {
+          "mapping.asymmetric_datum_flat.cylinder.band-1": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 2,
+            "z00.a03": 1,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 1,
+            "z01.a03": 2,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 1,
+            "z03.a03": 1,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 2,
+            "z04.a03": 1
+          },
+          "mapping.asymmetric_datum_flat.cylinder.band-2": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 1,
+            "z00.a03": 1,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 1,
+            "z01.a03": 1,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 1,
+            "z03.a03": 1,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 1,
+            "z04.a03": 1
+          },
+          "mapping.asymmetric_datum_flat.cylinder.band-3": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 1,
+            "z00.a03": 2,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 1,
+            "z01.a03": 1,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 2,
+            "z03.a03": 1,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 1,
+            "z04.a03": 2
+          },
+          "mapping.asymmetric_datum_flat.plane.datum-flat": {
+            "z00.y00": 1,
+            "z00.y01": 1,
+            "z00.y03": 1,
+            "z00.y04": 1,
+            "z01.y00": 1,
+            "z01.y01": 1,
+            "z01.y03": 1,
+            "z01.y04": 1,
+            "z03.y00": 1,
+            "z03.y01": 1,
+            "z03.y03": 1,
+            "z03.y04": 1,
+            "z04.y00": 1,
+            "z04.y01": 1,
+            "z04.y03": 1,
+            "z04.y04": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-0": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r01.a00": 1,
+            "r01.a02": 1,
+            "r01.a03": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-20": {
+            "r00.a01": 1,
+            "r00.a03": 1,
+            "r01.a00": 1,
+            "r01.a02": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-50": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r00.a03": 1,
+            "r01.a02": 1
+          },
+          "mapping.asymmetric_datum_flat.plane.station-80": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r00.a03": 1,
+            "r01.a01": 1,
+            "r01.a03": 1
+          },
+          "mapping.axisymmetric.cylinder.band-1": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 1,
+            "z00.a03": 2,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 1,
+            "z01.a03": 1,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 2,
+            "z03.a03": 1,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 1,
+            "z04.a03": 2
+          },
+          "mapping.axisymmetric.cylinder.band-2": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 1,
+            "z00.a03": 1,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 2,
+            "z01.a03": 1,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 1,
+            "z03.a03": 2,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 1,
+            "z04.a03": 1
+          },
+          "mapping.axisymmetric.cylinder.band-3": {
+            "z00.a00": 1,
+            "z00.a01": 1,
+            "z00.a02": 2,
+            "z00.a03": 1,
+            "z01.a00": 1,
+            "z01.a01": 1,
+            "z01.a02": 1,
+            "z01.a03": 2,
+            "z03.a00": 1,
+            "z03.a01": 1,
+            "z03.a02": 1,
+            "z03.a03": 1,
+            "z04.a00": 1,
+            "z04.a01": 1,
+            "z04.a02": 2,
+            "z04.a03": 1
+          },
+          "mapping.axisymmetric.plane.station-0": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r01.a00": 1,
+            "r01.a02": 1,
+            "r01.a03": 1
+          },
+          "mapping.axisymmetric.plane.station-20": {
+            "r00.a01": 1,
+            "r00.a03": 1,
+            "r01.a00": 1,
+            "r01.a02": 1
+          },
+          "mapping.axisymmetric.plane.station-50": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r00.a03": 1,
+            "r01.a01": 1,
+            "r01.a03": 1
+          },
+          "mapping.axisymmetric.plane.station-80": {
+            "r00.a00": 1,
+            "r00.a02": 1,
+            "r01.a00": 1,
+            "r01.a02": 1,
+            "r01.a03": 1
+          }
+        },
+        "missing_coverage_cells": {
+          "mapping.asymmetric_datum_flat.plane.station-0": [
+            "r00.a01",
+            "r00.a03",
+            "r01.a01"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-20": [
+            "r00.a00",
+            "r00.a02",
+            "r01.a01",
+            "r01.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-50": [
+            "r00.a01",
+            "r01.a00",
+            "r01.a01",
+            "r01.a03"
+          ],
+          "mapping.asymmetric_datum_flat.plane.station-80": [
+            "r00.a01",
+            "r01.a00",
+            "r01.a02"
+          ],
+          "mapping.axisymmetric.plane.station-0": [
+            "r00.a01",
+            "r00.a03",
+            "r01.a01"
+          ],
+          "mapping.axisymmetric.plane.station-20": [
+            "r00.a00",
+            "r00.a02",
+            "r01.a01",
+            "r01.a03"
+          ],
+          "mapping.axisymmetric.plane.station-50": [
+            "r00.a01",
+            "r01.a00",
+            "r01.a02"
+          ],
+          "mapping.axisymmetric.plane.station-80": [
+            "r00.a01",
+            "r00.a03",
+            "r01.a01"
+          ]
+        },
+        "missing_required_mappings": [],
+        "reference_factor_count": 454,
+        "reference_factor_ids_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "reference_mapping_cell_counts_sha256": "b28d937bdda773d5105ad3074503599b75f20ceb101412a0327659d1418d6ff3",
+        "reference_source": "complete explicit training-factor corpus",
+        "required_mapping_count": 15
+      },
+      "disposition": "review-required",
+      "raw": {
+        "jacobian_sha256": "3766d85079de2f372e0485da82ae23ac19eec098f6193a0b32e0529054f15e2e",
+        "jacobian_shape": [
+          163,
+          7
+        ],
+        "max_abs_residual_m": 1.9081958235744878e-17,
+        "residual_count": 163,
+        "residuals_sha256": "6440e1c6335e9690e4805e79b37558a1b7939d0c7bcaf7edb6dd16a2bc2796f9",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.1794494717703365,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            6.164414002968976,
+            6.164414002968976,
+            5.830951894845301,
+            4.0,
+            3.1622776601683795,
+            3.0,
+            2.8284271247461903
+          ],
+          "raw_condition_nonnull": 2.1794494717703365,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            6.164414002968976,
+            6.164414002968976,
+            5.830951894845301,
+            4.0,
+            3.1622776601683795,
+            3.0,
+            2.8284271247461903
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 163,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 5.464996663879651e-33,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.018000000000000002,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.049999999999999996,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 1.5612511283791264e-17,
+        "max_abs_residual_m": 1.9081958235744878e-17
+      },
+      "support": {
+        "factor_traversal_count": 163,
+        "factor_traversal_sha256": "ab63e87d94f656357084ef8160ccb128662be2bdf3595b8143dc920e2fad3ac8",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "evaluator-oracle": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 0,
+        "callback_invocation_count": 0,
+        "held_out_seen": [],
+        "jacobian_calls": 0
+      },
+      "diagnostics": {
+        "classification": "oracle"
+      },
+      "disposition": "passed",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 1.3877787807814457e-17,
+        "residual_count": 454,
+        "residuals_sha256": "727f07508ff4efac36ea5c79b08e3f96cfd30fa04b6ca5912a3897c484301c03",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "invoked": false
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "class": "not-applicable"
+      }
+    },
+    "fixed-outliers": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "applied_normal_offsets_m": {
+          "obs.asymmetric_datum_flat.cylinder.band-1.z00.a09": 0.002000000000000001,
+          "obs.asymmetric_datum_flat.cylinder.band-1.z03.a05": -0.0015000000000000005,
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a10": 0.0025
+        },
+        "changed_observation_count": 3,
+        "changed_observation_ids_sha256": "ceeb4402122675f6b57182a87134c226c3334fc9fa80f2d2f83e3887e45cc511",
+        "classification": "outlier-contaminated",
+        "linear_loss_control": true,
+        "outlier_offsets_m": {
+          "obs.asymmetric_datum_flat.cylinder.band-1.z00.a09": 0.002,
+          "obs.asymmetric_datum_flat.cylinder.band-1.z03.a05": -0.0015,
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a10": 0.0025
+        },
+        "robust_comparison": "open: loss, scale, and disposition not frozen",
+        "truth_nonzero_residual_count": 3,
+        "truth_residuals_sha256": "4ce5188476aefa225adc425c97e6299e0c0f045c8b872ef732519ba688156606",
+        "unchanged_observation_count": 618
+      },
+      "disposition": "unclassified",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 0.0024759615384615345,
+        "residual_count": 454,
+        "residuals_sha256": "40b104cc7541e548cc6e3326df70e940ba5aff57401e311a5fe62b0b17564340",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 6.2188358516483455e-06,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012004464285714287,
+          "radius.band-2_m": 0.018024038461538466,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 2.4038461538467698e-05,
+        "max_abs_residual_m": 0.0024759615384615345
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "flat-factor-ablation": {
+      "active_factor_count": 214,
+      "callbacks": {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "c1a7e3ff96bf58ec68e220fea8adf1f1604d9f09d3e53f2c20df52a86234fe3e",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 214
+      },
+      "diagnostics": {
+        "recovered_pose_observability": "rank-5"
+      },
+      "disposition": "passed",
+      "raw": {
+        "evaluation_coordinates": [
+          -2.9923388764276373e-16,
+          2.4806775642826296e-14,
+          5.656716184123426e-17,
+          6.661570986520228e-13,
+          5.017197969957728e-15,
+          0.01985404738756021
+        ],
+        "evaluation_coordinates_sha256": "75e6da89fbf2c2a44afc3807ab3885180ecf848c49b79002fcb00fefde9a5794",
+        "jacobian_evaluation_coordinates_sha256": "75e6da89fbf2c2a44afc3807ab3885180ecf848c49b79002fcb00fefde9a5794",
+        "jacobian_sha256": "b1bd620798cf427483ff4e213415695fdc3bc981c1b1f329845390f2f263edd2",
+        "jacobian_shape": [
+          214,
+          6
+        ],
+        "max_abs_residual_m": 2.6647087314479734e-14,
+        "residual_count": 214,
+        "residuals_sha256": "d0fbdfca1e937d131993d68f98b6884b2418e5d3b4630f5994c38eba91328aa9",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 87.2338362765014,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "dimensionless_rank": 5,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            421.7044419983732,
+            379.88077206524724,
+            7.3505089251309474,
+            5.400429119215941,
+            4.834184302771169,
+            1.2285967222426475e-14
+          ],
+          "dimensionless_smallest_vector_roll_alignment": 1.0,
+          "raw_condition_nonnull": 43.42568111998128,
+          "raw_rank": 5,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            9.354653792197393,
+            8.52682119100021,
+            7.348478140978752,
+            0.24346190112706967,
+            0.21541754903858204,
+            1.228596722242941e-17
+          ],
+          "raw_smallest_vector_roll_alignment": 1.0
+        },
+        "spectrum_jacobian_sha256": "b1bd620798cf427483ff4e213415695fdc3bc981c1b1f329845390f2f263edd2"
+      },
+      "solver": {
+        "active_factor_count": 214,
+        "cost": 1.0346245988195672e-26,
+        "estimate_local_observation_to_model": [
+          -2.9923388764276373e-16,
+          2.4806775642826296e-14,
+          5.656716184123426e-17,
+          6.661570986520228e-13,
+          5.017197969957728e-15,
+          0.01985404738756021
+        ],
+        "max_abs_nonroll_error": 6.661570986520228e-13,
+        "max_abs_residual_m": 2.6647087314479734e-14,
+        "roll_rad": 0.01985404738756021
+      },
+      "support": {
+        "factor_traversal_count": 214,
+        "factor_traversal_sha256": "1acf0e6b55758b7fa9d2f2b0f712f3eb5e6f86df3c24bd1cf12bde7f1285fb04",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 5,
+        "status": 1,
+        "success": true
+      }
+    },
+    "invalid-geometry-declaration": {
+      "active_factor_count": 0,
+      "callbacks": {
+        "callback_calls": 0,
+        "callback_invocation_count": 0,
+        "held_out_seen": [],
+        "jacobian_calls": 0
+      },
+      "diagnostics": {
+        "classification": "invalid-geometry",
+        "declaration": {
+          "radius.band-2_m": -0.018
+        },
+        "message": "radii must be positive"
+      },
+      "disposition": "failed",
+      "raw": {
+        "jacobian_traversal_count": 0,
+        "residual_traversal_count": 0
+      },
+      "solver": {
+        "invoked": false
+      },
+      "support": {
+        "factor_traversal_count": 0,
+        "failures": []
+      },
+      "termination": {
+        "class": "rejected-at-evaluator-boundary"
+      }
+    },
+    "legal-active-bound": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 1,
+        "callback_factor_sequence_sha256": "f93f5d4fa9f3bf9c2fe6e691595e616cde0c773110fe18e96eac92f579debbd8",
+        "callback_invocation_count": 2,
+        "held_out_seen": [],
+        "jacobian_calls": 1,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "active_bound_tolerance_m": 1e-09,
+        "active_mask": [
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "classification": "expected-active",
+        "declared_bound_m": 0.012,
+        "declared_parameter": "radius.band-1",
+        "distance_to_lower_bounds_m": [
+          9.999999960041972e-11,
+          0.0009999999999999974,
+          0.002,
+          0.0020000000000000018,
+          0.0030000000000000027,
+          0.0030000000000000027,
+          0.0010000000000000009
+        ],
+        "distance_to_upper_bounds_m": [
+          0.002499999900000001,
+          0.0020000000000000018,
+          0.0005000000000000004,
+          0.0019999999999999983,
+          0.0029999999999999957,
+          0.0030000000000000027,
+          0.0005000000000000004
+        ],
+        "expected_active_parameter": "radius.band-1",
+        "feasible_tangent_rank": 6,
+        "geometry_valid": true,
+        "initialization_valid": true,
+        "lower_bounds_m": [
+          0.012,
+          0.017,
+          0.012,
+          0.018,
+          0.047,
+          0.077,
+          0.015
+        ],
+        "raw_rank": 7
+      },
+      "disposition": "passed",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 1.000000013351432e-10,
+        "residual_count": 454,
+        "residuals_sha256": "cd32e98ade42455e3e26d85542398055375baedc10021cf58ce4224b50047b7a",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          -1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 5.599999844224737e-19,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.0120000001,
+          "radius.band-2_m": 0.018,
+          "radius.band-3_m": 0.014,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 9.999999960041972e-11,
+        "max_abs_residual_m": 1.000000013351432e-10
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 1,
+        "status": 1,
+        "success": true
+      }
+    },
+    "noiseless-fixed-pose": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "classification": "nominal"
+      },
+      "disposition": "passed",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 1.9081958235744878e-17,
+        "residual_count": 454,
+        "residuals_sha256": "9e5df7febcf59de0dcee1f6725aa3bf550b9f3e3e63eb5755d5f52d3b6f8fd9b",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 1.6034307366175389e-32,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.018000000000000002,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 1.5612511283791264e-17,
+        "max_abs_residual_m": 1.9081958235744878e-17
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    },
+    "out-of-contract-mismatch": {
+      "active_factor_count": 454,
+      "callbacks": {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      "diagnostics": {
+        "analytic_circular_least_squares_radius_m": 0.017539685975004958,
+        "analytic_middle_angles_rad": [
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480863,
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.5525440310417076,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480861,
+          0.5890486225480863,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.98174770424681,
+          -0.5890486225480863,
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480862,
+          0.19634954084936201,
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480863,
+          -0.19634954084936257,
+          0.19634954084936196,
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.5525440310417076,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480861,
+          -0.19634954084936254,
+          0.19634954084936207,
+          0.5890486225480863,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.98174770424681,
+          -0.5890486225480863,
+          -0.19634954084936257,
+          0.19634954084936201,
+          0.5890486225480862,
+          0.9817477042468102,
+          2.1598449493429825,
+          2.552544031041707,
+          2.945243112740431,
+          -2.945243112740431,
+          -2.552544031041707,
+          -2.159844949342983,
+          -1.767145867644259,
+          -1.3744467859455345,
+          -0.9817477042468099,
+          -0.5890486225480862,
+          -0.19634954084936246
+        ],
+        "analytic_middle_angles_rad_sha256": "c660739ea7ae65745e4670c6fde8638fce2f9260f22027077095a187c27bca32",
+        "analytic_middle_residual_max_abs_m": 0.0005005513672541144,
+        "analytic_middle_residual_rms_m": 0.000321091706973385,
+        "analytic_middle_residual_span_m": 0.0009238242748761359,
+        "analytic_middle_residuals_m": [
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.00042327290762201805,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.00042327290762201805,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.00042327290762201805,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.0002248645802111031,
+          -0.00022486458021110656,
+          0.00015768558312166323,
+          0.0004232729076220215,
+          0.0004232729076220215,
+          0.00015768558312166323,
+          -0.00022486458021110656,
+          -0.0005005513672541144,
+          -0.0005005513672541144,
+          -0.0002248645802111031,
+          0.00015768558312166323,
+          0.00042327290762201805
+        ],
+        "analytic_middle_residuals_sha256": "45233b907402bf46b67973f116fbbc4b91f2dbec5c92a7c093388e944c3718a6",
+        "analytic_middle_sample_binding_sha256": "a092a4252c7bc70928ff85ee344c337c5d8172d37806b38df7906028b59e390c",
+        "analytic_mismatch_nonzero": true,
+        "analytic_sampled_radii_m": [
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.017962958882626976,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.017962958882626976,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.017962958882626976,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.017314821394793855,
+          0.01731482139479385,
+          0.01769737155812662,
+          0.01796295888262698,
+          0.01796295888262698,
+          0.01769737155812662,
+          0.01731482139479385,
+          0.017039134607750844,
+          0.017039134607750844,
+          0.017314821394793855,
+          0.01769737155812662,
+          0.017962958882626976
+        ],
+        "analytic_sampled_radii_sha256": "f1a38040febea1b257e5ffe9ad380cd2477b18bc9db18c31cfb02049c586fc82",
+        "classification": "model-mismatch-suspect",
+        "declared_training_middle_factor_count": 104,
+        "declared_training_middle_ids_sha256": "122db63657bc18670ac082b72608f962d5492e9e9cb90bc574f47ba0b0bddaaa",
+        "fitted_middle_radius_error_m": 9.79001602008367e-13,
+        "fitted_middle_radius_m": 0.01753968597598396,
+        "input_observation_count": 454,
+        "matches_analytic_least_squares_expectation": true,
+        "middle_max_abs_residual_m": 0.000500551368233116,
+        "middle_raw_residuals_sha256": "7e68441e5a3e81f454d2538ff7739119e9a631e61a39aa5d80839d0540b15cb2",
+        "middle_residual_rms_m": 0.000321091706973385,
+        "middle_residual_span_m": 0.0009238242748761359,
+        "middle_residual_vector_max_abs_error_m": 9.79001602008367e-13,
+        "mismatch_analytic_tolerance_m": 2e-09,
+        "non_middle_observations_unchanged": true,
+        "ordered_middle_observation_ids": [
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a01",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a02",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a05",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a06",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a07",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a08",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a09",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a10",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a11",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a12",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a13",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z00.a14",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a01",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a02",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a05",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a06",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a07",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a08",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a09",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a10",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a11",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a12",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a13",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z01.a14",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a01",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a02",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a05",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a06",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a07",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a08",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a09",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a10",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a11",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a12",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a13",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z03.a14",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a01",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a02",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a05",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a06",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a07",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a08",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a09",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a10",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a11",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a12",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a13",
+          "obs.asymmetric_datum_flat.cylinder.band-2.z04.a14",
+          "obs.axisymmetric.cylinder.band-2.z00.a00",
+          "obs.axisymmetric.cylinder.band-2.z00.a01",
+          "obs.axisymmetric.cylinder.band-2.z00.a02",
+          "obs.axisymmetric.cylinder.band-2.z00.a05",
+          "obs.axisymmetric.cylinder.band-2.z00.a06",
+          "obs.axisymmetric.cylinder.band-2.z00.a07",
+          "obs.axisymmetric.cylinder.band-2.z00.a08",
+          "obs.axisymmetric.cylinder.band-2.z00.a09",
+          "obs.axisymmetric.cylinder.band-2.z00.a10",
+          "obs.axisymmetric.cylinder.band-2.z00.a11",
+          "obs.axisymmetric.cylinder.band-2.z00.a12",
+          "obs.axisymmetric.cylinder.band-2.z00.a13",
+          "obs.axisymmetric.cylinder.band-2.z00.a14",
+          "obs.axisymmetric.cylinder.band-2.z00.a15",
+          "obs.axisymmetric.cylinder.band-2.z01.a00",
+          "obs.axisymmetric.cylinder.band-2.z01.a01",
+          "obs.axisymmetric.cylinder.band-2.z01.a02",
+          "obs.axisymmetric.cylinder.band-2.z01.a05",
+          "obs.axisymmetric.cylinder.band-2.z01.a06",
+          "obs.axisymmetric.cylinder.band-2.z01.a07",
+          "obs.axisymmetric.cylinder.band-2.z01.a08",
+          "obs.axisymmetric.cylinder.band-2.z01.a09",
+          "obs.axisymmetric.cylinder.band-2.z01.a10",
+          "obs.axisymmetric.cylinder.band-2.z01.a11",
+          "obs.axisymmetric.cylinder.band-2.z01.a12",
+          "obs.axisymmetric.cylinder.band-2.z01.a13",
+          "obs.axisymmetric.cylinder.band-2.z01.a14",
+          "obs.axisymmetric.cylinder.band-2.z01.a15",
+          "obs.axisymmetric.cylinder.band-2.z03.a00",
+          "obs.axisymmetric.cylinder.band-2.z03.a01",
+          "obs.axisymmetric.cylinder.band-2.z03.a02",
+          "obs.axisymmetric.cylinder.band-2.z03.a05",
+          "obs.axisymmetric.cylinder.band-2.z03.a06",
+          "obs.axisymmetric.cylinder.band-2.z03.a07",
+          "obs.axisymmetric.cylinder.band-2.z03.a08",
+          "obs.axisymmetric.cylinder.band-2.z03.a09",
+          "obs.axisymmetric.cylinder.band-2.z03.a10",
+          "obs.axisymmetric.cylinder.band-2.z03.a11",
+          "obs.axisymmetric.cylinder.band-2.z03.a12",
+          "obs.axisymmetric.cylinder.band-2.z03.a13",
+          "obs.axisymmetric.cylinder.band-2.z03.a14",
+          "obs.axisymmetric.cylinder.band-2.z03.a15",
+          "obs.axisymmetric.cylinder.band-2.z04.a00",
+          "obs.axisymmetric.cylinder.band-2.z04.a01",
+          "obs.axisymmetric.cylinder.band-2.z04.a02",
+          "obs.axisymmetric.cylinder.band-2.z04.a05",
+          "obs.axisymmetric.cylinder.band-2.z04.a06",
+          "obs.axisymmetric.cylinder.band-2.z04.a07",
+          "obs.axisymmetric.cylinder.band-2.z04.a08",
+          "obs.axisymmetric.cylinder.band-2.z04.a09",
+          "obs.axisymmetric.cylinder.band-2.z04.a10",
+          "obs.axisymmetric.cylinder.band-2.z04.a11",
+          "obs.axisymmetric.cylinder.band-2.z04.a12",
+          "obs.axisymmetric.cylinder.band-2.z04.a13",
+          "obs.axisymmetric.cylinder.band-2.z04.a14",
+          "obs.axisymmetric.cylinder.band-2.z04.a15"
+        ],
+        "realization": "runner-local/non-normative",
+        "semi_axes_m": [
+          0.018,
+          0.017
+        ]
+      },
+      "disposition": "review-required",
+      "raw": {
+        "jacobian_sha256": "80169b88cc0ddf75aaddd8408c81e4067a01c0052259c55738811376cc9b408f",
+        "jacobian_shape": [
+          454,
+          7
+        ],
+        "max_abs_residual_m": 0.000500551368233116,
+        "residual_count": 454,
+        "residuals_sha256": "f8d537d30fe7945790db34a3207bb7b53510efaade6234e0cbf293b5eecba3f6",
+        "spectrum": {
+          "dimensionless_condition_nonnull": 2.6457513110645907,
+          "dimensionless_parameter_scales": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ],
+          "dimensionless_rank": 7,
+          "dimensionless_rank_threshold": 1e-09,
+          "dimensionless_residual_scale_m": 0.001,
+          "dimensionless_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ],
+          "raw_condition_nonnull": 2.6457513110645907,
+          "raw_rank": 7,
+          "raw_rank_threshold": 1e-09,
+          "raw_singular_values": [
+            10.583005244258363,
+            10.583005244258361,
+            10.198039027185569,
+            5.291502622129181,
+            5.291502622129181,
+            5.0990195135927845,
+            4.0
+          ]
+        }
+      },
+      "solver": {
+        "active_factor_count": 454,
+        "active_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cost": 5.361193982928272e-06,
+        "estimate": {
+          "datum-flat-x_m": 0.016,
+          "radius.band-1_m": 0.012000000000000002,
+          "radius.band-2_m": 0.01753968597598396,
+          "radius.band-3_m": 0.013999999999999985,
+          "station-20_m": 0.02,
+          "station-50_m": 0.05,
+          "station-80_m": 0.08
+        },
+        "max_abs_error": 0.000460314024016039,
+        "max_abs_residual_m": 0.000500551368233116
+      },
+      "support": {
+        "factor_traversal_count": 454,
+        "factor_traversal_sha256": "57539779f65016bc3da65cc9d3b5d27234e7d3b782dcc98bc874279a3b1c5c20",
+        "failures": [],
+        "geometry_diagnostic": "valid",
+        "geometry_valid": true
+      },
+      "termination": {
+        "message": "`gtol` termination condition is satisfied.",
+        "nfev": 7,
+        "status": 1,
+        "success": true
+      }
+    }
+  },
+  "solver_settings": {
+    "bounds": {
+      "pose_lower": [
+        -0.003,
+        -0.003,
+        -0.003,
+        -0.08,
+        -0.08,
+        -0.08
+      ],
+      "pose_upper": [
+        0.003,
+        0.003,
+        0.003,
+        0.08,
+        0.08,
+        0.08
+      ],
+      "shape_lower": [
+        0.01,
+        0.017,
+        0.012,
+        0.018,
+        0.047,
+        0.077,
+        0.015
+      ],
+      "shape_upper": [
+        0.0145,
+        0.02,
+        0.0145,
+        0.022,
+        0.053,
+        0.083,
+        0.0165
+      ]
+    },
+    "loss": "linear",
+    "method": "trf",
+    "provisional": true,
+    "robust_probe_executed": false,
+    "scenario_overrides": {
+      "legal-active-bound": {
+        "shape_initial": [
+          0.012,
+          0.018,
+          0.014,
+          0.02,
+          0.05,
+          0.08,
+          0.016
+        ],
+        "shape_lower": [
+          0.012,
+          0.017,
+          0.012,
+          0.018,
+          0.047,
+          0.077,
+          0.015
+        ]
+      }
+    }
+  },
+  "solver_source_sha256": "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d",
+  "trace": {
+    "callback_audits": [
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "821a70389fcdded2bde28dcdf12284a4c7d31bcf728a1883ac6707868475a876",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 224
+      },
+      {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "13a4aab3e64dd427294aaf7902191aec7415dfb3cf782d613c8ba822c878ae9e",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 230
+      },
+      {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "c1a7e3ff96bf58ec68e220fea8adf1f1604d9f09d3e53f2c20df52a86234fe3e",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 214
+      },
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "a61ba94a6caf1cfe210bafd492db7d57c378d52bd5430b1a9225db7917d04381",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 163
+      },
+      {
+        "callback_calls": 5,
+        "callback_factor_sequence_sha256": "9b443281af10b0bcabc93a33786d8bbf894f3c58ec1478cda356f087b1495abb",
+        "callback_invocation_count": 10,
+        "held_out_seen": [],
+        "jacobian_calls": 5,
+        "seen_observation_count": 112
+      },
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      },
+      {
+        "callback_calls": 1,
+        "callback_factor_sequence_sha256": "f93f5d4fa9f3bf9c2fe6e691595e616cde0c773110fe18e96eac92f579debbd8",
+        "callback_invocation_count": 2,
+        "held_out_seen": [],
+        "jacobian_calls": 1,
+        "seen_observation_count": 454
+      },
+      {
+        "callback_calls": 7,
+        "callback_factor_sequence_sha256": "44f8ddb3603ceb6c02f5af3ec0950e8a4eaf55c4ee5b9aa29c473c30bdf34761",
+        "callback_invocation_count": 14,
+        "held_out_seen": [],
+        "jacobian_calls": 7,
+        "seen_observation_count": 454
+      }
+    ],
+    "flat_ablation_active_factor_count": 214,
+    "flat_ablation_input_count": 230,
+    "flat_observation_count": 16
+  },
+  "truth_origin_pose_rank_compatibility": {
+    "asymmetric-full-pose": {
+      "evaluation_coordinates": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "evaluation_coordinates_sha256": "f327ea2116e07a536545db3c23cc4c0bbde82ee0d395ee8ecf1a622a60905735",
+      "jacobian_sha256": "2e3c75f97280b749fda69f422a0b5424d8c9eae893c8a67df2a5df7a3f83602e",
+      "spectrum": {
+        "dimensionless_condition_nonnull": 92.3726549054995,
+        "dimensionless_parameter_scales": [
+          0.001,
+          0.001,
+          0.001,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dimensionless_rank": 6,
+        "dimensionless_rank_threshold": 1e-09,
+        "dimensionless_residual_scale_m": 0.001,
+        "dimensionless_singular_values": [
+          446.5554266283711,
+          379.8897486637717,
+          22.91453196064221,
+          7.350513669379995,
+          5.63998927901043,
+          4.834281607313475
+        ],
+        "dimensionless_smallest_vector_roll_alignment": 2.1974278630263853e-18,
+        "raw_condition_nonnull": 444.038110549603,
+        "raw_rank": 6,
+        "raw_rank_threshold": 1e-09,
+        "raw_singular_values": [
+          10.174925475932056,
+          8.526821379345106,
+          7.348478141290853,
+          0.24754139454802926,
+          0.21542555309826658,
+          0.02291453196064221
+        ],
+        "raw_smallest_vector_roll_alignment": 1.0
+      },
+      "spectrum_jacobian_sha256": "2e3c75f97280b749fda69f422a0b5424d8c9eae893c8a67df2a5df7a3f83602e"
+    },
+    "axisymmetric-free-roll": {
+      "evaluation_coordinates": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "evaluation_coordinates_sha256": "f327ea2116e07a536545db3c23cc4c0bbde82ee0d395ee8ecf1a622a60905735",
+      "jacobian_sha256": "3873783ae8f20792763802d63d51b6c9ffe1f321dcb00d0001831aa2dc9b52e2",
+      "spectrum": {
+        "dimensionless_condition_nonnull": 89.66947392530929,
+        "dimensionless_parameter_scales": [
+          0.001,
+          0.001,
+          0.001,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dimensionless_rank": 5,
+        "dimensionless_rank_threshold": 1e-09,
+        "dimensionless_residual_scale_m": 0.001,
+        "dimensionless_singular_values": [
+          434.2171214154058,
+          380.52534515122204,
+          7.485668351597623,
+          5.528916661288955,
+          4.842418522239681,
+          7.800959636058451e-15
+        ],
+        "dimensionless_smallest_vector_roll_alignment": 1.0,
+        "raw_condition_nonnull": 45.240525701370245,
+        "raw_rank": 5,
+        "raw_rank_threshold": 1e-09,
+        "raw_singular_values": [
+          9.757790451094746,
+          8.544678871846104,
+          7.483324630610838,
+          0.24606951726023857,
+          0.21568693775809067,
+          7.800959636058453e-18
+        ],
+        "raw_smallest_vector_roll_alignment": 1.0
+      },
+      "spectrum_jacobian_sha256": "3873783ae8f20792763802d63d51b6c9ffe1f321dcb00d0001831aa2dc9b52e2"
+    },
+    "flat-factor-ablation": {
+      "evaluation_coordinates": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "evaluation_coordinates_sha256": "f327ea2116e07a536545db3c23cc4c0bbde82ee0d395ee8ecf1a622a60905735",
+      "jacobian_sha256": "2d5baaeb979da364a87043a4c28fd57740e05c2bf5d8d36b0bd117edc91c3805",
+      "spectrum": {
+        "dimensionless_condition_nonnull": 87.23526808994804,
+        "dimensionless_parameter_scales": [
+          0.001,
+          0.001,
+          0.001,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "dimensionless_rank": 5,
+        "dimensionless_rank_threshold": 1e-09,
+        "dimensionless_residual_scale_m": 0.001,
+        "dimensionless_singular_values": [
+          421.7113660101506,
+          379.8870092847004,
+          7.35050892514614,
+          5.400429148257552,
+          4.8341843298438105,
+          7.683570016457091e-15
+        ],
+        "dimensionless_smallest_vector_roll_alignment": 1.0,
+        "raw_condition_nonnull": 43.42496981457842,
+        "raw_rank": 5,
+        "raw_rank_threshold": 1e-09,
+        "raw_singular_values": [
+          9.354654000417034,
+          8.526821379345103,
+          7.348478141270246,
+          0.2434658944451985,
+          0.21542108239477775,
+          7.683570016457092e-18
+        ],
+        "raw_smallest_vector_roll_alignment": 1.0
+      },
+      "spectrum_jacobian_sha256": "2d5baaeb979da364a87043a4c28fd57740e05c2bf5d8d36b0bd117edc91c3805"
+    }
+  }
+}

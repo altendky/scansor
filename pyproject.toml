@@ -1,0 +1,47 @@
+[project]
+name = "scansor"
+version = "0.0.0"
+description = "Concept-stage Scansor CLI fixture"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "MIT OR Apache-2.0"
+dependencies = [
+  "cyclopts>=4.0",
+  "numpy>=2.3",
+  "pydantic>=2.11",
+  "structlog>=25.4",
+]
+
+[project.scripts]
+scansor = "scansor.cli:main"
+
+[dependency-groups]
+dev = [
+  "basedpyright>=1.31",
+  "pytest>=8.4",
+  "ruff>=0.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+pythonVersion = "3.12"
+include = ["src"]
+reportAny = false
+reportExplicitAny = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
