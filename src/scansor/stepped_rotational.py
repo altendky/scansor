@@ -310,7 +310,6 @@ def build_mapping(request: MappingRequest, canonical: bytes) -> MappingResult:
     mappings: list[MappingRecord] = []
     exclusions: list[ExclusionRecord] = []
     training_normal_magnitudes: list[float] = []
-
     for row in range(len(array)):
         point_observation = np.asarray(
             [array[name][row] for name in ("x_m", "y_m", "z_m")],

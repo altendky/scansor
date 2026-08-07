@@ -182,6 +182,18 @@ compatibility-free. It adds no physical validation, automated acceptance, generi
 backend loader, CAD path, or product fitting claim. See the [bounded CLI
 successor](planning/stepped-rotational-v0-cli-vertical-slice.md).
 
+### Add one bounded generated noisy-cloud CLI workflow
+
+Preserve the exact revision-1 fixture while adding one application-owned
+revision for the asymmetric datum-flat, fixed-pose shape problem. Generate a
+guarded analytic float64 XYZ PLY with explicit seed and sigma, bounded
+deterministic normal noise, stable fixture identities, coherent held-out roles,
+and no outliers. Admit only exact replayed generated provenance to mapping and
+retain independent nominal-support association. Add immutable generation-run
+publication, read-only replay, and human-only raw truth comparison without
+acceptance. CAD-derived sampling, physical evidence, generic clouds, robust loss,
+and CAD publication remain deferred. See the [bounded generated slice](planning/stepped-rotational-v0-generated-noise-vertical-slice.md).
+
 ### Use a bounded Python support layer for the prototype
 
 Provisionally use structlog for structured runtime diagnostics, Rich for human

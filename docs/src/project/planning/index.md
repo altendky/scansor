@@ -49,6 +49,10 @@ product boundaries and research findings remain authoritative in the parent
   - provisional successor exposing the completed synthetic-only mapping and fixed
   NumPy execution-run pipeline without changing its persisted formats or defining
   physical validation, automated quality acceptance, or a public interface
+- [Stepped rotational v0 generated noisy-cloud vertical slice](stepped-rotational-v0-generated-noise-vertical-slice.md)
+  - provisional asymmetric-only analytic generation, bounded deterministic
+    normal noise, stable fixture identities, generated mapping admission, and
+    raw read-only truth comparison before any CAD-derived workflow
 - [Track 1: first trial and model family](first-trial.md)
 - [Track 2: access and evidence preflight](access-preflight.md)
 - [Track 3: canonical example records](example-records.md)
@@ -151,7 +155,8 @@ that trial.
 The separate `stepped-rotational-v0` application slices exercise bounded
 synthetic observation/mapping construction, factor/preflight behavior,
 solver-independent execution records, one bounded NumPy adapter, internal run
-publication/replay, and isolated post-fit held-out assessment.
+publication/replay, isolated post-fit held-out assessment, and one bounded
+generated noisy-cloud workflow.
 They are not a new evidence track and do not alter the frozen Track 4 or Track 5
 records or select product acceptance policy.
 

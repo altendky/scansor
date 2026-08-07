@@ -18,6 +18,7 @@ from scansor.mapping_models import (
     MappingRequest,
     MappingResult,
     MappingThresholds,
+    ObservationRecord,
     RigidTransform,
     SyntheticFixtureProvenance,
 )
@@ -123,6 +124,8 @@ def test_accepted_mapping_has_distinct_deterministic_records_and_no_factors() ->
     request, canonical = accepted_fixture()
     first = build_mapping(request, canonical)
     second = build_mapping(request, canonical)
+    assert "fixture_observation_id" not in ObservationRecord.model_fields
+    assert b"fixture_observation_id" not in canonical_json(first)
     assert first == second
     assert canonical_json(first) == canonical_json(second)
     assert first.disposition == "accepted"
@@ -139,6 +142,21 @@ def test_accepted_mapping_has_distinct_deterministic_records_and_no_factors() ->
         first.observations
     )
     assert all(item.role == "primary-geometric" for item in first.mappings)
+
+
+def test_revision_one_observation_serialization_uses_pydantic_2_11_contract() -> None:
+    canonical = canonical_bytes(fixture_points())
+    result = build_mapping(request_for(canonical), canonical)
+    observation = result.observations[0]
+    assert set(observation.model_dump(mode="json")) == {
+        "evaluation_state",
+        "normal",
+        "observation_id",
+        "point_model_m",
+        "role",
+        "row_index",
+    }
+    assert b"fixture_observation_id" not in canonical_json(result)
 
 
 def test_axisymmetric_variant_has_only_its_regions_and_rank() -> None:

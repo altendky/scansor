@@ -390,6 +390,8 @@ def verify_run_artifacts_fd(
     directory_fd: int,
     run: Path,
     replacement_input: Path | None,
+    *,
+    replay_raw: bytes | None = None,
 ) -> tuple[InspectionReport, bytes]:
     """Replay through an already anchored inspection-run descriptor."""
     opened_root = os.fstat(directory_fd)
@@ -397,9 +399,15 @@ def verify_run_artifacts_fd(
     _verify_run_root(run, opened_root)
     recorded_settings = report.settings
     source = replacement_input or Path(report.source.path)
-    raw = read_regular(
-        source, "replay PLY input", recorded_settings.values().max_input_bytes
+    raw = (
+        replay_raw
+        if replay_raw is not None
+        else read_regular(
+            source, "replay PLY input", recorded_settings.values().max_input_bytes
+        )
     )
+    if len(raw) > recorded_settings.values().max_input_bytes:
+        raise ScansorError("replay PLY input exceeds the recorded byte limit")
     replayed, replayed_canonical = build_run(
         raw,
         Path(report.source.path),

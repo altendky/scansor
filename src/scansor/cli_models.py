@@ -41,6 +41,7 @@ class CommandModel(StrictModel):
 class MapJob(CommandModel):
     canonical_unit: Literal["m"]
     held_out_row_indices: tuple[int, ...]
+    generation_run: Path | None = None
     inspection_run: Path
     model_frame: Literal["stepped-rotational-v0-synthetic-model-frame"]
     observation_frame: str = Field(min_length=1, pattern=r".*\S.*")
@@ -72,6 +73,11 @@ class MapJob(CommandModel):
     @classmethod
     def validate_paths(cls, value: Path) -> Path:
         return _validate_path(value, "mapping job path")
+
+    @field_validator("generation_run")
+    @classmethod
+    def validate_optional_path(cls, value: Path | None) -> Path | None:
+        return _validate_path(value, "mapping generation path") if value else None
 
     @model_validator(mode="after")
     def validate_held_out_rows(self) -> MapJob:
@@ -162,3 +168,28 @@ class VerifyFitJob(CommandModel):
     @classmethod
     def validate_paths(cls, value: Path) -> Path:
         return _validate_path(value, "fit verification path")
+
+
+class GenerateJob(CommandModel):
+    noise_sigma_m: float = Field(gt=0.0, le=25e-6)
+    output_path: Path
+    sampling_profile: Literal["guarded-grid-v1"]
+    seed: int = Field(ge=0, le=2**63 - 1)
+    variant: Literal["asymmetric-datum-flat"]
+
+    @field_validator("output_path")
+    @classmethod
+    def validate_output_path(cls, value: Path) -> Path:
+        return _validate_path(value, "generation output path")
+
+
+class CompareTruthJob(CommandModel):
+    execution_run: Path
+    generation_run: Path
+    inspection_run: Path
+    mapping_run: Path
+
+    @field_validator("execution_run", "generation_run", "inspection_run", "mapping_run")
+    @classmethod
+    def validate_paths(cls, value: Path) -> Path:
+        return _validate_path(value, "truth comparison path")

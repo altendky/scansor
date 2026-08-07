@@ -20,6 +20,10 @@ replay. A synthetic-only successor exposes the fixed `stepped-rotational-v0`
 mapping and NumPy execution-run pipeline with read-only verification. Its
 commands and formats remain non-public, compatibility-free implementation
 evidence rather than a product fitting interface.
+One additional bounded slice generates and replays an asymmetric synthetic noisy
+XYZ cloud, carries stable fixture identities through mapping, and presents a
+read-only raw comparison with nominal generator truth. It does not add arbitrary
+clouds, fit acceptance, physical validation, or CAD publication.
 
 The working name comes from a gecko adhesive toe-pad structure. Public-name
 clearance remains open because unrelated commercial SAP-monitoring software
