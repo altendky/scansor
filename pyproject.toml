@@ -19,6 +19,7 @@ scansor = "scansor.cli:main"
 dev = [
   "basedpyright>=1.31",
   "pytest>=8.4",
+  "pytest-cov>=7.0",
   "ruff>=0.12",
 ]
 
@@ -36,11 +37,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Ruff's formatter intentionally does not enforce string/comment line length or
+# remove suppressions for rules outside this selected lint set.
+ignore = ["E501", "RUF100"]
 
 [tool.basedpyright]
 typeCheckingMode = "recommended"
 pythonVersion = "3.12"
-include = ["src"]
+include = ["src", "tests", "experiments"]
+baselineFile = ".basedpyright/baseline.json"
 reportAny = false
 reportExplicitAny = false
 reportUnknownArgumentType = false

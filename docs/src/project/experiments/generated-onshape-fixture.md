@@ -317,7 +317,7 @@ objects, version metadata-workspace IDs that do not identify the originating
 workspace, run-specific tab names, and typed `BTFSValue` serialization.
 
 The corrected [Track 5 verifier][track5-verifier], source SHA-256
-`54de0c8d3a24fe5fa3d0c3485501fda7920c24b9e3d636193675712447a1446e`,
+`8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7`,
 accepts those bounded official shapes without relaxing exact immutable run,
 element, transient part, body, request, source-microversion, ancestry, unit,
 orientation, and raw/derived hash checks. Its bounded FeatureScript evaluates
@@ -329,10 +329,10 @@ path/query/body, gzip, hash, file-tree, secret, and replay boundaries.
 
 Durable evidence is retained in [run-01 backfill][run1-evidence], [run 2][run2-evidence],
 and the [cross-run suite][suite-evidence]. The run manifest SHA-256 values are
-`7134cbe7dbf0917a19a05fbf0012f3e0b4c9de75d3402412ee91aec9aab8f40e`
-and `ee0af1b4500c980a43fac9dec4c411726a0c68b03d657fe7c6aa8c16f60ee752`;
+`aa257d2707a4fba283aaa2c810e48c4793d1d64a5475cdcd24bf8ae7e65ed1e3`
+and `373907a5c1a3d8ec7cd9cc2a878a71afc57ea6722132180e71ff8e23cd8e34ae`;
 the suite-manifest SHA-256 is
-`2637847030b817b1c387de5df18dffdc7838884e122065c07d8be33b5a4c3922`.
+`f6e373536b6fa2f76b349624fa8652418191608e1434319cbc64ead9a7a0242a`.
 The run-01-versus-truth and run-02-versus-truth reports both pass as `tolerated
 numerical`, with maximum deviations still below the frozen tolerances. Cross-run
 normalized geometry is exactly equal and the suite outcome is `semantically
@@ -462,7 +462,7 @@ It makes no claim about:
 ## Generated Fit to Retained CAD Reconciliation
 
 The separate [Phase 2 reconciliation source][reconciliation-source], SHA-256
-`3b2596f6c6b9c4dda3afe51c277af7f0761e7698993504c88f0c8dedfa62f72e`,
+`b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908`,
 contains no optimizer, NumPy/SciPy import, or solver-module import. It invokes the
 pinned Phase 1 verifier from a fresh temporary source/evidence snapshot as an
 isolated exact-runtime offline subprocess. It executes Track 5 directly from its
@@ -476,13 +476,13 @@ solver verification at index `3`, prediction freezing at index `5`, and first CA
 path access at index `7`.
 
 The tool then verified Track 5 source SHA-256
-`54de0c8d3a24fe5fa3d0c3485501fda7920c24b9e3d636193675712447a1446e`,
+`8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7`,
 the two run-manifest hashes and suite-manifest hash, transitively recomputed the
 suite, and independently replayed run 01 and run 02. It compared the same fitted
 prediction bytes with each run through a fresh independent deserialization,
 without averaging or closer-run selection. The retained
 [reconciliation evidence][reconciliation-evidence], SHA-256
-`e88e26624204594b639002e579a4c2f91d23d0f3553ce07366728672edf05859`,
+`9fff881fbaa245423d91d0f6bb79fdcb8d4245598e46d5702cd0115cbc5bf0c5`,
 reports these bounded results:
 
 - fitted estimate versus generated truth: maximum linear difference
@@ -500,9 +500,10 @@ reports these bounded results:
   scales, tuning, and held-out evaluation are empty
 
 Each disposable prediction copy preserves the 7/8 face counts, variant semantics,
-right-handed metre frame, unoriented cylinder axis, oriented axial and datum normals, middle
-trim and station bounds, and the distinction among source normal, orientation,
-and outward normal. Before/after fingerprints confirm that the `21`, `21`, and `6`
+right-handed metre frame, unoriented cylinder axis, oriented axial and datum
+normals, middle trim and station bounds, and the distinction among source normal,
+orientation, and outward normal. Before/after fingerprints confirm that the `21`,
+`21`, and `6`
 files in the two runs and suite were unchanged at those checks. This closes
 only the generated experiment's nominal post-fit reconciliation. CAD is not
 independent or fit truth, and this evidence makes no reusable-schema, adapter,

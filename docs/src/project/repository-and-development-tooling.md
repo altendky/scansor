@@ -2,16 +2,19 @@
 
 ## Status
 
-**Provisional, updated 2026-07-31.** A minimal internal CLI-fixture project now
-uses uv locking, Ruff, basedpyright, and pytest. Mise, pre-commit configuration,
-coverage, CI, dependency updating, distribution packaging, and release machinery
+**Provisional, updated 2026-08-08.** The internal CLI fixture now has locked mise
+and uv bootstrap, repository checks, terminal-only coverage, and baseline GitHub
+Actions CI. Dependency updating, distribution packaging, and release machinery
 remain absent. This bounded repository fixture does not select a production
 stack, public package shape, or supported platform matrix.
 
 ## Tool Ownership
 
-Use [mise][mise] as the outer tool-version manager. It should provision the
-selected Python interpreters, uv, pre-commit, and standalone non-Python tools
+Use [mise][mise] as the outer tool-version manager. It provisions exact CPython
+`3.12.13` and `3.13.15`, uv `0.11.2`, pre-commit `4.6.1`, and Lychee `0.24.2`
+from `mise.toml` and `mise.lock`. These Python versions validate only the current
+fixture declaration; they are not a product or public-package support promise.
+Mise provisions the selected interpreters, uv, pre-commit, and non-Python tools
 while [uv][uv] owns Python project environments, dependencies, locking,
 synchronization, and command execution. Ruff, basedpyright, pytest, Hypothesis,
 and pytest-cov should be uv-managed project dependencies. Invoke Ruff and
@@ -21,24 +24,56 @@ Pre-commit-managed hook environments may own hook-specific tools such as
 markdownlint-cli2; system hooks may invoke mise-provisioned tools such as Lychee.
 Do not install the same tool through multiple owners without a concrete reason.
 
-Exact Python versions and the supported development, CI, and product platform
-matrices remain open. Once versions are selected, validate recreation from a
-clean environment and keep declarations synchronized only where the same version
-is demonstrably required in more than one place.
+The current CI runner is Ubuntu only. Development, product, and public support
+matrices remain open. The mise lock includes the platforms supported by its lock
+generator for reproducibility, not a claim that Scansor validates those systems.
 
 ## Local Quality Gates
 
-Use [pre-commit][pre-commit] as the local quality-gate orchestrator. Its initial
-scope should include:
+Install and validate the outer toolchain, then synchronize either fixture
+interpreter from the uv lock:
 
-- focused repository hygiene checks
-- Markdown linting with [markdownlint-cli2][markdownlint]
-- Markdown link checking with [Lychee][lychee]
+```console
+mise install --locked
+mise install --locked --dry-run
+uv sync --locked --python 3.12.13
+uv sync --locked --python 3.13.15
+```
 
-Run Ruff formatting and linting, basedpyright, and the pytest runner as uv project
-commands. Pytest loads the Hypothesis and pytest-cov integrations where relevant.
-These commands may have convenience local hooks later, but CI should not rerun
-them inside the separate pre-commit gate.
+Use [pre-commit][pre-commit] as the local repository-quality orchestrator:
+
+```console
+pre-commit run --all-files --show-diff-on-failure --verbose
+```
+
+Its blocking scope includes:
+
+- focused repository hygiene plus JSON, TOML, and YAML syntax
+- Markdown linting with [markdownlint-cli2][markdownlint], retaining bounded
+  prose lines while exempting tables only
+- offline internal relative-link and heading-fragment checking with
+  [Lychee][lychee]
+- GitHub Actions syntax and security checks with actionlint and zizmor
+- locked mise dry-run validation when mise declarations change
+
+Run the Python gates directly through uv:
+
+```console
+uv run --locked --python 3.12.13 ruff format --check .
+uv run --locked --python 3.12.13 ruff check .
+uv run --locked --python 3.12.13 basedpyright
+uv run --locked --python 3.12.13 pytest
+uv run --locked --python 3.12.13 pytest --cov=scansor --cov-report=term-missing
+uv run --locked --python 3.13.15 pytest
+```
+
+Ruff checks every applicable Python file under the repository root. Basedpyright
+analyzes `src`, `tests`, and `experiments`; the committed baseline records the
+existing diagnostics exposed by expanding beyond `src`, so new diagnostics fail
+without misrepresenting existing dynamic test and experiment seams as resolved.
+Ruff's formatter does not enforce prose/comment line length, so the separate
+`E501` lint rule is disabled; `RUF100` is also disabled because suppressions may
+refer to security rules outside the selected Ruff rule set.
 
 The current `pyproject.toml` deliberately sets `testpaths = ["tests"]`, so
 `uv run pytest` runs only the internal package/CLI fixture suite. Retained
@@ -50,9 +85,12 @@ The CLI suite invokes `python -m scansor` in subprocesses to exercise actual
 Cyclopts CLI, `SCANSOR_*` environment, and explicit TOML resolution rather than
 testing a hand-assembled approximation of precedence.
 
-Internal relative-link and heading-anchor failures should block. Treatment of
-external-link timeouts, rate limits, redirects, and transient failures remains
-open and needs a documented policy before those failures block work.
+Internal relative-link and heading-anchor failures block. External links are
+checked with bounded retries, concurrency, redirects, and timeouts by the manual
+`lychee-external` pre-commit hook. CI runs that hook as an advisory
+`continue-on-error` step, so transient network, rate-limit, and remote-site
+failures remain visible without blocking `all`. A future requirement may select
+a narrower blocking external-link policy.
 
 Use [pytest][pytest] for examples and ordinary state/value tests,
 [Hypothesis][hypothesis] for properties where generated cases add evidence, and
@@ -106,23 +144,29 @@ is a provisional adaptation, not an observed shared setting.
 
 ## Continuous Integration
 
-**Provisional Scansor adaptation.** Assume GitHub hosting and GitHub Actions for
-this future automation; that assumption remains unvalidated. Adapt the observed
-Hamster shape rather than copying product-specific jobs:
+**Provisional Scansor adaptation.** `.github/workflows/ci.yml` runs for pull
+requests to and pushes on `main`. It delegates to local reusable mise,
+pre-commit, and Python workflows:
 
 - a thin top-level orchestrator calls local reusable `workflow_call` workflows
-- stable aggregate jobs provide durable required-check names
-- pull-request concurrency cancels superseded runs
+- the only aggregate job has job ID and displayed name `all`; it consumes every
+  required reusable gate through SHA-pinned `re-actors/alls-green`
+- pull-request concurrency includes the workflow reference and pull-request
+  number, cancelling superseded runs without cross-PR cancellation
 - third-party actions are pinned by full commit SHA
-- setup flows from mise to uv and then `uv run`
+- explicit `contents: read` permissions and checkout
+  `persist-credentials: false` keep access read-only
+- Ubuntu setup flows from mise to uv and then `uv run`
 - pre-commit and Python validation remain separate gates
-- Python validation covers the eventual minimum and latest supported versions
+- Python tests use a fail-fast-disabled `3.12.13`/`3.13.15` fixture matrix
 - basedpyright replaces Hamster's mypy choice
+- Python `3.12.13` reports package coverage to the terminal only, without a
+  threshold, upload, retained artifact, or support claim
 
 Do not import Home Assistant validation, release, deployment, recovery, generated
 matrix, or other project-specific workflows before Scansor has corresponding
-requirements. Exact operating systems, Python versions, required checks, and
-artifact handling remain open.
+requirements. Experiment execution, releases, deployment, and cross-platform
+jobs remain outside this baseline.
 
 ## Dependency Updating
 
@@ -159,23 +203,21 @@ search, or generated API-reference requirements justify it.
 
 ## Required Validation Evidence
 
-Before relying on the future repository setup, verify:
+The implemented baseline is locally reproducible with the commands above. Its
+required evidence is:
 
-- clean mise and uv bootstrap on selected development and CI systems
-- lock-file recreation and minimum/latest Python dependency resolution
-- parity between documented local commands and CI commands
-- eventual `uv run ruff format --check .` and `uv run ruff check .` gates; the
-  current fixture checks `src tests`, while retained experiments remain under
-  their separate pinned regression commands
-- `uv run basedpyright`
-- the `uv run pytest` runner with Hypothesis properties and pytest-cov reporting,
-  without an accidental percentage gate
-- separate pre-commit, format/lint, type, and test failure reporting
-- stable aggregate checks and pull-request concurrency behavior
-- full-SHA action pinning and minimal workflow permissions
-- Renovate dry-run behavior, GitHub App permissions, scheduling, debug dispatch,
-  pre-commit updates, and only demonstrated synchronization rules
-- internal-link blocking and the selected external-link failure policy
+- locked mise dry-run and uv lock/sync under both fixture interpreters
+- repository-wide Ruff format/lint and applicable broad basedpyright analysis
+- package pytest under both fixture interpreters and terminal coverage under one
+- all blocking pre-commit checks over all tracked files, with external-link
+  failures reported separately as advisory
+- retained experiment pin updates and their documented offline verification when
+  repository-wide formatting changes those sources
+- independently visible mise, pre-commit, Python format/lint/type, and Python
+  matrix-test failures, all consumed by the stable `all` gate
+- full-SHA action pins, explicit read-only permissions, non-persisted checkout
+  credentials, and PR-safe concurrency
+- internal-link blocking and bounded advisory external-link checking
 
 Completing these checks would validate a repository configuration, not an
 implementation, supported release process, or production deployment model.

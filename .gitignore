@@ -1,4 +1,6 @@
 .venv/
+.coverage
+.lycheecache
 .pytest_cache/
 .ruff_cache/
 __pycache__/
