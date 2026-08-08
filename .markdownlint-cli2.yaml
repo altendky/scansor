@@ -1,0 +1,8 @@
+gitignore: true
+
+config:
+  MD013:
+    line_length: 88
+    tables: false
+  MD024:
+    siblings_only: true

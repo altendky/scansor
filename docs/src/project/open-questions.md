@@ -138,13 +138,15 @@ evaluation](python-support-libraries.md#combined-validation-fixture).
 
 ### Repository tooling fixture
 
-Before relying on future repository automation, exercise clean mise/uv bootstrap,
-pre-commit, Markdown and internal-link failures, Ruff format and lint checks,
-basedpyright, the pytest runner with Hypothesis properties and pytest-cov
-reporting, minimum/latest Python dependency resolution, stable CI aggregates and
-cancellation, SHA pinning, and a Renovate dry run. Keep external-link policy,
-exact versions/platforms, and release machinery open. See the [repository
-tooling evidence](repository-and-development-tooling.md#required-validation-evidence).
+The baseline configuration now covers locked mise/uv bootstrap, pre-commit,
+Markdown and internal links, repository-wide Ruff, broad basedpyright analysis,
+package pytest and terminal coverage on two exact current-fixture interpreters,
+SHA-pinned CI, PR-safe cancellation, and the stable `all` aggregate. External
+links remain bounded and advisory. Workflow-run evidence is required before
+relying on the CI behavior. Renovate, product/development platform matrices,
+release machinery, and promotion or reduction of the initial basedpyright
+diagnostic baseline remain open. See the [repository tooling
+evidence](repository-and-development-tooling.md#required-validation-evidence).
 
 ## Product and Technical Questions
 
