@@ -55,8 +55,8 @@ outside the intended boundary.
   **Provisional:** runtime diagnostics, terminal output, paths, adapter HTTP,
   tests, environment tooling, documentation, bulk data, deferrals, and fixtures
 - [Repository and development tooling](repository-and-development-tooling.md) -
-  **Provisional:** future mise/uv ownership, local gates, CI, Renovate, test
-  seams, repository checks, and explicit packaging and release deferrals
+  **Provisional:** implemented locked mise/uv ownership, local gates, baseline CI,
+  future Renovate, test seams, and explicit packaging and release deferrals
 - [Tool landscape](tool-landscape.md) - **Research finding:** adjacent products
   and the unfilled complete-contract gap, without claims beyond current public
   verification

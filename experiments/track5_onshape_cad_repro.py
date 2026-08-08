@@ -1352,9 +1352,7 @@ def _verify_raw_evidence_anchored(
         request = _expect_dict(
             parse_json(request_raw, f"{spec.name} request", canonical=True), "request"
         )
-        response = parse_json(
-            response_raw, f"{spec.name} response", canonical=False
-        )
+        response = parse_json(response_raw, f"{spec.name} response", canonical=False)
         if spec.kind in {"elements", "parts"}:
             response = _expect_list(response, f"{spec.name} response")
         else:
@@ -1563,9 +1561,7 @@ def _decode_fs_value(value: Any, label: str) -> Any:
             key = _decode_fs_value(entry["key"], f"{label}[{index}].key")
             if not isinstance(key, str) or key in result:
                 fail(f"{label}: invalid or duplicate FeatureScript map key")
-            result[key] = _decode_fs_value(
-                entry["value"], f"{label}[{index}].value"
-            )
+            result[key] = _decode_fs_value(entry["value"], f"{label}[{index}].value")
         return result
     if "BTFSValueArray" in bt_type:
         _exact_keys(node, {"btType", "typeTag", "value"}, label)
@@ -1655,23 +1651,22 @@ def _official_probe_payload(
         face_id = _expect_str(face.get("id"), f"body face {index}.id")
         probe_face = by_id[face_id]
         minimum, maximum = _body_box(face.get("box"), f"body face {face_id}.box")
-        probe_bounds = _expect_dict(probe_face["bounds"], f"probe face {face_id}.bounds")
-        if (
-            any(
-                abs(left - right) > LINEAR_TOLERANCE_M
-                for left, right in zip(
-                    _vector(probe_bounds.get("minCorner"), "probe min corner"),
-                    minimum,
-                    strict=True,
-                )
+        probe_bounds = _expect_dict(
+            probe_face["bounds"], f"probe face {face_id}.bounds"
+        )
+        if any(
+            abs(left - right) > LINEAR_TOLERANCE_M
+            for left, right in zip(
+                _vector(probe_bounds.get("minCorner"), "probe min corner"),
+                minimum,
+                strict=True,
             )
-            or any(
-                abs(left - right) > LINEAR_TOLERANCE_M
-                for left, right in zip(
-                    _vector(probe_bounds.get("maxCorner"), "probe max corner"),
-                    maximum,
-                    strict=True,
-                )
+        ) or any(
+            abs(left - right) > LINEAR_TOLERANCE_M
+            for left, right in zip(
+                _vector(probe_bounds.get("maxCorner"), "probe max corner"),
+                maximum,
+                strict=True,
             )
         ):
             fail("official probe and body tight bounds differ")
@@ -1683,7 +1678,9 @@ def _official_probe_payload(
             fail("official probe and body surface types differ")
         if surface.get("type") == "CYLINDER":
             radius = _number(surface.get("radius"), "cylinder radius")
-            probe_coord = _expect_dict(probe_surface.get("coordSystem"), "probe cylinder")
+            probe_coord = _expect_dict(
+                probe_surface.get("coordSystem"), "probe cylinder"
+            )
             if (
                 abs(_number(probe_surface.get("radius"), "probe radius") - radius)
                 > LINEAR_TOLERANCE_M
@@ -1706,7 +1703,9 @@ def _official_probe_payload(
                 {
                     "axis": {
                         "direction": _body_vector(surface.get("axis"), "cylinder axis"),
-                        "originM": _body_vector(surface.get("origin"), "cylinder origin"),
+                        "originM": _body_vector(
+                            surface.get("origin"), "cylinder origin"
+                        ),
                     },
                     "faceId": face_id,
                     "radiusM": radius,
@@ -1724,11 +1723,14 @@ def _official_probe_payload(
             fail("body plane orientation must be boolean")
         outward = source_normal if orientation else [-value for value in source_normal]
         tangent = _expect_dict(probe_face["tangent"], "probe tangent plane")
-        if _angle(
-            _vector(tangent.get("normal"), "probe tangent normal", unit=True),
-            outward,
-            unoriented=False,
-        ) > ANGULAR_TOLERANCE_RAD:
+        if (
+            _angle(
+                _vector(tangent.get("normal"), "probe tangent normal", unit=True),
+                outward,
+                unoriented=False,
+            )
+            > ANGULAR_TOLERANCE_RAD
+        ):
             fail("official probe tangent normal and body orientation differ")
         axial = abs(source_normal[2]) > 0.5
         bounds: dict[str, list[float]]
@@ -2839,9 +2841,7 @@ def assemble_capture(
             responses[spec.name] = value
     part_ids: dict[str, str] = {}
     for variant in EXPECTED_VARIANTS:
-        parts = _expect_list(
-            responses[f"{variant}-part-inventory"], f"{variant} parts"
-        )
+        parts = _expect_list(responses[f"{variant}-part-inventory"], f"{variant} parts")
         if len(parts) != 1:
             fail(f"{variant}: expected exactly one part during capture")
         part_ids[variant] = _expect_str(
@@ -2933,11 +2933,11 @@ def assemble_capture(
         )
         verified_manifest, raw, parsed, _ = _verify_raw_evidence(temporary, tool_sha)
         normalized = _replay_verified(verified_manifest, raw, parsed)
-        report = compare_to_truth(normalized, _run_truth_report_name(run_id).split("/")[-1][:-5])
-        _write_new(temporary / "normalized/normalized.json", canonical_json(normalized))
-        _write_new(
-            temporary / _run_truth_report_name(run_id), canonical_json(report)
+        report = compare_to_truth(
+            normalized, _run_truth_report_name(run_id).split("/")[-1][:-5]
         )
+        _write_new(temporary / "normalized/normalized.json", canonical_json(normalized))
+        _write_new(temporary / _run_truth_report_name(run_id), canonical_json(report))
         verify_evidence(temporary, tool_sha)
         os.rename(temporary, output)
         return manifest

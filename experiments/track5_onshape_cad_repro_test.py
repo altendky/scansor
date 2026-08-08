@@ -206,7 +206,9 @@ def official_geometry_responses(
                 maximum = [bounds[axis][1] for axis in ("x", "y", "z")]
                 loops = [{"coedges": []}]
             surface = {
-                "normal": dict(zip(("x", "y", "z"), source["sourceNormal"], strict=True)),
+                "normal": dict(
+                    zip(("x", "y", "z"), source["sourceNormal"], strict=True)
+                ),
                 "origin": {"x": 0.0, "y": 0.0, "z": source["stationM"] or 0.0},
                 "type": "PLANE",
             }
@@ -337,7 +339,10 @@ def response_for(
         ]
     if spec.kind == "body":
         return official_geometry_responses(
-            spec.variant, run["elements"][spec.variant], parts[spec.variant], microversion
+            spec.variant,
+            run["elements"][spec.variant],
+            parts[spec.variant],
+            microversion,
         )[0]
     return official_geometry_responses(
         spec.variant, run["elements"][spec.variant], parts[spec.variant], microversion
@@ -873,7 +878,9 @@ class EvidenceTest(unittest.TestCase):
         replace_artifact(
             self.run_02, self.manifest, 3, "request", tool.canonical_json(body_request)
         )
-        with self.assertRaisesRegex(tool.EvidenceError, "cross-paired|wrong face inventory"):
+        with self.assertRaisesRegex(
+            tool.EvidenceError, "cross-paired|wrong face inventory"
+        ):
             self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         probe = self.operation_raw(4, "response")
@@ -881,7 +888,9 @@ class EvidenceTest(unittest.TestCase):
         replace_artifact(
             self.run_02, self.manifest, 4, "response", tool.canonical_json(probe)
         )
-        with self.assertRaisesRegex(tool.EvidenceError, "cross-paired|wrong face inventory"):
+        with self.assertRaisesRegex(
+            tool.EvidenceError, "cross-paired|wrong face inventory"
+        ):
             self.verify()
 
     def test_exact_path_query_body_and_order_contracts_rejected(self) -> None:
@@ -1106,20 +1115,20 @@ class EvidenceTest(unittest.TestCase):
         faces = response["result"]["value"]["solids"][0]["faces"]
         faces[3]["stationM"] = None
         with self.assertRaisesRegex(tool.EvidenceError, "require stations"):
-            tool.normalize_probe_response(response, element_id="e" * 24, raw_sha256="a" * 64)
+            tool.normalize_probe_response(
+                response, element_id="e" * 24, raw_sha256="a" * 64
+            )
         response = {
-            "result": {
-                "value": probe_payload("asymmetric_datum_flat", "e" * 24)
-            }
+            "result": {"value": probe_payload("asymmetric_datum_flat", "e" * 24)}
         }
         datum_face = response["result"]["value"]["solids"][0]["faces"][-1]
         datum_face["stationM"] = 0.02
         with self.assertRaisesRegex(tool.EvidenceError, "prohibit"):
-            tool.normalize_probe_response(response, element_id="e" * 24, raw_sha256="a" * 64)
+            tool.normalize_probe_response(
+                response, element_id="e" * 24, raw_sha256="a" * 64
+            )
         response = {
-            "result": {
-                "value": probe_payload("asymmetric_datum_flat", "e" * 24)
-            }
+            "result": {"value": probe_payload("asymmetric_datum_flat", "e" * 24)}
         }
         response["result"]["value"]["solids"][0]["faces"][-1]["outwardNormal"] = [
             -1.0,
@@ -1127,7 +1136,9 @@ class EvidenceTest(unittest.TestCase):
             0.0,
         ]
         with self.assertRaisesRegex(tool.EvidenceError, "inconsistent"):
-            tool.normalize_probe_response(response, element_id="e" * 24, raw_sha256="a" * 64)
+            tool.normalize_probe_response(
+                response, element_id="e" * 24, raw_sha256="a" * 64
+            )
 
     def test_asymmetric_axial_full_bounds_required_by_truth_and_cross_run(self) -> None:
         right = tool.replay(self.run_02, self.tool_sha)

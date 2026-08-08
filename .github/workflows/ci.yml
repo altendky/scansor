@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow_ref, github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  mise:
+    name: Mise
+    uses: ./.github/workflows/reflow-mise.yml
+
+  pre-commit:
+    name: Pre-commit
+    uses: ./.github/workflows/reflow-pre-commit.yml
+
+  python:
+    name: Python
+    uses: ./.github/workflows/reflow-python.yml
+
+  all:
+    name: all
+    if: ${{ !cancelled() }}
+    needs: [mise, pre-commit, python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}

@@ -2,13 +2,14 @@
 
 ## Status
 
-**Provisional, snapshot dated 2026-07-25.** This page records accepted
+**Provisional, updated 2026-08-08.** This page records accepted
 provisional general-support and near-domain-support directions for the first
 Python evidence-generating prototype. It does not define a production stack,
 and the full combined validation experiment described here does not exist. The
 first internal CLI slice exercises a bounded subset using structlog, NumPy,
-pytest, uv, and Ruff; HTTP, platform-default paths, property tests, coverage,
-documentation tools, and the remaining combined fixture stay open.
+pytest, uv, and Ruff. Repository tooling now reports package coverage and checks
+Markdown and links; HTTP, platform-default paths, property tests, and the
+remaining combined fixture stay open.
 
 The [foundation choices](python-foundation-libraries.md) remain unchanged:
 Cyclopts owns the CLI and settings-source resolution into a plain Pydantic v2
@@ -129,8 +130,9 @@ validated end-user deployment.
 
 Continue maintaining the current project knowledge as directly readable
 Markdown. Provisionally use pre-commit with markdownlint-cli2 and Lychee;
-internal relative-link and heading-anchor failures should block, while policy
-for external-link failures remains open. No documentation generator is selected.
+internal relative-link and heading-anchor failures block, while bounded external
+link checks remain advisory for transient remote failures. No documentation
+generator is selected.
 The [repository tooling direction](repository-and-development-tooling.md) owns
 these checks and the generator deferral. Existing documentation must not be
 described as a generated site.

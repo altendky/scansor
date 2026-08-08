@@ -199,21 +199,23 @@ build backend, documentation generator, and durable large numeric payload format
 remain unselected pending representative requirements and experiments. The
 internal fixture's `uv_build` use is not that production selection.
 
-### Use a layered future repository toolchain
+### Use a layered repository toolchain for the current fixture
 
 Provisionally use mise as the outer tool-version manager, uv as the Python
 environment/dependency/command owner, and pre-commit for local gates including
-markdownlint-cli2 and Lychee. Internal documentation-link failures should block;
-external-link failure policy remains open. Follow the Hamster CI shape with a
-thin orchestrator, local reusable workflows, stable aggregate checks, PR
-concurrency cancellation, SHA-pinned actions, separate pre-commit and Python
-gates, and a future minimum/latest Python matrix using basedpyright.
+markdownlint-cli2 and Lychee. The current fixture now implements exact locked
+tools, repository-wide applicable Python checks, tests on CPython 3.12 and 3.13,
+and terminal coverage. Internal documentation-link failures block; external-link
+checking is bounded and advisory because transient remote failures are not a
+repository defect. The thin CI orchestrator calls local reusable mise,
+pre-commit, and Python workflows, with SHA-pinned actions, PR concurrency, and a
+single stable `all` aggregate.
 
 The observed immutable precedent is recorded separately from Scansor's adaptation
 in the [repository tooling page](repository-and-development-tooling.md). Use
-Renovate in that shape when repository automation exists, without inferring
-automerge or version-coupling rules. These are future configuration directions,
-not existing repository automation. The internal fixture's `uv_build` use and
+Renovate in that shape if dependency-update automation is later added, without
+inferring automerge or version-coupling rules. The implemented CI validates
+repository artifacts only. The internal fixture's `uv_build` use and
 source-package layout do not select a production build backend or public package
 shape. Release/deployment tooling, documentation generator, tox/Nox, supported
 Python versions, and supported platforms remain open.

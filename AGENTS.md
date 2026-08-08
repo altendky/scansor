@@ -9,8 +9,10 @@ For scope, status, architecture, decisions, and open questions, start with:
 
 ## Onshape Workspace
 
-- Coordination folder: [Scansor](https://cad.onshape.com/documents?nodeId=d262d0122052ddf2b4851035&resourceType=folder), ID `d262d0122052ddf2b4851035`.
-- Designated sandbox: [Agent Sandbox](https://cad.onshape.com/documents?nodeId=b788af3dad6250b9ed521e6a&resourceType=folder), ID `b788af3dad6250b9ed521e6a`, directly under `Scansor`.
+- Coordination folder: [Scansor][scansor-folder], ID
+  `d262d0122052ddf2b4851035`.
+- Designated sandbox: [Agent Sandbox][sandbox-folder], ID
+  `b788af3dad6250b9ed521e6a`, directly under `Scansor`.
 - `Scansor` is a coordination layer. Agents must not create, modify, move,
   rename, or delete its direct contents without explicit user agreement, except
   to enter and operate through the designated `Agent Sandbox`.
@@ -19,3 +21,6 @@ For scope, status, architecture, decisions, and open questions, start with:
   including generated synthetic fixtures and data.
 - Agents must not touch unrelated Onshape content or move items across the
   sandbox boundary without explicit user agreement.
+
+[sandbox-folder]: https://cad.onshape.com/documents?nodeId=b788af3dad6250b9ed521e6a&resourceType=folder
+[scansor-folder]: https://cad.onshape.com/documents?nodeId=d262d0122052ddf2b4851035&resourceType=folder
