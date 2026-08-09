@@ -11,18 +11,31 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import py_compile
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar, final, override
 from unittest import mock
 
-import generated_solver_evaluator_v1 as gate
 import numpy as np
 
+if TYPE_CHECKING:
+    from experiments import generated_solver_evaluator_v1 as gate
+else:
+    if not __package__:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    gate = importlib.import_module("experiments.generated_solver_evaluator_v1")
 
+
+@final
 class GateTest(unittest.TestCase):
+    data: ClassVar[gate.ContractData]
+
     @classmethod
+    @override
     def setUpClass(cls) -> None:
         cls.data = gate.load_contract()
 
@@ -61,7 +74,7 @@ class GateTest(unittest.TestCase):
     def test_verified_generator_bytes_ignore_path_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "generator.py"
-            path.write_text("marker = 'substituted'\n", encoding="ascii")
+            _ = path.write_text("marker = 'substituted'\n", encoding="ascii")
             module = gate.execute_verified_module(
                 b"marker = 'verified'\n", path, "test_verified_generator_substitution"
             )
@@ -72,9 +85,9 @@ class GateTest(unittest.TestCase):
             path = Path(directory) / "generator.py"
             stale_source = "marker = 'stale---'\n"
             verified_source = b"marker = 'verified'\n"
-            path.write_text(stale_source, encoding="ascii")
-            py_compile.compile(str(path), doraise=True)
-            path.write_bytes(verified_source)
+            _ = path.write_text(stale_source, encoding="ascii")
+            _ = py_compile.compile(str(path), doraise=True)
+            _ = path.write_bytes(verified_source)
             module = gate.execute_verified_module(
                 verified_source, path, "test_verified_generator_stale_bytecode"
             )
@@ -89,7 +102,7 @@ class GateTest(unittest.TestCase):
             else np.array([0.31, -0.27, 0.19, -0.41, 0.53, -0.59])
         )
         direction = raw_direction / np.linalg.norm(raw_direction)
-        expected = []
+        expected: list[np.ndarray] = []
         for step in (gate.DERIVATIVE_STEP, gate.DERIVATIVE_STEP / 2.0):
             for column in range(len(coordinates)):
                 delta = np.zeros_like(coordinates)
@@ -207,13 +220,13 @@ class GateTest(unittest.TestCase):
     def test_evidence_runtime_is_exactly_pinned(self) -> None:
         self.assertEqual(gate.verify_runtime((3, 12, 12)), "3.12.12")
         with self.assertRaisesRegex(gate.GateError, "requires exact runtime"):
-            gate.verify_runtime((3, 12, 11))
+            _ = gate.verify_runtime((3, 12, 11))
         with self.assertRaisesRegex(gate.GateError, "requires exact runtime"):
-            gate.verify_runtime((3, 12, 12), "pypy")
+            _ = gate.verify_runtime((3, 12, 12), "pypy")
         with self.assertRaisesRegex(gate.GateError, "requires exact runtime"):
-            gate.verify_runtime((3, 12, 12), "cpython", "2.3.2", "1.16.1")
+            _ = gate.verify_runtime((3, 12, 12), "cpython", "2.3.2", "1.16.1")
         with self.assertRaisesRegex(gate.GateError, "requires exact runtime"):
-            gate.verify_runtime((3, 12, 12), "cpython", "2.3.1", "1.16.2")
+            _ = gate.verify_runtime((3, 12, 12), "cpython", "2.3.1", "1.16.2")
 
     def test_rank_spectra_and_derivative_check(self) -> None:
         ranks = [
@@ -263,7 +276,7 @@ class GateTest(unittest.TestCase):
             "plane.station-50": 12,
             "plane.station-80": 14,
         }
-        expected_executions = []
+        expected_executions: list[dict[str, object]] = []
         for kind, probes in derivatives["probes"].items():
             for probe in probes:
                 evaluations = self.expected_numerical_evaluations(
@@ -404,7 +417,7 @@ class GateTest(unittest.TestCase):
                 gate.GateError, "non-finite directional derivative at h"
             ),
         ):
-            gate.derivative_probe(
+            _ = gate.derivative_probe(
                 self.data,
                 "asymmetric-full-pose",
                 "shape",
@@ -418,8 +431,8 @@ class GateTest(unittest.TestCase):
         candidate = [("center", gate.SHAPE_TRUTH.copy())]
 
         reordered = gate.FitCallback(self.data, factors, points)
-        reordered.shape(gate.SHAPE_TRUTH)
-        reordered.shape_jacobian(gate.SHAPE_TRUTH)
+        _ = reordered.shape(gate.SHAPE_TRUTH)
+        _ = reordered.shape_jacobian(gate.SHAPE_TRUTH)
         self.assertEqual(
             [invocation.path for invocation in reordered.invocations],
             ["shape.residual", "shape.analytic_jacobian"],
@@ -432,17 +445,19 @@ class GateTest(unittest.TestCase):
             self.assertEqual(invocation.row_count, 230)
         reordered.invocations[0].factor_ids.reverse()
         with self.assertRaisesRegex(gate.GateError, "ordered factor mismatch"):
-            gate.callback_invocation_evidence(reordered, candidate, factors, "shape")
+            _ = gate.callback_invocation_evidence(
+                reordered, candidate, factors, "shape"
+            )
         with self.assertRaisesRegex(gate.GateError, "ordered factors differ"):
-            gate.callback_audit(self.data, reordered)
+            _ = gate.callback_audit(self.data, reordered)
 
         rejected_points = {key: value.copy() for key, value in points.items()}
         rejected_points[factors[0].observation_id][2] = 1.0
         rejected = gate.FitCallback(self.data, factors, rejected_points)
         with self.assertRaisesRegex(gate.GateError, factors[0].factor_id):
-            rejected.shape(gate.SHAPE_TRUTH)
+            _ = rejected.shape(gate.SHAPE_TRUTH)
         with self.assertRaisesRegex(gate.GateError, "trace count mismatch"):
-            gate.callback_invocation_evidence(rejected, candidate, factors, "shape")
+            _ = gate.callback_invocation_evidence(rejected, candidate, factors, "shape")
 
     def test_pose_roll_gauge_and_flat_ablation(self) -> None:
         axisymmetric, _ = gate.solve_pose(self.data, "axisymmetric-free-roll")
@@ -865,7 +880,7 @@ class GateTest(unittest.TestCase):
 
     def test_pose_spectra_are_bound_to_recovered_coordinates(self) -> None:
         report = gate.run_gate()
-        different_from_truth = []
+        different_from_truth: list[bool] = []
         for scenario_id in (
             "axisymmetric-free-roll",
             "asymmetric-full-pose",
@@ -1028,4 +1043,4 @@ class GateTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

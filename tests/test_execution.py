@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, Literal, cast, override
 
 import numpy as np
 import pytest
@@ -12,11 +14,13 @@ import scansor.execution_models as execution_models_module
 import scansor.stepped_rotational_execution as execution_module
 from scansor.errors import ScansorError
 from scansor.execution_models import (
+    AdapterDescriptor,
     AdapterInvocation,
     BackendResponse,
     CallbackConsistencyEvidence,
     CallbackConsistencyObservation,
     CallbackTraceEntry,
+    ExecutionRequest,
     ExecutionResult,
     HeldOutAssessment,
     HeldOutSummary,
@@ -25,13 +29,18 @@ from scansor.execution_models import (
 from scansor.factor_models import (
     NOMINAL_SHAPE,
     ActiveFactorSelection,
+    FactorEvaluation,
+    InstantiatedFactorSet,
     ParameterVector,
+    Problem,
+    Variant,
     content_id,
 )
 from scansor.mapping_models import MappingResult, MappingThresholds
 from scansor.serialization import canonical_json, sha256
 from scansor.stepped_rotational import assess_nominal_support, build_mapping
 from scansor.stepped_rotational_execution import (
+    ResidualJacobianCallback,
     adapter_descriptor,
     assess_held_out,
     backend_response,
@@ -50,15 +59,20 @@ from tests.test_factors import factor_case, parameters
 from tests.test_mapping import canonical_bytes, fixture_points, request_for
 
 TEST_ADAPTER_DESCRIPTOR = adapter_descriptor("tests.reference", "1")
+BackendTermination = Literal["converged", "limit", "stopped", "failure", "unknown"]
 
 
 class ShapeReferenceAdapter:
-    def __init__(self, descriptor=TEST_ADAPTER_DESCRIPTOR) -> None:
-        self.descriptor = descriptor
-        self.invocations = []
-        self.evaluations = []
+    def __init__(self, descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
+        self.invocations: list[AdapterInvocation] = []
+        self.evaluations: list[FactorEvaluation] = []
 
-    def execute(self, invocation, callback):
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
         self.invocations.append(invocation)
         initial = callback(invocation.initial_values)
         self.evaluations.append(initial)
@@ -72,10 +86,14 @@ class ShapeReferenceAdapter:
 
 
 class PoseReferenceAdapter:
-    def __init__(self, descriptor=TEST_ADAPTER_DESCRIPTOR) -> None:
-        self.descriptor = descriptor
+    def __init__(self, descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
 
-    def execute(self, invocation, callback):
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
         current = np.asarray(invocation.initial_values)
         lower = np.asarray(invocation.lower_bounds)
         upper = np.asarray(invocation.upper_bounds)
@@ -98,16 +116,21 @@ class ReturningAdapter:
     def __init__(
         self,
         values: tuple[float, ...],
-        termination: str = "converged",
-        descriptor=TEST_ADAPTER_DESCRIPTOR,
-    ):
-        self.descriptor = descriptor
-        self.values = values
-        self.termination = termination
-        self.calls = 0
-        self.invocation = None
+        termination: BackendTermination = "converged",
+        descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR,
+    ) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
+        self.values: tuple[float, ...] = values
+        self.termination: BackendTermination = termination
+        self.calls: int = 0
+        self.invocation: AdapterInvocation | None = None
 
-    def execute(self, invocation, callback):
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
+        _ = callback
         self.calls += 1
         self.invocation = invocation
         return backend_response(
@@ -120,29 +143,52 @@ class ReturningAdapter:
 
 
 class RaisingAdapter:
-    def __init__(self, descriptor=TEST_ADAPTER_DESCRIPTOR) -> None:
-        self.descriptor = descriptor
+    def __init__(self, descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
 
-    def execute(self, invocation, callback):
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
+        _ = invocation
+        _ = callback
         raise RuntimeError("platform-specific secret traceback text")
 
 
 class CallbackAdapter:
-    def __init__(self, value: object, descriptor=TEST_ADAPTER_DESCRIPTOR):
-        self.descriptor = descriptor
-        self.value = value
+    def __init__(
+        self,
+        value: object,
+        descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR,
+    ) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
+        self.value: object = value
 
-    def execute(self, invocation, callback):
-        callback(self.value)
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
+        _ = callback(self.value)
         return backend_response(invocation, invocation.initial_values, "unknown")
 
 
 class MaliciousAdapter:
-    def __init__(self, mutation, descriptor=TEST_ADAPTER_DESCRIPTOR):
-        self.descriptor = descriptor
-        self.mutation = mutation
+    def __init__(
+        self,
+        mutation: Callable[[BackendResponse, AdapterInvocation], object],
+        descriptor: AdapterDescriptor = TEST_ADAPTER_DESCRIPTOR,
+    ) -> None:
+        self.descriptor: AdapterDescriptor = descriptor
+        self.mutation: Callable[[BackendResponse, AdapterInvocation], object] = mutation
 
-    def execute(self, invocation, callback):
+    def execute(
+        self,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
+        _ = callback
         response = backend_response(invocation, invocation.initial_values, "converged")
         return self.mutation(response, invocation)
 
@@ -158,11 +204,15 @@ def wrong_request_response(response: BackendResponse) -> BackendResponse:
 
 
 def reidentified_result(result: ExecutionResult, **updates: object) -> ExecutionResult:
-    values = {
-        name: getattr(result, name)
-        for name in type(result).model_fields
-        if name != "result_id"
-    } | updates
+    values = cast(
+        dict[str, Any],
+        {
+            name: getattr(result, name)
+            for name in type(result).model_fields
+            if name != "result_id"
+        }
+        | updates,
+    )
     provisional = ExecutionResult.model_construct(result_id="", **values)
     values["result_id"] = execution_models_module.execution_content_id(
         "execution-result", provisional, "result_id"
@@ -173,7 +223,10 @@ def reidentified_result(result: ExecutionResult, **updates: object) -> Execution
 def reidentified_invocation(
     invocation: AdapterInvocation, **updates: object
 ) -> AdapterInvocation:
-    values = invocation.model_dump(mode="python", exclude={"invocation_id"}) | updates
+    values = cast(
+        dict[str, Any],
+        invocation.model_dump(mode="python", exclude={"invocation_id"}) | updates,
+    )
     provisional = AdapterInvocation.model_construct(invocation_id="", **values)
     values["invocation_id"] = execution_models_module.execution_content_id(
         "invocation", provisional, "invocation_id"
@@ -184,11 +237,15 @@ def reidentified_invocation(
 def reidentified_consistency(
     evidence: CallbackConsistencyEvidence, **updates: object
 ) -> CallbackConsistencyEvidence:
-    values = {
-        name: getattr(evidence, name)
-        for name in type(evidence).model_fields
-        if name != "evidence_id"
-    } | updates
+    values = cast(
+        dict[str, Any],
+        {
+            name: getattr(evidence, name)
+            for name in type(evidence).model_fields
+            if name != "evidence_id"
+        }
+        | updates,
+    )
     provisional = CallbackConsistencyEvidence.model_construct(evidence_id="", **values)
     values["evidence_id"] = execution_models_module.execution_content_id(
         "callback-consistency", provisional, "evidence_id"
@@ -199,7 +256,10 @@ def reidentified_consistency(
 def reidentified_callback_entry(
     entry: CallbackTraceEntry, **updates: object
 ) -> CallbackTraceEntry:
-    values = entry.model_dump(mode="python", exclude={"callback_entry_id"}) | updates
+    values = cast(
+        dict[str, Any],
+        entry.model_dump(mode="python", exclude={"callback_entry_id"}) | updates,
+    )
     provisional = CallbackTraceEntry.model_construct(callback_entry_id="", **values)
     values["callback_entry_id"] = execution_models_module.execution_content_id(
         "callback-entry", provisional, "callback_entry_id"
@@ -210,11 +270,15 @@ def reidentified_callback_entry(
 def reidentified_assessment(
     assessment: HeldOutAssessment, **updates: object
 ) -> HeldOutAssessment:
-    values = {
-        name: getattr(assessment, name)
-        for name in type(assessment).model_fields
-        if name != "assessment_id"
-    } | updates
+    values = cast(
+        dict[str, Any],
+        {
+            name: getattr(assessment, name)
+            for name in type(assessment).model_fields
+            if name != "assessment_id"
+        }
+        | updates,
+    )
     provisional = HeldOutAssessment.model_construct(assessment_id="", **values)
     values["assessment_id"] = execution_models_module.execution_content_id(
         "held-out-assessment", provisional, "assessment_id"
@@ -222,11 +286,40 @@ def reidentified_assessment(
     return HeldOutAssessment(**values)
 
 
+def invalid_response_schema(
+    _response: BackendResponse, _invocation: AdapterInvocation
+) -> object:
+    return object()
+
+
+def invalid_response_id(
+    response: BackendResponse, _invocation: AdapterInvocation
+) -> object:
+    return response.model_copy(update={"response_id": "backend-response." + "0" * 64})
+
+
+def invalid_response_provenance(
+    response: BackendResponse, _invocation: AdapterInvocation
+) -> object:
+    return wrong_request_response(response)
+
+
+def invalid_response_vector(
+    response: BackendResponse, invocation: AdapterInvocation
+) -> object:
+    return backend_response(invocation, response.final_values[:-1], "converged")
+
+
 def execution_case(
-    variant: str = "asymmetric-datum-flat",
-    problem: str = "fixed-pose-shape",
+    variant: Variant = "asymmetric-datum-flat",
+    problem: Problem = "fixed-pose-shape",
     initial_values: tuple[float, ...] | None = None,
-):
+) -> tuple[
+    MappingResult,
+    InstantiatedFactorSet,
+    ActiveFactorSelection,
+    ExecutionRequest,
+]:
     mapping, factor_set, selection = factor_case(variant)
     initial = parameters(variant, problem, initial_values)
     request = create_execution_request(
@@ -236,7 +329,9 @@ def execution_case(
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_affine_shape_recovery_is_test_only_and_deterministic(variant: str) -> None:
+def test_affine_shape_recovery_is_test_only_and_deterministic(
+    variant: Variant,
+) -> None:
     size = 7 if variant == "asymmetric-datum-flat" else 6
     truth = NOMINAL_SHAPE[:size]
     offset = (-0.0004, 0.0005, -0.0003, -0.0002, 0.0003, -0.0004, 0.0002)
@@ -268,7 +363,7 @@ def test_affine_shape_recovery_is_test_only_and_deterministic(variant: str) -> N
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
 def test_bounded_nonlinear_pose_recovery_and_axisymmetric_roll_gauge(
-    variant: str,
+    variant: Variant,
 ) -> None:
     initial = (0.0003, -0.0002, 0.0001, 0.012, -0.009, 0.025)
     _mapping, factor_set, selection, request = execution_case(
@@ -298,7 +393,7 @@ def test_request_copies_exact_contract_policy_and_revalidates_graph() -> None:
     assert request.callback_trace_byte_limit == 16 * 1024 * 1024
     stale = request.model_copy(update={"lower_bounds": (0.0,) * 7})
     with pytest.raises(ScansorError, match=r"invalid execution request|does not match"):
-        execute(stale, factor_set, selection, ReturningAdapter(NOMINAL_SHAPE))
+        _ = execute(stale, factor_set, selection, ReturningAdapter(NOMINAL_SHAPE))
 
 
 def test_runtime_adapter_descriptor_must_match_before_invocation() -> None:
@@ -308,7 +403,7 @@ def test_runtime_adapter_descriptor_must_match_before_invocation() -> None:
         descriptor=adapter_descriptor("tests.other", "1"),
     )
     with pytest.raises(ScansorError, match="descriptor differs"):
-        execute(request, factor_set, selection, mismatch)
+        _ = execute(request, factor_set, selection, mismatch)
     assert mismatch.calls == 0
 
     stale_descriptor = request.adapter.model_copy(
@@ -316,7 +411,7 @@ def test_runtime_adapter_descriptor_must_match_before_invocation() -> None:
     )
     stale = ReturningAdapter(NOMINAL_SHAPE, descriptor=stale_descriptor)
     with pytest.raises(ScansorError, match="invalid runtime adapter descriptor"):
-        execute(request, factor_set, selection, stale)
+        _ = execute(request, factor_set, selection, stale)
     assert stale.calls == 0
 
 
@@ -350,7 +445,9 @@ def test_preflight_ineligible_short_circuits_without_adapter() -> None:
         ),
     ],
 )
-def test_callback_rejections_are_stable_and_replayable(value, failure: str) -> None:
+def test_callback_rejections_are_stable_and_replayable(
+    value: object, failure: str
+) -> None:
     _mapping, factor_set, selection, request = execution_case()
     result = execute(request, factor_set, selection, CallbackAdapter(value))
     assert result.disposition == "execution-failed"
@@ -360,12 +457,20 @@ def test_callback_rejections_are_stable_and_replayable(value, failure: str) -> N
     assert replay_execution(result, request, factor_set, selection) == result
 
 
-def test_structural_callback_and_callback_limit_rejections(monkeypatch) -> None:
+def test_structural_callback_and_callback_limit_rejections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, request = execution_case()
+
+    def structurally_invalid(
+        _contract: object, _value: object
+    ) -> tuple[Literal["structural-geometry-invalid"]]:
+        return ("structural-geometry-invalid",)
+
     monkeypatch.setattr(
         execution_module,
         "parameter_domain_failures",
-        lambda contract, value: ("structural-geometry-invalid",),
+        structurally_invalid,
     )
     result = execute(
         request,
@@ -392,16 +497,26 @@ def test_structural_callback_and_callback_limit_rejections(monkeypatch) -> None:
     assert result.disposition == "completed-not-assessed"
 
 
-def test_callback_evaluation_domain_and_reentrancy_are_recorded(monkeypatch) -> None:
+def test_callback_evaluation_domain_and_reentrancy_are_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, request = execution_case()
 
-    def undefined(*args, **kwargs):
+    def undefined(
+        _factor_set: InstantiatedFactorSet,
+        _selection: ActiveFactorSelection,
+        _parameters: ParameterVector,
+    ) -> FactorEvaluation:
         raise ScansorError("undefined")
 
     class UndefinedAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             monkeypatch.setattr(execution_module, "evaluate_factors", undefined)
             return callback(invocation.initial_values)
 
@@ -416,39 +531,50 @@ def test_callback_evaluation_domain_and_reentrancy_are_recorded(monkeypatch) -> 
 
     monkeypatch.undo()
     with pytest.raises(ScansorError, match="callback trace differs"):
-        replay_execution(result, request, factor_set, selection)
+        _ = replay_execution(result, request, factor_set, selection)
     trace_bytes = result.callback_trace_byte_count
-    evidence_values = {
-        "observations": (
-            CallbackConsistencyObservation(
-                code="callback-evaluation-undefined", sequence_id=0
+    evidence_values = cast(
+        dict[str, Any],
+        {
+            "observations": (
+                CallbackConsistencyObservation(
+                    code="callback-evaluation-undefined", sequence_id=0
+                ),
             ),
-        ),
-        "retained_trace_byte_count": trace_bytes,
-        "trace_byte_limit": request.callback_trace_byte_limit,
-    }
+            "retained_trace_byte_count": trace_bytes,
+            "trace_byte_limit": request.callback_trace_byte_limit,
+        },
+    )
     provisional_evidence = CallbackConsistencyEvidence.model_construct(
         evidence_id="", **evidence_values
     )
     with pytest.raises(ValidationError, match="lacks a reentrant cause"):
-        CallbackConsistencyEvidence(
+        _ = CallbackConsistencyEvidence(
             evidence_id=execution_models_module.execution_content_id(
                 "callback-consistency", provisional_evidence, "evidence_id"
             ),
             **evidence_values,
         )
-    original = execution_module.evaluate_factors
-    active_callback = None
+    original = evaluate_factors
+    active_callback: ResidualJacobianCallback | None = None
 
-    def recurse(*args, **kwargs):
+    def recurse(
+        current_factor_set: InstantiatedFactorSet,
+        current_selection: ActiveFactorSelection,
+        current_parameters: ParameterVector,
+    ) -> FactorEvaluation:
         assert active_callback is not None
-        active_callback(request.initial_parameters.values)
-        return original(*args, **kwargs)
+        _ = active_callback(request.initial_parameters.values)
+        return original(current_factor_set, current_selection, current_parameters)
 
     class ReentrantAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             nonlocal active_callback
             active_callback = callback
             monkeypatch.setattr(execution_module, "evaluate_factors", recurse)
@@ -510,14 +636,14 @@ def test_callback_evaluation_domain_and_reentrancy_are_recorded(monkeypatch) -> 
         retained_trace_byte_count=impossible_bytes,
     )
     with pytest.raises(ValidationError, match="callback input is impossible"):
-        reidentified_result(
+        _ = reidentified_result(
             result,
             callback_consistency_evidence=impossible_evidence,
             callback_trace=impossible_trace,
             callback_trace_byte_count=impossible_bytes,
         )
     with pytest.raises(ValidationError, match="consistency evidence"):
-        reidentified_result(result, callback_consistency_evidence=None)
+        _ = reidentified_result(result, callback_consistency_evidence=None)
 
 
 def test_malformed_and_oversized_callback_inputs_are_bounded_and_replayable() -> None:
@@ -532,7 +658,7 @@ def test_malformed_and_oversized_callback_inputs_are_bounded_and_replayable() ->
         assert len(execution_result_bytes(result)) < 1_000_000
         assert replay_execution(result, request, factor_set, selection) == result
 
-    class ReentrantSequence(list):
+    class ReentrantSequence(list[float]):
         pass
 
     result = execute(
@@ -545,7 +671,8 @@ def test_malformed_and_oversized_callback_inputs_are_bounded_and_replayable() ->
     assert replay_execution(result, request, factor_set, selection) == result
 
     class HostileFloat(float):
-        def __float__(self):
+        @override
+        def __float__(self) -> float:
             raise RuntimeError("must not execute")
 
     hostile = tuple(HostileFloat(value) for value in request.initial_parameters.values)
@@ -569,15 +696,19 @@ def test_callback_limit_allows_n_attempts_and_rejects_n_plus_one(
     )
 
     class CatchingAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             for _ in range(callback_limit):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     result = execute(request, factor_set, selection, CatchingAdapter())
@@ -602,12 +733,16 @@ def test_callback_evidence_rejects_impossible_reservation_histories() -> None:
     )
 
     class OverLimitAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
-            callback(invocation.initial_values)
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
+            _ = callback(invocation.initial_values)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     result = execute(request, factor_set, selection, OverLimitAdapter())
@@ -617,7 +752,7 @@ def test_callback_evidence_rejects_impossible_reservation_histories() -> None:
         retained_trace_byte_count=0,
     )
     with pytest.raises(ValidationError, match="reservation prefix"):
-        reidentified_result(
+        _ = reidentified_result(
             result,
             callback_consistency_evidence=evidence,
             callback_count=0,
@@ -625,7 +760,7 @@ def test_callback_evidence_rejects_impossible_reservation_histories() -> None:
             callback_trace_byte_count=0,
         )
     with pytest.raises(ValidationError, match="multiple outcomes"):
-        reidentified_consistency(
+        _ = reidentified_consistency(
             result.callback_consistency_evidence,
             observations=(
                 CallbackConsistencyObservation(
@@ -637,7 +772,7 @@ def test_callback_evidence_rejects_impossible_reservation_histories() -> None:
             ),
         )
     with pytest.raises(ValidationError, match="multiple evaluations"):
-        reidentified_consistency(
+        _ = reidentified_consistency(
             result.callback_consistency_evidence,
             observations=(
                 CallbackConsistencyObservation(
@@ -663,16 +798,16 @@ def test_callback_sanitized_evidence_must_be_canonical() -> None:
         request, factor_set, selection, CallbackAdapter((0.0,))
     ).callback_trace[0]
     with pytest.raises(ValidationError, match=r"dimension-invalid.*canonical"):
-        reidentified_callback_entry(dimension, values=(0.0,))
+        _ = reidentified_callback_entry(dimension, values=(0.0,))
 
     nonfinite_result = execute(
         request, factor_set, selection, CallbackAdapter((math.nan,) * 7)
     )
     nonfinite = nonfinite_result.callback_trace[0]
     with pytest.raises(ValidationError, match="finite-safe positions"):
-        reidentified_callback_entry(nonfinite, nonfinite_positions=(1, 0))
+        _ = reidentified_callback_entry(nonfinite, nonfinite_positions=(1, 0))
     with pytest.raises(ValidationError, match="finite-safe positions"):
-        reidentified_callback_entry(nonfinite, nonfinite_positions=(-1,))
+        _ = reidentified_callback_entry(nonfinite, nonfinite_positions=(-1,))
     wrong_dimension = reidentified_callback_entry(nonfinite, supplied_dimension=8)
     wrong_bytes = len(canonical_json(wrong_dimension))
     assert nonfinite_result.callback_consistency_evidence is not None
@@ -681,7 +816,7 @@ def test_callback_sanitized_evidence_must_be_canonical() -> None:
         retained_trace_byte_count=wrong_bytes,
     )
     with pytest.raises(ValidationError, match="dimension disagrees"):
-        reidentified_result(
+        _ = reidentified_result(
             nonfinite_result,
             callback_consistency_evidence=evidence,
             callback_trace=(wrong_dimension,),
@@ -689,7 +824,9 @@ def test_callback_sanitized_evidence_must_be_canonical() -> None:
         )
 
 
-def test_replay_matches_initial_evaluation_exception_contract(monkeypatch) -> None:
+def test_replay_matches_initial_evaluation_exception_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, _selection = factor_case()
     selection = select_active_factors(factor_set, ())
     request = create_execution_request(
@@ -699,7 +836,11 @@ def test_replay_matches_initial_evaluation_exception_contract(monkeypatch) -> No
         TEST_ADAPTER_DESCRIPTOR,
     )
 
-    def invalid_initial(*args, **kwargs):
+    def invalid_initial(
+        _factor_set: InstantiatedFactorSet,
+        _selection: ActiveFactorSelection,
+        _parameters: ParameterVector,
+    ) -> FactorEvaluation:
         raise ValueError("deterministic initial failure")
 
     monkeypatch.setattr(execution_module, "evaluate_factors", invalid_initial)
@@ -755,12 +896,16 @@ def test_callback_trace_budget_fails_closed_for_single_and_cumulative_entries() 
     )
 
     class TwoCallAdapter:
-        descriptor = cumulative_request.adapter
+        descriptor: AdapterDescriptor = cumulative_request.adapter
 
-        def execute(self, invocation, callback):
-            callback(invocation.initial_values)
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
+            _ = callback(invocation.initial_values)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     cumulative = execute(
@@ -779,7 +924,9 @@ def test_callback_trace_budget_fails_closed_for_single_and_cumulative_entries() 
     )
 
 
-def test_trace_budget_overflow_seals_reverse_commit_order(monkeypatch) -> None:
+def test_trace_budget_overflow_seals_reverse_commit_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, base_request = execution_case()
     baseline = execute(
         base_request,
@@ -795,31 +942,36 @@ def test_trace_budget_overflow_seals_reverse_commit_order(monkeypatch) -> None:
         callback_trace_byte_limit=baseline.callback_trace_byte_count
         + max(1_024, baseline.callback_trace_byte_count // 2),
     )
-    original_reserve = execution_module._GuardedCallback._reserve
+    guarded_type = cast(type[object], vars(execution_module)["_GuardedCallback"])
+    original_reserve = cast(Callable[[object], int], vars(guarded_type)["_reserve"])
     first_reserved = threading.Event()
     release_first = threading.Event()
     threads: list[threading.Thread] = []
     outcomes: list[str] = []
 
-    def reserve_inverted(callback):
+    def reserve_inverted(callback: object) -> int:
         sequence = original_reserve(callback)
         if sequence == 0:
             first_reserved.set()
             assert release_first.wait(timeout=5)
         return sequence
 
-    def invoke(callback, values) -> None:
+    def invoke(callback: ResidualJacobianCallback, values: object) -> None:
         try:
-            callback(values)
+            _ = callback(values)
         except ScansorError as error:
             outcomes.append(str(error))
 
     class ReverseCommitAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             monkeypatch.setattr(
-                execution_module._GuardedCallback,
+                guarded_type,
                 "_reserve",
                 reserve_inverted,
             )
@@ -831,7 +983,7 @@ def test_trace_budget_overflow_seals_reverse_commit_order(monkeypatch) -> None:
             threads.append(thread)
             thread.start()
             assert first_reserved.wait(timeout=5)
-            callback(invocation.initial_values)
+            _ = callback(invocation.initial_values)
             release_first.set()
             thread.join(timeout=5)
             assert not thread.is_alive()
@@ -846,7 +998,9 @@ def test_trace_budget_overflow_seals_reverse_commit_order(monkeypatch) -> None:
     assert replay_execution(result, request, factor_set, selection) == result
 
 
-def test_concurrent_reentrancy_reserves_bounded_sequence_slots(monkeypatch) -> None:
+def test_concurrent_reentrancy_reserves_bounded_sequence_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, base_request = execution_case()
     request = create_execution_request(
         factor_set,
@@ -855,19 +1009,27 @@ def test_concurrent_reentrancy_reserves_bounded_sequence_slots(monkeypatch) -> N
         base_request.adapter,
         callback_limit=2,
     )
-    original = execution_module.evaluate_factors
+    original = evaluate_factors
     entered = threading.Event()
     release = threading.Event()
 
-    def blocked(*args, **kwargs):
+    def blocked(
+        current_factor_set: InstantiatedFactorSet,
+        current_selection: ActiveFactorSelection,
+        current_parameters: ParameterVector,
+    ) -> FactorEvaluation:
         entered.set()
         assert release.wait(timeout=5)
-        return original(*args, **kwargs)
+        return original(current_factor_set, current_selection, current_parameters)
 
     class ConcurrentAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             monkeypatch.setattr(execution_module, "evaluate_factors", blocked)
             thread = threading.Thread(
                 target=lambda: callback(invocation.initial_values), daemon=True
@@ -875,12 +1037,12 @@ def test_concurrent_reentrancy_reserves_bounded_sequence_slots(monkeypatch) -> N
             thread.start()
             assert entered.wait(timeout=5)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             release.set()
             thread.join(timeout=5)
             assert not thread.is_alive()
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     result = execute(request, factor_set, selection, ConcurrentAdapter())
@@ -896,34 +1058,42 @@ def test_concurrent_reentrancy_reserves_bounded_sequence_slots(monkeypatch) -> N
 
 @pytest.mark.parametrize("late_rejection", [False, True])
 def test_adapter_return_with_inflight_callback_fails_closed(
-    monkeypatch, late_rejection: bool
+    monkeypatch: pytest.MonkeyPatch, late_rejection: bool
 ) -> None:
     _mapping, factor_set, selection, request = execution_case()
-    original = execution_module.evaluate_factors
+    original = evaluate_factors
     entered = threading.Event()
     release = threading.Event()
     threads: list[threading.Thread] = []
     outcomes: list[str] = []
 
-    def blocked(*args, **kwargs):
+    def blocked(
+        current_factor_set: InstantiatedFactorSet,
+        current_selection: ActiveFactorSelection,
+        current_parameters: ParameterVector,
+    ) -> FactorEvaluation:
         entered.set()
         assert release.wait(timeout=5)
         if late_rejection:
             raise ScansorError("late evaluation rejection")
-        return original(*args, **kwargs)
+        return original(current_factor_set, current_selection, current_parameters)
 
-    def invoke(callback, values) -> None:
+    def invoke(callback: ResidualJacobianCallback, values: object) -> None:
         try:
-            callback(values)
+            _ = callback(values)
         except ScansorError as error:
             outcomes.append(str(error))
         else:
             outcomes.append("success")
 
     class EarlyReturnAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             monkeypatch.setattr(execution_module, "evaluate_factors", blocked)
             thread = threading.Thread(
                 target=invoke,
@@ -934,7 +1104,7 @@ def test_adapter_return_with_inflight_callback_fails_closed(
             thread.start()
             assert entered.wait(timeout=5)
             with pytest.raises(ScansorError):
-                callback(invocation.initial_values)
+                _ = callback(invocation.initial_values)
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     result = execute(request, factor_set, selection, EarlyReturnAdapter())
@@ -957,33 +1127,40 @@ def test_adapter_return_with_inflight_callback_fails_closed(
     assert replay_execution(result, request, factor_set, selection) == result
 
 
-def test_close_discards_failure_facts_after_first_pending_slot(monkeypatch) -> None:
+def test_close_discards_failure_facts_after_first_pending_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, request = execution_case()
-    original_reserve = execution_module._GuardedCallback._reserve
+    guarded_type = cast(type[object], vars(execution_module)["_GuardedCallback"])
+    original_reserve = cast(Callable[[object], int], vars(guarded_type)["_reserve"])
     first_reserved = threading.Event()
     release_first = threading.Event()
     threads: list[threading.Thread] = []
     outcomes: list[str] = []
 
-    def reserve_inverted(callback):
+    def reserve_inverted(callback: object) -> int:
         sequence = original_reserve(callback)
         if sequence == 0:
             first_reserved.set()
             assert release_first.wait(timeout=5)
         return sequence
 
-    def invoke(callback, values) -> None:
+    def invoke(callback: ResidualJacobianCallback, values: object) -> None:
         try:
-            callback(values)
+            _ = callback(values)
         except ScansorError as error:
             outcomes.append(str(error))
 
     class GapAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
             monkeypatch.setattr(
-                execution_module._GuardedCallback,
+                guarded_type,
                 "_reserve",
                 reserve_inverted,
             )
@@ -996,7 +1173,7 @@ def test_close_discards_failure_facts_after_first_pending_slot(monkeypatch) -> N
             thread.start()
             assert first_reserved.wait(timeout=5)
             with pytest.raises(ScansorError):
-                callback((0.0,))
+                _ = callback((0.0,))
             return backend_response(invocation, NOMINAL_SHAPE, "converged")
 
     result = execute(request, factor_set, selection, GapAdapter())
@@ -1028,27 +1205,14 @@ def test_adapter_exception_is_sanitized_and_replayable() -> None:
 @pytest.mark.parametrize(
     ("mutation", "failure"),
     [
-        (lambda response, _inv: object(), "response-schema-invalid"),
-        (
-            lambda response, _inv: response.model_copy(
-                update={"response_id": "backend-response." + "0" * 64}
-            ),
-            "response-content-id-invalid",
-        ),
-        (
-            lambda response, _inv: wrong_request_response(response),
-            "response-provenance-invalid",
-        ),
-        (
-            lambda response, _inv: backend_response(
-                _inv, response.final_values[:-1], "converged"
-            ),
-            "response-vector-invalid",
-        ),
+        (invalid_response_schema, "response-schema-invalid"),
+        (invalid_response_id, "response-content-id-invalid"),
+        (invalid_response_provenance, "response-provenance-invalid"),
+        (invalid_response_vector, "response-vector-invalid"),
     ],
 )
 def test_untrusted_response_schema_ids_provenance_and_dimensions(
-    mutation, failure: str
+    mutation: Callable[[BackendResponse, AdapterInvocation], object], failure: str
 ) -> None:
     _mapping, factor_set, selection, request = execution_case()
     result = execute(request, factor_set, selection, MaliciousAdapter(mutation))
@@ -1066,7 +1230,7 @@ def test_backend_response_revalidates_stale_invocation() -> None:
         update={"request_id": "execution-request." + "0" * 64}
     )
     with pytest.raises(ScansorError, match="invalid adapter invocation"):
-        backend_response(stale, NOMINAL_SHAPE, "converged")
+        _ = backend_response(stale, NOMINAL_SHAPE, "converged")
 
 
 def test_result_model_rejects_reidentified_invocation_graph_tampering() -> None:
@@ -1076,9 +1240,11 @@ def test_result_model_rejects_reidentified_invocation_graph_tampering() -> None:
     assert result.raw_response is not None
     changed_lower = (request.lower_bounds[0] - 0.001, *request.lower_bounds[1:])
     invocation = reidentified_invocation(result.invocation, lower_bounds=changed_lower)
-    response_values = result.raw_response.model_dump(
-        mode="python", exclude={"response_id"}
-    ) | {"invocation_id": invocation.invocation_id}
+    response_values = cast(
+        dict[str, Any],
+        result.raw_response.model_dump(mode="python", exclude={"response_id"})
+        | {"invocation_id": invocation.invocation_id},
+    )
     provisional_response = BackendResponse.model_construct(
         response_id="", **response_values
     )
@@ -1087,7 +1253,7 @@ def test_result_model_rejects_reidentified_invocation_graph_tampering() -> None:
     )
     response = BackendResponse(**response_values)
     with pytest.raises(ValidationError, match="invocation disagrees"):
-        reidentified_result(
+        _ = reidentified_result(
             result,
             invocation=invocation,
             raw_response=response,
@@ -1097,14 +1263,20 @@ def test_result_model_rejects_reidentified_invocation_graph_tampering() -> None:
 def test_response_container_subclass_is_rejected_without_iteration() -> None:
     _mapping, factor_set, selection, request = execution_case()
 
-    class HostileList(list):
+    class HostileList(list[float]):
+        @override
         def __iter__(self):
             raise RuntimeError("must not iterate")
 
     class HostileResponseAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
+            _ = callback
             response = backend_response(invocation, NOMINAL_SHAPE, "converged")
             values = response.model_dump(mode="python")
             values["final_values"] = HostileList(NOMINAL_SHAPE)
@@ -1121,7 +1293,7 @@ def test_response_container_subclass_is_rejected_without_iteration() -> None:
         ),
     )
     with pytest.raises(ScansorError, match="disposition facts"):
-        replay_execution(forged, request, factor_set, selection)
+        _ = replay_execution(forged, request, factor_set, selection)
 
 
 def test_backend_claims_do_not_supply_objective_or_acceptance() -> None:
@@ -1138,10 +1310,14 @@ def test_final_vector_is_independent_of_last_callback_and_bounds_are_exact() -> 
     _mapping, factor_set, selection, request = execution_case()
 
     class IndependentFinalAdapter:
-        descriptor = request.adapter
+        descriptor: AdapterDescriptor = request.adapter
 
-        def execute(self, invocation, callback):
-            callback(invocation.initial_values)
+        def execute(
+            self,
+            invocation: AdapterInvocation,
+            callback: ResidualJacobianCallback,
+        ) -> object:
+            _ = callback(invocation.initial_values)
             final = list(NOMINAL_SHAPE)
             final[0] = invocation.lower_bounds[0]
             final[1] = invocation.upper_bounds[1]
@@ -1155,7 +1331,9 @@ def test_final_vector_is_independent_of_last_callback_and_bounds_are_exact() -> 
     assert result.normalized_termination.category == "backend-stopped"
 
 
-def test_canonical_result_round_trip_limits_and_tampering(monkeypatch) -> None:
+def test_canonical_result_round_trip_limits_and_tampering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _mapping, factor_set, selection, request = execution_case()
     result = execute(
         request,
@@ -1166,15 +1344,15 @@ def test_canonical_result_round_trip_limits_and_tampering(monkeypatch) -> None:
     data = execution_result_bytes(result)
     assert parse_execution_result(data) == result
     with pytest.raises(ScansorError, match="canonical"):
-        parse_execution_result(data.replace(b"  ", b" ", 1))
+        _ = parse_execution_result(data.replace(b"  ", b" ", 1))
     with pytest.raises(ScansorError, match="duplicate"):
-        parse_execution_result(b'{"x":1,"x":2}\n')
+        _ = parse_execution_result(b'{"x":1,"x":2}\n')
     monkeypatch.setattr(execution_module, "MAX_EXECUTION_RESULT_BYTES", 1)
     with pytest.raises(ScansorError, match="byte limit"):
-        execution_result_bytes(result)
+        _ = execution_result_bytes(result)
     stale = result.model_copy(update={"result_id": "execution-result." + "0" * 64})
     with pytest.raises(ScansorError, match="invalid execution result"):
-        replay_execution(stale, request, factor_set, selection)
+        _ = replay_execution(stale, request, factor_set, selection)
 
 
 def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
@@ -1195,9 +1373,11 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         variant=request.variant,
     )
     out_evaluation = evaluate_factors(factor_set, selection, out_parameters)
-    response_values = result.raw_response.model_dump(
-        mode="python", exclude={"response_id"}
-    ) | {"final_values": out_values}
+    response_values = cast(
+        dict[str, Any],
+        result.raw_response.model_dump(mode="python", exclude={"response_id"})
+        | {"final_values": out_values},
+    )
     provisional_response = BackendResponse.model_construct(
         response_id="", **response_values
     )
@@ -1214,15 +1394,20 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         * math.fsum(value * value for value in out_evaluation.raw_residuals_m),
     )
     with pytest.raises(ScansorError, match="disposition facts"):
-        replay_execution(forged_out, request, factor_set, selection)
+        _ = replay_execution(forged_out, request, factor_set, selection)
 
-    common = {
-        "bound_activity": None,
-        "final_evaluation": None,
-        "final_objective": None,
-        "final_parameters": None,
-        "normalized_termination": NormalizedTermination(category="invalid-response"),
-    }
+    common = cast(
+        dict[str, Any],
+        {
+            "bound_activity": None,
+            "final_evaluation": None,
+            "final_objective": None,
+            "final_parameters": None,
+            "normalized_termination": NormalizedTermination(
+                category="invalid-response"
+            ),
+        },
+    )
     forged_vector = reidentified_result(
         result,
         **common,
@@ -1230,7 +1415,7 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         failures=("response-vector-invalid",),
     )
     with pytest.raises(ScansorError, match="disposition facts"):
-        replay_execution(forged_vector, request, factor_set, selection)
+        _ = replay_execution(forged_vector, request, factor_set, selection)
 
     forged_schema = reidentified_result(
         result,
@@ -1240,7 +1425,7 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         failures=("response-schema-invalid",),
     )
     with pytest.raises(ScansorError, match="disposition facts"):
-        replay_execution(forged_schema, request, factor_set, selection)
+        _ = replay_execution(forged_schema, request, factor_set, selection)
 
     forged_final = reidentified_result(
         result,
@@ -1249,15 +1434,20 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         failures=("final-evaluation-undefined",),
     )
     with pytest.raises(ScansorError, match="disposition facts"):
-        replay_execution(forged_final, request, factor_set, selection)
+        _ = replay_execution(forged_final, request, factor_set, selection)
 
-    evidence_values = {
-        "observations": (
-            CallbackConsistencyObservation(code="callback-reentrant", sequence_id=0),
-        ),
-        "retained_trace_byte_count": 0,
-        "trace_byte_limit": request.callback_trace_byte_limit,
-    }
+    evidence_values = cast(
+        dict[str, Any],
+        {
+            "observations": (
+                CallbackConsistencyObservation(
+                    code="callback-reentrant", sequence_id=0
+                ),
+            ),
+            "retained_trace_byte_count": 0,
+            "trace_byte_limit": request.callback_trace_byte_limit,
+        },
+    )
     provisional_evidence = CallbackConsistencyEvidence.model_construct(
         evidence_id="", **evidence_values
     )
@@ -1268,7 +1458,7 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
         **evidence_values,
     )
     with pytest.raises(ValidationError, match="observation is impossible"):
-        reidentified_result(
+        _ = reidentified_result(
             result,
             **common,
             raw_response=None,
@@ -1283,17 +1473,20 @@ def test_replay_rejects_self_consistent_forged_disposition_facts() -> None:
 
 def test_request_rejects_self_consistent_unknown_factor_selection() -> None:
     _mapping, factor_set, _selection = factor_case()
-    values = {
-        "active_factor_ids": ("factor." + "0" * 64,),
-        "factor_set_id": factor_set.factor_set_id,
-    }
+    values = cast(
+        dict[str, Any],
+        {
+            "active_factor_ids": ("factor." + "0" * 64,),
+            "factor_set_id": factor_set.factor_set_id,
+        },
+    )
     provisional = ActiveFactorSelection.model_construct(selection_id="", **values)
     forged = ActiveFactorSelection(
         selection_id=content_id("selection", provisional, "selection_id"),
         **values,
     )
     with pytest.raises(ScansorError, match="unknown active factor"):
-        create_execution_request(
+        _ = create_execution_request(
             factor_set,
             forged,
             parameters("asymmetric-datum-flat"),
@@ -1321,7 +1514,14 @@ def mapping_with_held_out_cases() -> tuple[MappingResult, bytes]:
     return build_mapping(request, canonical), canonical
 
 
-def completed_for_mapping(mapping: MappingResult):
+def completed_for_mapping(
+    mapping: MappingResult,
+) -> tuple[
+    InstantiatedFactorSet,
+    ActiveFactorSelection,
+    ExecutionRequest,
+    ExecutionResult,
+]:
     factor_set = instantiate_factors(mapping)
     selection = select_active_factors(
         factor_set, tuple(item.factor_id for item in factor_set.factors)
@@ -1376,7 +1576,7 @@ def test_held_out_summary_validation_rejects_reidentified_tampering() -> None:
     )
     for summary in bad_summaries:
         with pytest.raises(ValidationError, match="summary disagrees"):
-            reidentified_assessment(assessment, summary=summary)
+            _ = reidentified_assessment(assessment, summary=summary)
 
     rows = tuple(row for row in assessment.rows if row.outcome != "assigned")
     counts = {
@@ -1398,7 +1598,7 @@ def test_held_out_summary_validation_rejects_reidentified_tampering() -> None:
     )
     assert no_assigned.summary == empty_summary
     with pytest.raises(ValidationError, match="summary disagrees"):
-        reidentified_assessment(
+        _ = reidentified_assessment(
             no_assigned,
             summary=empty_summary.model_copy(
                 update={"count": 1, "mean_raw_residual_m": 0.0}
@@ -1406,11 +1606,13 @@ def test_held_out_summary_validation_rejects_reidentified_tampering() -> None:
         )
 
 
-def test_held_out_evaluation_error_is_separate(monkeypatch) -> None:
+def test_held_out_evaluation_error_is_separate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mapping, _canonical = mapping_with_held_out_cases()
     factor_set, selection, request, result = completed_for_mapping(mapping)
 
-    def fail_evaluation(*args, **kwargs):
+    def fail_evaluation(*_args: object, **_kwargs: object) -> float:
         raise ScansorError("undefined")
 
     monkeypatch.setattr(execution_module, "evaluate_support_residual", fail_evaluation)
@@ -1419,13 +1621,17 @@ def test_held_out_evaluation_error_is_separate(monkeypatch) -> None:
     assert assessment.rows[0].raw_residual_m is None
 
 
-def test_held_out_nonfinite_residual_is_an_evaluation_error(monkeypatch) -> None:
+def test_held_out_nonfinite_residual_is_an_evaluation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mapping, _canonical = mapping_with_held_out_cases()
     factor_set, selection, request, result = completed_for_mapping(mapping)
+
+    def nonfinite_residual(*_args: object, **_kwargs: object) -> float:
+        return math.nan
+
     monkeypatch.setattr(
-        execution_module,
-        "evaluate_support_residual",
-        lambda *args, **kwargs: math.nan,
+        execution_module, "evaluate_support_residual", nonfinite_residual
     )
     assessment = assess_held_out(result, request, factor_set, selection, mapping)
     assert assessment.rows[0].outcome == "evaluation-error"
@@ -1437,7 +1643,7 @@ def test_held_out_wrong_provenance_and_noncompleted_result_are_rejected() -> Non
     factor_set, selection, request, result = completed_for_mapping(mapping)
     other_mapping, _other_set, _other_selection = factor_case("axisymmetric")
     with pytest.raises(ScansorError, match="reconstruct"):
-        assess_held_out(result, request, factor_set, selection, other_mapping)
+        _ = assess_held_out(result, request, factor_set, selection, other_mapping)
 
     ineligible_selection = select_active_factors(factor_set, ())
     ineligible_request = create_execution_request(
@@ -1453,7 +1659,7 @@ def test_held_out_wrong_provenance_and_noncompleted_result_are_rejected() -> Non
         ReturningAdapter(NOMINAL_SHAPE, descriptor=ineligible_request.adapter),
     )
     with pytest.raises(ScansorError, match="completed"):
-        assess_held_out(
+        _ = assess_held_out(
             ineligible,
             ineligible_request,
             factor_set,
@@ -1473,7 +1679,7 @@ def test_held_out_rejects_self_consistent_but_replay_invalid_result() -> None:
     )
     forged = reidentified_result(result, final_parameters=changed)
     with pytest.raises(ScansorError, match="disposition facts"):
-        assess_held_out(forged, request, factor_set, selection, mapping)
+        _ = assess_held_out(forged, request, factor_set, selection, mapping)
 
 
 def test_nominal_support_helper_preserves_mapping_bytes_and_ignores_normals() -> None:
@@ -1518,6 +1724,7 @@ def test_nominal_support_helper_preserves_mapping_bytes_and_ignores_normals() ->
 
 def test_execution_modules_have_pure_import_boundaries() -> None:
     for module in (execution_models_module, execution_module):
+        assert module.__file__ is not None
         source = Path(module.__file__).read_text(encoding="ascii").lower()
         for prohibited in (
             "experiments",
@@ -1538,10 +1745,10 @@ def test_execution_models_reject_semantic_tampering() -> None:
     record = result.model_dump(mode="json")
     record["callback_count"] = 999
     with pytest.raises(ValidationError, match="callback trace"):
-        ExecutionResult.model_validate(record)
+        _ = ExecutionResult.model_validate(record)
     response = result.raw_response
     assert response is not None
     response_record = response.model_dump(mode="json")
     response_record["final_values"][0] += 0.001
     with pytest.raises(ValidationError, match="response ID"):
-        BackendResponse.model_validate(response_record)
+        _ = BackendResponse.model_validate(response_record)

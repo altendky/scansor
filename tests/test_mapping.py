@@ -4,15 +4,19 @@ import io
 import json
 import math
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
+import scansor.files as files_module
 import scansor.mapping_runs as mapping_runs_module
 import scansor.stepped_rotational as mapping_module
 from scansor.errors import ScansorError
+from scansor.files import hash_run_file, rename_no_replace
 from scansor.mapping_models import (
     InputRevision,
     MappingRequest,
@@ -201,7 +205,9 @@ def test_held_out_rows_have_no_training_derived_path() -> None:
         ((1.0, 1.0, 1.0), "gap"),
     ],
 )
-def test_complete_exclusions_publish_as_rejected(point, reason: str) -> None:
+def test_complete_exclusions_publish_as_rejected(
+    point: tuple[float, float, float], reason: str
+) -> None:
     points = [*fixture_points(), point]
     canonical = canonical_bytes(points)
     result = build_mapping(request_for(canonical), canonical)
@@ -262,7 +268,13 @@ def test_missing_regions_and_degeneracy_are_distinct_failures() -> None:
         ((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
     ],
 )
-def test_invalid_rigid_transforms_fail_before_mapping(rotation) -> None:
+def test_invalid_rigid_transforms_fail_before_mapping(
+    rotation: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+) -> None:
     request, canonical = accepted_fixture()
     invalid = request.model_copy(
         update={
@@ -272,9 +284,9 @@ def test_invalid_rigid_transforms_fail_before_mapping(rotation) -> None:
         }
     )
     with pytest.raises(ScansorError, match="rotation"):
-        build_mapping(invalid, canonical)
+        _ = build_mapping(invalid, canonical)
     with pytest.raises(ValidationError, match="scale"):
-        RigidTransform(
+        _ = RigidTransform(
             rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
             scale=0.001,
             translation_m=(0.0, 0.0, 0.0),
@@ -294,7 +306,7 @@ def test_nonfinite_and_revision_mismatch_publish_nothing(tmp_path: Path) -> None
         _ = build_mapping(invalid_request, nonfinite)
     assert not output.exists()
     with pytest.raises(ScansorError, match="SHA-256"):
-        build_mapping(request, canonical + b"x")
+        _ = build_mapping(request, canonical + b"x")
 
 
 def test_finite_transform_overflow_fails_closed() -> None:
@@ -307,7 +319,7 @@ def test_finite_transform_overflow_fails_closed() -> None:
         np.errstate(over="ignore"),
         pytest.raises(ScansorError, match="produced nonfinite"),
     ):
-        build_mapping(request_for(canonical, transform=transform), canonical)
+        _ = build_mapping(request_for(canonical, transform=transform), canonical)
 
 
 def test_contract_and_canonical_serialization_round_trip() -> None:
@@ -325,7 +337,7 @@ def test_contract_and_canonical_serialization_round_trip() -> None:
     bad = request.model_dump()
     bad["held_out_row_indices"] = [2, 1]
     with pytest.raises(ValidationError, match="sorted"):
-        MappingRequest.model_validate(bad)
+        _ = MappingRequest.model_validate(bad)
 
 
 def inspection_mapping_fixture(
@@ -334,7 +346,7 @@ def inspection_mapping_fixture(
 ) -> tuple[Path, MappingResult]:
     fixture = prepare_synthetic_fixture(variant)
     source = tmp_path / "synthetic.ply"
-    source.write_bytes(fixture.source)
+    _ = source.write_bytes(fixture.source)
     inspection_run = tmp_path / "inspection"
     report, canonical = inspect_source(
         InspectJobConfig(
@@ -390,16 +402,16 @@ def test_mapping_publication_replay_and_external_reference(
     assert verify_mapping_run(mapping_run, inspection_run) == result
     assert {item.name: item.read_bytes() for item in inspection_run.iterdir()} == before
     with pytest.raises(ScansorError, match="already exists"):
-        create_mapping_run(mapping_run, inspection_run, result.request)
+        _ = create_mapping_run(mapping_run, inspection_run, result.request)
 
 
 def test_mapping_replay_rejects_corruption_and_wrong_inspection(tmp_path: Path) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     mapping_run = tmp_path / "mapping"
-    create_mapping_run(mapping_run, inspection_run, result.request)
-    (mapping_run / "manifest.sha256").write_bytes(b"0" * 64)
+    _ = create_mapping_run(mapping_run, inspection_run, result.request)
+    _ = (mapping_run / "manifest.sha256").write_bytes(b"0" * 64)
     with pytest.raises(ScansorError, match="sidecar"):
-        verify_mapping_run(mapping_run, inspection_run)
+        _ = verify_mapping_run(mapping_run, inspection_run)
 
 
 def test_mapping_publication_rejects_revision_before_output(tmp_path: Path) -> None:
@@ -410,7 +422,7 @@ def test_mapping_publication_rejects_revision_before_output(tmp_path: Path) -> N
     request = result.request.model_copy(update={"input_revision": wrong_revision})
     output = tmp_path / "mapping"
     with pytest.raises(ScansorError, match="input revision"):
-        create_mapping_run(output, inspection_run, request)
+        _ = create_mapping_run(output, inspection_run, request)
     assert not output.exists()
 
 
@@ -425,7 +437,7 @@ def test_mapping_publication_recomputes_synthetic_provenance(tmp_path: Path) -> 
     request = result.request.model_copy(update={"input_revision": wrong_revision})
     output = tmp_path / "mapping"
     with pytest.raises(ScansorError, match="designated synthetic fixture"):
-        create_mapping_run(output, inspection_run, request)
+        _ = create_mapping_run(output, inspection_run, request)
     assert not output.exists()
 
 
@@ -465,7 +477,7 @@ def test_geometrically_compatible_arbitrary_inspection_cannot_publish(
     )
     output = tmp_path / "mapping"
     with pytest.raises(ScansorError, match="designated synthetic fixture"):
-        create_mapping_run(output, inspection_run, request)
+        _ = create_mapping_run(output, inspection_run, request)
     assert not output.exists()
 
 
@@ -474,7 +486,7 @@ def test_mapping_publication_requires_full_inspection_replay(tmp_path: Path) -> 
     (tmp_path / "synthetic.ply").unlink()
     output = tmp_path / "mapping"
     with pytest.raises(ScansorError, match="replay PLY input"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
 
 
@@ -483,7 +495,7 @@ def test_mapping_output_cannot_modify_inspection_inventory(tmp_path: Path) -> No
     before = {item.name: item.read_bytes() for item in inspection_run.iterdir()}
     output = inspection_run / "mapping"
     with pytest.raises(ScansorError, match="within its inspection tree"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
     assert {item.name: item.read_bytes() for item in inspection_run.iterdir()} == before
 
@@ -494,11 +506,13 @@ def test_mapping_output_rejects_existing_inspection_descendant(tmp_path: Path) -
     nested.mkdir()
     output = nested / "mapping"
     with pytest.raises(ScansorError, match="within its inspection tree"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
 
 
-def test_mapping_row_bound_fails_before_canonical_loading(monkeypatch) -> None:
+def test_mapping_row_bound_fails_before_canonical_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     request, canonical = accepted_fixture()
     oversized_revision = request.input_revision.model_copy(
         update={"canonical_row_count": 20_001}
@@ -506,54 +520,59 @@ def test_mapping_row_bound_fails_before_canonical_loading(monkeypatch) -> None:
     oversized = request.model_copy(update={"input_revision": oversized_revision})
     loaded = False
 
-    def forbidden_load(_data: bytes):
+    def forbidden_load(_data: bytes) -> None:
         nonlocal loaded
         loaded = True
         raise AssertionError("canonical loading must not occur")
 
     monkeypatch.setattr(mapping_module, "load_canonical_npy", forbidden_load)
     with pytest.raises(ScansorError, match="20,000-row"):
-        build_mapping(oversized, canonical)
+        _ = build_mapping(oversized, canonical)
     assert not loaded
 
 
 def test_mapping_publication_enforces_replay_byte_limit(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     monkeypatch.setattr(mapping_runs_module, "MAX_MAPPING_BYTES", 1)
     output = tmp_path / "mapping"
     with pytest.raises(ScansorError, match="byte limit"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
 
 
 def test_mapping_publication_detects_output_replacement(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     output = tmp_path / "mapping"
     moved = tmp_path / "moved-mapping"
-    original = mapping_runs_module.rename_no_replace
+    original = rename_no_replace
 
-    def replace_output(*args, **kwargs):
-        original(*args, **kwargs)
-        output.rename(moved)
+    def replace_output(
+        source_directory_fd: int,
+        source_name: str,
+        target_directory_fd: int,
+        target_name: str,
+    ) -> None:
+        original(source_directory_fd, source_name, target_directory_fd, target_name)
+        _ = output.rename(moved)
         output.mkdir()
-        (output / "marker").write_text("preserve", encoding="ascii")
+        _ = (output / "marker").write_text("preserve", encoding="ascii")
 
     monkeypatch.setattr(mapping_runs_module, "rename_no_replace", replace_output)
     with pytest.raises(ScansorError, match="output path changed"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert (output / "marker").read_text(encoding="ascii") == "preserve"
 
 
 def test_mapping_publication_rechecks_entries_after_hash(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     output = tmp_path / "mapping"
-    original = mapping_runs_module.hash_run_file
+    original = hash_run_file
 
     def replace_after_hash(directory_fd: int, name: str, max_bytes: int):
         hashed = original(directory_fd, name, max_bytes)
@@ -570,7 +589,7 @@ def test_mapping_publication_rechecks_entries_after_hash(
 
     monkeypatch.setattr(mapping_runs_module, "hash_run_file", replace_after_hash)
     with pytest.raises(ScansorError, match="artifact entry changed"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
     stages = list(tmp_path.glob(".mapping.scansor-mapping-stage-*"))
     assert len(stages) == 1
@@ -578,28 +597,38 @@ def test_mapping_publication_rechecks_entries_after_hash(
 
 
 def test_unpublished_unchanged_stage_is_cleaned_after_failure(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     before = {item.name for item in tmp_path.iterdir()}
 
-    def fail_before_publish(*args, **kwargs):
+    def fail_before_publish(
+        _source_directory_fd: int,
+        _source_name: str,
+        _target_directory_fd: int,
+        _target_name: str,
+    ) -> None:
         raise OSError("injected rename failure")
 
     monkeypatch.setattr(mapping_runs_module, "rename_no_replace", fail_before_publish)
     with pytest.raises(ScansorError, match="injected rename failure"):
-        create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
     assert {item.name for item in tmp_path.iterdir()} == before
 
 
 def test_unpublished_cleanup_quarantines_before_deletion(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     quarantines: list[str] = []
-    original_cleanup_rename = mapping_runs_module.files_module.rename_no_replace
+    original_cleanup_rename = rename_no_replace
 
-    def fail_before_publish(*args, **kwargs):
+    def fail_before_publish(
+        _source_directory_fd: int,
+        _source_name: str,
+        _target_directory_fd: int,
+        _target_name: str,
+    ) -> None:
         raise OSError("injected rename failure")
 
     def observe_quarantine(
@@ -617,24 +646,27 @@ def test_unpublished_cleanup_quarantines_before_deletion(
         )
 
     monkeypatch.setattr(mapping_runs_module, "rename_no_replace", fail_before_publish)
-    monkeypatch.setattr(
-        mapping_runs_module.files_module, "rename_no_replace", observe_quarantine
-    )
+    monkeypatch.setattr(files_module, "rename_no_replace", observe_quarantine)
     with pytest.raises(ScansorError, match="injected rename failure"):
-        create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
     assert len(quarantines) == 1
     assert ".quarantine-" in quarantines[0]
     assert not (tmp_path / quarantines[0]).exists()
 
 
 def test_populated_stage_is_restored_and_preserved_after_quarantine_race(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
-    original_cleanup_rename = mapping_runs_module.files_module.rename_no_replace
+    original_cleanup_rename = rename_no_replace
     populated = False
 
-    def fail_before_publish(*args, **kwargs):
+    def fail_before_publish(
+        _source_directory_fd: int,
+        _source_name: str,
+        _target_directory_fd: int,
+        _target_name: str,
+    ) -> None:
         raise OSError("injected rename failure")
 
     def populate_before_quarantine(
@@ -670,12 +702,12 @@ def test_populated_stage_is_restored_and_preserved_after_quarantine_race(
 
     monkeypatch.setattr(mapping_runs_module, "rename_no_replace", fail_before_publish)
     monkeypatch.setattr(
-        mapping_runs_module.files_module,
+        files_module,
         "rename_no_replace",
         populate_before_quarantine,
     )
     with pytest.raises(ScansorError, match="injected rename failure"):
-        create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
     stages = list(tmp_path.glob(".mapping.scansor-mapping-stage-*"))
     assert len(stages) == 1
     assert (stages[0] / "preserve").is_file()
@@ -683,13 +715,15 @@ def test_populated_stage_is_restored_and_preserved_after_quarantine_race(
 
 
 def test_empty_stage_is_cleaned_when_stage_open_fails(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     before = {item.name for item in tmp_path.iterdir()}
-    original = mapping_runs_module.os.open
+    original = os.open
 
-    def fail_stage_open(path, flags, mode=0o777, *, dir_fd=None):
+    def fail_stage_open(
+        path: str | Path, flags: int, mode: int = 0o777, *, dir_fd: int | None = None
+    ) -> int:
         if (
             isinstance(path, str)
             and path.startswith(".mapping.scansor-mapping-stage-")
@@ -698,98 +732,120 @@ def test_empty_stage_is_cleaned_when_stage_open_fails(
             raise PermissionError("injected stage open failure")
         return original(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(mapping_runs_module.os, "open", fail_stage_open)
+    monkeypatch.setattr(os, "open", fail_stage_open)
     with pytest.raises(ScansorError, match="injected stage open failure"):
-        create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
     assert {item.name for item in tmp_path.iterdir()} == before
 
 
 def test_replaced_unopened_stage_and_original_are_preserved(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
-    original = mapping_runs_module.os.open
+    original = os.open
     moved_stage = tmp_path / "moved-stage"
-    replacement: Path | None = None
+    replacements: list[Path] = []
 
-    def replace_stage_before_open(path, flags, mode=0o777, *, dir_fd=None):
-        nonlocal replacement
+    def replace_stage_before_open(
+        path: str | Path, flags: int, mode: int = 0o777, *, dir_fd: int | None = None
+    ) -> int:
         if (
             isinstance(path, str)
             and path.startswith(".mapping.scansor-mapping-stage-")
             and dir_fd is not None
         ):
             stage = tmp_path / path
-            stage.rename(moved_stage)
+            _ = stage.rename(moved_stage)
             stage.mkdir()
-            (stage / "preserve").write_text("replacement", encoding="ascii")
-            replacement = stage
+            _ = (stage / "preserve").write_text("replacement", encoding="ascii")
+            replacements.append(stage)
             raise PermissionError("injected replaced stage open failure")
         return original(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(mapping_runs_module.os, "open", replace_stage_before_open)
+    monkeypatch.setattr(os, "open", replace_stage_before_open)
     with pytest.raises(ScansorError, match="replaced stage open failure"):
-        create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
-    assert replacement is not None
-    assert (replacement / "preserve").read_text(encoding="ascii") == "replacement"
+        _ = create_mapping_run(tmp_path / "mapping", inspection_run, result.request)
+    assert len(replacements) == 1
+    assert (replacements[0] / "preserve").read_text(encoding="ascii") == "replacement"
     assert moved_stage.is_dir()
 
 
 def test_output_parent_move_into_inspection_is_detected(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     output_parent = tmp_path / "output-parent"
     output_parent.mkdir()
     output = output_parent / "mapping"
-    original = mapping_runs_module._verify_mapping_artifacts
+    original = cast(
+        Callable[
+            [
+                int,
+                dict[str, bytes],
+                dict[str, tuple[int, int, int, int, int, int]],
+            ],
+            None,
+        ],
+        vars(mapping_runs_module)["_verify_mapping_artifacts"],
+    )
     moved = False
 
-    def move_parent_after_staging(*args, **kwargs):
+    def move_parent_after_staging(
+        directory_fd: int,
+        artifacts: dict[str, bytes],
+        identities: dict[str, tuple[int, int, int, int, int, int]],
+    ) -> None:
         nonlocal moved
-        original(*args, **kwargs)
+        original(directory_fd, artifacts, identities)
         if not moved:
-            output_parent.rename(inspection_run / "moved-output-parent")
+            _ = output_parent.rename(inspection_run / "moved-output-parent")
             moved = True
 
     monkeypatch.setattr(
         mapping_runs_module, "_verify_mapping_artifacts", move_parent_after_staging
     )
     with pytest.raises(ScansorError, match="output parent changed"):
-        create_mapping_run(output, inspection_run, result.request)
+        _ = create_mapping_run(output, inspection_run, result.request)
     assert not output.exists()
 
 
 def test_output_parent_move_after_rename_rolls_back_exact_output(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     output_parent = tmp_path / "output-parent"
     output_parent.mkdir()
     moved_parent = inspection_run / "moved-output-parent"
-    original = mapping_runs_module.rename_no_replace
+    original = rename_no_replace
 
-    def move_parent_after_rename(*args, **kwargs):
-        original(*args, **kwargs)
-        output_parent.rename(moved_parent)
+    def move_parent_after_rename(
+        source_directory_fd: int,
+        source_name: str,
+        target_directory_fd: int,
+        target_name: str,
+    ) -> None:
+        original(source_directory_fd, source_name, target_directory_fd, target_name)
+        _ = output_parent.rename(moved_parent)
 
     monkeypatch.setattr(
         mapping_runs_module, "rename_no_replace", move_parent_after_rename
     )
     with pytest.raises(ScansorError, match="output parent changed"):
-        create_mapping_run(output_parent / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(
+            output_parent / "mapping", inspection_run, result.request
+        )
     assert moved_parent.is_dir()
     assert list(moved_parent.iterdir()) == []
 
 
 def test_rollback_ignores_occupied_former_stage_name(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     output_parent = tmp_path / "output-parent"
     output_parent.mkdir()
     moved_parent = inspection_run / "moved-output-parent"
-    original = mapping_runs_module.rename_no_replace
+    original = rename_no_replace
     occupied_stage = ""
 
     def occupy_stage_and_move_parent(
@@ -807,30 +863,37 @@ def test_rollback_ignores_occupied_former_stage_name(
         )
         occupied_stage = source_name
         os.mkdir(source_name, dir_fd=source_directory_fd)
-        output_parent.rename(moved_parent)
+        _ = output_parent.rename(moved_parent)
 
     monkeypatch.setattr(
         mapping_runs_module, "rename_no_replace", occupy_stage_and_move_parent
     )
     with pytest.raises(ScansorError, match="output parent changed"):
-        create_mapping_run(output_parent / "mapping", inspection_run, result.request)
+        _ = create_mapping_run(
+            output_parent / "mapping", inspection_run, result.request
+        )
     assert occupied_stage
     assert (moved_parent / occupied_stage).is_dir()
     assert {item.name for item in moved_parent.iterdir()} == {occupied_stage}
 
 
 def test_mapping_verification_detects_root_replacement(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     inspection_run, result = inspection_mapping_fixture(tmp_path)
     mapping_run = tmp_path / "mapping"
-    create_mapping_run(mapping_run, inspection_run, result.request)
+    _ = create_mapping_run(mapping_run, inspection_run, result.request)
     moved = tmp_path / "moved-mapping"
-    original = mapping_runs_module._validate_inspection_revision
+    original = cast(
+        Callable[[MappingRequest, Path, int], tuple[bytes, bytes]],
+        vars(mapping_runs_module)["_validate_inspection_revision"],
+    )
 
-    def replace_root(*args, **kwargs):
-        loaded = original(*args, **kwargs)
-        mapping_run.rename(moved)
+    def replace_root(
+        request: MappingRequest, inspection_path: Path, inspection_fd: int
+    ) -> tuple[bytes, bytes]:
+        loaded = original(request, inspection_path, inspection_fd)
+        _ = mapping_run.rename(moved)
         mapping_run.mkdir()
         return loaded
 
@@ -838,7 +901,7 @@ def test_mapping_verification_detects_root_replacement(
         mapping_runs_module, "_validate_inspection_revision", replace_root
     )
     with pytest.raises(ScansorError, match="run path changed"):
-        verify_mapping_run(mapping_run, inspection_run)
+        _ = verify_mapping_run(mapping_run, inspection_run)
 
 
 def test_persisted_contract_rejects_held_out_leakage() -> None:
@@ -849,22 +912,22 @@ def test_persisted_contract_rejects_held_out_leakage() -> None:
         0
     ].observation_id
     with pytest.raises(ValidationError, match="held-out observation leaked"):
-        MappingResult.model_validate(record)
+        _ = MappingResult.model_validate(record)
 
     row_leak = result.model_dump(mode="json")
     row_leak["candidates"][0]["row_index"] = result.request.held_out_row_indices[0]
     with pytest.raises(ValidationError, match="row index"):
-        MappingResult.model_validate(row_leak)
+        _ = MappingResult.model_validate(row_leak)
 
     forged_rank = result.model_dump(mode="json")
     forged_rank["diagnostics"]["rank_value"] = 0
     with pytest.raises(ValidationError, match="rank diagnostics"):
-        MappingResult.model_validate(forged_rank)
+        _ = MappingResult.model_validate(forged_rank)
 
     wrong_role = result.model_dump(mode="json")
     wrong_role["held_out_observations"][0]["evaluation_state"] = "training-mapped"
     with pytest.raises(ValidationError, match="role and evaluation state"):
-        MappingResult.model_validate(wrong_role)
+        _ = MappingResult.model_validate(wrong_role)
 
 
 def test_pure_mapping_module_has_no_experiment_cad_or_filesystem_imports() -> None:
