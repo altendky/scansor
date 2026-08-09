@@ -3,10 +3,11 @@ from __future__ import annotations
 import io
 import math
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 import scansor.factor_models as factor_models_module
 import scansor.stepped_rotational_factors as factors_module
@@ -20,6 +21,8 @@ from scansor.factor_models import (
     InstantiatedFactorSet,
     ParameterVector,
     PreflightDiagnostics,
+    Problem,
+    Variant,
     content_id,
 )
 from scansor.mapping_models import MappingResult
@@ -39,7 +42,7 @@ FINITE_DIFFERENCE_ABSOLUTE_TOLERANCE = 2e-8
 
 
 def factor_case(
-    variant: str = "asymmetric-datum-flat", *, normals: bool = False
+    variant: Variant = "asymmetric-datum-flat", *, normals: bool = False
 ) -> tuple[MappingResult, InstantiatedFactorSet, ActiveFactorSelection]:
     asymmetric = variant == "asymmetric-datum-flat"
     points = fixture_points(asymmetric=asymmetric)
@@ -61,8 +64,8 @@ def factor_case(
 
 
 def parameters(
-    variant: str,
-    problem: str = "fixed-pose-shape",
+    variant: Variant,
+    problem: Problem = "fixed-pose-shape",
     values: tuple[float, ...] | None = None,
 ) -> ParameterVector:
     if problem == "fixed-pose-shape":
@@ -83,7 +86,7 @@ def parameters(
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
 def test_declaration_instantiation_activation_and_schema_round_trips(
-    variant: str,
+    variant: Variant,
 ) -> None:
     mapping, factor_set, selection = factor_case(variant)
     assert mapping.instantiated_factors is None
@@ -117,15 +120,15 @@ def test_activation_is_explicit_and_rejects_unknown_duplicate_and_reordered_ids(
     ids = tuple(factor.factor_id for factor in factor_set.factors)
     assert select_active_factors(factor_set, ()).active_factor_ids == ()
     with pytest.raises(ScansorError, match="unique"):
-        select_active_factors(factor_set, (ids[0], ids[0]))
+        _ = select_active_factors(factor_set, (ids[0], ids[0]))
     with pytest.raises(ScansorError, match="unknown"):
-        select_active_factors(factor_set, ("factor." + "0" * 64,))
+        _ = select_active_factors(factor_set, ("factor." + "0" * 64,))
     with pytest.raises(ScansorError, match="relative order"):
-        select_active_factors(factor_set, (ids[1], ids[0]))
+        _ = select_active_factors(factor_set, (ids[1], ids[0]))
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_nominal_residuals_and_shape_jacobians_are_exact(variant: str) -> None:
+def test_nominal_residuals_and_shape_jacobians_are_exact(variant: Variant) -> None:
     _mapping, factor_set, selection = factor_case(variant)
     evaluation = evaluate_factors(factor_set, selection, parameters(variant))
     assert evaluation.raw_residuals_m == (0.0,) * len(factor_set.factors)
@@ -148,7 +151,7 @@ def test_nominal_residuals_and_shape_jacobians_are_exact(variant: str) -> None:
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_test_only_numpy_least_squares_recovers_shape(variant: str) -> None:
+def test_test_only_numpy_least_squares_recovers_shape(variant: Variant) -> None:
     _mapping, factor_set, selection = factor_case(variant)
     truth = np.asarray(NOMINAL_SHAPE[: 7 if variant == "asymmetric-datum-flat" else 6])
     initial = truth + np.array(
@@ -169,7 +172,7 @@ def numerical_pose_jacobian(
     selection: ActiveFactorSelection,
     center: np.ndarray,
 ) -> np.ndarray:
-    columns = []
+    columns: list[np.ndarray] = []
     for index in range(6):
         delta = np.zeros(6)
         delta[index] = FINITE_DIFFERENCE_STEP
@@ -209,7 +212,7 @@ def numerical_pose_jacobian(
     ],
 )
 def test_pose_jacobian_matches_independent_finite_differences(
-    variant: str, center: tuple[float, ...]
+    variant: Variant, center: tuple[float, ...]
 ) -> None:
     _mapping, factor_set, selection = factor_case(variant)
     analytic = evaluate_factors(
@@ -236,7 +239,7 @@ def test_pose_jacobian_matches_independent_finite_differences(
     ],
 )
 def test_nominal_preflight_coverage_rank_and_expected_gauge(
-    variant: str, problem: str, expected_rank: int
+    variant: Variant, problem: Problem, expected_rank: int
 ) -> None:
     _mapping, factor_set, selection = factor_case(variant)
     diagnostic = preflight_factors(factor_set, selection, parameters(variant, problem))
@@ -323,20 +326,22 @@ def test_axisymmetric_five_factor_rank_five_uses_complete_roll_nullspace() -> No
 
 
 def test_axisymmetric_gauge_svd_failure_returns_stable_diagnostic(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _mapping, factor_set, selection = factor_case("axisymmetric")
-    original = factors_module.np.linalg.svd
+    original = np.linalg.svd
     calls = 0
 
-    def fail_second_svd(*args, **kwargs):
+    def fail_second_svd(
+        array: np.ndarray, *, full_matrices: bool = True, compute_uv: bool = True
+    ) -> object:
         nonlocal calls
         calls += 1
         if calls == 2:
             raise np.linalg.LinAlgError("injected gauge SVD failure")
-        return original(*args, **kwargs)
+        return original(array, full_matrices=full_matrices, compute_uv=compute_uv)
 
-    monkeypatch.setattr(factors_module.np.linalg, "svd", fail_second_svd)
+    monkeypatch.setattr(np.linalg, "svd", fail_second_svd)
     diagnostic = preflight_factors(
         factor_set,
         selection,
@@ -347,7 +352,7 @@ def test_axisymmetric_gauge_svd_failure_returns_stable_diagnostic(
 
 
 def test_rank_deficiency_and_gauge_svd_failure_use_canonical_code_order(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _mapping, factor_set, _selection = factor_case("axisymmetric")
     ids = tuple(
@@ -358,17 +363,19 @@ def test_rank_deficiency_and_gauge_svd_failure_use_canonical_code_order(
         if declaration.element_id == "cylinder.band-1"
     )
     selection = select_active_factors(factor_set, ids)
-    original = factors_module.np.linalg.svd
+    original = np.linalg.svd
     calls = 0
 
-    def fail_second_svd(*args, **kwargs):
+    def fail_second_svd(
+        array: np.ndarray, *, full_matrices: bool = True, compute_uv: bool = True
+    ) -> object:
         nonlocal calls
         calls += 1
         if calls == 2:
             raise np.linalg.LinAlgError("injected gauge SVD failure")
-        return original(*args, **kwargs)
+        return original(array, full_matrices=full_matrices, compute_uv=compute_uv)
 
-    monkeypatch.setattr(factors_module.np.linalg, "svd", fail_second_svd)
+    monkeypatch.setattr(np.linalg, "svd", fail_second_svd)
     diagnostic = preflight_factors(
         factor_set,
         selection,
@@ -400,7 +407,7 @@ def test_bounds_and_structural_geometry_are_distinct_failures() -> None:
         "parameter-out-of-bounds",
     )
     with pytest.raises(ValidationError, match="finite"):
-        parameters(
+        _ = parameters(
             "asymmetric-datum-flat",
             values=(np.nan, *NOMINAL_SHAPE[1:]),
         )
@@ -420,14 +427,17 @@ def replace_factor_point(
     )
     changed_factors = list(factor_set.factors)
     changed_factors[index] = replacement
-    set_values = {
-        "contract": factor_set.contract,
-        "declarations": factor_set.declarations,
-        "factors": tuple(changed_factors),
-        "mapping_run_id": factor_set.mapping_run_id,
-        "source_mapping_disposition": factor_set.source_mapping_disposition,
-        "variant": factor_set.variant,
-    }
+    set_values = cast(
+        dict[str, Any],
+        {
+            "contract": factor_set.contract,
+            "declarations": factor_set.declarations,
+            "factors": tuple(changed_factors),
+            "mapping_run_id": factor_set.mapping_run_id,
+            "source_mapping_disposition": factor_set.source_mapping_disposition,
+            "variant": factor_set.variant,
+        },
+    )
     provisional_set = InstantiatedFactorSet.model_construct(
         factor_set_id="", **set_values
     )
@@ -449,7 +459,7 @@ def test_radial_axis_evaluation_is_explicitly_undefined() -> None:
         changed, tuple(factor.factor_id for factor in changed.factors)
     )
     with pytest.raises(ScansorError, match="radial zero"):
-        evaluate_factors(changed, changed_selection, parameters("axisymmetric"))
+        _ = evaluate_factors(changed, changed_selection, parameters("axisymmetric"))
     diagnostic = preflight_factors(
         changed, changed_selection, parameters("axisymmetric")
     )
@@ -483,14 +493,14 @@ def test_rejected_source_mapping_cannot_instantiate() -> None:
     rejected = build_mapping(request_for(canonical), canonical)
     assert rejected.disposition == "rejected"
     with pytest.raises(ScansorError, match="rejected source mapping"):
-        instantiate_factors(rejected)
+        _ = instantiate_factors(rejected)
 
 
 def test_public_apis_revalidate_stale_model_copies() -> None:
     mapping, factor_set, selection = factor_case()
     stale_mapping = mapping.model_copy(update={"mapping_run_id": "0" * 64})
     with pytest.raises(ScansorError, match="invalid mapping result"):
-        instantiate_factors(stale_mapping)
+        _ = instantiate_factors(stale_mapping)
 
     stale_factor = factor_set.factors[0].model_copy(
         update={"point_model_m": (9.0, 8.0, 7.0)}
@@ -499,13 +509,13 @@ def test_public_apis_revalidate_stale_model_copies() -> None:
         update={"factors": (stale_factor, *factor_set.factors[1:])}
     )
     with pytest.raises(ScansorError, match="invalid instantiated factor set"):
-        select_active_factors(stale_set, ())
+        _ = select_active_factors(stale_set, ())
 
     stale_selection = selection.model_copy(
         update={"active_factor_ids": tuple(reversed(selection.active_factor_ids))}
     )
     with pytest.raises(ScansorError, match="invalid active-factor selection"):
-        evaluate_factors(
+        _ = evaluate_factors(
             factor_set, stale_selection, parameters("asymmetric-datum-flat")
         )
 
@@ -513,7 +523,7 @@ def test_public_apis_revalidate_stale_model_copies() -> None:
         update={"values": (math.nan, *NOMINAL_SHAPE[1:])}
     )
     with pytest.raises(ScansorError, match="invalid parameter vector"):
-        preflight_factors(factor_set, selection, stale_parameters)
+        _ = preflight_factors(factor_set, selection, stale_parameters)
 
 
 def test_valid_held_out_revision_changes_do_not_change_numerical_behavior() -> None:
@@ -567,7 +577,9 @@ def test_valid_held_out_revision_changes_do_not_change_numerical_behavior() -> N
 def reidentified_declaration(
     declaration: FactorDeclaration, **updates: object
 ) -> FactorDeclaration:
-    values = declaration.model_dump(exclude={"declaration_id"}) | updates
+    values = cast(
+        dict[str, Any], declaration.model_dump(exclude={"declaration_id"}) | updates
+    )
     provisional = FactorDeclaration.model_construct(declaration_id="", **values)
     return FactorDeclaration(
         declaration_id=content_id("declaration", provisional, "declaration_id"),
@@ -578,9 +590,10 @@ def reidentified_declaration(
 def reidentified_factor(
     factor: InstantiatedFactor, declaration_id: str
 ) -> InstantiatedFactor:
-    values = factor.model_dump(exclude={"factor_id"}) | {
-        "declaration_id": declaration_id
-    }
+    values = cast(
+        dict[str, Any],
+        factor.model_dump(exclude={"factor_id"}) | {"declaration_id": declaration_id},
+    )
     provisional = InstantiatedFactor.model_construct(factor_id="", **values)
     return InstantiatedFactor(
         factor_id=content_id("factor", provisional, "factor_id"), **values
@@ -592,14 +605,17 @@ def reidentified_factor_set(
     declarations: tuple[FactorDeclaration, ...],
     factors: tuple[InstantiatedFactor, ...],
 ) -> InstantiatedFactorSet:
-    values = {
-        "contract": factor_set.contract,
-        "declarations": declarations,
-        "factors": factors,
-        "mapping_run_id": factor_set.mapping_run_id,
-        "source_mapping_disposition": factor_set.source_mapping_disposition,
-        "variant": factor_set.variant,
-    }
+    values = cast(
+        dict[str, Any],
+        {
+            "contract": factor_set.contract,
+            "declarations": declarations,
+            "factors": factors,
+            "mapping_run_id": factor_set.mapping_run_id,
+            "source_mapping_disposition": factor_set.source_mapping_disposition,
+            "variant": factor_set.variant,
+        },
+    )
     provisional = InstantiatedFactorSet.model_construct(factor_set_id="", **values)
     return InstantiatedFactorSet(
         factor_set_id=content_id("factor-set", provisional, "factor_set_id"),
@@ -627,7 +643,7 @@ def test_factor_set_rejects_reidentified_duplicate_source_ids(
     declarations[1] = replacement
     factors[1] = reidentified_factor(factors[1], replacement.declaration_id)
     with pytest.raises(ValidationError, match=message):
-        reidentified_factor_set(factor_set, tuple(declarations), tuple(factors))
+        _ = reidentified_factor_set(factor_set, tuple(declarations), tuple(factors))
 
 
 @pytest.mark.parametrize("field", ["mapping_content_sha256", "mapping_request_sha256"])
@@ -639,7 +655,7 @@ def test_factor_set_rejects_mixed_revision_provenance(field: str) -> None:
     declarations[1] = mixed
     factors[1] = reidentified_factor(factors[1], mixed.declaration_id)
     with pytest.raises(ValidationError, match="mix mapping revisions"):
-        reidentified_factor_set(factor_set, tuple(declarations), tuple(factors))
+        _ = reidentified_factor_set(factor_set, tuple(declarations), tuple(factors))
 
 
 def test_factor_set_rejects_duplicate_and_reordered_graphs() -> None:
@@ -647,14 +663,14 @@ def test_factor_set_rejects_duplicate_and_reordered_graphs() -> None:
     duplicate_declarations = list(factor_set.declarations)
     duplicate_declarations[1] = duplicate_declarations[0]
     with pytest.raises(ValidationError, match="duplicate factor declaration ID"):
-        reidentified_factor_set(
+        _ = reidentified_factor_set(
             factor_set, tuple(duplicate_declarations), factor_set.factors
         )
 
     duplicate_factors = list(factor_set.factors)
     duplicate_factors[1] = duplicate_factors[0]
     with pytest.raises(ValidationError, match="duplicate instantiated factor ID"):
-        reidentified_factor_set(
+        _ = reidentified_factor_set(
             factor_set, factor_set.declarations, tuple(duplicate_factors)
         )
 
@@ -669,7 +685,9 @@ def test_factor_set_rejects_duplicate_and_reordered_graphs() -> None:
         *factor_set.factors[2:],
     )
     with pytest.raises(ValidationError, match="mapping-relative row order"):
-        reidentified_factor_set(factor_set, reordered_declarations, reordered_factors)
+        _ = reidentified_factor_set(
+            factor_set, reordered_declarations, reordered_factors
+        )
 
 
 def test_asymmetric_nonzero_pose_preflight_remains_full_rank() -> None:
@@ -721,9 +739,11 @@ def test_nonzero_z_rotation_datum_derivative_matches_closed_form_oracle() -> Non
         (PreflightDiagnostics, "preflight_id", "preflight ID"),
     ],
 )
-def test_content_tampering_is_rejected(model, field: str, message: str) -> None:
+def test_content_tampering_is_rejected(
+    model: type[BaseModel], field: str, message: str
+) -> None:
     _mapping, factor_set, selection = factor_case()
-    records = {
+    records: dict[type[BaseModel], BaseModel] = {
         InstantiatedFactorSet: factor_set,
         ActiveFactorSelection: selection,
         FactorEvaluation: evaluate_factors(
@@ -736,7 +756,7 @@ def test_content_tampering_is_rejected(model, field: str, message: str) -> None:
     value = records[model].model_dump(mode="json")
     value[field] = value[field][:-1] + ("0" if value[field][-1] != "0" else "1")
     with pytest.raises(ValidationError, match=message):
-        model.model_validate(value)
+        _ = model.model_validate(value)
 
 
 def test_semantically_malformed_records_fail_validation() -> None:
@@ -744,20 +764,20 @@ def test_semantically_malformed_records_fail_validation() -> None:
     declaration = factor_set.declarations[0].model_dump(mode="json")
     declaration["factor_kind"] = "datum-planar"
     with pytest.raises(ValidationError, match="kind disagrees"):
-        FactorDeclaration.model_validate(declaration)
+        _ = FactorDeclaration.model_validate(declaration)
     evaluation = evaluate_factors(
         factor_set, selection, parameters("asymmetric-datum-flat")
     ).model_dump(mode="json")
     evaluation["unit_factor_weight"] = 2.0
     with pytest.raises(ValidationError, match="less_than_equal"):
-        FactorEvaluation.model_validate(evaluation)
+        _ = FactorEvaluation.model_validate(evaluation)
     diagnostic = preflight_factors(
         factor_set, selection, parameters("asymmetric-datum-flat")
     ).model_dump(mode="json")
     diagnostic["failure_codes"] = ["rank-deficient", "missing-active-elements"]
     diagnostic["eligible_for_optimization"] = False
     with pytest.raises(ValidationError, match="out of order"):
-        PreflightDiagnostics.model_validate(diagnostic)
+        _ = PreflightDiagnostics.model_validate(diagnostic)
 
 
 def test_preflight_nested_records_are_immutable() -> None:
@@ -771,6 +791,7 @@ def test_preflight_nested_records_are_immutable() -> None:
 
 def test_factor_module_import_boundary() -> None:
     for module in (factor_models_module, factors_module):
+        assert module.__file__ is not None
         source = Path(module.__file__).read_text(encoding="ascii").lower()
         for prohibited in (
             "experiments",

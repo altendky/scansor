@@ -3,25 +3,39 @@ from __future__ import annotations
 import builtins
 import json
 from pathlib import Path
+from typing import Literal, TypedDict, cast
 
 import pytest
 
 import scansor.execution_runs as execution_runs_module
 from scansor import cli
+from scansor.cli_models import ActivationPolicy
+from scansor.execution_models import AdapterInvocation
 from scansor.execution_runs import verify_execution_run
-from scansor.factor_models import NOMINAL_SHAPE
+from scansor.factor_models import NOMINAL_SHAPE, Problem, Variant
 from scansor.mapping_runs import verify_mapping_run
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
-from scansor.stepped_rotational_execution import backend_response
+from scansor.stepped_rotational_execution import (
+    ResidualJacobianCallback,
+    backend_response,
+)
 from scansor.stepped_rotational_factors import instantiate_factors
+from scansor.stepped_rotational_numpy_backend import SteppedRotationalNumpyBackend
 from scansor.synthetic_fixture import FIXTURE_FRAME, prepare_synthetic_fixture
 from tests.test_cli import run_cli
 
+ReportedTermination = Literal["converged", "limit", "stopped", "failure", "unknown"]
 
-def write_inspection(tmp_path: Path, variant: str) -> Path:
-    fixture = prepare_synthetic_fixture(variant)  # type: ignore[arg-type]
+
+class _ActivationMutation(TypedDict):
+    activation_policy: ActivationPolicy
+    ids: tuple[str, ...] | None
+
+
+def write_inspection(tmp_path: Path, variant: Variant) -> Path:
+    fixture = prepare_synthetic_fixture(variant)
     source = tmp_path / f"{variant}.ply"
-    source.write_bytes(fixture.source)
+    _ = source.write_bytes(fixture.source)
     inspection = tmp_path / f"{variant}-inspection"
     completed = run_cli(
         tmp_path,
@@ -41,12 +55,12 @@ def map_config(
     path: Path,
     inspection: Path,
     output: Path,
-    variant: str,
+    variant: Variant,
     *,
     minimum_region_samples: int = 3,
 ) -> Path:
-    fixture = prepare_synthetic_fixture(variant)  # type: ignore[arg-type]
-    path.write_text(
+    fixture = prepare_synthetic_fixture(variant)
+    _ = path.write_text(
         "\n".join(
             (
                 "[scansor]",
@@ -82,7 +96,7 @@ def map_config(
 
 def publish_mapping(
     tmp_path: Path,
-    variant: str,
+    variant: Variant,
     *,
     minimum_region_samples: int = 3,
 ) -> tuple[Path, Path]:
@@ -107,8 +121,8 @@ def fit_config(
     inspection: Path,
     mapping: Path,
     output: Path,
-    variant: str,
-    problem: str,
+    variant: Variant,
+    problem: Problem,
     initial: tuple[float, ...],
     *,
     activation_policy: str = "all-instantiated-primary-training-v0",
@@ -130,27 +144,27 @@ def fit_config(
     ]
     if active_factor_ids is not None:
         lines.append("active_factor_ids = " + json.dumps(active_factor_ids))
-    path.write_text("\n".join(lines) + "\n", encoding="ascii")
+    _ = path.write_text("\n".join(lines) + "\n", encoding="ascii")
     return path
 
 
 def rewrite_execution_artifact(run: Path, name: str, data: bytes) -> None:
     manifest_path = run / "manifest.json"
     manifest = parse_canonical_json(manifest_path.read_bytes(), "manifest", 1024 * 1024)
-    (run / name).write_bytes(data)
+    _ = (run / name).write_bytes(data)
     manifest["artifacts"][name] = {
         "byte_count": len(data),
         "sha256": sha256(data),
     }
     manifest_bytes = canonical_json(manifest)
-    manifest_path.write_bytes(manifest_bytes)
-    (run / "manifest.sha256").write_bytes(
+    _ = manifest_path.write_bytes(manifest_bytes)
+    _ = (run / "manifest.sha256").write_bytes(
         f"{sha256(manifest_bytes)}  manifest.json\n".encode("ascii")
     )
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_map_and_verify_mapping_are_read_only(tmp_path: Path, variant: str) -> None:
+def test_map_and_verify_mapping_are_read_only(tmp_path: Path, variant: Variant) -> None:
     inspection, mapping = publish_mapping(tmp_path, variant)
     before = {
         root: {
@@ -179,7 +193,7 @@ def test_map_and_verify_mapping_are_read_only(tmp_path: Path, variant: str) -> N
 
 
 def test_fixture_identity_oracles_are_pinned_independently() -> None:
-    expected = {
+    expected: dict[Variant, tuple[int, tuple[int, ...], str, str, str]] = {
         "axisymmetric": (
             647,
             (21,),
@@ -196,7 +210,7 @@ def test_fixture_identity_oracles_are_pinned_independently() -> None:
         ),
     }
     for variant, values in expected.items():
-        fixture = prepare_synthetic_fixture(variant)  # type: ignore[arg-type]
+        fixture = prepare_synthetic_fixture(variant)
         assert (
             len(fixture.source),
             fixture.held_out_row_indices,
@@ -231,7 +245,7 @@ def test_map_rejects_wrong_semantic_assertions_without_publication(
     config = map_config(tmp_path / "map.toml", inspection, output, "axisymmetric")
     contents = config.read_text(encoding="ascii")
     assert old in contents
-    config.write_text(contents.replace(old, new), encoding="ascii")
+    _ = config.write_text(contents.replace(old, new), encoding="ascii")
     completed = run_cli(tmp_path, "--config", str(config), "map")
     assert completed.returncode == 2
     assert "Traceback" not in completed.stderr
@@ -247,7 +261,7 @@ def test_map_requires_every_threshold_and_publishes_nothing_when_one_is_omitted(
     contents = config.read_text(encoding="ascii")
     required = "transform_tolerance = 1e-10\n"
     assert required in contents
-    config.write_text(contents.replace(required, ""), encoding="ascii")
+    _ = config.write_text(contents.replace(required, ""), encoding="ascii")
 
     completed = run_cli(tmp_path, "--config", str(config), "map")
     assert completed.returncode == 2
@@ -273,7 +287,7 @@ def test_rejected_mapping_is_published_with_exit_three_and_verifies(
     "problem", ["fixed-pose-shape", "fixed-geometry-pose-correction"]
 )
 def test_fit_and_verify_fit_for_both_variants_and_problems(
-    tmp_path: Path, variant: str, problem: str
+    tmp_path: Path, variant: Variant, problem: Problem
 ) -> None:
     inspection, mapping = publish_mapping(tmp_path, variant)
     size = 7 if variant == "asymmetric-datum-flat" else 6
@@ -443,31 +457,36 @@ def test_stopped_failure_and_execution_failure_statuses_are_separate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    reported: str,
+    reported: Literal["stopped", "failure", "unknown", "raised", "invalid", "callback"],
 ) -> None:
     inspection, mapping = publish_mapping(tmp_path, "asymmetric-datum-flat")
     output = tmp_path / reported
 
-    def terminate(self, invocation, callback):
+    def terminate(
+        _self: object,
+        invocation: AdapterInvocation,
+        callback: ResidualJacobianCallback,
+    ) -> object:
         if reported == "raised":
             raise RuntimeError("test adapter failure")
         if reported == "invalid":
             return object()
         if reported == "callback":
-            callback((0.0,))
+            _ = callback((0.0,))
             raise AssertionError("rejected callback returned")
+        normalized_reported = cast(ReportedTermination, reported)
         return backend_response(
             invocation,
             invocation.initial_values,
-            reported,  # type: ignore[arg-type]
+            normalized_reported,
             raw_code=f"test-{reported}",
         )
 
-    monkeypatch.setattr(
-        execution_runs_module.SteppedRotationalNumpyBackend,
-        "execute",
-        terminate,
+    backend_type = cast(
+        type[SteppedRotationalNumpyBackend],
+        vars(execution_runs_module)["SteppedRotationalNumpyBackend"],
     )
+    monkeypatch.setattr(backend_type, "execute", terminate)
 
     class FitApp:
         @staticmethod
@@ -503,6 +522,7 @@ def test_stopped_failure_and_execution_failure_statuses_are_separate(
     assert f"quality assessment: {expected_quality}" in captured.out
     assert output.is_dir()
     records = verify_execution_run(output, inspection, mapping)
+    assert records.manifest is not None
     expected_execution = {
         "raised": "failed",
         "callback": "failed",
@@ -522,7 +542,6 @@ def test_stopped_failure_and_execution_failure_statuses_are_separate(
         str(mapping),
     )
     assert verified.returncode == 0, verified.stderr
-    assert records.manifest is not None
     assert verified.stdout.splitlines() == [
         f"execution: {expected_execution} ({records.manifest.execution_run_id})",
         f"termination: {expected}",
@@ -547,7 +566,7 @@ def test_verify_fit_cannot_invoke_backend(
     )
     assert run_cli(tmp_path, "--config", str(config), "fit").returncode == 0
 
-    def forbidden(*args: object, **kwargs: object) -> object:
+    def forbidden(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("verification invoked the backend")
 
     monkeypatch.setattr(
@@ -587,7 +606,7 @@ def test_pipeline_precedence_unknowns_and_collection_environment(
     assert completed.returncode == 0, completed.stderr
 
     bad = tmp_path / "bad.toml"
-    bad.write_text("[scansor]\nunknown_pipeline_field = 1\n", encoding="ascii")
+    _ = bad.write_text("[scansor]\nunknown_pipeline_field = 1\n", encoding="ascii")
     failed = run_cli(tmp_path, "--config", str(bad), "map")
     assert failed.returncode == 2
     assert "unknown TOML setting" in failed.stderr
@@ -644,7 +663,7 @@ def test_collection_sources_replace_in_precedence_order(tmp_path: Path) -> None:
         "rotation_row_1 = [1.0, 0.0, 0.0]",
         "rotation_row_1 = [0.0, 1.0, 0.0]",
     )
-    environment_config.write_text(contents, encoding="ascii")
+    _ = environment_config.write_text(contents, encoding="ascii")
     completed = run_cli(
         tmp_path,
         "--config",
@@ -764,7 +783,7 @@ def test_verifiers_ignore_malformed_known_irrelevant_configuration(
     tmp_path: Path, command: str
 ) -> None:
     config = tmp_path / "irrelevant.toml"
-    config.write_text(
+    _ = config.write_text(
         '[scansor]\nrotation_row_1 = ["not", "numeric"]\n', encoding="ascii"
     )
     completed = run_cli(
@@ -794,7 +813,7 @@ def test_mutating_commands_reject_recognized_wrong_command_settings(
     environment: dict[str, str],
 ) -> None:
     config = tmp_path / f"{command}.toml"
-    config.write_text(f"[scansor]\n{toml_setting}\n", encoding="ascii")
+    _ = config.write_text(f"[scansor]\n{toml_setting}\n", encoding="ascii")
     completed = run_cli(tmp_path, "--config", str(config), command)
     assert completed.returncode == 2
     assert "TOML setting(s) not valid for this command" in completed.stderr
@@ -814,7 +833,7 @@ def test_mutating_commands_reject_recognized_wrong_command_settings(
     ],
 )
 def test_activation_policy_conflicts_fail_without_publication(
-    tmp_path: Path, mutation: dict[str, object]
+    tmp_path: Path, mutation: _ActivationMutation
 ) -> None:
     inspection, mapping = publish_mapping(tmp_path, "axisymmetric")
     output = tmp_path / "execution"
@@ -826,8 +845,8 @@ def test_activation_policy_conflicts_fail_without_publication(
         "axisymmetric",
         "fixed-pose-shape",
         NOMINAL_SHAPE[:6],
-        activation_policy=str(mutation["activation_policy"]),
-        active_factor_ids=mutation["ids"],  # type: ignore[arg-type]
+        activation_policy=mutation["activation_policy"],
+        active_factor_ids=mutation["ids"],
     )
     completed = run_cli(tmp_path, "--config", str(config), "fit")
     assert completed.returncode == 2
@@ -877,7 +896,7 @@ def test_invalid_vectors_paths_no_overwrite_and_tampering(tmp_path: Path) -> Non
     assert repeated.returncode == 2
     assert "already exists" in repeated.stderr
 
-    (output / "manifest.sha256").write_bytes(b"0" * 64)
+    _ = (output / "manifest.sha256").write_bytes(b"0" * 64)
     verified = run_cli(
         tmp_path,
         "verify-fit",
@@ -894,7 +913,7 @@ def test_missing_initial_vector_and_mapping_output_overlap_fail_before_publicati
 ) -> None:
     inspection, mapping = publish_mapping(tmp_path, "axisymmetric")
     missing = tmp_path / "missing.toml"
-    missing.write_text(
+    _ = missing.write_text(
         "\n".join(
             (
                 "[scansor]",
@@ -937,9 +956,9 @@ def test_verify_mapping_rejects_malformed_noncanonical_oversized_and_extra(
     manifest_path = mapping / "manifest.json"
     sidecar_path = mapping / "manifest.sha256"
     if corruption == "unexpected":
-        (mapping / "unexpected").write_bytes(b"")
+        _ = (mapping / "unexpected").write_bytes(b"")
     elif corruption == "oversized":
-        mapping_path.write_bytes(b" " * (32 * 1024 * 1024 + 1))
+        _ = mapping_path.write_bytes(b" " * (32 * 1024 * 1024 + 1))
     else:
         original = parse_canonical_json(
             mapping_path.read_bytes(), "mapping", 32 * 1024 * 1024
@@ -948,7 +967,7 @@ def test_verify_mapping_rejects_malformed_noncanonical_oversized_and_extra(
             mapping_bytes = b'{"x":1,"x":2}\n'
         else:
             mapping_bytes = json.dumps(original, sort_keys=True).encode("ascii") + b"\n"
-        mapping_path.write_bytes(mapping_bytes)
+        _ = mapping_path.write_bytes(mapping_bytes)
         manifest = parse_canonical_json(
             manifest_path.read_bytes(), "manifest", 32 * 1024 * 1024
         )
@@ -957,8 +976,8 @@ def test_verify_mapping_rejects_malformed_noncanonical_oversized_and_extra(
             "sha256": sha256(mapping_bytes),
         }
         manifest_bytes = canonical_json(manifest)
-        manifest_path.write_bytes(manifest_bytes)
-        sidecar_path.write_bytes(
+        _ = manifest_path.write_bytes(manifest_bytes)
+        _ = sidecar_path.write_bytes(
             f"{sha256(manifest_bytes)}  manifest.json\n".encode("ascii")
         )
     completed = run_cli(
@@ -998,11 +1017,11 @@ def test_verify_fit_rejects_bounded_execution_artifact_corruptions(
         "inconsistent",
     ):
         for name, data in original.items():
-            (execution / name).write_bytes(data)
+            _ = (execution / name).write_bytes(data)
         if corruption == "malformed":
             rewrite_execution_artifact(execution, "result.json", b'{"x":1,"x":2}\n')
         elif corruption == "tampered":
-            (execution / "result.json").write_bytes(result + b"x")
+            _ = (execution / "result.json").write_bytes(result + b"x")
         elif corruption == "noncanonical":
             parsed = parse_canonical_json(result, "result", 64 * 1024 * 1024)
             rewrite_execution_artifact(
@@ -1011,7 +1030,7 @@ def test_verify_fit_rejects_bounded_execution_artifact_corruptions(
                 json.dumps(parsed, sort_keys=True).encode("ascii") + b"\n",
             )
         elif corruption == "oversized":
-            (execution / "result.json").write_bytes(b" " * (64 * 1024 * 1024 + 1))
+            _ = (execution / "result.json").write_bytes(b" " * (64 * 1024 * 1024 + 1))
         else:
             (execution / "held-out.json").unlink()
         completed = run_cli(
@@ -1060,7 +1079,7 @@ def test_post_publication_stdout_failures_preserve_publication_exit(
                 transition_guard_m=0.0005,
             )
 
-    def fail_print(*args: object, **kwargs: object) -> None:
+    def fail_print(*_args: object, **_kwargs: object) -> None:
         raise OSError("closed stdout")
 
     with monkeypatch.context() as context:
@@ -1100,7 +1119,8 @@ def test_adverse_outcome_is_normalized_to_exit_three(
     class AdverseApp:
         @staticmethod
         def meta() -> None:
-            raise cli._PublishedAdverseOutcome
+            adverse = cast(type[BaseException], vars(cli)["_PublishedAdverseOutcome"])
+            raise adverse
 
     monkeypatch.setattr(cli, "app", AdverseApp())
     assert cli.main() == 3

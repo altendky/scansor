@@ -5,17 +5,37 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 
 from tests.conftest import write_ply
 from tests.test_runs import (
-    _remove_persisted_field,
-    _rewrite_run_canonical,
-    _rewrite_run_settings,
-    _rewrite_run_source_path,
     malformed_unicode_field_npy,
+    remove_persisted_field,
+    rewrite_run_canonical,
+    rewrite_run_settings,
+    rewrite_run_source_path,
 )
+
+
+class _SourceReport(TypedDict):
+    byte_count: int
+    frame: str
+    path: str
+    sha256: str
+    unit: str
+
+
+class _SettingReport(TypedDict):
+    source: str
+    value: object
+
+
+class _RunReport(TypedDict):
+    job: dict[str, object]
+    settings: dict[str, _SettingReport]
+    source: _SourceReport
 
 
 def run_cli(
@@ -42,8 +62,11 @@ def run_cli(
     )
 
 
-def report(path: Path) -> dict[str, object]:
-    return json.loads((path / "report.json").read_text(encoding="ascii"))
+def report(path: Path) -> _RunReport:
+    loaded = json.loads((path / "report.json").read_text(encoding="ascii"))
+    if not isinstance(loaded, dict):
+        raise AssertionError("run report must be a JSON object")
+    return cast(_RunReport, cast(object, loaded))
 
 
 def test_complete_inspect_job_from_toml_uses_invocation_directory(
@@ -53,7 +76,7 @@ def test_complete_inspect_job_from_toml_uses_invocation_directory(
     config_directory = tmp_path / "configuration"
     config_directory.mkdir()
     config = config_directory / "job.toml"
-    config.write_text(
+    _ = config.write_text(
         """[scansor]
 input_path = "input.ply"
 output_path = "toml-run"
@@ -95,7 +118,7 @@ max_vertices = 1
 def test_cli_config_environment_command_line_precedence(tmp_path: Path) -> None:
     source = write_ply(tmp_path / "input.ply", rows=[(1.0, 2.0, 3.0)] * 4)
     config = tmp_path / "settings.toml"
-    config.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
+    _ = config.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
     output = tmp_path / "run"
     completed = run_cli(
         tmp_path,
@@ -156,7 +179,7 @@ def test_cli_config_environment_command_line_precedence(tmp_path: Path) -> None:
     }
 
     toml_output = tmp_path / "toml-run"
-    config.write_text("[scansor]\nmax_vertices = 4\n", encoding="ascii")
+    _ = config.write_text("[scansor]\nmax_vertices = 4\n", encoding="ascii")
     completed = run_cli(
         tmp_path,
         "inspect",
@@ -179,7 +202,7 @@ def test_cli_config_environment_command_line_precedence(tmp_path: Path) -> None:
         assert verified.returncode == 0, verified.stderr
         assert "verification: PASS" in verified.stdout
     mismatched = tmp_path / "verify-settings.toml"
-    mismatched.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
+    _ = mismatched.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
     verified = run_cli(
         tmp_path,
         "--config",
@@ -194,10 +217,10 @@ def test_cli_config_environment_command_line_precedence(tmp_path: Path) -> None:
 
 def test_inspect_job_cli_overrides_environment_and_toml(tmp_path: Path) -> None:
     cli_source = write_ply(tmp_path / "cli.ply")
-    write_ply(tmp_path / "environment.ply")
-    write_ply(tmp_path / "toml.ply")
+    _ = write_ply(tmp_path / "environment.ply")
+    _ = write_ply(tmp_path / "toml.ply")
     config = tmp_path / "job.toml"
-    config.write_text(
+    _ = config.write_text(
         """[scansor]
 input_path = "toml.ply"
 output_path = "toml-run"
@@ -235,9 +258,9 @@ frame = "toml-frame"
 
 def test_inspect_job_environment_overrides_toml(tmp_path: Path) -> None:
     environment_source = write_ply(tmp_path / "environment.ply")
-    write_ply(tmp_path / "toml.ply")
+    _ = write_ply(tmp_path / "toml.ply")
     config = tmp_path / "job.toml"
-    config.write_text(
+    _ = config.write_text(
         """[scansor]
 input_path = "toml.ply"
 output_path = "toml-run"
@@ -293,7 +316,7 @@ def test_cli_default_provenance_and_replay(tmp_path: Path) -> None:
 def test_cli_rejects_unknown_toml_and_environment(tmp_path: Path) -> None:
     source = write_ply(tmp_path / "input.ply")
     config = tmp_path / "settings.toml"
-    config.write_text("[scansor]\nmisspelled = 1\n", encoding="ascii")
+    _ = config.write_text("[scansor]\nmisspelled = 1\n", encoding="ascii")
     completed = run_cli(
         tmp_path,
         "--config",
@@ -346,7 +369,7 @@ def test_cli_rejects_malformed_or_unsupported_toml_job_fields_cleanly(
     }
     required[name] = field
     config = tmp_path / "job.toml"
-    config.write_text(
+    _ = config.write_text(
         "[scansor]\n" + "\n".join(required.values()) + "\n",
         encoding="ascii",
     )
@@ -368,7 +391,7 @@ def test_cli_rejects_invalid_toml_job_paths_cleanly(
     }
     required[field] = f'{field} = "{escaped_path}"'
     config = tmp_path / "job.toml"
-    config.write_text(
+    _ = config.write_text(
         "[scansor]\n" + "\n".join(required.values()) + "\n",
         encoding="ascii",
     )
@@ -381,7 +404,7 @@ def test_cli_rejects_invalid_toml_job_paths_cleanly(
 def test_cli_rejects_symlinked_explicit_toml(tmp_path: Path) -> None:
     source = write_ply(tmp_path / "input.ply")
     target = tmp_path / "target.toml"
-    target.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
+    _ = target.write_text("[scansor]\nmax_vertices = 1\n", encoding="ascii")
     config = tmp_path / "settings.toml"
     config.symlink_to(target)
     completed = run_cli(
@@ -403,7 +426,7 @@ def test_cli_rejects_symlinked_explicit_toml(tmp_path: Path) -> None:
 def test_cli_rejects_deep_toml_without_traceback(tmp_path: Path) -> None:
     source = write_ply(tmp_path / "input.ply")
     config = tmp_path / "deep.toml"
-    config.write_text(
+    _ = config.write_text(
         "scansor = " + "{ a = " * 1_500 + "1" + " }" * 1_500 + "\n",
         encoding="ascii",
     )
@@ -447,7 +470,7 @@ def test_verify_ignores_conflicting_current_inspect_job_configuration(
     )
     assert inspected.returncode == 0, inspected.stderr
     conflicting = tmp_path / "conflicting.toml"
-    conflicting.write_text(
+    _ = conflicting.write_text(
         """[scansor]
 input_path = "missing-toml.ply"
 output_path = "wrong-toml-run"
@@ -508,7 +531,7 @@ def test_verify_rejects_wrong_persisted_setting_type_without_traceback(
         "f",
     )
     assert inspected.returncode == 0, inspected.stderr
-    _rewrite_run_settings(run, "max_input_bytes", "67108864")
+    rewrite_run_settings(run, "max_input_bytes", "67108864")
     verified = run_cli(tmp_path, "verify", str(run))
     assert verified.returncode == 2
     assert "persisted run model is invalid" in verified.stderr
@@ -552,7 +575,7 @@ def test_verify_rejects_omitted_persisted_defaults_without_traceback(
     )
     assert inspected.returncode == 0, inspected.stderr
     for field_path in field_paths:
-        _remove_persisted_field(run, artifact, field_path)
+        remove_persisted_field(run, artifact, field_path)
     verified = run_cli(tmp_path, "verify", str(run))
     assert verified.returncode == 2
     assert f"persisted {artifact}" in verified.stderr
@@ -580,13 +603,13 @@ def test_verify_rejects_malformed_artifacts_without_traceback(
     )
     assert inspected.returncode == 0, inspected.stderr
     if corruption == "npy":
-        _rewrite_run_canonical(run, b"PK\x03\x04malformed zip")
+        rewrite_run_canonical(run, b"PK\x03\x04malformed zip")
     elif corruption == "unicode-npy":
-        _rewrite_run_canonical(run, malformed_unicode_field_npy())
+        rewrite_run_canonical(run, malformed_unicode_field_npy())
     elif corruption == "nul-path":
-        _rewrite_run_source_path(run, "bad\0path")
+        rewrite_run_source_path(run, "bad\0path")
     else:
-        _rewrite_run_source_path(run, "bad\ud800path")
+        rewrite_run_source_path(run, "bad\ud800path")
     verified = run_cli(tmp_path, "verify", str(run))
     assert verified.returncode == 2
     assert "ERROR:" in verified.stderr

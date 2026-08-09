@@ -8,16 +8,38 @@
 from __future__ import annotations
 
 import copy
+import importlib
+import os
+import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar, cast, final, override
 from unittest import mock
 
-import generated_track5_cad_reconciliation_v1 as reconciliation
+if TYPE_CHECKING:
+    from experiments import generated_track5_cad_reconciliation_v1 as reconciliation
+else:
+    if not __package__:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    reconciliation = importlib.import_module(
+        "experiments.generated_track5_cad_reconciliation_v1"
+    )
 
 
+@final
 class ReconciliationTest(unittest.TestCase):
+    root: ClassVar[Path]
+    track5: ClassVar[ModuleType]
+    estimate: ClassVar[dict[str, Any]]
+    prediction_bytes: ClassVar[bytes]
+    run_01: ClassVar[Any]
+    run_02: ClassVar[Any]
+
     @classmethod
+    @override
     def setUpClass(cls) -> None:
         cls.root = Path(__file__).resolve().parent.parent
         cls.track5 = reconciliation.load_track5(
@@ -108,16 +130,20 @@ class ReconciliationTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "failed geometry"
             ):
-                reconciliation.compare_prediction(
+                _ = reconciliation.compare_prediction(
                     self.prediction_bytes, mutated, self.track5, "independent-run"
                 )
 
     def test_linear_tolerance_boundary(self) -> None:
+        comparison_summary = cast(
+            Callable[[list[dict[str, Any]], str], dict[str, Any]],
+            vars(reconciliation)["_comparison_summary"],
+        )
         finding = [{"classification": "tolerated numerical", "difference_m": 1e-9}]
-        summary = reconciliation._comparison_summary(finding, "boundary")
+        summary = comparison_summary(finding, "boundary")
         self.assertEqual(summary["maximum_linear_error_m"], 1e-9)
         with self.assertRaises(reconciliation.ReconciliationError):
-            reconciliation._comparison_summary(
+            _ = comparison_summary(
                 [{"classification": "failure", "difference_m": 1.0000001e-9}],
                 "outside",
             )
@@ -135,7 +161,7 @@ class ReconciliationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             reconciliation.ReconciliationError, "frame mismatch"
         ):
-            reconciliation.compare_prediction(
+            _ = reconciliation.compare_prediction(
                 self.prediction_bytes, wrong_frame, self.track5, "wrong-frame"
             )
         wrong_orientation = copy.deepcopy(self.run_01)
@@ -143,7 +169,7 @@ class ReconciliationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             reconciliation.ReconciliationError, "normal or orientation mismatch"
         ):
-            reconciliation.compare_prediction(
+            _ = reconciliation.compare_prediction(
                 self.prediction_bytes,
                 wrong_orientation,
                 self.track5,
@@ -159,7 +185,7 @@ class ReconciliationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             reconciliation.ReconciliationError, "normal or orientation mismatch"
         ):
-            reconciliation.compare_prediction(
+            _ = reconciliation.compare_prediction(
                 self.prediction_bytes, mutated, self.track5, "datum-distinction"
             )
 
@@ -171,30 +197,32 @@ class ReconciliationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             reconciliation.ReconciliationError, "source normal or orientation"
         ):
-            reconciliation.compare_prediction(
+            _ = reconciliation.compare_prediction(
                 self.prediction_bytes, mutated, self.track5, "paired-inversion"
             )
 
     def test_source_and_sidecar_corruption_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "source.py"
-            path.write_bytes(b"pass\n")
+            _ = path.write_bytes(b"pass\n")
             checksum = reconciliation.sha256(path.read_bytes())
-            path.with_suffix(".sha256").write_text(
+            _ = path.with_suffix(".sha256").write_text(
                 f"{checksum}  {path.name}\n", encoding="ascii"
             )
-            reconciliation.verify_sidecar(path, checksum, "source", replace_suffix=True)
-            path.write_bytes(b"pass # corrupt\n")
+            _ = reconciliation.verify_sidecar(
+                path, checksum, "source", replace_suffix=True
+            )
+            _ = path.write_bytes(b"pass # corrupt\n")
             with self.assertRaisesRegex(reconciliation.ReconciliationError, "mismatch"):
-                reconciliation.verify_sidecar(
+                _ = reconciliation.verify_sidecar(
                     path, checksum, "source", replace_suffix=True
                 )
 
     def test_manifest_hash_mismatch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "manifest.json").write_bytes(b"{}\n")
-            (root / "manifest.sha256").write_text(
+            _ = (root / "manifest.json").write_bytes(b"{}\n")
+            _ = (root / "manifest.sha256").write_text(
                 f"{'0' * 64}  manifest.json\n", encoding="ascii"
             )
             with self.assertRaisesRegex(reconciliation.ReconciliationError, "mismatch"):
@@ -223,12 +251,12 @@ class ReconciliationTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "optimizer"
             ):
-                reconciliation.source_has_no_optimizer_or_solver_import(source)
+                _ = reconciliation.source_has_no_optimizer_or_solver_import(source)
 
     def test_track5_executes_verified_bytes_not_path_contents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "dependency.py"
-            path.write_text("marker = 'path'\n", encoding="ascii")
+            _ = path.write_text("marker = 'path'\n", encoding="ascii")
             module = reconciliation.load_track5(b"marker = 'verified'\n", path)
             self.assertEqual(module.marker, "verified")
 
@@ -267,7 +295,7 @@ class ReconciliationTest(unittest.TestCase):
     def test_generate_cli_has_no_output_path_option(self) -> None:
         with (
             mock.patch.object(
-                reconciliation.sys,
+                sys,
                 "argv",
                 [
                     "reconciliation",
@@ -281,12 +309,12 @@ class ReconciliationTest(unittest.TestCase):
             mock.patch.object(reconciliation, "build_report") as build,
             self.assertRaises(SystemExit),
         ):
-            reconciliation.main()
+            _ = reconciliation.main()
         build.assert_not_called()
 
     def test_repository_local_temporary_workspace_is_rejected(self) -> None:
         with (
-            mock.patch.dict(reconciliation.os.environ, {"TMPDIR": str(self.root)}),
+            mock.patch.dict(os.environ, {"TMPDIR": str(self.root)}),
             self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "temporary workspace"
             ),
@@ -301,23 +329,29 @@ class ReconciliationTest(unittest.TestCase):
             temporary = Path(directory)
             parent = temporary / "parent"
             parent.mkdir()
-            (parent / "value.txt").write_bytes(b"anchored")
+            _ = (parent / "value.txt").write_bytes(b"anchored")
             substitute = temporary / "substitute"
             substitute.mkdir()
-            (substitute / "value.txt").write_bytes(b"redirected")
+            _ = (substitute / "value.txt").write_bytes(b"redirected")
             moved = temporary / "moved"
-            original_open = reconciliation.os.open
+            original_open = os.open
             replaced = False
 
-            def racing_open(path, flags, mode=0o777, *, dir_fd=None):
+            def racing_open(
+                path: str | Path,
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
                 nonlocal replaced
                 if path == "value.txt" and dir_fd is not None and not replaced:
-                    parent.rename(moved)
+                    _ = parent.rename(moved)
                     parent.symlink_to(substitute, target_is_directory=True)
                     replaced = True
                 return original_open(path, flags, mode, dir_fd=dir_fd)
 
-            with mock.patch.object(reconciliation.os, "open", side_effect=racing_open):
+            with mock.patch.object(os, "open", side_effect=racing_open):
                 self.assertEqual(
                     reconciliation.read_regular(parent / "value.txt", "raced read"),
                     b"anchored",
@@ -328,31 +362,29 @@ class ReconciliationTest(unittest.TestCase):
             temporary = Path(directory)
             root = temporary / "tree"
             root.mkdir()
-            (root / "value.txt").write_bytes(b"anchored")
+            _ = (root / "value.txt").write_bytes(b"anchored")
             substitute = temporary / "substitute"
             substitute.mkdir()
-            (substitute / "value.txt").write_bytes(b"redirected")
+            _ = (substitute / "value.txt").write_bytes(b"redirected")
             moved = temporary / "moved"
-            original_scandir = reconciliation.os.scandir
+            original_scandir = os.scandir
             replaced = False
 
-            def racing_scandir(path):
+            def racing_scandir(path: int | str | Path) -> object:
                 nonlocal replaced
                 if isinstance(path, int) and not replaced:
-                    root.rename(moved)
+                    _ = root.rename(moved)
                     root.symlink_to(substitute, target_is_directory=True)
                     replaced = True
                 return original_scandir(path)
 
             with (
-                mock.patch.object(
-                    reconciliation.os, "scandir", side_effect=racing_scandir
-                ),
+                mock.patch.object(os, "scandir", side_effect=racing_scandir),
                 self.assertRaisesRegex(
                     reconciliation.ReconciliationError, "root was replaced"
                 ),
             ):
-                reconciliation.tree_fingerprint(root)
+                _ = reconciliation.tree_fingerprint(root)
 
     def test_tree_fingerprint_rejects_nested_directory_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -360,34 +392,34 @@ class ReconciliationTest(unittest.TestCase):
             root = temporary / "tree"
             nested = root / "nested"
             nested.mkdir(parents=True)
-            (nested / "value.txt").write_bytes(b"anchored")
+            _ = (nested / "value.txt").write_bytes(b"anchored")
             moved = root / "opened-nested"
 
             def replace_nested():
-                nested.rename(moved)
+                _ = nested.rename(moved)
                 nested.mkdir()
-                (nested / "value.txt").write_bytes(b"redirected")
+                _ = (nested / "value.txt").write_bytes(b"redirected")
 
             with self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "component was replaced"
             ):
-                reconciliation.tree_fingerprint(root, replace_nested)
+                _ = reconciliation.tree_fingerprint(root, replace_nested)
 
     def test_tree_fingerprint_rejects_leaf_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "tree"
             root.mkdir()
             leaf = root / "value.txt"
-            leaf.write_bytes(b"anchored")
+            _ = leaf.write_bytes(b"anchored")
 
             def replace_leaf():
-                leaf.rename(root / "opened-value.txt")
-                leaf.write_bytes(b"redirected")
+                _ = leaf.rename(root / "opened-value.txt")
+                _ = leaf.write_bytes(b"redirected")
 
             with self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "component was replaced"
             ):
-                reconciliation.tree_fingerprint(root, replace_leaf)
+                _ = reconciliation.tree_fingerprint(root, replace_leaf)
 
     def test_track5_verification_requires_both_runs_and_writes_nothing(self) -> None:
         roots = {
@@ -419,15 +451,15 @@ class ReconciliationTest(unittest.TestCase):
             experiments = root / "experiments"
             experiments.mkdir()
             generator = experiments / "generate_stepped_rotational_v1.py"
-            generator.write_bytes(b"corrupt\n")
-            generator.with_suffix(".sha256").write_text(
+            _ = generator.write_bytes(b"corrupt\n")
+            _ = generator.with_suffix(".sha256").write_text(
                 f"{reconciliation.GENERATOR_SHA256}  {generator.name}\n",
                 encoding="ascii",
             )
             with self.assertRaisesRegex(
                 reconciliation.ReconciliationError, "generator"
             ):
-                reconciliation.verify_phase1(root, [], verifier)
+                _ = reconciliation.verify_phase1(root, [], verifier)
         verifier.assert_not_called()
 
     def test_generated_truth_comparison_records_maximum_error(self) -> None:
@@ -441,4 +473,4 @@ class ReconciliationTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()
