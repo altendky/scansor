@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Literal
@@ -10,11 +12,25 @@ import structlog
 from cyclopts import App, Parameter
 from pydantic import ValidationError
 
-from scansor.cli_models import FitJob, MapJob, VerifyFitJob, VerifyMappingJob
+from scansor.cli_models import (
+    CompareTruthJob,
+    FitJob,
+    GenerateJob,
+    MapJob,
+    VerifyFitJob,
+    VerifyMappingJob,
+)
 from scansor.errors import ScansorError
 from scansor.execution_run_models import ExecutionRunRecords
 from scansor.execution_runs import create_execution_run, verify_execution_run
 from scansor.factor_models import ParameterVector, Problem, Variant
+from scansor.files import open_run_directory
+from scansor.generation_models import GenerationRequest, PreparedGeneration
+from scansor.generation_runs import (
+    create_generation_run,
+    verify_generation_run,
+    verify_generation_run_fd,
+)
 from scansor.logging import configure_logging
 from scansor.mapping_models import (
     InputRevision,
@@ -28,7 +44,7 @@ from scansor.runs import (
     inspect_source,
     publish_run,
     verify_run,
-    verify_run_artifacts,
+    verify_run_artifacts_fd,
 )
 from scansor.serialization import canonical_json, sha256
 from scansor.settings import (
@@ -39,7 +55,9 @@ from scansor.settings import (
     resolve_settings,
 )
 from scansor.stepped_rotational_factors import instantiate_factors
+from scansor.stepped_rotational_generation import generated_fixture_provenance
 from scansor.synthetic_fixture import prepare_synthetic_fixture
+from scansor.truth_comparison import compare_truth as compare_truth_runs
 
 app = App(
     name="scansor",
@@ -69,6 +87,7 @@ _MAP_CONFIG = frozenset(
     {
         "canonical_unit",
         "held_out_row_indices",
+        "generation_run",
         "inspection_run",
         "log_level",
         "max_support_distance_m",
@@ -111,15 +130,21 @@ _FIT_CONFIG = frozenset(
 _VERIFY_FIT_CONFIG = frozenset(
     {"execution_run", "inspection_run", "log_level", "mapping_run"}
 )
+_GENERATE_CONFIG = frozenset(
+    {"log_level", "noise_sigma_m", "output_path", "sampling_profile", "seed", "variant"}
+)
 _COMMAND_CONFIG = {
+    "generate-stepped-rotational": _GENERATE_CONFIG,
+    "verify-generation": _VERIFY_CONFIG,
     "inspect": _INSPECT_CONFIG,
     "verify": _VERIFY_CONFIG,
     "map": _MAP_CONFIG,
     "verify-mapping": _VERIFY_MAPPING_CONFIG,
     "fit": _FIT_CONFIG,
     "verify-fit": _VERIFY_FIT_CONFIG,
+    "compare-truth": _VERIFY_CONFIG,
 }
-_MUTATING_COMMANDS = frozenset({"inspect", "map", "fit"})
+_MUTATING_COMMANDS = frozenset({"generate-stepped-rotational", "inspect", "map", "fit"})
 
 
 class _PublishedAdverseOutcome(Exception):
@@ -158,6 +183,61 @@ def _resolved(
         max_input_bytes=max_input_bytes,
         max_vertices=max_vertices,
     )
+
+
+@app.command
+def generate_stepped_rotational(
+    output_path: Path,
+    *,
+    variant: Literal["asymmetric-datum-flat"],
+    sampling_profile: Literal["guarded-grid-v1"],
+    seed: int,
+    noise_sigma_m: float,
+    log_level: LogLevel = _defaults.log_level,
+) -> None:
+    """Publish one internal provisional synthetic-only generated fixture."""
+    configure_logging(log_level)
+    job = GenerateJob(
+        noise_sigma_m=noise_sigma_m,
+        output_path=output_path,
+        sampling_profile=sampling_profile,
+        seed=seed,
+        variant=variant,
+    )
+    prepared = create_generation_run(
+        job.output_path,
+        GenerationRequest(
+            noise_sigma_m=job.noise_sigma_m,
+            sampling_profile=job.sampling_profile,
+            seed=job.seed,
+            variant=job.variant,
+        ),
+    )
+    provenance = prepared.provenance
+    _print_published_status(
+        (
+            f"generation: published ({provenance.generation_run_id})",
+            f"variant: {provenance.variant}",
+            "observations: "
+            + f"{provenance.point_count} (training={provenance.training_count}, "
+            + f"held-out={provenance.held_out_count})",
+            f"artifact validity: valid-published ({job.output_path.absolute()})",
+        ),
+        0,
+    )
+
+
+@app.command(name="verify-generation")
+def verify_generation(
+    generation_run: Path,
+    *,
+    log_level: LogLevel = _defaults.log_level,
+) -> None:
+    """Read-only replay of an internal provisional synthetic-only generation."""
+    configure_logging(log_level)
+    prepared = verify_generation_run(generation_run)
+    print(f"generation: verified ({prepared.provenance.generation_run_id})")
+    print(f"artifact validity: valid-verified ({generation_run.absolute()})")
 
 
 @app.command
@@ -210,11 +290,93 @@ def verify(
     print(f"verification: PASS ({report.run_id})")
 
 
+def _publish_map_job(
+    job: MapJob,
+    generated: PreparedGeneration | None,
+    generation_identity: tuple[int, int] | None,
+    verify_generation_input: Callable[[], None] | None,
+) -> None:
+    inspection_fd = open_run_directory(job.inspection_run)
+    try:
+        report, canonical = verify_run_artifacts_fd(
+            inspection_fd,
+            job.inspection_run,
+            None,
+            replay_raw=generated.source if generated is not None else None,
+        )
+    finally:
+        os.close(inspection_fd)
+    fixture = prepare_synthetic_fixture(job.variant) if generated is None else None
+    if report.source.unit != job.source_unit:
+        raise ScansorError("source unit assertion differs from inspection provenance")
+    if report.canonical.coordinate_unit != job.canonical_unit:
+        raise ScansorError(
+            "canonical unit assertion differs from inspection provenance"
+        )
+    if report.source.frame != job.observation_frame:
+        raise ScansorError(
+            "observation frame assertion differs from inspection provenance"
+        )
+    if job.model_frame != report.source.frame:
+        raise ScansorError("model frame assertion differs from inspection provenance")
+    if fixture is not None:
+        expected_held_out = fixture.held_out_row_indices
+        fixture_provenance = fixture.provenance
+    else:
+        assert generated is not None
+        expected_held_out = generated.provenance.held_out_row_indices
+        fixture_provenance = generated_fixture_provenance(generated, sha256(canonical))
+    if job.held_out_row_indices != expected_held_out:
+        raise ScansorError(
+            "held-out row assertion differs from the designated synthetic fixture"
+        )
+    request = MappingRequest(
+        held_out_row_indices=job.held_out_row_indices,
+        input_revision=InputRevision(
+            canonical_row_count=report.inspection.point_count,
+            canonical_sha256=sha256(canonical),
+            inspection_report_sha256=sha256(canonical_json(report)),
+            inspection_run_id=report.run_id,
+            observation_frame=report.source.frame,
+            synthetic_fixture=fixture_provenance,
+        ),
+        thresholds=job.thresholds,
+        transform=RigidTransform(
+            direction=job.transform_direction,
+            rotation=(
+                job.rotation_row_1,
+                job.rotation_row_2,
+                job.rotation_row_3,
+            ),
+            scale=job.transform_scale,
+            translation_m=job.translation_m,
+        ),
+        variant=job.variant,
+    )
+    result = create_mapping_run(
+        job.output_path,
+        job.inspection_run,
+        request,
+        generation_identity=generation_identity,
+        generation_run=job.generation_run,
+        verify_generation_input=verify_generation_input,
+    )
+    status = (
+        f"mapping: {result.disposition} ({result.mapping_run_id})",
+        f"artifact validity: valid-published ({job.output_path.absolute()})",
+    )
+    if result.disposition == "rejected":
+        _print_published_status((*status, "quality assessment: not applicable"), 3)
+        raise _PublishedAdverseOutcome
+    _print_published_status(status, 0)
+
+
 @app.command
 def map(
     inspection_run: Path,
     output_path: Path,
     *,
+    generation_run: Path | None = None,
     variant: Variant,
     source_unit: Literal["m"],
     canonical_unit: Literal["m"],
@@ -241,6 +403,7 @@ def map(
     job = MapJob(
         canonical_unit=canonical_unit,
         held_out_row_indices=held_out_row_indices,
+        generation_run=generation_run,
         inspection_run=inspection_run,
         model_frame=model_frame,
         observation_frame=observation_frame,
@@ -263,56 +426,30 @@ def map(
         translation_unit=translation_unit,
         variant=variant,
     )
-    report, canonical = verify_run_artifacts(job.inspection_run, None)
-    fixture = prepare_synthetic_fixture(job.variant)
-    if report.source.unit != job.source_unit:
-        raise ScansorError("source unit assertion differs from inspection provenance")
-    if report.canonical.coordinate_unit != job.canonical_unit:
-        raise ScansorError(
-            "canonical unit assertion differs from inspection provenance"
+    if job.generation_run is None:
+        _publish_map_job(job, None, None, None)
+        return
+    generation_run = job.generation_run
+    generation_fd = open_run_directory(generation_run)
+    try:
+        generated = verify_generation_run_fd(generation_fd, generation_run)
+        generation_stat = os.fstat(generation_fd)
+
+        def verify_generation_input() -> None:
+            replay = verify_generation_run_fd(generation_fd, generation_run)
+            if replay != generated:
+                raise ScansorError(
+                    "generation artifacts changed during mapping publication"
+                )
+
+        _publish_map_job(
+            job,
+            generated,
+            (generation_stat.st_dev, generation_stat.st_ino),
+            verify_generation_input,
         )
-    if report.source.frame != job.observation_frame:
-        raise ScansorError(
-            "observation frame assertion differs from inspection provenance"
-        )
-    if job.model_frame != report.source.frame:
-        raise ScansorError("model frame assertion differs from inspection provenance")
-    if job.held_out_row_indices != fixture.held_out_row_indices:
-        raise ScansorError(
-            "held-out row assertion differs from the designated synthetic fixture"
-        )
-    request = MappingRequest(
-        held_out_row_indices=job.held_out_row_indices,
-        input_revision=InputRevision(
-            canonical_row_count=report.inspection.point_count,
-            canonical_sha256=sha256(canonical),
-            inspection_report_sha256=sha256(canonical_json(report)),
-            inspection_run_id=report.run_id,
-            observation_frame=report.source.frame,
-            synthetic_fixture=fixture.provenance,
-        ),
-        thresholds=job.thresholds,
-        transform=RigidTransform(
-            direction=job.transform_direction,
-            rotation=(
-                job.rotation_row_1,
-                job.rotation_row_2,
-                job.rotation_row_3,
-            ),
-            scale=job.transform_scale,
-            translation_m=job.translation_m,
-        ),
-        variant=job.variant,
-    )
-    result = create_mapping_run(job.output_path, job.inspection_run, request)
-    status = (
-        f"mapping: {result.disposition} ({result.mapping_run_id})",
-        f"artifact validity: valid-published ({job.output_path.absolute()})",
-    )
-    if result.disposition == "rejected":
-        _print_published_status((*status, "quality assessment: not applicable"), 3)
-        raise _PublishedAdverseOutcome
-    _print_published_status(status, 0)
+    finally:
+        os.close(generation_fd)
 
 
 @app.command(name="verify-mapping")
@@ -459,6 +596,35 @@ def verify_fit(
         job.mapping_run,
     )
     _ = _print_execution_status(records, job.execution_run, "valid-verified")
+
+
+@app.command(name="compare-truth")
+def compare_truth(
+    generation_run: Path,
+    inspection_run: Path,
+    mapping_run: Path,
+    execution_run: Path,
+    *,
+    log_level: LogLevel = _defaults.log_level,
+) -> None:
+    """Read-only internal synthetic-only comparison with nominal truth."""
+    configure_logging(log_level)
+    job = CompareTruthJob(
+        execution_run=execution_run,
+        generation_run=generation_run,
+        inspection_run=inspection_run,
+        mapping_run=mapping_run,
+    )
+    print(
+        "\n".join(
+            compare_truth_runs(
+                job.generation_run,
+                job.inspection_run,
+                job.mapping_run,
+                job.execution_run,
+            )
+        )
+    )
 
 
 @app.meta.default

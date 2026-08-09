@@ -44,6 +44,10 @@ outside the intended boundary.
   - **Provisional:** local synthetic-only mapping and fixed NumPy execution-run
   orchestration, explicit semantic inputs, analyzed exit statuses, and read-only
   verification; no physical validation, automated acceptance, or public contract
+- [Stepped rotational v0 generated noisy-cloud vertical slice](planning/stepped-rotational-v0-generated-noise-vertical-slice.md)
+  - **Provisional:** deterministic asymmetric generated XYZ PLY, bounded normal
+    noise, stable fixture IDs, generated mapping admission, replay, and raw
+    truth comparison; no outlier fitting, acceptance, CAD path, or physical claim
 - [CAD extraction research](cad-constraint-and-geometry-extraction.md) -
   **Research finding and provisional implications:** native CAD geometry and
   relationship extraction, generated geometry-only Onshape fixture, later broad

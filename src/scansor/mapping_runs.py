@@ -17,15 +17,21 @@ from scansor.files import (
     rename_no_replace,
     write_new_file,
 )
+from scansor.generation_models import GenerationRequest
 from scansor.mapping_models import (
     ArtifactRecord,
     MappingManifest,
     MappingRequest,
     MappingResult,
 )
+from scansor.ply import canonical_npy, parse_ply
 from scansor.runs import verify_run_artifacts_fd
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
 from scansor.stepped_rotational import MAX_MAPPING_ROWS, build_mapping
+from scansor.stepped_rotational_generation import (
+    generated_fixture_provenance,
+    prepare_generation,
+)
 from scansor.synthetic_fixture import FIXTURE_FRAME, prepare_synthetic_fixture
 
 MAPPING_RUN_FILES = frozenset({"manifest.json", "manifest.sha256", "mapping.json"})
@@ -103,7 +109,9 @@ def _verify_mapping_artifacts(
 
 
 def _assert_outside_inspection(
-    directory_fd: int, inspection_identity: tuple[int, int]
+    directory_fd: int,
+    inspection_identity: tuple[int, int],
+    label: str = "inspection",
 ) -> None:
     current_fd = os.dup(directory_fd)
     try:
@@ -111,9 +119,7 @@ def _assert_outside_inspection(
             current = os.fstat(current_fd)
             current_identity = (current.st_dev, current.st_ino)
             if current_identity == inspection_identity:
-                raise ScansorError(
-                    "mapping output cannot be within its inspection tree"
-                )
+                raise ScansorError(f"mapping output cannot be within its {label} tree")
             parent_fd = os.open(
                 "..",
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -324,6 +330,7 @@ def _publish_mapping_run(
     result: MappingResult,
     inspection_identity: tuple[int, int],
     verify_input: Callable[[], None],
+    generation_identity: tuple[int, int] | None = None,
 ) -> None:
     artifacts = _mapping_artifacts(result)
     output = output.absolute()
@@ -344,6 +351,8 @@ def _publish_mapping_run(
     try:
         parent_stat = os.fstat(parent_fd)
         _assert_outside_inspection(parent_fd, inspection_identity)
+        if generation_identity is not None:
+            _assert_outside_inspection(parent_fd, generation_identity, "generation")
         try:
             _ = os.stat(output.name, dir_fd=parent_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -368,16 +377,22 @@ def _publish_mapping_run(
         _verify_mapping_artifacts(stage_fd, artifacts, identities)
         _verify_output_parent_path(output, parent_stat)
         _assert_outside_inspection(parent_fd, inspection_identity)
+        if generation_identity is not None:
+            _assert_outside_inspection(parent_fd, generation_identity, "generation")
         verify_input()
         rename_no_replace(parent_fd, stage_name, parent_fd, output.name)
         renamed = True
         _verify_mapping_artifacts(stage_fd, artifacts, identities)
         _verify_output_parent_path(output, parent_stat)
         _assert_outside_inspection(parent_fd, inspection_identity)
+        if generation_identity is not None:
+            _assert_outside_inspection(parent_fd, generation_identity, "generation")
         final = os.stat(output.name, dir_fd=parent_fd, follow_symlinks=False)
         if (final.st_dev, final.st_ino) != stage_identity:
             raise ScansorError("mapping output path changed")
         _assert_outside_inspection(parent_fd, inspection_identity)
+        if generation_identity is not None:
+            _assert_outside_inspection(parent_fd, generation_identity, "generation")
         verify_input()
         _verify_mapping_artifacts(stage_fd, artifacts, identities)
         published = True
@@ -417,9 +432,37 @@ def _validate_inspection_revision(
         raise ScansorError(
             f"mapping input exceeds the {MAX_MAPPING_ROWS:,}-row application limit"
         )
-    inspection, canonical = verify_run_artifacts_fd(inspection_fd, inspection_run, None)
-    report_bytes = canonical_json(inspection)
     revision = request.input_revision
+    provenance = revision.synthetic_fixture
+    if provenance.revision == "1":
+        fixture = prepare_synthetic_fixture(request.variant)
+        expected_provenance = fixture.provenance
+        expected_canonical = fixture.canonical
+        expected_held_out = fixture.held_out_row_indices
+        expected_source = fixture.source
+    else:
+        generated = prepare_generation(
+            GenerationRequest(
+                noise_sigma_m=provenance.noise_sigma_m,
+                sampling_profile=provenance.sampling_profile,
+                seed=provenance.seed,
+                variant=provenance.variant,
+            )
+        )
+        parsed = parse_ply(generated.source, "m", 65_536, len(provenance.rows))
+        expected_canonical = canonical_npy(parsed.canonical)
+        expected_provenance = generated_fixture_provenance(
+            generated, sha256(expected_canonical)
+        )
+        expected_held_out = generated.provenance.held_out_row_indices
+        expected_source = generated.source
+    inspection, canonical = verify_run_artifacts_fd(
+        inspection_fd,
+        inspection_run,
+        None,
+        replay_raw=expected_source if provenance.revision == "2" else None,
+    )
+    report_bytes = canonical_json(inspection)
     if (
         revision.inspection_run_id != inspection.run_id
         or revision.inspection_report_sha256 != sha256(report_bytes)
@@ -428,13 +471,12 @@ def _validate_inspection_revision(
         or revision.observation_frame != inspection.source.frame
     ):
         raise ScansorError("mapping input revision does not match the inspection run")
-    fixture = prepare_synthetic_fixture(request.variant)
     if (
-        revision.synthetic_fixture != fixture.provenance
-        or canonical != fixture.canonical
-        or request.held_out_row_indices != fixture.held_out_row_indices
-        or inspection.source.sha256 != fixture.provenance.source_sha256
-        or inspection.source.byte_count != len(fixture.source)
+        provenance != expected_provenance
+        or canonical != expected_canonical
+        or request.held_out_row_indices != expected_held_out
+        or inspection.source.sha256 != provenance.source_sha256
+        or inspection.source.byte_count != len(expected_source)
         or inspection.source.unit != "m"
         or inspection.source.frame != FIXTURE_FRAME
         or inspection.inspection.coordinate_source_dtype != "float64"
@@ -449,7 +491,13 @@ def _validate_inspection_revision(
 
 
 def create_mapping_run(
-    output: Path, inspection_run: Path, request: MappingRequest
+    output: Path,
+    inspection_run: Path,
+    request: MappingRequest,
+    *,
+    generation_identity: tuple[int, int] | None = None,
+    generation_run: Path | None = None,
+    verify_generation_input: Callable[[], None] | None = None,
 ) -> MappingResult:
     """Validate an inspection revision, map it, and publish atomically."""
     inspection_fd = open_run_directory(inspection_run)
@@ -462,6 +510,10 @@ def create_mapping_run(
         )
         try:
             _assert_outside_inspection(output_parent_fd, inspection_identity)
+            if generation_identity is not None:
+                _assert_outside_inspection(
+                    output_parent_fd, generation_identity, "generation"
+                )
         finally:
             os.close(output_parent_fd)
         _report, canonical = _validate_inspection_revision(
@@ -476,6 +528,8 @@ def create_mapping_run(
         result = build_mapping(request, canonical)
 
         def verify_input() -> None:
+            if verify_generation_input is not None:
+                verify_generation_input()
             _report, current_canonical = _validate_inspection_revision(
                 request, inspection_run, inspection_fd
             )
@@ -483,8 +537,23 @@ def create_mapping_run(
                 raise ScansorError(
                     "inspection artifacts changed during mapping publication"
                 )
+            if generation_identity is not None and generation_run is not None:
+                current_generation = os.stat(generation_run, follow_symlinks=False)
+                if (
+                    current_generation.st_dev,
+                    current_generation.st_ino,
+                ) != generation_identity:
+                    raise ScansorError(
+                        "generation run path changed during mapping publication"
+                    )
 
-        _publish_mapping_run(output, result, inspection_identity, verify_input)
+        _publish_mapping_run(
+            output,
+            result,
+            inspection_identity,
+            verify_input,
+            generation_identity,
+        )
         return result
     finally:
         os.close(inspection_fd)

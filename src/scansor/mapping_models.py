@@ -33,6 +33,54 @@ class SyntheticFixtureProvenance(MappingStrictModel):
     variant: Literal["axisymmetric", "asymmetric-datum-flat"]
 
 
+class GeneratedFixtureRow(MappingStrictModel):
+    fixture_observation_id: str = Field(pattern=r"^fixture-observation\.[0-9a-f]{24}$")
+    role: Literal["training", "held-out"]
+    row_index: int = Field(ge=0)
+
+
+class GeneratedSyntheticFixtureProvenance(MappingStrictModel):
+    canonical_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fixture_id: Literal["stepped-rotational-v0-synthetic-fixture"] = (
+        "stepped-rotational-v0-synthetic-fixture"
+    )
+    generation_run_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generator_revision: Literal["provisional-1"] = "provisional-1"
+    held_out_row_indices: tuple[int, ...]
+    noise_clip_sigma: Literal[4] = 4
+    noise_model: Literal["bounded-normal-v1"] = "bounded-normal-v1"
+    noise_quantum_m: float = Field(default=1e-9, ge=1e-9, le=1e-9)
+    noise_sigma_m: float = Field(gt=0.0, le=25e-6)
+    outlier_policy: Literal["none"] = "none"
+    revision: Literal["2"] = "2"
+    rows: tuple[GeneratedFixtureRow, ...]
+    sampling_profile: Literal["guarded-grid-v1"] = "guarded-grid-v1"
+    seed: int = Field(ge=0, le=2**63 - 1)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    variant: Literal["asymmetric-datum-flat"] = "asymmetric-datum-flat"
+
+    @field_validator("held_out_row_indices", "rows", mode="before")
+    @classmethod
+    def restore_generated_sequences(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
+    @model_validator(mode="after")
+    def validate_generated_rows(self) -> GeneratedSyntheticFixtureProvenance:
+        if tuple(row.row_index for row in self.rows) != tuple(range(len(self.rows))):
+            raise ValueError("generated fixture rows are not canonical")
+        held_out = tuple(row.row_index for row in self.rows if row.role == "held-out")
+        if held_out != self.held_out_row_indices:
+            raise ValueError("generated fixture held-out roles disagree")
+        identifiers = tuple(row.fixture_observation_id for row in self.rows)
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("generated fixture IDs are duplicated")
+        return self
+
+
+FixtureProvenance = SyntheticFixtureProvenance | GeneratedSyntheticFixtureProvenance
+
+
 class InputRevision(MappingStrictModel):
     canonical_row_count: int = Field(gt=0)
     canonical_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -40,12 +88,17 @@ class InputRevision(MappingStrictModel):
     inspection_report_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     inspection_run_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     observation_frame: str = Field(min_length=1, pattern=r".*\S.*")
-    synthetic_fixture: SyntheticFixtureProvenance
+    synthetic_fixture: FixtureProvenance
 
     @model_validator(mode="after")
     def bind_fixture_canonical_hash(self) -> InputRevision:
         if self.synthetic_fixture.canonical_sha256 != self.canonical_sha256:
             raise ValueError("synthetic fixture and input canonical hashes differ")
+        if (
+            self.synthetic_fixture.revision == "2"
+            and len(self.synthetic_fixture.rows) != self.canonical_row_count
+        ):
+            raise ValueError("generated fixture rows disagree with canonical row count")
         return self
 
 

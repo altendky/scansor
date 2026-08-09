@@ -33,6 +33,7 @@ from scansor.files import (
     rename_no_replace,
     write_new_file,
 )
+from scansor.generation_models import GenerationRequest
 from scansor.mapping_models import MappingManifest, MappingResult
 from scansor.mapping_runs import (
     cleanup_unopened_empty_stage,
@@ -55,6 +56,7 @@ from scansor.stepped_rotational_factors import (
     instantiate_factors,
     select_active_factors,
 )
+from scansor.stepped_rotational_generation import prepare_generation
 from scansor.stepped_rotational_numpy_backend import (
     NUMPY_GAUSS_NEWTON_DESCRIPTOR,
     SteppedRotationalNumpyBackend,
@@ -76,6 +78,20 @@ COMPLETED_FILES = frozenset(
 NONCOMPLETED_FILES = frozenset(
     {"selection.json", "result.json", "manifest.json", "manifest.sha256"}
 )
+
+
+def _inspection_replay_raw(mapping: MappingResult) -> bytes | None:
+    provenance = mapping.request.input_revision.synthetic_fixture
+    if provenance.revision == "1":
+        return None
+    return prepare_generation(
+        GenerationRequest(
+            noise_sigma_m=provenance.noise_sigma_m,
+            sampling_profile=provenance.sampling_profile,
+            seed=provenance.seed,
+            variant=provenance.variant,
+        )
+    ).source
 
 
 def _identified_selection(values: dict[str, object]) -> ExecutionRunSelection:
@@ -417,11 +433,14 @@ def create_execution_run(
             _assert_outside_inputs(parent_fd, input_identities)
         finally:
             os.close(parent_fd)
-        inspection, canonical = verify_run_artifacts_fd(
-            inspection_fd, inspection_run, None
-        )
         mapping, mapping_artifacts = verify_mapping_run_fd(
             mapping_fd, mapping_run, inspection_run, inspection_fd
+        )
+        inspection, canonical = verify_run_artifacts_fd(
+            inspection_fd,
+            inspection_run,
+            None,
+            replay_raw=_inspection_replay_raw(mapping),
         )
         records = run_numpy_execution(
             mapping,
@@ -465,11 +484,14 @@ def create_execution_run(
         }
 
         def verify_inputs() -> None:
-            final_inspection, final_canonical = verify_run_artifacts_fd(
-                inspection_fd, inspection_run, None
-            )
             final_mapping, final_mapping_artifacts = verify_mapping_run_fd(
                 mapping_fd, mapping_run, inspection_run, inspection_fd
+            )
+            final_inspection, final_canonical = verify_run_artifacts_fd(
+                inspection_fd,
+                inspection_run,
+                None,
+                replay_raw=_inspection_replay_raw(final_mapping),
             )
             if (
                 canonical_json(final_inspection) != canonical_json(inspection)
@@ -516,9 +538,14 @@ def verify_execution_run(
     execution_run: Path,
     inspection_run: Path,
     mapping_run: Path,
+    *,
+    anchored_descriptors: tuple[int, int, int] | None = None,
 ) -> ExecutionRunRecords:
-    execution_fd, inspection_fd, mapping_fd = _open_three_roots(
-        execution_run, inspection_run, mapping_run
+    owns_descriptors = anchored_descriptors is None
+    execution_fd, inspection_fd, mapping_fd = (
+        _open_three_roots(execution_run, inspection_run, mapping_run)
+        if anchored_descriptors is None
+        else anchored_descriptors
     )
     try:
         execution_root = os.fstat(execution_fd)
@@ -590,11 +617,14 @@ def verify_execution_run(
         if manifest.artifacts != expected_content:
             raise ScansorError("execution manifest artifact inventory mismatch")
 
-        inspection, canonical = verify_run_artifacts_fd(
-            inspection_fd, inspection_run, None
-        )
         mapping, mapping_artifacts = verify_mapping_run_fd(
             mapping_fd, mapping_run, inspection_run, inspection_fd
+        )
+        inspection, canonical = verify_run_artifacts_fd(
+            inspection_fd,
+            inspection_run,
+            None,
+            replay_raw=_inspection_replay_raw(mapping),
         )
         factor_set = instantiate_factors(mapping)
         active_selection = select_active_factors(
@@ -639,11 +669,14 @@ def verify_execution_run(
         if expected_manifest != manifest:
             raise ScansorError("execution manifest does not reconstruct")
         _verify_artifacts(execution_fd, artifacts, identities)
-        final_inspection, final_canonical = verify_run_artifacts_fd(
-            inspection_fd, inspection_run, None
-        )
         final_mapping, final_mapping_artifacts = verify_mapping_run_fd(
             mapping_fd, mapping_run, inspection_run, inspection_fd
+        )
+        final_inspection, final_canonical = verify_run_artifacts_fd(
+            inspection_fd,
+            inspection_run,
+            None,
+            replay_raw=_inspection_replay_raw(final_mapping),
         )
         if (
             canonical_json(final_inspection) != canonical_json(inspection)
@@ -658,6 +691,7 @@ def verify_execution_run(
         _verify_named_root(mapping_run, mapping_root, "mapping run")
         return records
     finally:
-        os.close(mapping_fd)
-        os.close(inspection_fd)
-        os.close(execution_fd)
+        if owns_descriptors:
+            os.close(mapping_fd)
+            os.close(inspection_fd)
+            os.close(execution_fd)

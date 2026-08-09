@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 import pytest
 from pydantic import ValidationError
@@ -21,6 +20,17 @@ from scansor.stepped_rotational_factors import instantiate_factors
 from scansor.stepped_rotational_numpy_backend import SteppedRotationalNumpyBackend
 from tests.test_factors import parameters
 from tests.test_mapping import inspection_mapping_fixture
+
+
+class _VerifyRunArtifacts(Protocol):
+    def __call__(
+        self,
+        directory_fd: int,
+        run: Path,
+        replacement_input: Path | None,
+        *,
+        replay_raw: bytes | None = None,
+    ) -> tuple[InspectionReport, bytes]: ...
 
 
 def published_inputs(tmp_path: Path, variant: Variant = "asymmetric-datum-flat"):
@@ -156,16 +166,25 @@ def test_output_replaced_during_final_input_replay_is_preserved(
     output = tmp_path / "execution"
     moved = tmp_path / "moved-execution"
     original_verify = cast(
-        Callable[[int, Path, Path | None], tuple[InspectionReport, bytes]],
+        _VerifyRunArtifacts,
         vars(execution_runs_module)["verify_run_artifacts_fd"],
     )
     replaced = False
 
     def replace_output_during_replay(
-        directory_fd: int, run: Path, replacement_input: Path | None
+        directory_fd: int,
+        run: Path,
+        replacement_input: Path | None,
+        *,
+        replay_raw: bytes | None = None,
     ) -> tuple[InspectionReport, bytes]:
         nonlocal replaced
-        verified = original_verify(directory_fd, run, replacement_input)
+        verified = original_verify(
+            directory_fd,
+            run,
+            replacement_input,
+            replay_raw=replay_raw,
+        )
         if output.exists() and not replaced:
             _ = output.rename(moved)
             output.mkdir()

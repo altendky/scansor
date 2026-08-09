@@ -49,6 +49,7 @@ class TomlConfigValues(BaseModel):
     )
     canonical_unit: Literal["m"] | None = None
     execution_run: str | None = None
+    generation_run: str | None = None
     held_out_row_indices: tuple[int, ...] | None = None
     initial_parameter_units: Literal["metre", "metre/radian"] | None = None
     initial_values: tuple[float, ...] | None = None
@@ -59,6 +60,7 @@ class TomlConfigValues(BaseModel):
     max_input_bytes: int | None = Field(default=None, ge=1_024, le=134_217_728)
     max_vertices: int | None = Field(default=None, ge=1, le=5_000_000)
     mapping_run: str | None = None
+    noise_sigma_m: float | None = Field(default=None, gt=0.0, le=25e-6)
     max_support_distance_m: float | None = Field(default=None, gt=0.0, le=0.002)
     minimum_geometric_clearance_m: float | None = Field(default=None, gt=0.0, le=0.002)
     minimum_region_samples: int | None = Field(default=None, ge=1, le=1000)
@@ -71,6 +73,8 @@ class TomlConfigValues(BaseModel):
     rotation_row_2: tuple[float, float, float] | None = None
     rotation_row_3: tuple[float, float, float] | None = None
     source_unit: Literal["m"] | None = None
+    sampling_profile: Literal["guarded-grid-v1"] | None = None
+    seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     transform_direction: Literal["observation-to-model"] | None = None
     transform_scale: float | None = Field(default=None, ge=1.0, le=1.0)
     transform_tolerance: float | None = Field(default=None, gt=0.0, le=1e-6)
@@ -96,6 +100,7 @@ class TomlConfigValues(BaseModel):
 
     @field_validator(
         "execution_run",
+        "generation_run",
         "input_path",
         "inspection_run",
         "mapping_run",
