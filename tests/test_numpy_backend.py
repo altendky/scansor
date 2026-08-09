@@ -8,7 +8,7 @@ import pytest
 
 import scansor.stepped_rotational_numpy_backend as backend_module
 from scansor.errors import ScansorError
-from scansor.factor_models import NOMINAL_SHAPE
+from scansor.factor_models import NOMINAL_SHAPE, Problem, Variant
 from scansor.serialization import canonical_json
 from scansor.stepped_rotational_execution import create_execution_request, execute
 from scansor.stepped_rotational_numpy_backend import (
@@ -19,8 +19,8 @@ from tests.test_execution import execution_case
 
 
 def numpy_case(
-    variant: str,
-    problem: str,
+    variant: Variant,
+    problem: Problem,
     initial: tuple[float, ...],
     *,
     callback_limit: int = 256,
@@ -39,7 +39,7 @@ def numpy_case(
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_exact_shape_recovery_is_deterministic(variant: str) -> None:
+def test_exact_shape_recovery_is_deterministic(variant: Variant) -> None:
     size = 7 if variant == "asymmetric-datum-flat" else 6
     truth = NOMINAL_SHAPE[:size]
     offsets = (-0.0004, 0.0005, -0.0003, -0.0002, 0.0003, -0.0004, 0.0002)
@@ -55,7 +55,7 @@ def test_exact_shape_recovery_is_deterministic(variant: str) -> None:
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_bounded_pose_recovery_and_roll_gauge(variant: str) -> None:
+def test_bounded_pose_recovery_and_roll_gauge(variant: Variant) -> None:
     initial = (0.0003, -0.0002, 0.0001, 0.012, -0.009, 0.025)
     factor_set, selection, request = numpy_case(
         variant, "fixed-geometry-pose-correction", initial
@@ -101,7 +101,7 @@ def test_callback_cap_has_no_extra_attempt() -> None:
 
 
 @pytest.mark.parametrize("variant", ["axisymmetric", "asymmetric-datum-flat"])
-def test_active_bound_re_solves_in_feasible_tangent_space(variant: str) -> None:
+def test_active_bound_re_solves_in_feasible_tangent_space(variant: Variant) -> None:
     initial = (0.0003, -0.0002, 0.0001, 0.012, -0.009, -0.08)
     factor_set, selection, request = numpy_case(
         variant, "fixed-geometry-pose-correction", initial
@@ -141,7 +141,7 @@ def test_invocation_mismatch_is_rejected_before_callback() -> None:
         update={"parameter_order": tuple(reversed(request.parameter_order))}
     )
     with pytest.raises(ScansorError, match=r"invalid execution request|does not match"):
-        execute(stale, factor_set, selection, SteppedRotationalNumpyBackend())
+        _ = execute(stale, factor_set, selection, SteppedRotationalNumpyBackend())
 
 
 def test_svd_failure_is_a_valid_completed_response(
@@ -152,7 +152,7 @@ def test_svd_failure_is_a_valid_completed_response(
         "asymmetric-datum-flat", "fixed-pose-shape", initial
     )
 
-    def fail_svd(*args: object, **kwargs: object) -> object:
+    def fail_svd(*_args: object, **_kwargs: object) -> object:
         raise np.linalg.LinAlgError
 
     monkeypatch.setattr(backend_module, "_svd", fail_svd)

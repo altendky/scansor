@@ -10,27 +10,40 @@ from __future__ import annotations
 import contextlib
 import copy
 import gzip
+import importlib
 import io
 import json
+import os
 import socket
 import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, final, override
 from unittest import mock
 
-import track5_onshape_cad_repro as tool
+if TYPE_CHECKING:
+    from experiments import track5_onshape_cad_repro as tool
+else:
+    if not __package__:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    tool = importlib.import_module("experiments.track5_onshape_cad_repro")
 
 
 def current_tool_sha() -> str:
+    assert tool.__file__ is not None
     return tool.sha256(Path(tool.__file__).read_bytes())
+
+
+def tool_private(name: str) -> Any:
+    return vars(tool)[name]
 
 
 def cylinder(
     index: int, radius: float, z0: float, z1: float, x_max: float | None = None
-) -> dict[str, object]:
+) -> dict[str, Any]:
     return {
         "axis": {"direction": [0.0, 0.0, -1.0], "originM": [0.0, 0.0, z0]},
         "faceId": f"cylinder-{index}",
@@ -47,7 +60,7 @@ def axial(
     sign: float,
     radius_bounds: list[float],
     x_bounds: list[float] | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     bounds = {"radius": radius_bounds}
     if x_bounds is not None:
         bounds["x"] = x_bounds
@@ -63,7 +76,7 @@ def axial(
     }
 
 
-def datum() -> dict[str, object]:
+def datum() -> dict[str, Any]:
     return {
         "boundsM": {
             "x": [0.016, 0.016],
@@ -80,7 +93,7 @@ def datum() -> dict[str, object]:
     }
 
 
-def probe_payload(variant: str, element_id: str) -> dict[str, object]:
+def probe_payload(variant: str, element_id: str) -> dict[str, Any]:
     asymmetric = variant == "asymmetric_datum_flat"
     faces = [
         cylinder(1, 0.012, 0.0, 0.02),
@@ -114,7 +127,7 @@ def probe_payload(variant: str, element_id: str) -> dict[str, object]:
     }
 
 
-def fs_value(value: object) -> dict[str, object]:
+def fs_value(value: object) -> dict[str, Any]:
     prefix = "com.belmonttech.serialize.fsvalue."
     if isinstance(value, dict):
         return {
@@ -146,7 +159,7 @@ def fs_value(value: object) -> dict[str, object]:
     raise AssertionError(f"unsupported test FeatureScript value: {value!r}")
 
 
-def fs_map_child(node: dict[str, object], key: str) -> dict[str, object]:
+def fs_map_child(node: dict[str, Any], key: str) -> dict[str, Any]:
     for entry in node["value"]:
         if entry["key"]["value"] == key:
             return entry["value"]
@@ -155,12 +168,12 @@ def fs_map_child(node: dict[str, object], key: str) -> dict[str, object]:
 
 def official_geometry_responses(
     variant: str, element_id: str, part_id: str, microversion: str
-) -> tuple[dict[str, object], dict[str, object]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = probe_payload(variant, element_id)
     source_faces = payload["solids"][0]["faces"]
-    body_faces: list[dict[str, object]] = []
-    body_edges: list[dict[str, object]] = []
-    fs_faces: list[dict[str, object]] = []
+    body_faces: list[dict[str, Any]] = []
+    body_edges: list[dict[str, Any]] = []
+    fs_faces: list[dict[str, Any]] = []
     for face_index, source in enumerate(source_faces):
         if source["surfaceType"] == "cylinder":
             radius = source["radiusM"]
@@ -180,7 +193,7 @@ def official_geometry_responses(
                 "surfaceType": "CYLINDER",
             }
             tangent = {"normal": [1.0, 0.0, 0.0]}
-            loops: list[dict[str, object]] = []
+            loops: list[dict[str, Any]] = []
         else:
             bounds = source["boundsM"]
             if source["kind"] == "axial":
@@ -271,7 +284,7 @@ def official_geometry_responses(
     return body, probe
 
 
-def run_identity(run_id: str) -> dict[str, object]:
+def run_identity(run_id: str) -> dict[str, Any]:
     if run_id == tool.RUN_01_ID:
         return {
             "elements": dict(tool.RUN_01_ELEMENTS),
@@ -297,8 +310,8 @@ def part_ids(run_id: str) -> dict[str, str]:
 
 
 def response_for(
-    spec: tool.OperationSpec, run: dict[str, object], parts: dict[str, str]
-) -> dict[str, object]:
+    spec: tool.OperationSpec, run: dict[str, Any], parts: dict[str, str]
+) -> Any:
     microversion = run["microversion_id"]
     if spec.kind == "version":
         return {
@@ -328,37 +341,40 @@ def response_for(
             }
             for variant in tool.EXPECTED_VARIANTS
         ]
+    variant = spec.variant
+    assert variant is not None
     if spec.kind == "parts":
         return [
             {
                 "bodyType": "solid",
-                "elementId": run["elements"][spec.variant],
+                "elementId": run["elements"][variant],
                 "microversionId": microversion,
-                "partId": parts[spec.variant],
+                "partId": parts[variant],
             }
         ]
     if spec.kind == "body":
         return official_geometry_responses(
-            spec.variant,
-            run["elements"][spec.variant],
-            parts[spec.variant],
+            variant,
+            run["elements"][variant],
+            parts[variant],
             microversion,
         )[0]
     return official_geometry_responses(
-        spec.variant, run["elements"][spec.variant], parts[spec.variant], microversion
+        variant, run["elements"][variant], parts[variant], microversion
     )[1]
 
 
 def request_for(
     spec: tool.OperationSpec,
-    run: dict[str, object],
+    run: dict[str, Any],
     parts: dict[str, str],
     tool_sha: str,
-) -> dict[str, object]:
-    element_id = run["elements"].get(spec.variant) if spec.variant else None
-    part_id = parts[spec.variant] if spec.kind == "body" else None
+) -> dict[str, Any]:
+    variant = spec.variant
+    element_id = run["elements"].get(variant) if variant is not None else None
+    part_id = parts[variant] if spec.kind == "body" and variant is not None else None
     return {
-        "body": tool._expected_body(spec, run["microversion_id"]),
+        "body": tool_private("_expected_body")(spec, run["microversion_id"]),
         "document_id": tool.DOCUMENT_ID,
         "element_id": element_id,
         "endpoint": spec.endpoint,
@@ -370,14 +386,14 @@ def request_for(
         "microversion_id": run["microversion_id"],
         "operation_name": spec.name,
         "part_id": part_id,
-        "path": tool._exact_path(
+        "path": tool_private("_exact_path")(
             spec,
             version_id=run["version_id"],
             microversion_id=run["microversion_id"],
             element_id=element_id,
             part_id=part_id,
         ),
-        "query": tool._exact_query(spec),
+        "query": tool_private("_exact_query")(spec),
         "run_role": run["kind"],
         "source_pins": tool.SOURCE_PINS,
         "variant": spec.variant,
@@ -387,26 +403,26 @@ def request_for(
 
 
 def write_artifact(
-    root: Path, relative: str, raw: bytes, *, provenance: dict[str, object]
-) -> dict[str, object]:
+    root: Path, relative: str, raw: bytes, *, provenance: dict[str, Any]
+) -> dict[str, Any]:
     stored = tool.deterministic_gzip(raw, compresslevel=provenance["compresslevel"])
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(stored)
+    _ = path.write_bytes(stored)
     return tool.artifact_descriptor(raw, stored, relative)
 
 
-def write_manifest(root: Path, manifest: dict[str, object]) -> None:
+def write_manifest(root: Path, manifest: dict[str, Any]) -> None:
     data = tool.canonical_json(manifest)
-    (root / "manifest.json").write_bytes(data)
-    (root / "manifest.sha256").write_bytes(
+    _ = (root / "manifest.json").write_bytes(data)
+    _ = (root / "manifest.sha256").write_bytes(
         f"{tool.sha256(data)}  manifest.json\n".encode("ascii")
     )
 
 
 def write_run_derived(root: Path, tool_sha: str) -> None:
-    manifest, raw, parsed, _ = tool._verify_raw_evidence(root, tool_sha)
-    normalized = tool._replay_verified(manifest, raw, parsed)
+    manifest, raw, parsed, _ = tool_private("_verify_raw_evidence")(root, tool_sha)
+    normalized = tool_private("_replay_verified")(manifest, raw, parsed)
     label = (
         "run-01-backfill-vs-truth"
         if manifest["run"]["id"] == tool.RUN_01_ID
@@ -415,17 +431,19 @@ def write_run_derived(root: Path, tool_sha: str) -> None:
     report = tool.compare_to_truth(normalized, label)
     (root / "normalized").mkdir(exist_ok=True)
     (root / "reports").mkdir(exist_ok=True)
-    (root / "normalized/normalized.json").write_bytes(tool.canonical_json(normalized))
-    (root / tool._run_truth_report_name(manifest["run"]["id"])).write_bytes(
-        tool.canonical_json(report)
+    _ = (root / "normalized/normalized.json").write_bytes(
+        tool.canonical_json(normalized)
     )
+    _ = (
+        root / tool_private("_run_truth_report_name")(manifest["run"]["id"])
+    ).write_bytes(tool.canonical_json(report))
 
 
-def build_evidence(root: Path, run_id: str, tool_sha: str) -> dict[str, object]:
+def build_evidence(root: Path, run_id: str, tool_sha: str) -> dict[str, Any]:
     run = run_identity(run_id)
     parts = part_ids(run_id)
     provenance = tool.current_gzip_provenance()
-    operations: list[dict[str, object]] = []
+    operations: list[dict[str, Any]] = []
     log_lines: list[bytes] = []
     total = 0
     for order, spec in enumerate(tool.OPERATION_SPECS, 1):
@@ -477,7 +495,7 @@ def build_evidence(root: Path, run_id: str, tool_sha: str) -> dict[str, object]:
                 }
             )
         )
-    manifest: dict[str, object] = {
+    manifest: dict[str, Any] = {
         "capture_metadata": {
             "captured_at": "2026-07-28T12:00:00+00:00",
             "gzip": provenance,
@@ -498,7 +516,7 @@ def build_evidence(root: Path, run_id: str, tool_sha: str) -> dict[str, object]:
         "run": run,
         "source_pins": tool.SOURCE_PINS,
     }
-    (root / "operation-log.jsonl").write_bytes(b"".join(log_lines))
+    _ = (root / "operation-log.jsonl").write_bytes(b"".join(log_lines))
     write_manifest(root, manifest)
     write_run_derived(root, tool_sha)
     return manifest
@@ -509,14 +527,14 @@ def write_capture_inputs(root: Path, run_id: str) -> None:
     run = run_identity(run_id)
     parts = part_ids(run_id)
     for spec in tool.OPERATION_SPECS:
-        (root / f"{spec.name}.json").write_bytes(
+        _ = (root / f"{spec.name}.json").write_bytes(
             tool.canonical_json(response_for(spec, run, parts))
         )
 
 
 def replace_artifact(
     root: Path,
-    manifest: dict[str, object],
+    manifest: dict[str, Any],
     operation_index: int,
     side: str,
     raw: bytes,
@@ -538,7 +556,7 @@ def replace_artifact(
 
 def build_suite(
     suite: Path, run_01: Path, run_02: Path, tool_sha: str
-) -> dict[str, object]:
+) -> dict[str, Any]:
     left = tool.replay(run_01, tool_sha)
     right = tool.replay(run_02, tool_sha)
     left_hashes = {
@@ -559,7 +577,7 @@ def build_suite(
     }
     suite.mkdir()
     (suite / "reports").mkdir()
-    (suite / "raw-change-notes.json").write_bytes(tool.canonical_json(notes))
+    _ = (suite / "raw-change-notes.json").write_bytes(tool.canonical_json(notes))
     suite_manifest = {
         "expected_tool_sha256": tool_sha,
         "format": tool.SUITE_FORMAT,
@@ -572,8 +590,8 @@ def build_suite(
         "source_pins": tool.SOURCE_PINS,
     }
     manifest_bytes = tool.canonical_json(suite_manifest)
-    (suite / "suite-manifest.json").write_bytes(manifest_bytes)
-    (suite / "suite-manifest.sha256").write_bytes(
+    _ = (suite / "suite-manifest.json").write_bytes(manifest_bytes)
+    _ = (suite / "suite-manifest.sha256").write_bytes(
         f"{tool.sha256(manifest_bytes)}  suite-manifest.json\n".encode("ascii")
     )
     reports = {
@@ -586,11 +604,20 @@ def build_suite(
         ),
     }
     for filename, report in reports.items():
-        (suite / "reports" / filename).write_bytes(tool.canonical_json(report))
+        _ = (suite / "reports" / filename).write_bytes(tool.canonical_json(report))
     return suite_manifest
 
 
+@final
 class EvidenceTest(unittest.TestCase):
+    temporary: Any = None
+    base = Path()
+    tool_sha = ""
+    verify_patch: Any = None
+    run_02 = Path()
+    manifest: Any = None
+
+    @override
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.base = Path(self.temporary.name)
@@ -598,19 +625,20 @@ class EvidenceTest(unittest.TestCase):
         self.verify_patch = mock.patch.object(
             tool, "verify_tool_source", return_value=self.tool_sha
         )
-        self.verify_patch.start()
+        _ = self.verify_patch.start()
         self.run_02 = self.base / "run-02"
         self.run_02.mkdir()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
 
+    @override
     def tearDown(self) -> None:
         self.verify_patch.stop()
         self.temporary.cleanup()
 
-    def verify(self) -> dict[str, object]:
+    def verify(self) -> dict[str, Any]:
         return tool.verify_evidence(self.run_02, self.tool_sha)
 
-    def operation_raw(self, index: int, side: str) -> dict[str, object]:
+    def operation_raw(self, index: int, side: str) -> Any:
         operation = self.manifest["operations"][index]
         stored = (self.run_02 / operation[side]["path"]).read_bytes()
         return json.loads(gzip.decompress(stored))
@@ -619,9 +647,9 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(self.verify()["run"]["id"], tool.RUN_ID)
         run_01 = self.base / "run-01"
         run_01.mkdir()
-        build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
+        _ = build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
         suite = self.base / "suite"
-        build_suite(suite, run_01, self.run_02, self.tool_sha)
+        _ = build_suite(suite, run_01, self.run_02, self.tool_sha)
         self.assertEqual(
             tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)["format"],
             tool.SUITE_FORMAT,
@@ -635,9 +663,9 @@ class EvidenceTest(unittest.TestCase):
         run_01 = self.base / "assembled-run-01"
         run_02 = self.base / "assembled-run-02"
         suite = self.base / "assembled-suite"
-        tool.assemble_capture(run_01_inputs, run_01, tool.RUN_01_ID, self.tool_sha)
-        tool.assemble_capture(run_02_inputs, run_02, tool.RUN_ID, self.tool_sha)
-        tool.assemble_suite(run_01, run_02, suite, self.tool_sha)
+        _ = tool.assemble_capture(run_01_inputs, run_01, tool.RUN_01_ID, self.tool_sha)
+        _ = tool.assemble_capture(run_02_inputs, run_02, tool.RUN_ID, self.tool_sha)
+        _ = tool.assemble_suite(run_01, run_02, suite, self.tool_sha)
         self.assertEqual(
             tool.verify_suite(run_01, run_02, suite, self.tool_sha)["format"],
             tool.SUITE_FORMAT,
@@ -656,71 +684,73 @@ class EvidenceTest(unittest.TestCase):
         original = normalized.read_bytes()
         normalized.unlink()
         with self.assertRaisesRegex(tool.EvidenceError, "files mismatch"):
-            self.verify()
-        normalized.write_bytes(original.replace(b'"format":', b'"extra":1,"format":'))
+            _ = self.verify()
+        _ = normalized.write_bytes(
+            original.replace(b'"format":', b'"extra":1,"format":')
+        )
         with self.assertRaisesRegex(tool.EvidenceError, "canonical|recomputed output"):
-            self.verify()
-        normalized.write_bytes(original)
-        (self.run_02 / "reports/extra.json").write_bytes(b"{}\n")
+            _ = self.verify()
+        _ = normalized.write_bytes(original)
+        _ = (self.run_02 / "reports/extra.json").write_bytes(b"{}\n")
         with self.assertRaisesRegex(tool.EvidenceError, "unexpected"):
-            self.verify()
+            _ = self.verify()
         (self.run_02 / "reports/extra.json").unlink()
         value = json.loads(original)
         value["apiKey"] = "redacted"
-        normalized.write_bytes(tool.canonical_json(value))
+        _ = normalized.write_bytes(tool.canonical_json(value))
         with self.assertRaisesRegex(tool.EvidenceError, "secret-bearing"):
-            self.verify()
+            _ = self.verify()
 
     def test_wrong_role_report_and_suite_report_in_run_rejected(self) -> None:
         truth = self.run_02 / "reports/run-02-vs-truth.json"
-        truth.rename(self.run_02 / "reports/run-01-backfill-vs-truth.json")
+        _ = truth.rename(self.run_02 / "reports/run-01-backfill-vs-truth.json")
         with self.assertRaisesRegex(tool.EvidenceError, "files mismatch"):
-            self.verify()
+            _ = self.verify()
         truth = self.run_02 / "reports/run-01-backfill-vs-truth.json"
-        truth.rename(self.run_02 / "reports/run-02-vs-truth.json")
-        (self.run_02 / "reports/run-01-vs-run-02.json").write_bytes(b"{}\n")
+        _ = truth.rename(self.run_02 / "reports/run-02-vs-truth.json")
+        _ = (self.run_02 / "reports/run-01-vs-run-02.json").write_bytes(b"{}\n")
         with self.assertRaisesRegex(tool.EvidenceError, "unexpected"):
-            self.verify()
+            _ = self.verify()
 
     def test_suite_missing_stale_extra_and_secret_reports_rejected(self) -> None:
         run_01 = self.base / "run-01"
         run_01.mkdir()
-        build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
+        _ = build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
         suite = self.base / "suite"
-        build_suite(suite, run_01, self.run_02, self.tool_sha)
+        _ = build_suite(suite, run_01, self.run_02, self.tool_sha)
         report = suite / "reports/run-01-vs-run-02.json"
         original = report.read_bytes()
         report.unlink()
         with self.assertRaisesRegex(tool.EvidenceError, "suite files mismatch"):
-            tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
-        report.write_bytes(original.replace(b'"format":', b'"stale":1,"format":'))
+            _ = tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
+        _ = report.write_bytes(original.replace(b'"format":', b'"stale":1,"format":'))
         with self.assertRaisesRegex(tool.EvidenceError, "canonical|recomputed output"):
-            tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
-        report.write_bytes(original)
-        (suite / "extra.json").write_bytes(b"{}\n")
+            _ = tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
+        _ = report.write_bytes(original)
+        _ = (suite / "extra.json").write_bytes(b"{}\n")
         with self.assertRaisesRegex(tool.EvidenceError, "unexpected"):
-            tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
+            _ = tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
         (suite / "extra.json").unlink()
         notes = suite / "raw-change-notes.json"
-        notes.write_bytes(tool.canonical_json({"accessToken": "redacted"}))
+        _ = notes.write_bytes(tool.canonical_json({"accessToken": "redacted"}))
         with self.assertRaisesRegex(tool.EvidenceError, "secret-bearing"):
-            tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
+            _ = tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
 
     def test_expected_tool_and_generator_anchors_rejected(self) -> None:
         with self.assertRaisesRegex(tool.EvidenceError, "expected tool"):
-            tool.verify_evidence(self.run_02, "f" * 64)
+            _ = tool.verify_evidence(self.run_02, "f" * 64)
         self.manifest["source_pins"] = dict(tool.SOURCE_PINS) | {
             "generator_version": "1.0.6"
         }
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "generator source or contract"):
-            self.verify()
+            _ = self.verify()
 
     def test_sidecar_integrity_not_authorship_statement_required(self) -> None:
         self.manifest["capture_metadata"]["integrity_scope"] = "signed"
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "integrity/authorship"):
-            self.verify()
+            _ = self.verify()
 
     def test_official_version_workspace_and_microversion_anchor_rejected(self) -> None:
         response = self.operation_raw(0, "response")
@@ -736,7 +766,7 @@ class EvidenceTest(unittest.TestCase):
                     tool.canonical_json(changed),
                 )
                 with self.assertRaisesRegex(tool.EvidenceError, "version response"):
-                    self.verify()
+                    _ = self.verify()
                 self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
 
     def test_version_anchor_requires_explicit_start_and_run01_parentage(self) -> None:
@@ -752,7 +782,7 @@ class EvidenceTest(unittest.TestCase):
             tool.canonical_json(response),
         )
         with self.assertRaisesRegex(tool.EvidenceError, "identity and ancestry"):
-            self.verify()
+            _ = self.verify()
 
         run_01 = self.base / "run-01-parent"
         run_01.mkdir()
@@ -776,58 +806,62 @@ class EvidenceTest(unittest.TestCase):
             tool.canonical_json(run_01_response),
         )
         with self.assertRaisesRegex(tool.EvidenceError, "identity and ancestry"):
-            tool.verify_evidence(run_01, self.tool_sha)
+            _ = tool.verify_evidence(run_01, self.tool_sha)
 
     def test_walk_files_detects_parent_and_leaf_replacement(self) -> None:
         root = self.base / "walk-replaced"
         child = root / "child"
         child.mkdir(parents=True)
-        (child / "file.txt").write_text("ok", encoding="ascii")
-        original_open = tool.os.open
+        _ = (child / "file.txt").write_text("ok", encoding="ascii")
+        original_open = os.open
 
         parent_replaced = False
 
         def replace_parent_once(
-            path: object, flags: int, *args: object, **kwargs: object
+            path: str | Path,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: int | None = None,
         ) -> int:
             nonlocal parent_replaced
-            if path == "child" and flags & tool.os.O_DIRECTORY and not parent_replaced:
+            if path == "child" and flags & os.O_DIRECTORY and not parent_replaced:
                 parent_replaced = True
-                child.rename(root / "child-old")
-                (root / "child").write_text("replacement", encoding="ascii")
-            return original_open(path, flags, *args, **kwargs)
+                _ = child.rename(root / "child-old")
+                _ = (root / "child").write_text("replacement", encoding="ascii")
+            return original_open(path, flags, mode, dir_fd=dir_fd)
 
         with (
-            mock.patch.object(tool.os, "open", side_effect=replace_parent_once),
+            mock.patch.object(os, "open", side_effect=replace_parent_once),
             self.assertRaisesRegex(tool.EvidenceError, "directory was replaced"),
         ):
-            tool._walk_files(root, tool.MAX_RUN_FILES)
+            _ = tool_private("_walk_files")(root, tool.MAX_RUN_FILES)
 
         root = self.base / "walk-leaf"
         root.mkdir()
         leaf = root / "leaf.txt"
-        leaf.write_text("ok", encoding="ascii")
+        _ = leaf.write_text("ok", encoding="ascii")
         leaf_replaced = False
 
         def replace_leaf_once(
-            path: object, flags: int, *args: object, **kwargs: object
+            path: str | Path,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: int | None = None,
         ) -> int:
             nonlocal leaf_replaced
-            if (
-                path == "leaf.txt"
-                and not flags & tool.os.O_DIRECTORY
-                and not leaf_replaced
-            ):
+            if path == "leaf.txt" and not flags & os.O_DIRECTORY and not leaf_replaced:
                 leaf_replaced = True
-                leaf.rename(root / "leaf-old.txt")
+                _ = leaf.rename(root / "leaf-old.txt")
                 (root / "leaf.txt").mkdir()
-            return original_open(path, flags, *args, **kwargs)
+            return original_open(path, flags, mode, dir_fd=dir_fd)
 
         with (
-            mock.patch.object(tool.os, "open", side_effect=replace_leaf_once),
+            mock.patch.object(os, "open", side_effect=replace_leaf_once),
             self.assertRaisesRegex(tool.EvidenceError, "leaf was replaced"),
         ):
-            tool._walk_files(root, tool.MAX_RUN_FILES)
+            _ = tool_private("_walk_files")(root, tool.MAX_RUN_FILES)
 
     def test_official_element_inventory_forgery_rejected(self) -> None:
         response = self.operation_raw(1, "response")
@@ -840,7 +874,7 @@ class EvidenceTest(unittest.TestCase):
             tool.canonical_json(response),
         )
         with self.assertRaisesRegex(tool.EvidenceError, "element inventory"):
-            self.verify()
+            _ = self.verify()
 
     def test_duplicate_official_element_inventory_rejected(self) -> None:
         response = self.operation_raw(1, "response")
@@ -853,7 +887,7 @@ class EvidenceTest(unittest.TestCase):
             tool.canonical_json(response),
         )
         with self.assertRaisesRegex(tool.EvidenceError, "duplicate variant"):
-            self.verify()
+            _ = self.verify()
 
     def test_swapped_element_part_probe_and_body_pairings_rejected(self) -> None:
         request = self.operation_raw(2, "request")
@@ -864,11 +898,11 @@ class EvidenceTest(unittest.TestCase):
             self.run_02, self.manifest, 2, "request", tool.canonical_json(request)
         )
         with self.assertRaisesRegex(tool.EvidenceError, "element/variant"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         body_request = self.operation_raw(3, "request")
         body_request["part_id"] = "8" * 24
-        body_request["path"] = tool._exact_path(
+        body_request["path"] = tool_private("_exact_path")(
             tool.OPERATION_SPECS[3],
             version_id=self.manifest["run"]["version_id"],
             microversion_id=self.manifest["run"]["microversion_id"],
@@ -881,7 +915,7 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             tool.EvidenceError, "cross-paired|wrong face inventory"
         ):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         probe = self.operation_raw(4, "response")
         probe["sourceMicroversion"] = "f" * 24
@@ -891,7 +925,7 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             tool.EvidenceError, "cross-paired|wrong face inventory"
         ):
-            self.verify()
+            _ = self.verify()
 
     def test_exact_path_query_body_and_order_contracts_rejected(self) -> None:
         request = self.operation_raw(4, "request")
@@ -914,7 +948,7 @@ class EvidenceTest(unittest.TestCase):
                 with self.assertRaisesRegex(
                     tool.EvidenceError, "exact method/path/query/body"
                 ):
-                    self.verify()
+                    _ = self.verify()
                 self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         self.manifest["operations"][0], self.manifest["operations"][1] = (
             self.manifest["operations"][1],
@@ -922,35 +956,35 @@ class EvidenceTest(unittest.TestCase):
         )
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "ordering/name"):
-            self.verify()
+            _ = self.verify()
 
     def test_predecessor_and_operation_count_rejected(self) -> None:
         self.manifest["operations"][2]["predecessor_microversion"] = "f" * 24
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "predecessor"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         self.manifest["operations"].pop()
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "operation count"):
-            self.verify()
+            _ = self.verify()
 
     def test_manifest_log_file_count_and_descriptor_bounds(self) -> None:
         manifest = self.run_02 / "manifest.json"
-        manifest.write_bytes(b" " * (tool.MAX_MANIFEST_BYTES + 1))
+        _ = manifest.write_bytes(b" " * (tool.MAX_MANIFEST_BYTES + 1))
         with self.assertRaisesRegex(tool.EvidenceError, "exceeds bound"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
-        (self.run_02 / "operation-log.jsonl").write_bytes(
+        _ = (self.run_02 / "operation-log.jsonl").write_bytes(
             b" " * (tool.MAX_OPERATION_LOG_BYTES + 1)
         )
         with self.assertRaisesRegex(tool.EvidenceError, "exceeds bound"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         for index in range(tool.MAX_RUN_FILES + 1):
-            (self.run_02 / f"extra-{index}").write_bytes(b"")
+            _ = (self.run_02 / f"extra-{index}").write_bytes(b"")
         with self.assertRaisesRegex(tool.EvidenceError, "file count"):
-            self.verify()
+            _ = self.verify()
         self.temporary.cleanup()
         self.temporary = tempfile.TemporaryDirectory()
         self.base = Path(self.temporary.name)
@@ -962,7 +996,7 @@ class EvidenceTest(unittest.TestCase):
         )
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "expected integer"):
-            self.verify()
+            _ = self.verify()
 
     def test_gzip_hash_crc_trailing_concatenated_and_cross_runtime(self) -> None:
         descriptor = self.manifest["operations"][0]["response"]
@@ -972,21 +1006,21 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             tool.EvidenceError, "initial stored size mismatch|stored size or SHA"
         ):
-            self.verify()
+            _ = self.verify()
         path.write_bytes(original + original)
         descriptor["stored_size"] = len(original) * 2
         descriptor["stored_sha256"] = tool.sha256(original + original)
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "trailing gzip"):
-            self.verify()
+            _ = self.verify()
         raw = b'{"cross":"runtime"}\n'
         stored = gzip.compress(raw, mtime=0)
         alternate = dict(tool.current_gzip_provenance())
         alternate["xfl"] = stored[8]
         alternate["os_byte"] = stored[9]
         temp = self.base / "alternate.gz"
-        temp.write_bytes(stored)
-        result = tool._stream_gzip_artifact(
+        _ = temp.write_bytes(stored)
+        result = tool_private("_stream_gzip_artifact")(
             temp,
             tool.artifact_descriptor(raw, stored, "alternate.gz"),
             alternate,
@@ -995,38 +1029,38 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(result, raw)
         corrupt = bytearray(stored)
         corrupt[-8] ^= 1
-        temp.write_bytes(corrupt)
+        _ = temp.write_bytes(corrupt)
         bad = tool.artifact_descriptor(raw, bytes(corrupt), "alternate.gz")
         with self.assertRaisesRegex(tool.EvidenceError, "invalid gzip"):
-            tool._stream_gzip_artifact(temp, bad, alternate, "alternate")
+            _ = tool_private("_stream_gzip_artifact")(temp, bad, alternate, "alternate")
 
     def test_stored_raw_hash_and_same_runtime_vector_mismatch_rejected(self) -> None:
         self.manifest["operations"][0]["response"]["stored_sha256"] = "f" * 64
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "stored size or SHA"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         self.manifest["operations"][0]["response"]["raw_sha256"] = "f" * 64
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "raw size or SHA"):
-            self.verify()
+            _ = self.verify()
         self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
         self.manifest["capture_metadata"]["gzip"]["same_runtime_vector_sha256"] = (
             "f" * 64
         )
         write_manifest(self.run_02, self.manifest)
         with self.assertRaisesRegex(tool.EvidenceError, "same-runtime gzip vector"):
-            self.verify()
+            _ = self.verify()
 
     def test_decompressed_bound_checked_before_allocation(self) -> None:
         raw = b"x" * 1024
         stored = tool.deterministic_gzip(raw)
         path = self.base / "bounded.gz"
-        path.write_bytes(stored)
+        _ = path.write_bytes(stored)
         descriptor = tool.artifact_descriptor(raw, stored, "bounded.gz")
         descriptor["raw_size"] = 10
         with self.assertRaisesRegex(tool.EvidenceError, "decompressed data exceeds"):
-            tool._stream_gzip_artifact(
+            _ = tool_private("_stream_gzip_artifact")(
                 path, descriptor, tool.current_gzip_provenance(), "bounded"
             )
 
@@ -1034,28 +1068,28 @@ class EvidenceTest(unittest.TestCase):
         raw = b'{"growth":"bounded"}\n'
         stored = tool.deterministic_gzip(raw)
         path = self.base / "growth.gz"
-        path.write_bytes(stored)
+        _ = path.write_bytes(stored)
         descriptor = tool.artifact_descriptor(raw, stored, "growth.gz")
         wrong_size = dict(descriptor) | {"stored_size": len(stored) + 1}
         with self.assertRaisesRegex(tool.EvidenceError, "initial stored size mismatch"):
-            tool._stream_gzip_artifact(
+            _ = tool_private("_stream_gzip_artifact")(
                 path, wrong_size, tool.current_gzip_provenance(), "growth"
             )
-        original_open = tool._open_bounded
+        original_open = tool_private("_open_bounded")
 
         def open_then_grow(
             opened_path: Path, maximum: int, label: str
         ) -> tuple[object, int]:
             stream, size = original_open(opened_path, maximum, label)
             with opened_path.open("ab") as writer:
-                writer.write(b"x")
+                _ = writer.write(b"x")
             return stream, size
 
         with (
             mock.patch.object(tool, "_open_bounded", side_effect=open_then_grow),
             self.assertRaisesRegex(tool.EvidenceError, "grew after open"),
         ):
-            tool._stream_gzip_artifact(
+            _ = tool_private("_stream_gzip_artifact")(
                 path, descriptor, tool.current_gzip_provenance(), "growth"
             )
 
@@ -1063,7 +1097,7 @@ class EvidenceTest(unittest.TestCase):
         for index in range(tool.MAX_TREE_ENTRIES + 1):
             (self.run_02 / f"empty-{index}").mkdir()
         with self.assertRaisesRegex(tool.EvidenceError, "tree entry count"):
-            self.verify()
+            _ = self.verify()
         deep_root = self.base / "deep"
         deep_root.mkdir()
         current = deep_root
@@ -1071,7 +1105,7 @@ class EvidenceTest(unittest.TestCase):
             current /= str(index)
             current.mkdir()
         with self.assertRaisesRegex(tool.EvidenceError, "tree depth"):
-            tool._walk_files(deep_root, tool.MAX_RUN_FILES)
+            _ = tool_private("_walk_files")(deep_root, tool.MAX_RUN_FILES)
         nested = "[" * 110 + "0" + "]" * 110
         with self.assertRaisesRegex(tool.EvidenceError, "nesting"):
             tool.parse_json(nested.encode(), "nested", canonical=False)
@@ -1087,7 +1121,7 @@ class EvidenceTest(unittest.TestCase):
             with self.subTest(message=message):
                 replace_artifact(self.run_02, self.manifest, 0, "response", raw)
                 with self.assertRaisesRegex(tool.EvidenceError, message):
-                    self.verify()
+                    _ = self.verify()
                 self.manifest = build_evidence(self.run_02, tool.RUN_ID, self.tool_sha)
 
     def test_reordered_faces_normalize_identically(self) -> None:
@@ -1115,7 +1149,7 @@ class EvidenceTest(unittest.TestCase):
         faces = response["result"]["value"]["solids"][0]["faces"]
         faces[3]["stationM"] = None
         with self.assertRaisesRegex(tool.EvidenceError, "require stations"):
-            tool.normalize_probe_response(
+            _ = tool.normalize_probe_response(
                 response, element_id="e" * 24, raw_sha256="a" * 64
             )
         response = {
@@ -1124,7 +1158,7 @@ class EvidenceTest(unittest.TestCase):
         datum_face = response["result"]["value"]["solids"][0]["faces"][-1]
         datum_face["stationM"] = 0.02
         with self.assertRaisesRegex(tool.EvidenceError, "prohibit"):
-            tool.normalize_probe_response(
+            _ = tool.normalize_probe_response(
                 response, element_id="e" * 24, raw_sha256="a" * 64
             )
         response = {
@@ -1136,7 +1170,7 @@ class EvidenceTest(unittest.TestCase):
             0.0,
         ]
         with self.assertRaisesRegex(tool.EvidenceError, "inconsistent"):
-            tool.normalize_probe_response(
+            _ = tool.normalize_probe_response(
                 response, element_id="e" * 24, raw_sha256="a" * 64
             )
 
@@ -1195,17 +1229,17 @@ class EvidenceTest(unittest.TestCase):
     def test_suite_manifest_run_hash_mutation_rejected(self) -> None:
         run_01 = self.base / "run-01"
         run_01.mkdir()
-        build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
+        _ = build_evidence(run_01, tool.RUN_01_ID, self.tool_sha)
         suite = self.base / "suite"
         suite_manifest = build_suite(suite, run_01, self.run_02, self.tool_sha)
         suite_manifest["run_manifests"][tool.RUN_ID] = "f" * 64
         data = tool.canonical_json(suite_manifest)
-        (suite / "suite-manifest.json").write_bytes(data)
-        (suite / "suite-manifest.sha256").write_bytes(
+        _ = (suite / "suite-manifest.json").write_bytes(data)
+        _ = (suite / "suite-manifest.sha256").write_bytes(
             f"{tool.sha256(data)}  suite-manifest.json\n".encode()
         )
         with self.assertRaisesRegex(tool.EvidenceError, "bind exact verified"):
-            tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
+            _ = tool.verify_suite(run_01, self.run_02, suite, self.tool_sha)
 
     def test_opposite_cross_run_axis_perturbations_use_angular_tolerance(self) -> None:
         right = tool.replay(self.run_02, self.tool_sha)
@@ -1225,6 +1259,7 @@ class EvidenceTest(unittest.TestCase):
         )
 
 
+@final
 class GeometryLogicTest(unittest.TestCase):
     def test_official_array_and_transient_id_anchors(self) -> None:
         run = run_identity(tool.RUN_ID)
@@ -1236,10 +1271,10 @@ class GeometryLogicTest(unittest.TestCase):
             spec.name: request_for(spec, run, parts, "a" * 64)
             for spec in tool.OPERATION_SPECS
         }
-        tool._validate_official_anchors(responses, requests, run)
+        tool_private("_validate_official_anchors")(responses, requests, run)
         responses["axisymmetric-part-inventory"][0]["partId"] = "bad/part"
         with self.assertRaisesRegex(tool.EvidenceError, "invalid official part"):
-            tool._validate_official_anchors(responses, requests, run)
+            tool_private("_validate_official_anchors")(responses, requests, run)
 
     def test_typed_featurescript_value_decoder_rejects_wrong_units(self) -> None:
         number = {
@@ -1248,41 +1283,46 @@ class GeometryLogicTest(unittest.TestCase):
             "unitToPower": {"METER": 1},
             "value": 0.012,
         }
-        self.assertEqual(tool._decode_fs_value(number, "number"), 0.012)
+        self.assertEqual(tool_private("_decode_fs_value")(number, "number"), 0.012)
         number["unitToPower"] = {"INCH": 1}
         with self.assertRaisesRegex(tool.EvidenceError, "metre"):
-            tool._decode_fs_value(number, "number")
+            tool_private("_decode_fs_value")(number, "number")
 
     def test_dominant_component_axis_canonicalization_and_tie_break(self) -> None:
-        self.assertEqual(tool._canonical_axis([-1e-20, 0.0, 1.0]), [-1e-20, 0.0, 1.0])
-        self.assertNotEqual(
-            tool._canonical_axis([-1e-20, 0.0, 1.0]),
-            tool._canonical_axis([1e-20, 0.0, 1.0]),
+        self.assertEqual(
+            tool_private("_canonical_axis")([-1e-20, 0.0, 1.0]),
+            [-1e-20, 0.0, 1.0],
         )
-        self.assertGreater(tool._canonical_axis([-1e-20, 0.0, 1.0])[2], 0.0)
-        tied = tool._canonical_axis([1.0, -1.0, 0.0])
-        self.assertEqual(tool._canonical_axis([-1.0, 1.0, 0.0]), tied)
+        self.assertNotEqual(
+            tool_private("_canonical_axis")([-1e-20, 0.0, 1.0]),
+            tool_private("_canonical_axis")([1e-20, 0.0, 1.0]),
+        )
+        self.assertGreater(tool_private("_canonical_axis")([-1e-20, 0.0, 1.0])[2], 0.0)
+        tied = tool_private("_canonical_axis")([1.0, -1.0, 0.0])
+        self.assertEqual(tool_private("_canonical_axis")([-1.0, 1.0, 0.0]), tied)
         self.assertGreater(tied[0], 0.0)
 
     def test_field_aware_linear_oriented_and_unoriented_boundaries(self) -> None:
         self.assertEqual(
-            tool._linear_finding("x", 0.0, tool.LINEAR_TOLERANCE_M)["classification"],
+            tool_private("_linear_finding")("x", 0.0, tool.LINEAR_TOLERANCE_M)[
+                "classification"
+            ],
             "tolerated numerical",
         )
         angle = tool.ANGULAR_TOLERANCE_RAD * 0.999
         axis = [math_sin(angle), 0.0, math_cos(angle)]
         self.assertNotEqual(
-            tool._angular_finding("axis", axis, [0.0, 0.0, -1.0], unoriented=True)[
-                "classification"
-            ],
+            tool_private("_angular_finding")(
+                "axis", axis, [0.0, 0.0, -1.0], unoriented=True
+            )["classification"],
             "failure",
         )
         outside = tool.ANGULAR_TOLERANCE_RAD * 1.001
         normal = [math_sin(outside), 0.0, math_cos(outside)]
         self.assertEqual(
-            tool._angular_finding("normal", normal, [0.0, 0.0, 1.0], unoriented=False)[
-                "classification"
-            ],
+            tool_private("_angular_finding")(
+                "normal", normal, [0.0, 0.0, 1.0], unoriented=False
+            )["classification"],
             "failure",
         )
 
@@ -1299,7 +1339,15 @@ def math_cos(value: float) -> float:
     return math.cos(value)
 
 
+@final
 class EffectGuardTest(unittest.TestCase):
+    temporary: Any = None
+    root = Path()
+    tool_sha = ""
+    record: Any = None
+    preflight = Path()
+
+    @override
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -1326,15 +1374,16 @@ class EffectGuardTest(unittest.TestCase):
         self.preflight = self.root / "preflight.json"
         self.write_preflight()
 
+    @override
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
     def write_preflight(self) -> None:
-        self.preflight.write_bytes(tool.canonical_json(self.record))
+        _ = self.preflight.write_bytes(tool.canonical_json(self.record))
 
-    def args(self, execute: bool = True) -> SimpleNamespace:
+    def args(self, execute: bool = True) -> Namespace:
         data = self.preflight.read_bytes()
-        return SimpleNamespace(
+        return Namespace(
             document_id=tool.DOCUMENT_ID,
             execute=execute,
             expected_tool_sha256=self.tool_sha,
@@ -1397,7 +1446,7 @@ class EffectGuardTest(unittest.TestCase):
     def test_execute_required_and_every_preflight_boundary_rejected(self) -> None:
         with mock.patch.object(tool, "verify_tool_source", return_value=self.tool_sha):
             with self.assertRaisesRegex(tool.EvidenceError, "explicit --execute"):
-                tool.validate_effect_args(self.args(execute=False))
+                _ = tool.validate_effect_args(self.args(execute=False))
             mutations = {
                 "expected_tool_sha256": "f" * 64,
                 "document_id": "wrong",
@@ -1417,14 +1466,14 @@ class EffectGuardTest(unittest.TestCase):
                     self.record[field] = value
                     self.write_preflight()
                     with self.assertRaises(tool.EvidenceError):
-                        tool.validate_effect_args(self.args())
+                        _ = tool.validate_effect_args(self.args())
                     self.record[field] = original
             self.record["authenticated_read_at"] = (
                 datetime.now(UTC) - timedelta(minutes=6)
             ).isoformat()
             self.write_preflight()
             with self.assertRaisesRegex(tool.EvidenceError, "not immediate"):
-                tool.validate_effect_args(self.args())
+                _ = tool.validate_effect_args(self.args())
 
     def test_plan_declares_integrity_and_live_blockers(self) -> None:
         with mock.patch.object(tool, "verify_tool_source", return_value=self.tool_sha):
@@ -1437,7 +1486,7 @@ class EffectGuardTest(unittest.TestCase):
     def test_authenticated_preflight_capability_alone_blocks_plan_and_execution(
         self,
     ) -> None:
-        capability_overrides = {
+        capability_overrides: dict[str, Any] = {
             "AUTHENTICATED_PREFLIGHT_CAPTURE_IMPLEMENTED": False,
             "LIVE_TRANSPORT_IMPLEMENTED": True,
             "AUTHORING_PAYLOADS_FROZEN": True,
@@ -1464,15 +1513,17 @@ class EffectGuardTest(unittest.TestCase):
         self.assertEqual(
             tool.INTEGRITY_SCOPE,
             "SHA-256 sidecars and manifests provide content integrity only, not "
-            "cryptographic authorship. A separately verified signed commit proves a "
-            "signing key endorsed the commit object and committed bytes; it does not "
-            "authenticate Onshape response origin, request/response pairing, or "
-            "necessarily the human committer identity.",
+            + "cryptographic authorship. A separately verified signed commit proves a "
+            + "signing key endorsed the commit object and committed bytes; it does not "
+            + "authenticate Onshape response origin, request/response pairing, or "
+            + "necessarily the human committer identity.",
         )
 
 
+@final
 class ToolSourceTest(unittest.TestCase):
     def test_actual_sidecar_matches_reviewed_current_source(self) -> None:
+        assert tool.__file__ is not None
         checksum, filename = (
             Path(tool.__file__)
             .with_suffix(".sha256")
@@ -1484,4 +1535,4 @@ class ToolSourceTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

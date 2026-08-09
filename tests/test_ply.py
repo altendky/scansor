@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import struct
+from typing import Literal, cast
 
 import numpy as np
 import pytest
@@ -66,7 +67,7 @@ def test_rejects_unsupported_headers(replacement: bytes, message: str) -> None:
     else:
         data = data.replace(b"property float x\nproperty float y", replacement)
     with pytest.raises(ScansorError, match=message):
-        parse_ply(data, "m", 65_536, 10)
+        _ = parse_ply(data, "m", 65_536, 10)
 
 
 @pytest.mark.parametrize("directive", [b"comment nope\n", b"obj_info nope\n", b"\n"])
@@ -75,30 +76,32 @@ def test_rejects_comments_obj_info_and_blank_lines(directive: bytes) -> None:
         b"element vertex 1\n", b"element vertex 1\n" + directive
     )
     with pytest.raises(ScansorError):
-        parse_ply(data, "m", 65_536, 10)
+        _ = parse_ply(data, "m", 65_536, 10)
 
 
-def test_rejects_trailing_truncated_empty_and_excess_vertices(monkeypatch) -> None:
+def test_rejects_trailing_truncated_empty_and_excess_vertices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     valid = ply_bytes([(1.0, 2.0, 3.0)])
     for data, message in ((valid + b"x", "trailing"), (valid[:-1], "truncated")):
         with pytest.raises(ScansorError, match=message):
-            parse_ply(data, "m", 65_536, 10)
+            _ = parse_ply(data, "m", 65_536, 10)
     empty = valid.replace(b"element vertex 1", b"element vertex 0")
     with pytest.raises(ScansorError, match="positive decimal"):
-        parse_ply(empty, "m", 65_536, 10)
+        _ = parse_ply(empty, "m", 65_536, 10)
     with pytest.raises(ScansorError, match="vertex count exceeds"):
-        parse_ply(valid, "m", 65_536, 0)
+        _ = parse_ply(valid, "m", 65_536, 0)
     monkeypatch.setattr("scansor.ply.MAX_CANONICAL_BYTES", 1)
     with pytest.raises(ScansorError, match="canonical array would exceed"):
-        parse_ply(valid, "m", 65_536, 10)
+        _ = parse_ply(valid, "m", 65_536, 10)
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_rejects_nonfinite_coordinates_and_normals(value: float) -> None:
     with pytest.raises(ScansorError, match="coordinates must be finite"):
-        parse_ply(ply_bytes([(value, 0.0, 0.0)]), "m", 65_536, 10)
+        _ = parse_ply(ply_bytes([(value, 0.0, 0.0)]), "m", 65_536, 10)
     with pytest.raises(ScansorError, match="normals must be finite"):
-        parse_ply(
+        _ = parse_ply(
             ply_bytes([(0.0, 0.0, 0.0, value, 1.0, 0.0)], normals=True),
             "m",
             65_536,
@@ -108,7 +111,7 @@ def test_rejects_nonfinite_coordinates_and_normals(value: float) -> None:
 
 def test_rejects_zero_or_infinite_magnitude_normals() -> None:
     with pytest.raises(ScansorError, match="normals must be nonzero"):
-        parse_ply(
+        _ = parse_ply(
             ply_bytes([(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)], normals=True),
             "m",
             65_536,
@@ -118,9 +121,14 @@ def test_rejects_zero_or_infinite_magnitude_normals() -> None:
     payload = struct.pack("<dddddd", 0.0, 0.0, 0.0, 1.7e308, 1.7e308, 1.7e308)
     data = header[: -6 * 8] + payload
     with pytest.raises(ScansorError, match="magnitudes must be finite"):
-        parse_ply(data, "m", 65_536, 10)
+        _ = parse_ply(data, "m", 65_536, 10)
 
 
 def test_direct_api_rejects_unknown_unit() -> None:
     with pytest.raises(ScansorError, match="exactly 'm' or 'mm'"):
-        parse_ply(ply_bytes([(1.0, 2.0, 3.0)]), "cm", 65_536, 10)  # type: ignore[arg-type]
+        _ = parse_ply(
+            ply_bytes([(1.0, 2.0, 3.0)]),
+            cast(Literal["m", "mm"], cast(object, "cm")),
+            65_536,
+            10,
+        )

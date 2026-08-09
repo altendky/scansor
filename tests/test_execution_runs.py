@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 from pydantic import ValidationError
@@ -12,17 +13,30 @@ from scansor.execution_runs import (
     run_numpy_execution,
     verify_execution_run,
 )
-from scansor.factor_models import NOMINAL_SHAPE, ParameterVector
+from scansor.factor_models import NOMINAL_SHAPE, ParameterVector, Problem, Variant
 from scansor.mapping_runs import create_mapping_run
+from scansor.models import InspectionReport
 from scansor.stepped_rotational_factors import instantiate_factors
+from scansor.stepped_rotational_numpy_backend import SteppedRotationalNumpyBackend
 from tests.test_factors import parameters
 from tests.test_mapping import inspection_mapping_fixture
 
 
-def published_inputs(tmp_path: Path, variant: str = "asymmetric-datum-flat"):
+class _VerifyRunArtifacts(Protocol):
+    def __call__(
+        self,
+        directory_fd: int,
+        run: Path,
+        replacement_input: Path | None,
+        *,
+        replay_raw: bytes | None = None,
+    ) -> tuple[InspectionReport, bytes]: ...
+
+
+def published_inputs(tmp_path: Path, variant: Variant = "asymmetric-datum-flat"):
     inspection_run, mapping = inspection_mapping_fixture(tmp_path, variant)
     mapping_run = tmp_path / "mapping"
-    create_mapping_run(mapping_run, inspection_run, mapping.request)
+    _ = create_mapping_run(mapping_run, inspection_run, mapping.request)
     return inspection_run, mapping_run, mapping
 
 
@@ -30,7 +44,7 @@ def published_inputs(tmp_path: Path, variant: str = "asymmetric-datum-flat"):
 @pytest.mark.parametrize(
     "problem", ["fixed-pose-shape", "fixed-geometry-pose-correction"]
 )
-def test_in_memory_completed_shape_and_pose(variant: str, problem: str) -> None:
+def test_in_memory_completed_shape_and_pose(variant: Variant, problem: Problem) -> None:
     from tests.test_factors import factor_case
 
     mapping, factor_set, _selection = factor_case(variant)
@@ -71,12 +85,14 @@ def test_completed_publication_and_adapter_free_verification(
         "manifest.sha256",
     }
 
-    def forbidden(*args: object, **kwargs: object) -> object:
+    def forbidden(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("verification invoked the backend")
 
-    monkeypatch.setattr(
-        execution_runs_module.SteppedRotationalNumpyBackend, "execute", forbidden
+    backend_type = cast(
+        type[SteppedRotationalNumpyBackend],
+        vars(execution_runs_module)["SteppedRotationalNumpyBackend"],
     )
+    monkeypatch.setattr(backend_type, "execute", forbidden)
     verified = verify_execution_run(output, inspection_run, mapping_run)
     assert verified == created
 
@@ -107,7 +123,7 @@ def test_tampering_and_no_overwrite_fail_closed(tmp_path: Path) -> None:
     factor_set = instantiate_factors(mapping)
     active_ids = tuple(item.factor_id for item in factor_set.factors)
     output = tmp_path / "execution"
-    create_execution_run(
+    _ = create_execution_run(
         output,
         inspection_run,
         mapping_run,
@@ -115,16 +131,16 @@ def test_tampering_and_no_overwrite_fail_closed(tmp_path: Path) -> None:
         parameters("asymmetric-datum-flat"),
     )
     with pytest.raises(ScansorError, match="already exists"):
-        create_execution_run(
+        _ = create_execution_run(
             output,
             inspection_run,
             mapping_run,
             active_ids,
             parameters("asymmetric-datum-flat"),
         )
-    (output / "manifest.sha256").write_bytes(b"0" * 64)
+    _ = (output / "manifest.sha256").write_bytes(b"0" * 64)
     with pytest.raises(ScansorError, match="sidecar"):
-        verify_execution_run(output, inspection_run, mapping_run)
+        _ = verify_execution_run(output, inspection_run, mapping_run)
 
 
 def test_output_cannot_be_inside_an_input_tree(tmp_path: Path) -> None:
@@ -132,7 +148,7 @@ def test_output_cannot_be_inside_an_input_tree(tmp_path: Path) -> None:
     factor_set = instantiate_factors(mapping)
     active_ids = tuple(item.factor_id for item in factor_set.factors)
     with pytest.raises(ScansorError, match="input tree"):
-        create_execution_run(
+        _ = create_execution_run(
             mapping_run / "execution",
             inspection_run,
             mapping_run,
@@ -149,16 +165,30 @@ def test_output_replaced_during_final_input_replay_is_preserved(
     active_ids = tuple(item.factor_id for item in factor_set.factors)
     output = tmp_path / "execution"
     moved = tmp_path / "moved-execution"
-    original_verify = execution_runs_module.verify_run_artifacts_fd
+    original_verify = cast(
+        _VerifyRunArtifacts,
+        vars(execution_runs_module)["verify_run_artifacts_fd"],
+    )
     replaced = False
 
-    def replace_output_during_replay(*args: object, **kwargs: object):
+    def replace_output_during_replay(
+        directory_fd: int,
+        run: Path,
+        replacement_input: Path | None,
+        *,
+        replay_raw: bytes | None = None,
+    ) -> tuple[InspectionReport, bytes]:
         nonlocal replaced
-        verified = original_verify(*args, **kwargs)
+        verified = original_verify(
+            directory_fd,
+            run,
+            replacement_input,
+            replay_raw=replay_raw,
+        )
         if output.exists() and not replaced:
-            output.rename(moved)
+            _ = output.rename(moved)
             output.mkdir()
-            (output / "preserve").write_text("foreign", encoding="ascii")
+            _ = (output / "preserve").write_text("foreign", encoding="ascii")
             replaced = True
         return verified
 
@@ -168,7 +198,7 @@ def test_output_replaced_during_final_input_replay_is_preserved(
         replace_output_during_replay,
     )
     with pytest.raises(ScansorError, match="execution output path changed"):
-        create_execution_run(
+        _ = create_execution_run(
             output,
             inspection_run,
             mapping_run,
@@ -183,7 +213,7 @@ def test_output_replaced_during_final_input_replay_is_preserved(
 
 def test_initial_parameters_are_explicit_and_strict() -> None:
     with pytest.raises(ValidationError):
-        ParameterVector(
+        _ = ParameterVector(
             problem="fixed-pose-shape",
             units="metre",
             values=NOMINAL_SHAPE[:5],
