@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -24,7 +26,7 @@ def _map_config(
     mapping: Path,
     held_out: tuple[int, ...],
 ) -> Path:
-    path.write_text(
+    _ = path.write_text(
         "\n".join(
             (
                 "[scansor]",
@@ -74,7 +76,7 @@ def _fit_config(
         if empty_selection
         else ('activation_policy = "all-instantiated-primary-training-v0"',)
     )
-    path.write_text(
+    _ = path.write_text(
         "\n".join(
             (
                 "[scansor]",
@@ -85,7 +87,7 @@ def _fit_config(
                 'problem = "fixed-pose-shape"',
                 'initial_parameter_units = "metre"',
                 "initial_values = "
-                "[0.0122, 0.0178, 0.0142, 0.0202, 0.0498, 0.0802, 0.0162]",
+                + "[0.0122, 0.0178, 0.0142, 0.0202, 0.0498, 0.0802, 0.0162]",
                 *activation,
                 "callback_limit = 256",
                 "",
@@ -130,7 +132,7 @@ def test_complete_generated_noisy_cloud_workflow(tmp_path: Path) -> None:
     assert inspected.returncode == 0, inspected.stderr
 
     relocated_generation = tmp_path / "relocated-generation"
-    generation.rename(relocated_generation)
+    _ = generation.rename(relocated_generation)
     generation = relocated_generation
     mapping = tmp_path / "mapping"
     map_config = _map_config(
@@ -170,7 +172,7 @@ def test_complete_generated_noisy_cloud_workflow(tmp_path: Path) -> None:
     malformed = mapping_result.model_dump(mode="python")
     malformed["observations"][0]["row_index"] = 999
     with pytest.raises(ValidationError, match="row index"):
-        MappingResult.model_validate(malformed)
+        _ = MappingResult.model_validate(malformed)
     assert verify_mapping_run(mapping, inspection) == mapping_result
 
     execution = tmp_path / "execution"
@@ -309,16 +311,30 @@ def test_mapping_publication_revalidates_generation_artifacts(
         ).returncode
         == 0
     )
-    original = mapping_runs_module._verify_mapping_artifacts
+    original = cast(
+        Callable[
+            [
+                int,
+                dict[str, bytes],
+                dict[str, tuple[int, int, int, int, int, int]],
+            ],
+            None,
+        ],
+        vars(mapping_runs_module)["_verify_mapping_artifacts"],
+    )
     calls = 0
 
-    def mutate_after_staging(*args, **kwargs) -> None:
+    def mutate_after_staging(
+        directory_fd: int,
+        artifacts: dict[str, bytes],
+        identities: dict[str, tuple[int, int, int, int, int, int]],
+    ) -> None:
         nonlocal calls
-        original(*args, **kwargs)
+        original(directory_fd, artifacts, identities)
         calls += 1
         if calls == 1:
             source = generation / "observations.ply"
-            source.write_bytes(source.read_bytes() + b"x")
+            _ = source.write_bytes(source.read_bytes() + b"x")
 
     monkeypatch.setattr(
         mapping_runs_module, "_verify_mapping_artifacts", mutate_after_staging

@@ -43,7 +43,7 @@ def test_generation_is_deterministic_bounded_and_partitioned() -> None:
     )
     assert first.source.startswith(
         b"ply\nformat binary_little_endian 1.0\nelement vertex 317\n"
-        b"property double x\nproperty double y\nproperty double z\nend_header\n"
+        + b"property double x\nproperty double y\nproperty double z\nend_header\n"
     )
     assert "expected_element_id" not in canonical_json(first.provenance).decode("ascii")
 
@@ -99,22 +99,22 @@ def test_generation_run_verifies_read_only_and_rejects_corruption(
     } == before
 
     source = run / "observations.ply"
-    source.write_bytes(source.read_bytes() + b"x")
+    _ = source.write_bytes(source.read_bytes() + b"x")
     with pytest.raises(ScansorError, match=r"manifest|replay|content"):
-        verify_generation_run(run)
+        _ = verify_generation_run(run)
 
 
 def test_generation_refuses_overwrite(tmp_path: Path) -> None:
     run = tmp_path / "generation"
     _ = create_generation_run(run, request())
     with pytest.raises(ScansorError, match="already exists"):
-        create_generation_run(run, request())
+        _ = create_generation_run(run, request())
 
 
 def test_generation_cli_accepts_explicit_toml_values(tmp_path: Path) -> None:
     output = tmp_path / "generation"
     config = tmp_path / "generation.toml"
-    config.write_text(
+    _ = config.write_text(
         "\n".join(
             (
                 "[scansor]",
