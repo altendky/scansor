@@ -3,7 +3,7 @@
 ## Status
 
 **Provisional internal implementation design and bounded implementation
-evidence, snapshot dated 2026-08-07.** This slice adds one deterministic,
+evidence, snapshot dated 2026-08-09.** This slice adds one deterministic,
 synthetic-only generated noisy-cloud workflow before any CAD-derived workflow.
 It does not establish physical accuracy, arbitrary-cloud support, automated fit
 acceptance, a public format, compatibility, production support, or CAD
@@ -59,6 +59,41 @@ disposition. It publishes no artifact and defines no quality threshold.
 
 ## Staged Walkthrough
 
+The smallest coherent person-facing demonstration selects the application-owned
+fixed analytic `stepped-rotational-v0` asymmetric model; it does not author a
+model. The command requires a new output root, explicit seed, and explicit noise
+sigma:
+
+```console
+uv run scansor demo-fixed-pose runs/demo-fixed-pose \
+  --seed 7 \
+  --noise-sigma-m 0.00002
+```
+
+The command names its application-owned `generated-fixed-pose-demo-v0` mapping
+settings and initial vector in terminal output. Those settings are the identity
+observation-to-model transform, metre and fixed synthetic-frame assertions,
+`max_support_distance_m = 0.00025`,
+`minimum_geometric_clearance_m = 0.0001`, `minimum_region_samples = 3`,
+`rank_relative_threshold = 1e-10`, `transform_tolerance = 1e-10`, and
+`transition_guard_m = 0.0005`. The documented metre initial vector is
+`[r1=0.0122, r2=0.0178, r3=0.0142, s20=0.0202, s50=0.0498, s80=0.0802,
+datum_x=0.0162]`.
+
+The root must not already exist. The command publishes separate ordinary
+`generation/`, `inspection/`, `mapping/`, and `execution/` runs, records the
+normal stage inputs in their existing artifacts, and derives held-out rows from
+the verified generation provenance. It invokes each existing read-only verifier
+and finishes with the existing raw truth comparison and residual presentation.
+It creates no orchestration artifact or new persisted format. If a later stage
+fails, earlier published runs remain explicit and independently verifiable; a
+retry refuses the existing root rather than overwriting or interpreting a
+partial result. Published adverse mapping or execution outcomes retain exit `3`
+where their downstream evidence is available. Invalid input, integrity, path,
+or publication returns `2`.
+
+The individual commands remain available for inspecting each contract directly.
+
 Generate and inspect one realization:
 
 ```console
@@ -86,8 +121,8 @@ uv run scansor verify-mapping runs/mapping runs/inspection
 
 Create a fit TOML for `fixed-pose-shape`, metre units,
 `all-instantiated-primary-training-v0`, and the explicit in-bounds walkthrough
-initial vector `[0.0122, 0.0178, 0.0142, 0.0202, 0.0498, 0.0802, 0.0162]`.
-Then run:
+initial vector `[r1=0.0122, r2=0.0178, r3=0.0142, s20=0.0202, s50=0.0498,
+s80=0.0802, datum_x=0.0162]`. Then run:
 
 ```console
 uv run scansor --config fit.toml fit

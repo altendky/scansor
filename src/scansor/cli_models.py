@@ -170,6 +170,17 @@ class VerifyFitJob(CommandModel):
         return _validate_path(value, "fit verification path")
 
 
+class DemoFixedPoseJob(CommandModel):
+    noise_sigma_m: float = Field(gt=0.0, le=25e-6)
+    output_root: Path
+    seed: int = Field(ge=0, le=2**63 - 1)
+
+    @field_validator("output_root")
+    @classmethod
+    def validate_output_root(cls, value: Path) -> Path:
+        return _validate_path(value, "demo output root")
+
+
 class GenerateJob(CommandModel):
     noise_sigma_m: float = Field(gt=0.0, le=25e-6)
     output_path: Path

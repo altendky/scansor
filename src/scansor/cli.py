@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import secrets
+import stat
 import sys
 from collections.abc import Callable
 from contextlib import suppress
@@ -14,6 +16,7 @@ from pydantic import ValidationError
 
 from scansor.cli_models import (
     CompareTruthJob,
+    DemoFixedPoseJob,
     FitJob,
     GenerateJob,
     MapJob,
@@ -23,8 +26,13 @@ from scansor.cli_models import (
 from scansor.errors import ScansorError
 from scansor.execution_run_models import ExecutionRunRecords
 from scansor.execution_runs import create_execution_run, verify_execution_run
-from scansor.factor_models import ParameterVector, Problem, Variant
-from scansor.files import open_run_directory
+from scansor.factor_models import (
+    ASYMMETRIC_SHAPE_PARAMETERS,
+    ParameterVector,
+    Problem,
+    Variant,
+)
+from scansor.files import open_run_directory, rename_no_replace
 from scansor.generation_models import GenerationRequest, PreparedGeneration
 from scansor.generation_runs import (
     create_generation_run,
@@ -38,7 +46,11 @@ from scansor.mapping_models import (
     MappingThresholds,
     RigidTransform,
 )
-from scansor.mapping_runs import create_mapping_run, verify_mapping_run
+from scansor.mapping_runs import (
+    cleanup_unopened_empty_stage,
+    create_mapping_run,
+    verify_mapping_run,
+)
 from scansor.models import InspectJobConfig, LogLevel, Settings
 from scansor.runs import (
     inspect_source,
@@ -133,7 +145,11 @@ _VERIFY_FIT_CONFIG = frozenset(
 _GENERATE_CONFIG = frozenset(
     {"log_level", "noise_sigma_m", "output_path", "sampling_profile", "seed", "variant"}
 )
+_DEMO_FIXED_POSE_CONFIG = frozenset(
+    {"log_level", "noise_sigma_m", "output_root", "seed"}
+)
 _COMMAND_CONFIG = {
+    "demo-fixed-pose": _DEMO_FIXED_POSE_CONFIG,
     "generate-stepped-rotational": _GENERATE_CONFIG,
     "verify-generation": _VERIFY_CONFIG,
     "inspect": _INSPECT_CONFIG,
@@ -144,7 +160,22 @@ _COMMAND_CONFIG = {
     "verify-fit": _VERIFY_FIT_CONFIG,
     "compare-truth": _VERIFY_CONFIG,
 }
-_MUTATING_COMMANDS = frozenset({"generate-stepped-rotational", "inspect", "map", "fit"})
+_MUTATING_COMMANDS = frozenset(
+    {"demo-fixed-pose", "generate-stepped-rotational", "inspect", "map", "fit"}
+)
+
+_DEMO_MODEL = "stepped-rotational-v0 asymmetric-datum-flat fixed-pose-shape"
+_DEMO_MAPPING_SETTINGS = "generated-fixed-pose-demo-v0"
+_DEMO_MAPPING_THRESHOLDS = MappingThresholds(
+    max_support_distance_m=0.00025,
+    minimum_geometric_clearance_m=0.0001,
+    minimum_region_samples=3,
+    rank_relative_threshold=1e-10,
+    transform_tolerance=1e-10,
+    transition_guard_m=0.0005,
+)
+_DEMO_INITIAL_VECTOR = "generated-fixed-pose-demo-v0"
+_DEMO_INITIAL_VALUES = (0.0122, 0.0178, 0.0142, 0.0202, 0.0498, 0.0802, 0.0162)
 
 
 class _PublishedAdverseOutcome(Exception):
@@ -155,6 +186,75 @@ class _PublishedOutputFailure(Exception):
     def __init__(self, exit_code: Literal[0, 3]) -> None:
         super().__init__("status output failed after publication")
         self.exit_code: Literal[0, 3] = exit_code
+
+
+def _reserve_demo_root(path: Path) -> tuple[Path, int]:
+    root = path.absolute()
+    if not root.name or root.name in {".", ".."}:
+        raise ScansorError("demo output root must name a new directory")
+    parent_fd: int | None = None
+    root_fd: int | None = None
+    stage_name = f".{root.name}.scansor-demo-stage-{secrets.token_hex(8)}"
+    stage_identity: tuple[int, int] | None = None
+    renamed = False
+    reserved = False
+    try:
+        parent_fd = os.open(root.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            _ = os.stat(root.name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise ScansorError(
+                f"demo output root already exists; refusing to overwrite: {root}"
+            )
+        os.mkdir(stage_name, 0o700, dir_fd=parent_fd)
+        staged = os.stat(stage_name, dir_fd=parent_fd, follow_symlinks=False)
+        stage_identity = (staged.st_dev, staged.st_ino)
+        root_fd = os.open(
+            stage_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent_fd,
+        )
+        opened = os.fstat(root_fd)
+        if (opened.st_dev, opened.st_ino) != stage_identity:
+            raise ScansorError("demo output root staging directory changed")
+        rename_no_replace(parent_fd, stage_name, parent_fd, root.name)
+        renamed = True
+        published = os.stat(root.name, dir_fd=parent_fd, follow_symlinks=False)
+        if (published.st_dev, published.st_ino) != stage_identity:
+            raise ScansorError("demo output root changed during reservation")
+        reserved = True
+    except FileExistsError as error:
+        raise ScansorError(
+            f"demo output root already exists; refusing to overwrite: {root}"
+        ) from error
+    except ScansorError:
+        raise
+    except OSError as error:
+        raise ScansorError(f"demo output root creation failed: {error}") from error
+    finally:
+        if parent_fd is not None and not renamed and stage_identity is not None:
+            cleanup_unopened_empty_stage(parent_fd, stage_name, stage_identity)
+        if parent_fd is not None:
+            os.close(parent_fd)
+        if root_fd is not None and not reserved:
+            os.close(root_fd)
+    assert root_fd is not None
+    return root, root_fd
+
+
+def _assert_demo_root(root: Path, root_fd: int) -> None:
+    opened = os.fstat(root_fd)
+    try:
+        current = os.stat(root, follow_symlinks=False)
+    except OSError as error:
+        raise ScansorError("demo output root changed during orchestration") from error
+    if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (
+        opened.st_dev,
+        opened.st_ino,
+    ):
+        raise ScansorError("demo output root changed during orchestration")
 
 
 def _print_published_status(lines: tuple[str, ...], exit_code: Literal[0, 3]) -> None:
@@ -183,6 +283,149 @@ def _resolved(
         max_input_bytes=max_input_bytes,
         max_vertices=max_vertices,
     )
+
+
+@app.command(name="demo-fixed-pose")
+def demo_fixed_pose(
+    output_root: Path,
+    *,
+    seed: int,
+    noise_sigma_m: float,
+    log_level: LogLevel = _defaults.log_level,
+) -> None:
+    """Run the internal provisional synthetic-only fixed analytic demo."""
+    configure_logging(log_level)
+    job = DemoFixedPoseJob(
+        noise_sigma_m=noise_sigma_m,
+        output_root=output_root,
+        seed=seed,
+    )
+    root, root_fd = _reserve_demo_root(job.output_root)
+    try:
+        _run_fixed_pose_demo(job, root, root_fd, log_level)
+    finally:
+        os.close(root_fd)
+
+
+def _run_fixed_pose_demo(
+    job: DemoFixedPoseJob, root: Path, root_fd: int, log_level: LogLevel
+) -> None:
+    generation = root / "generation"
+    inspection = root / "inspection"
+    mapping = root / "mapping"
+    execution = root / "execution"
+    print(f"demo model: selected application-owned fixed analytic {_DEMO_MODEL}")
+    print("model authoring: not performed")
+    print(f"mapping settings: {_DEMO_MAPPING_SETTINGS} (application-owned)")
+    print(
+        f"initial vector: {_DEMO_INITIAL_VECTOR} metre "
+        + "["
+        + ", ".join(
+            f"{name}={value}"
+            for name, value in zip(
+                ASYMMETRIC_SHAPE_PARAMETERS, _DEMO_INITIAL_VALUES, strict=True
+            )
+        )
+        + "]"
+    )
+    print(f"demo output root: {root}")
+    _assert_demo_root(root, root_fd)
+
+    output_failure: _PublishedOutputFailure | None = None
+    try:
+        generate_stepped_rotational(
+            generation,
+            variant="asymmetric-datum-flat",
+            sampling_profile="guarded-grid-v1",
+            seed=job.seed,
+            noise_sigma_m=job.noise_sigma_m,
+            log_level=log_level,
+        )
+    except _PublishedOutputFailure as error:
+        output_failure = error
+    _assert_demo_root(root, root_fd)
+    generated = verify_generation_run(generation)
+    verify_generation(generation, log_level=log_level)
+    _assert_demo_root(root, root_fd)
+    inspect(
+        generation / "observations.ply",
+        inspection,
+        unit="m",
+        frame="stepped-rotational-v0-synthetic-model-frame",
+        log_level=log_level,
+    )
+    _assert_demo_root(root, root_fd)
+    verify(inspection, log_level=log_level)
+    _assert_demo_root(root, root_fd)
+
+    thresholds = _DEMO_MAPPING_THRESHOLDS
+    try:
+        map(
+            inspection,
+            mapping,
+            generation_run=generation,
+            variant="asymmetric-datum-flat",
+            source_unit="m",
+            canonical_unit="m",
+            observation_frame="stepped-rotational-v0-synthetic-model-frame",
+            model_frame="stepped-rotational-v0-synthetic-model-frame",
+            transform_direction="observation-to-model",
+            transform_scale=1.0,
+            rotation_row_1=(1.0, 0.0, 0.0),
+            rotation_row_2=(0.0, 1.0, 0.0),
+            rotation_row_3=(0.0, 0.0, 1.0),
+            translation_m=(0.0, 0.0, 0.0),
+            translation_unit="m",
+            held_out_row_indices=generated.provenance.held_out_row_indices,
+            max_support_distance_m=thresholds.max_support_distance_m,
+            minimum_geometric_clearance_m=(thresholds.minimum_geometric_clearance_m),
+            minimum_region_samples=thresholds.minimum_region_samples,
+            rank_relative_threshold=thresholds.rank_relative_threshold,
+            transform_tolerance=thresholds.transform_tolerance,
+            transition_guard_m=thresholds.transition_guard_m,
+            log_level=log_level,
+        )
+    except _PublishedOutputFailure as error:
+        output_failure = error
+        if error.exit_code == 3:
+            _assert_demo_root(root, root_fd)
+            verify_mapping(mapping, inspection, log_level=log_level)
+            raise
+    except _PublishedAdverseOutcome:
+        _assert_demo_root(root, root_fd)
+        verify_mapping(mapping, inspection, log_level=log_level)
+        raise
+    _assert_demo_root(root, root_fd)
+    verify_mapping(mapping, inspection, log_level=log_level)
+    _assert_demo_root(root, root_fd)
+
+    adverse_execution = False
+    try:
+        fit(
+            inspection,
+            mapping,
+            execution,
+            variant="asymmetric-datum-flat",
+            problem="fixed-pose-shape",
+            initial_parameter_units="metre",
+            initial_values=_DEMO_INITIAL_VALUES,
+            activation_policy="all-instantiated-primary-training-v0",
+            log_level=log_level,
+        )
+    except _PublishedOutputFailure as error:
+        output_failure = error
+        adverse_execution = error.exit_code == 3
+    except _PublishedAdverseOutcome:
+        adverse_execution = True
+    _assert_demo_root(root, root_fd)
+    verify_fit(execution, inspection, mapping, log_level=log_level)
+    _assert_demo_root(root, root_fd)
+    compare_truth(generation, inspection, mapping, execution, log_level=log_level)
+    _assert_demo_root(root, root_fd)
+    if adverse_execution:
+        raise _PublishedAdverseOutcome
+    if output_failure is not None:
+        raise output_failure
 
 
 @app.command
@@ -681,7 +924,7 @@ def meta(
         cli_tokens=tuple(tokens),
         toml_keys=(
             toml.observed_keys & names
-            if toml is not None and command == "inspect"
+            if toml is not None and command in {"demo-fixed-pose", "inspect"}
             else frozenset()
         ),
     )
