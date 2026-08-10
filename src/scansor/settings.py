@@ -28,6 +28,7 @@ JOB_NAMES = (
     "frame",
     "input_path",
     "output_path",
+    "output_root",
     "unit",
 )
 PIPELINE_NAMES = (
