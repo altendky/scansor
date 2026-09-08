@@ -765,6 +765,12 @@ def _revalidated_model(declaration: ModelDeclaration) -> ModelDeclaration:
         raise ScansorError(f"invalid model declaration: {error}") from error
 
 
+def revalidate_model_declaration(declaration: ModelDeclaration) -> ModelDeclaration:
+    """Reconstruct and validate a complete internal model declaration."""
+
+    return _revalidated_model(declaration)
+
+
 def identify_model(declaration: ModelSemanticDeclaration) -> ModelDeclaration:
     declaration = _revalidated_semantic(declaration)
     values = declaration.model_dump(mode="python")
@@ -773,12 +779,12 @@ def identify_model(declaration: ModelSemanticDeclaration) -> ModelDeclaration:
 
 
 def model_identity_bytes(declaration: ModelDeclaration) -> bytes:
-    declaration = _revalidated_model(declaration)
+    declaration = revalidate_model_declaration(declaration)
     return _identity_bytes_unchecked(declaration)
 
 
 def canonical_model_bytes(declaration: ModelDeclaration) -> bytes:
-    declaration = _revalidated_model(declaration)
+    declaration = revalidate_model_declaration(declaration)
     return canonical_json(declaration)
 
 
@@ -799,7 +805,7 @@ def validate_runtime_parameter_vector(
     declaration: ModelDeclaration,
     values: tuple[float, ...],
 ) -> tuple[tuple[str, float], ...]:
-    declaration = _revalidated_model(declaration)
+    declaration = revalidate_model_declaration(declaration)
     try:
         return _validate_vector(declaration, values, check_bounds=True)
     except (KeyError, TypeError, ValueError) as error:
