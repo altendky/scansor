@@ -2,12 +2,13 @@
 
 ## Status
 
-**Provisional internal semantic design and declaration-record implementation,
-snapshot dated 2026-09-08.** This page defines the application-owned meaning
-required for the declared analytic-model sequence. The immutable Python records,
-validation, canonical identity, and stepped-model declarations are implemented;
-mapping, factors, preflight, and execution do not consume them yet. This is not a
-public schema, a durable `model.json` format, or a compatibility promise.
+**Provisional internal semantic design, declaration-record implementation, and
+analytic evaluator implementation, snapshot dated 2026-09-08.** This page defines
+the application-owned meaning required for the declared analytic-model sequence.
+The immutable Python records, validation, canonical identity, stepped-model
+declarations, and shared plane/cylinder evaluator are implemented; mapping,
+factors, preflight, and execution do not consume them yet. This is not a public
+schema, a durable `model.json` format, or a compatibility promise.
 
 The initial declaration vocabulary covers oriented planes and cylinders sharing
 one declared axis, each with an explicit bounded support domain. The vocabulary
@@ -41,6 +42,25 @@ existing stepped variants encoded by
 records, not a new CLI or persisted public authoring format. Existing
 `stepped-rotational-v0` mapping, factor, and execution behavior remains unchanged
 and continues to use its fixed-topology records until later sequence items.
+
+The pure evaluator is in `src/scansor/geometry_evaluator.py`. Its boundaries take
+the complete identity-bearing model declaration, an exact declared element ID, a
+finite model-frame point, and the complete ordered shape vector. One boundary
+returns signed support distance, projection availability, bounded membership,
+signed per-predicate boundary margins, and their minimum clearance. A separate
+differential boundary returns the fixed-pose residual, point gradient, and full
+parameter-Jacobian row in declaration order. This separation permits mapping to
+classify a point on the cylinder axis as having no bounded membership while
+differential evaluation fails because no radial gradient exists.
+
+The evaluator dispatches only on tagged primitive and domain records. It does not
+parse IDs, assume parameter indices, select factors, apply mapping thresholds,
+clamp projections, access files, invoke a solver, or expose an extension API.
+Tests cover both stepped declarations, renamed and reordered declaration data,
+an inward cylinder orientation, all initial domain-predicate kinds, and
+independent finite differences at nominal, perturbed, and legal near-bound shape
+vectors. This is bounded synthetic implementation evidence, not physical or
+production validation.
 
 ## Terms
 
