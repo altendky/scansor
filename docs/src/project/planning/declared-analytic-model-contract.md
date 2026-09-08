@@ -25,12 +25,13 @@ geometry. The initial workflow therefore requires all of the following as input:
 - a project-generated synthetic cloud whose exact provenance can be replayed and
   verified before admission
 
-Only declared scalar shape and dimension parameters vary. Recognition,
-segmentation, correspondence inference, pose discovery, and joint pose-and-shape
-fitting are absent. Authoring, declaration validation, primitive evaluation,
-mapping, factor construction, active-factor selection, preflight, execution,
-replay, held-out assessment, future acceptance, and publication remain distinct
-concerns.
+Every parameter in the ordered declaration varies in this revision's fixed-pose
+shape problem. Fixed constants are literals, and derived values are scalar
+relationships rather than non-varying parameters. Recognition, segmentation,
+correspondence inference, pose discovery, and joint pose-and-shape fitting are
+absent. Authoring, declaration validation, primitive evaluation, mapping, factor
+construction, active-factor selection, preflight, execution, replay, held-out
+assessment, future acceptance, and publication remain distinct concerns.
 
 ## Terms
 
@@ -41,9 +42,9 @@ concerns.
 | Element | A stable identified fitting target with one primitive, one bounded support domain, declared orientation, and explicit parameter relationships. |
 | Primitive | An unbounded analytic support equation and projection rule. Initially this is an oriented plane or a cylinder coaxial with the model axis. |
 | Bounded support domain | A closed conjunction of declared predicates evaluated at a primitive projection. It limits where that primitive can receive a mapping; it does not clamp a point to a boundary. |
-| Parameter | One identified ordered scalar degree of freedom with a nominal value, inclusive bounds, positive diagnostic scale, unit, and ownership. |
-| Relationship | A declared exact dependency or predicate. A hard relationship is evaluated structurally and creates no residual penalty. |
-| Structural validity | Finite, bound, dependency-domain, and topology-preservation predicates that must hold before residual evaluation. |
+| Parameter | One model-contained identified ordered scalar degree of freedom with a nominal value, inclusive bounds, positive diagnostic scale, and unit. |
+| Scalar relationship | A typed exact dependency that resolves to one scalar value and creates no residual penalty. |
+| Structural-validity predicate | A typed Boolean eligibility condition over scalar values. It creates no scalar value and no residual penalty. |
 | Residual penalty | A separately declared factor contribution. It is not a substitute for a hard relationship or structural-validity predicate. |
 
 ## Declaration Content
@@ -56,10 +57,10 @@ wire format:
 1. an internal declaration-contract revision and explicit provisional status
 2. one model-frame declaration and coordinate unit
 3. one ordered parameter sequence
-4. one ordered exact-relationship sequence
+4. one ordered typed scalar-relationship sequence
 5. one ordered element sequence, including each primitive and bounded domain
-6. model-owned required-support and coverage policy
-7. model-owned relative-rank policy
+6. model-owned mapping-admission support, coverage, and relative-rank policy
+7. model-owned optimization-preflight support, coverage, and relative-rank policy
 8. an ordered structural-validity predicate sequence
 9. the fixed-pose-shape problem declaration
 10. the project-generated synthetic-observation admission policy
@@ -81,7 +82,9 @@ order governs deterministic diagnostics and factor ordering before an explicit
 factor selection. Relationships and validity predicates are evaluated in their
 declared order so multiple failures have deterministic reporting. An
 implementation may use lookup maps, but map iteration cannot replace declared
-order.
+order. A reorder that remains reference-coherent is valid semantic content but
+produces a different model identity; an order that violates a dependency is
+invalid.
 
 Every reference uses an ID and must resolve exactly once. Element-to-parameter
 and domain-to-relationship dependencies are explicit; implicit array positions
@@ -92,9 +95,13 @@ and element-name conventions are invalid authoring mechanisms.
 The model frame is a declared finite right-handed Cartesian frame. Its origin,
 oriented unit `+Z` model axis, and a perpendicular oriented unit `+X` reference
 fix `+Y = +Z cross +X`. Unit-vector and orthogonality checks use an explicit
-declaration-validation tolerance. The initial coordinate and scalar-length unit
-is the metre; each parameter nevertheless declares its own unit so a later
-extension cannot infer units from position or name.
+fixed contract-level declaration-validation tolerance of `1e-10`: both
+`abs(norm(+Z) - 1)` and `abs(norm(+X) - 1)` must be at most `1e-10`, and
+`abs(+Z dot +X)` must be at most `1e-10`. This dimensionless tolerance is not an
+authoring field and does not permit implicit normalization. The initial
+coordinate and scalar-length unit is the metre; each parameter nevertheless
+declares its own unit so a later extension cannot infer units from position or
+name.
 
 Observation pose is known input to mapping and is not model content:
 
@@ -104,46 +111,52 @@ p_model_m = R_observation_to_model * p_observation_m
 ```
 
 `R` is finite, orthonormal, proper, and has determinant `+1` within the mapping
-contract's explicit tolerance. Translation is finite and measured in metres.
-Scale is exactly one. Mapping applies this transform before primitive and domain
-evaluation. Shape evaluation keeps transformed observations and pose fixed and
-varies only the declaration's parameters. A missing, inverted, inferred,
-variable, or non-rigid transform fails outside model evaluation.
+contract's separately declared transform tolerance. That mapping input is
+distinct from the fixed model-frame declaration-validation tolerance even if a
+mapping happens to use the same numeric value. Translation is finite and measured
+in metres. Scale is exactly one. Mapping applies this transform before primitive
+and domain evaluation. Shape evaluation keeps transformed observations and pose
+fixed and varies only the declaration's parameters. A missing, inverted,
+inferred, variable, or non-rigid transform fails outside model evaluation.
 
 ## Scalar Parameters and Exact Relationships
 
 Each parameter declares:
 
 - a stable parameter ID and its unique index in declared order
-- ownership by this model
 - unit
 - finite nominal, lower-bound, upper-bound, and positive diagnostic-scale values
-- whether the parameter is varied by the fixed-pose-shape problem
+
+Containment in this model's ordered parameter sequence establishes ownership. A
+parameter record does not store the model ID: that ID is derived from the complete
+declaration, including the parameter record, so embedding it would be
+self-referential. Every contained parameter is varied by the initial
+fixed-pose-shape problem.
 
 Bounds are inclusive and require `lower <= nominal <= upper`. Initial parameters
 and every trial or result vector use the exact declared order, dimension, units,
 and bounds. Diagnostic scales nondimensionalize Jacobian columns and do not
 select optimizer steps, priors, tolerances, or acceptance thresholds.
 
-The initial relationship vocabulary is deliberately smaller than a general
-expression or constraint language:
+The initial scalar-binding vocabulary is deliberately smaller than a general
+expression or constraint language. Multiple primitive or domain slots share a
+parameter by referring directly to the same parameter ID; this does not require a
+relationship record. The typed scalar relationships are:
 
-- **shared parameter:** multiple primitive or domain slots refer to one parameter
-  ID
-- **oriented offset:** a slot is a declared finite constant plus a declared
+- **oriented offset:** a scalar is a declared finite constant plus a declared
   signed multiple of one parameter
 - **right-triangle leg:** a positive derived length is
   `sqrt(hypotenuse^2 - other_leg^2)` from two declared scalar references
-- **ordered separation:** `right - left` is strictly greater than a declared
-  finite minimum
 
 A scalar reference is either a finite literal, a parameter ID, or the ID of one
 earlier declared relationship. References cannot form cycles. The
 right-triangle relationship is defined only when its radicand is strictly
-positive and its result satisfies any declared minimum. Undefined dependencies
-make the model structurally invalid; they do not create `NaN`, clipping, or a
-penalty. Additional relationship kinds require a later contract revision and do
-not become supported merely because the record shape can carry a tagged kind.
+positive. Undefined dependencies make the selected parameter vector structurally
+invalid; they do not create `NaN`, clipping, or a penalty. A required minimum on
+the derived result is a separately typed structural-validity predicate, not part
+of the scalar relationship. Predicate IDs cannot be scalar references. Additional
+relationship or predicate kinds require a later contract revision and do not
+become supported merely because a record shape can carry a tagged kind.
 
 ## Initial Primitive Semantics
 
@@ -228,12 +241,28 @@ evaluation is distinct from nominal bounded-domain assignment.
 
 ## Structural Validity
 
-Universal structural validity requires finite declarations and vectors, exact
-dimension and order, parameter values inside inclusive bounds, positive
-cylinder radii, valid acyclic relationships, and defined primitive/domain
-evaluation. The model also owns an ordered list of typed predicates from the
-bounded initial relationship vocabulary, including strict positivity and ordered
-minimum separation.
+Static declaration validation requires finite fields, unique and resolved IDs,
+exact declared dimensions and orders, valid bounds and scales, acyclic typed
+scalar relationships, well-formed primitives and bounded domains, and valid
+policy references. Declaration-time nominal validation then resolves the nominal
+parameter vector and requires all scalar dependencies, primitive/domain values,
+and structural-validity predicates to be defined and valid. A declaration whose
+nominal vector is structurally invalid is rejected.
+
+The initial typed structural-validity predicates are strict scalar positivity and
+ordered minimum separation, where `right - left` must be strictly greater than a
+declared finite minimum. They consume scalar references and return only Boolean
+eligibility. They cannot be referenced as scalar values and do not add residual
+rows.
+
+Every runtime trial or result vector is validated independently before residual
+evaluation. It must have the exact declared dimension and order, contain only
+finite values inside inclusive parameter bounds, resolve every scalar
+relationship, produce valid primitive/domain values, and satisfy every ordered
+structural-validity predicate. Bounds are not a proof that every enclosed vector
+is structurally valid: a trial may be in bounds but fail a dependency domain or
+topology-preservation predicate. Such a trial is ineligible; it does not invalidate
+the immutable declaration that passed nominal validation.
 
 For the stepped model, these predicates declare ordered axial stations, minimum
 band widths, radius separations, `0 < datum_x < middle_radius`, and a positive
@@ -246,26 +275,38 @@ large penalties. Bounds, invalid geometry, undefined primitive evaluation,
 missing support, inadequate coverage, and rank deficiency remain distinguishable
 conditions.
 
-## Required Support, Coverage, and Relative Rank
+## Mapping Admission and Optimization Preflight Policy
 
-These policies belong to the model declaration and use training observations
-only.
+The model declaration owns two explicitly separate policy contexts. Mapping
+admission operates before factors or activation exist. Optimization preflight
+operates only after a separate active-factor selection. Both use training
+observations only; neither uses held-out data.
 
-**Required support** is an ordered sequence of element IDs and positive minimum
-active-factor counts. Every listed element must resolve. Presence of an observation,
-candidate, membership, or mapping does not activate a factor.
+**Mapping admission** declares an ordered required-support sequence of element IDs
+and positive minimum counts of accepted primary training mappings. Its ordered
+coverage cells each name one element, a bounded conjunction of the same declared
+domain-predicate kinds, and a positive minimum count of accepted primary training
+mappings. Coverage classifies mappings with nominal declaration values and
+reports observed counts, missing cell IDs, and a disposition independently of
+rank.
 
-**Coverage** is an ordered sequence of identified cells. Each cell names one
-element, a bounded conjunction of the same declared domain-predicate kinds, and
-a positive minimum active-factor count. Coverage reports observed counts,
-missing cell IDs, and a disposition independently of rank. The initial policy
-must not derive cells or minima from element names or from held-out data.
+Mapping rank uses evaluator Jacobian rows for accepted primary training mappings
+at the declaration's nominal parameter vector, in mapping order. It does not use
+an active-factor selection or a topology-specific incidence surrogate.
 
-**Relative rank** declares the exact parameter-ID subsequence, corresponding
-positive parameter scales, positive residual scale, relative threshold `tau`,
-and required rank. Preflight forms the active training-factor Jacobian in factor
-order and declared rank-parameter order, then nondimensionalizes it with the
-declared scales. If its singular values are descending
+**Optimization preflight** separately declares required-support and coverage
+minima counted only from explicitly active training factors. Its coverage cells
+use the nominal mapping classifications already bound to those factors; trial
+parameters never remap or reclassify them. Preflight rank uses evaluator Jacobian
+rows for the active training factors at the supplied structurally valid trial
+vector, in factor-set order. Presence of an observation, candidate, membership,
+mapping, or instantiated factor does not activate a factor.
+
+Each context's **relative rank** policy declares the exact parameter-ID
+subsequence, corresponding positive parameter scales, positive residual scale,
+relative threshold `tau`, and required rank. The stage forms its Jacobian in the
+order defined above and declared rank-parameter order, then nondimensionalizes it
+with the declared scales. If its singular values are descending
 `sigma_0, sigma_1, ...`, rank is the number strictly greater than
 `sigma_0 * tau`; an empty or all-zero matrix has rank zero. The required rank
 must be between zero and the number of declared rank parameters. Expected gauge
@@ -276,9 +317,10 @@ For physical Jacobian `J`, parameter-scale diagonal `S_p`, and residual scale
 `s_r`, the dimensionless matrix is `J * S_p / s_r`. Neither scaling nor singular
 value computation may reorder rows or columns.
 
-Coverage minima and rank policy are diagnostic/preflight policy, not mapping
-thresholds, solver convergence criteria, fit-quality acceptance, or evidence of
-physical accuracy.
+The initial policies must not derive cells, minima, or rank expectations from
+element names or held-out data. Their coverage minima and rank policies are not
+mapping geometric thresholds, solver convergence criteria, fit-quality
+acceptance, or evidence of physical accuracy.
 
 ## Canonical Content and Model Identity
 
@@ -302,8 +344,10 @@ field creates a different ID. The digest detects content changes. It does not
 authenticate authorship, authorization, generation, a source platform, or a
 historical event.
 
-Every model-dependent successor must bind the exact model ID and enough
-canonical content or an immutable content reference to revalidate it:
+Every model-dependent successor must bind the exact model ID and carry the
+complete canonical declaration or an immutable exact-content reference from
+which it can be retrieved and revalidated. Embedding the declaration is the
+default for the initial internal successors:
 
 - mapping requests/results and successor mapping-run manifests
 - factor contracts, declarations, instantiated factor sets, and selections
@@ -350,8 +394,9 @@ cylinder and its adjacent transition planes use the explicit
 radius and datum offset.
 
 Station zero is a literal, not an implicit parameter. Each radius and station
-slot names its parameter relationship explicitly. Required support names all
-eight elements. Coverage cells and shape rank `7/7` are declaration-owned.
+slot names its scalar binding explicitly. Mapping-admission and
+optimization-preflight required support name all eight elements. Their coverage
+cells and shape rank `7/7` are declaration-owned.
 Structural predicates reproduce the current ordered stations, minimum band
 widths, radius steps, datum-offset interval, and positive trim width without
 parsing IDs or relying on fixed parameter positions. Omitting the datum plane and
