@@ -66,6 +66,7 @@ from scansor.settings import (
     reject_unknown_environment,
     resolve_settings,
 )
+from scansor.stepped_model_declarations import stepped_model_declaration
 from scansor.stepped_rotational_factors import instantiate_factors
 from scansor.stepped_rotational_generation import generated_fixture_provenance
 from scansor.synthetic_fixture import prepare_synthetic_fixture
@@ -104,11 +105,9 @@ _MAP_CONFIG = frozenset(
         "log_level",
         "max_support_distance_m",
         "minimum_geometric_clearance_m",
-        "minimum_region_samples",
         "model_frame",
         "observation_frame",
         "output_path",
-        "rank_relative_threshold",
         "rotation_row_1",
         "rotation_row_2",
         "rotation_row_3",
@@ -169,8 +168,6 @@ _DEMO_MAPPING_SETTINGS = "generated-fixed-pose-demo-v0"
 _DEMO_MAPPING_THRESHOLDS = MappingThresholds(
     max_support_distance_m=0.00025,
     minimum_geometric_clearance_m=0.0001,
-    minimum_region_samples=3,
-    rank_relative_threshold=1e-10,
     transform_tolerance=1e-10,
     transition_guard_m=0.0005,
 )
@@ -379,8 +376,6 @@ def _run_fixed_pose_demo(
             held_out_row_indices=generated.provenance.held_out_row_indices,
             max_support_distance_m=thresholds.max_support_distance_m,
             minimum_geometric_clearance_m=(thresholds.minimum_geometric_clearance_m),
-            minimum_region_samples=thresholds.minimum_region_samples,
-            rank_relative_threshold=thresholds.rank_relative_threshold,
             transform_tolerance=thresholds.transform_tolerance,
             transition_guard_m=thresholds.transition_guard_m,
             log_level=log_level,
@@ -574,6 +569,7 @@ def _publish_map_job(
             "held-out row assertion differs from the designated synthetic fixture"
         )
     request = MappingRequest(
+        declaration=stepped_model_declaration(job.variant),
         held_out_row_indices=job.held_out_row_indices,
         input_revision=InputRevision(
             canonical_row_count=report.inspection.point_count,
@@ -635,8 +631,6 @@ def map(
     held_out_row_indices: tuple[int, ...],
     max_support_distance_m: float,
     minimum_geometric_clearance_m: float,
-    minimum_region_samples: int,
-    rank_relative_threshold: float,
     transform_tolerance: float,
     transition_guard_m: float,
     log_level: LogLevel = _defaults.log_level,
@@ -658,8 +652,6 @@ def map(
         thresholds=MappingThresholds(
             max_support_distance_m=max_support_distance_m,
             minimum_geometric_clearance_m=minimum_geometric_clearance_m,
-            minimum_region_samples=minimum_region_samples,
-            rank_relative_threshold=rank_relative_threshold,
             transform_tolerance=transform_tolerance,
             transition_guard_m=transition_guard_m,
         ),

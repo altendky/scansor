@@ -63,13 +63,11 @@ class TomlConfigValues(BaseModel):
     noise_sigma_m: float | None = Field(default=None, gt=0.0, le=25e-6)
     max_support_distance_m: float | None = Field(default=None, gt=0.0, le=0.002)
     minimum_geometric_clearance_m: float | None = Field(default=None, gt=0.0, le=0.002)
-    minimum_region_samples: int | None = Field(default=None, ge=1, le=1000)
     model_frame: Literal["stepped-rotational-v0-synthetic-model-frame"] | None = None
     observation_frame: str | None = Field(default=None, min_length=1, pattern=r".*\S.*")
     output_path: str | None = None
     output_root: str | None = None
     problem: Literal["fixed-pose-shape", "fixed-geometry-pose-correction"] | None = None
-    rank_relative_threshold: float | None = Field(default=None, gt=0.0, lt=1.0)
     rotation_row_1: tuple[float, float, float] | None = None
     rotation_row_2: tuple[float, float, float] | None = None
     rotation_row_3: tuple[float, float, float] | None = None

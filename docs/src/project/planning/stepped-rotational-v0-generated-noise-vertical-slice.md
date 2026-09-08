@@ -74,8 +74,7 @@ The command names its application-owned `generated-fixed-pose-demo-v0` mapping
 settings and initial vector in terminal output. Those settings are the identity
 observation-to-model transform, metre and fixed synthetic-frame assertions,
 `max_support_distance_m = 0.00025`,
-`minimum_geometric_clearance_m = 0.0001`, `minimum_region_samples = 3`,
-`rank_relative_threshold = 1e-10`, `transform_tolerance = 1e-10`, and
+`minimum_geometric_clearance_m = 0.0001`, `transform_tolerance = 1e-10`, and
 `transition_guard_m = 0.0005`. The documented metre initial vector is
 `[r1=0.0122, r2=0.0178, r3=0.0142, s20=0.0202, s50=0.0498, s80=0.0802,
 datum_x=0.0162]`.

@@ -75,8 +75,6 @@ def test_demo_runs_every_stage_and_keeps_existing_runs_usable(tmp_path: Path) ->
     assert mapping.request.thresholds == MappingThresholds(
         max_support_distance_m=0.00025,
         minimum_geometric_clearance_m=0.0001,
-        minimum_region_samples=3,
-        rank_relative_threshold=1e-10,
         transform_tolerance=1e-10,
         transition_guard_m=0.0005,
     )

@@ -3,11 +3,12 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, final
 
 from scansor.errors import ScansorError
 from scansor.model_declarations import (
     AxialIntervalPredicate,
+    BoundedSupportDomain,
     DirectedIntervalPredicate,
     DomainPredicate,
     LiteralScalarReference,
@@ -297,28 +298,89 @@ def _predicate_margins(
     return PredicateMargins(predicate_id=predicate.predicate_id, margins_m=margins)
 
 
-def _inputs(
-    declaration: ModelDeclaration,
-    element_id: str,
-    point_model_m: Vector3,
-    shape_values: tuple[float, ...],
-) -> tuple[
-    ModelDeclaration,
-    ModelElement,
-    Vector3,
-    dict[str, _ResolvedScalar],
-    dict[str, _ResolvedScalar],
-]:
-    declaration = revalidate_model_declaration(declaration)
-    point = _finite_vector(point_model_m, "model-frame point")
-    parameters, relationships = _resolve_scalars(declaration, shape_values)
-    return (
-        declaration,
-        _element(declaration, element_id),
-        point,
-        parameters,
-        relationships,
-    )
+@final
+class DeclaredGeometryEvaluator:
+    """A revalidated declaration and parameter vector reused across evaluations."""
+
+    def __init__(
+        self,
+        declaration: ModelDeclaration,
+        shape_values: tuple[float, ...],
+    ) -> None:
+        self.declaration = revalidate_model_declaration(declaration)
+        self._parameters, self._relationships = _resolve_scalars(
+            self.declaration, shape_values
+        )
+
+    def _inputs(
+        self, element_id: str, point_model_m: Vector3
+    ) -> tuple[ModelElement, Vector3]:
+        return (
+            _element(self.declaration, element_id),
+            _finite_vector(point_model_m, "model-frame point"),
+        )
+
+    def classify_support(
+        self, element_id: str, point_model_m: Vector3
+    ) -> SupportClassification:
+        element, point = self._inputs(element_id, point_model_m)
+        primitive = _primitive(
+            self.declaration,
+            element,
+            point,
+            self._parameters,
+            self._relationships,
+        )
+        return _classify_primitive_domain(
+            self.declaration,
+            element.domain,
+            primitive,
+            self._parameters,
+            self._relationships,
+        )
+
+    def classify_coverage(
+        self,
+        element_id: str,
+        domain: BoundedSupportDomain,
+        point_model_m: Vector3,
+    ) -> SupportClassification:
+        element, point = self._inputs(element_id, point_model_m)
+        primitive = _primitive(
+            self.declaration,
+            element,
+            point,
+            self._parameters,
+            self._relationships,
+        )
+        return _classify_primitive_domain(
+            self.declaration,
+            domain,
+            primitive,
+            self._parameters,
+            self._relationships,
+        )
+
+    def evaluate_fixed_pose_shape(
+        self, element_id: str, point_model_m: Vector3
+    ) -> FixedPoseShapeEvaluation:
+        element, point = self._inputs(element_id, point_model_m)
+        primitive = _primitive(
+            self.declaration,
+            element,
+            point,
+            self._parameters,
+            self._relationships,
+        )
+        if primitive.point_gradient is None:
+            raise ScansorError(
+                f"element {element.element_id} has an undefined point gradient"
+            )
+        return FixedPoseShapeEvaluation(
+            parameter_jacobian_row=primitive.parameter_jacobian_row,
+            point_gradient=primitive.point_gradient,
+            residual_m=primitive.signed_distance_m,
+        )
 
 
 def classify_declared_support(
@@ -329,10 +391,18 @@ def classify_declared_support(
 ) -> SupportClassification:
     """Evaluate distance and bounded projected-domain membership for one element."""
 
-    declaration, element, point, parameters, relationships = _inputs(
-        declaration, element_id, point_model_m, shape_values
+    return DeclaredGeometryEvaluator(declaration, shape_values).classify_support(
+        element_id, point_model_m
     )
-    primitive = _primitive(declaration, element, point, parameters, relationships)
+
+
+def _classify_primitive_domain(
+    declaration: ModelDeclaration,
+    domain: BoundedSupportDomain,
+    primitive: _PrimitiveEvaluation,
+    parameters: dict[str, _ResolvedScalar],
+    relationships: dict[str, _ResolvedScalar],
+) -> SupportClassification:
     if primitive.projected_point_m is None:
         return SupportClassification(
             boundary_clearance_m=None,
@@ -349,7 +419,7 @@ def classify_declared_support(
             parameters,
             relationships,
         )
-        for predicate in element.domain.predicates
+        for predicate in domain.predicates
     )
     return SupportClassification(
         boundary_clearance_m=min(item.clearance_m for item in margins),
@@ -357,6 +427,20 @@ def classify_declared_support(
         projected_inside=all(item.inside for item in margins),
         projected_point_m=primitive.projected_point_m,
         signed_distance_m=primitive.signed_distance_m,
+    )
+
+
+def classify_declared_coverage(
+    declaration: ModelDeclaration,
+    element_id: str,
+    domain: BoundedSupportDomain,
+    point_model_m: Vector3,
+    shape_values: tuple[float, ...],
+) -> SupportClassification:
+    """Classify an element projection against one declaration-owned coverage domain."""
+
+    return DeclaredGeometryEvaluator(declaration, shape_values).classify_coverage(
+        element_id, domain, point_model_m
     )
 
 
@@ -368,16 +452,9 @@ def evaluate_fixed_pose_shape_support(
 ) -> FixedPoseShapeEvaluation:
     """Evaluate one declared fixed-pose shape residual and its derivatives."""
 
-    declaration, element, point, parameters, relationships = _inputs(
-        declaration, element_id, point_model_m, shape_values
-    )
-    primitive = _primitive(declaration, element, point, parameters, relationships)
-    if primitive.point_gradient is None:
-        raise ScansorError(
-            f"element {element.element_id} has an undefined point gradient"
-        )
-    return FixedPoseShapeEvaluation(
-        parameter_jacobian_row=primitive.parameter_jacobian_row,
-        point_gradient=primitive.point_gradient,
-        residual_m=primitive.signed_distance_m,
+    return DeclaredGeometryEvaluator(
+        declaration, shape_values
+    ).evaluate_fixed_pose_shape(
+        element_id,
+        point_model_m,
     )

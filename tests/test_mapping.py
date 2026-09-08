@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import copy
 import io
 import json
 import math
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -14,7 +15,7 @@ from pydantic import ValidationError
 
 import scansor.files as files_module
 import scansor.mapping_runs as mapping_runs_module
-import scansor.stepped_rotational as mapping_module
+import scansor.observation_mapping as mapping_module
 from scansor.errors import ScansorError
 from scansor.files import hash_run_file, rename_no_replace
 from scansor.mapping_models import (
@@ -27,11 +28,32 @@ from scansor.mapping_models import (
     SyntheticFixtureProvenance,
 )
 from scansor.mapping_runs import create_mapping_run, verify_mapping_run
+from scansor.model_declarations import (
+    AxialIntervalPredicate,
+    BoundedSupportDomain,
+    CoaxialCylinderPrimitive,
+    CoverageCell,
+    FixedPoseShapeProblem,
+    LiteralScalarReference,
+    ModelDeclaration,
+    ModelElement,
+    ModelFrame,
+    ModelSemanticDeclaration,
+    ParameterScalarReference,
+    PolicyContext,
+    RelativeRankPolicy,
+    RequiredSupport,
+    ScalarParameter,
+    StrictPositivePredicate,
+    SyntheticObservationAdmission,
+    identify_model,
+)
 from scansor.models import InspectJobConfig
+from scansor.observation_mapping import build_mapping
 from scansor.ply import canonical_npy
 from scansor.runs import inspect_source, publish_run
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
-from scansor.stepped_rotational import build_mapping
+from scansor.stepped_model_declarations import stepped_model_declaration
 from scansor.synthetic_fixture import FIXTURE_FRAME, Variant, prepare_synthetic_fixture
 from tests.conftest import write_ply
 from tests.test_runs import settings
@@ -86,6 +108,7 @@ def request_for(
     canonical: bytes,
     *,
     asymmetric: bool = True,
+    declaration: ModelDeclaration | None = None,
     held_out: tuple[int, ...] = (),
     thresholds: MappingThresholds | None = None,
     transform: RigidTransform | None = None,
@@ -93,6 +116,7 @@ def request_for(
     array = np.load(io.BytesIO(canonical), allow_pickle=False)
     variant = "asymmetric-datum-flat" if asymmetric else "axisymmetric"
     return MappingRequest(
+        declaration=declaration or stepped_model_declaration(variant),
         held_out_row_indices=held_out,
         input_revision=InputRevision(
             canonical_row_count=len(array),
@@ -114,6 +138,89 @@ def request_for(
             translation_m=(0.0, 0.0, 0.0),
         ),
         variant=variant,
+    )
+
+
+def constructed_shell_declaration() -> ModelDeclaration:
+    parameter = ParameterScalarReference(parameter_id="shell-radius")
+
+    def domain(
+        prefix: str, low: float = -1.0, high: float = 1.0
+    ) -> BoundedSupportDomain:
+        return BoundedSupportDomain(
+            domain_id=f"{prefix}.domain",
+            predicates=(
+                AxialIntervalPredicate(
+                    lower=LiteralScalarReference(value=low),
+                    predicate_id=f"{prefix}.axial",
+                    upper=LiteralScalarReference(value=high),
+                ),
+            ),
+        )
+
+    rank = RelativeRankPolicy(
+        parameter_ids=("shell-radius",),
+        parameter_scales=(0.002,),
+        relative_threshold=1e-9,
+        required_rank=1,
+        residual_scale=0.002,
+    )
+    return identify_model(
+        ModelSemanticDeclaration(
+            admission=SyntheticObservationAdmission(),
+            elements=(
+                ModelElement(
+                    domain=domain("shell-support"),
+                    element_id="shell",
+                    primitive=CoaxialCylinderPrimitive(
+                        radial_orientation=1, radius=parameter
+                    ),
+                ),
+            ),
+            frame=ModelFrame(
+                frame_id="constructed-shell-frame",
+                origin_m=(0.0, 0.0, 0.0),
+                positive_x=(1.0, 0.0, 0.0),
+                positive_z=(0.0, 0.0, 1.0),
+            ),
+            mapping_admission=PolicyContext(
+                coverage_cells=(
+                    CoverageCell(
+                        cell_id="shell-middle",
+                        domain=domain("shell-middle", -0.5, 0.5),
+                        element_id="shell",
+                        minimum_count=2,
+                    ),
+                ),
+                relative_rank=rank,
+                required_support=(
+                    RequiredSupport(element_id="shell", minimum_count=3),
+                ),
+            ),
+            optimization_preflight=PolicyContext(
+                coverage_cells=(),
+                relative_rank=rank,
+                required_support=(
+                    RequiredSupport(element_id="shell", minimum_count=1),
+                ),
+            ),
+            parameters=(
+                ScalarParameter(
+                    diagnostic_scale=0.002,
+                    lower=0.01,
+                    nominal=0.02,
+                    parameter_id="shell-radius",
+                    upper=0.03,
+                ),
+            ),
+            problem=FixedPoseShapeProblem(varied_parameter_ids=("shell-radius",)),
+            relationships=(),
+            structural_predicates=(
+                StrictPositivePredicate(
+                    predicate_id="positive.shell-radius", value=parameter
+                ),
+            ),
+        )
     )
 
 
@@ -140,7 +247,8 @@ def test_accepted_mapping_has_distinct_deterministic_records_and_no_factors() ->
     assert first.future_physical_reference is None
     assert len(first.held_out_observations) == 1
     assert first.diagnostics.rank_value == first.diagnostics.rank_required == 7
-    assert not first.diagnostics.missing_required_regions
+    assert not first.diagnostics.missing_required_support
+    assert not first.diagnostics.missing_coverage_cells
     assert len(first.candidates) == len(first.memberships) == len(first.mappings)
     assert len({item.observation_id for item in first.observations}) == len(
         first.observations
@@ -154,6 +262,7 @@ def test_revision_one_observation_serialization_uses_pydantic_2_11_contract() ->
     observation = result.observations[0]
     assert set(observation.model_dump(mode="json")) == {
         "evaluation_state",
+        "model_id",
         "normal",
         "observation_id",
         "point_model_m",
@@ -171,6 +280,44 @@ def test_axisymmetric_variant_has_only_its_regions_and_rank() -> None:
     assert (
         "plane.datum-flat" not in result.diagnostics.per_element_training_mapping_counts
     )
+
+
+def test_mapping_processes_a_constructed_nonstepped_declaration() -> None:
+    declaration = constructed_shell_declaration()
+    canonical = canonical_bytes([(0.02, 0.0, axial) for axial in (-0.25, 0.25, 0.75)])
+    result = build_mapping(request_for(canonical, declaration=declaration), canonical)
+
+    assert result.disposition == "accepted"
+    assert result.model_id == declaration.model_id
+    assert [item.element_id for item in result.mappings] == ["shell"] * 3
+    assert result.diagnostics.required_support_counts == {"shell": 3}
+    assert result.diagnostics.coverage_cell_counts == {"shell-middle": 2}
+    assert result.diagnostics.rank_parameter_order == ("shell-radius",)
+    assert result.diagnostics.rank_value == result.diagnostics.rank_required == 1
+
+
+def test_model_content_changes_mapping_record_identities() -> None:
+    first_declaration = constructed_shell_declaration()
+    record = copy.deepcopy(
+        first_declaration.model_dump(mode="python", exclude={"model_id"})
+    )
+    record["parameters"][0]["nominal"] = 0.021
+    second_declaration = identify_model(ModelSemanticDeclaration.model_validate(record))
+    canonical = canonical_bytes([(0.02, 0.0, axial) for axial in (-0.25, 0.25, 0.75)])
+    thresholds = MappingThresholds(max_support_distance_m=0.002)
+
+    first = build_mapping(
+        request_for(canonical, declaration=first_declaration, thresholds=thresholds),
+        canonical,
+    )
+    second = build_mapping(
+        request_for(canonical, declaration=second_declaration, thresholds=thresholds),
+        canonical,
+    )
+
+    assert first_declaration.model_id != second_declaration.model_id
+    assert first.mapping_run_id != second.mapping_run_id
+    assert first.observations[0].observation_id != second.observations[0].observation_id
 
 
 def test_normals_are_optional_untrusted_and_never_change_classification() -> None:
@@ -274,7 +421,8 @@ def test_missing_regions_and_degeneracy_are_distinct_failures() -> None:
     canonical = canonical_bytes([(0.012, 0.0, z) for z in (0.005, 0.010, 0.015)])
     result = build_mapping(request_for(canonical), canonical)
     assert result.disposition == "rejected"
-    assert "missing-required-regions" in result.diagnostics.rejection_reasons
+    assert "missing-required-support" in result.diagnostics.rejection_reasons
+    assert "insufficient-coverage" in result.diagnostics.rejection_reasons
     assert "rank-deficient" in result.diagnostics.rejection_reasons
     assert result.diagnostics.rank_value == 1
 
@@ -377,6 +525,7 @@ def inspection_mapping_fixture(
     )
     publish_run(inspection_run, report, canonical)
     request = MappingRequest(
+        declaration=stepped_model_declaration(variant),
         held_out_row_indices=fixture.held_out_row_indices,
         input_revision=InputRevision(
             canonical_row_count=report.inspection.point_count,
@@ -429,6 +578,53 @@ def test_mapping_replay_rejects_corruption_and_wrong_inspection(tmp_path: Path) 
     _ = create_mapping_run(mapping_run, inspection_run, result.request)
     _ = (mapping_run / "manifest.sha256").write_bytes(b"0" * 64)
     with pytest.raises(ScansorError, match="sidecar"):
+        _ = verify_mapping_run(mapping_run, inspection_run)
+
+
+def _rewrite_mapping_manifest(mapping_run: Path, manifest: dict[str, Any]) -> None:
+    manifest_bytes = canonical_json(manifest)
+    _ = (mapping_run / "manifest.json").write_bytes(manifest_bytes)
+    _ = (mapping_run / "manifest.sha256").write_bytes(
+        f"{sha256(manifest_bytes)}  manifest.json\n".encode("ascii")
+    )
+
+
+def test_mapping_replay_rejects_declaration_tampering(tmp_path: Path) -> None:
+    inspection_run, result = inspection_mapping_fixture(tmp_path)
+    mapping_run = tmp_path / "mapping"
+    _ = create_mapping_run(mapping_run, inspection_run, result.request)
+    mapping = parse_canonical_json(
+        (mapping_run / "mapping.json").read_bytes(), "mapping", 32 * 1024 * 1024
+    )
+    mapping["request"]["declaration"]["frame"]["frame_id"] = "tampered-frame"
+    mapping_bytes = canonical_json(mapping)
+    _ = (mapping_run / "mapping.json").write_bytes(mapping_bytes)
+    manifest = parse_canonical_json(
+        (mapping_run / "manifest.json").read_bytes(), "manifest", 32 * 1024 * 1024
+    )
+    manifest["artifacts"]["mapping.json"] = {
+        "byte_count": len(mapping_bytes),
+        "sha256": sha256(mapping_bytes),
+    }
+    _rewrite_mapping_manifest(mapping_run, manifest)
+
+    with pytest.raises(ScansorError, match="model ID does not match"):
+        _ = verify_mapping_run(mapping_run, inspection_run)
+
+
+def test_mapping_replay_rejects_model_substitution_in_manifest(tmp_path: Path) -> None:
+    inspection_run, result = inspection_mapping_fixture(tmp_path)
+    mapping_run = tmp_path / "mapping"
+    _ = create_mapping_run(mapping_run, inspection_run, result.request)
+    replacement = constructed_shell_declaration()
+    manifest = parse_canonical_json(
+        (mapping_run / "manifest.json").read_bytes(), "manifest", 32 * 1024 * 1024
+    )
+    manifest["declaration"] = replacement.model_dump(mode="json")
+    manifest["model_id"] = replacement.model_id
+    _rewrite_mapping_manifest(mapping_run, manifest)
+
+    with pytest.raises(ScansorError, match="inventory or revision mismatch"):
         _ = verify_mapping_run(mapping_run, inspection_run)
 
 

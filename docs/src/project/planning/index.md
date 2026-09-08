@@ -28,9 +28,11 @@ product boundaries and research findings remain authoritative in the parent
 
 ## Tracks
 
+- [Declared analytic model observation mapping](declared-analytic-model-observation-mapping.md)
+  - provisional compatibility-free, model-bound synthetic-only successor using
+    declared elements, shared evaluator calls, and declaration-owned admission
 - [Stepped rotational v0 observation mapping](stepped-rotational-v0-observation-mapping.md)
-  - provisional internal synthetic-only contracts, pure analytic mapping,
-  separate publication/replay, and fail-closed diagnostics; no fit or CLI command
+  - superseded stepped-only mapping snapshot retained as historical context
 - [Stepped rotational v0 factor contract](stepped-rotational-v0-factor-contract.md)
   - provisional application-owned factor declarations, explicit activation,
   analytic shape/pose evaluation, and deterministic preflight; no joint solver,

@@ -103,7 +103,15 @@ def instantiate_factors(mapping: MappingResult) -> InstantiatedFactorSet:
                 "candidate_id": mapped.candidate_id,
                 "contract_id": contract.contract_id,
                 "element_id": mapped.element_id,
-                "factor_kind": candidate.kind,
+                "factor_kind": (
+                    "cylindrical"
+                    if mapped.element_id.startswith("cylinder.band-")
+                    else (
+                        "datum-planar"
+                        if mapped.element_id == "plane.datum-flat"
+                        else "axial-planar"
+                    )
+                ),
                 "mapping_content_sha256": mapping_content_sha256,
                 "mapping_id": mapped.mapping_id,
                 "mapping_role": mapped.role,

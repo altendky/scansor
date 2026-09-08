@@ -1,5 +1,10 @@
 # Stepped Rotational v0 Observation Mapping
 
+> **Superseded:** The compatibility-free
+> [declared analytic model observation mapping](declared-analytic-model-observation-mapping.md)
+> replaces this stepped-only persisted mapping contract. This page remains a
+> historical design snapshot and does not specify the current mapping format.
+
 ## Status
 
 **Provisional internal implementation design, snapshot dated 2026-07-31.** This
