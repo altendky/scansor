@@ -48,8 +48,6 @@ def _map_config(
                 "held_out_row_indices = " + json.dumps(held_out),
                 "max_support_distance_m = 0.00025",
                 "minimum_geometric_clearance_m = 0.0001",
-                "minimum_region_samples = 3",
-                "rank_relative_threshold = 1e-10",
                 "transform_tolerance = 1e-10",
                 "transition_guard_m = 0.0005",
                 "",
@@ -360,8 +358,6 @@ def test_mapping_publication_revalidates_generation_artifacts(
             held_out_row_indices=fixture.provenance.held_out_row_indices,
             max_support_distance_m=0.00025,
             minimum_geometric_clearance_m=0.0001,
-            minimum_region_samples=3,
-            rank_relative_threshold=1e-10,
             transform_tolerance=1e-10,
             transition_guard_m=0.0005,
         )

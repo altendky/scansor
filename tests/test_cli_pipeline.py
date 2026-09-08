@@ -57,7 +57,7 @@ def map_config(
     output: Path,
     variant: Variant,
     *,
-    minimum_region_samples: int = 3,
+    max_support_distance_m: float = 0.00025,
 ) -> Path:
     fixture = prepare_synthetic_fixture(variant)
     _ = path.write_text(
@@ -80,10 +80,8 @@ def map_config(
                 'translation_unit = "m"',
                 "held_out_row_indices = "
                 + json.dumps(list(fixture.held_out_row_indices)),
-                "max_support_distance_m = 0.00025",
+                f"max_support_distance_m = {max_support_distance_m}",
                 "minimum_geometric_clearance_m = 0.0001",
-                f"minimum_region_samples = {minimum_region_samples}",
-                "rank_relative_threshold = 1e-10",
                 "transform_tolerance = 1e-10",
                 "transition_guard_m = 0.0005",
                 "",
@@ -97,8 +95,6 @@ def map_config(
 def publish_mapping(
     tmp_path: Path,
     variant: Variant,
-    *,
-    minimum_region_samples: int = 3,
 ) -> tuple[Path, Path]:
     inspection = write_inspection(tmp_path, variant)
     mapping = tmp_path / f"{variant}-mapping"
@@ -107,11 +103,9 @@ def publish_mapping(
         inspection,
         mapping,
         variant,
-        minimum_region_samples=minimum_region_samples,
     )
     completed = run_cli(tmp_path, "--config", str(config), "map")
-    expected = 0 if minimum_region_samples == 3 else 3
-    assert completed.returncode == expected, completed.stderr
+    assert completed.returncode == 0, completed.stderr
     assert "artifact validity: valid-published" in completed.stdout
     return inspection, mapping
 
@@ -273,9 +267,21 @@ def test_map_requires_every_threshold_and_publishes_nothing_when_one_is_omitted(
 def test_rejected_mapping_is_published_with_exit_three_and_verifies(
     tmp_path: Path,
 ) -> None:
-    inspection, mapping = publish_mapping(
-        tmp_path, "axisymmetric", minimum_region_samples=4
+    inspection = write_inspection(tmp_path, "axisymmetric")
+    mapping = tmp_path / "rejected-mapping"
+    config = map_config(
+        tmp_path / "rejected-map.toml", inspection, mapping, "axisymmetric"
     )
+    contents = config.read_text(encoding="ascii")
+    _ = config.write_text(
+        contents.replace(
+            "translation_m = [0.0, 0.0, 0.0]",
+            "translation_m = [0.0, 0.0, 0.001]",
+        ),
+        encoding="ascii",
+    )
+    completed = run_cli(tmp_path, "--config", str(config), "map")
+    assert completed.returncode == 3, completed.stderr
     assert verify_mapping_run(mapping, inspection).disposition == "rejected"
     verified = run_cli(tmp_path, "verify-mapping", str(mapping), str(inspection))
     assert verified.returncode == 0, verified.stderr
@@ -587,17 +593,17 @@ def test_pipeline_precedence_unknowns_and_collection_environment(
         inspection,
         mapping,
         "axisymmetric",
-        minimum_region_samples=5,
+        max_support_distance_m=0.0005,
     )
     completed = run_cli(
         tmp_path,
         "--config",
         str(config),
         "map",
-        "--minimum-region-samples",
-        "3",
+        "--max-support-distance-m",
+        "0.00025",
         environment={
-            "SCANSOR_MINIMUM_REGION_SAMPLES": "4",
+            "SCANSOR_MAX_SUPPORT_DISTANCE_M": "0.0004",
             "SCANSOR_HELD_OUT_ROW_INDICES": json.dumps(
                 list(prepare_synthetic_fixture("axisymmetric").held_out_row_indices)
             ),
@@ -627,21 +633,21 @@ def test_environment_overrides_toml_for_pipeline_setting(tmp_path: Path) -> None
         inspection,
         mapping,
         "axisymmetric",
-        minimum_region_samples=5,
+        max_support_distance_m=0.0005,
     )
     completed = run_cli(
         tmp_path,
         "--config",
         str(config),
         "map",
-        environment={"SCANSOR_MINIMUM_REGION_SAMPLES": "3"},
+        environment={"SCANSOR_MAX_SUPPORT_DISTANCE_M": "0.0003"},
     )
     assert completed.returncode == 0, completed.stderr
     assert (
         verify_mapping_run(
             mapping, inspection
-        ).request.thresholds.minimum_region_samples
-        == 3
+        ).request.thresholds.max_support_distance_m
+        == 0.0003
     )
 
 
@@ -1073,8 +1079,6 @@ def test_post_publication_stdout_failures_preserve_publication_exit(
                 held_out_row_indices=fixture.held_out_row_indices,
                 max_support_distance_m=0.00025,
                 minimum_geometric_clearance_m=0.0001,
-                minimum_region_samples=3,
-                rank_relative_threshold=1e-10,
                 transform_tolerance=1e-10,
                 transition_guard_m=0.0005,
             )

@@ -116,6 +116,12 @@ subset without settling a production stack or public CLI contract. See the
 
 ### Bound the first application mapping contract to one synthetic fixture variant
 
+This initial stepped-only format is superseded by the compatibility-free
+[declared analytic model mapping](planning/declared-analytic-model-observation-mapping.md).
+Its deterministic association and synthetic admission boundaries remain as
+regression requirements, while model geometry and admission policy now come from
+the embedded declaration.
+
 Use an internal, non-public `stepped-rotational-v0` contract to exercise one
 explicit axisymmetric or asymmetric synthetic fixture variant per run. Require an
 explicit observation-to-model transform, application-owned thresholds, and a

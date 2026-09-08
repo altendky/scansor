@@ -37,8 +37,9 @@ from scansor.factor_models import (
     content_id,
 )
 from scansor.mapping_models import MappingResult, MappingThresholds
+from scansor.observation_mapping import build_mapping
 from scansor.serialization import canonical_json, sha256
-from scansor.stepped_rotational import assess_nominal_support, build_mapping
+from scansor.stepped_rotational import assess_nominal_support
 from scansor.stepped_rotational_execution import (
     ResidualJacobianCallback,
     adapter_descriptor,
@@ -1682,7 +1683,9 @@ def test_held_out_rejects_self_consistent_but_replay_invalid_result() -> None:
         _ = assess_held_out(forged, request, factor_set, selection, mapping)
 
 
-def test_nominal_support_helper_preserves_mapping_bytes_and_ignores_normals() -> None:
+def test_nominal_support_helper_agrees_with_successor_mapping_and_ignores_normals() -> (
+    None
+):
     points = [*fixture_points(), fixture_points()[0]]
     plain = canonical_bytes(points)
     normal = canonical_bytes(points, normals=True, normal_value=7.0)
@@ -1711,7 +1714,7 @@ def test_nominal_support_helper_preserves_mapping_bytes_and_ignores_normals() ->
         == plain_mapping.mapping_run_id
     )
     assert sha256(canonical_json(plain_mapping)) == (
-        "28bd7083f8df51ee8599b7f9168a2a1331491e1b499bbfbb87b60fc216354a7c"
+        "353c457745ae8d6191da9df78c579062c809b734e63b3191b45252d5455b2181"
     )
     before = canonical_json(plain_mapping)
     _ = assess_nominal_support(

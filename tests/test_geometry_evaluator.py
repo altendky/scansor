@@ -9,6 +9,7 @@ import pytest
 
 from scansor.errors import ScansorError
 from scansor.geometry_evaluator import (
+    classify_declared_coverage,
     classify_declared_support,
     evaluate_fixed_pose_shape_support,
 )
@@ -173,6 +174,24 @@ def test_domain_predicates_expose_signed_boundary_margins() -> None:
         (0.008 + half_width, half_width - 0.008)
     )
     assert datum.boundary_clearance_m == pytest.approx(half_width - 0.008)
+
+
+def test_coverage_classifies_the_element_primitive_projection() -> None:
+    declaration = stepped_model_declaration("axisymmetric")
+    cell = declaration.mapping_admission.coverage_cells[0]
+    shape = _shape(declaration)
+
+    classification = classify_declared_coverage(
+        declaration,
+        cell.element_id,
+        cell.domain,
+        (0.013, 0.0, 0.010),
+        shape,
+    )
+
+    assert classification.projected_point_m == pytest.approx((0.012, 0.0, 0.010))
+    assert classification.projected_inside
+    assert classification.boundary_clearance_m == pytest.approx(0.010)
 
 
 def test_closed_domain_boundaries_are_inclusive_without_clamping() -> None:

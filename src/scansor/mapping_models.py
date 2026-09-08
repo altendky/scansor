@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-import math
 from typing import ClassVar, Literal
 
+import numpy as np
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from scansor.errors import ScansorError
+from scansor.geometry_evaluator import (
+    DeclaredGeometryEvaluator,
+)
+from scansor.model_declarations import ModelDeclaration, revalidate_model_declaration
 from scansor.models import StrictModel
 from scansor.serialization import canonical_json, sha256
 
-MAPPING_FORMAT = "scansor-stepped-rotational-v0-mapping-v1"
-MAPPING_MANIFEST_FORMAT = "scansor-stepped-rotational-v0-manifest-v1"
+MAPPING_FORMAT = "scansor-declared-analytic-model-mapping-v1"
+MAPPING_MANIFEST_FORMAT = "scansor-declared-analytic-model-mapping-manifest-v1"
+MAPPING_CONTRACT = "declared-analytic-fixed-pose-mapping-v1"
+MAPPING_STATUS = (
+    "internal/provisional/synthetic-only/compatibility-free/non-public-contract"
+)
+ModelId = str
 
 
 class MappingStrictModel(StrictModel):
@@ -131,14 +141,13 @@ class RigidTransform(MappingStrictModel):
 class MappingThresholds(MappingStrictModel):
     max_support_distance_m: float = Field(default=0.00025, gt=0.0, le=0.002)
     minimum_geometric_clearance_m: float = Field(default=0.0001, gt=0.0, le=0.002)
-    minimum_region_samples: int = Field(default=3, ge=1, le=1000)
-    rank_relative_threshold: float = Field(default=1e-10, gt=0.0, lt=1.0)
     transform_tolerance: float = Field(default=1e-10, gt=0.0, le=1e-6)
     transition_guard_m: float = Field(default=0.0005, gt=0.0, le=0.002)
 
 
 class MappingRequest(MappingStrictModel):
-    contract: Literal["stepped-rotational-v0"] = "stepped-rotational-v0"
+    contract: Literal["declared-analytic-fixed-pose-mapping-v1"] = MAPPING_CONTRACT
+    declaration: ModelDeclaration
     held_out_row_indices: tuple[int, ...] = ()
     input_revision: InputRevision
     thresholds: MappingThresholds = Field(default_factory=MappingThresholds)
@@ -151,7 +160,7 @@ class MappingRequest(MappingStrictModel):
         return tuple(value) if isinstance(value, list) else value
 
     @model_validator(mode="after")
-    def validate_held_out_rows(self) -> MappingRequest:
+    def validate_request(self) -> MappingRequest:
         rows = self.held_out_row_indices
         if tuple(sorted(set(rows))) != rows:
             raise ValueError("held-out row indices must be unique and sorted")
@@ -163,6 +172,12 @@ class MappingRequest(MappingStrictModel):
             raise ValueError("at least one training row is required")
         if self.input_revision.synthetic_fixture.variant != self.variant:
             raise ValueError("synthetic fixture and mapping variants differ")
+        try:
+            revalidated = revalidate_model_declaration(self.declaration)
+        except ScansorError as error:
+            raise ValueError(str(error)) from error
+        if revalidated != self.declaration:
+            raise ValueError("mapping model declaration did not revalidate exactly")
         return self
 
 
@@ -174,6 +189,7 @@ class NormalDiagnostic(MappingStrictModel):
 
 class ObservationRecord(MappingStrictModel):
     evaluation_state: Literal["training-mapped", "post-fit-evaluation/not-evaluated"]
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     normal: NormalDiagnostic
     observation_id: str = Field(pattern=r"^observation\.[0-9a-f]{24}$")
     point_model_m: tuple[float, float, float]
@@ -191,7 +207,7 @@ class CandidateRecord(MappingStrictModel):
     candidate_id: str = Field(pattern=r"^candidate\.[0-9a-f]{24}$")
     element_id: str
     geometric_clearance_m: float | None = Field(default=None, ge=0.0)
-    kind: Literal["cylindrical", "axial-planar", "datum-planar"]
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     observation_id: str = Field(pattern=r"^observation\.[0-9a-f]{24}$")
     row_index: int = Field(ge=0)
     signed_distance_m: float
@@ -201,6 +217,7 @@ class MembershipRecord(MappingStrictModel):
     candidate_id: str = Field(pattern=r"^candidate\.[0-9a-f]{24}$")
     element_id: str
     membership_id: str = Field(pattern=r"^membership\.[0-9a-f]{24}$")
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     observation_id: str = Field(pattern=r"^observation\.[0-9a-f]{24}$")
 
 
@@ -208,6 +225,7 @@ class MappingRecord(MappingStrictModel):
     candidate_id: str = Field(pattern=r"^candidate\.[0-9a-f]{24}$")
     element_id: str
     mapping_id: str = Field(pattern=r"^mapping\.[0-9a-f]{24}$")
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     observation_id: str = Field(pattern=r"^observation\.[0-9a-f]{24}$")
     role: Literal["primary-geometric"] = "primary-geometric"
 
@@ -215,6 +233,7 @@ class MappingRecord(MappingStrictModel):
 class ExclusionRecord(MappingStrictModel):
     candidate_ids: tuple[str, ...]
     exclusion_id: str = Field(pattern=r"^exclusion\.[0-9a-f]{24}$")
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     observation_id: str = Field(pattern=r"^observation\.[0-9a-f]{24}$")
     reason: Literal["ambiguous", "gap", "outlier", "transition"]
     row_index: int = Field(ge=0)
@@ -247,9 +266,12 @@ class HeldOutLeakageAudit(MappingStrictModel):
 
 class MappingDiagnostics(MappingStrictModel):
     counts: dict[str, int]
+    coverage_cell_counts: dict[str, int]
+    coverage_cell_order: tuple[str, ...]
     exclusion_counts: dict[str, int]
     held_out_leakage: HeldOutLeakageAudit
-    missing_required_regions: tuple[str, ...]
+    missing_coverage_cells: tuple[str, ...]
+    missing_required_support: tuple[str, ...]
     normal_magnitude_bounds: tuple[float, float] | None
     normal_policy: Literal[
         "missing-allowed; present-untrusted-diagnostic-only; never-classifying"
@@ -262,12 +284,17 @@ class MappingDiagnostics(MappingStrictModel):
     rank_training_only: Literal[True] = True
     rank_value: int = Field(ge=0)
     rejection_reasons: tuple[str, ...]
+    required_support_counts: dict[str, int]
+    required_support_order: tuple[str, ...]
 
     @field_validator(
-        "missing_required_regions",
+        "missing_coverage_cells",
+        "missing_required_support",
+        "coverage_cell_order",
         "rank_parameter_order",
         "rank_singular_values",
         "rejection_reasons",
+        "required_support_order",
         mode="before",
     )
     @classmethod
@@ -280,6 +307,92 @@ class MappingDiagnostics(MappingStrictModel):
         return tuple(value) if isinstance(value, list) else value
 
 
+def mapping_admission_diagnostics(
+    declaration: ModelDeclaration,
+    mappings: tuple[MappingRecord, ...] | list[MappingRecord],
+    observations: tuple[ObservationRecord, ...] | list[ObservationRecord],
+) -> tuple[
+    dict[str, int],
+    dict[str, int],
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[float, ...],
+    int,
+    int,
+]:
+    policy = declaration.mapping_admission
+    element_counts = {element.element_id: 0 for element in declaration.elements}
+    for mapping in mappings:
+        element_counts[mapping.element_id] += 1
+    required_counts = {
+        item.element_id: element_counts[item.element_id]
+        for item in policy.required_support
+    }
+    missing_support = tuple(
+        item.element_id
+        for item in policy.required_support
+        if required_counts[item.element_id] < item.minimum_count
+    )
+    observation_by_id = {item.observation_id: item for item in observations}
+    nominal = tuple(item.nominal for item in declaration.parameters)
+    evaluator = DeclaredGeometryEvaluator(declaration, nominal)
+    coverage_counts = {cell.cell_id: 0 for cell in policy.coverage_cells}
+    for mapping in mappings:
+        point = observation_by_id[mapping.observation_id].point_model_m
+        for cell in policy.coverage_cells:
+            if (
+                cell.element_id == mapping.element_id
+                and evaluator.classify_coverage(
+                    mapping.element_id, cell.domain, point
+                ).projected_inside
+            ):
+                coverage_counts[cell.cell_id] += 1
+    missing_coverage = tuple(
+        cell.cell_id
+        for cell in policy.coverage_cells
+        if coverage_counts[cell.cell_id] < cell.minimum_count
+    )
+    rank_policy = policy.relative_rank
+    parameter_indices = {
+        item.parameter_id: index for index, item in enumerate(declaration.parameters)
+    }
+    rows: list[list[float]] = []
+    for mapping in mappings:
+        point = observation_by_id[mapping.observation_id].point_model_m
+        jacobian = evaluator.evaluate_fixed_pose_shape(
+            mapping.element_id, point
+        ).parameter_jacobian_row
+        rows.append(
+            [
+                jacobian[parameter_indices[parameter_id]]
+                * scale
+                / rank_policy.residual_scale
+                for parameter_id, scale in zip(
+                    rank_policy.parameter_ids,
+                    rank_policy.parameter_scales,
+                    strict=True,
+                )
+            ]
+        )
+    if rows and rank_policy.parameter_ids:
+        singular = tuple(float(item) for item in np.linalg.svd(rows, compute_uv=False))
+    else:
+        singular = ()
+    limit = singular[0] * rank_policy.relative_threshold if singular else 0.0
+    rank = sum(item > limit for item in singular) if limit > 0.0 else 0
+    return (
+        required_counts,
+        coverage_counts,
+        missing_support,
+        missing_coverage,
+        rank_policy.parameter_ids,
+        singular,
+        rank,
+        rank_policy.required_rank,
+    )
+
+
 class MappingResult(MappingStrictModel):
     active_factor_ids: tuple[()] = ()
     cad_evidence: None = None
@@ -288,16 +401,17 @@ class MappingResult(MappingStrictModel):
     disposition: Literal["accepted", "rejected"]
     exclusions: tuple[ExclusionRecord, ...]
     fit_result: None = None
-    format: Literal["scansor-stepped-rotational-v0-mapping-v1"] = MAPPING_FORMAT
-    format_status: Literal["internal/provisional/non-public-contract"] = (
-        "internal/provisional/non-public-contract"
-    )
+    format: Literal["scansor-declared-analytic-model-mapping-v1"] = MAPPING_FORMAT
+    format_status: Literal[
+        "internal/provisional/synthetic-only/compatibility-free/non-public-contract"
+    ] = MAPPING_STATUS
     future_physical_reference: None = None
     held_out_observations: tuple[ObservationRecord, ...]
     instantiated_factors: None = None
     mapping_run_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     mappings: tuple[MappingRecord, ...]
     memberships: tuple[MembershipRecord, ...]
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
     observations: tuple[ObservationRecord, ...]
     raw_cloud: Literal["referenced-by-inspection-report"] = (
         "referenced-by-inspection-report"
@@ -321,6 +435,19 @@ class MappingResult(MappingStrictModel):
 
     @model_validator(mode="after")
     def validate_record_graph(self) -> MappingResult:
+        model_id = self.request.declaration.model_id
+        records = (
+            *self.observations,
+            *self.held_out_observations,
+            *self.candidates,
+            *self.memberships,
+            *self.mappings,
+            *self.exclusions,
+        )
+        if self.model_id != model_id or any(
+            item.model_id != model_id for item in records
+        ):
+            raise ValueError("mapping records mix model identities")
         observation_ids = [item.observation_id for item in self.observations]
         held_out_ids = [item.observation_id for item in self.held_out_observations]
         excluded_ids = [item.observation_id for item in self.exclusions]
@@ -406,10 +533,8 @@ class MappingResult(MappingStrictModel):
             "mapping": len(self.mappings),
             "membership": len(self.memberships),
             "observation": len(self.observations),
-            "training": (
-                self.request.input_revision.canonical_row_count
-                - len(self.held_out_observations)
-            ),
+            "training": self.request.input_revision.canonical_row_count
+            - len(self.held_out_observations),
         }:
             raise ValueError("mapping diagnostic counts are inconsistent")
         expected = "rejected" if self.diagnostics.rejection_reasons else "accepted"
@@ -456,76 +581,47 @@ class MappingResult(MappingStrictModel):
         }
         if self.diagnostics.exclusion_counts != expected_exclusion_counts:
             raise ValueError("exclusion diagnostics are inconsistent")
-        expected_element_counts = {
-            element_id: sum(item.element_id == element_id for item in self.mappings)
-            for element_id in self.diagnostics.per_element_training_mapping_counts
-        }
-        if (
-            self.diagnostics.per_element_training_mapping_counts
-            != expected_element_counts
-        ):
-            raise ValueError("per-element mapping counts are inconsistent")
-        elements = (
-            "cylinder.band-1",
-            "cylinder.band-2",
-            "cylinder.band-3",
-            "plane.station-0",
-            "plane.station-20",
-            "plane.station-50",
-            "plane.station-80",
-        )
-        parameters = (
-            "radius.band-1",
-            "radius.band-2",
-            "radius.band-3",
-            "station-20",
-            "station-50",
-            "station-80",
-        )
-        if self.request.variant == "asymmetric-datum-flat":
-            elements += ("plane.datum-flat",)
-            parameters += ("datum-flat-x",)
-        if set(expected_element_counts) != set(elements):
-            raise ValueError("per-element diagnostic inventory is invalid")
-        missing = tuple(
-            element
-            for element in elements
-            if expected_element_counts[element]
-            < self.request.thresholds.minimum_region_samples
-        )
-        if self.diagnostics.missing_required_regions != missing:
-            raise ValueError("missing-region diagnostics are inconsistent")
-        parameter_elements = {
-            "radius.band-1": "cylinder.band-1",
-            "radius.band-2": "cylinder.band-2",
-            "radius.band-3": "cylinder.band-3",
-            "station-20": "plane.station-20",
-            "station-50": "plane.station-50",
-            "station-80": "plane.station-80",
-            "datum-flat-x": "plane.datum-flat",
-        }
-        singular = tuple(
-            sorted(
-                (
-                    math.sqrt(expected_element_counts[parameter_elements[parameter]])
-                    for parameter in parameters
-                ),
-                reverse=True,
+        try:
+            (
+                required_counts,
+                coverage_counts,
+                missing_support,
+                missing_coverage,
+                parameters,
+                singular,
+                rank,
+                rank_required,
+            ) = mapping_admission_diagnostics(
+                self.request.declaration, self.mappings, self.observations
             )
-        )
-        rank_limit = (
-            singular[0] * self.request.thresholds.rank_relative_threshold
-            if singular
-            else 0.0
-        )
-        rank = sum(value > rank_limit for value in singular) if rank_limit else 0
+        except (KeyError, ScansorError, ValueError) as error:
+            raise ValueError(
+                f"mapping admission diagnostics are invalid: {error}"
+            ) from error
+        element_counts = {
+            element.element_id: sum(
+                item.element_id == element.element_id for item in self.mappings
+            )
+            for element in self.request.declaration.elements
+        }
+        rank_policy = self.request.declaration.mapping_admission.relative_rank
+        if (
+            self.diagnostics.per_element_training_mapping_counts != element_counts
+            or self.diagnostics.required_support_counts != required_counts
+            or self.diagnostics.coverage_cell_counts != coverage_counts
+            or self.diagnostics.required_support_order != tuple(required_counts)
+            or self.diagnostics.coverage_cell_order != tuple(coverage_counts)
+            or self.diagnostics.missing_required_support != missing_support
+            or self.diagnostics.missing_coverage_cells != missing_coverage
+        ):
+            raise ValueError("mapping admission counts are inconsistent")
         if (
             self.diagnostics.rank_parameter_order != parameters
             or self.diagnostics.rank_singular_values != singular
             or self.diagnostics.rank_value != rank
-            or self.diagnostics.rank_required != len(parameters)
+            or self.diagnostics.rank_required != rank_required
             or self.diagnostics.rank_relative_threshold
-            != self.request.thresholds.rank_relative_threshold
+            != rank_policy.relative_threshold
         ):
             raise ValueError("rank diagnostics are inconsistent")
         expected_reasons = tuple(
@@ -534,8 +630,9 @@ class MappingResult(MappingStrictModel):
                 for reason in ("ambiguous", "gap", "outlier", "transition")
                 if expected_exclusion_counts[reason]
             ]
-            + (["missing-required-regions"] if missing else [])
-            + (["rank-deficient"] if rank < len(parameters) else [])
+            + (["missing-required-support"] if missing_support else [])
+            + (["insufficient-coverage"] if missing_coverage else [])
+            + (["rank-deficient"] if rank < rank_required else [])
         )
         if self.diagnostics.rejection_reasons != expected_reasons:
             raise ValueError("rejection reasons are inconsistent")
@@ -554,11 +651,19 @@ class ArtifactRecord(MappingStrictModel):
 
 class MappingManifest(MappingStrictModel):
     artifacts: dict[Literal["mapping.json"], ArtifactRecord]
+    declaration: ModelDeclaration
     external_input: InputRevision
-    format: Literal["scansor-stepped-rotational-v0-manifest-v1"] = (
+    format: Literal["scansor-declared-analytic-model-mapping-manifest-v1"] = (
         MAPPING_MANIFEST_FORMAT
     )
-    format_status: Literal["internal/provisional/non-public-contract"] = (
-        "internal/provisional/non-public-contract"
-    )
+    format_status: Literal[
+        "internal/provisional/synthetic-only/compatibility-free/non-public-contract"
+    ] = MAPPING_STATUS
     mapping_run_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model_id: ModelId = Field(pattern=r"^model\.[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_model_binding(self) -> MappingManifest:
+        if self.model_id != self.declaration.model_id:
+            raise ValueError("mapping manifest model binding is inconsistent")
+        return self

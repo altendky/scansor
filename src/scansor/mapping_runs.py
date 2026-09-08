@@ -24,10 +24,10 @@ from scansor.mapping_models import (
     MappingRequest,
     MappingResult,
 )
+from scansor.observation_mapping import MAX_MAPPING_ROWS, build_mapping
 from scansor.ply import canonical_npy, parse_ply
 from scansor.runs import verify_run_artifacts_fd
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
-from scansor.stepped_rotational import MAX_MAPPING_ROWS, build_mapping
 from scansor.stepped_rotational_generation import (
     generated_fixture_provenance,
     prepare_generation,
@@ -49,8 +49,10 @@ def _mapping_artifacts(result: MappingResult) -> dict[str, bytes]:
                 byte_count=len(mapping_bytes), sha256=sha256(mapping_bytes)
             )
         },
+        declaration=result.request.declaration,
         external_input=result.request.input_revision,
         mapping_run_id=result.mapping_run_id,
+        model_id=result.model_id,
     )
     manifest_bytes = canonical_json(manifest)
     if len(manifest_bytes) > MAX_MAPPING_BYTES:
@@ -594,8 +596,10 @@ def _load_mapping_run(directory_fd: int) -> tuple[MappingResult, dict[str, bytes
     )
     if (
         manifest.artifacts != {"mapping.json": expected_artifact}
+        or manifest.declaration != result.request.declaration
         or manifest.external_input != result.request.input_revision
         or manifest.mapping_run_id != result.mapping_run_id
+        or manifest.model_id != result.model_id
     ):
         raise ScansorError("mapping manifest inventory or revision mismatch")
     return result, artifacts

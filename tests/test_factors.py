@@ -26,9 +26,9 @@ from scansor.factor_models import (
     content_id,
 )
 from scansor.mapping_models import MappingResult
+from scansor.observation_mapping import build_mapping
 from scansor.ply import canonical_npy
 from scansor.serialization import canonical_json, parse_canonical_json
-from scansor.stepped_rotational import build_mapping
 from scansor.stepped_rotational_factors import (
     evaluate_factors,
     instantiate_factors,

@@ -30,11 +30,14 @@ outside the intended boundary.
 - [Declared analytic model contract](planning/declared-analytic-model-contract.md)
   - **Provisional:** implemented internal declaration records and shared analytic
   evaluator for declared planes, coaxial cylinders, bounded domains, shape
-  residuals, and derivatives; no downstream consumption, public schema,
+  residuals, and derivatives, now consumed by internal mapping; no public schema,
   compatibility, or product-support claim
+- [Declared analytic model observation mapping](planning/declared-analytic-model-observation-mapping.md)
+  - **Provisional:** implemented compatibility-free, model-bound synthetic-only
+  mapping using declared elements, evaluator geometry/Jacobians, declaration-owned
+  admission policy, and read-only replay
 - [Stepped rotational v0 observation mapping](planning/stepped-rotational-v0-observation-mapping.md)
-  - **Provisional:** internal synthetic-only observation/mapping contracts,
-  deterministic analytic association, diagnostics, and separate replay boundary
+  - **Superseded snapshot:** original stepped-only observation/mapping contract
 - [Stepped rotational v0 factor contract](planning/stepped-rotational-v0-factor-contract.md)
   - **Provisional:** application-owned declarations, explicit activation, pure
   analytic evaluation, and optimizer-independent preflight; no fit or factor CLI
