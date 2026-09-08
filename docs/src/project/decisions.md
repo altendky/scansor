@@ -194,6 +194,24 @@ publication, read-only replay, and human-only raw truth comparison without
 acceptance. CAD-derived sampling, physical evidence, generic clouds, robust loss,
 and CAD publication remain deferred. See the [bounded generated slice](planning/stepped-rotational-v0-generated-noise-vertical-slice.md).
 
+### Declare provisional analytic model semantics before generalizing execution
+
+Use strict immutable internal declarations to own analytic-model topology,
+stable element and parameter IDs and order, oriented-plane and coaxial-cylinder
+semantics, bounded domains, exact relationships, structural validity, required
+support, coverage, and relative-rank policy. Give canonical semantic content a
+content-addressed model identity and bind that identity through every
+model-dependent mapping, factor, preflight, execution, replay, and verification
+successor. The initial declaration-driven problem is fixed-pose shape and admits
+only replay-verified project-generated synthetic observations.
+
+This is a provisional semantic contract, not an implemented feature, public or
+durable `model.json`, compatibility promise, general constraint language,
+automatic topology/correspondence/pose inference, or product-support claim.
+Compatibility-free model-bound successors may replace stepped-model-specific
+experimental formats. See the
+[declared analytic model contract](planning/declared-analytic-model-contract.md).
+
 ### Use a bounded Python support layer for the prototype
 
 Provisionally use structlog for structured runtime diagnostics, Rich for human

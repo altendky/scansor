@@ -27,6 +27,10 @@ outside the intended boundary.
 - [Integrated planning program](planning/index.md) - **Provisional:** shared
   terminology, deterministic generated-first critical path, staged dependency
   graph, evidence gates, deferred physical validation, and five owned tracks
+- [Declared analytic model contract](planning/declared-analytic-model-contract.md)
+  - **Provisional:** internal model, primitive, bounded-domain, parameter,
+  relationship, policy, canonical identity, and fixed-pose semantics; no public
+  schema, implementation, compatibility, or product-support claim
 - [Stepped rotational v0 observation mapping](planning/stepped-rotational-v0-observation-mapping.md)
   - **Provisional:** internal synthetic-only observation/mapping contracts,
   deterministic analytic association, diagnostics, and separate replay boundary
