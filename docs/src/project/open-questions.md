@@ -169,8 +169,12 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
   format? It has no public compatibility promise.
 - What later real artifact and protocol can validly test the provisional bounded
   family without treating synthetic truth as physical truth?
-- What are the canonical, versioned schemas for models, observations,
-  memberships, mapping manifests, raw CAD snapshots/sidecars, and fit results?
+- What durable, canonical, versioned public schemas, if any, should represent
+  models, observations, memberships, mapping manifests, raw CAD
+  snapshots/sidecars, and fit results? The provisional internal
+  [declared analytic model contract](planning/declared-analytic-model-contract.md)
+  settles only the semantics and content identity needed by the approved
+  synthetic fixed-pose sequence; it makes no format or compatibility promise.
 - Which eventual production language and nonlinear least-squares solver best
   support reduced parameterizations, robust losses, derivatives, diagnostics,
   packaging, and CAD adapters? Selecting any production stack, whether retaining

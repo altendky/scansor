@@ -65,7 +65,7 @@ These meanings govern the planning tracks:
 
 | Term | Planning meaning |
 | --- | --- |
-| Canonical model | User-confirmed, application-owned fitting intent: topology, elements, parameter roles, bounds, and relationships. Extracted CAD geometry does not infer it. |
+| Canonical model | User-confirmed, application-owned fitting intent: model frame, topology, ordered elements and scalar parameters, bounded supports, relationships, structural predicates, and model-owned support, coverage, and rank policy. Extracted CAD geometry does not infer it. |
 | Generator truth | Deterministic fixture geometry, pose, observation construction, and scenario expectations fixed before evaluator or solver output. |
 | Observation | An identified generated or captured sample with units, frame, provenance, optional attributes, and explicit memberships. |
 | Membership | A many-to-many selection or classification label. Membership alone creates no mapping or factor. |
@@ -152,13 +152,16 @@ that trial.
 | Track 4 | Deterministic generator oracle, numerical instantiation, reduced coordinates, derivatives, scenarios, diagnostics, runner evidence, and challenger comparison |
 | Track 5 | Generated Onshape CAD extraction first; later external observation probes, retained response bodies and generated metadata, normalization, degradation/capability findings, and publication-plan design |
 
-The separate `stepped-rotational-v0` application slices exercise bounded
-synthetic observation/mapping construction, factor/preflight behavior,
-solver-independent execution records, one bounded NumPy adapter, internal run
-publication/replay, isolated post-fit held-out assessment, and one bounded
-generated noisy-cloud workflow.
-They are not a new evidence track and do not alter the frozen Track 4 or Track 5
-records or select product acceptance policy.
+The provisional
+[declared analytic model contract](declared-analytic-model-contract.md) owns the
+semantic boundary for compatibility-free, declaration-driven successors. The
+existing `stepped-rotational-v0` application slices exercise bounded synthetic
+observation/mapping construction, factor/preflight behavior, solver-independent
+execution records, one bounded NumPy adapter, internal run publication/replay,
+isolated post-fit held-out assessment, and one bounded generated noisy-cloud
+workflow. They remain fixed-topology implementation evidence, are not a new
+evidence track, and do not alter the frozen Track 4 or Track 5 records or select
+product acceptance policy.
 
 Track 3 follows Track 1 semantics, Track 4 evidence needs, and Track 5 observed
 source behavior. It does not own their contracts or artifacts. Track 5 consumes
@@ -224,8 +227,10 @@ Phase B only after nominal generated end-to-end evidence exists.
 - **Phase A access gate:** designated sandbox scope, Onshape auth/read capability,
   disposable-fixture authorization, evidence disposition, source pin, and secret
   handling are documented.
-- **Model gate:** topology, bounded domains, units, frames, parameter roles,
-  relationships, gauges, mappings, and factors are explicit.
+- **Model gate:** canonical model identity, topology, element and parameter IDs
+  and order, bounded domains, units, frames, parameter roles, structural
+  relationships, model-owned support/coverage/rank policy, gauges, mappings, and
+  factors are explicit.
 - **Mathematical gate:** hard relationships hold structurally, Jacobians pass
   declared checks, and invalid geometry differs from non-convergence.
 - **Identifiability gate:** expected null directions, rank/conditioning, bounds,

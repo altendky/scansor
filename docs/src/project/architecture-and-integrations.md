@@ -14,8 +14,10 @@ data into application-owned canonical inputs:
 
 1. An observation adapter supplies observations, stable identities, and
    memberships.
-2. A model-authoring adapter supplies a supported model schema, source bindings,
-   relationships, and parameter mapping.
+2. A model-authoring adapter supplies a strict internal declared analytic model
+   plus separate source bindings. The declaration owns supported elements,
+   bounded domains, relationships, parameter mapping, policy, and a canonical
+   content identity.
 3. A small manifest maps observation groups to model elements; some explicit
    mapping remains unavoidable.
 4. The local solver consumes the canonical model, canonical observations,
@@ -61,10 +63,15 @@ product support.
 The nominal flow includes no assembly, native constraint, blend, publication
 executor, durable schema/format, or support commitment.
 
-The canonical model, mapping, audit, and result control records are expected to
-be JSON-compatible, but their schemas and versioning rules are **open**. Large
-numeric observations need not be JSON-embedded: control records may reference
-immutable content-hashed bulk artifacts. No durable bulk format is selected.
+The provisional internal
+[declared analytic model contract](planning/declared-analytic-model-contract.md)
+now fixes the semantics and content identity needed by the synthetic fixed-pose
+implementation sequence. It does not settle a public authoring schema, durable
+`model.json`, compatibility policy, or adapter protocol. Durable schemas and
+versioning rules for model, mapping, audit, and result control records remain
+**open**. Large numeric observations need not be JSON-embedded: control records
+may reference immutable content-hashed bulk artifacts. No durable bulk format is
+selected.
 
 Scansor owns canonical identities. Source/platform IDs and topology references
 are revision-scoped bindings and provenance. Source snapshots, user-confirmed
