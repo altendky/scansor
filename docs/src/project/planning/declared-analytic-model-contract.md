@@ -2,9 +2,11 @@
 
 ## Status
 
-**Provisional internal semantic design, snapshot dated 2026-09-08.** This page
-defines the application-owned meaning required for the declared analytic-model
-sequence. It is documentation-first design, not an implemented capability, a
+**Provisional internal semantic design and declaration-record implementation,
+snapshot dated 2026-09-08.** This page defines the application-owned meaning
+required for the declared analytic-model sequence. The immutable Python records,
+validation, canonical identity, and stepped-model declarations are implemented;
+mapping, factors, preflight, and execution do not consume them yet. This is not a
 public schema, a durable `model.json` format, or a compatibility promise.
 
 The initial declaration vocabulary covers oriented planes and cylinders sharing
@@ -32,6 +34,13 @@ correspondence inference, pose discovery, and joint pose-and-shape fitting are
 absent. Authoring, declaration validation, primitive evaluation, mapping, factor
 construction, active-factor selection, preflight, execution, replay, held-out
 assessment, future acceptance, and publication remain distinct concerns.
+
+The implementation is in `src/scansor/model_declarations.py`, with the two
+existing stepped variants encoded by
+`src/scansor/stepped_model_declarations.py`. These are application-owned internal
+records, not a new CLI or persisted public authoring format. Existing
+`stepped-rotational-v0` mapping, factor, and execution behavior remains unchanged
+and continues to use its fixed-topology records until later sequence items.
 
 ## Terms
 
@@ -222,8 +231,13 @@ This revision supports closed conjunctions of these predicate kinds:
   finite unit direction `u`
 - **oriented half-space trim:** `n dot q <= h` or `n dot q >= h`
 
-Every endpoint, anchor coordinate, or offset is an explicit scalar reference.
-Lower endpoints must not exceed upper endpoints. A radial lower endpoint is
+Every endpoint, anchor coordinate, or offset is an explicit scalar reference. A
+directed-interval endpoint carries an exact sign of `+1` or `-1` applied to that
+reference. This narrow endpoint representation permits a symmetric interval such
+as the datum flat's `[-half_width, +half_width]` when `half_width` is a derived
+right-triangle relationship; it is not a general scalar expression or a new
+relationship kind. Lower endpoints must not exceed upper endpoints. A radial
+lower endpoint is
 nonnegative. Predicate direction and inclusivity are explicit. Cylinder axial
 limits, annular plane limits, longitudinal-plane extents, and the stepped
 model's `x <= datum_x` trims are therefore declaration content rather than
