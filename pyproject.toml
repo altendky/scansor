@@ -31,6 +31,10 @@ build-backend = "uv_build"
 addopts = "-ra"
 testpaths = ["tests"]
 
+[tool.coverage.run]
+# Line-only fixture coverage; see the tooling documentation's issue #24 evidence.
+core = "sysmon"
+
 [tool.ruff]
 line-length = 88
 target-version = "py312"
