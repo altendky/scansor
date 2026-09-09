@@ -30,17 +30,21 @@ outside the intended boundary.
 - [Declared analytic model contract](planning/declared-analytic-model-contract.md)
   - **Provisional:** implemented internal declaration records and shared analytic
   evaluator for declared planes, coaxial cylinders, bounded domains, shape
-  residuals, and derivatives, now consumed by internal mapping; no public schema,
-  compatibility, or product-support claim
+  residuals, and derivatives, now consumed by internal mapping and fixed-pose
+  factor/preflight paths; no public schema, compatibility, or product-support claim
 - [Declared analytic model observation mapping](planning/declared-analytic-model-observation-mapping.md)
   - **Provisional:** implemented compatibility-free, model-bound synthetic-only
   mapping using declared elements, evaluator geometry/Jacobians, declaration-owned
   admission policy, and read-only replay
+- [Declared analytic model factor and preflight](planning/declared-analytic-model-factor-preflight.md)
+  - **Provisional:** implemented compatibility-free, model-bound fixed-pose
+  factor construction, explicit activation, shared-evaluator residuals and
+  Jacobians, and declaration-owned optimizer-independent preflight
 - [Stepped rotational v0 observation mapping](planning/stepped-rotational-v0-observation-mapping.md)
   - **Superseded snapshot:** original stepped-only observation/mapping contract
 - [Stepped rotational v0 factor contract](planning/stepped-rotational-v0-factor-contract.md)
-  - **Provisional:** application-owned declarations, explicit activation, pure
-  analytic evaluation, and optimizer-independent preflight; no fit or factor CLI
+  - **Superseded snapshot:** original stepped factor/preflight contract retained
+  for the legacy execution and pose-correction path
 - [Stepped rotational v0 execution and result contract](planning/stepped-rotational-v0-execution-result.md)
   - **Provisional:** solver-independent guarded execution, deterministic replay,
   and separate held-out assessment; no acceptance policy or CLI

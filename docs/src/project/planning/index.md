@@ -31,12 +31,15 @@ product boundaries and research findings remain authoritative in the parent
 - [Declared analytic model observation mapping](declared-analytic-model-observation-mapping.md)
   - provisional compatibility-free, model-bound synthetic-only successor using
     declared elements, shared evaluator calls, and declaration-owned admission
+- [Declared analytic model factor and preflight](declared-analytic-model-factor-preflight.md)
+  - provisional compatibility-free, model-bound fixed-pose successor using
+    explicit activation, shared evaluator calls, and declaration-owned support,
+    coverage, structural-validity, and rank policy
 - [Stepped rotational v0 observation mapping](stepped-rotational-v0-observation-mapping.md)
   - superseded stepped-only mapping snapshot retained as historical context
 - [Stepped rotational v0 factor contract](stepped-rotational-v0-factor-contract.md)
-  - provisional application-owned factor declarations, explicit activation,
-  analytic shape/pose evaluation, and deterministic preflight; no joint solver,
-  fit result, publication format, or CLI command
+  - superseded fixed-topology factor/preflight snapshot retained for the legacy
+    execution and pose-correction path pending its separately sequenced migration
 - [Stepped rotational v0 execution and result contract](stepped-rotational-v0-execution-result.md)
   - provisional solver-independent execution, strict result/replay semantics,
   and separately invoked held-out assessment; no acceptance policy or CLI command

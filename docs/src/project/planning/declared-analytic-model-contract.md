@@ -6,9 +6,10 @@
 analytic evaluator implementation, snapshot dated 2026-09-08.** This page defines
 the application-owned meaning required for the declared analytic-model sequence.
 The immutable Python records, validation, canonical identity, stepped-model
-declarations, and shared plane/cylinder evaluator are implemented; mapping,
-factors, preflight, and execution do not consume them yet. This is not a public
-schema, a durable `model.json` format, or a compatibility promise.
+declarations, shared plane/cylinder evaluator, mapping, factor construction,
+explicit activation, and optimizer-independent preflight are implemented;
+execution does not consume the successor factor records yet. This is not a
+public schema, a durable `model.json` format, or a compatibility promise.
 
 The initial declaration vocabulary covers oriented planes and cylinders sharing
 one declared axis, each with an explicit bounded support domain. The vocabulary
@@ -36,12 +37,14 @@ absent. Authoring, declaration validation, primitive evaluation, mapping, factor
 construction, active-factor selection, preflight, execution, replay, held-out
 assessment, future acceptance, and publication remain distinct concerns.
 
-The implementation is in `src/scansor/model_declarations.py`, with the two
-existing stepped variants encoded by
-`src/scansor/stepped_model_declarations.py`. These are application-owned internal
-records, not a new CLI or persisted public authoring format. Existing
-`stepped-rotational-v0` mapping, factor, and execution behavior remains unchanged
-and continues to use its fixed-topology records until later sequence items.
+The declaration implementation is in `src/scansor/model_declarations.py`, with
+the two existing stepped variants encoded by
+`src/scansor/stepped_model_declarations.py`. The model-bound factor records and
+pure operations are in `src/scansor/declared_factor_models.py` and
+`src/scansor/declared_factors.py`. These are application-owned internal records,
+not a new CLI or persisted public authoring format. The legacy
+`stepped-rotational-v0` factor, pose-correction, and execution path remains
+unchanged until the separately sequenced execution migration.
 
 The pure evaluator is in `src/scansor/geometry_evaluator.py`. Its boundaries take
 the complete identity-bearing model declaration, an exact declared element ID, a
