@@ -2,7 +2,7 @@
 
 ## Status
 
-**Provisional, updated 2026-08-08.** The internal CLI fixture now has locked mise
+**Provisional, updated 2026-09-09.** The internal CLI fixture now has locked mise
 and uv bootstrap, repository checks, terminal-only coverage, and baseline GitHub
 Actions CI. Dependency updating, distribution packaging, and release machinery
 remain absent. This bounded repository fixture does not select a production
@@ -162,11 +162,112 @@ pre-commit, and Python workflows:
 - basedpyright replaces Hamster's mypy choice
 - Python `3.12.13` reports package coverage to the terminal only, without a
   threshold, upload, retained artifact, or support claim
+- line coverage uses the `sysmon` core; both test jobs report the 30 slowest
+  test phases for duration diagnosis
 
 Do not import Home Assistant validation, release, deployment, recovery, generated
 matrix, or other project-specific workflows before Scansor has corresponding
 requirements. Experiment execution, releases, deployment, and cross-platform
 jobs remain outside this baseline.
+
+### CI Duration Investigation
+
+**Research finding, 2026-09-09, [issue #24][ci-duration-issue].** The original
+matrix compared Python 3.12 with coverage against Python 3.13 without coverage.
+Successful hosted job durations were:
+
+| Sample | Tests per interpreter | 3.12 with coverage | 3.13 plain |
+| --- | ---: | ---: | ---: |
+| [PR #21 main][ci-duration-21-main] | 488 | 10m01s | 3m05s |
+| [PR #22 final PR][ci-duration-22-pr] | 561 | 21m09s | 4m17s |
+| [PR #22 main][ci-duration-22-main] | 561 | 20m42s | 2m55s |
+| [Documentation-only PR #25][ci-duration-25-pr] | 561 | 21m23s | 2m31s |
+| [PR #25 main][ci-duration-25-main] | 561 | 21m14s | 4m06s |
+
+The PR #22 main test steps consumed 20m29s and 2m41s respectively, so setup did
+not dominate the difference. Compared with PR #21 main, pytest's 3.12 duration
+increased from 586.53s to 1227.94s. Coarse progress timestamps attribute about
+603s to two newly added modules, `test_declared_generated_pipeline.py` and
+`test_declared_workflow_boundaries.py`, approximately 94% of that increase.
+These estimates include buffering and are not individual-test measurements.
+The workflow, interpreter pins, dependency declarations, and lockfiles were
+identical across these revisions. PR #25 changed documentation only.
+
+Equivalent full-suite measurements used unchanged commit
+`8b97b82b10b977eaaa2ad8d6be20334c2e0799ca`, separate uv project environments,
+mise's exact interpreters, and locked dependencies on one Linux x86-64
+Intel Core i9-9880H host. Runs were sequential in the order below, with
+`--durations=30`, JUnit timings, and separate coverage data files. All five
+passed 561 tests with no skips. Values below are pytest-reported seconds,
+excluding dependency setup; they are local observations, not hosted forecasts.
+
+| Python | Measurement | Pytest seconds |
+| --- | --- | ---: |
+| 3.12.13 | Plain | 686.23 |
+| 3.12.13 | Coverage, default `ctrace` | 2599.38 |
+| 3.13.15 | Plain | 623.12 |
+| 3.13.15 | Coverage, default `ctrace` | 737.52 |
+| 3.12.13 | Coverage, requested `sysmon` | 750.09 |
+
+Both environments used coverage 7.15.4, pytest-cov 7.1.0, pytest 9.1.1, NumPy
+2.5.1, Pydantic 2.13.4, and pydantic-core 2.46.4. Coverage core diagnostics
+confirmed `ctrace` for both defaults and `sysmon` for the candidate, without
+fallback. Summed JUnit test durations for the two new modules were 991.13s and
+255.26s under 3.12 `ctrace`, versus 113.97s and 41.85s under 3.12 `sysmon`.
+The slowest individual test was the asymmetric stepped complete generated
+workflow: 332.82s with `ctrace`, versus 35.39s with `sysmon`.
+
+The dominant measured cost is the interaction of coverage tracing with Python
+3.12 on repeated workflow work. The penalty was much smaller with 3.13's
+`ctrace`, and switching only the 3.12 core reduced full-suite time by about 71%.
+The lower-level interpreter/dependency mechanism was not profiled. These are
+single, fixed-order local samples on a shared host; cache warmth and load limit
+precise speed claims. Hosted variance is visible in the unchanged-workload
+samples but does not explain away the reproducible 3.12 coverage cost.
+
+The selected correction is `[tool.coverage.run] core = "sysmon"`. The 3.12
+default and candidate JSON reports had identical file sets and per-file
+executed, missing, and excluded line sets: 46 files, 8231 statements, 7365
+covered lines, 866 missing lines, and 20 excluded lines. This validates the
+current fixture's collection equivalence, not every possible coverage feature.
+[Coverage's core documentation][coverage-core] supports `sysmon` line coverage
+on Python 3.12+. On 3.12/3.13 it cannot measure branches; dynamic contexts,
+file-tracer plugins, and some concurrency libraries are also unsupported.
+Reassess core selection if those features are introduced. Coverage remains
+line-only over the existing process scope, without a percentage threshold or
+expanded fixture/product support claim.
+
+For focused follow-up measurements, select identical tests and run sequentially
+with the same interpreter and lock. For example, after dependency sync:
+
+```console
+scratch=$(mktemp -d)
+uv run --locked --python 3.12.13 pytest \
+  tests/test_declared_generated_pipeline.py --durations=30
+COVERAGE_CORE=ctrace COVERAGE_FILE="$scratch/ctrace.coverage" \
+  uv run --locked --python 3.12.13 pytest \
+  tests/test_declared_generated_pipeline.py \
+  --cov=scansor --cov-report=term-missing --durations=30
+COVERAGE_CORE=sysmon COVERAGE_FILE="$scratch/sysmon.coverage" \
+  uv run --locked --python 3.12.13 pytest \
+  tests/test_declared_generated_pipeline.py \
+  --cov=scansor --cov-report=term-missing --durations=30
+```
+
+Use fresh scratch paths for each comparison. Separate `UV_PROJECT_ENVIRONMENT`
+paths avoid replacing the development environment when comparing interpreters.
+Add `COVERAGE_DEBUG=core` and `COVERAGE_DEBUG_FILE=<scratch-path>` to confirm the
+actual core. Export each data file with `coverage json` through the matching
+uv environment and compare per-file line sets, not only rounded percentages.
+The environment override is diagnostic; ordinary CI uses the TOML setting.
+
+Post-change hosted timings and validation are recorded on [issue #24][ci-duration-issue].
+Revisit if the 3.12 coverage test step exceeds eight minutes in two consecutive
+successful runs with this 561-test workload, or if coverage emits a core-fallback
+warning. This is an investigation signal, not a failing timing gate. Use the
+slow-test output to localize any increase and repeat a focused equivalent pair;
+record a new reference workload and threshold when tests, dependencies, or
+runner configuration materially change.
 
 ## Dependency Updating
 
@@ -223,6 +324,13 @@ Completing these checks would validate a repository configuration, not an
 implementation, supported release process, or production deployment model.
 
 [hypothesis]: https://hypothesis.readthedocs.io/en/latest/
+[ci-duration-issue]: https://github.com/altendky/scansor/issues/24
+[ci-duration-21-main]: https://github.com/altendky/scansor/actions/runs/34308955915
+[ci-duration-22-pr]: https://github.com/altendky/scansor/actions/runs/34346662841
+[ci-duration-22-main]: https://github.com/altendky/scansor/actions/runs/34347229728
+[ci-duration-25-pr]: https://github.com/altendky/scansor/actions/runs/34353763738
+[ci-duration-25-main]: https://github.com/altendky/scansor/actions/runs/34354416165
+[coverage-core]: https://coverage.readthedocs.io/en/7.15.4/config.html#config-run-core
 [hamster-ci]: https://github.com/altendky/hamster-mcp/blob/f51614a751655cb7c9b791897ba1aca4b427c923/.github/workflows/ci.yml#L1-L32
 [hamster-markdownlint]: https://github.com/altendky/hamster-mcp/blob/f51614a751655cb7c9b791897ba1aca4b427c923/.markdownlint-cli2.yaml#L1-L24
 [hamster-python-ci]: https://github.com/altendky/hamster-mcp/blob/f51614a751655cb7c9b791897ba1aca4b427c923/.github/workflows/reflow-python.yml#L1-L43

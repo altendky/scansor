@@ -58,8 +58,8 @@ jobs:
 
       - name: Run tests
         if: ${{ !matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --durations=30
 
       - name: Run tests with terminal coverage
         if: ${{ matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --cov=scansor --cov-report=term-missing
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --cov=scansor --cov-report=term-missing --durations=30
