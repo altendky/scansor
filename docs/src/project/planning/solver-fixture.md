@@ -11,10 +11,19 @@ mathematical execution gate for exactly all `15` frozen scenarios, including the
 remaining adverse cases described below. Scenario execution passing means the
 expected measured path occurred; individual synthetic-fixture dispositions still
 include passed, review-required, failed, and unclassified. Nominal end-to-end
-generated-experiment reconciliation is now observed; reusable implementation,
-robust-loss selection, and challenger evidence remain open.
+generated-experiment reconciliation is now observed; robust-loss selection and
+challenger evidence remain open.
 `scipy.optimize.least_squares` remains only the provisional first runner; the
 contract and challenger evidence remain solver-neutral.
+
+**Separate implementation status, updated 2026-09-09.** The
+[declared analytic model workflow](declared-analytic-model-generated-workflow.md)
+now provides a provisional internal, synthetic-only, fixed-pose implementation
+shared by the asymmetric stepped comparator and coaxial tube, using bounded NumPy
+execution. Observation-to-model pose is declared input; only supported shape
+parameters are fitted. This is separate application implementation evidence; it
+does not broaden the frozen Python/SciPy runner evidence below or establish a
+product solver, production stack, supported integration, or public interface.
 
 ## Observed Bounded Gate
 

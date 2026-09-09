@@ -91,10 +91,15 @@ needed to judge held-out results.
 This is a narrow experiment choice, not a production stack decision. It does not
 select the eventual production language or solver, decide whether production
 should use Ceres, or claim that SciPy satisfies the complete product contract.
-An [experiment-local evidence runner](planning/solver-fixture.md) now exists for
-the frozen generated scenarios, but no reusable Scansor solver implementation,
-product solver, or supported integration exists. The internal inspection/replay
-CLI fixture has no fitting path. See the [binding research
+The [experiment-local evidence runner](planning/solver-fixture.md) covers the
+frozen generated scenarios. The earlier internal inspection/replay CLI fixture
+has no fitting path. A separate
+[declared analytic model workflow](planning/declared-analytic-model-generated-workflow.md)
+now provides a provisional internal, synthetic-only, fixed-pose implementation
+shared by the asymmetric stepped comparator and coaxial tube, using bounded NumPy
+execution. Observation-to-model pose is declared input; only supported shape
+parameters are fitted. This does not establish a product solver, supported
+integration, or public interface. See the [binding research
 finding](ceres-python-rust-bindings.md).
 
 ### Use a focused Python foundation for the prototype
