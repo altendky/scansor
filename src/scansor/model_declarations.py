@@ -810,3 +810,16 @@ def validate_runtime_parameter_vector(
         return _validate_vector(declaration, values, check_bounds=True)
     except (KeyError, TypeError, ValueError) as error:
         raise ScansorError(f"invalid runtime parameter vector: {error}") from error
+
+
+def validate_runtime_parameter_structure(
+    declaration: ModelDeclaration,
+    values: tuple[float, ...],
+) -> tuple[tuple[str, float], ...]:
+    """Validate runtime structure independently of inclusive parameter bounds."""
+
+    declaration = revalidate_model_declaration(declaration)
+    try:
+        return _validate_vector(declaration, values, check_bounds=False)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ScansorError(f"invalid runtime parameter structure: {error}") from error

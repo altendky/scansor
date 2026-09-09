@@ -211,11 +211,12 @@ model-dependent mapping, factor, preflight, execution, replay, and verification
 successor. The initial declaration-driven problem is fixed-pose shape and admits
 only replay-verified project-generated synthetic observations.
 
-This is a provisional semantic contract, not an implemented feature, public or
+This is a provisional semantic contract with bounded declaration, evaluator,
+mapping, factor, and preflight implementation evidence. It is not a public or
 durable `model.json`, compatibility promise, general constraint language,
-automatic topology/correspondence/pose inference, or product-support claim.
-Compatibility-free model-bound successors may replace stepped-model-specific
-experimental formats. See the
+automatic topology/correspondence/pose inference, physical-validation result, or
+product-support claim. Compatibility-free model-bound successors may replace
+stepped-model-specific experimental formats. See the
 [declared analytic model contract](planning/declared-analytic-model-contract.md).
 
 ### Use a bounded Python support layer for the prototype
