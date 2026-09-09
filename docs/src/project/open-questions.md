@@ -2,17 +2,21 @@
 
 ## Status
 
-**Open with observed evidence dated 2026-07-30.** The internal provisional
-generated-observation contract, offline generated-data repeatability, public v2
+**Open with frozen observed evidence dated 2026-07-30 and implementation snapshot
+dated 2026-09-09.** The internal provisional generated-observation contract,
+offline generated-data repeatability, public v2
 fixture, CAD cross-run reproducibility, and bounded evaluator/solver gate for all
 `15` frozen scenarios are [observed](experiments/generated-onshape-fixture.md).
 The gate verifies each expected execution path; assigned dispositions include
 pass, review, and fail, while fixed outliers remain unclassified without an
 approved robustness policy. The bounded nominal generated-experiment
-reconciliation is now observed; broader adapters, external-source probes,
-additional combined adverse evidence, and physical experiments remain open.
-Results should update the architecture and decisions rather than be inferred in
-advance.
+reconciliation is now observed. Separately, shared application code and bounded
+executable coverage now span one asymmetric stepped generated fixture and one
+coaxial tube generated fixture. That two-topology evidence does not alter the
+frozen experiments. Fixture-registry ownership, broader declaration authoring,
+arbitrary-domain sampling, broader adapters, external-source probes, additional
+combined adverse evidence, and physical experiments remain open. Results should
+update the architecture and decisions rather than be inferred in advance.
 
 ## Immediate Planning Decisions
 
@@ -20,6 +24,12 @@ advance.
   generated-fixture evidence record specify?
 - Which additional combined or non-finite adverse cases, if any, are justified
   after the isolated frozen scenarios passed their bounded gate?
+- How should a future fixture registry and project-owned sampling definitions be
+  owned and versioned beyond the current closed two-fixture selection?
+- What authoring boundary should bind broader declarations to reproducible sampling
+  definitions rather than admit a declaration on schema validity alone?
+- Which arbitrary-domain sampling cases and adversarial combined conditions are
+  needed before drawing conclusions beyond the two nominal constructed families?
 - Should later CAD fixtures retain the frozen `stepped-rotational-v1` contract's
   fixture-local `1e-9 m` and `1e-9 rad` comparison tolerances or preregister
   different fixture-local values?
@@ -87,6 +97,24 @@ additional combined adverse cases are justified and author non-normative generat
 examples. This evidence supports constructed-scenario correctness only, not
 physical accuracy.
 
+### Shared two-topology generated workflow
+
+The provisional
+[declared generated workflow](planning/declared-analytic-model-generated-workflow.md)
+implements one declaration-driven application path for the asymmetric stepped
+comparator and coaxial tube. Its executable coverage spans exact generation,
+inspection, mapping, factors, preflight, bounded execution, held-out assessment,
+publication, raw truth comparison, and read-only verification. It also exercises
+cross-model substitution, renamed/reordered fixtures, a nonidentity known pose,
+held-out-only noise changes, and publication or artifact tampering.
+
+This is bounded architecture evidence for two nominal project-owned families. It
+does not show that arbitrary valid bounded domains can be sampled, settle registry
+ownership or sampling-definition versioning, define a broader declaration
+authoring workflow, or cover adversarial combined conditions. It makes no
+physical, acceptance, CAD, public-format, or product claim. The earlier frozen
+solver and CAD experiments remain unchanged.
+
 ### Later external observation probes
 
 After nominal generated end-to-end success and Track 2 Phase B, test CloudCompare
@@ -150,6 +178,14 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
 
 ## Product and Technical Questions
 
+- What registry and versioning model should identify project-owned generated
+  fixtures and bind their declarations to exact sampling definitions?
+- Which sampling vocabulary can cover arbitrary declared bounded domains while
+  preserving guards, deterministic row identity and order, training/held-out
+  isolation, and explicit evidence for empty or degenerate domains?
+- Which combined adversarial cases should challenge the shared two-topology path,
+  including simultaneous uneven coverage, boundary-near points, mapping ambiguity,
+  active bounds, model mismatch, and structured held-out perturbations?
 - Which evidence would justify promoting or replacing the internal
   `stepped-rotational-v0` synthetic mapping thresholds, region coverage minima,
   and shape-incidence rank policy? They are not public defaults or Track 5 CAD

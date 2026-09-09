@@ -30,6 +30,7 @@ from scansor.factor_models import (
 )
 from scansor.mapping_models import MappingResult
 from scansor.serialization import canonical_json, sha256
+from scansor.synthetic_fixture import require_stepped_variant
 
 ELEMENTS: tuple[ElementId, ...] = (
     "cylinder.band-1",
@@ -67,6 +68,7 @@ def instantiate_factors(mapping: MappingResult) -> InstantiatedFactorSet:
     mapping = _revalidated(MappingResult, mapping, "mapping result")
     if mapping.disposition != "accepted":
         raise ScansorError("rejected source mapping cannot instantiate factors")
+    variant = require_stepped_variant(mapping.request)
     contract = factor_contract()
     observations = {item.observation_id: item for item in mapping.observations}
     candidates = {item.candidate_id: item for item in mapping.candidates}
@@ -83,7 +85,7 @@ def instantiate_factors(mapping: MappingResult) -> InstantiatedFactorSet:
                     }
                     for item in mapping.observations
                 ],
-                "variant": mapping.request.variant,
+                "variant": variant,
             }
         )
     )
@@ -119,7 +121,7 @@ def instantiate_factors(mapping: MappingResult) -> InstantiatedFactorSet:
                 "mapping_run_id": mapping.mapping_run_id,
                 "observation_id": mapped.observation_id,
                 "row_index": observation.row_index,
-                "variant": mapping.request.variant,
+                "variant": variant,
             },
         )
         factor = _identified(
@@ -138,7 +140,7 @@ def instantiate_factors(mapping: MappingResult) -> InstantiatedFactorSet:
         "declarations": tuple(declarations),
         "factors": tuple(factors),
         "mapping_run_id": mapping.mapping_run_id,
-        "variant": mapping.request.variant,
+        "variant": variant,
     }
     return _identified(InstantiatedFactorSet, "factor-set", "factor_set_id", values)
 

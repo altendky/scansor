@@ -5,17 +5,19 @@ from typing import ClassVar, Literal
 import numpy as np
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from scansor.declared_generation_models import DeclaredGeneratedFixtureProvenance
 from scansor.errors import ScansorError
 from scansor.geometry_evaluator import (
     DeclaredGeometryEvaluator,
 )
 from scansor.model_declarations import ModelDeclaration, revalidate_model_declaration
 from scansor.models import StrictModel
+from scansor.rigid_transform import RigidTransform as RigidTransform
 from scansor.serialization import canonical_json, sha256
 
-MAPPING_FORMAT = "scansor-declared-analytic-model-mapping-v1"
-MAPPING_MANIFEST_FORMAT = "scansor-declared-analytic-model-mapping-manifest-v1"
-MAPPING_CONTRACT = "declared-analytic-fixed-pose-mapping-v1"
+MAPPING_FORMAT = "scansor-declared-analytic-model-mapping-v2"
+MAPPING_MANIFEST_FORMAT = "scansor-declared-analytic-model-mapping-manifest-v2"
+MAPPING_CONTRACT = "declared-analytic-fixed-pose-mapping-v2"
 MAPPING_STATUS = (
     "internal/provisional/synthetic-only/compatibility-free/non-public-contract"
 )
@@ -88,7 +90,11 @@ class GeneratedSyntheticFixtureProvenance(MappingStrictModel):
         return self
 
 
-FixtureProvenance = SyntheticFixtureProvenance | GeneratedSyntheticFixtureProvenance
+FixtureProvenance = (
+    SyntheticFixtureProvenance
+    | GeneratedSyntheticFixtureProvenance
+    | DeclaredGeneratedFixtureProvenance
+)
 
 
 class InputRevision(MappingStrictModel):
@@ -105,36 +111,10 @@ class InputRevision(MappingStrictModel):
         if self.synthetic_fixture.canonical_sha256 != self.canonical_sha256:
             raise ValueError("synthetic fixture and input canonical hashes differ")
         if (
-            self.synthetic_fixture.revision == "2"
+            self.synthetic_fixture.revision != "1"
             and len(self.synthetic_fixture.rows) != self.canonical_row_count
         ):
             raise ValueError("generated fixture rows disagree with canonical row count")
-        return self
-
-
-class RigidTransform(MappingStrictModel):
-    direction: Literal["observation-to-model"] = "observation-to-model"
-    rotation: tuple[
-        tuple[float, float, float],
-        tuple[float, float, float],
-        tuple[float, float, float],
-    ]
-    scale: float = 1.0
-    translation_m: tuple[float, float, float]
-
-    @field_validator("rotation", "translation_m", mode="before")
-    @classmethod
-    def restore_vectors(cls, value: object) -> object:
-        if isinstance(value, list):
-            return tuple(
-                tuple(item) if isinstance(item, list) else item for item in value
-            )
-        return value
-
-    @model_validator(mode="after")
-    def validate_scale(self) -> RigidTransform:
-        if self.scale != 1.0:
-            raise ValueError("rigid transform scale must be exactly 1")
         return self
 
 
@@ -146,13 +126,12 @@ class MappingThresholds(MappingStrictModel):
 
 
 class MappingRequest(MappingStrictModel):
-    contract: Literal["declared-analytic-fixed-pose-mapping-v1"] = MAPPING_CONTRACT
+    contract: Literal["declared-analytic-fixed-pose-mapping-v2"] = MAPPING_CONTRACT
     declaration: ModelDeclaration
     held_out_row_indices: tuple[int, ...] = ()
     input_revision: InputRevision
     thresholds: MappingThresholds = Field(default_factory=MappingThresholds)
     transform: RigidTransform
-    variant: Literal["axisymmetric", "asymmetric-datum-flat"]
 
     @field_validator("held_out_row_indices", mode="before")
     @classmethod
@@ -170,8 +149,19 @@ class MappingRequest(MappingStrictModel):
             raise ValueError("held-out row index is outside the canonical revision")
         if len(rows) >= self.input_revision.canonical_row_count:
             raise ValueError("at least one training row is required")
-        if self.input_revision.synthetic_fixture.variant != self.variant:
-            raise ValueError("synthetic fixture and mapping variants differ")
+        provenance = self.input_revision.synthetic_fixture
+        if isinstance(provenance, DeclaredGeneratedFixtureProvenance):
+            generated = provenance.generation.request
+            if (
+                generated.declaration != self.declaration
+                or generated.model_id != self.declaration.model_id
+                or canonical_json(generated.transform) != canonical_json(self.transform)
+                or generated.source_frame != self.input_revision.observation_frame
+                or provenance.held_out_row_indices != rows
+            ):
+                raise ValueError(
+                    "generation and mapping model, pose, frame, or held-out binding differs"
+                )
         try:
             revalidated = revalidate_model_declaration(self.declaration)
         except ScansorError as error:
@@ -401,7 +391,7 @@ class MappingResult(MappingStrictModel):
     disposition: Literal["accepted", "rejected"]
     exclusions: tuple[ExclusionRecord, ...]
     fit_result: None = None
-    format: Literal["scansor-declared-analytic-model-mapping-v1"] = MAPPING_FORMAT
+    format: Literal["scansor-declared-analytic-model-mapping-v2"] = MAPPING_FORMAT
     format_status: Literal[
         "internal/provisional/synthetic-only/compatibility-free/non-public-contract"
     ] = MAPPING_STATUS
@@ -653,7 +643,7 @@ class MappingManifest(MappingStrictModel):
     artifacts: dict[Literal["mapping.json"], ArtifactRecord]
     declaration: ModelDeclaration
     external_input: InputRevision
-    format: Literal["scansor-declared-analytic-model-mapping-manifest-v1"] = (
+    format: Literal["scansor-declared-analytic-model-mapping-manifest-v2"] = (
         MAPPING_MANIFEST_FORMAT
     )
     format_status: Literal[

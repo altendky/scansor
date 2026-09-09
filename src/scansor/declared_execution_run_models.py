@@ -97,8 +97,8 @@ class InspectionRunReference(ExecutionRunStrictModel):
 
 
 class MappingRunReference(ExecutionRunStrictModel):
-    format: Literal["scansor-declared-analytic-model-mapping-v1"]
-    manifest_format: Literal["scansor-declared-analytic-model-mapping-manifest-v1"]
+    format: Literal["scansor-declared-analytic-model-mapping-v2"]
+    manifest_format: Literal["scansor-declared-analytic-model-mapping-manifest-v2"]
     manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     mapping_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     model_id: str = Field(pattern=r"^model\.[0-9a-f]{64}$")

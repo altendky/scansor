@@ -17,7 +17,6 @@ from scansor.files import (
     rename_no_replace,
     write_new_file,
 )
-from scansor.generation_models import GenerationRequest
 from scansor.mapping_models import (
     ArtifactRecord,
     MappingManifest,
@@ -25,14 +24,9 @@ from scansor.mapping_models import (
     MappingResult,
 )
 from scansor.observation_mapping import MAX_MAPPING_ROWS, build_mapping
-from scansor.ply import canonical_npy, parse_ply
 from scansor.runs import verify_run_artifacts_fd
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
-from scansor.stepped_rotational_generation import (
-    generated_fixture_provenance,
-    prepare_generation,
-)
-from scansor.synthetic_fixture import FIXTURE_FRAME, prepare_synthetic_fixture
+from scansor.synthetic_fixture_replay import replay_fixture
 
 MAPPING_RUN_FILES = frozenset({"manifest.json", "manifest.sha256", "mapping.json"})
 MAX_MAPPING_BYTES = 32 * 1024 * 1024
@@ -436,33 +430,12 @@ def _validate_inspection_revision(
         )
     revision = request.input_revision
     provenance = revision.synthetic_fixture
-    if provenance.revision == "1":
-        fixture = prepare_synthetic_fixture(request.variant)
-        expected_provenance = fixture.provenance
-        expected_canonical = fixture.canonical
-        expected_held_out = fixture.held_out_row_indices
-        expected_source = fixture.source
-    else:
-        generated = prepare_generation(
-            GenerationRequest(
-                noise_sigma_m=provenance.noise_sigma_m,
-                sampling_profile=provenance.sampling_profile,
-                seed=provenance.seed,
-                variant=provenance.variant,
-            )
-        )
-        parsed = parse_ply(generated.source, "m", 65_536, len(provenance.rows))
-        expected_canonical = canonical_npy(parsed.canonical)
-        expected_provenance = generated_fixture_provenance(
-            generated, sha256(expected_canonical)
-        )
-        expected_held_out = generated.provenance.held_out_row_indices
-        expected_source = generated.source
+    expected = replay_fixture(provenance)
     inspection, canonical = verify_run_artifacts_fd(
         inspection_fd,
         inspection_run,
         None,
-        replay_raw=expected_source if provenance.revision == "2" else None,
+        replay_raw=expected.inspection_replay_raw,
     )
     report_bytes = canonical_json(inspection)
     if (
@@ -474,13 +447,13 @@ def _validate_inspection_revision(
     ):
         raise ScansorError("mapping input revision does not match the inspection run")
     if (
-        provenance != expected_provenance
-        or canonical != expected_canonical
-        or request.held_out_row_indices != expected_held_out
+        provenance != expected.provenance
+        or canonical != expected.canonical
+        or request.held_out_row_indices != expected.held_out_row_indices
         or inspection.source.sha256 != provenance.source_sha256
-        or inspection.source.byte_count != len(expected_source)
+        or inspection.source.byte_count != len(expected.source)
         or inspection.source.unit != "m"
-        or inspection.source.frame != FIXTURE_FRAME
+        or inspection.source.frame != expected.frame
         or inspection.inspection.coordinate_source_dtype != "float64"
         or inspection.inspection.fields != ["x", "y", "z"]
         or inspection.inspection.rgb_preserved

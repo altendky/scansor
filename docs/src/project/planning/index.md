@@ -2,7 +2,7 @@
 
 ## Status
 
-**Provisional, snapshot dated 2026-07-30.** This program organizes the first
+**Provisional, snapshot dated 2026-09-09.** This program organizes the first
 evidence-generating work. Its governing invariant is deterministic generator
 truth, generated observations, and a disposable generated Onshape fixture pair
 first; external-source and physical validation follow only after a nominal
@@ -20,14 +20,22 @@ nominal generated-experiment reconciliation now passes a separate read-only gate
 the verified `noiseless-fixed-pose` estimate was frozen before CAD access and
 matched both independently replayed CAD runs within the existing tolerances, with
 no CAD influence on fitting or held-out evaluation. Any additional combined
-adverse evidence and reusable implementation remain pending. The program
-does not implement
-Scansor, validate an integration, or establish a production stack. Current
-product boundaries and research findings remain authoritative in the parent
-[project documentation](../index.md).
+adverse evidence remains pending. Separately, the internal application now has a
+shared declaration-driven generated workflow for one asymmetric stepped fixture
+and one coaxial tube fixture, with bounded executable coverage from generation
+through read-only verification. That two-topology implementation evidence does
+not alter the frozen experiments, establish arbitrary sampling, validate an
+integration, implement Scansor as a product, or establish a production stack.
+Current product boundaries and research findings remain authoritative in the
+parent [project documentation](../index.md).
 
 ## Tracks
 
+- [Declared analytic model generated workflow](declared-analytic-model-generated-workflow.md)
+  - provisional shared synthetic generation, mapping, fixed-pose execution,
+    held-out assessment, publication, and read-only verification for the
+    asymmetric stepped comparator and coaxial tube; no arbitrary sampling,
+    physical, public-format, acceptance, or product claim
 - [Declared analytic model observation mapping](declared-analytic-model-observation-mapping.md)
   - provisional compatibility-free, model-bound synthetic-only successor using
     declared elements, shared evaluator calls, and declaration-owned admission
@@ -43,7 +51,8 @@ product boundaries and research findings remain authoritative in the parent
 - [Declared analytic model execution](declared-analytic-model-execution.md)
   - provisional model-bound fixed-pose execution, bounded NumPy adapter,
     nominal-support held-out assessment, internal publication, and read-only
-    verification with constructed multi-topology and stepped regression evidence
+    verification with shared two-topology generated and stepped regression
+    evidence
 - [Stepped rotational v0 execution and result contract](stepped-rotational-v0-execution-result.md)
   - provisional solver-independent execution, strict result/replay semantics,
   and separately invoked held-out assessment; no acceptance policy or CLI command
@@ -164,13 +173,16 @@ that trial.
 The provisional
 [declared analytic model contract](declared-analytic-model-contract.md) owns the
 semantic boundary for compatibility-free, declaration-driven successors. The
-existing `stepped-rotational-v0` application slices exercise bounded synthetic
-observation/mapping construction, factor/preflight behavior, solver-independent
-execution records, one bounded NumPy adapter, internal run publication/replay,
-isolated post-fit held-out assessment, and one bounded generated noisy-cloud
-workflow. They remain fixed-topology implementation evidence, are not a new
-evidence track, and do not alter the frozen Track 4 or Track 5 records or select
-product acceptance policy.
+[shared generated workflow](declared-analytic-model-generated-workflow.md) now
+exercises two materially different project-owned fixtures through common
+generation, mapping, factor/preflight, bounded execution, held-out assessment,
+publication, and verification entry points. Fixture selection and sample grids
+remain project-owned seams rather than general authoring or sampling capability.
+
+The existing `stepped-rotational-v0` application slices remain fixed-topology
+implementation evidence and preserve their legacy CLI and provenance boundaries.
+Neither path is a new evidence track, alters the frozen Track 4 or Track 5 records,
+or selects product acceptance policy.
 
 Track 3 follows Track 1 semantics, Track 4 evidence needs, and Track 5 observed
 source behavior. It does not own their contracts or artifacts. Track 5 consumes
