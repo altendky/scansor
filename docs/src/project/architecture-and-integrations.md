@@ -2,10 +2,10 @@
 
 ## Status
 
-**Current and provisional.** Keeping the authoritative fit local and heavy GUIs
-external are current product boundaries. Canonical-flow mechanics, adapter
-contracts, snapshots, and integration choices remain provisional concepts to
-test, not implemented or committed interfaces.
+**Current and provisional.** Scansor remains documentation-first and concept-stage.
+Keeping the authoritative fit local and heavy GUIs external are current product
+boundaries. Product-level canonical-flow mechanics, adapter contracts, snapshots,
+and integration choices remain provisional, not committed interfaces.
 
 ## Canonical Flow
 
@@ -55,18 +55,28 @@ experiment-local evidence. A separate bounded reconciliation now verifies the
 solver evidence first, freezes geometry derived only from its nominal seven-shape
 estimate, and compares it independently with both replay-verified CAD runs. CAD is
 post-fit source evidence in that experiment and has no path into fitting or
-held-out evaluation. Broader combined adverse evidence and any reusable
-implementation remain open. Synthetic evidence
-can support implementation, formulation, and diagnostic correctness under
-constructed scenarios, never physical accuracy, metrology suitability, or
-product support.
-The nominal flow includes no assembly, native constraint, blend, publication
-executor, durable schema/format, or support commitment.
+held-out evaluation. Broader combined adverse evidence remains open.
+
+A separate provisional internal, synthetic-only, fixed-pose
+[declared analytic model workflow](planning/declared-analytic-model-generated-workflow.md)
+now implements shared declaration-driven generation, mapping, factors, preflight,
+bounded NumPy execution, held-out assessment, internal artifact publication,
+replay, and read-only verification for the asymmetric stepped comparator and
+coaxial tube. Observation-to-model pose is declared input; only supported shape
+parameters are fitted. Its oriented planes, coaxial cylinders, and bounded domains
+provide two-topology implementation evidence, not a general geometry solution.
+
+Synthetic evidence can support implementation, formulation, and diagnostic
+correctness under constructed scenarios, never physical accuracy, metrology
+suitability, production readiness, or product support. The shared workflow adds no
+arbitrary-cloud admission, pose discovery, joint pose-and-shape fitting, or CAD
+integration. The nominal flow includes no assembly, native constraint, blend, CAD
+publication executor, durable schema/format, or support commitment.
 
 The provisional internal
 [declared analytic model contract](planning/declared-analytic-model-contract.md)
-now fixes the semantics and content identity needed by the synthetic fixed-pose
-implementation sequence. It does not settle a public authoring schema, durable
+supplies the semantics and content identity consumed by this shared fixed-pose
+implementation. It does not settle a public authoring schema, durable
 `model.json`, compatibility policy, or adapter protocol. Durable schemas and
 versioning rules for model, mapping, audit, and result control records remain
 **open**. Large numeric observations need not be JSON-embedded: control records

@@ -6,9 +6,14 @@
 comparison. The separate [provisional decision][prototype-decision] selects
 Python and SciPy for the first evidence-generating prototype. Neither the
 finding nor that provisional decision selects a production language or solver.
-No reusable Scansor solver implementation exists. The separate internal CLI
-fixture performs bounded local inspection and replay only; it does not implement
-or select a solver.
+
+**Current Scansor status, updated 2026-09-09.** A separate
+[declared analytic model workflow](planning/declared-analytic-model-generated-workflow.md)
+now provides a provisional internal, synthetic-only, fixed-pose implementation
+shared by the asymmetric stepped comparator and coaxial tube, using bounded NumPy
+execution. Observation-to-model pose is declared input; only supported shape
+parameters are fitted. This does not establish a product solver, production stack,
+supported integration, or public interface.
 
 ## Evidence Labels
 
