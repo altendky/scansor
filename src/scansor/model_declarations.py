@@ -15,7 +15,7 @@ from scansor.errors import ScansorError
 from scansor.models import StrictModel
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
 
-DECLARATION_REVISION = "scansor-declared-analytic-model-v1"
+DECLARATION_REVISION = "scansor-declared-analytic-model-v2"
 DECLARATION_STATUS = "internal/provisional/synthetic-only/non-public-contract"
 FRAME_TOLERANCE = 1e-10
 Identifier = Annotated[
@@ -336,7 +336,7 @@ class ModelSemanticDeclaration(DeclarationRecord):
     parameters: tuple[ScalarParameter, ...]
     problem: FixedPoseShapeProblem
     relationships: tuple[ScalarRelationship, ...]
-    revision: Literal["scansor-declared-analytic-model-v1"] = DECLARATION_REVISION
+    revision: Literal["scansor-declared-analytic-model-v2"] = DECLARATION_REVISION
     structural_predicates: tuple[StructuralPredicate, ...]
 
     @field_validator(

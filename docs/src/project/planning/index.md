@@ -39,7 +39,11 @@ product boundaries and research findings remain authoritative in the parent
   - superseded stepped-only mapping snapshot retained as historical context
 - [Stepped rotational v0 factor contract](stepped-rotational-v0-factor-contract.md)
   - superseded fixed-topology factor/preflight snapshot retained for the legacy
-    execution and pose-correction path pending its separately sequenced migration
+    execution and pose-correction path
+- [Declared analytic model execution](declared-analytic-model-execution.md)
+  - provisional model-bound fixed-pose execution, bounded NumPy adapter,
+    nominal-support held-out assessment, internal publication, and read-only
+    verification with constructed multi-topology and stepped regression evidence
 - [Stepped rotational v0 execution and result contract](stepped-rotational-v0-execution-result.md)
   - provisional solver-independent execution, strict result/replay semantics,
   and separately invoked held-out assessment; no acceptance policy or CLI command

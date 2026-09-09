@@ -40,6 +40,10 @@ outside the intended boundary.
   - **Provisional:** implemented compatibility-free, model-bound fixed-pose
   factor construction, explicit activation, shared-evaluator residuals and
   Jacobians, and declaration-owned optimizer-independent preflight
+- [Declared analytic model execution](planning/declared-analytic-model-execution.md)
+  - **Provisional:** model-bound guarded fixed-pose execution, bounded NumPy
+  adapter, nominal-support held-out assessment, internal publication, and
+  read-only replay; constructed multi-topology and stepped regression evidence
 - [Stepped rotational v0 observation mapping](planning/stepped-rotational-v0-observation-mapping.md)
   - **Superseded snapshot:** original stepped-only observation/mapping contract
 - [Stepped rotational v0 factor contract](planning/stepped-rotational-v0-factor-contract.md)
