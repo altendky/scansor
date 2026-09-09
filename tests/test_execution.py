@@ -56,6 +56,7 @@ from scansor.stepped_rotational_factors import (
     instantiate_factors,
     select_active_factors,
 )
+from scansor.synthetic_fixture import require_stepped_variant
 from tests.test_factors import factor_case, parameters
 from tests.test_mapping import canonical_bytes, fixture_points, request_for
 
@@ -1530,7 +1531,7 @@ def completed_for_mapping(
     request = create_execution_request(
         factor_set,
         selection,
-        parameters(mapping.request.variant),
+        parameters(require_stepped_variant(mapping.request)),
         adapter_descriptor("tests.held-out", "1"),
     )
     result = execute(
@@ -1697,7 +1698,7 @@ def test_nominal_support_helper_agrees_with_successor_mapping_and_ignores_normal
     )
     support = assess_nominal_support(
         plain_mapping.held_out_observations[0].point_model_m,
-        plain_mapping.request.variant,
+        require_stepped_variant(plain_mapping.request),
         plain_mapping.request.thresholds,
     )
     assert support.outcome == "assigned"
@@ -1714,12 +1715,12 @@ def test_nominal_support_helper_agrees_with_successor_mapping_and_ignores_normal
         == plain_mapping.mapping_run_id
     )
     assert sha256(canonical_json(plain_mapping)) == (
-        "207cb0a5d8ff18a68203485dd1d56641b83de241ef97d10bff401f9e2406ea12"
+        "ecaf760f224b6af6842b8d147b3de3d2a8f0ba1413d1cbe291dc07af16dd54cf"
     )
     before = canonical_json(plain_mapping)
     _ = assess_nominal_support(
         plain_mapping.held_out_observations[0].point_model_m,
-        plain_mapping.request.variant,
+        require_stepped_variant(plain_mapping.request),
         plain_mapping.request.thresholds,
     )
     assert canonical_json(plain_mapping) == before

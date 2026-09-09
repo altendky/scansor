@@ -137,7 +137,6 @@ def request_for(
             rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
             translation_m=(0.0, 0.0, 0.0),
         ),
-        variant=variant,
     )
 
 
@@ -539,7 +538,6 @@ def inspection_mapping_fixture(
             rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
             translation_m=(0.0, 0.0, 0.0),
         ),
-        variant=variant,
     )
     return inspection_run, build_mapping(request, canonical)
 

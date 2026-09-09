@@ -17,6 +17,7 @@ from scansor.models import InspectionReport
 from scansor.runs import verify_run_artifacts_fd
 from scansor.serialization import sha256
 from scansor.stepped_rotational_generation import generated_fixture_provenance
+from scansor.synthetic_fixture import require_stepped_variant
 
 
 def _number(value: float) -> str:
@@ -99,7 +100,7 @@ def _compare_truth_anchored(
     if (
         inspection.source.sha256 != generated.provenance.source.sha256
         or inspection.source.byte_count != len(generated.source)
-        or mapping.request.variant != "asymmetric-datum-flat"
+        or require_stepped_variant(mapping.request) != "asymmetric-datum-flat"
         or records.result.request.problem != "fixed-pose-shape"
         or records.result.request.variant != "asymmetric-datum-flat"
     ):

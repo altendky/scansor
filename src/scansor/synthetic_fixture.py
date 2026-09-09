@@ -4,9 +4,17 @@ import struct
 from dataclasses import dataclass
 from typing import Literal
 
-from scansor.mapping_models import SyntheticFixtureProvenance
+from pydantic import ValidationError
+
+from scansor.errors import ScansorError
+from scansor.mapping_models import (
+    GeneratedSyntheticFixtureProvenance,
+    MappingRequest,
+    SyntheticFixtureProvenance,
+)
 from scansor.ply import canonical_npy, parse_ply
 from scansor.serialization import canonical_json, sha256
+from scansor.stepped_model_declarations import stepped_model_declaration
 
 FIXTURE_FRAME = "stepped-rotational-v0-synthetic-model-frame"
 FIXTURE_ID = "stepped-rotational-v0-synthetic-fixture"
@@ -21,6 +29,23 @@ class PreparedSyntheticFixture:
     held_out_row_indices: tuple[int, ...]
     provenance: SyntheticFixtureProvenance
     source: bytes
+
+
+def require_stepped_variant(request: MappingRequest) -> Variant:
+    try:
+        request = MappingRequest.model_validate(request.model_dump(mode="python"))
+    except (TypeError, ValidationError, ValueError) as error:
+        raise ScansorError(f"invalid mapping request: {error}") from error
+    provenance = request.input_revision.synthetic_fixture
+    if not isinstance(
+        provenance,
+        (SyntheticFixtureProvenance, GeneratedSyntheticFixtureProvenance),
+    ):
+        raise ScansorError("mapping request does not use a legacy stepped fixture")
+    variant: Variant = provenance.variant
+    if request.declaration != stepped_model_declaration(variant):
+        raise ScansorError("mapping declaration does not match its stepped fixture")
+    return variant
 
 
 def fixture_points(variant: Variant) -> tuple[tuple[float, float, float], ...]:

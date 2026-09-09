@@ -51,6 +51,7 @@ from scansor.stepped_rotational_factors import (
     preflight_factors,
     select_active_factors,
 )
+from scansor.synthetic_fixture import require_stepped_variant
 
 MAX_EXECUTION_RESULT_BYTES = 64 * 1024 * 1024
 
@@ -1301,10 +1302,11 @@ def assess_held_out(
         raise ScansorError("held-out active-factor provenance differs")
 
     rows: list[HeldOutRowAssessment] = []
+    variant = require_stepped_variant(mapping.request)
     for observation in mapping.held_out_observations:
         support = assess_nominal_support(
             observation.point_model_m,
-            mapping.request.variant,
+            variant,
             mapping.request.thresholds,
         )
         candidates = tuple(

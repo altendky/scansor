@@ -69,7 +69,7 @@ from scansor.settings import (
 from scansor.stepped_model_declarations import stepped_model_declaration
 from scansor.stepped_rotational_factors import instantiate_factors
 from scansor.stepped_rotational_generation import generated_fixture_provenance
-from scansor.synthetic_fixture import prepare_synthetic_fixture
+from scansor.synthetic_fixture import prepare_synthetic_fixture, require_stepped_variant
 from scansor.truth_comparison import compare_truth as compare_truth_runs
 
 app = App(
@@ -590,7 +590,6 @@ def _publish_map_job(
             scale=job.transform_scale,
             translation_m=job.translation_m,
         ),
-        variant=job.variant,
     )
     result = create_mapping_run(
         job.output_path,
@@ -778,7 +777,7 @@ def fit(
         variant=variant,
     )
     mapping_result = verify_mapping_run(job.mapping_run, job.inspection_run)
-    if mapping_result.request.variant != job.variant:
+    if require_stepped_variant(mapping_result.request) != job.variant:
         raise ScansorError("variant assertion differs from mapping provenance")
     if mapping_result.disposition != "accepted":
         raise ScansorError("rejected mapping cannot be used for execution")

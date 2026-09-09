@@ -3,13 +3,15 @@
 ## Status
 
 **Provisional internal semantic design, declaration-record implementation, and
-analytic evaluator implementation, snapshot dated 2026-09-08.** This page defines
+analytic evaluator implementation, snapshot dated 2026-09-09.** This page defines
 the application-owned meaning required for the declared analytic-model sequence.
 The immutable Python records, validation, canonical identity, stepped-model
 declarations, shared plane/cylinder evaluator, mapping, factor construction,
 explicit activation, optimizer-independent preflight, and bounded internal NumPy
-execution are implemented. The [execution successor](declared-analytic-model-execution.md)
-consumes model-bound factors and provides internal publication and read-only
+execution are implemented. The
+[shared generated workflow](declared-analytic-model-generated-workflow.md) runs an
+asymmetric stepped fixture and a coaxial tube through model-bound generation,
+mapping, factors, execution, held-out assessment, publication, and read-only
 verification. This is not a public schema, a durable `model.json` format, or a
 compatibility promise.
 
@@ -40,8 +42,14 @@ construction, active-factor selection, preflight, execution, replay, held-out
 assessment, future acceptance, and publication remain distinct concerns.
 
 The declaration implementation is in `src/scansor/model_declarations.py`, with
-the two existing stepped variants encoded by
-`src/scansor/stepped_model_declarations.py`. The model-bound factor records and
+the existing stepped variants encoded by
+`src/scansor/stepped_model_declarations.py` and the tube encoded by
+`src/scansor/tube_model_declarations.py`. Exact project-owned fixture sampling is
+separate in `src/scansor/declared_synthetic_fixtures.py`; it is not declaration
+authoring or a general sampling capability. Shared generated records, operations,
+and run publication are in `src/scansor/declared_generation_models.py`,
+`src/scansor/declared_generation.py`, and
+`src/scansor/declared_generation_runs.py`. The model-bound factor records and
 pure operations are in `src/scansor/declared_factor_models.py` and
 `src/scansor/declared_factors.py`. These are application-owned internal records,
 not a new CLI or persisted public authoring format. The model-bound execution
@@ -64,10 +72,11 @@ differential evaluation fails because no radial gradient exists.
 The evaluator dispatches only on tagged primitive and domain records. It does not
 parse IDs, assume parameter indices, select factors, apply mapping thresholds,
 clamp projections, access files, invoke a solver, or expose an extension API.
-Tests cover both stepped declarations, renamed and reordered declaration data,
-an inward cylinder orientation, all initial domain-predicate kinds, and
-independent finite differences at nominal, perturbed, and legal near-bound shape
-vectors. This is bounded synthetic implementation evidence, not physical or
+Tests cover both stepped declarations, the tube declaration, renamed and reordered
+declaration data, inward cylinder orientation, all initial domain-predicate kinds,
+and independent finite differences at nominal, perturbed, and legal near-bound
+shape vectors. Complete shared-workflow coverage for renamed and reordered copies
+is additional bounded synthetic implementation evidence, not physical or
 production validation.
 
 ## Terms
@@ -318,8 +327,10 @@ the immutable declaration that passed nominal validation.
 
 For the stepped model, these predicates declare ordered axial stations, minimum
 band widths, radius separations, `0 < datum_x < middle_radius`, and a positive
-right-triangle trim half-width. Another topology declares its own predicates;
-preflight must not infer stepped-model rules from element counts or IDs.
+right-triangle trim half-width. The tube separately declares a positive bore,
+wall separation strictly greater than `0.002 m`, and axial length strictly greater
+than `0.040 m`. Preflight must not infer either topology's rules from element
+counts or IDs.
 
 Structural validity is a Boolean eligibility precondition with ordered
 diagnostics. It does not add residual rows, weights, losses, barriers, priors, or
@@ -371,9 +382,11 @@ For physical Jacobian `J`, parameter-scale diagonal `S_p`, and residual scale
 value computation may reorder rows or columns.
 
 The initial policies must not derive cells, minima, or rank expectations from
-element names or held-out data. Their coverage minima and rank policies are not
-mapping geometric thresholds, solver convergence criteria, fit-quality
-acceptance, or evidence of physical accuracy.
+element names or held-out data. Required support is not reducible to rank: the
+tube's near-end plane remains required despite its zero fixed-pose shape-Jacobian
+row. Coverage minima and rank policies are not mapping geometric thresholds,
+solver convergence criteria, fit-quality acceptance, or evidence of physical
+accuracy.
 
 ## Canonical Content and Model Identity
 
@@ -402,6 +415,7 @@ complete canonical declaration or an immutable exact-content reference from
 which it can be retrieved and revalidated. Embedding the declaration is the
 default for the initial internal successors:
 
+- generation requests, provenance, truth, and generation-run manifests
 - mapping requests/results and successor mapping-run manifests
 - factor contracts, declarations, instantiated factor sets, and selections
 - preflight inputs and diagnostics
@@ -428,13 +442,15 @@ support, coverage, rank policy, fitting, or tuning. A separately invoked
 post-fit assessment may evaluate them against the already sealed model and result
 without changing either.
 
-## Non-Normative Topology Examples
+## Implemented Bounded Topology Fixtures
 
-These examples demonstrate expressiveness on paper. They are not serialized
-fixtures, implementation claims, public schema examples, defaults, or validation
-evidence.
+These application-owned fixtures provide bounded synthetic implementation
+evidence. They are not public schema examples, defaults, arbitrary authoring or
+sampling capability, physical validation, or product-support claims. Their exact
+generation and workflow boundary is documented in the
+[shared generated workflow](declared-analytic-model-generated-workflow.md).
 
-### Existing asymmetric stepped model
+### Existing asymmetric stepped comparator
 
 The existing model declares seven parameters in order: three band radii, three
 nonzero axial stations, and one datum-plane offset. Its ordered elements are
@@ -467,22 +483,29 @@ The structural policy requires positive inner radius, outer radius greater than
 inner radius by a declared minimum wall thickness, and length greater than a
 declared minimum.
 
-Required support and coverage refer to those four IDs, and shape rank policy uses
-the declared three-parameter order. This topology has a bore, two cylindrical
-orientations, four elements, and no datum trim or stepped stations. The same
-primitive, domain, relationship, validity, coverage, and rank semantics describe
-it without claiming that mapping, factors, execution, or generation for it are
-implemented.
+Required support and coverage refer to those four IDs, and both mapping and
+preflight require rank three in the declared parameter order. Mapping support
+minima are `12, 12, 8, 8` and coverage minima are `8, 8, 4, 4`; preflight support
+minima are `6, 6, 4, 4` and coverage minima are `4, 4, 2, 2`, all in declared
+element order. The near-end plane is required despite its zero shape-Jacobian row.
+
+This topology has a bore, two cylindrical orientations, four elements, one
+relationship-bound moving end, a nonidentity known observation pose, and no datum
+trim or stepped stations. It now runs through the same shared generated mapping,
+factor, preflight, execution, held-out, publication, and verification path as the
+stepped comparator. That is two-topology implementation evidence, not a claim of
+arbitrary topology or domain sampling.
 
 ## Migration Boundary
 
 The existing `stepped-rotational-v0` mapping, factor, execution, generation, and
-CLI formats are experimental fixed-topology records. Model-bound successors may
-replace them without reading, writing, or preserving compatibility with those
-formats. They must support more than one declared topology through the same
-declaration-driven path and must not retain fixed element inventories,
-element-name parsing, fixed parameter-index dispatch, or duplicated
-stepped-topology policy.
+CLI formats are experimental fixed-topology records. Model-bound successors do
+not preserve compatibility with those formats. The shared generated successor now
+supports the stepped comparator and tube without fixed element inventories,
+element-name parsing, fixed parameter-index dispatch, or duplicated stepped
+policy. Legacy static and generated synthetic provenance revisions remain
+readable through a fixture-owned replay boundary; they are not reinterpreted as
+the new declaration-bound generation format.
 
 Frozen experiment evidence remains unchanged and keeps its own identities and
 integrity constraints. Agreement with it is context, not schema compatibility.
@@ -490,11 +513,12 @@ No migration promise exists for experimental artifacts.
 
 ## Explicit Deferrals
 
-This contract does not define a public schema, durable format, arbitrary-cloud
-admission, automatic recognition or correspondence, pose estimation, joint
-pose-and-shape fitting, meshes, NURBS, blends, unrestricted B-reps, a general
-constraint language, CAD/Onshape import or publication, generic solver or plugin
-APIs, production backend selection, acceptance policy, physical validation,
-metrology, accuracy, production readiness, or product support. Additional
-primitive and relationship kinds require separately approved semantics and
-evidence.
+This contract does not define a public schema, durable format, a general fixture
+registry or sampling authority, broader declaration authoring, arbitrary-domain
+sampling, arbitrary-cloud admission, automatic recognition or correspondence,
+pose estimation, joint pose-and-shape fitting, meshes, NURBS, blends,
+unrestricted B-reps, a general constraint language, CAD/Onshape import or
+publication, generic solver or plugin APIs, production backend selection,
+acceptance policy, physical validation, metrology, accuracy, production
+readiness, or product support. Additional primitive and relationship kinds
+require separately approved semantics and evidence.

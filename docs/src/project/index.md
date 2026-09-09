@@ -30,12 +30,17 @@ outside the intended boundary.
 - [Declared analytic model contract](planning/declared-analytic-model-contract.md)
   - **Provisional:** implemented internal declaration records and shared analytic
   evaluator for declared planes, coaxial cylinders, bounded domains, shape
-  residuals, and derivatives, now consumed by internal mapping and fixed-pose
-  factor/preflight paths; no public schema, compatibility, or product-support claim
+  residuals, and derivatives, now consumed by a shared generated two-topology
+  fixed-pose workflow; no public schema, compatibility, or product-support claim
+- [Declared analytic model generated workflow](planning/declared-analytic-model-generated-workflow.md)
+  - **Provisional:** shared declaration-bound generation, mapping, factors,
+  bounded execution, held-out assessment, publication, truth comparison, and
+  read-only verification for asymmetric stepped and coaxial tube fixtures; no
+  arbitrary sampling, physical-validation, acceptance, or public-interface claim
 - [Declared analytic model observation mapping](planning/declared-analytic-model-observation-mapping.md)
   - **Provisional:** implemented compatibility-free, model-bound synthetic-only
   mapping using declared elements, evaluator geometry/Jacobians, declaration-owned
-  admission policy, and read-only replay
+  admission policy, declaration-bound generated provenance, and read-only replay
 - [Declared analytic model factor and preflight](planning/declared-analytic-model-factor-preflight.md)
   - **Provisional:** implemented compatibility-free, model-bound fixed-pose
   factor construction, explicit activation, shared-evaluator residuals and
@@ -43,7 +48,7 @@ outside the intended boundary.
 - [Declared analytic model execution](planning/declared-analytic-model-execution.md)
   - **Provisional:** model-bound guarded fixed-pose execution, bounded NumPy
   adapter, nominal-support held-out assessment, internal publication, and
-  read-only replay; constructed multi-topology and stepped regression evidence
+  read-only replay; shared two-topology generated and stepped regression evidence
 - [Stepped rotational v0 observation mapping](planning/stepped-rotational-v0-observation-mapping.md)
   - **Superseded snapshot:** original stepped-only observation/mapping contract
 - [Stepped rotational v0 factor contract](planning/stepped-rotational-v0-factor-contract.md)
@@ -85,6 +90,7 @@ outside the intended boundary.
   provisional Python/SciPy prototype decision
 - [Decisions](decisions.md) - **Current and provisional:** accepted directions,
   rejected naming, and deliberately unmade choices
-- [Open questions](open-questions.md) - **Open:** fixed-outlier robustness policy,
-  additional combined adverse evidence, later physical evidence, schemas,
-  implementation, validation, naming, and boundaries
+- [Open questions](open-questions.md) - **Open:** fixture-registry and sampling
+  authority, broader declaration authoring, arbitrary-domain and combined adverse
+  evidence, fixed-outlier robustness policy, later physical evidence, schemas,
+  validation, naming, and boundaries

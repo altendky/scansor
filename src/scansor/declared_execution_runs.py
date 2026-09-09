@@ -46,7 +46,6 @@ from scansor.files import (
     rename_no_replace,
     write_new_file,
 )
-from scansor.generation_models import GenerationRequest
 from scansor.mapping_models import MappingManifest, MappingResult
 from scansor.mapping_runs import (
     MAX_MAPPING_BYTES,
@@ -58,7 +57,7 @@ from scansor.mapping_runs import (
 )
 from scansor.runs import verify_run_artifacts_fd
 from scansor.serialization import canonical_json, parse_canonical_json, sha256
-from scansor.stepped_rotational_generation import prepare_generation
+from scansor.synthetic_fixture_replay import replay_fixture
 
 MAX_SELECTION_BYTES = 4 * 1024 * 1024
 MAX_HELD_OUT_BYTES = 32 * 1024 * 1024
@@ -79,19 +78,9 @@ NONCOMPLETED_FILES = frozenset(
 
 
 def _inspection_replay_raw(mapping: MappingResult) -> bytes | None:
-    """Regenerate only the existing generation-owned stepped synthetic revision."""
-
-    provenance = mapping.request.input_revision.synthetic_fixture
-    if provenance.revision == "1":
-        return None
-    return prepare_generation(
-        GenerationRequest(
-            noise_sigma_m=provenance.noise_sigma_m,
-            sampling_profile=provenance.sampling_profile,
-            seed=provenance.seed,
-            variant=provenance.variant,
-        )
-    ).source
+    return replay_fixture(
+        mapping.request.input_revision.synthetic_fixture
+    ).inspection_replay_raw
 
 
 def _identified_selection(values: dict[str, object]) -> ExecutionRunSelection:
