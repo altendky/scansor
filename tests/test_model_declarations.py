@@ -31,7 +31,7 @@ from scansor.model_declarations import (
     parse_model_declaration,
     validate_runtime_parameter_vector,
 )
-from scansor.serialization import canonical_json
+from scansor.serialization import canonical_json, sha256
 from scansor.stepped_model_declarations import (
     ELEMENT_IDS,
     Variant,
@@ -198,6 +198,20 @@ def test_identity_and_canonical_round_trip_are_deterministic() -> None:
         first.model_dump(mode="json", exclude={"model_id"})
     )
     assert parse_model_declaration(encoded) == first
+
+
+def test_execution_scale_semantics_roll_declaration_identity() -> None:
+    declaration = stepped_model_declaration("axisymmetric")
+    assert declaration.revision == "scansor-declared-analytic-model-v2"
+    old_semantics = declaration.model_dump(mode="json", exclude={"model_id"}) | {
+        "revision": "scansor-declared-analytic-model-v1"
+    }
+    old_id = f"model.{sha256(canonical_json(old_semantics))}"
+    assert old_id != declaration.model_id
+    with pytest.raises(ScansorError, match="revision"):
+        _ = parse_model_declaration(
+            canonical_json(old_semantics | {"model_id": old_id})
+        )
 
 
 def test_canonical_parser_rejects_duplicate_keys_and_noncanonical_bytes() -> None:

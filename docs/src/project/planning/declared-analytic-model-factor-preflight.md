@@ -8,10 +8,12 @@ factor and preflight records. It is synthetic-only, fixed-pose-shape-only,
 non-public, and carries no compatibility, solver, fit-quality, physical-
 validation, metrology, accuracy, or production-support claim.
 
-The legacy stepped factor and pose-correction path remains intact for the
-separately sequenced execution migration. This successor does not execute a
-solver, select a backend or initialization, evaluate held-out observations,
-produce a fit result, or generalize pose correction.
+These factor records are consumed by the separately owned
+[declared execution successor](declared-analytic-model-execution.md). Factor and
+preflight operations themselves do not execute a solver, select a backend or
+initialization, evaluate held-out observations, produce a fit result, or
+generalize pose correction. The legacy stepped factor and pose-correction path
+retains its separate records.
 
 ## Model-bound factor construction
 
@@ -82,8 +84,10 @@ relative-rank parameter order and forms
 `J * parameter_scales / residual_scale` without reordering rows. Rank counts
 singular values strictly greater than the largest singular value times the
 declared relative threshold. Empty or all-zero matrices have rank zero. The
-reported expected rank is the declaration's required rank, not an inferred
-parameter or element count.
+reported expected rank is the declaration's minimum required rank, not an
+inferred parameter or element count. Observed rank above the requirement passes.
+Execution-coordinate normalization and full-vector SVD step truncation do not
+replace this declared-subset diagnostic.
 
 Preflight eligibility means only that these declaration-owned checks passed. It
 does not imply solver convergence, fit acceptance, physical validity, accuracy,

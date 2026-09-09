@@ -1714,7 +1714,7 @@ def test_nominal_support_helper_agrees_with_successor_mapping_and_ignores_normal
         == plain_mapping.mapping_run_id
     )
     assert sha256(canonical_json(plain_mapping)) == (
-        "353c457745ae8d6191da9df78c579062c809b734e63b3191b45252d5455b2181"
+        "207cb0a5d8ff18a68203485dd1d56641b83de241ef97d10bff401f9e2406ea12"
     )
     before = canonical_json(plain_mapping)
     _ = assess_nominal_support(

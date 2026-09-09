@@ -7,9 +7,11 @@ analytic evaluator implementation, snapshot dated 2026-09-08.** This page define
 the application-owned meaning required for the declared analytic-model sequence.
 The immutable Python records, validation, canonical identity, stepped-model
 declarations, shared plane/cylinder evaluator, mapping, factor construction,
-explicit activation, and optimizer-independent preflight are implemented;
-execution does not consume the successor factor records yet. This is not a
-public schema, a durable `model.json` format, or a compatibility promise.
+explicit activation, optimizer-independent preflight, and bounded internal NumPy
+execution are implemented. The [execution successor](declared-analytic-model-execution.md)
+consumes model-bound factors and provides internal publication and read-only
+verification. This is not a public schema, a durable `model.json` format, or a
+compatibility promise.
 
 The initial declaration vocabulary covers oriented planes and cylinders sharing
 one declared axis, each with an explicit bounded support domain. The vocabulary
@@ -42,9 +44,12 @@ the two existing stepped variants encoded by
 `src/scansor/stepped_model_declarations.py`. The model-bound factor records and
 pure operations are in `src/scansor/declared_factor_models.py` and
 `src/scansor/declared_factors.py`. These are application-owned internal records,
-not a new CLI or persisted public authoring format. The legacy
-`stepped-rotational-v0` factor, pose-correction, and execution path remains
-unchanged until the separately sequenced execution migration.
+not a new CLI or persisted public authoring format. The model-bound execution
+successor is in `src/scansor/declared_execution_models.py`,
+`src/scansor/declared_execution.py`, and `src/scansor/declared_numpy_backend.py`;
+its internal publication path is in `src/scansor/declared_execution_run_models.py`
+and `src/scansor/declared_execution_runs.py`. The legacy `stepped-rotational-v0`
+factor, pose-correction, and execution records remain a separate path.
 
 The pure evaluator is in `src/scansor/geometry_evaluator.py`. Its boundaries take
 the complete identity-bearing model declaration, an exact declared element ID, a
@@ -167,8 +172,18 @@ fixed-pose-shape problem.
 
 Bounds are inclusive and require `lower <= nominal <= upper`. Initial parameters
 and every trial or result vector use the exact declared order, dimension, units,
-and bounds. Diagnostic scales nondimensionalize Jacobian columns and do not
-select optimizer steps, priors, tolerances, or acceptance thresholds.
+and bounds. Diagnostic scales nondimensionalize Jacobian columns. Declaration
+revision `scansor-declared-analytic-model-v2` explicitly also permits the named
+bounded internal NumPy adapter to use these full-vector scales as execution
+coordinate normalization. This use is specified by the adapter revision and
+bound into its request and invocation. The scales do not prescribe a step,
+prior, convergence tolerance, or acceptance threshold.
+
+This explicit execution use advances the declaration revision from v1 to v2 and
+changes model IDs and dependent artifact identities. V1 declarations are not
+reinterpreted under v2. The optimization-preflight rank policy retains its
+separate ordered parameter subset and scales; it is not expanded to the full
+execution vector or replaced by execution-coordinate rank.
 
 The initial scalar-binding vocabulary is deliberately smaller than a general
 expression or constraint language. Multiple primitive or domain slots share a
@@ -346,7 +361,8 @@ order defined above and declared rank-parameter order, then nondimensionalizes i
 with the declared scales. If its singular values are descending
 `sigma_0, sigma_1, ...`, rank is the number strictly greater than
 `sigma_0 * tau`; an empty or all-zero matrix has rank zero. The required rank
-must be between zero and the number of declared rank parameters. Expected gauge
+is a minimum and must be between zero and the number of declared rank parameters.
+Observed rank above this minimum is eligible. Expected gauge
 directions, if a later problem declares any, require an explicit separate policy
 rather than lowering rank implicitly.
 
