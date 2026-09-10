@@ -243,6 +243,13 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
   every source point, explicitly weighted every admitted point, disposed every
   excluded point, and remained bounded-memory at multi-million-point scale while
   keeping downsampled quick-mode claims distinct?
+- How should surface-area and declared target-element importance weights compose
+  and normalize, and which semantics prevent triangulation density from becoming
+  unintended fit importance without erasing deliberate surface priorities?
+- How should an iterative fit, localized-deviation identification, explicit
+  exclusion or downweighting, and refit policy define deterministic thresholds,
+  stopping limits, point histories, model-identity implications, and evidence
+  boundaries without selecting an automatic-defect or acceptance policy?
 - What minimal versioned recipe contract and portable numerical construction can
   bind model, sample allocation/order, seed, adverse cases, encoding, identities,
   and exact bytes without committing generated large files or selecting a cache

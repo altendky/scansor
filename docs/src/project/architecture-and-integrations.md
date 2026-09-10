@@ -132,6 +132,29 @@ Multi-million-point full processing should be streaming or otherwise
 bounded-memory rather than dependent on sample reduction. Chunking must not
 change canonical identities, order, admission, weighting, or dispositions.
 
+### Future Contribution and Robust-Refit Policy
+
+**Provisional:** Observation contribution should be a versioned policy input,
+not a fixed property of the solver. For mesh-derived vertices, a first policy may
+derive surface-area weights to reduce sensitivity to triangulation density.
+Separate declared target-element importance may prioritize interfaces over
+lower-accuracy cast surfaces. These weight sources may compose, but no
+normalization, combination rule, or default is selected.
+
+A later robust workflow may alternate fitting with explicit identification of
+localized deviations, policy-driven exclusion or downweighting, and refitting.
+Candidate deviations include bumps, scratches, mold flashing, and other local
+features that should not redefine nominal geometry. Defect identification should
+remain a distinct stage from fitting and from dimensional acceptance.
+
+The canonical observation record should support a per-point, per-iteration
+history of disposition, component weights, effective weight, and applicable rule
+or threshold identity. Policy configuration, thresholds, convergence and
+iteration limits, and implications for model identity should be deterministic,
+versioned, and included in provenance and result identity. Held-out observations
+must not enter fitting, policy selection, threshold tuning, or defect decisions.
+No automatic-defect algorithm, threshold, or metrology claim is selected.
+
 ## Future Calibration and Registration Constraints
 
 **Provisional:** Constraints may be imported from upstream tools such as

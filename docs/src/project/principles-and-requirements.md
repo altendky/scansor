@@ -44,6 +44,29 @@ downsample, but its results must not be represented as full-data processing.
 Multi-million-point full processing should use streaming or otherwise
 bounded-memory execution rather than requiring sample reduction.
 
+Observation contribution should be governed by an explicit, versioned,
+configurable policy rather than a permanent fixed weighting rule. Surface-area
+weighting is an acceptable initial baseline for mesh-derived vertices because it
+reduces raw triangulation-density bias, but it is not assumed final. Later
+policies may also apply declared importance weights by target surface or element,
+for example prioritizing interfaces over lower-accuracy cast surfaces. Area and
+target-importance weighting may be combined; their exact normalization and
+semantics remain open.
+
+Future robust processing may use an auditable iterative fit, localized-deviation
+identification, policy-driven exclusion or downweighting, and refit workflow.
+Bumps, scratches, mold flashing, and other local deviations may be treated as
+candidate defects that should not redefine nominal geometry. Every point should
+retain its disposition and weight history across iterations; no point may be
+silently deleted. Exclusion and downweight rules, thresholds, convergence and
+iteration limits, and model-identity implications should be deterministic,
+versioned, and bound into provenance and result identity.
+
+Held-out observations must remain isolated from fitting, policy selection,
+threshold tuning, and iterative defect decisions. Defect detection, geometric
+fitting, and dimensional acceptance remain distinct evidence and decision roles.
+No automatic-defect policy, threshold, or metrology validity is selected.
+
 ## Large Generated Inputs Are Recipe-Backed
 
 Large deterministic test inputs should be reproduced from small versioned
