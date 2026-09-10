@@ -26,9 +26,9 @@ FORMAT = "scansor-generated-track5-cad-reconciliation-v1-experiment-local"
 FORMAT_STATUS = "provisional/experiment-local/non-public-contract"
 GENERATOR_SHA256 = "995a067d7f4bd247defd092a7e8501224ce7393e9e9e09dc47726f13b610a1e8"
 CONTRACT_SHA256 = "2c77ce6c586a5f5ebc29f1dfe93f6f19264a8849a8dd62ccb22ef3b5338ca175"
-SOLVER_SHA256 = "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d"
+SOLVER_SHA256 = "ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d"
 SOLVER_EVIDENCE_SHA256 = (
-    "47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256"
+    "53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c"
 )
 TRACK5_SHA256 = "8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7"
 RUN_01_MANIFEST_SHA256 = (
@@ -144,6 +144,7 @@ def parse_json(data: bytes, label: str) -> Any:
 def read_regular(path: Path, label: str) -> bytes:
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+    directory_fd: int | None = None
     try:
         directory_fd = os.open(path.parent, directory_flags)
         descriptor = os.open(path.name, file_flags, dir_fd=directory_fd)
@@ -151,7 +152,7 @@ def read_regular(path: Path, label: str) -> bytes:
     except OSError as error:
         raise ReconciliationError(f"{label}: cannot open {path}: {error}") from error
     finally:
-        if "directory_fd" in locals():
+        if directory_fd is not None:
             os.close(directory_fd)
     if not stat.S_ISREG(opened.st_mode):
         os.close(descriptor)
@@ -255,24 +256,24 @@ def run_solver_verifier(solver_source: Path, evidence: Path) -> None:
         snapshot = Path(directory) / "experiments"
         snapshot.mkdir()
         for name in files:
-            (snapshot / name).write_bytes(
+            _ = (snapshot / name).write_bytes(
                 read_regular(source_root / name, f"Phase 1 snapshot {name}")
             )
         snapshot_solver = snapshot / solver_source.name
         snapshot_evidence = snapshot / evidence.name
-        verify_sidecar(
+        _ = verify_sidecar(
             snapshot / "generate_stepped_rotational_v1.py",
             GENERATOR_SHA256,
             "snapshot generator",
             replace_suffix=True,
         )
-        verify_sidecar(
+        _ = verify_sidecar(
             snapshot_solver,
             SOLVER_SHA256,
             "snapshot solver",
             replace_suffix=True,
         )
-        verify_sidecar(
+        _ = verify_sidecar(
             snapshot_evidence, SOLVER_EVIDENCE_SHA256, "snapshot solver evidence"
         )
         command = [
@@ -311,9 +312,9 @@ def verify_phase1(
     generator = experiments / "generate_stepped_rotational_v1.py"
     solver = experiments / "generated_solver_evaluator_v1.py"
     evidence_path = experiments / "generated-solver-evaluator-v1-evidence.json"
-    verify_sidecar(generator, GENERATOR_SHA256, "generator", replace_suffix=True)
+    _ = verify_sidecar(generator, GENERATOR_SHA256, "generator", replace_suffix=True)
     events.append("generator-source-and-sidecar-verified")
-    verify_sidecar(solver, SOLVER_SHA256, "solver", replace_suffix=True)
+    _ = verify_sidecar(solver, SOLVER_SHA256, "solver", replace_suffix=True)
     events.append("solver-source-and-sidecar-verified")
     evidence_before = verify_sidecar(
         evidence_path, SOLVER_EVIDENCE_SHA256, "solver evidence"
@@ -347,9 +348,10 @@ def verify_phase1(
         }
     ):
         fail("verified solver evidence source, contract, or runtime identity mismatch")
-    scenario = evidence.get("scenarios", {}).get(SCENARIO_ID)
-    if not isinstance(scenario, dict):
+    scenario_value = evidence.get("scenarios", {}).get(SCENARIO_ID)
+    if not isinstance(scenario_value, dict):
         fail("verified solver evidence lacks selected scenario")
+    scenario: dict[str, Any] = scenario_value
     if (
         scenario.get("disposition") != "passed"
         or scenario.get("termination", {}).get("success") is not True
@@ -419,7 +421,7 @@ def fitted_prediction(estimate: Mapping[str, Any]) -> dict[str, Any]:
     )
 
     def planes(asymmetric: bool) -> list[dict[str, Any]]:
-        result = []
+        result: list[dict[str, Any]] = []
         for index, (station, radius_bounds, normal) in enumerate(axial_specs):
             bounds: dict[str, Any] = {"radius": radius_bounds}
             if asymmetric and index in {1, 2}:
@@ -451,7 +453,7 @@ def fitted_prediction(estimate: Mapping[str, Any]) -> dict[str, Any]:
             )
         return result
 
-    variants = []
+    variants: list[dict[str, Any]] = []
     for variant, asymmetric in (
         ("axisymmetric", False),
         ("asymmetric_datum_flat", True),
@@ -605,7 +607,7 @@ def generated_truth_comparison(prediction_bytes: bytes) -> dict[str, Any]:
         "station-80_m": cylinders[2]["z_bounds_m"][1],
         "datum-flat-x_m": cylinders[1]["trim"]["x_max_m"],
     }
-    findings = []
+    findings: list[dict[str, Any]] = []
     for name in SHAPE_NAMES:
         actual = float(estimate[name])
         expected = GENERATED_TRUTH[name]
@@ -656,7 +658,7 @@ def tree_fingerprint(
         fail(f"CAD evidence root is not a directory: {root}")
     entries: list[tuple[str, str]] = []
     chains: list[tuple[tuple[str, ...], int, int, int]] = []
-    stack = [(os.dup(root_fd), ())]
+    stack: list[tuple[int, tuple[str, ...]]] = [(os.dup(root_fd), ())]
     while stack:
         directory_fd, prefix = stack.pop()
         try:
@@ -781,7 +783,9 @@ def verify_track5(
 ) -> dict[str, Any]:
     experiments = root / "experiments"
     source_path = experiments / "track5_onshape_cad_repro.py"
-    verify_sidecar(source_path, TRACK5_SHA256, "Track 5 verifier", replace_suffix=True)
+    _ = verify_sidecar(
+        source_path, TRACK5_SHA256, "Track 5 verifier", replace_suffix=True
+    )
     events.append("track5-tool-source-and-sidecar-verified")
     source_data = read_regular(source_path, "Track 5 verifier")
     if sha256(source_data) != TRACK5_SHA256:
@@ -1003,18 +1007,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser("generate")
-    generate.add_argument(
+    _ = generate.add_argument(
         "--root", type=Path, default=Path(__file__).resolve().parent.parent
     )
     verify = commands.add_parser("verify-evidence")
-    verify.add_argument("evidence", type=Path)
-    verify.add_argument(
+    _ = verify.add_argument("evidence", type=Path)
+    _ = verify.add_argument(
         "--root", type=Path, default=Path(__file__).resolve().parent.parent
     )
     args = parser.parse_args()
     try:
         if args.command == "generate":
-            sys.stdout.buffer.write(generate_evidence_bytes(args.root))
+            _ = sys.stdout.buffer.write(generate_evidence_bytes(args.root))
             return 0
         report = verify_report(args.root.resolve(), args.evidence)
         print(f"evidence: PASS ({report['claim']})")

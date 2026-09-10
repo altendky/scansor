@@ -82,6 +82,9 @@ outside the intended boundary.
 - [Repository and development tooling](repository-and-development-tooling.md) -
   **Provisional:** implemented locked mise/uv ownership, local gates, baseline CI,
   future Renovate, test seams, and explicit packaging and release deferrals
+- [Retained experiment type diagnostics](experiments/retained-source-type-diagnostics.md)
+  - **Bounded cleanup:** all 250 original exceptions inventoried, 146 corrected
+  through an approved regeneration chain, and 104 retained with documented reasons
 - [Tool landscape](tool-landscape.md) - **Research finding:** adjacent products
   and the unfilled complete-contract gap, without claims beyond current public
   verification

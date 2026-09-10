@@ -149,10 +149,10 @@ def verify_runtime(
     ):
         fail(
             "solver evidence requires exact runtime "
-            f"CPython {'.'.join(map(str, REFERENCE_PYTHON))}, "
-            f"NumPy {REFERENCE_NUMPY}, SciPy {REFERENCE_SCIPY}; got "
-            f"{actual_implementation} {'.'.join(map(str, actual))}, "
-            f"NumPy {actual_numpy}, SciPy {actual_scipy}"
+            + f"CPython {'.'.join(map(str, REFERENCE_PYTHON))}, "
+            + f"NumPy {REFERENCE_NUMPY}, SciPy {REFERENCE_SCIPY}; got "
+            + f"{actual_implementation} {'.'.join(map(str, actual))}, "
+            + f"NumPy {actual_numpy}, SciPy {actual_scipy}"
         )
     return ".".join(map(str, actual))
 
@@ -277,7 +277,7 @@ def source_sha256() -> str:
 
 
 def verify_source() -> str:
-    verify_runtime()
+    _ = verify_runtime()
     sidecar = Path(__file__).with_suffix(".sha256")
     try:
         checksum, filename = (
@@ -556,7 +556,7 @@ def raw_pose_jacobian(
 ) -> np.ndarray:
     rotation = rodrigues(pose_delta[3:])
     right_jacobian = so3_right_jacobian(pose_delta[3:])
-    rows = []
+    rows: list[np.ndarray] = []
     for factor in factors:
         if traversed_factor_ids is not None:
             traversed_factor_ids.append(factor.factor_id)
@@ -695,13 +695,13 @@ class FitCallback:
         local_points: dict[str, np.ndarray],
         support_shape: np.ndarray | None = None,
     ):
-        self.data = data
-        self.factors = factors
-        self.local_points = local_points
-        self.support_shape = support_shape
+        self.data: ContractData = data
+        self.factors: tuple[Factor, ...] = factors
+        self.local_points: dict[str, np.ndarray] = local_points
+        self.support_shape: np.ndarray | None = support_shape
         self.seen_observation_ids: set[str] = set()
-        self.calls = 0
-        self.jacobian_calls = 0
+        self.calls: int = 0
+        self.jacobian_calls: int = 0
         self.invocations: list[CallbackInvocation] = []
 
     def start_invocation(
@@ -717,7 +717,7 @@ class FitCallback:
         if not valid:
             fail(diagnostic)
         self.calls += 1
-        residuals = []
+        residuals: list[float] = []
         for factor in self.factors:
             invocation.factor_ids.append(factor.factor_id)
             self.seen_observation_ids.add(factor.observation_id)
@@ -745,7 +745,7 @@ class FitCallback:
         invocation = self.start_invocation("pose.residual", pose_delta)
         self.calls += 1
         rotation = rodrigues(pose_delta[3:])
-        residuals = []
+        residuals: list[float] = []
         for factor in self.factors:
             invocation.factor_ids.append(factor.factor_id)
             self.seen_observation_ids.add(factor.observation_id)
@@ -986,7 +986,7 @@ def shape_spectrum(jacobian: np.ndarray) -> dict[str, Any]:
 def five_point_jacobian(
     function: Any, coordinates: np.ndarray, step: float
 ) -> np.ndarray:
-    columns = []
+    columns: list[np.ndarray] = []
     for column in range(len(coordinates)):
         delta = np.zeros_like(coordinates)
         delta[column] = step
@@ -1072,7 +1072,7 @@ def supported_derivative_factors(
     kind: str,
 ) -> tuple[Factor, ...]:
     candidates = derivative_stencil_candidates(coordinates, direction)
-    result = []
+    result: list[Factor] = []
     for factor in factors:
         supported = True
         for _, candidate in candidates:
@@ -1243,10 +1243,10 @@ def callback_invocation_evidence(
     if len(callback.invocations) != expected_invocation_count:
         fail(
             f"{kind} callback trace count mismatch: expected "
-            f"{expected_invocation_count}, got {len(callback.invocations)}"
+            + f"{expected_invocation_count}, got {len(callback.invocations)}"
         )
 
-    result = []
+    result: list[dict[str, Any]] = []
     for index, (label, coordinates) in enumerate(candidates):
         invocations = callback.invocations[2 * index : 2 * index + 2]
         candidate_evidence: dict[str, Any] = {
@@ -1258,7 +1258,7 @@ def callback_invocation_evidence(
             if invocation.path != path:
                 fail(
                     f"{kind} callback {label} path mismatch: expected {path}, "
-                    f"got {invocation.path}"
+                    + f"got {invocation.path}"
                 )
             if not np.array_equal(invocation.coordinates, coordinates):
                 fail(f"{kind} callback {label} coordinate mismatch on {path}")
@@ -1304,8 +1304,8 @@ def callback_domain_probe(
     residual = callback.shape if kind == "shape" else callback.pose
     jacobian = callback.shape_jacobian if kind == "shape" else callback.pose_jacobian
     for _, candidate in candidates:
-        residual(candidate)
-        jacobian(candidate)
+        _ = residual(candidate)
+        _ = jacobian(candidate)
 
     active_ids = tuple(factor.factor_id for factor in factors)
     candidate_evidence = callback_invocation_evidence(
@@ -1400,7 +1400,7 @@ def derivative_checks(data: ContractData) -> dict[str, Any]:
             ),
         ],
     }
-    stencil_executions = []
+    stencil_executions: list[dict[str, Any]] = []
     for kind, kind_probes in probes.items():
         for probe in kind_probes:
             stencil_executions.append(
@@ -1579,8 +1579,8 @@ def gauge_checks(
 
 def held_out_oracle(data: ContractData, shape: np.ndarray) -> dict[str, Any]:
     scenario = data.scenarios["coherent-held-out-strips-sectors"]
-    residuals = []
-    failures = []
+    residuals: list[float] = []
+    failures: list[dict[str, str]] = []
     for observation_id in scenario.evaluation_only_ids:
         observation = data.observations[observation_id]
         record = data.records[observation_id]
@@ -1784,8 +1784,8 @@ def raw_shape_evidence(
 def support_evidence(
     factors: tuple[Factor, ...], points: dict[str, np.ndarray], shape: np.ndarray
 ) -> dict[str, Any]:
-    failures = []
-    traversed = []
+    failures: list[dict[str, str]] = []
+    traversed: list[str] = []
     valid, diagnostic = geometry_valid(shape)
     if valid:
         for factor in factors:
@@ -1838,7 +1838,7 @@ def solved_shape_scenario(
 
 def oracle_report(data: ContractData) -> dict[str, Any]:
     max_residual = 0.0
-    support_failures = []
+    support_failures: list[dict[str, str]] = []
     kind_counts: dict[str, int] = {"axial_plane": 0, "cylinder": 0, "datum_flat": 0}
     for factor in data.factors.values():
         point, _ = truth_local(data, data.observations[factor.observation_id])
@@ -1948,7 +1948,7 @@ def rejected_corrupted_mapping(data: ContractData) -> dict[str, Any]:
         mapping.element_id,
     )
     point = local_points(data)[observation_id]
-    support_attempt_mapping_ids = []
+    support_attempt_mapping_ids: list[str] = []
     support_attempt_mapping_ids.append(overridden.mapping_id)
     inside, reason = physical_support_domain(point, overridden, SHAPE_TRUTH)
     if inside:
@@ -2035,8 +2035,8 @@ def mismatch_points_and_bounds(
         for factor in factors
         if factor.element_id == "cylinder.band-2"
     ]
-    analytic_radii = []
-    analytic_angles = []
+    analytic_radii: list[float] = []
+    analytic_angles: list[float] = []
     for observation_id in middle_ids:
         point = points[observation_id].copy()
         theta = math.atan2(point[1], point[0])
@@ -2164,7 +2164,7 @@ def run_gate() -> dict[str, Any]:
     active_estimate = np.array([active_bound["estimate"][name] for name in SHAPE_NAMES])
     active_jacobian = raw_shape_jacobian(active_factors(data, "legal-active-bound"))
     free_columns = np.flatnonzero(np.asarray(active_bound["active_mask"]) == 0)
-    active_bound_diagnostics = {
+    active_bound_diagnostics: dict[str, Any] = {
         "active_mask": active_bound["active_mask"],
         "active_bound_tolerance_m": ACTIVE_BOUND_TOLERANCE_M,
         "declared_bound_m": data.scenarios["legal-active-bound"].declaration["bound_m"],
@@ -2233,7 +2233,7 @@ def run_gate() -> dict[str, Any]:
         )
         <= MISMATCH_ANALYTIC_TOLERANCE_M
     )
-    mismatch_diagnostics = {
+    mismatch_diagnostics: dict[str, Any] = {
         **mismatch_analytic,
         "classification": (
             "model-mismatch-suspect"
@@ -2333,7 +2333,7 @@ def run_gate() -> dict[str, Any]:
     nominal_points = local_points(data)
     balanced_points = local_points(data, noise_offsets)
     evaluator_factors = active_factors(data, "evaluator-oracle")
-    scenario_results = {
+    scenario_results: dict[str, dict[str, Any]] = {
         "evaluator-oracle": {
             "active_factor_count": len(evaluator_factors),
             "callbacks": {
@@ -2855,7 +2855,7 @@ def run_gate() -> dict[str, Any]:
 
 
 def verify_evidence(path: Path) -> dict[str, Any]:
-    verify_source()
+    _ = verify_source()
     data = path.read_bytes()
     try:
         value = json.loads(
@@ -2881,9 +2881,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run")
-    run.add_argument("--output", required=True, type=Path)
+    _ = run.add_argument("--output", required=True, type=Path)
     verify = commands.add_parser("verify-evidence")
-    verify.add_argument("evidence", type=Path)
+    _ = verify.add_argument("evidence", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "run":
