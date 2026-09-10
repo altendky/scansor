@@ -235,11 +235,17 @@ Phase B only after nominal generated end-to-end evidence exists.
    invalid geometry; and model mismatch.
 7. **Examples:** hand-author non-normative generated-evidence records with a
    synthetic-fixture disposition.
-8. **Later external sources:** perform deferred CloudCompare/RealityScan and other
-   authorized source probes under Track 2 Phase B.
-9. **Later physical validation:** select an artifact and protocol, acquire scans,
-   reserve independent measurements, and assess only bounded physical claims.
-10. **Publication planning and extensions:** separately consider effect-free
+8. **Later external sources:** perform deferred authorized source probes under
+   Track 2 Phase B. A likely first bounded ingestion probe is RealityScan PLY
+   with relevant `.rsInfo` provenance; CloudCompare selection and possible later
+   E57 scanner-data paths remain separate adapter investigations.
+9. **Constraint-derived calibration:** derive scale and the constrained portion
+   of pose from explicit provenance-bearing constraints, report unresolved pose
+   freedoms, and run the existing fixed-pose shape workflow before considering
+   joint pose/scale/shape fitting.
+10. **Later physical validation:** select an artifact and protocol, acquire scans,
+    reserve independent measurements, and assess only bounded physical claims.
+11. **Publication planning and extensions:** separately consider effect-free
     planning, execution/reconciliation, cones, blends, assemblies, native
     relationships, challengers, and broader adapters.
 
@@ -258,10 +264,21 @@ Phase B only after nominal generated end-to-end evidence exists.
   and coverage are reported using declared scaling.
 - **Generator gate:** exact evaluator expectations, deterministic seeds or
   constructions, truth, generated observations, and expected equivalence classes
-  are fixed independently of solver output.
+  are fixed independently of solver output. Large deterministic inputs are
+  exactly reproducible from small versioned repository recipes; generated bulk
+  files and temporary caches remain outside the repository.
 - **Observation gate:** IDs, memberships, mappings, factors, per-scenario active
   factor IDs, train/held-out roles, attributes, units, and frames are explicit;
-  held-out IDs reach no fit factor.
+  held-out IDs reach no fit factor. A later full-processing mode accounts for
+  every source point, every admitted point's explicit weight, and every excluded
+  point's disposition under bounded-memory execution; any downsampled quick mode
+  is explicit and cannot produce a full-processing claim.
+- **External-source gate:** original bytes and hashes, importer identity and
+  configuration, relevant sidecars, and deterministic canonical output are
+  traceable without treating an adapter format as canonical storage.
+- **Calibration gate:** each scale or pose constraint records source, uncertainty,
+  and hard or weighted semantics; unresolved degrees of freedom remain explicit,
+  and calibration inputs are excluded from independent validation claims.
 - **CAD gate:** one explicit pinned source context covers both generated variants;
   raw geometry and normalization are bounded, traceable, and loss-accounted.
 - **Validation gate:** generator truth, generated training, generated held-out,
@@ -328,6 +345,8 @@ Do not claim:
 - a unique cause from residual patterns; use evidence-qualified language
 - stable schemas, APIs, storage formats, compatibility contracts, or a production
   language/solver
+- external-source, full-data, calibration, registration, joint-fitting, or cone
+  support before its separately gated evidence exists
 - publication success without separately approved execution, fresh read-back,
   and semantic reconciliation
 - assembly, native-constraint, blend, or multi-component capability before its

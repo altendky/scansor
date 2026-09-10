@@ -35,6 +35,48 @@ Source snapshots, canonical models, derived meshes or samples, and publication
 plans should remain distinct and traceable. Scansor owns canonical identities;
 external identifiers are revision-scoped bindings and provenance.
 
+## External Observation Processing Is Accountable
+
+A future full-processing mode should inspect every source point. Every admitted
+point should contribute through an explicit weight, and every excluded point
+should receive an explicit disposition. A separately labeled quick mode may
+downsample, but its results must not be represented as full-data processing.
+Multi-million-point full processing should use streaming or otherwise
+bounded-memory execution rather than requiring sample reduction.
+
+Observation contribution should be governed by an explicit, versioned,
+configurable policy rather than a permanent fixed weighting rule. Surface-area
+weighting is an acceptable initial baseline for mesh-derived vertices because it
+reduces raw triangulation-density bias, but it is not assumed final. Later
+policies may also apply declared importance weights by target surface or element,
+for example prioritizing interfaces over lower-accuracy cast surfaces. Area and
+target-importance weighting may be combined; their exact normalization and
+semantics remain open.
+
+Future robust processing may use an auditable iterative fit, localized-deviation
+identification, policy-driven exclusion or downweighting, and refit workflow.
+Bumps, scratches, mold flashing, and other local deviations may be treated as
+candidate defects that should not redefine nominal geometry. Every point should
+retain its disposition and weight history across iterations; no point may be
+silently deleted. Exclusion and downweight rules, thresholds, convergence and
+iteration limits, and model-identity implications should be deterministic,
+versioned, and bound into provenance and result identity.
+
+Held-out observations must remain isolated from fitting, policy selection,
+threshold tuning, and iterative defect decisions. Defect detection, geometric
+fitting, and dimensional acceptance remain distinct evidence and decision roles.
+No automatic-defect policy, threshold, or metrology validity is selected.
+
+## Large Generated Inputs Are Recipe-Backed
+
+Large deterministic test inputs should be reproduced from small versioned
+recipes committed to the repository, not committed as multi-megabyte PLY
+fixtures. A recipe should bind its parametric model, sampling allocation and
+order, seed, noise and adverse cases, encoding, identity expectations, and the
+information needed to recreate exact sample bytes. Generated large files and
+temporary caches should remain outside the repository. The recipe schema,
+generator implementation, and cache design remain open.
+
 ## Semantic Degradation Is Explicit
 
 Adapters should declare capabilities and report unsupported relationships,
@@ -73,6 +115,10 @@ Scan agreement is not automatically dimensional truth. Accuracy and metrology
 claims require known references, a representative validation corpus, repeatable
 procedures, and explicit uncertainty. Until then, results are geometric
 estimates with diagnostics, not certified measurements.
+
+A known dimension used to establish observation scale is a calibration input,
+not an independent validation result. It must not also be reported as evidence
+that the fitted output independently recovered that dimension.
 
 ## Product Quality Extends Beyond Optimization
 
