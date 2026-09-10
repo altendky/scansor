@@ -1,0 +1,1657 @@
+--- a/.basedpyright/baseline.json
++++ b/.basedpyright/baseline.json
+@@ -172,94 +172,6 @@
+                 }
+             },
+             {
+-                "code": "reportImplicitStringConcatenation",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 57,
+-                    "lineCount": 5
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 20,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 19,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 17,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 20,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 26,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 18,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnannotatedClassAttribute",
+-                "range": {
+-                    "startColumn": 13,
+-                    "endColumn": 27,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 28,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 28,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+                 "code": "reportUnknownMemberType",
+                 "range": {
+                     "startColumn": 15,
+@@ -430,1090 +342,8 @@
+             {
+                 "code": "reportUnknownMemberType",
+                 "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 22,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportImplicitStringConcatenation",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 75,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportImplicitStringConcatenation",
+-                "range": {
+-                    "startColumn": 20,
+-                    "endColumn": 44,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 21,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 27,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 27,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 37,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 27,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 24,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 28,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 31,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 35,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 38,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 30,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 29,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 55,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 55,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 59,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 59,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 67,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 29,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 29,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 37,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 49,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 37,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 49,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 49,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 33,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 71,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 71,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 52,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 52,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 56,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 60,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 60,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 68,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 53,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 53,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 56,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 56,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 57,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 57,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 67,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 67,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 63,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 63,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 56,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 68,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 80,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 68,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 80,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 80,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 54,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 66,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 78,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 66,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 78,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 78,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 58,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 70,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 82,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 70,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 82,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 82,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 53,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 65,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 77,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 65,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 77,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 77,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 38,
+-                    "endColumn": 9,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 60,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 62,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 64,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 64,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 63,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 46,
+-                    "endColumn": 24,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 71,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 73,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 74,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 63,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 65,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 65,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 65,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 63,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 25,
+-                    "endColumn": 68,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportGeneralTypeIssues",
+-                "range": {
+-                    "startColumn": 25,
+-                    "endColumn": 68,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportGeneralTypeIssues",
+-                "range": {
+-                    "startColumn": 25,
+-                    "endColumn": 68,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 59,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 71,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 83,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 71,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportCallIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 83,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 83,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 15,
+-                    "endColumn": 31,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 29,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 15,
+-                    "endColumn": 28,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 16,
+-                    "endColumn": 29,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 15,
+-                    "endColumn": 28,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 40,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 40,
+-                    "lineCount": 2
+-                }
+-            },
+-            {
+-                "code": "reportIndexIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 66,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportOperatorIssue",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 72,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+                     "startColumn": 21,
+                     "endColumn": 38,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 19,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 58,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 46,
+-                    "lineCount": 1
+-                }
+-            }
+-        ],
+-        "./experiments/generated_track5_cad_reconciliation_v1.py": [
+-            {
+-                "code": "reportPossiblyUnboundVariable",
+-                "range": {
+-                    "startColumn": 21,
+-                    "endColumn": 33,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 13,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 9,
+-                    "lineCount": 6
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 9,
+-                    "lineCount": 6
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 9,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 81,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 72,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 20,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 23,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 46,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 23,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 42,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 23,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 11,
+-                    "endColumn": 44,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 15,
+-                    "endColumn": 27,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 15,
+-                    "endColumn": 45,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 25,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 23,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnknownMemberType",
+-                "range": {
+-                    "startColumn": 8,
+-                    "endColumn": 23,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportArgumentType",
+-                "range": {
+-                    "startColumn": 44,
+-                    "endColumn": 58,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 87,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 5,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 46,
+-                    "lineCount": 1
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 4,
+-                    "endColumn": 5,
+-                    "lineCount": 3
+-                }
+-            },
+-            {
+-                "code": "reportUnusedCallResult",
+-                "range": {
+-                    "startColumn": 12,
+-                    "endColumn": 71,
+                     "lineCount": 1
+                 }
+             }
+--- a/docs/src/project/experiments/generated-onshape-fixture.md
++++ b/docs/src/project/experiments/generated-onshape-fixture.md
+@@ -462,7 +462,7 @@
+ ## Generated Fit to Retained CAD Reconciliation
+
+ The separate [Phase 2 reconciliation source][reconciliation-source], SHA-256
+-`b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908`,
++`3659f46ac93be68b2f85c7a0501c6c9944e74a2e2612d456cffb7d62290c4eab`,
+ contains no optimizer, NumPy/SciPy import, or solver-module import. It invokes the
+ pinned Phase 1 verifier from a fresh temporary source/evidence snapshot as an
+ isolated exact-runtime offline subprocess. It executes Track 5 directly from its
+@@ -482,7 +482,7 @@
+ prediction bytes with each run through a fresh independent deserialization,
+ without averaging or closer-run selection. The retained
+ [reconciliation evidence][reconciliation-evidence], SHA-256
+-`9fff881fbaa245423d91d0f6bb79fdcb8d4245598e46d5702cd0115cbc5bf0c5`,
++`e3f56adb904d906f13ed22af4878ea58790cb3dfa8415abdf4f23a44ee552c57`,
+ reports these bounded results:
+
+ - fitted estimate versus generated truth: maximum linear difference
+--- a/docs/src/project/planning/solver-fixture.md
++++ b/docs/src/project/planning/solver-fixture.md
+@@ -29,9 +29,9 @@
+
+ [`generated_solver_evaluator_v1.py`][solver-runner] requires exact CPython
+ `3.12.12`, NumPy `2.3.1`, and SciPy `1.16.1` under PEP 723. Its source SHA-256 is
+-`a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d`.
++`ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d`.
+ The compact [retained evidence][solver-evidence] has SHA-256
+-`47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256`
++`53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c`
+ and is recomputed by `verify-evidence`. Verification fails before comparison on
+ another Python implementation or patch version because runtime identity is
+ retained in the evidence. The large generated corpus remains untracked.
+--- a/experiments/generated-solver-evaluator-v1-evidence.json
++++ b/experiments/generated-solver-evaluator-v1-evidence.json
+@@ -3445,7 +3445,7 @@
+       }
+     }
+   },
+-  "solver_source_sha256": "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d",
++  "solver_source_sha256": "ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d",
+   "trace": {
+     "callback_audits": [
+       {
+--- a/experiments/generated-solver-evaluator-v1-evidence.json.sha256
++++ b/experiments/generated-solver-evaluator-v1-evidence.json.sha256
+@@ -1 +1 @@
+-47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256  generated-solver-evaluator-v1-evidence.json
++53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c  generated-solver-evaluator-v1-evidence.json
+--- a/experiments/generated-track5-cad-reconciliation-v1-evidence.json
++++ b/experiments/generated-track5-cad-reconciliation-v1-evidence.json
+@@ -69,9 +69,9 @@
+   "inputs": {
+     "contract_logical_sha256": "2c77ce6c586a5f5ebc29f1dfe93f6f19264a8849a8dd62ccb22ef3b5338ca175",
+     "generator_source_sha256": "995a067d7f4bd247defd092a7e8501224ce7393e9e9e09dc47726f13b610a1e8",
+-    "reconciliation_source_sha256": "b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908",
+-    "solver_evidence_sha256": "47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256",
+-    "solver_source_sha256": "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d",
++    "reconciliation_source_sha256": "3659f46ac93be68b2f85c7a0501c6c9944e74a2e2612d456cffb7d62290c4eab",
++    "solver_evidence_sha256": "53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c",
++    "solver_source_sha256": "ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d",
+     "track5_tool_sha256": "8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7"
+   },
+   "integrity_order": {
+--- a/experiments/generated-track5-cad-reconciliation-v1-evidence.json.sha256
++++ b/experiments/generated-track5-cad-reconciliation-v1-evidence.json.sha256
+@@ -1 +1 @@
+-9fff881fbaa245423d91d0f6bb79fdcb8d4245598e46d5702cd0115cbc5bf0c5  generated-track5-cad-reconciliation-v1-evidence.json
++e3f56adb904d906f13ed22af4878ea58790cb3dfa8415abdf4f23a44ee552c57  generated-track5-cad-reconciliation-v1-evidence.json
+--- a/experiments/generated_solver_evaluator_v1.py
++++ b/experiments/generated_solver_evaluator_v1.py
+@@ -149,10 +149,10 @@
+     ):
+         fail(
+             "solver evidence requires exact runtime "
+-            f"CPython {'.'.join(map(str, REFERENCE_PYTHON))}, "
+-            f"NumPy {REFERENCE_NUMPY}, SciPy {REFERENCE_SCIPY}; got "
+-            f"{actual_implementation} {'.'.join(map(str, actual))}, "
+-            f"NumPy {actual_numpy}, SciPy {actual_scipy}"
++            + f"CPython {'.'.join(map(str, REFERENCE_PYTHON))}, "
++            + f"NumPy {REFERENCE_NUMPY}, SciPy {REFERENCE_SCIPY}; got "
++            + f"{actual_implementation} {'.'.join(map(str, actual))}, "
++            + f"NumPy {actual_numpy}, SciPy {actual_scipy}"
+         )
+     return ".".join(map(str, actual))
+
+@@ -277,7 +277,7 @@
+
+
+ def verify_source() -> str:
+-    verify_runtime()
++    _ = verify_runtime()
+     sidecar = Path(__file__).with_suffix(".sha256")
+     try:
+         checksum, filename = (
+@@ -556,7 +556,7 @@
+ ) -> np.ndarray:
+     rotation = rodrigues(pose_delta[3:])
+     right_jacobian = so3_right_jacobian(pose_delta[3:])
+-    rows = []
++    rows: list[np.ndarray] = []
+     for factor in factors:
+         if traversed_factor_ids is not None:
+             traversed_factor_ids.append(factor.factor_id)
+@@ -695,13 +695,13 @@
+         local_points: dict[str, np.ndarray],
+         support_shape: np.ndarray | None = None,
+     ):
+-        self.data = data
+-        self.factors = factors
+-        self.local_points = local_points
+-        self.support_shape = support_shape
++        self.data: ContractData = data
++        self.factors: tuple[Factor, ...] = factors
++        self.local_points: dict[str, np.ndarray] = local_points
++        self.support_shape: np.ndarray | None = support_shape
+         self.seen_observation_ids: set[str] = set()
+-        self.calls = 0
+-        self.jacobian_calls = 0
++        self.calls: int = 0
++        self.jacobian_calls: int = 0
+         self.invocations: list[CallbackInvocation] = []
+
+     def start_invocation(
+@@ -717,7 +717,7 @@
+         if not valid:
+             fail(diagnostic)
+         self.calls += 1
+-        residuals = []
++        residuals: list[float] = []
+         for factor in self.factors:
+             invocation.factor_ids.append(factor.factor_id)
+             self.seen_observation_ids.add(factor.observation_id)
+@@ -745,7 +745,7 @@
+         invocation = self.start_invocation("pose.residual", pose_delta)
+         self.calls += 1
+         rotation = rodrigues(pose_delta[3:])
+-        residuals = []
++        residuals: list[float] = []
+         for factor in self.factors:
+             invocation.factor_ids.append(factor.factor_id)
+             self.seen_observation_ids.add(factor.observation_id)
+@@ -986,7 +986,7 @@
+ def five_point_jacobian(
+     function: Any, coordinates: np.ndarray, step: float
+ ) -> np.ndarray:
+-    columns = []
++    columns: list[np.ndarray] = []
+     for column in range(len(coordinates)):
+         delta = np.zeros_like(coordinates)
+         delta[column] = step
+@@ -1072,7 +1072,7 @@
+     kind: str,
+ ) -> tuple[Factor, ...]:
+     candidates = derivative_stencil_candidates(coordinates, direction)
+-    result = []
++    result: list[Factor] = []
+     for factor in factors:
+         supported = True
+         for _, candidate in candidates:
+@@ -1243,10 +1243,10 @@
+     if len(callback.invocations) != expected_invocation_count:
+         fail(
+             f"{kind} callback trace count mismatch: expected "
+-            f"{expected_invocation_count}, got {len(callback.invocations)}"
+-        )
+-
+-    result = []
++            + f"{expected_invocation_count}, got {len(callback.invocations)}"
++        )
++
++    result: list[dict[str, Any]] = []
+     for index, (label, coordinates) in enumerate(candidates):
+         invocations = callback.invocations[2 * index : 2 * index + 2]
+         candidate_evidence: dict[str, Any] = {
+@@ -1258,7 +1258,7 @@
+             if invocation.path != path:
+                 fail(
+                     f"{kind} callback {label} path mismatch: expected {path}, "
+-                    f"got {invocation.path}"
++                    + f"got {invocation.path}"
+                 )
+             if not np.array_equal(invocation.coordinates, coordinates):
+                 fail(f"{kind} callback {label} coordinate mismatch on {path}")
+@@ -1304,8 +1304,8 @@
+     residual = callback.shape if kind == "shape" else callback.pose
+     jacobian = callback.shape_jacobian if kind == "shape" else callback.pose_jacobian
+     for _, candidate in candidates:
+-        residual(candidate)
+-        jacobian(candidate)
++        _ = residual(candidate)
++        _ = jacobian(candidate)
+
+     active_ids = tuple(factor.factor_id for factor in factors)
+     candidate_evidence = callback_invocation_evidence(
+@@ -1400,7 +1400,7 @@
+             ),
+         ],
+     }
+-    stencil_executions = []
++    stencil_executions: list[dict[str, Any]] = []
+     for kind, kind_probes in probes.items():
+         for probe in kind_probes:
+             stencil_executions.append(
+@@ -1579,8 +1579,8 @@
+
+ def held_out_oracle(data: ContractData, shape: np.ndarray) -> dict[str, Any]:
+     scenario = data.scenarios["coherent-held-out-strips-sectors"]
+-    residuals = []
+-    failures = []
++    residuals: list[float] = []
++    failures: list[dict[str, str]] = []
+     for observation_id in scenario.evaluation_only_ids:
+         observation = data.observations[observation_id]
+         record = data.records[observation_id]
+@@ -1784,8 +1784,8 @@
+ def support_evidence(
+     factors: tuple[Factor, ...], points: dict[str, np.ndarray], shape: np.ndarray
+ ) -> dict[str, Any]:
+-    failures = []
+-    traversed = []
++    failures: list[dict[str, str]] = []
++    traversed: list[str] = []
+     valid, diagnostic = geometry_valid(shape)
+     if valid:
+         for factor in factors:
+@@ -1838,7 +1838,7 @@
+
+ def oracle_report(data: ContractData) -> dict[str, Any]:
+     max_residual = 0.0
+-    support_failures = []
++    support_failures: list[dict[str, str]] = []
+     kind_counts: dict[str, int] = {"axial_plane": 0, "cylinder": 0, "datum_flat": 0}
+     for factor in data.factors.values():
+         point, _ = truth_local(data, data.observations[factor.observation_id])
+@@ -1948,7 +1948,7 @@
+         mapping.element_id,
+     )
+     point = local_points(data)[observation_id]
+-    support_attempt_mapping_ids = []
++    support_attempt_mapping_ids: list[str] = []
+     support_attempt_mapping_ids.append(overridden.mapping_id)
+     inside, reason = physical_support_domain(point, overridden, SHAPE_TRUTH)
+     if inside:
+@@ -2035,8 +2035,8 @@
+         for factor in factors
+         if factor.element_id == "cylinder.band-2"
+     ]
+-    analytic_radii = []
+-    analytic_angles = []
++    analytic_radii: list[float] = []
++    analytic_angles: list[float] = []
+     for observation_id in middle_ids:
+         point = points[observation_id].copy()
+         theta = math.atan2(point[1], point[0])
+@@ -2164,7 +2164,7 @@
+     active_estimate = np.array([active_bound["estimate"][name] for name in SHAPE_NAMES])
+     active_jacobian = raw_shape_jacobian(active_factors(data, "legal-active-bound"))
+     free_columns = np.flatnonzero(np.asarray(active_bound["active_mask"]) == 0)
+-    active_bound_diagnostics = {
++    active_bound_diagnostics: dict[str, Any] = {
+         "active_mask": active_bound["active_mask"],
+         "active_bound_tolerance_m": ACTIVE_BOUND_TOLERANCE_M,
+         "declared_bound_m": data.scenarios["legal-active-bound"].declaration["bound_m"],
+@@ -2233,7 +2233,7 @@
+         )
+         <= MISMATCH_ANALYTIC_TOLERANCE_M
+     )
+-    mismatch_diagnostics = {
++    mismatch_diagnostics: dict[str, Any] = {
+         **mismatch_analytic,
+         "classification": (
+             "model-mismatch-suspect"
+@@ -2333,7 +2333,7 @@
+     nominal_points = local_points(data)
+     balanced_points = local_points(data, noise_offsets)
+     evaluator_factors = active_factors(data, "evaluator-oracle")
+-    scenario_results = {
++    scenario_results: dict[str, dict[str, Any]] = {
+         "evaluator-oracle": {
+             "active_factor_count": len(evaluator_factors),
+             "callbacks": {
+@@ -2855,7 +2855,7 @@
+
+
+ def verify_evidence(path: Path) -> dict[str, Any]:
+-    verify_source()
++    _ = verify_source()
+     data = path.read_bytes()
+     try:
+         value = json.loads(
+@@ -2881,9 +2881,9 @@
+     parser = argparse.ArgumentParser(description=__doc__)
+     commands = parser.add_subparsers(dest="command", required=True)
+     run = commands.add_parser("run")
+-    run.add_argument("--output", required=True, type=Path)
++    _ = run.add_argument("--output", required=True, type=Path)
+     verify = commands.add_parser("verify-evidence")
+-    verify.add_argument("evidence", type=Path)
++    _ = verify.add_argument("evidence", type=Path)
+     args = parser.parse_args()
+     try:
+         if args.command == "run":
+--- a/experiments/generated_solver_evaluator_v1.sha256
++++ b/experiments/generated_solver_evaluator_v1.sha256
+@@ -1 +1 @@
+-a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d  generated_solver_evaluator_v1.py
++ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d  generated_solver_evaluator_v1.py
+--- a/experiments/generated_track5_cad_reconciliation_v1.py
++++ b/experiments/generated_track5_cad_reconciliation_v1.py
+@@ -26,9 +26,9 @@
+ FORMAT_STATUS = "provisional/experiment-local/non-public-contract"
+ GENERATOR_SHA256 = "995a067d7f4bd247defd092a7e8501224ce7393e9e9e09dc47726f13b610a1e8"
+ CONTRACT_SHA256 = "2c77ce6c586a5f5ebc29f1dfe93f6f19264a8849a8dd62ccb22ef3b5338ca175"
+-SOLVER_SHA256 = "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d"
++SOLVER_SHA256 = "ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d"
+ SOLVER_EVIDENCE_SHA256 = (
+-    "47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256"
++    "53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c"
+ )
+ TRACK5_SHA256 = "8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7"
+ RUN_01_MANIFEST_SHA256 = (
+@@ -144,6 +144,7 @@
+ def read_regular(path: Path, label: str) -> bytes:
+     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+     file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
++    directory_fd: int | None = None
+     try:
+         directory_fd = os.open(path.parent, directory_flags)
+         descriptor = os.open(path.name, file_flags, dir_fd=directory_fd)
+@@ -151,7 +152,7 @@
+     except OSError as error:
+         raise ReconciliationError(f"{label}: cannot open {path}: {error}") from error
+     finally:
+-        if "directory_fd" in locals():
++        if directory_fd is not None:
+             os.close(directory_fd)
+     if not stat.S_ISREG(opened.st_mode):
+         os.close(descriptor)
+@@ -255,24 +256,24 @@
+         snapshot = Path(directory) / "experiments"
+         snapshot.mkdir()
+         for name in files:
+-            (snapshot / name).write_bytes(
++            _ = (snapshot / name).write_bytes(
+                 read_regular(source_root / name, f"Phase 1 snapshot {name}")
+             )
+         snapshot_solver = snapshot / solver_source.name
+         snapshot_evidence = snapshot / evidence.name
+-        verify_sidecar(
++        _ = verify_sidecar(
+             snapshot / "generate_stepped_rotational_v1.py",
+             GENERATOR_SHA256,
+             "snapshot generator",
+             replace_suffix=True,
+         )
+-        verify_sidecar(
++        _ = verify_sidecar(
+             snapshot_solver,
+             SOLVER_SHA256,
+             "snapshot solver",
+             replace_suffix=True,
+         )
+-        verify_sidecar(
++        _ = verify_sidecar(
+             snapshot_evidence, SOLVER_EVIDENCE_SHA256, "snapshot solver evidence"
+         )
+         command = [
+@@ -311,9 +312,9 @@
+     generator = experiments / "generate_stepped_rotational_v1.py"
+     solver = experiments / "generated_solver_evaluator_v1.py"
+     evidence_path = experiments / "generated-solver-evaluator-v1-evidence.json"
+-    verify_sidecar(generator, GENERATOR_SHA256, "generator", replace_suffix=True)
++    _ = verify_sidecar(generator, GENERATOR_SHA256, "generator", replace_suffix=True)
+     events.append("generator-source-and-sidecar-verified")
+-    verify_sidecar(solver, SOLVER_SHA256, "solver", replace_suffix=True)
++    _ = verify_sidecar(solver, SOLVER_SHA256, "solver", replace_suffix=True)
+     events.append("solver-source-and-sidecar-verified")
+     evidence_before = verify_sidecar(
+         evidence_path, SOLVER_EVIDENCE_SHA256, "solver evidence"
+@@ -347,9 +348,10 @@
+         }
+     ):
+         fail("verified solver evidence source, contract, or runtime identity mismatch")
+-    scenario = evidence.get("scenarios", {}).get(SCENARIO_ID)
+-    if not isinstance(scenario, dict):
++    scenario_value = evidence.get("scenarios", {}).get(SCENARIO_ID)
++    if not isinstance(scenario_value, dict):
+         fail("verified solver evidence lacks selected scenario")
++    scenario: dict[str, Any] = scenario_value
+     if (
+         scenario.get("disposition") != "passed"
+         or scenario.get("termination", {}).get("success") is not True
+@@ -419,7 +421,7 @@
+     )
+
+     def planes(asymmetric: bool) -> list[dict[str, Any]]:
+-        result = []
++        result: list[dict[str, Any]] = []
+         for index, (station, radius_bounds, normal) in enumerate(axial_specs):
+             bounds: dict[str, Any] = {"radius": radius_bounds}
+             if asymmetric and index in {1, 2}:
+@@ -451,7 +453,7 @@
+             )
+         return result
+
+-    variants = []
++    variants: list[dict[str, Any]] = []
+     for variant, asymmetric in (
+         ("axisymmetric", False),
+         ("asymmetric_datum_flat", True),
+@@ -605,7 +607,7 @@
+         "station-80_m": cylinders[2]["z_bounds_m"][1],
+         "datum-flat-x_m": cylinders[1]["trim"]["x_max_m"],
+     }
+-    findings = []
++    findings: list[dict[str, Any]] = []
+     for name in SHAPE_NAMES:
+         actual = float(estimate[name])
+         expected = GENERATED_TRUTH[name]
+@@ -656,7 +658,7 @@
+         fail(f"CAD evidence root is not a directory: {root}")
+     entries: list[tuple[str, str]] = []
+     chains: list[tuple[tuple[str, ...], int, int, int]] = []
+-    stack = [(os.dup(root_fd), ())]
++    stack: list[tuple[int, tuple[str, ...]]] = [(os.dup(root_fd), ())]
+     while stack:
+         directory_fd, prefix = stack.pop()
+         try:
+@@ -781,7 +783,9 @@
+ ) -> dict[str, Any]:
+     experiments = root / "experiments"
+     source_path = experiments / "track5_onshape_cad_repro.py"
+-    verify_sidecar(source_path, TRACK5_SHA256, "Track 5 verifier", replace_suffix=True)
++    _ = verify_sidecar(
++        source_path, TRACK5_SHA256, "Track 5 verifier", replace_suffix=True
++    )
+     events.append("track5-tool-source-and-sidecar-verified")
+     source_data = read_regular(source_path, "Track 5 verifier")
+     if sha256(source_data) != TRACK5_SHA256:
+@@ -1003,18 +1007,18 @@
+     parser = argparse.ArgumentParser(description=__doc__)
+     commands = parser.add_subparsers(dest="command", required=True)
+     generate = commands.add_parser("generate")
+-    generate.add_argument(
++    _ = generate.add_argument(
+         "--root", type=Path, default=Path(__file__).resolve().parent.parent
+     )
+     verify = commands.add_parser("verify-evidence")
+-    verify.add_argument("evidence", type=Path)
+-    verify.add_argument(
++    _ = verify.add_argument("evidence", type=Path)
++    _ = verify.add_argument(
+         "--root", type=Path, default=Path(__file__).resolve().parent.parent
+     )
+     args = parser.parse_args()
+     try:
+         if args.command == "generate":
+-            sys.stdout.buffer.write(generate_evidence_bytes(args.root))
++            _ = sys.stdout.buffer.write(generate_evidence_bytes(args.root))
+             return 0
+         report = verify_report(args.root.resolve(), args.evidence)
+         print(f"evidence: PASS ({report['claim']})")
+--- a/experiments/generated_track5_cad_reconciliation_v1.sha256
++++ b/experiments/generated_track5_cad_reconciliation_v1.sha256
+@@ -1 +1 @@
+-b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908  generated_track5_cad_reconciliation_v1.py
++3659f46ac93be68b2f85c7a0501c6c9944e74a2e2612d456cffb7d62290c4eab  generated_track5_cad_reconciliation_v1.py

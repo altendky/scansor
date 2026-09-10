@@ -462,7 +462,7 @@ It makes no claim about:
 ## Generated Fit to Retained CAD Reconciliation
 
 The separate [Phase 2 reconciliation source][reconciliation-source], SHA-256
-`b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908`,
+`3659f46ac93be68b2f85c7a0501c6c9944e74a2e2612d456cffb7d62290c4eab`,
 contains no optimizer, NumPy/SciPy import, or solver-module import. It invokes the
 pinned Phase 1 verifier from a fresh temporary source/evidence snapshot as an
 isolated exact-runtime offline subprocess. It executes Track 5 directly from its
@@ -482,7 +482,7 @@ suite, and independently replayed run 01 and run 02. It compared the same fitted
 prediction bytes with each run through a fresh independent deserialization,
 without averaging or closer-run selection. The retained
 [reconciliation evidence][reconciliation-evidence], SHA-256
-`9fff881fbaa245423d91d0f6bb79fdcb8d4245598e46d5702cd0115cbc5bf0c5`,
+`e3f56adb904d906f13ed22af4878ea58790cb3dfa8415abdf4f23a44ee552c57`,
 reports these bounded results:
 
 - fitted estimate versus generated truth: maximum linear difference

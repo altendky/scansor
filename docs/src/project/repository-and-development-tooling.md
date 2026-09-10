@@ -71,6 +71,10 @@ Ruff checks every applicable Python file under the repository root. Basedpyright
 analyzes `src`, `tests`, and `experiments`; the committed baseline records the
 existing diagnostics exposed by expanding beyond `src`, so new diagnostics fail
 without misrepresenting existing dynamic test and experiment seams as resolved.
+The remaining `104` exceptions are confined to three retained experiment sources.
+The [issue #4 investigation](experiments/retained-source-type-diagnostics.md)
+records all `250` original diagnostics, the `146` approved corrections, reasons
+for retained exceptions, and the validated source/evidence regeneration chain.
 Ruff's formatter does not enforce prose/comment line length, so the separate
 `E501` lint rule is disabled; `RUF100` is also disabled because suppressions may
 refer to security rules outside the selected Ruff rule set.

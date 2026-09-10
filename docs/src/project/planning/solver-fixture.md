@@ -29,9 +29,9 @@ product solver, production stack, supported integration, or public interface.
 
 [`generated_solver_evaluator_v1.py`][solver-runner] requires exact CPython
 `3.12.12`, NumPy `2.3.1`, and SciPy `1.16.1` under PEP 723. Its source SHA-256 is
-`a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d`.
+`ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d`.
 The compact [retained evidence][solver-evidence] has SHA-256
-`47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256`
+`53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c`
 and is recomputed by `verify-evidence`. Verification fails before comparison on
 another Python implementation or patch version because runtime identity is
 retained in the evidence. The large generated corpus remains untracked.

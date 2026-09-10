@@ -1,0 +1,4251 @@
+{
+  "status": "applied with user approval; 146 diagnostics corrected and 104 intentionally retained",
+  "issue": "https://github.com/altendky/scansor/issues/4",
+  "measured_commit": "e78f3e55d16b42061cade0f6a0146dcaf59921fe",
+  "measurement_date": "2026-09-09",
+  "measurement_timezone": "America/New_York",
+  "basedpyright_version": "1.39.9",
+  "python_version": "3.12.13",
+  "coordinate_convention": "zero-based lines and characters; range end exclusive; baseline_entry one-based",
+  "input_sha256": {
+    ".basedpyright/baseline.json": "79304f0af04eca414fbc6426d3c3a0ad4f40a298470ccdb9a253da2595154866",
+    "pyproject.toml": "89b02ff21c6ff76d655a31040b04e64ae3c401ef60e3de73abdeac24b3e21f2b",
+    "uv.lock": "15a601abbfd8fe0ff98d9c4ac89545c3b02e9bab58fe4da0461cfc962f1cac6d"
+  },
+  "files_analyzed": 79,
+  "diagnostic_count": 250,
+  "error_count": 104,
+  "warning_count": 146,
+  "files": [
+    {
+      "path": "experiments/generate_stepped_rotational_v1.py",
+      "source_sha256": "995a067d7f4bd247defd092a7e8501224ce7393e9e9e09dc47726f13b610a1e8",
+      "diagnostics": [
+        {
+          "baseline_entry": 1,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 476,
+              "character": 8
+            },
+            "end": {
+              "line": 478,
+              "character": 9
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 1
+        },
+        {
+          "baseline_entry": 2,
+          "rule": "reportImplicitStringConcatenation",
+          "range": {
+            "start": {
+              "line": 489,
+              "character": 20
+            },
+            "end": {
+              "line": 490,
+              "character": 70
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-string-join",
+          "retained_baseline_entry": 2
+        },
+        {
+          "baseline_entry": 3,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 941,
+              "character": 8
+            },
+            "end": {
+              "line": 941,
+              "character": 19
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 3
+        },
+        {
+          "baseline_entry": 4,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1017,
+              "character": 12
+            },
+            "end": {
+              "line": 1017,
+              "character": 68
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 4
+        },
+        {
+          "baseline_entry": 5,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1018,
+              "character": 12
+            },
+            "end": {
+              "line": 1018,
+              "character": 87
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 5
+        },
+        {
+          "baseline_entry": 6,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1234,
+              "character": 20
+            },
+            "end": {
+              "line": 1234,
+              "character": 41
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 6
+        },
+        {
+          "baseline_entry": 7,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1235,
+              "character": 24
+            },
+            "end": {
+              "line": 1235,
+              "character": 47
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 7
+        },
+        {
+          "baseline_entry": 8,
+          "rule": "reportReturnType",
+          "range": {
+            "start": {
+              "line": 1524,
+              "character": 12
+            },
+            "end": {
+              "line": 1527,
+              "character": 13
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "numpy-bool-contract",
+          "retained_baseline_entry": 8
+        },
+        {
+          "baseline_entry": 9,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1609,
+              "character": 4
+            },
+            "end": {
+              "line": 1609,
+              "character": 29
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 9
+        },
+        {
+          "baseline_entry": 10,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1635,
+              "character": 8
+            },
+            "end": {
+              "line": 1635,
+              "character": 66
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 10
+        },
+        {
+          "baseline_entry": 11,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1654,
+              "character": 66
+            },
+            "end": {
+              "line": 1654,
+              "character": 85
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 11
+        },
+        {
+          "baseline_entry": 12,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1657,
+              "character": 56
+            },
+            "end": {
+              "line": 1657,
+              "character": 67
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 12
+        },
+        {
+          "baseline_entry": 13,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1664,
+              "character": 56
+            },
+            "end": {
+              "line": 1664,
+              "character": 79
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 13
+        },
+        {
+          "baseline_entry": 14,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1748,
+              "character": 4
+            },
+            "end": {
+              "line": 1748,
+              "character": 29
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 14
+        },
+        {
+          "baseline_entry": 15,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1770,
+              "character": 4
+            },
+            "end": {
+              "line": 1770,
+              "character": 75
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 15
+        },
+        {
+          "baseline_entry": 16,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1771,
+              "character": 4
+            },
+            "end": {
+              "line": 1771,
+              "character": 83
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 16
+        },
+        {
+          "baseline_entry": 17,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1772,
+              "character": 4
+            },
+            "end": {
+              "line": 1774,
+              "character": 5
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 17
+        },
+        {
+          "baseline_entry": 18,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1776,
+              "character": 4
+            },
+            "end": {
+              "line": 1776,
+              "character": 29
+            }
+          },
+          "disposition": "retain-generator-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 18
+        }
+      ]
+    },
+    {
+      "path": "experiments/generated_solver_evaluator_v1.py",
+      "source_sha256": "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d",
+      "diagnostics": [
+        {
+          "baseline_entry": 1,
+          "rule": "reportMissingImports",
+          "range": {
+            "start": {
+              "line": 23,
+              "character": 7
+            },
+            "end": {
+              "line": 23,
+              "character": 12
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 1
+        },
+        {
+          "baseline_entry": 2,
+          "rule": "reportMissingImports",
+          "range": {
+            "start": {
+              "line": 24,
+              "character": 5
+            },
+            "end": {
+              "line": 24,
+              "character": 19
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 2
+        },
+        {
+          "baseline_entry": 3,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 142,
+              "character": 19
+            },
+            "end": {
+              "line": 142,
+              "character": 36
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 3
+        },
+        {
+          "baseline_entry": 4,
+          "rule": "reportImplicitStringConcatenation",
+          "range": {
+            "start": {
+              "line": 150,
+              "character": 12
+            },
+            "end": {
+              "line": 154,
+              "character": 57
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-string-join"
+        },
+        {
+          "baseline_entry": 5,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 279,
+              "character": 4
+            },
+            "end": {
+              "line": 279,
+              "character": 20
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 6,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 566,
+              "character": 8
+            },
+            "end": {
+              "line": 566,
+              "character": 19
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 7,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 697,
+              "character": 13
+            },
+            "end": {
+              "line": 697,
+              "character": 17
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 8,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 698,
+              "character": 13
+            },
+            "end": {
+              "line": 698,
+              "character": 20
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 9,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 699,
+              "character": 13
+            },
+            "end": {
+              "line": 699,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 10,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 700,
+              "character": 13
+            },
+            "end": {
+              "line": 700,
+              "character": 26
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 11,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 702,
+              "character": 13
+            },
+            "end": {
+              "line": 702,
+              "character": 18
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 12,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 703,
+              "character": 13
+            },
+            "end": {
+              "line": 703,
+              "character": 27
+            }
+          },
+          "disposition": "corrected",
+          "action": "class-attribute-annotation"
+        },
+        {
+          "baseline_entry": 13,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 731,
+              "character": 12
+            },
+            "end": {
+              "line": 731,
+              "character": 28
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 14,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 755,
+              "character": 12
+            },
+            "end": {
+              "line": 755,
+              "character": 28
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 15,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 849,
+              "character": 15
+            },
+            "end": {
+              "line": 849,
+              "character": 23
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 4
+        },
+        {
+          "baseline_entry": 16,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 852,
+              "character": 23
+            },
+            "end": {
+              "line": 852,
+              "character": 41
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 5
+        },
+        {
+          "baseline_entry": 17,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 852,
+              "character": 23
+            },
+            "end": {
+              "line": 852,
+              "character": 48
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 6
+        },
+        {
+          "baseline_entry": 18,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 853,
+              "character": 22
+            },
+            "end": {
+              "line": 853,
+              "character": 33
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 7
+        },
+        {
+          "baseline_entry": 19,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 854,
+              "character": 42
+            },
+            "end": {
+              "line": 854,
+              "character": 57
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 8
+        },
+        {
+          "baseline_entry": 20,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 856,
+              "character": 50
+            },
+            "end": {
+              "line": 856,
+              "character": 60
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 9
+        },
+        {
+          "baseline_entry": 21,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 857,
+              "character": 15
+            },
+            "end": {
+              "line": 857,
+              "character": 25
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 10
+        },
+        {
+          "baseline_entry": 22,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 859,
+              "character": 19
+            },
+            "end": {
+              "line": 859,
+              "character": 33
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 11
+        },
+        {
+          "baseline_entry": 23,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 860,
+              "character": 16
+            },
+            "end": {
+              "line": 860,
+              "character": 27
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 12
+        },
+        {
+          "baseline_entry": 24,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 861,
+              "character": 18
+            },
+            "end": {
+              "line": 861,
+              "character": 31
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 13
+        },
+        {
+          "baseline_entry": 25,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 862,
+              "character": 24
+            },
+            "end": {
+              "line": 862,
+              "character": 38
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 14
+        },
+        {
+          "baseline_entry": 26,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 886,
+              "character": 22
+            },
+            "end": {
+              "line": 886,
+              "character": 33
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 15
+        },
+        {
+          "baseline_entry": 27,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 887,
+              "character": 47
+            },
+            "end": {
+              "line": 887,
+              "character": 55
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 16
+        },
+        {
+          "baseline_entry": 28,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 887,
+              "character": 47
+            },
+            "end": {
+              "line": 887,
+              "character": 62
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 17
+        },
+        {
+          "baseline_entry": 29,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 888,
+              "character": 53
+            },
+            "end": {
+              "line": 888,
+              "character": 61
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 18
+        },
+        {
+          "baseline_entry": 30,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 889,
+              "character": 26
+            },
+            "end": {
+              "line": 889,
+              "character": 34
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 19
+        },
+        {
+          "baseline_entry": 31,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 890,
+              "character": 50
+            },
+            "end": {
+              "line": 890,
+              "character": 60
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 20
+        },
+        {
+          "baseline_entry": 32,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 891,
+              "character": 19
+            },
+            "end": {
+              "line": 891,
+              "character": 33
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 21
+        },
+        {
+          "baseline_entry": 33,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 892,
+              "character": 16
+            },
+            "end": {
+              "line": 892,
+              "character": 27
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 22
+        },
+        {
+          "baseline_entry": 34,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 893,
+              "character": 18
+            },
+            "end": {
+              "line": 893,
+              "character": 31
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 23
+        },
+        {
+          "baseline_entry": 35,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 894,
+              "character": 24
+            },
+            "end": {
+              "line": 894,
+              "character": 38
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 24
+        },
+        {
+          "baseline_entry": 36,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 992,
+              "character": 8
+            },
+            "end": {
+              "line": 992,
+              "character": 22
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 37,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1090,
+              "character": 12
+            },
+            "end": {
+              "line": 1090,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 38,
+          "rule": "reportImplicitStringConcatenation",
+          "range": {
+            "start": {
+              "line": 1244,
+              "character": 12
+            },
+            "end": {
+              "line": 1245,
+              "character": 75
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-string-join"
+        },
+        {
+          "baseline_entry": 39,
+          "rule": "reportImplicitStringConcatenation",
+          "range": {
+            "start": {
+              "line": 1259,
+              "character": 20
+            },
+            "end": {
+              "line": 1260,
+              "character": 44
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-string-join"
+        },
+        {
+          "baseline_entry": 40,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1278,
+              "character": 8
+            },
+            "end": {
+              "line": 1278,
+              "character": 21
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 41,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1306,
+              "character": 8
+            },
+            "end": {
+              "line": 1306,
+              "character": 27
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 42,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1307,
+              "character": 8
+            },
+            "end": {
+              "line": 1307,
+              "character": 27
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 43,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1405,
+              "character": 12
+            },
+            "end": {
+              "line": 1405,
+              "character": 37
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 44,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1597,
+              "character": 12
+            },
+            "end": {
+              "line": 1597,
+              "character": 27
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 45,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1599,
+              "character": 8
+            },
+            "end": {
+              "line": 1599,
+              "character": 24
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 46,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1791,
+              "character": 12
+            },
+            "end": {
+              "line": 1791,
+              "character": 28
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 47,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1796,
+              "character": 16
+            },
+            "end": {
+              "line": 1796,
+              "character": 31
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 48,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1846,
+              "character": 12
+            },
+            "end": {
+              "line": 1846,
+              "character": 35
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 49,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1951,
+              "character": 4
+            },
+            "end": {
+              "line": 1951,
+              "character": 38
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 50,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 2042,
+              "character": 8
+            },
+            "end": {
+              "line": 2042,
+              "character": 30
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 51,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 2046,
+              "character": 8
+            },
+            "end": {
+              "line": 2046,
+              "character": 29
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 52,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2470,
+              "character": 4
+            },
+            "end": {
+              "line": 2470,
+              "character": 55
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 53,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2470,
+              "character": 4
+            },
+            "end": {
+              "line": 2470,
+              "character": 55
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 54,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2476,
+              "character": 4
+            },
+            "end": {
+              "line": 2476,
+              "character": 59
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 55,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2476,
+              "character": 4
+            },
+            "end": {
+              "line": 2476,
+              "character": 59
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 56,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2480,
+              "character": 16
+            },
+            "end": {
+              "line": 2480,
+              "character": 67
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 57,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2489,
+              "character": 8
+            },
+            "end": {
+              "line": 2489,
+              "character": 29
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 58,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2489,
+              "character": 8
+            },
+            "end": {
+              "line": 2489,
+              "character": 29
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 59,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 60,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 37
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 61,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 49
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 62,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 37
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 63,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 49
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 64,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2491,
+              "character": 12
+            },
+            "end": {
+              "line": 2491,
+              "character": 49
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 65,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2494,
+              "character": 16
+            },
+            "end": {
+              "line": 2494,
+              "character": 33
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 66,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2496,
+              "character": 4
+            },
+            "end": {
+              "line": 2496,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 67,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2496,
+              "character": 4
+            },
+            "end": {
+              "line": 2496,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 68,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2504,
+              "character": 8
+            },
+            "end": {
+              "line": 2504,
+              "character": 52
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 69,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2504,
+              "character": 8
+            },
+            "end": {
+              "line": 2504,
+              "character": 52
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 70,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2505,
+              "character": 12
+            },
+            "end": {
+              "line": 2505,
+              "character": 56
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 71,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2507,
+              "character": 4
+            },
+            "end": {
+              "line": 2507,
+              "character": 60
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 72,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2507,
+              "character": 4
+            },
+            "end": {
+              "line": 2507,
+              "character": 60
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 73,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2512,
+              "character": 16
+            },
+            "end": {
+              "line": 2512,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 74,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2515,
+              "character": 4
+            },
+            "end": {
+              "line": 2515,
+              "character": 53
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 75,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2515,
+              "character": 4
+            },
+            "end": {
+              "line": 2515,
+              "character": 53
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 76,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2518,
+              "character": 4
+            },
+            "end": {
+              "line": 2518,
+              "character": 56
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 77,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2518,
+              "character": 4
+            },
+            "end": {
+              "line": 2518,
+              "character": 56
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 78,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2521,
+              "character": 4
+            },
+            "end": {
+              "line": 2521,
+              "character": 57
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 79,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2521,
+              "character": 4
+            },
+            "end": {
+              "line": 2521,
+              "character": 57
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 80,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2524,
+              "character": 4
+            },
+            "end": {
+              "line": 2524,
+              "character": 67
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 81,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2524,
+              "character": 4
+            },
+            "end": {
+              "line": 2524,
+              "character": 67
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 82,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2529,
+              "character": 4
+            },
+            "end": {
+              "line": 2529,
+              "character": 63
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 83,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2529,
+              "character": 4
+            },
+            "end": {
+              "line": 2529,
+              "character": 63
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 84,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 56
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 85,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 86,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 80
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 87,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 88,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 80
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 89,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2595,
+              "character": 12
+            },
+            "end": {
+              "line": 2595,
+              "character": 80
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 90,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 54
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 91,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 66
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 92,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 78
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 93,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 66
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 94,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 78
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 95,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2602,
+              "character": 12
+            },
+            "end": {
+              "line": 2602,
+              "character": 78
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 96,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 58
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 97,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 70
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 98,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 82
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 99,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 70
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 100,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 82
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 101,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2608,
+              "character": 12
+            },
+            "end": {
+              "line": 2608,
+              "character": 82
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 102,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 53
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 103,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 65
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 104,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 77
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 105,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 65
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 106,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 77
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 107,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2617,
+              "character": 12
+            },
+            "end": {
+              "line": 2617,
+              "character": 77
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 108,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2630,
+              "character": 38
+            },
+            "end": {
+              "line": 2632,
+              "character": 9
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 109,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2634,
+              "character": 12
+            },
+            "end": {
+              "line": 2634,
+              "character": 60
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 110,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2636,
+              "character": 12
+            },
+            "end": {
+              "line": 2636,
+              "character": 62
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 111,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2637,
+              "character": 12
+            },
+            "end": {
+              "line": 2637,
+              "character": 64
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 112,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2641,
+              "character": 12
+            },
+            "end": {
+              "line": 2641,
+              "character": 64
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 113,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2645,
+              "character": 16
+            },
+            "end": {
+              "line": 2645,
+              "character": 63
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 114,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2665,
+              "character": 46
+            },
+            "end": {
+              "line": 2667,
+              "character": 24
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 115,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2669,
+              "character": 12
+            },
+            "end": {
+              "line": 2669,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 116,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2673,
+              "character": 12
+            },
+            "end": {
+              "line": 2673,
+              "character": 73
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 117,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2677,
+              "character": 16
+            },
+            "end": {
+              "line": 2677,
+              "character": 74
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 118,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2682,
+              "character": 12
+            },
+            "end": {
+              "line": 2684,
+              "character": 63
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 119,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2683,
+              "character": 11
+            },
+            "end": {
+              "line": 2683,
+              "character": 65
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 120,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2683,
+              "character": 11
+            },
+            "end": {
+              "line": 2683,
+              "character": 65
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 121,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2683,
+              "character": 11
+            },
+            "end": {
+              "line": 2683,
+              "character": 65
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 122,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2683,
+              "character": 11
+            },
+            "end": {
+              "line": 2684,
+              "character": 63
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 123,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2687,
+              "character": 25
+            },
+            "end": {
+              "line": 2688,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 124,
+          "rule": "reportGeneralTypeIssues",
+          "range": {
+            "start": {
+              "line": 2687,
+              "character": 25
+            },
+            "end": {
+              "line": 2688,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 125,
+          "rule": "reportGeneralTypeIssues",
+          "range": {
+            "start": {
+              "line": 2687,
+              "character": 25
+            },
+            "end": {
+              "line": 2688,
+              "character": 68
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 126,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 59
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 127,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 128,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 83
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 129,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 130,
+          "rule": "reportCallIssue",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 83
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 131,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2702,
+              "character": 12
+            },
+            "end": {
+              "line": 2702,
+              "character": 83
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 132,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2718,
+              "character": 12
+            },
+            "end": {
+              "line": 2718,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 133,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2719,
+              "character": 15
+            },
+            "end": {
+              "line": 2719,
+              "character": 31
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 134,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2720,
+              "character": 16
+            },
+            "end": {
+              "line": 2720,
+              "character": 29
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 135,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2721,
+              "character": 15
+            },
+            "end": {
+              "line": 2721,
+              "character": 28
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 136,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2722,
+              "character": 16
+            },
+            "end": {
+              "line": 2722,
+              "character": 29
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 137,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2723,
+              "character": 15
+            },
+            "end": {
+              "line": 2723,
+              "character": 28
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 138,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2737,
+              "character": 12
+            },
+            "end": {
+              "line": 2738,
+              "character": 40
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 139,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2739,
+              "character": 12
+            },
+            "end": {
+              "line": 2740,
+              "character": 40
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 140,
+          "rule": "reportIndexIssue",
+          "range": {
+            "start": {
+              "line": 2747,
+              "character": 12
+            },
+            "end": {
+              "line": 2747,
+              "character": 66
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 141,
+          "rule": "reportOperatorIssue",
+          "range": {
+            "start": {
+              "line": 2751,
+              "character": 12
+            },
+            "end": {
+              "line": 2751,
+              "character": 72
+            }
+          },
+          "disposition": "corrected",
+          "action": "heterogeneous-evidence-record-annotation"
+        },
+        {
+          "baseline_entry": 142,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 2822,
+              "character": 21
+            },
+            "end": {
+              "line": 2822,
+              "character": 38
+            }
+          },
+          "disposition": "retain-isolated-scipy-boundary",
+          "action": "isolated-scipy-types",
+          "retained_baseline_entry": 25
+        },
+        {
+          "baseline_entry": 143,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2857,
+              "character": 4
+            },
+            "end": {
+              "line": 2857,
+              "character": 19
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 144,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2883,
+              "character": 4
+            },
+            "end": {
+              "line": 2883,
+              "character": 58
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 145,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2885,
+              "character": 4
+            },
+            "end": {
+              "line": 2885,
+              "character": 46
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        }
+      ]
+    },
+    {
+      "path": "experiments/generated_track5_cad_reconciliation_v1.py",
+      "source_sha256": "b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908",
+      "diagnostics": [
+        {
+          "baseline_entry": 1,
+          "rule": "reportPossiblyUnboundVariable",
+          "range": {
+            "start": {
+              "line": 154,
+              "character": 21
+            },
+            "end": {
+              "line": 154,
+              "character": 33
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-descriptor-lifetime"
+        },
+        {
+          "baseline_entry": 2,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 257,
+              "character": 12
+            },
+            "end": {
+              "line": 259,
+              "character": 13
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 3,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 262,
+              "character": 8
+            },
+            "end": {
+              "line": 267,
+              "character": 9
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 4,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 268,
+              "character": 8
+            },
+            "end": {
+              "line": 273,
+              "character": 9
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 5,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 274,
+              "character": 8
+            },
+            "end": {
+              "line": 276,
+              "character": 9
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 6,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 313,
+              "character": 4
+            },
+            "end": {
+              "line": 313,
+              "character": 81
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 7,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 315,
+              "character": 4
+            },
+            "end": {
+              "line": 315,
+              "character": 72
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 8,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 353,
+              "character": 8
+            },
+            "end": {
+              "line": 353,
+              "character": 20
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 9,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 354,
+              "character": 11
+            },
+            "end": {
+              "line": 354,
+              "character": 23
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 10,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 354,
+              "character": 11
+            },
+            "end": {
+              "line": 354,
+              "character": 46
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 11,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 355,
+              "character": 11
+            },
+            "end": {
+              "line": 355,
+              "character": 23
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 12,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 355,
+              "character": 11
+            },
+            "end": {
+              "line": 355,
+              "character": 42
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 13,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 356,
+              "character": 11
+            },
+            "end": {
+              "line": 356,
+              "character": 23
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 14,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 356,
+              "character": 11
+            },
+            "end": {
+              "line": 356,
+              "character": 44
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 15,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 365,
+              "character": 15
+            },
+            "end": {
+              "line": 365,
+              "character": 27
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 16,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 365,
+              "character": 15
+            },
+            "end": {
+              "line": 365,
+              "character": 45
+            }
+          },
+          "disposition": "corrected",
+          "action": "validated-json-boundary"
+        },
+        {
+          "baseline_entry": 17,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 426,
+              "character": 12
+            },
+            "end": {
+              "line": 426,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 18,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 437,
+              "character": 12
+            },
+            "end": {
+              "line": 437,
+              "character": 25
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 19,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 458,
+              "character": 8
+            },
+            "end": {
+              "line": 458,
+              "character": 23
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 20,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 612,
+              "character": 8
+            },
+            "end": {
+              "line": 612,
+              "character": 23
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 21,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 689,
+              "character": 44
+            },
+            "end": {
+              "line": 689,
+              "character": 58
+            }
+          },
+          "disposition": "corrected",
+          "action": "local-container-annotation"
+        },
+        {
+          "baseline_entry": 22,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 783,
+              "character": 4
+            },
+            "end": {
+              "line": 783,
+              "character": 87
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 23,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1005,
+              "character": 4
+            },
+            "end": {
+              "line": 1007,
+              "character": 5
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 24,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1009,
+              "character": 4
+            },
+            "end": {
+              "line": 1009,
+              "character": 46
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 25,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1010,
+              "character": 4
+            },
+            "end": {
+              "line": 1012,
+              "character": 5
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        },
+        {
+          "baseline_entry": 26,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1016,
+              "character": 12
+            },
+            "end": {
+              "line": 1016,
+              "character": 71
+            }
+          },
+          "disposition": "corrected",
+          "action": "explicit-discard"
+        }
+      ]
+    },
+    {
+      "path": "experiments/track5_onshape_cad_repro.py",
+      "source_sha256": "8d165b5ea88b6c48ba25d0e351a60835d486a23e3fce4882ee725ba020dca3d7",
+      "diagnostics": [
+        {
+          "baseline_entry": 1,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 303,
+              "character": 13
+            },
+            "end": {
+              "line": 303,
+              "character": 17
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "class-attribute-annotation",
+          "retained_baseline_entry": 1
+        },
+        {
+          "baseline_entry": 2,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 306,
+              "character": 17
+            },
+            "end": {
+              "line": 306,
+              "character": 27
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "class-attribute-annotation",
+          "retained_baseline_entry": 2
+        },
+        {
+          "baseline_entry": 3,
+          "rule": "reportUnannotatedClassAttribute",
+          "range": {
+            "start": {
+              "line": 315,
+              "character": 13
+            },
+            "end": {
+              "line": 315,
+              "character": 26
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "class-attribute-annotation",
+          "retained_baseline_entry": 3
+        },
+        {
+          "baseline_entry": 4,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 492,
+              "character": 52
+            },
+            "end": {
+              "line": 492,
+              "character": 66
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 4
+        },
+        {
+          "baseline_entry": 5,
+          "rule": "reportImplicitStringConcatenation",
+          "range": {
+            "start": {
+              "line": 688,
+              "character": 12
+            },
+            "end": {
+              "line": 689,
+              "character": 61
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-string-join",
+          "retained_baseline_entry": 5
+        },
+        {
+          "baseline_entry": 6,
+          "rule": "reportUnnecessaryIsInstance",
+          "range": {
+            "start": {
+              "line": 700,
+              "character": 19
+            },
+            "end": {
+              "line": 700,
+              "character": 41
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "defensive-header-check",
+          "retained_baseline_entry": 6
+        },
+        {
+          "baseline_entry": 7,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 712,
+              "character": 8
+            },
+            "end": {
+              "line": 712,
+              "character": 26
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 7
+        },
+        {
+          "baseline_entry": 8,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 761,
+              "character": 8
+            },
+            "end": {
+              "line": 761,
+              "character": 55
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 8
+        },
+        {
+          "baseline_entry": 9,
+          "rule": "reportUnnecessaryComparison",
+          "range": {
+            "start": {
+              "line": 876,
+              "character": 28
+            },
+            "end": {
+              "line": 876,
+              "character": 57
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "bytearray-bytes-equality",
+          "retained_baseline_entry": 9
+        },
+        {
+          "baseline_entry": 10,
+          "rule": "reportUnnecessaryComparison",
+          "range": {
+            "start": {
+              "line": 880,
+              "character": 11
+            },
+            "end": {
+              "line": 880,
+              "character": 45
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "bytearray-bytes-equality",
+          "retained_baseline_entry": 10
+        },
+        {
+          "baseline_entry": 11,
+          "rule": "reportUnusedFunction",
+          "range": {
+            "start": {
+              "line": 890,
+              "character": 4
+            },
+            "end": {
+              "line": 890,
+              "character": 25
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "private-wrapper-retention",
+          "retained_baseline_entry": 11
+        },
+        {
+          "baseline_entry": 12,
+          "rule": "reportUnusedFunction",
+          "range": {
+            "start": {
+              "line": 927,
+              "character": 4
+            },
+            "end": {
+              "line": 927,
+              "character": 15
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "private-wrapper-retention",
+          "retained_baseline_entry": 12
+        },
+        {
+          "baseline_entry": 13,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1138,
+              "character": 15
+            },
+            "end": {
+              "line": 1138,
+              "character": 24
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 13
+        },
+        {
+          "baseline_entry": 14,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1138,
+              "character": 34
+            },
+            "end": {
+              "line": 1138,
+              "character": 43
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 14
+        },
+        {
+          "baseline_entry": 15,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1161,
+              "character": 11
+            },
+            "end": {
+              "line": 1161,
+              "character": 25
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 15
+        },
+        {
+          "baseline_entry": 16,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 1261,
+              "character": 4
+            },
+            "end": {
+              "line": 1261,
+              "character": 44
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 16
+        },
+        {
+          "baseline_entry": 17,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1398,
+              "character": 19
+            },
+            "end": {
+              "line": 1398,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 17
+        },
+        {
+          "baseline_entry": 18,
+          "rule": "reportAttributeAccessIssue",
+          "range": {
+            "start": {
+              "line": 1398,
+              "character": 28
+            },
+            "end": {
+              "line": 1398,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 18
+        },
+        {
+          "baseline_entry": 19,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1399,
+              "character": 19
+            },
+            "end": {
+              "line": 1399,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 19
+        },
+        {
+          "baseline_entry": 20,
+          "rule": "reportAttributeAccessIssue",
+          "range": {
+            "start": {
+              "line": 1399,
+              "character": 28
+            },
+            "end": {
+              "line": 1399,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 20
+        },
+        {
+          "baseline_entry": 21,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1401,
+              "character": 19
+            },
+            "end": {
+              "line": 1401,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "validated-json-boundary",
+          "retained_baseline_entry": 21
+        },
+        {
+          "baseline_entry": 22,
+          "rule": "reportAttributeAccessIssue",
+          "range": {
+            "start": {
+              "line": 1401,
+              "character": 28
+            },
+            "end": {
+              "line": 1401,
+              "character": 31
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 22
+        },
+        {
+          "baseline_entry": 23,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1865,
+              "character": 8
+            },
+            "end": {
+              "line": 1865,
+              "character": 32
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 23
+        },
+        {
+          "baseline_entry": 24,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 1886,
+              "character": 28
+            },
+            "end": {
+              "line": 1886,
+              "character": 40
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 24
+        },
+        {
+          "baseline_entry": 25,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1889,
+              "character": 12
+            },
+            "end": {
+              "line": 1889,
+              "character": 27
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 25
+        },
+        {
+          "baseline_entry": 26,
+          "rule": "reportUnknownMemberType",
+          "range": {
+            "start": {
+              "line": 1896,
+              "character": 4
+            },
+            "end": {
+              "line": 1896,
+              "character": 17
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 26
+        },
+        {
+          "baseline_entry": 27,
+          "rule": "reportUnknownLambdaType",
+          "range": {
+            "start": {
+              "line": 1896,
+              "character": 29
+            },
+            "end": {
+              "line": 1896,
+              "character": 33
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 27
+        },
+        {
+          "baseline_entry": 28,
+          "rule": "reportUnknownLambdaType",
+          "range": {
+            "start": {
+              "line": 1896,
+              "character": 35
+            },
+            "end": {
+              "line": 1896,
+              "character": 50
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "local-container-annotation",
+          "retained_baseline_entry": 28
+        },
+        {
+          "baseline_entry": 29,
+          "rule": "reportOptionalSubscript",
+          "range": {
+            "start": {
+              "line": 2020,
+              "character": 20
+            },
+            "end": {
+              "line": 2020,
+              "character": 34
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 29
+        },
+        {
+          "baseline_entry": 30,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2075,
+              "character": 63
+            },
+            "end": {
+              "line": 2075,
+              "character": 76
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 30
+        },
+        {
+          "baseline_entry": 31,
+          "rule": "reportOptionalSubscript",
+          "range": {
+            "start": {
+              "line": 2088,
+              "character": 33
+            },
+            "end": {
+              "line": 2088,
+              "character": 47
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 31
+        },
+        {
+          "baseline_entry": 32,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2411,
+              "character": 4
+            },
+            "end": {
+              "line": 2411,
+              "character": 44
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 32
+        },
+        {
+          "baseline_entry": 33,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2520,
+              "character": 4
+            },
+            "end": {
+              "line": 2520,
+              "character": 44
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 33
+        },
+        {
+          "baseline_entry": 34,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2626,
+              "character": 4
+            },
+            "end": {
+              "line": 2626,
+              "character": 30
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 34
+        },
+        {
+          "baseline_entry": 35,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2634,
+              "character": 8
+            },
+            "end": {
+              "line": 2634,
+              "character": 26
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 35
+        },
+        {
+          "baseline_entry": 36,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2638,
+              "character": 4
+            },
+            "end": {
+              "line": 2638,
+              "character": 64
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 36
+        },
+        {
+          "baseline_entry": 37,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2642,
+              "character": 4
+            },
+            "end": {
+              "line": 2642,
+              "character": 57
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 37
+        },
+        {
+          "baseline_entry": 38,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2643,
+              "character": 4
+            },
+            "end": {
+              "line": 2643,
+              "character": 55
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 38
+        },
+        {
+          "baseline_entry": 39,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2644,
+              "character": 4
+            },
+            "end": {
+              "line": 2644,
+              "character": 60
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 39
+        },
+        {
+          "baseline_entry": 40,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2645,
+              "character": 4
+            },
+            "end": {
+              "line": 2645,
+              "character": 65
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 40
+        },
+        {
+          "baseline_entry": 41,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2646,
+              "character": 4
+            },
+            "end": {
+              "line": 2646,
+              "character": 64
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 41
+        },
+        {
+          "baseline_entry": 42,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2647,
+              "character": 4
+            },
+            "end": {
+              "line": 2647,
+              "character": 58
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 42
+        },
+        {
+          "baseline_entry": 43,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2655,
+              "character": 4
+            },
+            "end": {
+              "line": 2655,
+              "character": 59
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 43
+        },
+        {
+          "baseline_entry": 44,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2661,
+              "character": 4
+            },
+            "end": {
+              "line": 2661,
+              "character": 46
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 44
+        },
+        {
+          "baseline_entry": 45,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2664,
+              "character": 4
+            },
+            "end": {
+              "line": 2664,
+              "character": 53
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 45
+        },
+        {
+          "baseline_entry": 46,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2665,
+              "character": 4
+            },
+            "end": {
+              "line": 2665,
+              "character": 68
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 46
+        },
+        {
+          "baseline_entry": 47,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2668,
+              "character": 4
+            },
+            "end": {
+              "line": 2668,
+              "character": 43
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 47
+        },
+        {
+          "baseline_entry": 48,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2669,
+              "character": 4
+            },
+            "end": {
+              "line": 2669,
+              "character": 43
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 48
+        },
+        {
+          "baseline_entry": 49,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2670,
+              "character": 4
+            },
+            "end": {
+              "line": 2670,
+              "character": 42
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 49
+        },
+        {
+          "baseline_entry": 50,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2673,
+              "character": 4
+            },
+            "end": {
+              "line": 2673,
+              "character": 54
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 50
+        },
+        {
+          "baseline_entry": 51,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2674,
+              "character": 4
+            },
+            "end": {
+              "line": 2674,
+              "character": 68
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 51
+        },
+        {
+          "baseline_entry": 52,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2675,
+              "character": 4
+            },
+            "end": {
+              "line": 2675,
+              "character": 86
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 52
+        },
+        {
+          "baseline_entry": 53,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2678,
+              "character": 4
+            },
+            "end": {
+              "line": 2678,
+              "character": 56
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 53
+        },
+        {
+          "baseline_entry": 54,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2679,
+              "character": 4
+            },
+            "end": {
+              "line": 2679,
+              "character": 56
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 54
+        },
+        {
+          "baseline_entry": 55,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2680,
+              "character": 4
+            },
+            "end": {
+              "line": 2680,
+              "character": 73
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 55
+        },
+        {
+          "baseline_entry": 56,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2707,
+              "character": 12
+            },
+            "end": {
+              "line": 2709,
+              "character": 13
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 56
+        },
+        {
+          "baseline_entry": 57,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2724,
+              "character": 12
+            },
+            "end": {
+              "line": 2726,
+              "character": 13
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 57
+        },
+        {
+          "baseline_entry": 58,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2736,
+              "character": 4
+            },
+            "end": {
+              "line": 2736,
+              "character": 44
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 58
+        },
+        {
+          "baseline_entry": 59,
+          "rule": "reportArgumentType",
+          "range": {
+            "start": {
+              "line": 2780,
+              "character": 14
+            },
+            "end": {
+              "line": 2780,
+              "character": 36
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "correlated-branch-narrowing",
+          "retained_baseline_entry": 59
+        },
+        {
+          "baseline_entry": 60,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 2940,
+              "character": 8
+            },
+            "end": {
+              "line": 2940,
+              "character": 44
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 60
+        },
+        {
+          "baseline_entry": 61,
+          "rule": "reportUnusedCallResult",
+          "range": {
+            "start": {
+              "line": 3013,
+              "character": 8
+            },
+            "end": {
+              "line": 3013,
+              "character": 64
+            }
+          },
+          "disposition": "retain-capture-identity",
+          "action": "explicit-discard",
+          "retained_baseline_entry": 61
+        }
+      ]
+    }
+  ],
+  "measurement_scope": "original diagnostics and source positions at measured_commit; applied_change records the approved result",
+  "approval": {
+    "source": "issue-processing conversation",
+    "scope": "apply the reviewed solver/reconciliation patch and repin its retained evidence",
+    "timing": "after review of the hash-bound patch and regeneration chain, before repository source changes"
+  },
+  "disposition_counts": {
+    "retain-capture-identity": 61,
+    "retain-generator-identity": 18,
+    "retain-isolated-scipy-boundary": 25,
+    "corrected": 146
+  },
+  "applied_change": {
+    "patch_path": ".basedpyright/issue-4-cleanup.patch",
+    "patch_sha256": "e328103d5add21318ecc2aa7cc8a3ccb744ff94efc8280e7619cc65ca80c6bef",
+    "files_analyzed": 79,
+    "error_count_without_baseline": 12,
+    "warning_count_without_baseline": 92,
+    "diagnostic_count": 104,
+    "resolved_diagnostic_count": 146,
+    "file_sha256": {
+      ".basedpyright/baseline.json": {
+        "before": "79304f0af04eca414fbc6426d3c3a0ad4f40a298470ccdb9a253da2595154866",
+        "after": "89f50e67ea28b589c73ddfedf92d36a20c57fc1e29681bfe404ad226669032dd"
+      },
+      "docs/src/project/experiments/generated-onshape-fixture.md": {
+        "before": "5ef2c11c4b84b22c58d310be1b6fb5e619e585c347a6ee97ecc2e16b6cc2ae4b",
+        "after": "58465f56a9e1c7601aad4972297d40e4268a744ed7e7b665e7d16d89563749e6"
+      },
+      "docs/src/project/planning/solver-fixture.md": {
+        "before": "d523b9a5d0f5a8f7908baacd82d282195c102b0929710c730a10e1f84e161105",
+        "after": "487b81131a776e9cedf565b53ef2e7baa02f57937ac3edc56d5f753c23b35cfc"
+      },
+      "experiments/generated-solver-evaluator-v1-evidence.json": {
+        "before": "47d6caec9203e9daa0edd6ee0b9ead87b586e1cbc4c17855109eaad32e7b2256",
+        "after": "53469faf65ae88d864c301738354be6a540740c6291a6e78c6a2ed0ebfbe446c"
+      },
+      "experiments/generated-solver-evaluator-v1-evidence.json.sha256": {
+        "before": "1c76941ad1e6e0d9959443848723cd3c69af7716a068538a8116c49de43b3c3a",
+        "after": "b1fa6682f39f0467dba5e29fe9953ebbd4e44c0e74153fb9c7f55e4a79d7870c"
+      },
+      "experiments/generated-track5-cad-reconciliation-v1-evidence.json": {
+        "before": "9fff881fbaa245423d91d0f6bb79fdcb8d4245598e46d5702cd0115cbc5bf0c5",
+        "after": "e3f56adb904d906f13ed22af4878ea58790cb3dfa8415abdf4f23a44ee552c57"
+      },
+      "experiments/generated-track5-cad-reconciliation-v1-evidence.json.sha256": {
+        "before": "431c492355fd5554955f31ff1533976b5fb9c2af24c9fdf430775ae4f2bcb386",
+        "after": "cb17faf75f04b1c74cf30318cdec0b937abd1566b3d9cd7b066a8a042babc3c8"
+      },
+      "experiments/generated_solver_evaluator_v1.py": {
+        "before": "a998a433f402bbe52ff20311580742b55ed48a3565e0745699c764fffb92355d",
+        "after": "ebd748bb1da0f6f617085fb1502081a3d590cec2c1dd151dd820b67ff435525d"
+      },
+      "experiments/generated_solver_evaluator_v1.sha256": {
+        "before": "add668b2e699b825ea8328ac49f07db2c61435d3bbf209ece11d1264e3ca2933",
+        "after": "b6a265d57b4d924e29df350985316ef6bbc1abbeaab9781d151736de70a8d16d"
+      },
+      "experiments/generated_track5_cad_reconciliation_v1.py": {
+        "before": "b352b483e869741cbf78c7ac4575835e6bd0c95f604129def0f1acb850f37908",
+        "after": "3659f46ac93be68b2f85c7a0501c6c9944e74a2e2612d456cffb7d62290c4eab"
+      },
+      "experiments/generated_track5_cad_reconciliation_v1.sha256": {
+        "before": "1c106baf097947484894e6b535a7c1999651f94db5261c14321da7347464d2ee",
+        "after": "f6a1629236f11dd1a763008a215f90798d9688381ca21cd69e667e00142d4780"
+      }
+    },
+    "validation": {
+      "baseline_gate": "passed; 0 errors, 0 warnings, 0 notes",
+      "solver_tests": 22,
+      "reconciliation_tests": 25,
+      "solver_gate_checks": 34,
+      "reconciliation_evidence_verification": "passed, including isolated exact-runtime solver verification and Track 5 suite/replay",
+      "solver_changed_evidence_paths": [
+        "/solver_source_sha256"
+      ],
+      "reconciliation_changed_evidence_paths": [
+        "/inputs/reconciliation_source_sha256",
+        "/inputs/solver_evidence_sha256",
+        "/inputs/solver_source_sha256"
+      ],
+      "unchanged_generator_track5_and_cad_files": 53,
+      "patch_application": "all 11 after hashes reproduced in a fresh disposable application",
+      "ruff": "format and lint passed for final candidate sources"
+    },
+    "patch_role": "approved historical review artifact against measured_commit; already applied",
+    "post_application_validation": {
+      "files_analyzed": 79,
+      "diagnostic_count_without_baseline": 104,
+      "error_count_without_baseline": 12,
+      "warning_count_without_baseline": 92,
+      "baseline_matches_diagnostic_multiset": true,
+      "baseline_gate": "passed; 0 errors, 0 warnings, 0 notes",
+      "solver_tests": 22,
+      "reconciliation_tests": 25,
+      "reconciliation_evidence_verification": "passed, including isolated exact-runtime solver verification and Track 5 suite/replay",
+      "source_and_evidence_sidecars": "all match",
+      "approved_application_hashes": "all 11 match",
+      "parsed_evidence_difference": "only the four approved identity paths",
+      "unchanged_other_experiment_files": 56,
+      "ruff": "repository-wide format and lint passed"
+    }
+  }
+}
