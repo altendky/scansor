@@ -19,11 +19,12 @@ outside the intended boundary.
   and explicit exclusions
 - [Principles and requirements](principles-and-requirements.md) - **Current
   direction:** exact constraints, auditability, diagnostics, synthetic-versus-
-  physical truth, validation, and the bounded expert-tool posture
+  physical truth, full-data accountability, recipe-backed large inputs,
+  validation, and the bounded expert-tool posture
 - [Architecture and integrations](architecture-and-integrations.md) -
   **Current and provisional:** local authoritative fit and external heavy-GUI
-  boundaries; provisional generated evidence flow, canonical flow, adapters,
-  snapshots, and integrations
+  boundaries; provisional generated evidence flow, canonical imports, adapters,
+  constraint-derived calibration, snapshots, and integrations
 - [Integrated planning program](planning/index.md) - **Provisional:** shared
   terminology, deterministic generated-first critical path, staged dependency
   graph, evidence gates, deferred physical validation, and five owned tracks
@@ -95,5 +96,6 @@ outside the intended boundary.
   rejected naming, and deliberately unmade choices
 - [Open questions](open-questions.md) - **Open:** fixture-registry and sampling
   authority, broader declaration authoring, arbitrary-domain and combined adverse
-  evidence, fixed-outlier robustness policy, later physical evidence, schemas,
-  validation, naming, and boundaries
+  evidence, fixed-outlier robustness policy, external full-data imports,
+  calibration/registration, later physical evidence, schemas, validation, naming,
+  and boundaries

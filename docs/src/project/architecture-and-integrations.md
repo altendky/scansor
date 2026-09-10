@@ -83,6 +83,14 @@ versioning rules for model, mapping, audit, and result control records remain
 may reference immutable content-hashed bulk artifacts. No durable bulk format is
 selected.
 
+Large deterministic stress inputs should be reconstructed from small versioned
+repository recipes rather than retained as large PLY fixtures. Those recipes
+should bind the parametric model, sampling allocation and order, seed, noise and
+adverse cases, encoding, identity expectations, and exact-byte reproduction.
+Generated bulk files and temporary caches remain outside the repository. This
+requirement does not select a recipe schema, generator, bulk format, or cache
+implementation.
+
 Scansor owns canonical identities. Source/platform IDs and topology references
 are revision-scoped bindings and provenance. Source snapshots, user-confirmed
 canonical fitting models, derived samples or meshes, and publication plans
@@ -106,6 +114,43 @@ and attributes, provenance, and source handles where available. Incoming modes
 may include open files, project exports, sidecars, plugins/exporters, and direct
 APIs when useful. PLY, LAS, and similar formats remain adapter formats rather
 than automatically becoming canonical storage.
+
+A future external-source import should preserve and hash the original bytes,
+identify the importer implementation and configuration, and deterministically
+produce a canonical observation stream or artifact. Relevant source sidecars
+should remain attached as provenance; for a RealityScan PLY probe, this includes
+transform or scale information such as `.rsInfo` when present. RealityScan PLY is
+a likely first bounded ingestion probe, while E57 may later be appropriate for
+original scanner data. Neither choice makes PLY or E57 canonical, selects a
+supported adapter, or supersedes the separate CloudCompare selection hypothesis.
+
+Full-processing import and mapping should inspect every source point, give every
+admitted point an explicit weighted contribution, and record an explicit
+disposition for every excluded point. An explicitly named quick mode may
+downsample, but must remain distinguishable in inputs, results, and claims.
+Multi-million-point full processing should be streaming or otherwise
+bounded-memory rather than dependent on sample reduction. Chunking must not
+change canonical identities, order, admission, weighting, or dispositions.
+
+## Future Calibration and Registration Constraints
+
+**Provisional:** Constraints may be imported from upstream tools such as
+RealityScan or declared from user-selected parametric geometry. Candidate
+constraints include a known diameter or distance establishing scale, a declared
+vertical axis, a horizontal plane, and a selected point or origin. Each
+constraint should retain its provenance and uncertainty and distinguish exact
+hard semantics from explicitly weighted semantics.
+
+Partial constraints may leave pose degrees of freedom unresolved; the system
+should report those freedoms rather than silently choose a complete pose. A
+dimension used to establish scale is calibration input and cannot also serve as
+an independently validated output.
+
+Support should be staged. First derive scale and the constrained portion of pose,
+then pass those results as declared inputs to the existing fixed-pose shape
+workflow. Joint pose/scale/shape fitting may be considered only as a later,
+separately gated extension. Cone geometry is one illustrative future case, not a
+currently supported model family.
 
 ## CAD Model Authoring
 

@@ -235,6 +235,23 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
   JSON-compatible control records, and do Parquet or Arrow, Zarr, HDF5, or an
   adapter-native format meet the required schema, audit, and interoperability
   boundary?
+- What canonical observation representation and importer identity/configuration
+  contract can deterministically reproduce an import while retaining original
+  byte hashes, source sidecars, point identity/order, and adapter-neutral
+  semantics?
+- What execution and artifact contract can prove that full processing inspected
+  every source point, explicitly weighted every admitted point, disposed every
+  excluded point, and remained bounded-memory at multi-million-point scale while
+  keeping downsampled quick-mode claims distinct?
+- What minimal versioned recipe contract and portable numerical construction can
+  bind model, sample allocation/order, seed, adverse cases, encoding, identities,
+  and exact bytes without committing generated large files or selecting a cache
+  implementation prematurely?
+- How should imported and user-declared scale/pose constraints represent
+  provenance, uncertainty, exact versus weighted semantics, conflicts, and
+  unresolved degrees of freedom before feeding the fixed-pose shape workflow?
+- What evidence should gate any move from staged constraint-derived scale/pose
+  followed by fixed-pose shape fitting to joint pose/scale/shape fitting?
 - What package shape, supported platforms, native components, and release
   channel must exist before selecting a build backend and deployment mechanism?
 - Which exact Python versions and development/CI platforms should the first

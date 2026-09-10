@@ -35,6 +35,25 @@ Source snapshots, canonical models, derived meshes or samples, and publication
 plans should remain distinct and traceable. Scansor owns canonical identities;
 external identifiers are revision-scoped bindings and provenance.
 
+## External Observation Processing Is Accountable
+
+A future full-processing mode should inspect every source point. Every admitted
+point should contribute through an explicit weight, and every excluded point
+should receive an explicit disposition. A separately labeled quick mode may
+downsample, but its results must not be represented as full-data processing.
+Multi-million-point full processing should use streaming or otherwise
+bounded-memory execution rather than requiring sample reduction.
+
+## Large Generated Inputs Are Recipe-Backed
+
+Large deterministic test inputs should be reproduced from small versioned
+recipes committed to the repository, not committed as multi-megabyte PLY
+fixtures. A recipe should bind its parametric model, sampling allocation and
+order, seed, noise and adverse cases, encoding, identity expectations, and the
+information needed to recreate exact sample bytes. Generated large files and
+temporary caches should remain outside the repository. The recipe schema,
+generator implementation, and cache design remain open.
+
 ## Semantic Degradation Is Explicit
 
 Adapters should declare capabilities and report unsupported relationships,
@@ -73,6 +92,10 @@ Scan agreement is not automatically dimensional truth. Accuracy and metrology
 claims require known references, a representative validation corpus, repeatable
 procedures, and explicit uncertainty. Until then, results are geometric
 estimates with diagnostics, not certified measurements.
+
+A known dimension used to establish observation scale is a calibration input,
+not an independent validation result. It must not also be reported as evidence
+that the fitted output independently recovered that dimension.
 
 ## Product Quality Extends Beyond Optimization
 
