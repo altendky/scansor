@@ -6,8 +6,9 @@
 the [library-evaluation comment on issue #29][issue-comment]. The
 [ingestion contract](full-resolution-mesh-ingestion.md) owns all numeric,
 accounting, identity, storage-interface, and verification semantics. This page
-records why its first implementation uses particular building blocks. It adds
-no application dependencies or integrations.
+records why its first implementation uses particular building blocks. The S3
+source/storage foundation now installs DuckDB, PyArrow, defusedxml and
+psutil in the locked project environment; later ingestion stages remain open.
 
 The initial selection is an isolated Python/NumPy PLY reader/writer, NumPy numeric
 columns with buffered or windowed raw disk storage, explicit Philox raw bits,
@@ -17,12 +18,21 @@ deferring the proposed backend compatibility interface. The measured path uses
 PyArrow for batched NumPy interchange. Engine staging remains
 temporary; canonical artifacts and numeric rules remain application-owned.
 Implement DuckDB first and defer a Polars adapter. This is an implementation
-direction, not a completed integration or validated production memory guarantee.
-defusedxml is selected for future sidecar parsing
-behind a small replaceable adapter. Hypothesis is selected for future developer
-property checks; psutil for future runtime resource telemetry; Memray remains
+direction with an implemented S3 staging/association foundation, not a validated
+production memory guarantee. defusedxml now parses sidecars behind a small
+replaceable adapter, and psutil provides S3 runtime telemetry. Hypothesis remains
+selected for future developer property checks; Memray remains
 an optional development profiler. Existing libraries remain candidates for later
 storage, topology, compression, and tabular-export needs identified below.
+
+The S3 lock adds DuckDB 1.5.5 (MIT), PyArrow 25.0.1 (Apache-2.0 with its
+bundled third-party notices), defusedxml 0.7.1 (PSF) and psutil 7.2.2 (BSD).
+Their installed wheel metadata and bundled license notices were inspected;
+none adds a mandatory Python dependency. The DuckDB connection disables
+extension autoloading and automatic installation. These inspected components
+introduce no identified GPL/LGPL/AGPL dependency; optional extensions and future
+wheel changes require a fresh inventory. The isolated PLY module still depends
+only on Python and NumPy, and `plyfile` source was not consulted.
 
 Follow-up direction: leave SoftFloat out of this work and defer Numba until a
 measured bottleneck warrants optimizing owned code. Keep NumPy-compatible bulk
@@ -94,8 +104,8 @@ and [public-domain SQLite][sqlite-license], through Python's standard-library
 interface. The temporary Polars install contains `polars` and `polars-runtime-32`
 1.44.2 without extras; both wheel license files declare MIT. This is not a
 complete inventory of bundled native components. Polars remains deferred;
-DuckDB is selected for future implementation but has not been added to the
-project environment by this design work.
+DuckDB was not added by the design work; S3 now adds the locked direct
+DuckDB/PyArrow processing path.
 
 Official documentation supports capability findings, while the local probes
 below support only their recorded narrow observations. Version numbers describe

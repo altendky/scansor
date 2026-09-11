@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from importlib import resources
+from importlib.metadata import version
 
 import numpy as np
 
@@ -75,8 +76,11 @@ _OWNED_FILES: dict[str, tuple[str, ...]] = {
         "_plyio/format.py",
         "_plyio/stream.py",
         "mesh_controls.py",
+        "mesh_dispositions.py",
         "mesh_numeric.py",
         "mesh_ply.py",
+        "mesh_semantics.py",
+        "mesh_sidecar.py",
         "serialization.py",
     ),
     "policy": ("mesh_controls.py", "mesh_numeric.py", "serialization.py"),
@@ -101,5 +105,8 @@ def implementation_inventory(owner: str) -> dict[str, Control]:
         "revision": "mesh-implementation-inventory-v1",
         "owner": owner,
         "files": files,
-        "dependencies": {"numpy": np.__version__},
+        "dependencies": {
+            "numpy": np.__version__,
+            **({"defusedxml": version("defusedxml")} if owner == "importer" else {}),
+        },
     }

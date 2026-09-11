@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import struct
+from importlib.metadata import version
 from pathlib import Path
 from typing import cast
 
@@ -286,7 +287,10 @@ def test_canonical_controls_and_semantic_inventory() -> None:
     for owner in ("generator", "importer", "policy"):
         inventory = implementation_inventory(owner)
         assert decode_control(encode_control(inventory)) == inventory
-        assert inventory["dependencies"] == {"numpy": np.__version__}
+        assert inventory["dependencies"] == {
+            "numpy": np.__version__,
+            **({"defusedxml": version("defusedxml")} if owner == "importer" else {}),
+        }
         files = cast(list[dict[str, str]], inventory["files"])
         assert [entry["name"] for entry in files] == sorted(
             entry["name"] for entry in files
