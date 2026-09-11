@@ -6,13 +6,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from scansor.mesh_controls import Control, control_id, implementation_inventory
+from scansor.mesh_controls import (
+    Control,
+    control_artifact,
+    control_id,
+    implementation_inventory,
+)
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_numeric import REVISION as NUMERIC_REVISION
 from scansor.mesh_numeric import canonical_f32
 from scansor.mesh_ply import PROFILE
 
 ASSOCIATION_REVISION = "source-face-corner-left-association-v1"
+ACCOUNTING_REVISION = "complete-category-reference-and-ordered-measures-v1"
 PENDING_IMPORT_COLUMNS = frozenset(
     ("reference-count.bin", "face-status.bin", "face-area.bin")
 )
@@ -129,3 +135,35 @@ def foundation_inventory(
         "columns": artifacts,
         "pending_columns": [str(name) for name in sorted(PENDING_IMPORT_COLUMNS)],
     }
+
+
+def complete_import_inventory(
+    *,
+    source: dict[str, Control],
+    ply_sha256: str,
+    vertices: int,
+    faces: int,
+    sidecar: dict[str, Control],
+    artifacts: list[Control],
+    summary: dict[str, Control],
+    row_digests: dict[str, Control],
+) -> dict[str, Control]:
+    result = foundation_inventory(
+        source=source,
+        ply_sha256=ply_sha256,
+        vertices=vertices,
+        faces=faces,
+        sidecar=sidecar,
+        artifacts=artifacts,
+    )
+    _ = result.pop("pending_columns")
+    result.update(
+        {
+            "revision": "mesh-import-v1",
+            "status": "complete",
+            "accounting_revision": ACCOUNTING_REVISION,
+            "row_digests": row_digests,
+            "summary": control_artifact("summary.json", summary),
+        }
+    )
+    return result

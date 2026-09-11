@@ -62,6 +62,7 @@ def _worker(mode: str, output: Path) -> int:
             "tests/test_mesh_ply.py",
             "tests/test_mesh_numeric.py",
             "tests/test_mesh_recipes.py",
+            "tests/test_mesh_accumulation.py",
             "-q",
             "-W",
             "error",
@@ -84,7 +85,7 @@ def _worker(mode: str, output: Path) -> int:
         raise RuntimeError("golden artifacts changed after tests")
     report = {
         "revision": "mesh-numeric-conformance-v1",
-        "scope": "S1 I/O and S2 primitives; full imports, budgets, and backend equality remain later gates",
+        "scope": "S1 I/O, S2 primitives and S4 ordered accumulation/digests; full imports and resource gates are separate",
         "status": "passed",
         "commit": os.environ.get("GITHUB_SHA"),
         "mode": mode,

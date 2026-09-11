@@ -62,6 +62,14 @@ def control_id(value: Control) -> str:
     return sha256(encode_control(value))
 
 
+def control_artifact(name: str, record: dict[str, Control]) -> dict[str, Control]:
+    return {
+        "name": name,
+        "byte_count": len(encode_control(record)),
+        "sha256": control_id(record),
+    }
+
+
 _OWNED_FILES: dict[str, tuple[str, ...]] = {
     "generator": (
         "_plyio/format.py",
@@ -75,15 +83,27 @@ _OWNED_FILES: dict[str, tuple[str, ...]] = {
     "importer": (
         "_plyio/format.py",
         "_plyio/stream.py",
+        "mesh_accumulation.py",
         "mesh_controls.py",
+        "mesh_digests.py",
         "mesh_dispositions.py",
         "mesh_numeric.py",
         "mesh_ply.py",
         "mesh_semantics.py",
         "mesh_sidecar.py",
+        "mesh_statistics.py",
         "serialization.py",
     ),
-    "policy": ("mesh_controls.py", "mesh_numeric.py", "serialization.py"),
+    "policy": (
+        "mesh_accumulation.py",
+        "mesh_controls.py",
+        "mesh_digests.py",
+        "mesh_numeric.py",
+        "mesh_policy.py",
+        "mesh_semantics.py",
+        "mesh_statistics.py",
+        "serialization.py",
+    ),
 }
 
 

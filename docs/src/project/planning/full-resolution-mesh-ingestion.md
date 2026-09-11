@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**Provisional contract; S1–S3 foundations implemented, 2026-09-11.**
+**Provisional contract; S1–S4 implementation, 2026-09-11.**
 This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
@@ -19,9 +19,10 @@ separate importer and artifact family; neither existing boundary is relaxed by
 pretending external observations are synthetic.
 
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
-core and source/storage foundation have the S1–S3 implementations described below.
-S4–S6 remain unimplemented. A prepared foundation is not a complete import or
-contribution result.
+core, source/storage foundation and full contribution/replay path have the S1–S4
+implementations described below. S5 visual audit and S6 scale/resource evidence
+remain unimplemented. A prepared foundation is not a complete import or
+contribution result; S4 must finish and independently publish each stage.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
 solver integration, model mapping, scale/pose estimation, robust refitting,
@@ -207,8 +208,8 @@ the same verified
 directory descriptor. It does not reopen the candidate name for recursion.
 A substituted entry is restored or retained without deleting
 its contents. Unsupported cleanup hosts fail safely. Cleanup failures do not
-overwrite an initiating processing failure. External supervision
-of killed workers and atomic stage publication remain S4 work.
+overwrite an initiating processing failure. S4 adds external supervision
+of killed workers and independent atomic stage publication below.
 
 [Source/storage tests](../../../../tests/test_mesh_sources.py) and
 [foundation integration tests](../../../../tests/test_mesh_import.py) check
@@ -249,6 +250,115 @@ version. DuckDB, PyArrow, psutil, memory plans and storage/SQL execution modules
 remain execution provenance. SQL changes affecting row/order/lookup semantics
 must revise the bound association contract; execution tuning alone does not
 change a foundation identity.
+
+### S4 contribution accounting, publication and replay
+
+The [accounting scope](../../../../src/scansor/mesh_accounting.py) now processes
+every source face, including rejected faces' in-range references. It verifies
+staged coordinates and associated indices against canonical columns, materializes
+integer-encoded corner allocations, and verifies their complete source-order hash
+before a direct DuckDB sort by vertex, face and corner. The
+[ordered accumulator](../../../../src/scansor/mesh_accumulation.py) carries one
+unfinished vertex across batches and fills orphan gaps in bounded arrays.
+
+All detailed import and contribution columns, category/reference counts, ordered
+row digests, named numeric summaries and semantic inventories are computed.
+Normalization uses the complete eligible population and explicit zero-eligible
+result. Semantic source inventories include the accumulation, digest, policy and
+summary definitions; storage, SQL execution and resource settings remain outside
+those identities.
+
+[Publication](../../../../src/scansor/mesh_publication.py) materializes RAM columns
+with bounded reads, closes stage files, verifies exact child names/lengths/hashes,
+and uses anchored Linux atomic no-replace renames. Import can be published before
+normalization; an ensuing numeric or contribution-publication failure leaves that
+complete import intact. This verifies newly computed files against their expected
+records. It is not source replay of a previously published artifact.
+
+When processing and output directories are on different mounts, publication
+copies the closed stage in bounded blocks into private staging on the output
+filesystem, verifies that copy, and then renames it atomically there. Linux
+[mount IDs](https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html) distinguish
+separate bind mounts as well as different devices. The supervisor owns both
+temporary directories before launching a worker, so it can clean an interrupted
+copy without relying on the child to report a newly created path. Processing
+and DuckDB spill storage remain in the requested work directory. Copying costs
+additional reads, writes and destination space; none changes semantic identity.
+
+The [read-only artifact scopes](../../../../src/scansor/mesh_artifacts.py) open
+complete import and contribution stages through held file/directory descriptors.
+They reject unexpected metadata/children, wrong lengths/encodings, noncanonical
+controls, child-hash mismatches, inconsistent counts/digests and invalid numeric
+values. `read_vertices(start, stop)` and `read_faces(start, stop)` return bounded,
+owned, read-only NumPy columns with source/stage identities and source row ranges.
+A contribution vertex range includes the import's vertex columns. Its arrays
+survive scope exit; callers control retention. Named measures and populations
+are available in each stage's summary. Checks around reads detect ordinary file
+or path replacement. These operations share S3's private-directory trust boundary.
+
+[`verify_mesh`](../../../../src/scansor/mesh_replay.py) additionally copies the
+retained source snapshots into fresh owned scratch, reruns full accounting and
+the requested contribution policy, then compares every canonical byte and control
+record. It can verify an independently published import without a contribution
+stage. Scratch must be outside the artifact trees; verification does not repair,
+rewrite or change their modes. Reading can update filesystem access times.
+Recomputed child hashes alone cannot conceal changed derived data. An entirely
+different source with a valid newly generated result is still internally valid;
+detecting changed history requires the caller's trusted `expected_import_id` and,
+when applicable, `expected_contribution_id`.
+
+The [Linux supervisor](../../../../src/scansor/mesh_supervisor.py) runs one fresh
+process for `WorkerRequest("import", ...)` or `WorkerRequest("verify", ...)`.
+Its parent owns disposable storage before launch, sends bounded float-free
+controls and receives progress, separately published stages and a final outcome.
+No bulk arrays cross that pipe. `run_worker` returns explicit complete/failed
+status; a final success frame is insufficient if the process exits abnormally.
+Cancellation sends SIGTERM and allows three seconds before SIGKILL. After the
+worker exits, owned cleanup also covers termination that prevented child cleanup.
+Already published complete stages remain outside that workspace.
+
+The parent requests RSS samples every 5 ms and reports the actual largest gap;
+callbacks and scheduling can delay samples. It also reaps that specific child
+with [`os.wait4`](https://docs.python.org/3.12/library/os.html#os.wait4), retaining
+the [Linux kernel peak RSS in KiB](https://man7.org/linux/man-pages/man2/getrusage.2.html)
+converted to bytes, including startup, cleanup and interpreter exit. Either
+measured peak exceeding the requested budget fails the run. This is monitoring
+and failure handling, not a hard allocation limit. Shared cgroup charges and
+events remain separate diagnostics. Disk observations are sampled within owned
+working storage; moved published bytes require separate accounting in S6.
+
+Optional failed-work retention writes an explicitly incomplete diagnostic.
+`discover_staging` only inspects a bounded number of marker files, reports stale,
+possibly active or unrecognized candidates, and never resumes or deletes them.
+PID creation time is a liveness hint; a different PID namespace is reported as
+unknown. Replaced public workspace paths remain untouched and are not advertised
+as retained owned storage.
+
+[Accounting tests](../../../../tests/test_mesh_accounting.py) check independent
+Fraction/integer-oracle bytes for all accepted small recipes and high valence,
+RAM/disk equality across 512 MiB/2 GiB plans and awkward batches, working-row
+corruption, and cancellation during folding.
+[Publication tests](../../../../tests/test_mesh_publication.py) cover corrupt
+closed staging, existing or replaced destinations, and failures after import
+publication. [Artifact tests](../../../../tests/test_mesh_artifacts.py) exercise
+bounded queries, exact child validation and unchanged artifact contents/modes.
+[Replay tests](../../../../tests/test_mesh_replay.py) first establish that altered
+rows with consistently recomputed hashes/counts/digests pass structural checks,
+then require source recomputation to reject them. They also test trusted-history
+identity checks. [Supervisor tests](../../../../tests/test_mesh_supervisor.py)
+use real fresh children, including forced termination after import publication,
+unresponsive cancellation, malformed/truncated IPC, startup-budget failure,
+disk-full controls and substituted public workspace paths.
+[Cross-filesystem tests](../../../../tests/test_mesh_cross_filesystem.py) use a
+separate Linux tmpfs to check identical bytes/IDs, failed or corrupted copies,
+no-replace publication, retention on both filesystems and forced worker death
+during a copy or after publishing import. They skip explicitly when that second
+filesystem is unavailable.
+
+The numerical conformance runner also includes the pure accumulation and digest
+tests. These are small-fixture correctness and failure checks, not S6 scale
+evidence or a public platform, performance or physical-accuracy claim. No new
+dependency or backend compatibility interface is introduced by S4.
 
 ## Source profile and provenance
 
@@ -993,8 +1103,9 @@ statuses `[0,0,0,2]`. All positions are finite and the face is usable.
 
 These byte hashes were calculated directly from the specified small records
 using Python's explicit little-endian `struct` encoding during this design.
-S2 now verifies them independently and through its numeric/recipe primitives;
-they are not yet importer implementation evidence:
+S2 verifies them independently and through its numeric/recipe primitives; S4's
+small-recipe accounting and publication tests also check the canonical bytes
+against independent expectations:
 
 | Artifact | SHA-256 |
 | --- | --- |
