@@ -323,8 +323,8 @@ def test_memory_plan_and_managed_reservations() -> None:
     assert plan.storage == "disk"
     # Capping a batch at 48 MiB must not strand half of the remaining disk-mode
     # budget while a native blocking query is starved of engine memory.
-    assert plan.engine_bytes == 240 * MIB
-    assert plan.safety_bytes == 64 * MIB
+    assert plan.engine_bytes == 224 * MIB
+    assert plan.safety_bytes == 80 * MIB
     assert plan.batch_rows == 65_536
     assert plan.reserved_bytes == plan.budget_bytes
     larger_arguments = arguments.copy()

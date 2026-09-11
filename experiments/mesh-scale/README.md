@@ -171,14 +171,19 @@ in the report, including conservative gaps before the first and after the last
 sample. Small ordinary tests cover byte comparison, reporting, cancellation,
 resource failure, and owned cleanup; they are not scale benchmark results.
 
-The supervisor now samples RSS on a separate parent thread so protocol parsing
-and progress callbacks do not themselves suspend polling. Sampling and the sole
-`wait4` reaper share a lock; reaping stops future observations before the PID can
-be reused. The observer is joined on both successful and failed exits, and its
-failure is retained explicitly. Tests cover measurements during a blocked
-callback, startup/background failures and a read racing with reaping. This
-improves the observation mechanism; real scheduling gaps are still reported,
-and earlier measurements retain the method actually used at their checkpoint.
+The supervisor starts a separate RSS helper before launching the worker. It
+transfers a held `/proc/PID/statm` descriptor; Linux keeps that handle tied to
+the original process, including after numeric PID reuse. The parent alone
+calls `wait4`. Bounded cumulative messages do not suspend sampling when parent
+protocol processing is busy, and an acknowledgement confirms delivery of the
+final statistics before the helper exits successfully. Both processes are
+reaped on failure paths. Helper errors invalidate coverage, including errors
+discovered after the worker completes. Helper RSS is outside the worker budget
+but included in its cgroup's charge. Tests cover a parent C call holding the
+GIL, final peak delivery without intermediate drainage, helper/worker startup
+failures, owner loss and late errors. Real scheduling gaps are still reported;
+this mechanism does not guarantee a 10 ms interval. Earlier measurements retain
+their original method, including the previous parent-thread observer.
 
 ## Initial six-million-vertex measurement
 
@@ -762,7 +767,7 @@ missed coverage. Cleanup passed; no display was published, replay did not run,
 and the separate 6 GiB cgroup recorded no OOM/kill or swap. The report embeds the
 exact diagnostic source and binds its implementation and prior import report.
 
-The next candidate removes that global usable-face join/sort. Canonical faces
+The candidate removes that global usable-face join/sort. Canonical faces
 already have source order. A disk column holds one signed 32-bit view ID per
 source vertex, with `-1` for nonfinite positions. Its complete bytes are checked
 against the source-derived digest before face lookup. Each face batch gathers at
@@ -770,6 +775,86 @@ most three times the planned batch rows through the existing bounded column
 reader, preserving source corner order and checking valid remapped IDs. The
 failed display-specific memory adjustment is removed. Complete fresh resource,
 reordered-input and output-identity measurements remain required.
+
+The [full display/replay lookup diagnostic at `e3ae379`](run-grid-10000x6000-flat-display-lookup-r1.json)
+completed both workers at the 512 MiB target. Export took 885.71 seconds with
+446.56 MiB kernel and 447.83 MiB sampled peak RSS; complete fresh-worker replay
+took 673.39 seconds with 459.39/460.66 MiB peaks. Every display file hash, profile
+and expected population check passed, replay rebuilt all data, and the complete
+display check record is identical to the earlier full flat 2 GiB result. The
+published display occupies 13,078,922,602 logical bytes. Both operations cleaned
+their owned scratch; neither recorded OOM/kill or swap use. This reuses the
+independently verified r6 import, rather than measuring a fresh complete import.
+
+Sampling coverage failed: export had 52 gaps over 10 ms with a 61.22 ms maximum;
+replay had four with a 29.79 ms maximum. Kernel high-water and sampled RSS fit the
+budget, but these gaps remain failed observation coverage. The parent-only
+diagnostics below investigate observation delays before the renewed full
+matrix. No timing tolerance or source/output sampling is substituted for that
+requirement.
+
+The [parent GC timing diagnostic](diagnostic-grid-3000x2000-flat-512-gc-observer-r2.json)
+ran the complete six-million-vertex flat pipeline with unchanged `e3ae379`
+worker code and parent-only instrumentation. All operations completed within
+512 MiB, but six observation gaps exceeded 10 ms. None overlapped the 34 recorded
+GC events; the longest GC pause was 6.02 ms, while missed intervals ranged from
+11.19 to 24.50 ms. This rules out GC overlap for those six observations; it does
+not establish the cause of every earlier gap.
+
+The first attempt's [pipeline report](run-grid-3000x2000-flat-512-gc-observer-r1.json)
+is retained with an explicit [diagnostic-save failure record](diagnostic-grid-3000x2000-flat-512-gc-observer-r1-failed.json).
+The pipeline completed, but a floating-point diagnostic metadata field was
+rejected by the integer-only control writer. Its GC correlation data was not
+saved; the corrected attempt records the setting in integer nanoseconds.
+
+A [subsequent diagnostic](diagnostic-grid-3000x2000-flat-512-gc-observer-switch1-r1.json)
+temporarily requested a 1 ms thread-switch interval in the measurement parent
+and recorded both current and preceding RSS-call timing. All three operations
+completed within the RSS budget, but export still had gaps of 28.07 and
+20.01 ms. Neither overlapped GC; the current and preceding RSS reads each took
+less than 0.35 ms. The separate 6 GiB cgroup limit was not reached. These
+observations do not identify the remaining scheduling delay, and the interval
+change is not adopted. The workers retained their normal interpreter settings.
+Python describes
+[`setswitchinterval`](https://docs.python.org/3.12/library/sys.html#sys.setswitchinterval)
+as an ideal timeslice, with actual scheduling subject to longer internal work
+and OS decisions. Changing it cannot establish the 10 ms coverage requirement
+without complete measured observations.
+
+The [independent sampler-process prototype](diagnostic-grid-3000x2000-flat-512-process-observer-r1.json)
+prestarted a helper before each worker and passed a held `/proc/PID/statm`
+descriptor, avoiding the parent's interpreter locks. Its small host smoke test
+continued sampling during a 593 ms parent C call, with a 1.21 ms maximum gap.
+The full six-million-vertex attempt nevertheless failed import: sampled/kernel
+RSS reached 513.88/512.72 MiB during contribution ordering, and two sampling gaps
+exceeded 10 ms, with a 19.24 ms maximum. Owned scratch was removed, nothing was
+published, and all helpers exited normally. The complete diagnostic sources
+are embedded in the report. This prototype is not adopted into the supervisor;
+neither sampling coverage nor the near-limit importer allocation is resolved.
+
+The [helper timing display/replay diagnostic](run-grid-3000x2000-flat-display-observer-timing-r1.json)
+reused a fully checked six-million-vertex import and retained per-iteration helper
+wall/CPU clocks, scheduler counters and fault/context-switch counts for delayed
+observations. Both workers completed with every resource/coverage/cleanup check
+passing: sampled peaks were 495.81 and 486.55 MiB, and maximum gaps were 7.70 and
+4.82 ms. The complete display check record matched the previous six-million-row
+flat result. No gap exceeded 10 ms, so this attempt cannot explain the earlier
+misses. Its instrumentation can perturb timing, and it does not remeasure import.
+
+The [80 MiB safety-reserve diagnostic](diagnostic-grid-3000x2000-flat-512-safety80-timing-r1.json)
+reassigned 16 MiB from the engine reservation while keeping the 512 MiB total,
+batch rows and complete source populations. Import, display and replay completed
+in 110.12, 60.07 and 54.23 seconds with sampled peaks of 473.50, 486.03 and
+482.24 MiB. All canonical and display check records matched the previous flat
+case; only the separately recorded validation times differed. Recorded maximum
+gaps were 7.30, 7.48 and 6.25 ms, but the display helper reported missing final
+statistics. Its old harness incorrectly reported coverage as passing despite
+`sampling_error`; that raw result remains unchanged and its coverage is
+incomplete. The current harness requires error-free sampling and the supervisor
+also fails on late observer errors or late peaks above the requested budget.
+The replacement helper uses acknowledged final delivery and detects owner
+socket closure. The 80 MiB allowance and new observation mechanism require
+fresh complete measurements, including the sixty-million-vertex cases.
 
 ## Remaining execution evidence
 

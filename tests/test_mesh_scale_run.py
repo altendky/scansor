@@ -12,6 +12,7 @@ from experiments.mesh_scale_generate import prepare_source
 from experiments.mesh_scale_metrics import integer, object_record
 from experiments.mesh_scale_run import published, run_case
 from scansor.mesh_controls import Control, decode_control
+from scansor.mesh_worker_request import WorkerRequest
 
 
 def fixture(root: Path) -> tuple[Path, Path]:
@@ -19,6 +20,42 @@ def fixture(root: Path) -> tuple[Path, Path]:
     _ = freeze_grid(root, frozen, width=5, height=7, noisy=True, chunk_rows=3)
     _ = prepare_source(frozen, root, source.name, root / "prepared.json", chunk_rows=11)
     return frozen, source
+
+
+@pytest.mark.parametrize("sampling_error", (None, "missing final sampler statistics"))
+def test_sampling_error_invalidates_coverage_despite_short_recorded_gaps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sampling_error: str | None,
+) -> None:
+    from experiments import mesh_scale_measure
+
+    root = tmp_path / "case"
+    (root / "work").mkdir(parents=True)
+
+    def outcome(*_args: object, **_kwargs: object) -> dict[str, Control]:
+        return {
+            "status": "complete",
+            "supervision": {
+                "samples": 2,
+                "sampling_error": sampling_error,
+                "sampling_edges": {
+                    "initial_gap_ns": 1,
+                    "terminal_gap_ns": 1,
+                    "largest_gap_including_edges_ns": 1,
+                },
+            },
+        }
+
+    monkeypatch.setattr(mesh_scale_measure, "run_worker", outcome)
+    report = mesh_scale_measure.measure_worker(
+        WorkerRequest("import", tmp_path / "source.ply", destination=root),
+        root,
+        tmp_path / "telemetry.ndjson",
+    )
+    assert object_record(report["observations"])[
+        "sample_gaps_including_edges_within_10ms"
+    ] is (sampling_error is None)
 
 
 def test_complete_harness_checks_all_bytes_and_retains_scoped_resource_evidence(

@@ -311,6 +311,9 @@ def run_worker(
                     "request_id": control_id(request.record()),
                 },
             )
+        # Start the small helper before the worker so interpreter startup is
+        # outside the measured worker lifetime. It owns no workspace handles.
+        observer = ProcessObserver(SAMPLE_SECONDS)
         launch_started = time.monotonic_ns()
         process = subprocess.Popen(
             _worker_command(
@@ -325,10 +328,9 @@ def run_worker(
         )
         launch_returned = time.monotonic_ns()
         assert process.stdout is not None and process.stderr is not None
+        observer.start(process.pid)
         messages = _Messages(request, process.pid, progress)
         observed_process = psutil.Process(process.pid)
-        observer = ProcessObserver(observed_process, SAMPLE_SECONDS)
-        observer.start()
         for root in roots:
             _write_record(
                 root.access / "worker.json",
@@ -396,7 +398,7 @@ def run_worker(
                                     + str(error)[:2048]
                                 ]
                 if process.returncode is None:
-                    pid, status, usage = observer.reap(os.WNOHANG)
+                    pid, status, usage = os.wait4(process.pid, os.WNOHANG)
                     if pid:
                         reaped = time.monotonic_ns()
                         process.returncode = os.waitstatus_to_exitcode(status)
@@ -450,11 +452,7 @@ def run_worker(
                 if process.returncode is None:
                     with suppress(ProcessLookupError):
                         os.kill(process.pid, signal.SIGKILL)
-                    _pid, status, usage = (
-                        os.wait4(process.pid, 0)
-                        if observer is None
-                        else observer.reap(0)
-                    )
+                    _pid, status, usage = os.wait4(process.pid, 0)
                     reaped = time.monotonic_ns()
                     process.returncode = os.waitstatus_to_exitcode(status)
                     kernel_peak = int(usage.ru_maxrss) * 1024
@@ -472,6 +470,14 @@ def run_worker(
             first_sample, previous_sample = measured.first_ns, measured.last_ns
             max_gap, gaps_over_10ms = measured.largest_gap_ns, measured.gaps_over_10ms
             sampling_error = measured.error
+            if failure is None and sampling_error is not None:
+                failure = _failure(
+                    "execution", "RSS observation failed: " + sampling_error
+                )
+            if failure is None and peak > request.budget_bytes:
+                failure = _failure(
+                    "resource", "final sampled whole-worker RSS exceeded its budget"
+                )
         initial_gap = (
             None
             if first_sample is None or launch_started is None
@@ -497,7 +503,9 @@ def run_worker(
                 "sampled_peak_rss_bytes": peak,
                 "kernel_peak_rss_bytes": kernel_peak,
                 "requested_sample_interval_ns": round(SAMPLE_SECONDS * 1_000_000_000),
-                "sampling_method": "separate parent thread; observations serialized with the sole wait4 reaper",
+                "sampling_method": "prestarted independent helper; held proc statm descriptor; acknowledged final cumulative observations; parent alone calls wait4",
+                "sampler_pid": None if observer is None else observer.pid,
+                "sampler_exit_code": None if observer is None else observer.exit_code,
                 "sampling_error": sampling_error,
                 "samples": samples,
                 "largest_observed_sample_gap_ns": max_gap,

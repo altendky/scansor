@@ -82,12 +82,12 @@ def plan_memory(
     # Per-row scratch includes decoder records, canonical copies, Arrow input
     # and output, two live face buffers, numeric scratch and status/index masks.
     # Canonical row gathers replaced the large native coordinate hash join.
-    # Its former 128 MiB safety floor then starved corner sorting while measured
-    # whole-worker RSS stayed below 373 MiB in the 60M-vertex 512 MiB cases.
-    # Reassign 64 MiB to the engine at that budget, retaining the proportional
-    # reserve at larger budgets. Whole-worker measurements must still establish
-    # whether this allocation fits; the engine limit alone cannot prove that.
-    safety, fixed = max(64 * MIB, budget_bytes // 10), 32 * MIB
+    # A 128 MiB safety floor starved corner sorting on the 60M/512 MiB case.
+    # At 64 MiB, the 6M case later reached 513.88 MiB RSS in its second sort.
+    # An 80 MiB candidate completed that full pipeline below 487 MiB. Keep the
+    # proportional reserve at larger budgets; complete renewed measurements
+    # must still establish the full matrix, not just this engine reservation.
+    safety, fixed = max(80 * MIB, budget_bytes // 10), 32 * MIB
     usable = budget_bytes - baseline_bytes - safety - fixed
     if usable < 32 * MIB + PER_ROW_SCRATCH:
         raise MeshImportError(

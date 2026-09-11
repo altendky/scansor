@@ -1,0 +1,2414 @@
+{
+  "case": "grid-3000x2000-flat-display-observer-timing-r1",
+  "checks": {
+    "display": {
+      "contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+      "display_id": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+      "files": [
+        {
+          "byte_count": 581870753,
+          "name": "validity.ply",
+          "sha256": "bd449d6d4db85c275352296c54246757defcbe81617f0291dd7986bd291330d7"
+        },
+        {
+          "byte_count": 581870752,
+          "name": "weights.ply",
+          "sha256": "d3205a8896634f5fb04b1cdcc8977655e35838ee59ec4b7233df837995426473"
+        },
+        {
+          "byte_count": 941,
+          "name": "rejected-face-corners.ply",
+          "sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38"
+        },
+        {
+          "byte_count": 48000000,
+          "dtype": "<u8",
+          "name": "view-vertices.bin",
+          "sha256": "8fe27724ea0a217955e78f4309a9f9b77bb8a6bca0cc871bbffeab413040fa2a",
+          "shape": [
+            6000000
+          ]
+        },
+        {
+          "byte_count": 95920016,
+          "dtype": "<u8",
+          "name": "view-faces.bin",
+          "sha256": "14aaf3b6c53001fb8e7828185c4540cffe3c58a33792acda9d34dc433410c3df",
+          "shape": [
+            11990002
+          ]
+        }
+      ],
+      "import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+      "population": {
+        "rejected_corners": 0,
+        "usable_faces_per_main_view": 11990002,
+        "vertices_per_main_view": 6000000
+      },
+      "semantic_replay": "requires separate verify-display worker",
+      "status": "verified-full-display-rows-and-hashes"
+    }
+  },
+  "contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+  "diagnostic_sources": {
+    "/tmp/scansor-37-display-observer-timing-probe.py": {
+      "sha256": "4ac6416be6bb3a50d872047c4d518f08085d4dcf94e18db1e913641db9c00d4c",
+      "source": "\"\"\"Measure full6M display/replay and helper delays; reuse checked canonical data.\"\"\"\nimport datetime\nimport hashlib\nimport importlib.util\nimport json\nimport time\nfrom pathlib import Path\nfrom experiments.mesh_scale_check import check_display, load_expectation\nfrom experiments.mesh_scale_measure import ProgressPrinter, measure_worker, save_report\nfrom experiments.mesh_scale_metrics import host_record\nfrom experiments.mesh_scale_run import implementation_record, outside_git, published\nfrom scansor.mesh_worker_request import WorkerRequest\nfrom scansor import mesh_supervisor\n\nPROBE=Path('/tmp/scansor-37-process-observer-timing-probe.py')\nspec=importlib.util.spec_from_file_location('timing_observer_probe', PROBE)\nmodule=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\n\n\ndef main():\n    base=outside_git(Path('/home/data/scansor-s6-evidence-fJVNUiYN'))\n    name='grid-3000x2000-flat-display-observer-timing-r1'\n    root=base/name\n    output=base/('run-'+name+'.json')\n    telemetry={op:base/(name+'-'+op+'.ndjson') for op in ('display','verify-display')}\n    if any(p.exists() for p in (root,output,*telemetry.values())):raise FileExistsError(name)\n    raw=(base/'run-grid-3000x2000-flat-512-gc-observer-switch1-r1.json').read_bytes()\n    prior=json.loads(raw)\n    assert prior['checks']['canonical']['status']=='verified-complete-canonical-data'\n    first,first_id=published(prior['operations']['import'],'import')\n    second,second_id=published(prior['operations']['import'],'contribution')\n    expected,frozen_sha=load_expectation(base/'expected-grid-3000x2000-flat.json')\n    implementation=implementation_record()\n    sources={str(p):{'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'source':p.read_text()}\n             for p in (Path(__file__),PROBE,module.HELPER)}\n    report={'revision':'independent-sampler-timing-diagnostic-v1','status':'failed','case':name,\n            'started_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),\n            'scope':'Fresh sequential6M display/replay workers at512MiB, reusing independently checked import/contribution. Worker code e3 unchanged. Two sampler helpers prestarted and included in separate6GiB cgroup charge, excluded from workerRSS. Per-iteration helper clocks, schedstat and rusage instrumentation may alter timing. Last128 delayed intervals are retained; full count is separate. No performance speedup or full-import result claimed.',\n            'implementation':implementation,'diagnostic_sources':sources,\n            'input_report_sha256':hashlib.sha256(raw).hexdigest(),\n            'frozen_manifest_sha256':frozen_sha,'expectation':expected,\n            'import_id':first_id,'contribution_id':second_id,'operations':{},'checks':{}}\n    started=time.monotonic_ns()\n    original=mesh_supervisor.ProcessObserver\n    try:\n        root.mkdir(mode=0o700)\n        (root/'work').mkdir(mode=0o700)\n        (root/'out').mkdir(mode=0o700)\n        module.POOL.extend(module.Helper() for _ in range(2))\n        mesh_supervisor.ProcessObserver=module.Observer\n        def measure(request):\n            index=len(module.USED)\n            op=measure_worker(request,root,telemetry[request.operation])\n            helper=module.USED[index]\n            op['outcome']['supervision']['sampling_method']='Diagnostic prestarted independent Python helper using held proc statm descriptor; helper wall/CPU/scheduling timing retained; parent alone reaps worker.'\n            op['sampler_process']={'pid':helper.process.pid,'exit_code':helper.process.returncode,\n                                   'error':helper.error,'slow_samples':helper.gaps}\n            report['operations'][request.operation]=op\n            if op['status']!='complete' or not op['observations']['whole_worker_rss_within_budget']:\n                raise RuntimeError(request.operation+' failed; inspect retained outcome')\n            return op\n        displayed=measure(WorkerRequest('display',first,contribution=second,destination=root/'out',\n                expected_import_id=first_id,expected_contribution_id=second_id,budget_bytes=512*1024*1024,storage='disk'))\n        third,third_id=published(displayed,'display')\n        report['checks']['display']=check_display(third,expected,display_id=third_id,import_id=first_id,\n                contribution_id=second_id,progress=ProgressPrinter())\n        measure(WorkerRequest('verify-display',first,contribution=second,display=third,\n                expected_import_id=first_id,expected_contribution_id=second_id,expected_display_id=third_id,\n                budget_bytes=512*1024*1024,storage='disk'))\n        if implementation_record()!=implementation:raise RuntimeError('worker code changed')\n        for p,value in sources.items():\n            if Path(p).read_text()!=value['source']:raise RuntimeError('diagnostic changed')\n        report['status']='complete'\n    except BaseException as error:\n        report['error']={'type':type(error).__name__,'message':str(error)[:2048]}\n    finally:\n        mesh_supervisor.ProcessObserver=original\n        for helper in module.USED:helper.finish()\n        for helper in module.POOL:helper.finish(unused=True)\n        report['helpers_exited']=all(h.closed and h.process.returncode==0 for h in [*module.USED,*module.POOL])\n        report['elapsed_including_checks_ns']=time.monotonic_ns()-started\n        report['host_after_checks']=host_record(base)\n        save_report(output,report)\n    print(json.dumps({'status':report['status'],'report':str(output),'helpers_exited':report['helpers_exited']}),flush=True)\n    raise SystemExit(0 if report['status']=='complete' and report['helpers_exited'] else 1)\n\nif __name__=='__main__':main()\n"
+    },
+    "/tmp/scansor-37-process-observer-timing-probe.py": {
+      "sha256": "0206cc56e7a8350892c0d3e57e4a8a18bfbf26b29c8e44c48010cbbb60e2197b",
+      "source": "\"\"\"Independent sampler-process diagnostic; e3 worker and core sources unchanged.\"\"\"\nimport array\nimport hashlib\nimport json\nimport math\nimport os\nimport socket\nimport struct\nimport subprocess\nimport sys\nimport time\nfrom pathlib import Path\n\nfrom experiments import mesh_scale_run\nfrom experiments.mesh_scale_measure import save_report\nfrom scansor import mesh_supervisor\nfrom scansor.mesh_process_observer import RssObservations\n\nHELPER = Path('/tmp/scansor-37-rss-sampler-timing-prototype.py')\nPACK = struct.Struct('!c6Q')\nPOOL = []\nUSED = []\n\n\nclass Helper:\n    def __init__(self):\n        self.channel, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)\n        self.process = subprocess.Popen(\n            [sys.executable, str(HELPER), str(child.fileno())],\n            pass_fds=(child.fileno(),), stdin=subprocess.DEVNULL,\n            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,\n        )\n        child.close()\n        self.channel.settimeout(5)\n        try:\n            assert self.channel.recv(16) == b'R'\n        except BaseException:\n            if self.process.poll() is None:\n                self.process.kill()\n            _, stderr = self.process.communicate(timeout=5)\n            self.channel.close()\n            raise RuntimeError('sampler bootstrap failed: ' + stderr.decode(errors='replace'))\n        self.channel.setblocking(False)\n        self.final = False\n        self.error = None\n        self.gaps = []\n        self.observed = RssObservations(0, 0, None, None, 0, 0, None)\n        self.closed = False\n\n    def drain(self):\n        while True:\n            try:\n                message = self.channel.recv(2048)\n            except BlockingIOError:\n                break\n            if message[:1] == b'G':\n                self.gaps.append(json.loads(message[1:]))\n                continue\n            if message[:1] == b'E':\n                self.error = message[1:].decode()\n                continue\n            tag, peak, samples, first, last, largest, misses = PACK.unpack(message)\n            assert tag in (b'P', b'F')\n            self.observed = RssObservations(peak, samples, first, last, largest, misses, self.error)\n            self.final |= tag == b'F'\n\n    def finish(self, *, unused=False):\n        if self.closed:\n            return\n        if not self.final:\n            try:\n                self.channel.send(b'Q')\n            except (BlockingIOError, BrokenPipeError, ConnectionRefusedError):\n                pass\n        deadline = time.monotonic() + 5\n        while self.process.poll() is None and time.monotonic() < deadline:\n            if not unused:\n                self.drain()\n            time.sleep(0.001)\n        if self.process.poll() is None:\n            self.process.kill()\n            self.error = 'sampler did not stop'\n        self.process.wait()\n        if not unused:\n            self.drain()\n            if not self.final:\n                self.error = 'sampler exited without final observations'\n        if self.process.returncode:\n            self.error = 'sampler failed: ' + str(self.process.returncode)\n        assert self.process.stderr is not None\n        error = self.process.stderr.read(4096)\n        self.process.stderr.close()\n        if error:\n            self.error = error.decode(errors='replace')\n        self.channel.close()\n        self.closed = True\n        if self.error:\n            x = self.observed\n            self.observed = RssObservations(x.peak_bytes, x.samples, x.first_ns, x.last_ns,\n                                            x.largest_gap_ns, x.gaps_over_10ms, self.error)\n\n\nclass Observer:\n    def __init__(self, process, sample_seconds):\n        self.process = process\n        self.interval = round(sample_seconds * 1_000_000_000)\n        self.helper = POOL.pop(0)\n        USED.append(self.helper)\n\n    def start(self):\n        now = time.monotonic_ns()\n        descriptor = os.open(f'/proc/{self.process.pid}/statm', os.O_RDONLY)\n        try:\n            rss = int(os.pread(descriptor, 256, 0).split()[1]) * os.sysconf('SC_PAGE_SIZE')\n            self.helper.observed = RssObservations(rss, 1, now, now, 0, 0, None)\n            fds = array.array('i', [descriptor])\n            self.helper.channel.sendmsg(\n                [struct.pack('!3Q', now, rss, self.interval)],\n                [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)],\n            )\n        finally:\n            os.close(descriptor)\n\n    def observations(self, *, check=True):\n        if not self.helper.closed:\n            self.helper.drain()\n            if self.helper.process.poll() is not None:\n                self.helper.drain()\n                if not self.helper.final:\n                    self.helper.error = 'sampler exited prematurely'\n        if check and self.helper.error:\n            raise RuntimeError(self.helper.error)\n        return self.helper.observed\n\n    def reap(self, options):\n        # Held proc FDs remain bound to the original process after PID reuse:\n        # https://docs.kernel.org/filesystems/proc.html\n        return os.wait4(self.process.pid, options)\n\n    def stop(self):\n        self.helper.finish()\n\n\ndef smoke():\n    import psutil\n    POOL.append(Helper())\n    process = subprocess.Popen([sys.executable, '-c', 'import time; x=bytearray(32000000); time.sleep(3)'])\n    observer = Observer(psutil.Process(process.pid), 0.001)\n    observer.start()\n    time.sleep(0.05)\n    before = observer.observations()\n    started = time.monotonic_ns()\n    _ = math.factorial(200_000)\n    finished = time.monotonic_ns()\n    after = observer.observations()\n    process.terminate()\n    _, status, _usage = observer.reap(0)\n    process.returncode = os.waitstatus_to_exitcode(status)\n    observer.stop()\n    final = observer.observations()\n    print(json.dumps({'parent_c_call_ns': finished-started, 'samples_before': before.samples,\n                      'samples_after': after.samples, 'gap_ns': final.largest_gap_ns,\n                      'peak': final.peak_bytes, 'error': final.error}))\n    assert after.samples > before.samples + 20 and final.error is None\n\n\ndef main():\n    root = Path('/home/data/scansor-s6-evidence-fJVNUiYN')\n    name = 'grid-3000x2000-flat-512-process-observer-r1'\n    final = root / ('diagnostic-' + name + '.json')\n    if final.exists():\n        raise FileExistsError(final)\n    source = Path(__file__).read_bytes()\n    helper_source = HELPER.read_bytes()\n    original = mesh_supervisor.ProcessObserver\n    measure = mesh_scale_run.measure_worker\n    def measured(*args, **kwargs):\n        index = len(USED)\n        result = measure(*args, **kwargs)\n        helper = USED[index]\n        result['outcome']['supervision']['sampling_method'] = 'Diagnostic prestarted independent Python helper, held proc statm descriptor, cumulative datagram updates; parent alone calls wait4.'\n        result['sampler_process'] = {'pid': helper.process.pid, 'exit_code': helper.process.returncode,\n                                     'error': helper.error, 'source_sha256': hashlib.sha256(helper_source).hexdigest()}\n        return result\n    try:\n        POOL.extend(Helper() for _ in range(3))\n        mesh_supervisor.ProcessObserver = Observer\n        mesh_scale_run.measure_worker = measured\n        report = mesh_scale_run.run_case(\n            root / 'expected-grid-3000x2000-flat.json', root / 'source-grid-3000x2000-flat.ply',\n            root, name, root / ('run-' + name + '.json'), budget_bytes=512*1024*1024, storage='disk',\n        )\n    finally:\n        mesh_supervisor.ProcessObserver = original\n        mesh_scale_run.measure_worker = measure\n        for helper in USED:\n            helper.finish()\n        for helper in POOL:\n            helper.finish(unused=True)\n    result = {'revision': 'independent-process-observer-prototype-v1',\n              'scope': 'Complete6M flat pipeline with a diagnostic independent sampler process replacing the parent sampling thread. Worker code is fixed e3. Three lightweight helpers are prestarted before the first worker, used one per operation, and included in cgroup charge but excluded from measured worker RSS. All helper processes must exit. Not an uninstrumented timing comparison.',\n              'probe_source': source.decode(), 'probe_sha256': hashlib.sha256(source).hexdigest(),\n              'helper_source': helper_source.decode(), 'helper_sha256': hashlib.sha256(helper_source).hexdigest(),\n              'helpers_exited': all(h.process.returncode == 0 and h.closed for h in [*USED,*POOL]),\n              'case_report': report}\n    save_report(final, result)\n    print(json.dumps({'status': report['status'], 'diagnostic': str(final), 'helpers_exited': result['helpers_exited']}), flush=True)\n    raise SystemExit(0 if report['status'] == 'complete' and result['helpers_exited'] else 1)\n\n\nif __name__ == '__main__':\n    if '--smoke' in sys.argv:\n        smoke()\n    else:\n        main()\n"
+    },
+    "/tmp/scansor-37-rss-sampler-timing-prototype.py": {
+      "sha256": "05f787b637e73b6f9b7120047e88987c9aa7c81a995f22fd5fa63ca3bb4a99fc",
+      "source": "\"\"\"Diagnostic helper: sample a held proc statm FD without parent Python locks.\"\"\"\nimport array\nimport errno\nimport json\nimport resource\nfrom collections import deque\nimport os\nimport socket\nimport struct\nimport sys\nimport time\n\nPACK = struct.Struct('!c6Q')\n\n\ndef main():\n    channel = socket.socket(fileno=int(sys.argv[1]))\n    channel.send(b'R')\n    payload, ancillary, flags, _ = channel.recvmsg(128, socket.CMSG_SPACE(4))\n    if payload == b'Q':\n        return\n    if flags or len(payload) != 24 or len(ancillary) != 1:\n        raise RuntimeError('invalid sampler bootstrap')\n    level, kind, raw = ancillary[0]\n    assert level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS\n    descriptors = array.array('i')\n    descriptors.frombytes(raw)\n    assert len(descriptors) == 1\n    descriptor = descriptors[0]\n    first, peak, interval = struct.unpack('!3Q', payload)\n    last, samples, largest, misses = first, 1, 0, 0\n    page = os.sysconf('SC_PAGE_SIZE')\n    channel.setblocking(False)\n    error = None\n    gaps = deque(maxlen=128)\n    previous = None\n    sched = os.open(\"/proc/self/schedstat\", os.O_RDONLY)\n    try:\n        while True:\n            cycle = {\"loop_start_ns\": time.monotonic_ns()}\n            try:\n                command = channel.recv(16)\n                if command == b'Q':\n                    break\n                raise RuntimeError('invalid sampler command')\n            except BlockingIOError:\n                pass\n            now = time.monotonic_ns()\n            cycle[\"sample_start_ns\"] = now\n            try:\n                raw = os.pread(descriptor, 256, 0)\n            except OSError as caught:\n                if caught.errno == errno.ESRCH:\n                    break\n                raise\n            if not raw:\n                break\n            cycle[\"read_end_ns\"] = time.monotonic_ns()\n            cycle[\"thread_cpu_ns\"] = time.thread_time_ns()\n            cycle[\"schedstat\"] = [int(v) for v in os.pread(sched, 256, 0).split()]\n            usage = resource.getrusage(resource.RUSAGE_SELF)\n            cycle[\"rusage\"] = [usage.ru_nvcsw, usage.ru_nivcsw, usage.ru_minflt, usage.ru_majflt]\n            fields = raw.split()\n            if len(fields) != 7 or len(raw) >= 256:\n                raise RuntimeError('invalid statm record')\n            rss = int(fields[1]) * page\n            gap = now - last\n            if gap > 10_000_000:\n                gaps.append({\"gap_ns\": gap, \"previous\": previous, \"current\": dict(cycle)})\n            largest = max(largest, gap)\n            misses += gap > 10_000_000\n            peak = max(peak, rss)\n            samples += 1\n            last = now\n            try:\n                channel.send(PACK.pack(b'P', peak, samples, first, last, largest, misses))\n            except BlockingIOError:\n                # Every update is cumulative. A full IPC buffer must not pause\n                # sampling; the final update is delivered after parent drainage.\n                pass\n            cycle[\"sleep_start_ns\"] = time.monotonic_ns()\n            time.sleep(interval / 1_000_000_000)\n            cycle[\"sleep_end_ns\"] = time.monotonic_ns()\n            previous = cycle\n    except BaseException as caught:\n        error = f'{type(caught).__name__}: {caught}'[:1000]\n    finally:\n        os.close(descriptor)\n        os.close(sched)\n        channel.settimeout(5)\n        for record in gaps:\n            channel.send(b\"G\" + json.dumps(record, separators=(\",\", \":\")).encode())\n        if error is not None:\n            channel.send(b'E' + error.encode())\n        channel.send(PACK.pack(b'F', peak, samples, first, last, largest, misses))\n        channel.close()\n\n\nif __name__ == '__main__':\n    main()\n"
+    }
+  },
+  "elapsed_including_checks_ns": 124140731255,
+  "expectation": {
+    "area_table_sha256": "51871bdc07aeca788b3529ac9fc75c37d0a4b1089ed2fc840c9315ba5ac2440b",
+    "columns": {
+      "contribution-status.bin": {
+        "bytes": 6000000,
+        "sha256": "a973958be9796e1828804c04894509fdf6b70d2c77b62b49bd2cef25674c032b"
+      },
+      "face-area.bin": {
+        "bytes": 95920016,
+        "sha256": "a157477243241e75418181aca40379176f73073677336a2c12a0006628bf2fbc"
+      },
+      "face-status.bin": {
+        "bytes": 11990002,
+        "sha256": "ab0f57ab28243cf63c5e77f33b71b4ca306a4d1f0b34e1e0bfde1c0aceaf9ce8"
+      },
+      "normal-status.bin": {
+        "bytes": 6000000,
+        "sha256": "a973958be9796e1828804c04894509fdf6b70d2c77b62b49bd2cef25674c032b"
+      },
+      "reference-count.bin": {
+        "bytes": 48000000,
+        "sha256": "6725b125838d06670dd68e5c6097bc3c67a6014c01abcade4638d615679423ac"
+      },
+      "triangles.bin": {
+        "bytes": 143880024,
+        "sha256": "36a4889d885e4d100b96356ab49344a5c30024f286eb311d83d190bfd68a5769"
+      },
+      "vertex-area.bin": {
+        "bytes": 48000000,
+        "sha256": "e7574a5f1d84c1cd18de68a41a0fe174a7ae77afd55ee7f3bc0cccb99e6126e9"
+      },
+      "vertex-status.bin": {
+        "bytes": 6000000,
+        "sha256": "a973958be9796e1828804c04894509fdf6b70d2c77b62b49bd2cef25674c032b"
+      },
+      "weight.bin": {
+        "bytes": 48000000,
+        "sha256": "25558c35ce5af4b78a9b93a2f7ec8e66408426534745480507a1a24f832b13e6"
+      },
+      "xyz.bin": {
+        "bytes": 72000000,
+        "sha256": "df474d4d98bd7376ee4edf860c45b96953056782573b384fdc6ba855106b111a"
+      }
+    },
+    "face_area_sum_bits": "419126deb0000000",
+    "faces": 11990002,
+    "height": 2000,
+    "in_range_source_corners": 35970006,
+    "noisy": false,
+    "row_digests": {
+      "contribution_vertices": "c0a134f09f0a72ae20050347ce18c3a5d1af877ac6e0aaf80b854d42cce48dce",
+      "import_faces": "bd00bd87ea130566a40abc1e9aa4e9742ecb26d3623bcc79787f93a161d68532",
+      "import_vertices": "7da5ee31eeb975fec087c0bddd278f7cf074ceaa270b6692d5965b2fcea0bf42"
+    },
+    "seed": 7,
+    "source": {
+      "bytes": 227870239,
+      "sha256": "b2892a4a64103a4c7fffcda066d15b964e1788c3ada01dd8b8bb33b939f06938"
+    },
+    "vertex_area_range_bits": [
+      "4000000000000000",
+      "4028000000000000"
+    ],
+    "vertex_area_sum_bits": "419126deb0000000",
+    "vertices": 6000000,
+    "weight_range_bits": [
+      "3fc559e327f538e8",
+      "3ff0036a5df7eaae"
+    ],
+    "weight_sum_bits": "4156e36000058f27",
+    "width": 3000
+  },
+  "frozen_manifest_sha256": "4844bce2b4b677e71a7e2235066041bf8f25f88d219c18dc94f08455b369afe1",
+  "helpers_exited": true,
+  "host_after_checks": {
+    "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+    "cgroup": {
+      "available": true,
+      "cgroup.procs": "882595",
+      "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope",
+      "memory.current": "1441181696",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.max": "6442450944",
+      "memory.peak": "3205255168",
+      "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=17454\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=17454",
+      "memory.stat": "anon 37543936\nfile 1364123648\nkernel 36876288\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 8192\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 39145472\ninactive_file 1360171008\nactive_file 3817472\nunevictable 0\nslab_reclaimable 35856256\nslab_unreclaimable 249496\nslab 36105752\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 33649\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 33710\npgsteal 33710\npswpin 0\npswpout 0\npgscan_kswapd 32529\npgscan_direct 1181\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 32529\npgsteal_direct 1181\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 1748357\npgmajfault 21\npgrefill 1888\npgactivate 0\npgdeactivate 0\npglazyfree 265788\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+      "memory.swap.current": "0",
+      "memory.swap.max": "0",
+      "memory.swap.peak": "0",
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope"
+    },
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "cpu_logical": 16,
+    "cpu_physical": 8,
+    "environment": {
+      "MALLOC_ARENA_MAX": null,
+      "MKL_NUM_THREADS": null,
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "PYTHONHASHSEED": null,
+      "PYTHONMALLOC": null
+    },
+    "filesystem": {
+      "free_bytes": 251955699712,
+      "path": "/home/data/scansor-s6-evidence-fJVNUiYN",
+      "total_bytes": 3041876828160
+    },
+    "load_average_milli": [
+      7217,
+      6077,
+      5140
+    ],
+    "machine": "x86_64",
+    "memory_available_bytes": 17117306880,
+    "memory_total_bytes": 66069004288,
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+    "swap_in_bytes": 0,
+    "swap_out_bytes": 0,
+    "swap_total_bytes": 0,
+    "swap_used_bytes": 0
+  },
+  "implementation": {
+    "native_extensions": {
+      "_duckdb": {
+        "bytes": 60387000,
+        "sha256": "1d4ef21853b38c7db1a141191dfd873f8a4c5a5d0a1667b8f2c110d76f6590ac"
+      },
+      "numpy._core._multiarray_umath": {
+        "bytes": 10682329,
+        "sha256": "3aac21341706a466577d7c7caab9c5013e98ffb62cf98ae3bc46a3e1004f3ce0"
+      },
+      "psutil._psutil_linux": {
+        "bytes": 150904,
+        "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd"
+      },
+      "pyarrow.lib": {
+        "bytes": 4483984,
+        "sha256": "2fb24a58b0973eb19b236cc2ea447e356b4a782eea39a274145b2f0ce86368c2"
+      }
+    },
+    "python_executable": "/home/altendky/.local/share/mise/installs/python/3.12.13/bin/python3.12",
+    "python_executable_hash": {
+      "bytes": 30905176,
+      "sha256": "021044895e95be79dc2f110367607e684119afbc8ce75f6f0eec94844e0acec7"
+    },
+    "sources": {
+      "experiments/mesh_scale_check.py": "79f7de01402ea6176a027e14a3dfe98a12433d81950ccd14a37c8fbe5883c6f5",
+      "experiments/mesh_scale_failures.py": "7220f16ce5e33dd6895bd6f7ae4eb8e8286210413165f0dc6cc39ef1d0ae1042",
+      "experiments/mesh_scale_fan.py": "fbe59bbeabc0b0922e83c175e426168628d9dba14b9b061a64c24ff9862e8aaf",
+      "experiments/mesh_scale_fan_freeze.py": "29fcf04d8fcc936199b5604596b185411eb03145ae065da246a066bc163be913",
+      "experiments/mesh_scale_fan_generate.py": "b00f9acc7ecd0f084fc3a70a008075f0f3bef506168ac5b2e5031aca963f3ec3",
+      "experiments/mesh_scale_fan_source.py": "d0c65a87abc0fac7dcef07989edd27b8c67446f84aee2fb8035dd3ad47212d23",
+      "experiments/mesh_scale_freeze.py": "d52a67731a34a2e2344585f31d06105804ac18504bf85982b052ac661e961a9a",
+      "experiments/mesh_scale_generate.py": "9d48f7188c075acacf4ec4c98f3a8f178bc7de8165ad96a08baa2da1c2ac1f1c",
+      "experiments/mesh_scale_grid.py": "c310b0a8d740a0a3dd1e442b85cd1e915e0b7f13c9f2b5940eee542f35b569f3",
+      "experiments/mesh_scale_integer.py": "f7f7fd1ad49e5fc7b29e7da393a3240cd0cd3ad8b2772f60b7dbda1594ae2330",
+      "experiments/mesh_scale_measure.py": "e4d323e247ce1f3b4e3cca1af4c5c11a28ad50a608457af82f6c2c0c073eaf38",
+      "experiments/mesh_scale_metrics.py": "66f2b97589752ae08485daa87f36768ab7d22d5c3d660d929b98fc9b4853ddfd",
+      "experiments/mesh_scale_permuted.py": "29de8b41253c6a19d5c0537f0b8403d746059f0de329d8aa3722ece66f169666",
+      "experiments/mesh_scale_permuted_freeze.py": "30c6bcb8ecdd1d3bd860b33b7b901012976802d9b7dd79402ba8e636832be133",
+      "experiments/mesh_scale_permuted_generate.py": "7394e83c1daaecac1921eda044e7d180caadf390888cc4f72d7696a355e9ab19",
+      "experiments/mesh_scale_rounding.py": "e12f386b286fda7ecc216361d59fa909ea1ed0557b82058e4166a6913bde29b2",
+      "experiments/mesh_scale_run.py": "198ac850270b07b5af8b2778e2196129a137022ef1e210218396e3660c88e1d9",
+      "src/scansor/__init__.py": "aad269e394364c276eebfeb59a7965844d1353c1318c4525b57ef863c8d94b45",
+      "src/scansor/__main__.py": "16d3b485dfcb5a69f3b5f48497878c84d3df29eb4208de9481c82025468d79aa",
+      "src/scansor/_plyio/__init__.py": "3aa4c5058e611f6b8f5bb4ee7b1c6bab7770603d3cb1e00247e8ed01499ac275",
+      "src/scansor/_plyio/format.py": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b",
+      "src/scansor/_plyio/stream.py": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef",
+      "src/scansor/cli.py": "15c27dbadf46189d7e244f50b923db01b3fb4d830a259895405be65467a4de31",
+      "src/scansor/cli_models.py": "fc401651827eaadf068d0b90778f1f6a79a297ff0f2a7308653c655b376acd2b",
+      "src/scansor/declared_execution.py": "c4c69fb47b73dd6e6faf75b339915dae4258a059fa7f3c4e243f33c2a5000954",
+      "src/scansor/declared_execution_models.py": "385be9995c661750612df0c2875d65a8dd93cbf554a8476d17c457bbfff13084",
+      "src/scansor/declared_execution_run_models.py": "274c88846eac0f400dc2f0c14cfd0b83eae2bb6beed4089885be46bf55237d56",
+      "src/scansor/declared_execution_runs.py": "75b5cffa3a321ef8df0a567fd98e6b14399170651ea5c4f89b440cf6e8fb55af",
+      "src/scansor/declared_factor_models.py": "80e4764cd5f30d18922fb09ae7e5013f7ee3c402860135ba9a9455f48636dc48",
+      "src/scansor/declared_factors.py": "21ff39b51d672bcac60e1a8fc37d4f9a2b5d562d6469161d20d4868db1708a24",
+      "src/scansor/declared_generation.py": "d58cd7e04243bd073fda5e306aec38f8531edd2043d8b15d7a9ad39e887a8e23",
+      "src/scansor/declared_generation_models.py": "75d08836264a8d867b7116ed0471d4e6992f92f0edde25e7c040e2660118144e",
+      "src/scansor/declared_generation_runs.py": "ac31b809d71185755025311254c1471816af8416d0d41fb7d57fb8d2ef027b7f",
+      "src/scansor/declared_numpy_backend.py": "77f3a7b42d1c54ab68486ac97cf2e33cf0aa72d6f2314e077ade7b84acbd5fd4",
+      "src/scansor/declared_synthetic_fixtures.py": "706febb63327be2ee23f2b60c3f18f36781e03766bccf8fa10a711fa613a411f",
+      "src/scansor/declared_truth_comparison.py": "69a84e29a591262e3a76a845bfdabc36c067864026546904f4fc4443776d425b",
+      "src/scansor/errors.py": "be011e0361295978f5245a149e56c6632e244ced8fe6c4129030ed7f6265ba47",
+      "src/scansor/execution_models.py": "6965fc023ef82099c161f792efca2c02a1472a5f7efab0f13478d18dcfb0b85c",
+      "src/scansor/execution_run_models.py": "2ffd118873f74178e25c79d7bcab81778344ce7d2c81a096bcdb93a1cb428723",
+      "src/scansor/execution_runs.py": "315d5daabc68254fadd7873074e3920928f3d0750ce01cfab6a625bdd2d9ad8c",
+      "src/scansor/factor_models.py": "bd882f189e28da8eebc1beaeb819a7b445b7cdcc73df3f4d328a122f75ec3c6f",
+      "src/scansor/files.py": "09604bb7ce2f5c90a0519872e00a46a802dc50309de36f0580397d7b5c4569a4",
+      "src/scansor/generation_models.py": "252ba257c6168e0d6244329c58372a71d9b11d71113f74fe4336edbbfb89f85e",
+      "src/scansor/generation_runs.py": "a45ee314fdafb4deeef3e97b6295e127238a40ff24fbb507cb6b7de52d0c9991",
+      "src/scansor/geometry_evaluator.py": "39bcafa44dc550de490bde006882509d0ebbad652c0c6e7766c5e0d28eb71d5b",
+      "src/scansor/logging.py": "d2ac75dcb54b535c49365417cb01fa96ad34448265fe748e074a8d1e6a0bb12b",
+      "src/scansor/mapping_models.py": "2f48db7d7caa9b0001bc593d2bd2eb5f0dbcdd884a3da43966eb6bd0c3ddff86",
+      "src/scansor/mapping_runs.py": "d4e3c25599529a7f53686833cc9717e1e712a4e9e6076231a4ceb300b6c015cd",
+      "src/scansor/mesh_accounting.py": "9c7bd17df82eddd09c1e1f1c06872a7cffe2ec0139426a8df525defc63720c7e",
+      "src/scansor/mesh_accumulation.py": "8b8693f91a4d935cd59c2528911a89d9f4440d6b7bc2ab1bd45caa88c2cad1ee",
+      "src/scansor/mesh_artifact_io.py": "15dca7e662a9890fe7bb9be2f9d2eaa978008b985e4e518a403b0486612265a8",
+      "src/scansor/mesh_artifacts.py": "4f789332fd872443e805aa801eab579e4c08215cae5c7f6b709e3c6571f9d165",
+      "src/scansor/mesh_columns.py": "2552991bff13ea51133baaa4ce4a9dcdd7bb2ec3676f6a804e61235874d9a7bc",
+      "src/scansor/mesh_controls.py": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea",
+      "src/scansor/mesh_corner_storage.py": "1f7d1f84357c552ab005a81046f4863b77517a1fa7a6ee3ba360af4b003ec3af",
+      "src/scansor/mesh_digests.py": "fa0a92368a5fc1dfd16e2d2f25ebf0f445bfe89c5228d95c72ee6167e357d762",
+      "src/scansor/mesh_display.py": "b505405be4cf1fbc6a0f94f34a3eef5835bbb74e1e0dc26b87d82a70882537c5",
+      "src/scansor/mesh_display_numeric.py": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009",
+      "src/scansor/mesh_display_ply.py": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb",
+      "src/scansor/mesh_display_records.py": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520",
+      "src/scansor/mesh_display_semantics.py": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a",
+      "src/scansor/mesh_display_staging.py": "61b346f47008038153f5fe42e3afe6f73c8fbaf8dff812a7da5243bee36280d5",
+      "src/scansor/mesh_display_verify.py": "2faba2e6dfe6d8ce590bd6c5d15a5afb9d7e7bf98d0e9bfe64bd8547148cedb3",
+      "src/scansor/mesh_dispositions.py": "ee2b88da4733d05cd2c99f925ebbdc1f72b6efb5852304fce01f047815bc4f1b",
+      "src/scansor/mesh_duckdb.py": "cf35bbfa19bc488b30dc780943ad53bf73242b378574d7a4a567f3c9f8f096c7",
+      "src/scansor/mesh_errors.py": "0ee1e89e845823fddd4950b92c4993dd3354db10655c788da1cc07c2233c1560",
+      "src/scansor/mesh_import.py": "e5df16fcc04f25337861caaade9a821b90e839f2d29a72a74d2d21700d4a95b4",
+      "src/scansor/mesh_numeric.py": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f",
+      "src/scansor/mesh_ply.py": "c20844c5a6ce923c3ef73adf9f650eff6a42f28b53e0662c853bdd8fadefe9c9",
+      "src/scansor/mesh_policy.py": "eeb1a86652d4b68e85db4ec28dc1700335961875eb1c9f4cf5b93a74cd2e114c",
+      "src/scansor/mesh_process_observer.py": "94802815ba4d0932fed4ea8b60148f735159aeca6616968e8dca05a4ae05310d",
+      "src/scansor/mesh_publication.py": "234d249e46c8d687bee6bb5e2646685dd79c0634c987749adfba1595fd05c0e1",
+      "src/scansor/mesh_publication_copy.py": "dcb7d7db6088a785a37616a87d330cdb65ca37363f9867d05854d7e29fae264e",
+      "src/scansor/mesh_recipes.py": "314ae42480e32ac609f3aa89c980ed0a80349845837fff4723b2f52c262f0091",
+      "src/scansor/mesh_replay.py": "0a67ab276f016222f45e43399b833f8c3a592e7b62adb0108ec77768c00a786a",
+      "src/scansor/mesh_resources.py": "0dd97e3388787132ec88a1a1005bed3b6721b643d89961346438eff3d90a5617",
+      "src/scansor/mesh_semantics.py": "1c2ef8fbba389a58972e36173c93e610c2907491c94e42b053c8d5a8d8d53dcc",
+      "src/scansor/mesh_sidecar.py": "99b9972906aadad281b0792774faf935b763acf060da8d9e346cea3189ec76c6",
+      "src/scansor/mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+      "src/scansor/mesh_statistics.py": "caf893f0f3ff6c91e027390f468af06d24ef3c17b09a5309375395ae33e4c643",
+      "src/scansor/mesh_supervisor.py": "334aa9acff767995856911233d3d4751c33d0d7b2ca28a0f817fd87f94302eec",
+      "src/scansor/mesh_viewer_compare.py": "1ecc9a845dc069f32b357dfe50f679efe73e51bb039d0942b7090af25a0f5db3",
+      "src/scansor/mesh_worker.py": "73092d5d59563dc61e9ccc42d4c383db7917778abc6a79fdb28af736b184dd5f",
+      "src/scansor/mesh_worker_protocol.py": "08c4fdb560f6e3fa3d11bc32a3f202548cf5941e8c1e98a8d40f89f17ed614f2",
+      "src/scansor/mesh_worker_request.py": "a9ca2ab680cecee24debfd4fdfa5d54485cf1e3d55fa4cc76540f0bb547a9634",
+      "src/scansor/mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3",
+      "src/scansor/model_declarations.py": "a41bad2423778f23bdfa0e91df994751881ca488494eadc4ec3b998bc0d58af8",
+      "src/scansor/models.py": "ba0c0fd6cc94195cfa22a95589ac53a98489f2a78f07c5e7b75dfd0109a6b511",
+      "src/scansor/observation_mapping.py": "2dec1b34347195bd8e60b658e973134310e20f7cb1887f568deca2d13d682ba4",
+      "src/scansor/ply.py": "89e26db6c2b174310ef8caab12d0164ee6df7edad6f65631e5ee46b40cbc8561",
+      "src/scansor/rigid_transform.py": "ea2defc6ca6d74696798583039ae83fdd55aec7759e0d5b3cde4247c75434846",
+      "src/scansor/runs.py": "9acfb4f8f3c45ef020c40546aac4e9dc96ece19c1422e78fdabd5924f465c821",
+      "src/scansor/serialization.py": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a",
+      "src/scansor/settings.py": "a7f457f989d8ec6064ba2002328901a8daefc68e40598ffe47b39748ae893ac2",
+      "src/scansor/stepped_model_declarations.py": "f71e2703b49716a338edda2bc1d74cc878a531f491338ad8d92c161143c084f8",
+      "src/scansor/stepped_rotational.py": "566d68db245a81e1803d4b359a9157acc0ac5b1bf95880040814e7be747e84e0",
+      "src/scansor/stepped_rotational_execution.py": "ebdbd72dc25e3080045fa2fa6dd02cbf40d592244c3f6c507da830474e198781",
+      "src/scansor/stepped_rotational_factors.py": "780c56b68d534a3e29517af56c25e95cbd58e783bbdfc7c66d3a360767ae87aa",
+      "src/scansor/stepped_rotational_generation.py": "83934150f554e5eb035000320e700b08fbba31615be1e98307b4cf925e3cfebe",
+      "src/scansor/stepped_rotational_numpy_backend.py": "dda541b43e21b6de66a45a866ff47913b1a62f2a5da01e24439fe2e52d51a404",
+      "src/scansor/synthetic_fixture.py": "5404a9c90dddf3323a908c5e2369c99b5a8acca3d298b831846a544287985940",
+      "src/scansor/synthetic_fixture_replay.py": "7823cdbf42c3e67d5541fd18c83de553069d85ecf4e7f9abacc35fd8a914ddac",
+      "src/scansor/truth_comparison.py": "f12f08b5b4f9a1b4599ac3256968912de225f3bb7ea9bf7f1043744f76e89aa2",
+      "src/scansor/tube_model_declarations.py": "e5c34a9e5ed095c32a6080aca83cd9df7814415e7685d5c3e3580c5fe89e4ea7"
+    },
+    "versions": {
+      "defusedxml": "0.7.1",
+      "duckdb": "1.5.5",
+      "numpy": "2.5.1",
+      "psutil": "7.2.2",
+      "pyarrow": "25.0.1"
+    }
+  },
+  "import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+  "input_report_sha256": "3d6b153b67a9e36b046cd6b83b93408204394018de101b3348334c939cea1b7f",
+  "operations": {
+    "display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": true,
+        "final": {
+          "allocated_bytes": 1307697152,
+          "files": 7,
+          "logical_bytes": 1307670586,
+          "observation_finished_ns": 2405764628136669,
+          "observation_started_ns": 2405764627434991,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 1307697152,
+          "published_logical_bytes": 1307670586,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 55613544,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 1516277760,
+          "logical_bytes": 1516232908,
+          "published_allocated_bytes": 1307697152,
+          "published_logical_bytes": 1307670586,
+          "temporary_allocated_bytes": 1516277760,
+          "temporary_logical_bytes": 1516232908
+        },
+        "samples": 1163,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 58979250030,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "882595\n882674",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope",
+          "memory.current": "1448652800",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "1949478912",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=3625\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=3625",
+          "memory.stat": "anon 43147264\nfile 1364189184\nkernel 39665664\nkernel_stack 278528\npagetables 610304\nsec_pagetables 0\npercpu 864\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 8192\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 43151360\ninactive_file 1360363520\nactive_file 3817472\nunevictable 0\nslab_reclaimable 38476128\nslab_unreclaimable 286856\nslab 38762984\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 20\npgsteal 20\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 20\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 20\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 916852\npgmajfault 21\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 121988\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 10\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 251952562176,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          7503,
+          6000,
+          5059
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16741302272,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "882595\n882673\n882674",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope",
+          "memory.current": "101056512",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "102293504",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+          "memory.stat": "anon 51081216\nfile 47693824\nkernel 1499136\nkernel_stack 294912\npagetables 798720\nsec_pagetables 0\npercpu 864\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 50950144\ninactive_file 44453888\nactive_file 3244032\nunevictable 0\nslab_reclaimable 54072\nslab_unreclaimable 341392\nslab 395464\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 16067\npgmajfault 13\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 0\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 253261893632,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          6272,
+          5401,
+          4808
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 17108123648,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 536870912,
+          "completed": 1,
+          "disk": {
+            "allocated_bytes": 74874880,
+            "concurrent_changes": false,
+            "logical_bytes": 74868224
+          },
+          "elapsed_ns": 57334276904,
+          "event": "final",
+          "monotonic_ns": 2405764537122317,
+          "observation_finished_ns": 2405764537313728,
+          "observation_started_ns": 2405764537122317,
+          "peak_rss_bytes": 519897088,
+          "phase": "publish-display",
+          "phase_ordinal": 32,
+          "phase_started_ns": 2405759675441364,
+          "plan": {
+            "baseline_bytes": 146063360,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 13617586318,
+            "engine_bytes": 239812608,
+            "engine_temp_limit_bytes": 3453440512,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 536870912,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 67108864,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 159088640,
+            "rchar": 5536448587,
+            "read_bytes": 8728576,
+            "syscr": 76704,
+            "syscw": 37936,
+            "wchar": 2467996897,
+            "write_bytes": 2150043648
+          },
+          "rss_bytes": 163254272,
+          "sampled_disk_peak_allocated_bytes": 1516257280,
+          "sampled_disk_peak_logical_bytes": 1516230730,
+          "total": 1
+        },
+        "published": [
+          {
+            "identity": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+            "kind": "display",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1/out/mesh-display-12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b"
+          }
+        ],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 536870912,
+          "elapsed_ns": 58951924664,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 518778880,
+          "kernel_usage": {
+            "filesystem_inputs": 17048,
+            "filesystem_outputs": 4199304,
+            "involuntary_context_switches": 7838,
+            "major_faults": 8,
+            "minor_faults": 900286,
+            "system_cpu_ns": 4756201000,
+            "user_cpu_ns": 53378587000,
+            "voluntary_context_switches": 20435
+          },
+          "largest_observed_sample_gap_ns": 7704512,
+          "pid": 882677,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 519897088,
+          "samples": 51964,
+          "sampling_edges": {
+            "first_sample_ns": 2405705701290506,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 641236,
+            "largest_gap_including_edges_ns": 7704512,
+            "last_sample_ns": 2405764617337725,
+            "launch_returned_ns": 2405705701193283,
+            "launch_started_ns": 2405705700649270,
+            "reaped_ns": 2405764617861301,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 523576
+          },
+          "sampling_error": null,
+          "sampling_method": "Diagnostic prestarted independent Python helper using held proc statm descriptor; helper wall/CPU/scheduling timing retained; parent alone reaps worker.",
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "1521225728",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "1949478912",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 159088640,
+            "rchar": 5536449069,
+            "read_bytes": 8728576,
+            "syscr": 76709,
+            "syscw": 37937,
+            "wchar": 2467998274,
+            "write_bytes": 2150043648
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 518778880,
+            "rss_bytes": 163254272
+          },
+          "published": [
+            {
+              "identity": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1/out/mesh-display-12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b"
+            }
+          ],
+          "result": {
+            "display": {
+              "identity": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1/out/mesh-display-12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b"
+            },
+            "execution": {
+              "duckdb": "1.5.5",
+              "monitor": {
+                "budget_bytes": 536870912,
+                "completed": 1,
+                "disk": {
+                  "allocated_bytes": 74874880,
+                  "concurrent_changes": false,
+                  "logical_bytes": 74868224
+                },
+                "elapsed_ns": 57334453276,
+                "peak_rss_bytes": 519897088,
+                "phase": "publish-display",
+                "phase_ordinal": 32,
+                "phase_started_ns": 2405759675441364,
+                "plan": {
+                  "baseline_bytes": 146063360,
+                  "batch_bytes": 50331648,
+                  "batch_rows": 65536,
+                  "budget_bytes": 536870912,
+                  "disk_estimate_bytes": 13617586318,
+                  "engine_bytes": 239812608,
+                  "engine_temp_limit_bytes": 3453440512,
+                  "fixed_buffers_bytes": 33554432,
+                  "reserved_bytes": 536870912,
+                  "resident_columns_bytes": 0,
+                  "safety_bytes": 67108864,
+                  "storage": "disk"
+                },
+                "rss_bytes": 163254272,
+                "sampled_disk_peak_allocated_bytes": 1516257280,
+                "sampled_disk_peak_logical_bytes": 1516230730,
+                "total": 1
+              },
+              "plan": {
+                "baseline_bytes": 146063360,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 536870912,
+                "disk_estimate_bytes": 13617586318,
+                "engine_bytes": 239812608,
+                "engine_temp_limit_bytes": 3453440512,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 536870912,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 67108864,
+                "storage": "disk"
+              },
+              "storage": "streamed files and direct DuckDB; no full resident view"
+            },
+            "inventory": {
+              "association_revision": "all-finite-source-vertices-usable-source-faces-rejected-face-corner-order-v1",
+              "contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+              "files": [
+                {
+                  "byte_count": 581870753,
+                  "name": "validity.ply",
+                  "sha256": "bd449d6d4db85c275352296c54246757defcbe81617f0291dd7986bd291330d7"
+                },
+                {
+                  "byte_count": 581870752,
+                  "name": "weights.ply",
+                  "sha256": "d3205a8896634f5fb04b1cdcc8977655e35838ee59ec4b7233df837995426473"
+                },
+                {
+                  "byte_count": 941,
+                  "name": "rejected-face-corners.ply",
+                  "sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38"
+                },
+                {
+                  "byte_count": 48000000,
+                  "dtype": "<u8",
+                  "name": "view-vertices.bin",
+                  "sha256": "8fe27724ea0a217955e78f4309a9f9b77bb8a6bca0cc871bbffeab413040fa2a",
+                  "shape": [
+                    6000000
+                  ]
+                },
+                {
+                  "byte_count": 95920016,
+                  "dtype": "<u8",
+                  "name": "view-faces.bin",
+                  "sha256": "14aaf3b6c53001fb8e7828185c4540cffe3c58a33792acda9d34dc433410c3df",
+                  "shape": [
+                    11990002
+                  ]
+                }
+              ],
+              "implementation": {
+                "dependencies": {
+                  "numpy": "2.5.1"
+                },
+                "files": [
+                  {
+                    "name": "_plyio/format.py",
+                    "sha256": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b"
+                  },
+                  {
+                    "name": "_plyio/stream.py",
+                    "sha256": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef"
+                  },
+                  {
+                    "name": "mesh_controls.py",
+                    "sha256": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea"
+                  },
+                  {
+                    "name": "mesh_numeric.py",
+                    "sha256": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f"
+                  },
+                  {
+                    "name": "mesh_display_numeric.py",
+                    "sha256": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009"
+                  },
+                  {
+                    "name": "mesh_display_ply.py",
+                    "sha256": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb"
+                  },
+                  {
+                    "name": "mesh_display_records.py",
+                    "sha256": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520"
+                  },
+                  {
+                    "name": "mesh_display_semantics.py",
+                    "sha256": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a"
+                  },
+                  {
+                    "name": "serialization.py",
+                    "sha256": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a"
+                  }
+                ],
+                "revision": "mesh-display-implementation-v1"
+              },
+              "implementation_id": "9f451eba95ebecb0c5ed4a37d8f5394982b609aa95a7a4af5d5132116f15bb8e",
+              "import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+              "legend": {
+                "byte_count": 5065,
+                "name": "legend.json",
+                "sha256": "61f86653dfd4acec2d1f86efe928014084fadd499b094ec8e0019608c7151fd0"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "revision": "mesh-display-v1",
+              "source_id": "23c593a707ec1ed5b825cf58b0617a252d4c767ad8d7f5fa6f9c9dfdaa0b108d",
+              "status": "complete"
+            },
+            "legend": {
+              "additional_rejected_scalar_fields": [
+                "scalar_source_face_0",
+                "scalar_source_face_1",
+                "scalar_source_face_2",
+                "scalar_source_face_3",
+                "scalar_source_corner",
+                "scalar_face_status"
+              ],
+              "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+              "contribution_categories": {
+                "eligible": 6000000,
+                "isolated": 0,
+                "no-usable-area": 0,
+                "nonfinite-position": 0
+              },
+              "contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+              "display_population": {
+                "rejected_corners": 0,
+                "usable_faces_per_main_view": 11990002,
+                "vertices_per_main_view": 6000000
+              },
+              "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+              "empty_views": [
+                "rejected-face-corners"
+              ],
+              "fields": {
+                "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+                "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+                "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+                "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+                "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+                "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+                "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+                "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+                "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+                "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+              },
+              "import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+              "limits": {
+                "face_indices": "signed little-endian int32",
+                "maximum_vertices_per_view": 2147483648
+              },
+              "main_scalar_fields": [
+                "scalar_vertex_status",
+                "scalar_normal_status",
+                "scalar_contribution_status",
+                "scalar_raw_area",
+                "scalar_weight",
+                "scalar_source_vertex_0",
+                "scalar_source_vertex_1",
+                "scalar_source_vertex_2",
+                "scalar_source_vertex_3"
+              ],
+              "normal_categories": {
+                "absent": 6000000,
+                "finite-nonzero": 0,
+                "nonfinite-vector": 0,
+                "zero-vector": 0
+              },
+              "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+              "omissions": {
+                "nonfinite_source_vertices": 0,
+                "rejected_corners_nonfinite_position": 0,
+                "rejected_corners_out_of_range": 0
+              },
+              "precision": {
+                "export_area_weight": "binary64",
+                "export_coordinates": "binary64",
+                "export_ids_statuses": "binary32 exact integers",
+                "viewer_preservation": "requires a separate measured viewer round-trip report"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "rejected_face_colors": {
+                "1": [
+                  180,
+                  0,
+                  180
+                ],
+                "2": [
+                  220,
+                  50,
+                  50
+                ],
+                "3": [
+                  255,
+                  165,
+                  0
+                ],
+                "4": [
+                  80,
+                  120,
+                  220
+                ]
+              },
+              "revision": "mesh-display-legend-v1",
+              "source_id": "23c593a707ec1ed5b825cf58b0617a252d4c767ad8d7f5fa6f9c9dfdaa0b108d",
+              "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+              "source_population": {
+                "faces": 11990002,
+                "vertices": 6000000
+              },
+              "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+              "transform": {
+                "forward_operations": [
+                  "subtract-origin",
+                  "multiply-by-scale"
+                ],
+                "inverse_operations": [
+                  "divide-by-scale",
+                  "add-origin"
+                ],
+                "meaning": "display-only; not calibration or physical units",
+                "origin_binary64_bits": [
+                  "0000000000000000",
+                  "0000000000000000",
+                  "0000000000000000"
+                ],
+                "revision": "mesh-display-transform-v1",
+                "scale_power_of_two": 0
+              },
+              "transform_roundtrip_mismatch_rows": {
+                "displayable_rejected_corners": 0,
+                "finite_source_vertices": 0
+              },
+              "validity_colors": {
+                "eligible": [
+                  40,
+                  170,
+                  80
+                ],
+                "isolated": [
+                  255,
+                  165,
+                  0
+                ],
+                "no-usable-area": [
+                  220,
+                  50,
+                  50
+                ],
+                "nonfinite-position": "not spatially displayable"
+              },
+              "weight_ramp": {
+                "clipping": false,
+                "excluded_color": [
+                  128,
+                  128,
+                  128
+                ],
+                "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+                "logarithmic": false,
+                "maximum_binary64_bits": "4028000000000000",
+                "measure": "raw accumulated vertex area divided by complete eligible maximum",
+                "percentiles": false
+              }
+            },
+            "revision": "mesh-display-run-v1",
+            "status": "complete"
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 34,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 124202161,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 96004340,
+              "read_bytes": 0,
+              "syscr": 224,
+              "syscw": 6,
+              "wchar": 14326,
+              "write_bytes": 20480
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 20120451,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000796,
+              "read_bytes": 0,
+              "syscr": 102,
+              "syscw": 1,
+              "wchar": 1523,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 161874144,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005570,
+              "read_bytes": 0,
+              "syscr": 785,
+              "syscw": 1,
+              "wchar": 1543,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 178877594,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005911,
+              "read_bytes": 0,
+              "syscr": 788,
+              "syscw": 1,
+              "wchar": 1532,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 4452033980,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 234043733,
+              "read_bytes": 0,
+              "syscr": 1034,
+              "syscw": 6,
+              "wchar": 8248,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 5561043532,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 251908907,
+              "read_bytes": 12288,
+              "syscr": 1266,
+              "syscw": 7,
+              "wchar": 9505,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 305373898,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 95929988,
+              "read_bytes": 7073792,
+              "syscr": 1555,
+              "syscw": 1,
+              "wchar": 1519,
+              "write_bytes": 0
+            },
+            "last_completed": 95920016,
+            "last_total": 95920016,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 38174572,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 11991473,
+              "read_bytes": 1048576,
+              "syscr": 199,
+              "syscw": 1,
+              "wchar": 1520,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 20822072,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000898,
+              "read_bytes": 0,
+              "syscr": 104,
+              "syscw": 2,
+              "wchar": 2865,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 157368953,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005550,
+              "read_bytes": 0,
+              "syscr": 785,
+              "syscw": 1,
+              "wchar": 1523,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 436381327,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 143894414,
+              "read_bytes": 0,
+              "syscr": 2326,
+              "syscw": 1,
+              "wchar": 1522,
+              "write_bytes": 0
+            },
+            "last_completed": 143880024,
+            "last_total": 143880024,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 20327778,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000789,
+              "read_bytes": 0,
+              "syscr": 102,
+              "syscw": 1,
+              "wchar": 1510,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 233672029,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 72007580,
+              "read_bytes": 0,
+              "syscr": 1169,
+              "syscw": 1,
+              "wchar": 1499,
+              "write_bytes": 0
+            },
+            "last_completed": 72000000,
+            "last_total": 72000000,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 2063464224,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 132049992,
+              "read_bytes": 0,
+              "syscr": 812,
+              "syscw": 3,
+              "wchar": 4180,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 738355972,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 228013000,
+              "read_bytes": 4096,
+              "syscr": 3733,
+              "syscw": 1,
+              "wchar": 1463,
+              "write_bytes": 0
+            },
+            "last_completed": 227870239,
+            "last_total": 227870239,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 9677439,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 262624,
+              "read_bytes": 0,
+              "syscr": 6,
+              "syscw": 1,
+              "wchar": 1556,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-lookup": {
+            "elapsed_ns": 6085663752,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 278178359,
+              "read_bytes": 0,
+              "syscr": 2513,
+              "syscw": 4948,
+              "wchar": 407670082,
+              "write_bytes": 407658496
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 947413199,
+            "io_delta": {
+              "cancelled_write_bytes": 16351232,
+              "rchar": 150116155,
+              "read_bytes": 8192,
+              "syscr": 582,
+              "syscw": 8,
+              "wchar": 794498,
+              "write_bytes": 798720
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 9851889900,
+            "io_delta": {
+              "cancelled_write_bytes": 20676608,
+              "rchar": 190089949,
+              "read_bytes": 0,
+              "syscr": 3894,
+              "syscw": 14035,
+              "wchar": 1065921382,
+              "write_bytes": 955985920
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 6274743,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 3669,
+              "read_bytes": 4096,
+              "syscr": 9,
+              "syscw": 2,
+              "wchar": 2601,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "publish-display": {
+            "elapsed_ns": 4861680953,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1307833297,
+              "read_bytes": 0,
+              "syscr": 21399,
+              "syscw": 8,
+              "wchar": 15554,
+              "write_bytes": 12288
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 6840988982,
+            "io_delta": {
+              "cancelled_write_bytes": 15400960,
+              "rchar": 254048976,
+              "read_bytes": 4096,
+              "syscr": 2564,
+              "syscw": 11133,
+              "wchar": 263060521,
+              "write_bytes": 263786496
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 5593954894,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 234186229,
+              "read_bytes": 0,
+              "syscr": 2282,
+              "syscw": 5335,
+              "wchar": 267960485,
+              "write_bytes": 268288000
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 3131352,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69118,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1586,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 1118294,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 139,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1586,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 283685067,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 155883495,
+              "read_bytes": 0,
+              "syscr": 4845,
+              "syscw": 1,
+              "wchar": 1579,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 768165512,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 426026116,
+              "read_bytes": 0,
+              "syscr": 6728,
+              "syscw": 2,
+              "wchar": 2979,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 360984169,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 155882885,
+              "read_bytes": 0,
+              "syscr": 4868,
+              "syscw": 2,
+              "wchar": 2988,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 873050812,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 426029588,
+              "read_bytes": 0,
+              "syscr": 6758,
+              "syscw": 2,
+              "wchar": 2990,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "verify-display-view-ids": {
+            "elapsed_ns": 181861665,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48006478,
+              "read_bytes": 0,
+              "syscr": 242,
+              "syscw": 2,
+              "wchar": 3114,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 2
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 3439905562,
+            "io_delta": {
+              "cancelled_write_bytes": 31555584,
+              "rchar": 295387715,
+              "read_bytes": 0,
+              "syscr": 2448,
+              "syscw": 1427,
+              "wchar": 289117792,
+              "write_bytes": 162988032
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 2712549912,
+            "io_delta": {
+              "cancelled_write_bytes": 75104256,
+              "rchar": 179299027,
+              "read_bytes": 0,
+              "syscr": 1791,
+              "syscw": 993,
+              "wchar": 173381197,
+              "write_bytes": 90505216
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 536870912,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-512-gc-observer-switch1-r1/out/mesh-contribution-738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+        "destination": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1/out",
+        "display": null,
+        "display_transform": null,
+        "expected_contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+        "expected_display_id": null,
+        "expected_import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+        "operation": "display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-512-gc-observer-switch1-r1/out/mesh-import-3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+        "storage": "disk"
+      },
+      "sampler_process": {
+        "error": null,
+        "exit_code": 0,
+        "pid": 882673,
+        "slow_samples": []
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 109354,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1-display.ndjson",
+        "records": 94,
+        "sha256": "fc203f882a015f1d9939d0fbff0869efcec5c023968e29d2a77c57900a95b8c3"
+      }
+    },
+    "verify-display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 1307697152,
+          "files": 7,
+          "logical_bytes": 1307670586,
+          "observation_finished_ns": 2405828988742646,
+          "observation_started_ns": 2405828988090648,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 1307697152,
+          "published_logical_bytes": 1307670586,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 70006945,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 2794127360,
+          "logical_bytes": 2794052053,
+          "published_allocated_bytes": 1307697152,
+          "published_logical_bytes": 1307670586,
+          "temporary_allocated_bytes": 1486430208,
+          "temporary_logical_bytes": 1486381467
+        },
+        "samples": 1113,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 56743361401,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "882595",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope",
+          "memory.current": "1396641792",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "3205255168",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=17454\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=17454",
+          "memory.stat": "anon 37388288\nfile 1320243200\nkernel 36876288\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 8192\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 39002112\ninactive_file 1316425728\nactive_file 3817472\nunevictable 0\nslab_reclaimable 35856256\nslab_unreclaimable 264784\nslab 36121040\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 22936\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 33710\npgsteal 33710\npswpin 0\npswpout 0\npgscan_kswapd 32529\npgscan_direct 1181\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 32529\npgsteal_direct 1181\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 1748319\npgmajfault 21\npgrefill 1888\npgactivate 0\npgdeactivate 0\npglazyfree 265786\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 251955699712,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          7217,
+          6077,
+          5140
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 17197985792,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "882595\n882674",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope",
+          "memory.current": "1451905024",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "1949478912",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=4235\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4235",
+          "memory.stat": "anon 46292992\nfile 1364189184\nkernel 39665664\nkernel_stack 278528\npagetables 614400\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 8192\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 47841280\ninactive_file 1360375808\nactive_file 3817472\nunevictable 0\nslab_reclaimable 38476128\nslab_unreclaimable 286440\nslab 38762568\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 20\npgsteal 20\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 20\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 20\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 925591\npgmajfault 21\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 121990\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 14\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-grid-3000x2000-flat-display-observer-timing-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 251952422912,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          6730,
+          5884,
+          5031
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16648327168,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 536870912,
+          "completed": 95920016,
+          "disk": {
+            "allocated_bytes": 1382563840,
+            "concurrent_changes": false,
+            "logical_bytes": 1382530686
+          },
+          "elapsed_ns": 55054010523,
+          "event": "final",
+          "monotonic_ns": 2405828768262270,
+          "observation_finished_ns": 2405828768657733,
+          "observation_started_ns": 2405828768262270,
+          "peak_rss_bytes": 510181376,
+          "phase": "verify-display-view-faces.bin",
+          "phase_ordinal": 36,
+          "phase_started_ns": 2405828379268394,
+          "plan": {
+            "baseline_bytes": 146104320,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 13617586318,
+            "engine_bytes": 239771648,
+            "engine_temp_limit_bytes": 3453440512,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 536870912,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 67108864,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 179798016,
+            "rchar": 5548303173,
+            "read_bytes": 93945856,
+            "syscr": 76114,
+            "syscw": 37936,
+            "wchar": 2479906919,
+            "write_bytes": 2136334336
+          },
+          "rss_bytes": 162881536,
+          "sampled_disk_peak_allocated_bytes": 1486409728,
+          "sampled_disk_peak_logical_bytes": 1486379082,
+          "total": 95920016
+        },
+        "published": [],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 536870912,
+          "elapsed_ns": 56719824211,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 509079552,
+          "kernel_usage": {
+            "filesystem_inputs": 183488,
+            "filesystem_outputs": 4172528,
+            "involuntary_context_switches": 3218,
+            "major_faults": 0,
+            "minor_faults": 822479,
+            "system_cpu_ns": 4594718000,
+            "user_cpu_ns": 51797736000,
+            "voluntary_context_switches": 20228
+          },
+          "largest_observed_sample_gap_ns": 4823245,
+          "pid": 884857,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 510181376,
+          "samples": 50109,
+          "sampling_edges": {
+            "first_sample_ns": 2405772280349495,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 762591,
+            "largest_gap_including_edges_ns": 4823245,
+            "last_sample_ns": 2405828978132961,
+            "launch_returned_ns": 2405772280246681,
+            "launch_started_ns": 2405772279586904,
+            "reaped_ns": 2405828978510374,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 377413
+          },
+          "sampling_error": null,
+          "sampling_method": "Diagnostic prestarted independent Python helper using held proc statm descriptor; helper wall/CPU/scheduling timing retained; parent alone reaps worker.",
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "1470398464",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "3205255168",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 179798016,
+            "rchar": 5548303655,
+            "read_bytes": 93945856,
+            "syscr": 76119,
+            "syscw": 37937,
+            "wchar": 2479908329,
+            "write_bytes": 2136334336
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 509079552,
+            "rss_bytes": 162881536
+          },
+          "published": [],
+          "result": {
+            "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+            "contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+            "display_id": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+            "import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 95920016,
+              "disk": {
+                "allocated_bytes": 1382563840,
+                "concurrent_changes": false,
+                "logical_bytes": 1382530686
+              },
+              "elapsed_ns": 55054291300,
+              "peak_rss_bytes": 510181376,
+              "phase": "verify-display-view-faces.bin",
+              "phase_ordinal": 36,
+              "phase_started_ns": 2405828379268394,
+              "plan": {
+                "baseline_bytes": 146104320,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 536870912,
+                "disk_estimate_bytes": 13617586318,
+                "engine_bytes": 239771648,
+                "engine_temp_limit_bytes": 3453440512,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 536870912,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 67108864,
+                "storage": "disk"
+              },
+              "rss_bytes": 162881536,
+              "sampled_disk_peak_allocated_bytes": 1486409728,
+              "sampled_disk_peak_logical_bytes": 1486379082,
+              "total": 95920016
+            },
+            "plan": {
+              "baseline_bytes": 146104320,
+              "batch_bytes": 50331648,
+              "batch_rows": 65536,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 13617586318,
+              "engine_bytes": 239771648,
+              "engine_temp_limit_bytes": 3453440512,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 536870912,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "revision": "mesh-display-verification-v1",
+            "status": "verified",
+            "verified_data_files": 5
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 38,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 112347675,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 96003993,
+              "read_bytes": 0,
+              "syscr": 221,
+              "syscw": 6,
+              "wchar": 13910,
+              "write_bytes": 20480
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 20002953,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000788,
+              "read_bytes": 0,
+              "syscr": 102,
+              "syscw": 1,
+              "wchar": 1107,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 161695511,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005548,
+              "read_bytes": 0,
+              "syscr": 785,
+              "syscw": 1,
+              "wchar": 1127,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 157797695,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005208,
+              "read_bytes": 0,
+              "syscr": 782,
+              "syscw": 1,
+              "wchar": 1116,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 4208576817,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 234035597,
+              "read_bytes": 0,
+              "syscr": 963,
+              "syscw": 5,
+              "wchar": 4822,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 5366200911,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 251905620,
+              "read_bytes": 0,
+              "syscr": 1239,
+              "syscw": 7,
+              "wchar": 6598,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 329762423,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 95931077,
+              "read_bytes": 0,
+              "syscr": 1566,
+              "syscw": 2,
+              "wchar": 2036,
+              "write_bytes": 0
+            },
+            "last_completed": 95920016,
+            "last_total": 95920016,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 39508981,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 11991463,
+              "read_bytes": 0,
+              "syscr": 199,
+              "syscw": 1,
+              "wchar": 1104,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 18856663,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000782,
+              "read_bytes": 0,
+              "syscr": 102,
+              "syscw": 1,
+              "wchar": 1104,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 155763041,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005189,
+              "read_bytes": 0,
+              "syscr": 782,
+              "syscw": 1,
+              "wchar": 1107,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 499493472,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 143896739,
+              "read_bytes": 0,
+              "syscr": 2347,
+              "syscw": 1,
+              "wchar": 1106,
+              "write_bytes": 0
+            },
+            "last_completed": 143880024,
+            "last_total": 143880024,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 19488143,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 6000886,
+              "read_bytes": 0,
+              "syscr": 104,
+              "syscw": 2,
+              "wchar": 2026,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 215160338,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 72006884,
+              "read_bytes": 0,
+              "syscr": 1163,
+              "syscw": 1,
+              "wchar": 1084,
+              "write_bytes": 0
+            },
+            "last_completed": 72000000,
+            "last_total": 72000000,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 1884331906,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 132047674,
+              "read_bytes": 0,
+              "syscr": 792,
+              "syscw": 2,
+              "wchar": 2012,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 790764718,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 228014649,
+              "read_bytes": 0,
+              "syscr": 3748,
+              "syscw": 1,
+              "wchar": 1048,
+              "write_bytes": 0
+            },
+            "last_completed": 227870239,
+            "last_total": 227870239,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 9522983,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 262619,
+              "read_bytes": 0,
+              "syscr": 6,
+              "syscw": 1,
+              "wchar": 1550,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-lookup": {
+            "elapsed_ns": 5451422058,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 278157419,
+              "read_bytes": 0,
+              "syscr": 2330,
+              "syscw": 4948,
+              "wchar": 407670040,
+              "write_bytes": 407658496
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 817513535,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 150472294,
+              "read_bytes": 0,
+              "syscr": 544,
+              "syscw": 7,
+              "wchar": 793092,
+              "write_bytes": 798720
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 8815046872,
+            "io_delta": {
+              "cancelled_write_bytes": 17465344,
+              "rchar": 196607868,
+              "read_bytes": 0,
+              "syscr": 3598,
+              "syscw": 14034,
+              "wchar": 1072473523,
+              "write_bytes": 931770368
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 4056344,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 11782,
+              "read_bytes": 0,
+              "syscr": 13,
+              "syscw": 2,
+              "wchar": 1771,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 6839942211,
+            "io_delta": {
+              "cancelled_write_bytes": 20578304,
+              "rchar": 255424506,
+              "read_bytes": 0,
+              "syscr": 2564,
+              "syscw": 11133,
+              "wchar": 263060474,
+              "write_bytes": 263786496
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 5629319830,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 234186005,
+              "read_bytes": 0,
+              "syscr": 2287,
+              "syscw": 5336,
+              "wchar": 267961819,
+              "write_bytes": 268288000
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 3145641,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69112,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1580,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 879222,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 133,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1580,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 274080339,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 155882896,
+              "read_bytes": 0,
+              "syscr": 4841,
+              "syscw": 2,
+              "wchar": 2979,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 812314199,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 426027357,
+              "read_bytes": 0,
+              "syscr": 6740,
+              "syscw": 2,
+              "wchar": 2962,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 288700866,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 155880453,
+              "read_bytes": 0,
+              "syscr": 4847,
+              "syscw": 2,
+              "wchar": 2976,
+              "write_bytes": 0
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 802562248,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 426027231,
+              "read_bytes": 0,
+              "syscr": 6738,
+              "syscw": 1,
+              "wchar": 1573,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          },
+          "verify-display-rejected-face-corners.ply": {
+            "elapsed_ns": 715664,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1081,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1583,
+              "write_bytes": 0
+            },
+            "last_completed": 941,
+            "last_total": 941,
+            "occurrences": 1
+          },
+          "verify-display-validity.ply": {
+            "elapsed_ns": 2560442565,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 581956101,
+              "read_bytes": 45989888,
+              "syscr": 9631,
+              "syscw": 3,
+              "wchar": 4396,
+              "write_bytes": 0
+            },
+            "last_completed": 581870753,
+            "last_total": 581870753,
+            "occurrences": 1
+          },
+          "verify-display-view-faces.bin": {
+            "elapsed_ns": 388993876,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 95933495,
+              "read_bytes": 0,
+              "syscr": 1585,
+              "syscw": 1,
+              "wchar": 1581,
+              "write_bytes": 0
+            },
+            "last_completed": 95920016,
+            "last_total": 95920016,
+            "occurrences": 1
+          },
+          "verify-display-view-ids": {
+            "elapsed_ns": 149950199,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48005415,
+              "read_bytes": 0,
+              "syscr": 233,
+              "syscw": 2,
+              "wchar": 3102,
+              "write_bytes": 0
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 2
+          },
+          "verify-display-view-vertices.bin": {
+            "elapsed_ns": 202078904,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 48006657,
+              "read_bytes": 4718592,
+              "syscr": 794,
+              "syscw": 1,
+              "wchar": 1582,
+              "write_bytes": 0
+            },
+            "last_completed": 48000000,
+            "last_total": 48000000,
+            "occurrences": 1
+          },
+          "verify-display-weights.ply": {
+            "elapsed_ns": 2453334149,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 581952452,
+              "read_bytes": 43237376,
+              "syscr": 9600,
+              "syscw": 4,
+              "wchar": 5811,
+              "write_bytes": 0
+            },
+            "last_completed": 581870752,
+            "last_total": 581870752,
+            "occurrences": 1
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 3187109906,
+            "io_delta": {
+              "cancelled_write_bytes": 67403776,
+              "rchar": 296951997,
+              "read_bytes": 0,
+              "syscr": 2376,
+              "syscw": 1427,
+              "wchar": 291051079,
+              "write_bytes": 169082880
+            },
+            "last_completed": 11990002,
+            "last_total": 11990002,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 2382738240,
+            "io_delta": {
+              "cancelled_write_bytes": 74350592,
+              "rchar": 181352236,
+              "read_bytes": 0,
+              "syscr": 1697,
+              "syscw": 993,
+              "wchar": 176820430,
+              "write_bytes": 94928896
+            },
+            "last_completed": 6000000,
+            "last_total": 6000000,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 536870912,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-512-gc-observer-switch1-r1/out/mesh-contribution-738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+        "destination": null,
+        "display": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1/out/mesh-display-12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+        "display_transform": null,
+        "expected_contribution_id": "738520cf9f0743b928c18df2c81ba680c6f88a99cc5aa9f6de5916c340519138",
+        "expected_display_id": "12b9b8eca4093844628ddce96e5707a364e47fe53b6fecf87b5afa7c8a286b3b",
+        "expected_import_id": "3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+        "operation": "verify-display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-512-gc-observer-switch1-r1/out/mesh-import-3f2f9f7d15789f328739c13d96744d1cd685a5ca06854e80f4260fd35da85497",
+        "storage": "disk"
+      },
+      "sampler_process": {
+        "error": null,
+        "exit_code": 0,
+        "pid": 882674,
+        "slow_samples": []
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 95317,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-3000x2000-flat-display-observer-timing-r1-verify-display.ndjson",
+        "records": 95,
+        "sha256": "67a55635b94a861123263916d5c16cdbd85a1fefb9602d0bd2afbe3b18f4fc0a"
+      }
+    }
+  },
+  "revision": "independent-sampler-timing-diagnostic-v1",
+  "scope": "Fresh sequential6M display/replay workers at512MiB, reusing independently checked import/contribution. Worker code e3 unchanged. Two sampler helpers prestarted and included in separate6GiB cgroup charge, excluded from workerRSS. Per-iteration helper clocks, schedstat and rusage instrumentation may alter timing. Last128 delayed intervals are retained; full count is separate. No performance speedup or full-import result claimed.",
+  "started_utc": "2026-09-11T17:37:51.505514+00:00",
+  "status": "complete"
+}

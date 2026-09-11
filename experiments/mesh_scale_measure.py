@@ -143,7 +143,9 @@ def measure_worker(
             "whole_worker_rss_within_budget": peak > 0
             and max(peak, integer(supervision.get("sampled_peak_rss_bytes", 0)))
             <= request.budget_bytes,
-            "sample_gaps_including_edges_within_10ms": samples > 0
+            "sample_gaps_including_edges_within_10ms": supervision.get("sampling_error")
+            is None
+            and samples > 0
             and edges.get("initial_gap_ns") is not None
             and edges.get("terminal_gap_ns") is not None
             and integer(edges.get("largest_gap_including_edges_ns", 10_000_001))

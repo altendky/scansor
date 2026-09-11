@@ -2,21 +2,20 @@ from __future__ import annotations
 
 import errno
 import io
+import math
 import os
 import selectors
 import signal
 import struct
 import sys
 import threading
-import time
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from typing import cast
 
-import psutil
 import pytest
 
-from scansor import mesh_supervisor
+from scansor import mesh_process_observer, mesh_supervisor
 from scansor.errors import ScansorError
 from scansor.mesh_artifacts import open_import
 from scansor.mesh_controls import (
@@ -26,12 +25,15 @@ from scansor.mesh_controls import (
     encode_control,
 )
 from scansor.mesh_errors import MeshImportError
+from scansor.mesh_process_observer import ProcessObserver
 from scansor.mesh_recipes import SMALL_RECIPES, write_recipe
+from scansor.mesh_rss_protocol import RssObservations
 from scansor.mesh_supervisor import discover_staging, run_worker
 from scansor.mesh_worker_protocol import FrameReader, FrameWriter
 from scansor.mesh_worker_request import WorkerRequest
 from scansor.mesh_workspace import remove_owned_workspace
 from tests.test_mesh_artifacts import artifact_state
+from tests.test_mesh_process_observer import assert_reaped
 
 
 def worker_request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequest:
@@ -48,55 +50,68 @@ def test_rss_observations_continue_during_slow_progress_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     delayed = False
-    calls: list[int] = []
-    original = psutil.Process.memory_info
+    observers: list[ProcessObserver] = []
 
-    def observed(process: psutil.Process) -> object:
-        result = original(process)
-        calls.append(threading.get_ident())
-        return result
+    def create(seconds: float) -> ProcessObserver:
+        observer = ProcessObserver(seconds)
+        observers.append(observer)
+        return observer
 
-    monkeypatch.setattr(psutil.Process, "memory_info", observed)
+    monkeypatch.setattr(mesh_supervisor, "ProcessObserver", create)
 
     def slow(_record: dict[str, Control]) -> None:
         nonlocal delayed
         if not delayed:
             delayed = True
-            before = len(calls)
-            time.sleep(0.04)
-            assert len(calls) >= before + 2
-            assert threading.get_ident() not in calls[before:]
+            before = observers[0].observations().samples
+            _ = math.factorial(100_000)
+            assert observers[0].observations().samples > before + 2
 
     result = run_worker(worker_request(tmp_path), tmp_path, progress=slow)
-    assert result["status"] == "complete"
-    assert delayed
-    assert not any(
-        thread.name == "scansor-worker-rss" for thread in threading.enumerate()
-    )
+    assert result["status"] == "complete" and delayed
+    supervision = control_object(result["supervision"])
+    assert supervision["sampler_exit_code"] == 0
+    assert_reaped(int(str(supervision["sampler_pid"])))
 
 
-def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_observer_constructor_failure_prevents_worker_launch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_observer(_process: psutil.Process, _seconds: float) -> None:
+    def fail_observer(_seconds: float) -> ProcessObserver:
         raise RuntimeError("injected RSS observer startup failure")
 
     monkeypatch.setattr(mesh_supervisor, "ProcessObserver", fail_observer)
     result = run_worker(worker_request(tmp_path), tmp_path)
     assert result["status"] == "failed"
     supervision = control_object(result["supervision"])
+    assert supervision["pid"] is None and supervision["samples"] == 0
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_initial(_descriptor: int, _page: int) -> int:
+        raise RuntimeError("injected RSS sampling failure")
+
+    monkeypatch.setattr(mesh_process_observer, "read_rss", fail_initial)
+    result = run_worker(worker_request(tmp_path), tmp_path)
+    assert result["status"] == "failed"
+    supervision = control_object(result["supervision"])
     assert supervision["exit_code"] == -signal.SIGKILL
     assert supervision["samples"] == 0
     assert "system_cpu_ns" in control_object(supervision["kernel_usage"])
+    assert "injected" in str(supervision["sampling_error"])
     edges = control_object(supervision["sampling_edges"])
     assert edges["first_sample_ns"] is None and edges["reaped_ns"] is not None
-    with pytest.raises(ChildProcessError):
-        _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
+    assert_reaped(int(str(supervision["pid"])))
+    assert_reaped(int(str(supervision["sampler_pid"])))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
-@pytest.mark.parametrize(
-    "failure_site", ("selector", "sampler", "initial-sample", "thread-start")
-)
+@pytest.mark.parametrize("failure_site", ("selector", "sampler"))
 def test_observer_failures_stop_sampling_and_reap_worker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -108,41 +123,73 @@ def test_observer_failures_stop_sampling_and_reap_worker(
             raise RuntimeError("injected selector startup failure")
 
         monkeypatch.setattr(selectors, "DefaultSelector", fail_selector)
-    elif failure_site == "thread-start":
-
-        def fail_thread_start(_thread: threading.Thread) -> None:
-            raise RuntimeError("injected RSS sampling failure")
-
-        monkeypatch.setattr(threading.Thread, "start", fail_thread_start)
     else:
-        original = psutil.Process.memory_info
-        main_thread = threading.get_ident()
+        start = ProcessObserver.start
 
-        def fail_background_sample(process: psutil.Process) -> object:
-            if failure_site == "initial-sample" or threading.get_ident() != main_thread:
-                raise RuntimeError("injected RSS sampling failure")
-            return original(process)
+        def kill_sampler(observer: ProcessObserver, pid: int) -> None:
+            start(observer, pid)
+            assert observer.pid is not None
+            os.kill(observer.pid, signal.SIGKILL)
 
-        monkeypatch.setattr(psutil.Process, "memory_info", fail_background_sample)
+        monkeypatch.setattr(ProcessObserver, "start", kill_sampler)
     result = run_worker(worker_request(tmp_path), tmp_path)
     assert result["status"] == "failed"
-    assert "injected" in str(control_object(result["failure"])["message"])
     supervision = control_object(result["supervision"])
-    if failure_site == "initial-sample":
-        assert supervision["samples"] == 0
-    else:
-        assert int(str(supervision["samples"])) >= 1
+    assert int(str(supervision["samples"])) >= 1
     if failure_site == "selector":
         assert supervision["sampling_error"] is None
     else:
-        assert "injected RSS sampling failure" in str(supervision["sampling_error"])
+        assert supervision["sampling_error"] is not None
     assert control_object(supervision["sampling_edges"])["reaped_ns"] is not None
-    assert not any(
-        thread.name == "scansor-worker-rss" for thread in threading.enumerate()
-    )
+    assert_reaped(int(str(supervision["pid"])))
+    assert_reaped(int(str(supervision["sampler_pid"])))
     assert not list(tmp_path.glob(".scansor-mesh-*"))
-    with pytest.raises(ChildProcessError):
-        _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
+
+
+def test_worker_launch_failure_reaps_unused_sampler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def command(_fd: int, _publication: int | None) -> list[str]:
+        return [str(tmp_path / "missing-worker")]
+
+    monkeypatch.setattr(mesh_supervisor, "_worker_command", command)
+    result = run_worker(worker_request(tmp_path), tmp_path)
+    assert result["status"] == "failed"
+    supervision = control_object(result["supervision"])
+    assert supervision["pid"] is None
+    assert supervision["sampler_exit_code"] == 0
+    assert_reaped(int(str(supervision["sampler_pid"])))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+@pytest.mark.parametrize("late_observation", ("error", "peak"))
+def test_final_sampler_observation_can_fail_completed_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    late_observation: str,
+) -> None:
+    stop = ProcessObserver.stop
+
+    def late(observer: ProcessObserver) -> None:
+        stop(observer)
+        if late_observation == "error":
+            observer._fail("injected missing final statistics")  # pyright: ignore[reportPrivateUsage]
+        else:
+            state = observer.observations(check=False)
+            observer._observed = replace(state, peak_bytes=512 * 1024 * 1024 + 1)  # pyright: ignore[reportPrivateUsage]
+
+    monkeypatch.setattr(ProcessObserver, "stop", late)
+    result = run_worker(worker_request(tmp_path), tmp_path)
+    assert control_object(result["worker_report"])["status"] == "complete"
+    assert result["status"] == "failed"
+    assert control_object(result["failure"])["category"] == (
+        "execution" if late_observation == "error" else "resource"
+    )
+    supervision = control_object(result["supervision"])
+    assert supervision["sampler_exit_code"] == 0
+    assert_reaped(int(str(supervision["sampler_pid"])))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
 def control_object(value: Control) -> dict[str, Control]:
@@ -330,8 +377,15 @@ def test_requested_stop_retains_worker_cleanup_and_final_report(
     cancel = threading.Event()
     events: list[dict[str, Control]] = []
 
-    def oversized_rss(_process: object) -> SimpleNamespace:
-        return SimpleNamespace(rss=request.budget_bytes + 1)
+    original_observations = ProcessObserver.observations
+
+    def oversized_rss(
+        observer: ProcessObserver, *, check: bool = True
+    ) -> RssObservations:
+        return replace(
+            original_observations(observer, check=check),
+            peak_bytes=request.budget_bytes + 1,
+        )
 
     def progress(event: dict[str, Control]) -> None:
         events.append(event)
@@ -339,7 +393,7 @@ def test_requested_stop_retains_worker_cleanup_and_final_report(
             if reason == "cancelled":
                 cancel.set()
             else:
-                monkeypatch.setattr(psutil.Process, "memory_info", oversized_rss)
+                monkeypatch.setattr(ProcessObserver, "observations", oversized_rss)
 
     outcome = run_worker(request, tmp_path, cancel=cancel, progress=progress)
     assert outcome["status"] == "failed"
@@ -363,8 +417,15 @@ def test_real_worker_emits_final_phase_after_supervised_stop(
     events: list[dict[str, Control]] = []
     triggered = False
 
-    def oversized_rss(_process: object) -> SimpleNamespace:
-        return SimpleNamespace(rss=request.budget_bytes + 1)
+    original_observations = ProcessObserver.observations
+
+    def oversized_rss(
+        observer: ProcessObserver, *, check: bool = True
+    ) -> RssObservations:
+        return replace(
+            original_observations(observer, check=check),
+            peak_bytes=request.budget_bytes + 1,
+        )
 
     def progress(event: dict[str, Control]) -> None:
         nonlocal triggered
@@ -376,7 +437,7 @@ def test_real_worker_emits_final_phase_after_supervised_stop(
             if reason == "cancelled":
                 cancel.set()
             else:
-                monkeypatch.setattr(psutil.Process, "memory_info", oversized_rss)
+                monkeypatch.setattr(ProcessObserver, "observations", oversized_rss)
 
     outcome = run_worker(request, tmp_path, cancel=cancel, progress=progress)
     assert triggered
