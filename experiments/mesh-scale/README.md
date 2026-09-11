@@ -2,8 +2,8 @@
 
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
 The expectation builder and measured-run harness are implemented. Initial scale
-evidence includes a successful six-million-vertex import/contribution followed
-by a failed display export. The full measurement matrix remains pending; this
+evidence includes a complete six-million-vertex import/contribution/display/replay
+case after fixing an observed display failure. The full matrix remains pending; this
 directory does not establish the complete 512 MiB or 2 GiB targets.
 
 ## Independent expected results
@@ -191,8 +191,8 @@ The failed query contains three vertex joins followed by sorting. DuckDB
 [documents limitations when several blocking operators share a query](https://duckdb.org/docs/current/guides/performance/how_to_tune_workloads#limitations).
 That is consistent with this failure. The remapping implementation now expands
 usable faces to corners, performs one vertex lookup and sorts by source face and
-corner, then regroups triangles in bounded arrays. Full-size measurements of that
-change remain pending. The original failed result remains evidence.
+corner, then regroups triangles in bounded arrays. The first full-size rerun
+completed, as detailed below. Both original failed results remain evidence.
 
 The equivalent [2 GiB case](run-grid-3000x2000-flat-2048-r1.json) on the same
 implementation selected RAM columns. Complete import/contribution took 76.69
@@ -208,6 +208,29 @@ the gaps and flags coverage as false. Kernel high-water and sampled RSS are
 retained separately; they are distinct observations and can differ slightly.
 Successful canonical accounting does not erase either the display failure or
 the sampling gap.
+
+## Complete 512 MiB rerun after remapping fix
+
+The [second 512 MiB noiseless disk case](run-grid-3000x2000-flat-512-r2.json),
+at checkpoint `8f0cf5c`, completed the entire import/contribution/display/replay
+pipeline. It used the same complete source and frozen expectation as both
+original runs. All ten canonical hashes, three row digests, categories, sums,
+ranges and source/import/contribution IDs matched. Both main display views
+contain all 6,000,000 vertices and 11,990,002 usable faces. A separate fresh
+worker regenerated and compared all five display data files.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 79.09 | 335.28 | 333.07 | 7.24 |
+| Display export | 43.70 | 332.89 | 334.09 | 11.92 |
+| Full display replay | 45.01 | 321.64 | 322.91 | 9.45 |
+
+All worker RSS observations stayed below 512 MiB; all owned scratch was removed.
+The resulting authoritative and display files contain 2,021,337,320 logical bytes
+in total. These are observations from one sequential run with uncontrolled
+caches. Display sampling missed the 10 ms requirement, which remains explicitly
+false in the report. This establishes a complete measured case, not completion of
+the entire resource, platform or visual-inspection gate.
 
 ## Remaining execution evidence
 
