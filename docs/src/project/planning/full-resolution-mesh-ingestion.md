@@ -20,8 +20,9 @@ pretending external observations are synthetic.
 
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
 core and source/storage foundation have the S1–S3 implementations described below.
-S4–S6 remain unimplemented. A prepared foundation is not a complete import or
-contribution result.
+S4 accounting and stage publication are in progress; read-only artifact queries,
+source replay and worker supervision still block its completion. S5–S6 remain
+unimplemented. A prepared foundation is not a complete import or contribution result.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
 solver integration, model mapping, scale/pose estimation, robust refitting,
@@ -249,6 +250,39 @@ version. DuckDB, PyArrow, psutil, memory plans and storage/SQL execution modules
 remain execution provenance. SQL changes affecting row/order/lookup semantics
 must revise the bound association contract; execution tuning alone does not
 change a foundation identity.
+
+### S4 accounting and publication work in progress
+
+The [accounting scope](../../../../src/scansor/mesh_accounting.py) now processes
+every source face, including rejected faces' in-range references. It verifies
+staged coordinates and associated indices against canonical columns, materializes
+integer-encoded corner allocations, and verifies their complete source-order hash
+before a direct DuckDB sort by vertex, face and corner. The
+[ordered accumulator](../../../../src/scansor/mesh_accumulation.py) carries one
+unfinished vertex across batches and fills orphan gaps in bounded arrays.
+
+All detailed import and contribution columns, category/reference counts, ordered
+row digests, named numeric summaries and semantic inventories are computed.
+Normalization uses the complete eligible population and explicit zero-eligible
+result. Semantic source inventories include the accumulation, digest, policy and
+summary definitions; storage, SQL execution and resource settings remain outside
+those identities.
+
+[Publication](../../../../src/scansor/mesh_publication.py) materializes RAM columns
+with bounded reads, closes stage files, verifies exact child names/lengths/hashes,
+and uses anchored Linux atomic no-replace renames. Import can be published before
+normalization; an ensuing numeric or contribution-publication failure leaves that
+complete import intact. This verifies newly computed files against their expected
+records. It is not source replay of a previously published artifact.
+
+Local tests cover independent Fraction/integer-oracle results for all accepted
+small recipes and a high-valence case, RAM/disk equality across 512 MiB/2 GiB plans
+and awkward batches, working-row corruption, cancellation during folding,
+publication corruption, existing destinations and failure after import
+publication. The numerical conformance runner also includes the pure accumulation
+and digest tests. These are small-fixture checks, not S6 memory/scale evidence.
+Issue #35 remains open until bounded artifact queries, read-only source replay,
+worker supervision and the remaining review/CI gates are implemented and passed.
 
 ## Source profile and provenance
 
