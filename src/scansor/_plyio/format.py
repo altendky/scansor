@@ -68,6 +68,26 @@ class PlyError(ValueError):
         super().__init__(f"{message} ({context})" if context else message)
 
 
+def seek(stream: Source | Sink, offset: int, whence: int = 0) -> None:
+    try:
+        position = stream.seek(offset, whence)
+    except OSError as error:
+        raise PlyError(
+            "stream seek failed", category="io", offset=offset if whence == 0 else None
+        ) from error
+    if whence == 0 and position != offset:
+        raise PlyError(
+            "stream seek returned a different offset", category="io", offset=offset
+        )
+
+
+def tell(stream: Source | Sink) -> int:
+    try:
+        return stream.tell()
+    except OSError as error:
+        raise PlyError("stream position query failed", category="io") from error
+
+
 @dataclass(frozen=True)
 class ScalarProperty:
     name: str
@@ -151,7 +171,7 @@ def read_header(
     """
     if max_header_bytes < 1 or max_line_bytes < 1:
         raise PlyError("header limits must be positive", category="resource")
-    _ = stream.seek(0)
+    seek(stream, 0)
     raw = bytearray()
     lines: list[bytes] = []
     newline: bytes | None = None
@@ -160,7 +180,12 @@ def read_header(
         while not line.endswith(b"\n"):
             if len(raw) >= max_header_bytes or len(line) >= max_line_bytes:
                 raise PlyError("header or line limit exceeded", offset=len(raw))
-            chunk = stream.read(1)
+            try:
+                chunk = stream.read(1)
+            except OSError as error:
+                raise PlyError(
+                    "header read failed", category="io", offset=len(raw)
+                ) from error
             if not chunk:
                 raise PlyError("truncated header", offset=len(raw))
             if len(chunk) != 1:

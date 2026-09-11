@@ -485,3 +485,41 @@ print(hashlib.sha256(target.getvalue()).hexdigest())
         cwd=tmp_path,
     )
     assert result.stdout.strip() == GOLDEN_HASH
+
+
+@pytest.mark.parametrize("offset", [0, 4, 50, 199])
+def test_header_read_io_failure_is_translated_with_exact_offset(offset: int) -> None:
+    class HeaderFailure(io.BytesIO):
+        @override
+        def read(self, size: int | None = -1) -> bytes:
+            if self.tell() == offset:
+                raise OSError("injected header device failure")
+            return super().read(size)
+
+    source = HeaderFailure(GOLDEN)
+    with pytest.raises(MeshPlyError, match="header read failed") as caught:
+        _ = MeshPlyReader(source, max_range_bytes=100)
+    assert caught.value.detail.category == "io"
+    assert caught.value.detail.offset == offset
+    assert isinstance(caught.value.detail.__cause__, OSError)
+    assert not source.closed
+
+
+@pytest.mark.parametrize("operation", ["seek", "tell"])
+def test_stream_position_io_failure_uses_application_error(operation: str) -> None:
+    class PositionFailure(io.BytesIO):
+        @override
+        def seek(self, offset: int, whence: int = 0) -> int:
+            if operation == "seek":
+                raise OSError("injected seek failure")
+            return super().seek(offset, whence)
+
+        @override
+        def tell(self) -> int:
+            if operation == "tell":
+                raise OSError("injected tell failure")
+            return super().tell()
+
+    with pytest.raises(MeshPlyError) as caught:
+        _ = MeshPlyReader(PositionFailure(GOLDEN), max_range_bytes=100)
+    assert caught.value.detail.category == "io"

@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import numpy as np
 
-from .format import ElementLayout, Layout, PlyError, Sink, Source
+from .format import ElementLayout, Layout, PlyError, Sink, Source, seek, tell
 
 
 def _limits(max_range_bytes: int, io_block_bytes: int) -> None:
@@ -106,8 +106,8 @@ class Reader:
         self.layout: Layout = layout
         self.max_range_bytes: int = max_range_bytes
         self.io_block_bytes: int = io_block_bytes
-        _ = stream.seek(0, 2)
-        actual = stream.tell()
+        seek(stream, 0, 2)
+        actual = tell(stream)
         if actual != layout.byte_count:
             detail = (
                 "trailing bytes" if actual > layout.byte_count else "truncated payload"
@@ -122,7 +122,7 @@ class Reader:
         rows = np.empty(stop - start, dtype=layout.dtype)
         target = memoryview(rows).cast("B")
         offset = layout.offset + start * layout.dtype.itemsize
-        _ = self.stream.seek(offset)
+        seek(self.stream, offset)
         done = 0
         while done < size:
             requested = min(self.io_block_bytes, size - done)
@@ -186,15 +186,16 @@ class Writer:
         self._row: int = 0
         self._failed: bool = False
         self._finished: bool = False
-        _ = stream.seek(0, 2)
-        if stream.tell() != 0:
+        seek(stream, 0, 2)
+        if tell(stream) != 0:
             raise PlyError("writer requires an empty stream", category="io")
         self._write(memoryview(layout.header.raw))
 
     def _write(self, data: memoryview) -> None:
         done = 0
-        offset = self.stream.tell()
+        offset = 0
         try:
+            offset = tell(self.stream)
             while done < len(data):
                 part = data[done : done + self.io_block_bytes]
                 count = self.stream.write(part)
@@ -237,7 +238,12 @@ class Writer:
         _ = _range(layout, start, start + len(rows), self.max_range_bytes)
         _check_lists(layout, rows, start)
         expected = layout.offset + start * layout.dtype.itemsize
-        if self.stream.tell() != expected:
+        try:
+            position = tell(self.stream)
+        except PlyError:
+            self._failed = True
+            raise
+        if position != expected:
             self._failed = True
             raise PlyError(
                 "stream position changed outside writer", category="io", offset=expected
@@ -249,10 +255,13 @@ class Writer:
         self._advance()
         if self._failed or self._element_index != len(self.layout.elements):
             raise PlyError("writer has incomplete or failed payload", category="io")
-        if self.stream.tell() != self.layout.byte_count:
-            raise PlyError("writer byte count mismatch", category="io")
-        _ = self.stream.seek(0, 2)
-        if self.stream.tell() != self.layout.byte_count:
+        try:
+            if tell(self.stream) != self.layout.byte_count:
+                raise PlyError("writer byte count mismatch", category="io")
+            seek(self.stream, 0, 2)
+            if tell(self.stream) != self.layout.byte_count:
+                raise PlyError("writer has trailing bytes", category="io")
+        except PlyError:
             self._failed = True
-            raise PlyError("writer has trailing bytes", category="io")
+            raise
         self._finished = True
