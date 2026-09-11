@@ -1,9 +1,10 @@
 # S6 mesh scale validation
 
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
-The expectation builder is implemented. Full ingestion, contribution, and visual
-export resource measurements remain pending; this directory does not establish
-the 512 MiB or 2 GiB targets.
+The expectation builder and measured-run harness are implemented. Initial scale
+evidence includes a successful six-million-vertex import/contribution followed
+by a failed display export. The full measurement matrix remains pending; this
+directory does not establish the complete 512 MiB or 2 GiB targets.
 
 ## Independent expected results
 
@@ -59,8 +60,9 @@ Complete expectations are retained for the six-million-vertex
 [noisy](expected-grid-3000x2000-noisy.json) grids, and the sixty-million-vertex
 [noiseless](expected-grid-10000x6000-flat.json) and
 [noisy](expected-grid-10000x6000-noisy.json) grids. Each covers every source
-triangle and all ten canonical columns. They have not yet been matched against
-full-size production imports.
+triangle and all ten canonical columns. The six-million-vertex noiseless
+expectation has matched full-size production imports; the other three full-size
+canonical comparisons remain pending.
 
 ## Production source preparation
 
@@ -86,8 +88,9 @@ and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-ver
 [noiseless](prepared-grid-10000x6000-flat.json) and
 [noisy](prepared-grid-10000x6000-noisy.json) files. The two smaller files each
 contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
-The source files remain outside Git. Canonical importer/contribution comparisons
-under the two memory budgets remain pending.
+The source files remain outside Git. The noiseless six-million-vertex
+importer/contribution comparisons passed under both budgets; the rest remain
+pending.
 
 ## Worker execution and phase evidence
 
@@ -166,6 +169,45 @@ met 10 ms or that every resource target passed. Those observations remain separa
 in the report, including conservative gaps before the first and after the last
 sample. Small ordinary tests cover byte comparison, reporting, cancellation,
 resource failure, and owned cleanup; they are not scale benchmark results.
+
+## Initial six-million-vertex measurement
+
+The first [512 MiB noiseless disk case](run-grid-3000x2000-flat-512-r1.json)
+used implementation checkpoint `7ee7619`. Complete import and contribution took
+79.87 seconds and matched all ten frozen canonical column hashes, all three
+ordered row digests, categories, sums and ranges. Kernel peak RSS was 334 MiB;
+sampled RSS reached 335 MiB. All 6,000,000 vertices and 11,990,002 triangles were
+accounted for. This is one run with uncontrolled caches, not a runtime guarantee.
+
+Display export failed after 34.19 seconds while remapping faces. DuckDB could not
+pin another 256 KiB block within its approximately 135 MiB engine allocation.
+Kernel peak RSS was 336 MiB and sampled RSS reached 338 MiB, both below the
+512 MiB worker target. The worker exited normally with a resource-failure report;
+the separate 6 GiB cgroup reported no limit, OOM, OOM-kill or swap events. All
+owned scratch was removed and both completed authoritative artifacts remained.
+No display artifact was published, and display replay did not run.
+
+The failed query contains three vertex joins followed by sorting. DuckDB
+[documents limitations when several blocking operators share a query](https://duckdb.org/docs/current/guides/performance/how_to_tune_workloads#limitations).
+That is consistent with this failure. The remapping implementation now expands
+usable faces to corners, performs one vertex lookup and sorts by source face and
+corner, then regroups triangles in bounded arrays. Full-size measurements of that
+change remain pending. The original failed result remains evidence.
+
+The equivalent [2 GiB case](run-grid-3000x2000-flat-2048-r1.json) on the same
+implementation selected RAM columns. Complete import/contribution took 76.69
+seconds, with kernel peak RSS of 850 MiB and sampled peak of 852 MiB. All canonical
+checks, hashes and IDs were identical to the 512 MiB disk case. Display again
+failed before yielding remapped faces, this time at the 256 MiB engine cap:
+34.22 seconds, kernel peak RSS 595 MiB, sampled peak 596 MiB. Owned scratch cleanup
+succeeded. Raising the worker budget alone did not resolve this query shape.
+
+RSS sampling also missed the requested 10 ms coverage: the largest observed
+intervals were 11.00 ms for import and 19.01 ms for display. The report preserves
+the gaps and flags coverage as false. Kernel high-water and sampled RSS are
+retained separately; they are distinct observations and can differ slightly.
+Successful canonical accounting does not erase either the display failure or
+the sampling gap.
 
 ## Remaining execution evidence
 

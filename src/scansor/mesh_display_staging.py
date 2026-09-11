@@ -288,15 +288,69 @@ ON (CASE WHEN c.vertex >= 0 AND c.vertex < {population}
 
     def face_batches(self) -> Generator[tuple[np.ndarray, ...]]:
         self._ready()
-        query = """SELECT f.face_id, a.view_id AS i0, b.view_id AS i1, c.view_id AS i2
-FROM display_faces f
-LEFT JOIN display_vertices a ON f.i0::BIGINT = a.source_id
-LEFT JOIN display_vertices b ON f.i1::BIGINT = b.source_id
-LEFT JOIN display_vertices c ON f.i2::BIGINT = c.source_id
-WHERE f.status = 0 ORDER BY f.face_id"""
-        yield from self.batches(
-            query, FACE_FIELDS[:-1], self.faces, "export-display-faces"
-        )
+        # Three simultaneous vertex joins exhausted the 135/256 MiB engine
+        # reservations on the six-million-vertex S6 grid. Associate corners once
+        # and regroup in bounded NumPy buffers, as in the import association.
+        # Selection, source-face order and remapped indices remain identical.
+        population = self.data.imported.vertices
+        query = f"""WITH corners AS (
+SELECT f.face_id, c.corner,
+CASE c.corner WHEN 0 THEN f.i0 WHEN 1 THEN f.i1 ELSE f.i2 END AS vertex
+FROM display_faces f CROSS JOIN
+(VALUES (0::UTINYINT), (1::UTINYINT), (2::UTINYINT)) c(corner)
+WHERE f.status = 0
+)
+SELECT c.face_id, c.corner, v.view_id FROM corners c
+LEFT JOIN display_vertices v ON
+(CASE WHEN c.vertex >= 0 AND c.vertex < {population}
+THEN c.vertex::UBIGINT ELSE NULL END) = v.source_id
+ORDER BY c.face_id, c.corner"""
+        capacity = self.plan.batch_rows * 3
+        faces = np.empty(capacity, dtype="<u8")
+        views = np.empty(capacity, dtype="<i4")
+        filled = ordinal = 0
+        fields = (("face_id", "<u8"), ("corner", "u1"), ("view_id", "<i4"))
+        for columns in self.batches(
+            query, fields, 3 * self.faces, "export-display-face-corners"
+        ):
+            face, corner, view = columns
+            if not np.array_equal(
+                corner, np.arange(ordinal, ordinal + len(face), dtype="<u8") % 3
+            ):
+                raise MeshImportError(
+                    "integrity", "display-remap", "missing or reordered usable corner"
+                )
+            ordinal += len(face)
+            offset = 0
+            while offset < len(face):
+                count = min(capacity - filled, len(face) - offset)
+                faces[filled : filled + count] = face[offset : offset + count]
+                views[filled : filled + count] = view[offset : offset + count]
+                filled += count
+                offset += count
+                if filled == capacity:
+                    yield self._remapped_faces(faces, views)
+                    filled = 0
+            del columns, face, corner, view
+        if filled:
+            yield self._remapped_faces(faces[:filled], views[:filled])
+
+    @staticmethod
+    def _remapped_faces(faces: np.ndarray, views: np.ndarray) -> tuple[np.ndarray, ...]:
+        if len(faces) % 3:
+            raise MeshImportError(
+                "integrity", "display-remap", "incomplete usable face corners"
+            )
+        triples = faces.reshape(-1, 3)
+        if np.any(triples != triples[:, :1]):
+            raise MeshImportError(
+                "integrity", "display-remap", "corners have different source face IDs"
+            )
+        indices = views.reshape(-1, 3)
+        result = (triples[:, 0].copy(), *(indices[:, axis].copy() for axis in range(3)))
+        for column in result:
+            column.flags.writeable = False
+        return result
 
     def corner_batches(self) -> Generator[tuple[np.ndarray, ...]]:
         self._ready()

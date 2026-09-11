@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import struct
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -158,6 +159,42 @@ def test_export_exact_independent_fields_maps_topology_and_invariance(
         assert (artifact_state(first.path), artifact_state(second.path)) == before
         assert not list(root.glob(".scansor-mesh-*"))
     assert len(set(ids)) == 1
+
+
+@pytest.mark.parametrize("corruption", ("corner", "face-id"))
+def test_display_rejects_corrupt_corner_association_across_single_row_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+) -> None:
+    first, second = published(tmp_path, "unequal-adjacent-v1")
+    before = artifact_state(first.path), artifact_state(second.path)
+    batches = DisplayStaging.batches
+
+    def corrupt(
+        self: DisplayStaging,
+        query: str,
+        fields: tuple[tuple[str, str], ...],
+        total: int,
+        phase: str,
+    ) -> Generator[tuple[np.ndarray, ...]]:
+        seen = 0
+        for columns in batches(self, query, fields, total, phase):
+            if phase == "export-display-face-corners" and seen == 1:
+                values = tuple(column.copy() for column in columns)
+                values[1 if corruption == "corner" else 0][0] += 1
+                yield values
+            else:
+                yield columns
+            seen += len(columns[0])
+
+    monkeypatch.setattr(DisplayStaging, "batches", corrupt)
+    with pytest.raises(MeshImportError) as caught:
+        _ = export_display(first.path, second.path, tmp_path, tmp_path, chunk_rows=1)
+    assert (
+        caught.value.category == "integrity" and caught.value.stage == "display-remap"
+    )
+    assert (artifact_state(first.path), artifact_state(second.path)) == before
+    assert not list(tmp_path.glob("mesh-display-*"))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
 def test_transform_changes_only_display_and_is_bound_to_identity(
