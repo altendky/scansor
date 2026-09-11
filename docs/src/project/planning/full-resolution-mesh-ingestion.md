@@ -182,6 +182,13 @@ Cgroup charges and sampled logical/allocated disk observations are separate
 diagnostics. Reservations and sampled disk peaks are not exact native allocation
 or disk-peak measurements, nor proof of the S6 scale targets.
 
+Workspace creation first uses a private, empty bootstrap container, creates the
+working directory beneath its held handle, and captures the working inode before
+atomically exposing its name in the destination. Bootstrap cleanup removes empty
+directories only. Processing uses a retained Linux directory descriptor through
+`/proc/self/fd`, so replacing the public path cannot redirect writes. This worker
+foundation currently requires Linux; the portable numeric gate remains separate.
+
 Scope exit closes readers, connections, arrays and the monitor before removing
 its owned workspace. Explicit failure retention writes an incomplete diagnostic,
 not a success or resume marker. Cleanup first atomically quarantines the workspace
@@ -205,7 +212,7 @@ before contribution processing and does not replace S4 replay or S6 stress gates
 records two sequential fresh Linux x86-64 workers over 200,000 vertices and
 398,202 faces (500×400 grid, seed 7, three-bit dyadic noise). RAM storage used a
 512 MiB whole-worker plan with 4,093-row batches; disk storage used a 2 GiB plan
-with 65,536-row batches. Peak process RSS was 230.49 and 244.10 MiB respectively.
+with 65,536-row batches. Peak process RSS was 232.00 and 243.72 MiB respectively.
 Both produced the same foundation ID and exact ordered index/coordinate hashes,
 checked every source face and completed owned cleanup. Cache state was
 uncontrolled, and these differing execution settings are not a speed comparison.

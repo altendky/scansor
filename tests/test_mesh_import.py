@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import struct
+import tempfile
 import threading
 from contextlib import closing
 from pathlib import Path
@@ -522,3 +523,58 @@ def test_duckdb_connect_disk_exhaustion_keeps_resource_category(
         pytest.fail("disk exhaustion reached foundation")
     assert caught.value.category == "resource"
     assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+def test_workspace_creation_does_not_adopt_a_substituted_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(2, 2))
+    native = tempfile.mkdtemp
+    replacements: list[Path] = []
+
+    def replaced(*args: Any, **kwargs: Any) -> str:
+        name = native(*args, **kwargs)
+        replacement = Path(name)
+        replacements.append(replacement)
+        _ = replacement.rename(tmp_path / "moved-created-directory")
+        replacement.mkdir(mode=0o700)
+        _ = (replacement / "unrelated").write_bytes(b"must survive")
+        (replacement / "work").mkdir()
+        return name
+
+    monkeypatch.setattr(tempfile, "mkdtemp", replaced)
+    with (
+        pytest.raises(MeshImportError, match="private and empty"),
+        prepare_import(source, tmp_path),
+    ):
+        pytest.fail("replacement was adopted as owned workspace")
+    assert len(replacements) == 1
+    replacement = replacements[0]
+    assert (replacement / "unrelated").read_bytes() == b"must survive"
+    assert (replacement / "work").is_dir()
+    assert not (replacement / "import").exists()
+
+
+def test_import_writes_through_held_workspace_after_public_path_replacement(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(2, 2))
+    moved = tmp_path / "moved-owned"
+    public_paths: list[Path] = []
+    with (
+        pytest.raises(MeshImportError, match="replaced"),
+        prepare_import(source, tmp_path) as data,
+    ):
+        public = data.directory
+        public_paths.append(public)
+        _ = public.rename(moved)
+        public.mkdir()
+        _ = (public / "unrelated").write_bytes(b"keep")
+        _ = (data.import_directory / "owned-write").write_bytes(b"owned")
+        assert (moved / "import" / "owned-write").read_bytes() == b"owned"
+        assert not (public / "import").exists()
+    assert (public_paths[0] / "unrelated").read_bytes() == b"keep"

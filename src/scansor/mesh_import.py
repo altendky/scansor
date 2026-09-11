@@ -8,7 +8,6 @@ A foundation-ready inventory is never a complete import/contribution marker.
 from __future__ import annotations
 
 import errno
-import tempfile
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -45,7 +44,7 @@ from scansor.mesh_semantics import (
 )
 from scansor.mesh_sidecar import MAX_SIDECAR_BYTES, interpret_sidecar
 from scansor.mesh_snapshot import SourceBundle, snapshot_bundle
-from scansor.mesh_workspace import remove_owned_workspace
+from scansor.mesh_workspace import create_workspace, remove_owned_workspace
 
 
 @dataclass
@@ -249,14 +248,15 @@ def prepare_import(
         storage="disk",
         chunk_rows=1,
     )
-    directory = Path(tempfile.mkdtemp(prefix=".scansor-mesh-", dir=destination))
-    identity = directory.stat()
+    workspace = create_workspace(destination)
+    directory = workspace.directory
+    access = workspace.access
     failure_error: BaseException | None = None
-    monitor = ResourceMonitor(budget_bytes, directory, callback=progress)
+    monitor = ResourceMonitor(budget_bytes, access, callback=progress)
     try:
         with ExitStack() as stack:
             _ = stack.enter_context(monitor)
-            import_directory = directory / "import"
+            import_directory = access / "import"
             source_directory = import_directory / "source"
             source_directory.mkdir(parents=True)
             source = snapshot_bundle(
@@ -268,7 +268,7 @@ def prepare_import(
             )
             _ = stack.callback(source.close)
             foundation = _prepare(
-                directory,
+                access,
                 source,
                 monitor,
                 stack,
@@ -277,6 +277,7 @@ def prepare_import(
                 chunk_rows=chunk_rows,
                 io_block_bytes=io_block_bytes,
             )
+            foundation.directory = directory
             yield foundation
     except BaseException as error:
         if isinstance(error, MeshPlyError):
@@ -297,7 +298,7 @@ def prepare_import(
         failure_error = error
         if retain_incomplete:
             try:
-                _check_owned_directory(directory, identity.st_dev, identity.st_ino)
+                _check_owned_directory(directory, *workspace.identity)
                 failure: dict[str, Control] = {
                     "revision": "mesh-incomplete-execution-v1",
                     "status": "incomplete",
@@ -307,22 +308,25 @@ def prepare_import(
                     "message": str(error)[:4096],
                     "last_progress": monitor.record(),
                 }
-                with (directory / "failure.json").open("xb") as stream:
+                with (access / "failure.json").open("xb") as stream:
                     _ = stream.write(encode_control(failure))
                 error.add_note(f"Incomplete owned diagnostic directory: {directory}")
             except (OSError, MeshImportError) as report_error:
                 error.add_note(f"Failure report could not be written: {report_error}")
         raise error
     finally:
-        if not (failure_error is not None and retain_incomplete):
-            try:
-                remove_owned_workspace(directory, (identity.st_dev, identity.st_ino))
-            except (OSError, MeshImportError) as cleanup_error:
-                if failure_error is None:
-                    raise
-                failure_error.add_note(
-                    f"Owned workspace cleanup failed: {cleanup_error}"
-                )
+        try:
+            if not (failure_error is not None and retain_incomplete):
+                try:
+                    remove_owned_workspace(directory, workspace.identity)
+                except (OSError, MeshImportError) as cleanup_error:
+                    if failure_error is None:
+                        raise
+                    failure_error.add_note(
+                        f"Owned workspace cleanup failed: {cleanup_error}"
+                    )
+        finally:
+            workspace.close()
 
 
 def _check_owned_directory(directory: Path, device: int, inode: int) -> None:
