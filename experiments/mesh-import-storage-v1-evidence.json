@@ -14,7 +14,7 @@
         "association_queries": 1,
         "cgroup": {
           "available": true,
-          "memory.current": "1619169280",
+          "memory.current": "1625960448",
           "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 37",
           "memory.max": "max",
           "memory.peak": "3224899584",
@@ -36,32 +36,45 @@
           "budget_bytes": 536870912,
           "completed": 398202,
           "disk": {
-            "allocated_bytes": 20393984,
+            "allocated_bytes": 19419136,
             "concurrent_changes": false,
-            "logical_bytes": 20650505
+            "logical_bytes": 19413639
           },
-          "elapsed_ns": 2043100504,
-          "peak_rss_bytes": 243265536,
+          "elapsed_ns": 2536986003,
+          "peak_rss_bytes": 242622464,
           "phase": "coordinate-association-1",
-          "rss_bytes": 158830592,
-          "sampled_disk_peak_logical_bytes": 20650505,
+          "rss_bytes": 158736384,
+          "sampled_disk_peak_logical_bytes": 19413639,
           "total": 398202
         },
         "plan": {
-          "baseline_bytes": 153104384,
+          "baseline_bytes": 153055232,
           "batch_bytes": 3143424,
           "batch_rows": 4093,
           "budget_bytes": 536870912,
           "disk_estimate_bytes": 384097222,
-          "engine_bytes": 141551616,
+          "engine_bytes": 141576192,
           "engine_temp_limit_bytes": 114739712,
           "fixed_buffers_bytes": 33554432,
-          "reserved_bytes": 414624962,
+          "reserved_bytes": 414600386,
           "resident_columns_bytes": 16162242,
           "safety_bytes": 67108864,
           "storage": "ram"
         },
-        "revision": "mesh-import-execution-v1"
+        "post_cleanup_memory": {
+          "os_peak_rss_bytes": 241696768,
+          "rss_bytes": 158744576
+        },
+        "probe_sha256": "b0eb23a735a8612a75f3c5255fe1ca9f9f560656a20295c6a9ea9572243f65d8",
+        "revision": "mesh-import-execution-v1",
+        "source_hashes": {
+          "mesh_columns.py": "f720276fddae8ad5780358563c463f991152e8ead97ff620e886e4bfbb49e8dc",
+          "mesh_duckdb.py": "93b23882cfc19c2b966a7c83c7ad82080994e36e3aa465a56438ee142c7851c7",
+          "mesh_import.py": "f803808161c27e8b0bc3536ddd12a03df2c94db6c7e883f134ff8df3865a04d3",
+          "mesh_resources.py": "419006179386287db5944d7453fb0d7e4ae528a8e6d2566e0298d853615fbd0d",
+          "mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+          "mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3"
+        }
       },
       "inventory": {
         "association_revision": "source-face-corner-left-association-v1",
@@ -149,41 +162,41 @@
             "concurrent_changes": false,
             "logical_bytes": 65536
           },
-          "elapsed_ns": 634018,
-          "peak_rss_bytes": 158199808,
+          "elapsed_ns": 664573,
+          "peak_rss_bytes": 158154752,
           "phase": "snapshot-mesh-ply-copy",
-          "rss_bytes": 152788992,
+          "rss_bytes": 152739840,
           "sampled_disk_peak_logical_bytes": 65536,
           "total": 7576836
         },
         {
           "budget_bytes": 536870912,
-          "completed": 167813,
+          "completed": 85953,
           "disk": {
-            "allocated_bytes": 15065088,
+            "allocated_bytes": 13422592,
             "concurrent_changes": false,
-            "logical_bytes": 15057517
+            "logical_bytes": 13413717
           },
-          "elapsed_ns": 1002682403,
-          "peak_rss_bytes": 178061312,
+          "elapsed_ns": 1002596498,
+          "peak_rss_bytes": 172331008,
           "phase": "decode-faces",
-          "rss_bytes": 178061312,
-          "sampled_disk_peak_logical_bytes": 15057517,
+          "rss_bytes": 172331008,
+          "sampled_disk_peak_logical_bytes": 13413717,
           "total": 398202
         },
         {
           "budget_bytes": 536870912,
-          "completed": 398202,
+          "completed": 384742,
           "disk": {
-            "allocated_bytes": 20393984,
+            "allocated_bytes": 19419136,
             "concurrent_changes": false,
-            "logical_bytes": 20650505
+            "logical_bytes": 19413639
           },
-          "elapsed_ns": 2010653638,
-          "peak_rss_bytes": 243216384,
-          "phase": "coordinate-association-1",
-          "rss_bytes": 243216384,
-          "sampled_disk_peak_logical_bytes": 20650505,
+          "elapsed_ns": 2007877031,
+          "peak_rss_bytes": 186093568,
+          "phase": "decode-faces",
+          "rss_bytes": 186093568,
+          "sampled_disk_peak_logical_bytes": 19413639,
           "total": 398202
         }
       ],
@@ -222,7 +235,7 @@
         "association_queries": 1,
         "cgroup": {
           "available": true,
-          "memory.current": "1629970432",
+          "memory.current": "1642450944",
           "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 37",
           "memory.max": "max",
           "memory.peak": "3224899584",
@@ -230,7 +243,7 @@
           "memory.swap.max": "max"
         },
         "current_disk": {
-          "allocated_bytes": 27164672,
+          "allocated_bytes": 27168768,
           "concurrent_changes": false,
           "logical_bytes": 32343339
         },
@@ -248,15 +261,15 @@
             "concurrent_changes": false,
             "logical_bytes": 65536
           },
-          "elapsed_ns": 770944684,
-          "peak_rss_bytes": 255557632,
+          "elapsed_ns": 859544870,
+          "peak_rss_bytes": 255426560,
           "phase": "coordinate-association-1",
-          "rss_bytes": 158834688,
+          "rss_bytes": 158855168,
           "sampled_disk_peak_logical_bytes": 65536,
           "total": 398202
         },
         "plan": {
-          "baseline_bytes": 153063424,
+          "baseline_bytes": 153133056,
           "batch_bytes": 50331648,
           "batch_rows": 65536,
           "budget_bytes": 2147483648,
@@ -264,12 +277,25 @@
           "engine_bytes": 268435456,
           "engine_temp_limit_bytes": 114739712,
           "fixed_buffers_bytes": 33554432,
-          "reserved_bytes": 720133324,
+          "reserved_bytes": 720202956,
           "resident_columns_bytes": 0,
           "safety_bytes": 214748364,
           "storage": "disk"
         },
-        "revision": "mesh-import-execution-v1"
+        "post_cleanup_memory": {
+          "os_peak_rss_bytes": 254033920,
+          "rss_bytes": 158855168
+        },
+        "probe_sha256": "b0eb23a735a8612a75f3c5255fe1ca9f9f560656a20295c6a9ea9572243f65d8",
+        "revision": "mesh-import-execution-v1",
+        "source_hashes": {
+          "mesh_columns.py": "f720276fddae8ad5780358563c463f991152e8ead97ff620e886e4bfbb49e8dc",
+          "mesh_duckdb.py": "93b23882cfc19c2b966a7c83c7ad82080994e36e3aa465a56438ee142c7851c7",
+          "mesh_import.py": "f803808161c27e8b0bc3536ddd12a03df2c94db6c7e883f134ff8df3865a04d3",
+          "mesh_resources.py": "419006179386287db5944d7453fb0d7e4ae528a8e6d2566e0298d853615fbd0d",
+          "mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+          "mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3"
+        }
       },
       "inventory": {
         "association_revision": "source-face-corner-left-association-v1",
@@ -357,10 +383,10 @@
             "concurrent_changes": false,
             "logical_bytes": 65536
           },
-          "elapsed_ns": 990104,
-          "peak_rss_bytes": 158162944,
+          "elapsed_ns": 683021,
+          "peak_rss_bytes": 158060544,
           "phase": "snapshot-mesh-ply-copy",
-          "rss_bytes": 152739840,
+          "rss_bytes": 152817664,
           "sampled_disk_peak_logical_bytes": 65536,
           "total": 7576836
         }

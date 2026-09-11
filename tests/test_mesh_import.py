@@ -3,7 +3,6 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
-import shutil
 import struct
 import tempfile
 import threading
@@ -441,18 +440,20 @@ def test_cleanup_does_not_resolve_public_path_during_recursive_deletion(
     root.mkdir()
     _ = (root / "owned-data").write_bytes(b"disposable")
     info = root.stat()
-    original = shutil.rmtree
+    original = mesh_workspace.empty_owned_directory
+    changed = False
 
-    def swapped(path: str, *, dir_fd: int | None = None) -> None:
+    def swapped(descriptor: int) -> None:
+        nonlocal changed
         # The owned root has already moved into the private quarantine. Replacing
         # its original public path now must not redirect recursive deletion.
-        root.mkdir()
-        _ = (root / "unrelated").write_bytes(b"keep")
-        original(path, dir_fd=dir_fd, onexc=None)
+        if not changed:
+            changed = True
+            root.mkdir()
+            _ = (root / "unrelated").write_bytes(b"keep")
+        original(descriptor)
 
-    monkeypatch.setattr(shutil, "rmtree", swapped)
-    # Preserve the native implementation's descriptor-safety capability marker.
-    monkeypatch.setattr(swapped, "avoids_symlink_attacks", True, raising=False)
+    monkeypatch.setattr(mesh_workspace, "empty_owned_directory", swapped)
     remove_owned_workspace(root, (info.st_dev, info.st_ino))
     assert (root / "unrelated").read_bytes() == b"keep"
     assert not list(tmp_path.glob(".scansor-cleanup-*"))
@@ -578,3 +579,31 @@ def test_import_writes_through_held_workspace_after_public_path_replacement(
         assert (moved / "import" / "owned-write").read_bytes() == b"owned"
         assert not (public / "import").exists()
     assert (public_paths[0] / "unrelated").read_bytes() == b"keep"
+
+
+def test_cleanup_keeps_verified_candidate_handle_during_name_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "owned"
+    root.mkdir()
+    _ = (root / "owned-data").write_bytes(b"disposable")
+    info = root.stat()
+    original = mesh_workspace.empty_owned_directory
+    changed = False
+
+    def swapped(descriptor: int) -> None:
+        nonlocal changed
+        if not changed:
+            changed = True
+            quarantine = next(tmp_path.glob(".scansor-cleanup-*"))
+            _ = (quarantine / "candidate").rename(quarantine / "moved-owned")
+            (quarantine / "candidate").mkdir()
+            _ = (quarantine / "candidate" / "unrelated").write_bytes(b"keep")
+        original(descriptor)
+
+    monkeypatch.setattr(mesh_workspace, "empty_owned_directory", swapped)
+    with pytest.raises(MeshImportError, match="quarantined path was replaced"):
+        remove_owned_workspace(root, (info.st_dev, info.st_ino))
+    quarantine = next(tmp_path.glob(".scansor-cleanup-*"))
+    assert (quarantine / "candidate" / "unrelated").read_bytes() == b"keep"
+    assert not (quarantine / "moved-owned" / "owned-data").exists()

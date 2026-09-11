@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import platform
 import tempfile
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from scansor.mesh_controls import Control, control_id, encode_control
 from scansor.mesh_dispositions import face_dispositions
 from scansor.mesh_import import prepare_import
 from scansor.mesh_recipes import GridRecipe, generate_file
-from scansor.mesh_resources import MIB
+from scansor.mesh_resources import MIB, memory_snapshot
 
 
 def run(options: Any) -> dict[str, Control]:
@@ -67,7 +68,23 @@ def run(options: Any) -> dict[str, Control]:
             execution = foundation.execution_report()
         # Include the monitor's final sample after native resources were closed.
         execution["monitor"] = foundation.monitor.record()
+        execution["post_cleanup_memory"] = memory_snapshot()
+        peak = execution["post_cleanup_memory"]["os_peak_rss_bytes"]
+        assert isinstance(peak, int) and peak <= options.budget_mib * MIB
         assert not foundation.directory.exists()
+    root = resources.files("scansor")
+    execution["source_hashes"] = {
+        name: hashlib.sha256(root.joinpath(name).read_bytes()).hexdigest()
+        for name in (
+            "mesh_columns.py",
+            "mesh_duckdb.py",
+            "mesh_import.py",
+            "mesh_resources.py",
+            "mesh_snapshot.py",
+            "mesh_workspace.py",
+        )
+    }
+    execution["probe_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     return {
         "revision": "mesh-import-storage-probe-v1",
         "scope": "S3 source columns and complete coordinate association only",

@@ -189,12 +189,23 @@ directories only. Processing uses a retained Linux directory descriptor through
 `/proc/self/fd`, so replacing the public path cannot redirect writes. This worker
 foundation currently requires Linux; the portable numeric gate remains separate.
 
+The private workspace assumes trusted processes sharing the Unix account. It
+handles ordinary source mutation and replacement at the supplied destination;
+it does not claim isolation from a hostile same-account process or root actively
+modifying private directories. Linux [directory creation returns a status, not an
+open handle](https://man7.org/linux/man-pages/man2/mkdir.2.html), so creation and
+handle capture inside the private namespace remain separate system calls.
+Isolation from hostile same-account code would require a separate privilege or
+sandbox design; additional pathname checks cannot establish that guarantee.
+
 Scope exit closes readers, connections, arrays and the monitor before removing
 its owned workspace. Explicit failure retention writes an incomplete diagnostic,
 not a success or resume marker. Cleanup first atomically quarantines the workspace
 using the repository's Linux
-no-replace primitive, checks the moved entry, then removes it through a private
-anchored directory. A substituted entry is restored or retained without deleting
+no-replace primitive, checks the moved entry, then removes its contents through
+the same verified
+directory descriptor. It does not reopen the candidate name for recursion.
+A substituted entry is restored or retained without deleting
 its contents. Unsupported cleanup hosts fail safely. Cleanup failures do not
 overwrite an initiating processing failure. External supervision
 of killed workers and atomic stage publication remain S4 work.
@@ -212,8 +223,9 @@ before contribution processing and does not replace S4 replay or S6 stress gates
 records two sequential fresh Linux x86-64 workers over 200,000 vertices and
 398,202 faces (500×400 grid, seed 7, three-bit dyadic noise). RAM storage used a
 512 MiB whole-worker plan with 4,093-row batches; disk storage used a 2 GiB plan
-with 65,536-row batches. Peak process RSS was 232.00 and 243.72 MiB respectively.
-Both produced the same foundation ID and exact ordered index/coordinate hashes,
+with 65,536-row batches. Peak process RSS was 230.50 and 242.27 MiB respectively.
+The reports retain execution-source/probe hashes and a kernel peak reading after
+cleanup. Both produced the same foundation ID and exact ordered index/coordinate hashes,
 checked every source face and completed owned cleanup. Cache state was
 uncontrolled, and these differing execution settings are not a speed comparison.
 These observations cover this fixture on this runtime, not the six- and

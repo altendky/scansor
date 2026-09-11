@@ -2,13 +2,14 @@
 
 Uses the repository's Linux atomic no-replace primitive and anchored directories.
 Unsupported hosts fail without recursively deleting a public destination path.
+Private directories assume trusted processes sharing the Unix account; they are
+not a privilege boundary against a hostile same-UID process or root.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
-import shutil
 import stat
 import sys
 import tempfile
@@ -127,7 +128,7 @@ def create_workspace(destination: Path) -> Workspace:
 
 
 def remove_owned_workspace(directory: Path, identity: tuple[int, int]) -> None:
-    if not hasattr(os, "O_DIRECTORY") or not shutil.rmtree.avoids_symlink_attacks:
+    if not hasattr(os, "O_DIRECTORY") or os.scandir not in os.supports_fd:
         raise MeshImportError(
             "unsupported", "cleanup", "anchored cleanup is unavailable"
         )
@@ -135,6 +136,7 @@ def remove_owned_workspace(directory: Path, identity: tuple[int, int]) -> None:
     parent = os.open(directory.parent, flags)
     quarantine: Path | None = None
     held: int | None = None
+    candidate: int | None = None
     moved = False
     try:
         quarantine = Path(
@@ -145,7 +147,8 @@ def remove_owned_workspace(directory: Path, identity: tuple[int, int]) -> None:
         # atomically into our private directory, then check the moved entry.
         rename_no_replace(parent, directory.name, held, "candidate")
         moved = True
-        actual = os.stat("candidate", dir_fd=held, follow_symlinks=False)
+        candidate = os.open("candidate", flags, dir_fd=held)
+        actual = os.fstat(candidate)
         if (actual.st_dev, actual.st_ino) != identity:
             error = MeshImportError(
                 "integrity",
@@ -160,9 +163,17 @@ def remove_owned_workspace(directory: Path, identity: tuple[int, int]) -> None:
                     f"Replacement retained at {quarantine / 'candidate'}: {restore_error}"
                 )
             raise error
-        # The held directory is private and owned. rmtree uses descriptors beneath
-        # it, so swapping the original public path cannot redirect recursion.
-        shutil.rmtree("candidate", dir_fd=held)
+        # Keep the descriptor whose identity was checked, rather than having
+        # rmtree open the candidate name a second time before recursion.
+        empty_owned_directory(candidate)
+        current = os.stat("candidate", dir_fd=held, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != identity:
+            raise MeshImportError(
+                "integrity",
+                "cleanup",
+                "quarantined path was replaced; replacement contents left untouched",
+            )
+        os.rmdir("candidate", dir_fd=held)
         moved = False
     except BaseException as error:
         if moved and quarantine is not None:
@@ -174,8 +185,46 @@ def remove_owned_workspace(directory: Path, identity: tuple[int, int]) -> None:
         raise
     finally:
         os.close(parent)
+        if candidate is not None:
+            os.close(candidate)
         if held is not None:
             os.close(held)
         # Never recurse into a quarantine containing an unverified replacement.
         if quarantine is not None and not moved:
             quarantine.rmdir()
+
+
+def empty_owned_directory(descriptor: int) -> None:
+    """Bound traversal to held inodes; never follow directory symlinks."""
+    with os.scandir(descriptor) as entries:
+        for entry in entries:
+            before = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(before.st_mode):
+                child = os.open(
+                    entry.name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+                try:
+                    opened = os.fstat(child)
+                    if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                        raise MeshImportError(
+                            "integrity",
+                            "cleanup",
+                            "child directory changed while opening",
+                        )
+                    empty_owned_directory(child)
+                    after = os.stat(
+                        entry.name, dir_fd=descriptor, follow_symlinks=False
+                    )
+                    if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+                        raise MeshImportError(
+                            "integrity",
+                            "cleanup",
+                            "child directory path changed; replacement retained",
+                        )
+                    os.rmdir(entry.name, dir_fd=descriptor)
+                finally:
+                    os.close(child)
+            else:
+                os.unlink(entry.name, dir_fd=descriptor)
