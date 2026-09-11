@@ -6,6 +6,7 @@ import pytest
 from experiments.mesh_scale_rounding import (
     add_grid_scaled,
     fold_grid_scaled,
+    fold_scaled,
     grid_area_scaled,
     scaled_word,
     weight_words,
@@ -69,3 +70,19 @@ def test_weight_oracle_rejects_nonfinite_and_negative_areas() -> None:
     for word in (oracle.bits(float("inf")), oracle.bits(-1.0), 1):
         with pytest.raises(ValueError, match="normal operands"):
             _ = weight_words(np.array([word], dtype="<u8"), 1, oracle.bits(1.0))
+
+
+def test_common_quantum_weight_fold_matches_fraction_oracle() -> None:
+    words = [
+        oracle.bits(0.125),
+        oracle.bits(0.5) + 1,
+        oracle.bits(2.0) - 1,
+        oracle.bits(4.0) - 1,
+    ] * 1000
+    values = np.array(
+        [int(oracle.rational(word) * 2**55) for word in words], dtype="<u8"
+    )
+    total = 0
+    for start in range(0, len(values), 127):
+        total = fold_scaled(values[start : start + 127], total)
+    assert scaled_word(total, quantum=-55) == oracle.fold(words)

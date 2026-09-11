@@ -157,6 +157,18 @@ def fold_grid_scaled(values: np.ndarray, initial: int = 0) -> int:
     _shape(values)
     if type(initial) is not int or initial < 0 or np.any(values >= 2**55):
         raise ValueError("invalid grid fold input")
+    return fold_scaled(values, initial)
+
+
+def fold_scaled(values: np.ndarray, initial: int = 0) -> int:
+    """Fold positive integers in one common quantum, rounding each sum to 53 bits.
+
+    The caller establishes a common quantum with finite-normal binary64 results;
+    this operation neither changes that quantum nor rescales individual terms.
+    """
+    _shape(values)
+    if type(initial) is not int or initial < 0:
+        raise ValueError("invalid scaled fold input")
     total = initial
     for value in values:
         total += int(value)
@@ -170,11 +182,14 @@ def fold_grid_scaled(values: np.ndarray, initial: int = 0) -> int:
     return total
 
 
-def scaled_word(value: int) -> int:
+def scaled_word(value: int, *, quantum: int = -51) -> int:
+    if type(value) is not int or value < 0 or type(quantum) is not int:
+        raise ValueError("invalid scaled binary64 encoding")
     if value == 0:
         return 0
     length = value.bit_length()
     shift = length - 53
-    if shift < 0 or value & ((1 << shift) - 1):
+    exponent = length + quantum + 1022
+    if shift < 0 or value & ((1 << shift) - 1) or not 1 <= exponent <= 2046:
         raise ValueError("scaled value is not rounded normal binary64")
-    return ((length + 971) << 52) | ((value >> shift) & int(FRACTION))
+    return (exponent << 52) | ((value >> shift) & int(FRACTION))
