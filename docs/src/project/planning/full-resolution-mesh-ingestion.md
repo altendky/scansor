@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**Provisional contract; S1–S4 implementation, 2026-09-11.**
+**Provisional contract; S1–S5 implementation, 2026-09-11.**
 This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
@@ -20,8 +20,9 @@ pretending external observations are synthetic.
 
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
 core, source/storage foundation and full contribution/replay path have the S1–S4
-implementations described below. S5 visual audit and S6 scale/resource evidence
-remain unimplemented. A prepared foundation is not a complete import or
+implementations described below. S5 adds the internal display exporter, replay,
+and measured small CloudCompare CLI round trips described below. S6
+scale/resource evidence remains open. A prepared foundation is not a complete import or
 contribution result; S4 must finish and independently publish each stage.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
@@ -1091,6 +1092,56 @@ requested by issue #29, not a linked or bundled Scansor dependency. Its
 considered. No CloudCompare source is needed to implement these display files.
 
 ## Verification and implementation sequence
+
+### S5 implementation and viewer evidence
+
+The [display exporter](../../../../src/scansor/mesh_display.py) reads complete,
+read-only import and contribution artifacts. Direct DuckDB tables and ordered
+joins associate every finite vertex, usable face, and displayable rejected
+corner. NumPy handles bounded batches; view arrays are streamed to files.
+Intended output hashes, source maps, the legend and a separate display inventory
+are checked before atomic publication, including across filesystems through the
+S4 publication primitives. Display settings and semantics have their own identity.
+
+`export_display(import_path, contribution_path, destination, workdir, ...)`
+accepts expected authority IDs, a memory budget, chunk size, optional display-only
+transform and progress callback. It emits all five data files and two JSON
+controls. `verify_display(display_path, import_path, contribution_path, workdir,
+...)` rebuilds every expected display byte from the supplied authoritative
+columns and compares held originals without repair. The separate S4
+`verify_mesh` operation owns geometry-from-source replay. Scratch must remain
+outside artifact trees. These scoped entry points do not establish fresh-worker
+or whole-lifetime S6 resource evidence.
+
+The [viewer comparison](../../../../src/scansor/mesh_viewer_compare.py) reads the
+actual resaved field types, matches split source keys with bounded disk-backed
+joins, and compares oriented face triples with multiplicity. It reports missing
+or duplicate keys, dropped/added fields, reordered rows, field differences,
+nonzero-to-zero and nonfinite results, and bounded source-key examples. Missing
+keys prevent a topology preservation claim. The source importer and display
+reader remain separate profiles. The isolated I/O package retains inert PLY
+`obj_info` metadata with its exact raw header; source imports and original
+exports reject that additional metadata, while resave verification admits it.
+
+[The actual viewer report](../../../../experiments/mesh-display-viewer-2026-09-11/README.md)
+pins the tested CloudCompare executable by SHA-256. The small representable
+fixtures preserve all fields, split IDs, finite vertices, usable faces, winding,
+multiplicity and rejected corners. A separate large-ID codec diagnostic survives
+through `2^64-1`. The precision fixture instead shows coordinate rounding,
+positive weights becoming zero, and raw areas becoming negative infinity.
+Empty views are refused. A deliberate dropped ID digit makes mapping unavailable;
+synthetic resaves additionally exercise renamed fields and malformed data.
+The report distinguishes display-transform losses from viewer losses and records
+the nonzero viewer global-shift probe. These are CLI interoperability results,
+not GUI visual inspection or arbitrary-size preservation claims.
+
+Tests independently pack expected display bytes for all accepted small recipes,
+compare RAM/disk authority and different chunks/budgets, and exercise immutable
+artifact replay, fully rehashed display tampering, corrupt working tuples,
+malformed resaves, cancellation and disk failures. The runtime source fingerprints
+include the updated isolated PLY metadata reader, so regenerated implementation
+identities change even though the strict source profile and numeric rules remain
+the same. There is no cross-version artifact compatibility promise.
 
 ### Small golden example
 

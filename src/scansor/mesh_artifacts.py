@@ -447,6 +447,7 @@ def open_import(
     expected_id: str | None = None,
     progress: Progress = no_progress,
 ) -> Generator[ImportArtifact]:
+    caller_failed = False
     if type(chunk_rows) is not int or not 1 <= chunk_rows <= MAX_BATCH_ROWS:
         raise MeshImportError(
             "resource-budget-too-small", "artifact-open", "invalid query batch bound"
@@ -542,10 +543,14 @@ def open_import(
             expected["columns"] = records
             _same(inventory, expected, "import inventory")
             result.check()
-            yield result
+            try:
+                yield result
+            except BaseException:
+                caller_failed = True
+                raise
             result.check()
     except (OSError, ScansorError) as error:
-        if isinstance(error, MeshImportError):
+        if caller_failed or isinstance(error, MeshImportError):
             raise
         raise MeshImportError("integrity", "artifact-read", str(error)) from error
 
@@ -621,6 +626,7 @@ def open_contributions(
     progress: Progress = no_progress,
 ) -> Generator[ContributionArtifact]:
     """Use inside open_import; queries retain that import's source binding."""
+    caller_failed = False
     try:
         imported.check()
         with ExitStack() as stack:
@@ -710,9 +716,13 @@ def open_contributions(
             )
             _same(inventory, expected, "contribution inventory")
             result.check()
-            yield result
+            try:
+                yield result
+            except BaseException:
+                caller_failed = True
+                raise
             result.check()
     except (OSError, ScansorError) as error:
-        if isinstance(error, MeshImportError):
+        if caller_failed or isinstance(error, MeshImportError):
             raise
         raise MeshImportError("integrity", "artifact-read", str(error)) from error
