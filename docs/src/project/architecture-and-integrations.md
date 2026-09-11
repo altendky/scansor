@@ -127,7 +127,9 @@ specifies the first RealityScan-derived PLY profile, unknown physical units,
 source bindings, isolated reader, failure/accounting semantics, and CloudCompare
 visual audit. Its [library evaluation](planning/full-resolution-mesh-library-evaluation.md)
 records the initial storage and generation choices and bounded local probes.
-This remains design work, not implemented ingestion or external-source fitting.
+The isolated PLY I/O/profile slice is implemented with bounded range and extraction
+tests. Complete ingestion, contribution processing and external-source fitting
+remain later work; see the contract's implementation evidence and staged gates.
 E57 remains a later scanner-data candidate. Neither format becomes canonical
 application semantics or supersedes the separate observation-selection hypothesis.
 

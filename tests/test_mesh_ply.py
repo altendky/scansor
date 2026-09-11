@@ -1,0 +1,525 @@
+from __future__ import annotations
+
+import ast
+import hashlib
+import io
+import shutil
+import struct
+import subprocess
+import sys
+from collections.abc import Buffer
+from pathlib import Path
+from typing import NoReturn, override
+
+import numpy as np
+import pytest
+
+from scansor._plyio import (
+    Element,
+    ListProperty,
+    PlyError,
+    Reader,
+    ScalarProperty,
+    Writer,
+    build_layout,
+    make_header,
+    read_header,
+)
+from scansor.mesh_ply import MeshPlyError, MeshPlyReader, mesh_header, mesh_layout
+
+GOLDEN_HEADER = (
+    b"ply\nformat binary_little_endian 1.0\ncomment scansor-mesh-recipe-v1\n"
+    b"element vertex 4\nproperty float x\nproperty float y\nproperty float z\n"
+    b"element face 1\nproperty list uchar int vertex_indices\nend_header\n"
+)
+GOLDEN = GOLDEN_HEADER + struct.pack(
+    "<12fB3i",
+    0,
+    0,
+    0,
+    3,
+    0,
+    0,
+    0,
+    4,
+    0,
+    9,
+    9,
+    9,
+    3,
+    0,
+    1,
+    2,
+)
+GOLDEN_HASH = "6e44511085b23715f96d93dd4bfe338b754c2b24627896efc9ab15e58fb02c5a"
+
+
+class ShortStream(io.BytesIO):
+    def __init__(self, data: bytes = b"", *, boundary: int = 7) -> None:
+        super().__init__(data)
+        self.boundary: int = boundary
+        self.max_request: int = 0
+
+    @override
+    def read(self, size: int | None = -1) -> bytes:
+        assert size is not None and size >= 0, "unbounded read"
+        self.max_request = max(size, self.max_request)
+        return super().read(min(size, self.boundary))
+
+    @override
+    def write(self, data: Buffer) -> int:
+        view = memoryview(data).cast("B")
+        self.max_request = max(len(view), self.max_request)
+        return super().write(view[: self.boundary])
+
+
+@pytest.mark.parametrize("boundary", [1, 7, 13, 23, 4093])
+@pytest.mark.parametrize("chunk_rows", [1, 2, 7, 127])
+def test_golden_exact_round_trip_through_short_io(
+    boundary: int, chunk_rows: int
+) -> None:
+    assert len(GOLDEN_HEADER) == 200
+    assert len(GOLDEN) == 261
+    assert hashlib.sha256(GOLDEN).hexdigest() == GOLDEN_HASH
+    source = ShortStream(GOLDEN, boundary=boundary)
+    adapter = MeshPlyReader(source, max_range_bytes=4096, io_block_bytes=boundary)
+    adapter.validate_all(chunk_rows=chunk_rows)
+    layout = adapter.layout
+    assert layout.header == mesh_header(4, 1, comments=("scansor-mesh-recipe-v1",))
+    assert layout.element("vertex").offset == 200
+    assert layout.element("face").offset == 248
+    target = ShortStream(boundary=boundary)
+    writer = Writer(target, layout, max_range_bytes=4096, io_block_bytes=boundary)
+    for element in layout.elements:
+        for start, rows in adapter.reader.iter_ranges(
+            element.element.name, chunk_rows=chunk_rows
+        ):
+            assert not rows.flags.writeable
+            writer.write_range(element.element.name, start, rows)
+    writer.finish()
+    assert target.getvalue() == GOLDEN
+    assert source.max_request <= boundary
+    assert target.max_request <= boundary
+    assert not source.closed and not target.closed
+
+
+def test_owned_ranges_and_exact_exceptional_bits_and_invalid_indices() -> None:
+    header = mesh_header(2, 1, normals=True)
+    bits = [0x80000000, 0x7FC00001, 0x7F800000, 0xFF800000, 1, 0x7F7FFFFF] * 2
+    data = (
+        header.raw
+        + struct.pack("<12I", *bits)
+        + struct.pack("<B3i", 3, -1, 2, -(2**31))
+    )
+    source = io.BytesIO(data)
+    reader = MeshPlyReader(source, max_range_bytes=48)
+    first = reader.read_range("vertex", 0, 1)
+    second = reader.read_range("vertex", 1, 2)
+    assert first.tobytes() == struct.pack("<6I", *bits[:6])
+    assert second.tobytes() == first.tobytes()
+    np.testing.assert_array_equal(
+        reader.read_range("face", 0, 1)["vertex_indices"]["values"], [[-1, 2, -(2**31)]]
+    )
+    source.close()
+    assert first.tobytes() == struct.pack("<6I", *bits[:6])
+    with pytest.raises(ValueError, match="read-only"):
+        first["x"][0] = 1
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_comments_preserved_between_declarations_and_empty_faces(
+    newline: bytes,
+) -> None:
+    header = mesh_header(1, 0, newline=newline).raw.replace(
+        b"property float y" + newline,
+        b"comment"
+        + newline
+        + b"property float y"
+        + newline
+        + b"comment   exact text "
+        + newline,
+    )
+    source = io.BytesIO(header + struct.pack("<3f", 1, 2, 3))
+    reader = MeshPlyReader(source, max_range_bytes=12)
+    assert reader.layout.header.comments == (
+        b"comment" + newline,
+        b"comment   exact text " + newline,
+    )
+    reader.validate_all(chunk_rows=1)
+    assert reader.read_range("face", 0, 0).size == 0
+    assert list(reader.reader.iter_ranges("face", chunk_rows=1)) == []
+    target = io.BytesIO()
+    writer = Writer(target, reader.layout, max_range_bytes=12)
+    writer.write_range("vertex", 0, reader.read_range("vertex", 0, 1))
+    writer.finish()
+    assert target.getvalue() == source.getvalue()
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        (b"ply\n", b"\xef\xbb\xbfply\n"),
+        (b"ply\n", b"ply\r\n"),
+        (b"property float x", b"property float\tx"),
+        (b"property float x", b"property float x\r"),
+        (b"property float x", b"property float \x00x"),
+        (b"property float x", b"property float \xffx"),
+        (b"property float x", b" property float x"),
+        (b"property float x", b"property  float x"),
+        (b"property float x", b"property float x "),
+        (b"property float x", b"property double x"),
+        (b"property float x", b"property float y"),
+        (b"property float x", b"property float nx"),
+        (b"property float z", b"property float z\nproperty float nx"),
+        (b"property float z", b"property float z\nproperty uchar red"),
+        (b"property float z", b"property float z\nobj_info unsupported"),
+        (b"property float z", b"property float z\n"),
+        (b"element vertex 4", b"element vertex 04"),
+        (b"element vertex 4", b"element vertex +4"),
+        (b"element vertex 4", b"element vertex -1"),
+        (b"element vertex 4", b"element vertex 0"),
+        (b"element vertex 4", b"element vertex 2147483649"),
+        (b"element vertex 4", b"element vertex " + b"9" * 30),
+        (b"element face 1", b"element face 9223372036854775807"),
+        (b"element face 1", b"element vertex 1"),
+        (b"element face 1", b"element other 1"),
+        (
+            b"property list uchar int vertex_indices",
+            b"property list uchar uint vertex_indices",
+        ),
+        (
+            b"property list uchar int vertex_indices",
+            b"property list float int vertex_indices",
+        ),
+        (b"binary_little_endian", b"binary_big_endian"),
+        (b"binary_little_endian", b"ascii"),
+    ],
+)
+def test_rejects_malformed_or_unsupported_profile(old: bytes, new: bytes) -> None:
+    with pytest.raises(MeshPlyError):
+        _ = MeshPlyReader(io.BytesIO(GOLDEN.replace(old, new)), max_range_bytes=1024)
+
+
+def test_all_truncation_offsets_and_trailing_bytes_fail() -> None:
+    for length in range(len(GOLDEN)):
+        with pytest.raises(MeshPlyError):
+            _ = MeshPlyReader(io.BytesIO(GOLDEN[:length]), max_range_bytes=1024)
+    with pytest.raises(MeshPlyError, match="trailing"):
+        _ = MeshPlyReader(io.BytesIO(GOLDEN + b"\x00"), max_range_bytes=1024)
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 4, 255])
+def test_matching_size_wrong_list_count_is_not_partial_success(count: int) -> None:
+    source = io.BytesIO(GOLDEN[:248] + bytes([count]) + GOLDEN[249:])
+    reader = MeshPlyReader(source, max_range_bytes=48)
+    assert reader.read_range("vertex", 0, 4).size == 4
+    with pytest.raises(MeshPlyError, match="list count") as caught:
+        reader.validate_all(chunk_rows=1)
+    detail = caught.value.detail
+    assert (
+        detail.category,
+        detail.element,
+        detail.row,
+        detail.property_name,
+        detail.offset,
+    ) == (
+        "unsupported",
+        "face",
+        0,
+        "vertex_indices",
+        248,
+    )
+
+
+def test_limits_checked_before_reading_or_allocating_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = ShortStream(GOLDEN)
+    reader = MeshPlyReader(source, max_range_bytes=12, io_block_bytes=7)
+    source.max_request = 0
+
+    def forbidden(*_args: object, **_kwargs: object) -> NoReturn:
+        pytest.fail("allocation before range limit check")
+
+    monkeypatch.setattr(np, "empty", forbidden)
+    with pytest.raises(MeshPlyError, match="byte limit"):
+        _ = reader.read_range("vertex", 0, 2)
+    with pytest.raises(MeshPlyError, match="byte limit"):
+        _ = reader.read_range("face", 0, 1)
+    assert source.max_request == 0
+
+
+@pytest.mark.parametrize("start,stop", [(-1, 1), (2, 1), (0, 5), (True, 1)])
+def test_rejects_bad_ranges(start: int, stop: int) -> None:
+    reader = MeshPlyReader(io.BytesIO(GOLDEN), max_range_bytes=64)
+    with pytest.raises(MeshPlyError, match="row range"):
+        _ = reader.read_range("vertex", start, stop)
+
+
+def test_header_and_line_limits_are_inclusive_and_bounded() -> None:
+    assert read_header(io.BytesIO(GOLDEN), max_header_bytes=200).raw == GOLDEN_HEADER
+    with pytest.raises(PlyError, match="limit"):
+        _ = read_header(io.BytesIO(GOLDEN), max_header_bytes=199)
+    longest = max(len(line) for line in GOLDEN_HEADER.splitlines(keepends=True))
+    _ = read_header(io.BytesIO(GOLDEN), max_line_bytes=longest)
+    with pytest.raises(PlyError, match="limit"):
+        _ = read_header(io.BytesIO(GOLDEN), max_line_bytes=longest - 1)
+    for data in (b"ply\n" + b"x" * 100_000, b"ply\n" + b"comment x\n" * 10_000):
+        source = io.BytesIO(data)
+        with pytest.raises(PlyError, match="limit"):
+            _ = read_header(source)
+        assert source.tell() <= 65_536
+
+
+def test_generic_layout_supports_other_fixed_types_without_mesh_semantics() -> None:
+    header = make_header(
+        (
+            Element(
+                "sample",
+                2,
+                (
+                    ScalarProperty("id", "uint"),
+                    ScalarProperty("x", "double"),
+                    ListProperty("neighbors", "ushort", "short"),
+                ),
+            ),
+        )
+    )
+    with pytest.raises(PlyError, match="explicit fixed length"):
+        _ = build_layout(header)
+    layout = build_layout(header, fixed_lists={("sample", "neighbors"): 2})
+    payload = struct.pack("<IdH2hIdH2h", 2**32 - 1, -0.0, 2, -3, 4, 7, 0.125, 2, -5, 6)
+    reader = Reader(io.BytesIO(header.raw + payload), layout, max_range_bytes=100)
+    assert reader.read_range("sample", 0, 2).tobytes() == payload
+    with pytest.raises(MeshPlyError, match="vertex then face"):
+        _ = mesh_layout(header)
+    with pytest.raises(PlyError, match="unknown properties"):
+        _ = build_layout(
+            header, fixed_lists={("sample", "neighbors"): 2, ("other", "x"): 1}
+        )
+    with pytest.raises(PlyError, match="exceeds count type"):
+        _ = build_layout(header, fixed_lists={("sample", "neighbors"): 2**16})
+
+
+def test_count_offset_overflow_without_large_allocations() -> None:
+    header = make_header(
+        (Element("sample", 2**63 - 1, (ScalarProperty("x", "double"),)),)
+    )
+    with pytest.raises(PlyError, match="offsets exceed"):
+        _ = build_layout(header)
+    # Largest v1 source index width remains supported as metadata; no allocation.
+    assert mesh_layout(mesh_header(2**31, 0)).element("vertex").element.count == 2**31
+
+
+def test_writer_rejects_order_dtype_bad_counts_and_incomplete_output() -> None:
+    reader = MeshPlyReader(io.BytesIO(GOLDEN), max_range_bytes=100)
+    writer = Writer(io.BytesIO(), reader.layout, max_range_bytes=100)
+    vertex = reader.read_range("vertex", 0, 4)
+    face = reader.read_range("face", 0, 1)
+    with pytest.raises(PlyError, match="incomplete"):
+        writer.finish()
+    with pytest.raises(PlyError, match="order"):
+        writer.write_range("vertex", 1, vertex)
+    with pytest.raises(PlyError, match="exact dtype"):
+        writer.write_range("vertex", 0, vertex[::2])
+    with pytest.raises(PlyError, match="exact dtype"):
+        writer.write_range("vertex", 0, np.zeros(4, dtype="f8"))
+    writer.write_range("vertex", 0, vertex)
+    bad = face.copy()
+    bad["vertex_indices"]["count"] = 2
+    with pytest.raises(PlyError, match="list count"):
+        writer.write_range("face", 0, bad)
+    writer.write_range("face", 0, face)
+    writer.finish()
+    with pytest.raises(PlyError, match="finished"):
+        writer.write_range("face", 1, face)
+    with pytest.raises(PlyError, match="empty stream"):
+        _ = Writer(io.BytesIO(b"data"), reader.layout, max_range_bytes=100)
+
+
+def test_short_write_failure_is_sticky_and_stream_stays_caller_owned() -> None:
+    class FailingStream(io.BytesIO):
+        fail: bool = False
+
+        @override
+        def write(self, data: Buffer) -> int:
+            return 0 if self.fail else super().write(data)
+
+    source = MeshPlyReader(io.BytesIO(GOLDEN), max_range_bytes=100)
+    target = FailingStream()
+    writer = Writer(target, source.layout, max_range_bytes=100)
+    target.fail = True
+    with pytest.raises(PlyError, match="short write"):
+        writer.write_range("vertex", 0, source.read_range("vertex", 0, 4))
+    target.fail = False
+    with pytest.raises(PlyError, match="failed"):
+        writer.finish()
+    with pytest.raises(PlyError, match="failed"):
+        writer.write_range("vertex", 0, source.read_range("vertex", 0, 4))
+    assert not target.closed
+
+
+def test_truncation_after_open_does_not_return_uninitialized_rows() -> None:
+    stream = io.BytesIO(GOLDEN)
+    reader = MeshPlyReader(stream, max_range_bytes=100)
+    _ = stream.truncate(220)
+    with pytest.raises(MeshPlyError, match="truncated payload") as caught:
+        _ = reader.read_range("vertex", 0, 4)
+    assert caught.value.detail.row == 1
+    assert caught.value.detail.offset == 220
+    assert caught.value.detail.property_name == "z"
+
+
+def test_writer_header_limits_and_large_list_layout_fail_before_allocation() -> None:
+    element = Element("sample", 0, (ScalarProperty("x", "float"),))
+    for comments in (("x" * 4096,), ("x" * 4000,) * 17):
+        with pytest.raises(PlyError, match="limit"):
+            _ = make_header((element,), comments=comments)
+    with pytest.raises(PlyError, match="signed 64-bit"):
+        _ = make_header((Element("sample", 10**5000, element.properties),))
+    header = make_header(
+        (Element("sample", 0, (ListProperty("items", "uint", "double"),)),)
+    )
+    with pytest.raises(PlyError, match="NumPy limits"):
+        _ = build_layout(header, fixed_lists={("sample", "items"): 2**32 - 1})
+
+
+def test_os_io_failures_have_record_context_and_fail_writer() -> None:
+    class BrokenStream(io.BytesIO):
+        broken: bool = False
+
+        @override
+        def read(self, size: int | None = -1) -> bytes:
+            if self.broken:
+                raise OSError("injected read failure")
+            return super().read(size)
+
+        @override
+        def write(self, data: Buffer) -> int:
+            if self.broken:
+                raise OSError("injected disk full")
+            return super().write(data)
+
+    source = BrokenStream(GOLDEN)
+    reader = MeshPlyReader(source, max_range_bytes=100)
+    rows = reader.read_range("vertex", 0, 4)
+    source.broken = True
+    with pytest.raises(MeshPlyError, match="payload read failed") as caught:
+        _ = reader.read_range("vertex", 1, 2)
+    assert (
+        caught.value.detail.offset,
+        caught.value.detail.row,
+        caught.value.detail.property_name,
+    ) == (212, 1, "x")
+    target = BrokenStream()
+    writer = Writer(target, reader.layout, max_range_bytes=100)
+    target.broken = True
+    with pytest.raises(PlyError, match="write failed") as write_error:
+        writer.write_range("vertex", 0, rows)
+    assert (
+        write_error.value.element,
+        write_error.value.row,
+        write_error.value.property_name,
+    ) == ("vertex", 0, "x")
+    with pytest.raises(PlyError, match="failed"):
+        writer.finish()
+
+
+def test_copied_package_runs_without_scansor_or_other_dependencies(
+    tmp_path: Path,
+) -> None:
+    import scansor._plyio
+
+    source = Path(scansor._plyio.__file__).parent
+    copied = tmp_path / "independent_ply"
+    _ = shutil.copytree(source, copied, ignore=shutil.ignore_patterns("__pycache__"))
+    for path in copied.glob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [name.name.split(".")[0] for name in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = [(node.module or "").split(".")[0]]
+            else:
+                continue
+            assert set(modules) <= sys.stdlib_module_names | {"numpy"}
+    _ = (tmp_path / "golden.ply").write_bytes(GOLDEN)
+    script = tmp_path / "extract_check.py"
+    _ = script.write_text("""
+import hashlib
+import importlib.abc
+import io
+from pathlib import Path
+from collections.abc import Buffer
+from typing import NoReturn, override
+import sys
+
+class OnlyDeclared(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        root = fullname.split('.')[0]
+        if root not in sys.stdlib_module_names | {'numpy', 'independent_ply'}:
+            raise ImportError('undeclared dependency: ' + fullname)
+
+sys.meta_path.insert(0, OnlyDeclared())
+sys.path.insert(0, str(Path(__file__).parent))
+from independent_ply import read_header, build_layout, Reader, Writer
+data = Path(__file__).with_name('golden.ply').read_bytes()
+source = io.BytesIO(data)
+layout = build_layout(read_header(source), fixed_lists={('face', 'vertex_indices'): 3})
+reader = Reader(source, layout, max_range_bytes=13, io_block_bytes=7)
+reader.validate_all(chunk_rows=1)
+target = io.BytesIO()
+writer = Writer(target, layout, max_range_bytes=13, io_block_bytes=7)
+for name in ('vertex', 'face'):
+    for start, rows in reader.iter_ranges(name, chunk_rows=1):
+        writer.write_range(name, start, rows)
+writer.finish()
+assert data == target.getvalue()
+print(hashlib.sha256(target.getvalue()).hexdigest())
+""")
+    result = subprocess.run(
+        [sys.executable, "-I", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert result.stdout.strip() == GOLDEN_HASH
+
+
+@pytest.mark.parametrize("offset", [0, 4, 50, 199])
+def test_header_read_io_failure_is_translated_with_exact_offset(offset: int) -> None:
+    class HeaderFailure(io.BytesIO):
+        @override
+        def read(self, size: int | None = -1) -> bytes:
+            if self.tell() == offset:
+                raise OSError("injected header device failure")
+            return super().read(size)
+
+    source = HeaderFailure(GOLDEN)
+    with pytest.raises(MeshPlyError, match="header read failed") as caught:
+        _ = MeshPlyReader(source, max_range_bytes=100)
+    assert caught.value.detail.category == "io"
+    assert caught.value.detail.offset == offset
+    assert isinstance(caught.value.detail.__cause__, OSError)
+    assert not source.closed
+
+
+@pytest.mark.parametrize("operation", ["seek", "tell"])
+def test_stream_position_io_failure_uses_application_error(operation: str) -> None:
+    class PositionFailure(io.BytesIO):
+        @override
+        def seek(self, offset: int, whence: int = 0) -> int:
+            if operation == "seek":
+                raise OSError("injected seek failure")
+            return super().seek(offset, whence)
+
+        @override
+        def tell(self) -> int:
+            if operation == "tell":
+                raise OSError("injected tell failure")
+            return super().tell()
+
+    with pytest.raises(MeshPlyError) as caught:
+        _ = MeshPlyReader(PositionFailure(GOLDEN), max_range_bytes=100)
+    assert caught.value.detail.category == "io"
