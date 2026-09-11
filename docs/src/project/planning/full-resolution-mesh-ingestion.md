@@ -2,7 +2,8 @@
 
 ## Status and boundary
 
-**Provisional contract; S1 I/O implemented, 2026-09-11.** This is the internal contract
+**Provisional contract; S1 I/O and S2 numeric/recipe core implemented, 2026-09-11.**
+This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
 area-derived contribution data, and CloudCompare inspection exports. It does not
@@ -17,8 +18,9 @@ requires replay-verified project-owned synthetic provenance. This design needs a
 separate importer and artifact family; neither existing boundary is relaxed by
 pretending external observations are synthetic.
 
-The isolated reader/writer and strict mesh profile now have the bounded S1
-implementation described below. S2–S6 remain unimplemented. Internal revision
+The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
+core have the S1/S2 implementations described below. S3–S6 remain unimplemented.
+Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
 solver integration, model mapping, scale/pose estimation, robust refitting,
 target-surface importance, additional formats, CAD publication, physical accuracy,
@@ -60,6 +62,59 @@ test copies the package and runs a read/write round trip while rejecting every
 nonstandard-library import except NumPy and the copied package. These tests are
 S1 evidence only; source snapshots, geometry/weights, replay, viewer and stress
 gates still belong to their later slices.
+
+### S2 implementation and conformance gate
+
+The [recipe module](../../../../src/scansor/mesh_recipes.py) implements the explicit
+Philox key/counter contract with unsigned 64-bit arrays, independent source-range
+generation, ordered faces, and integer encoding of dyadic height noise. It checks
+actual coordinate representability, including interior grid limits and generated
+noise coefficients. `write_recipe` writes a caller-owned stream through S1;
+`generate_file` requires an explicit directory outside a Git checkout, creates
+exclusively, and removes its owned partial file on failure. Both bound work by a
+checked chunk size. These are generation primitives, not transactional publication.
+
+[Small recipes and frozen hashes](../../../../tests/fixtures/mesh-numeric-goldens-v1.json)
+cover the right triangle and orphan, unequal/irrational areas, duplicate/reversed
+faces, degenerate/coincident geometry, no faces, exceptional coordinates/normals,
+invalid indices, and an explicit malformed count-byte edit. Their source bytes
+are checked against independent `struct` encoding. All eight golden artifact
+hashes below are checked using the S2 primitives and independent expected bytes;
+this does not substitute for the S3/S4 importer and replay gates.
+
+The [numeric module](../../../../src/scansor/mesh_numeric.py) uses separate
+binary64 NumPy operations for independent faces, scalar left folds for dependent
+accumulation, and the specified multiply-then-divide normalization. Bounded calls
+check scalar and NumPy rounding, square root, signed zero, and subnormal behavior;
+an unsupported environment raises `numeric-profile-failure`. The caller supplies
+source order to folds and full-population normalization parameters. Disposition
+precedence and complete row accounting remain S3/S4 responsibilities.
+
+The [independent oracle](../../../../tests/mesh_rounding_oracle.py) uses integer
+IEEE encodings and rational arithmetic, with squared-midpoint comparisons for
+square root. Tests compare exact bits at rounding ties, cancellation, subnormal
+and extreme coordinates, irrational areas, high valence, byte-swapped arrays,
+and shuffled chunk completion. No tolerance or backend reduction tree is used.
+
+[Mesh controls](../../../../src/scansor/mesh_controls.py) enforce float-free,
+bounded canonical JSON and explicit semantic file inventories. A generation
+request binds its recipe and generator implementation ID. NumPy's semantic
+version and owned source bytes enter implementation identity; runtime paths,
+chunks, machine/build diagnostics, and later DuckDB/PyArrow execution versions
+do not. Source files use LF on all checkouts so platform line-ending conversion
+cannot silently change an implementation identity. S3/S4 must extend their
+inventories as their source/profile/policy semantics are implemented.
+
+The [CI conformance workflow](../../../../.github/workflows/reflow-mesh-numeric.yml)
+runs locked CPython 3.12.13 and 3.13.15 on Linux x86-64, Windows x86-64, and macOS
+arm64. Each runs S1/S2 tests in fresh default and baseline NumPy processes,
+verifies the actual architecture and effective dispatch settings, and uploads
+runtime/build diagnostics, vectors, artifact hashes, and implementation IDs.
+An aggregate job requires all twelve reports and identical semantic hashes.
+The [runner](../../../../experiments/mesh_numeric_conformance.py) also works
+locally. Inspect actual passing workflow reports for build-specific evidence;
+the matrix is an internal conformance gate, not a product-support commitment.
+Memory-budget and storage-backend invariance remain later gates.
 
 ## Source profile and provenance
 
@@ -803,8 +858,9 @@ are `[1,1,1,0]`, vertex areas `[2,2,2,0]`, weights `[1,1,1,0]`, and contribution
 statuses `[0,0,0,2]`. All positions are finite and the face is usable.
 
 These byte hashes were calculated directly from the specified small records
-using Python's explicit little-endian `struct` encoding during this design;
-they are not importer implementation evidence:
+using Python's explicit little-endian `struct` encoding during this design.
+S2 now verifies them independently and through its numeric/recipe primitives;
+they are not yet importer implementation evidence:
 
 | Artifact | SHA-256 |
 | --- | --- |
@@ -840,15 +896,16 @@ not a dependency on Hypothesis's future generation sequence.
 
 ### Platform and stress gates
 
-The proposed verification matrix is Linux x86-64, Windows x86-64, and macOS arm64
+The numeric/recipe verification matrix is Linux x86-64, Windows x86-64, and macOS arm64
 with CPython 3.12 and 3.13 and explicitly recorded locked dependency versions.
 Cross-endian encoding is additionally tested using byte-swapped arrays. For each
 matrix member compare the same committed expected PLY bytes, raw Philox vectors,
 canonical columns, controls, and weights, across budgets/chunks/backends. Include
 default and baseline CPU-dispatch configurations where available. Record exact
-OS/build/CPU/runtime versions in the evidence. This is a future evidence matrix,
-not an existing CI matrix or product-support commitment. A passing single-host
-probe does not complete it.
+OS/build/CPU/runtime versions in the evidence. S2 adds the CI matrix described
+above for the primitives; full-pipeline budgets/backends remain later gates.
+A passing single-host probe does not complete the matrix or establish a
+product-support commitment.
 
 Opt-in stress recipes use the grid above with seed 7, first noiseless and then
 `b=3,q=-8`. They must distinguish vertices from triangles:

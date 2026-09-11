@@ -1,0 +1,467 @@
+{
+  "philox_vectors": [
+    {
+      "source_index": 0,
+      "words_hex": [
+        "df4034b829e9fba4",
+        "4b9d10cdf8e64087",
+        "6b8b857e506aac98",
+        "67c7c945b1ba6e52"
+      ]
+    },
+    {
+      "source_index": 1,
+      "words_hex": [
+        "15352da77ecee8e6",
+        "b256888327f72bcc",
+        "4bde1757d950a392",
+        "9edd26e855c94201"
+      ]
+    },
+    {
+      "source_index": 2,
+      "words_hex": [
+        "039c8fde5b2701dc",
+        "c96fe4c6e6ce7c24",
+        "d5d988acbe96173d",
+        "8879a700080cf6f1"
+      ]
+    },
+    {
+      "source_index": 7,
+      "words_hex": [
+        "497fb4a595c64c32",
+        "08e008519dc2765d",
+        "6e1f6f2a8f676987",
+        "616ae84d858080c0"
+      ]
+    },
+    {
+      "source_index": 127,
+      "words_hex": [
+        "4a3105879aaf2b11",
+        "64a8dc6ae3d39268",
+        "52a7c6e9b53a9eb2",
+        "a8b3f8f23e592be5"
+      ]
+    }
+  ],
+  "revision": "mesh-numeric-goldens-v1",
+  "right_triangle_artifacts": {
+    "contribution-status.bin": "433ebf5bc03dffa38536673207a21281612cef5faa9bc7a4d5b9be2fdb12cf1a",
+    "face-area.bin": "3e6357a56fbae74413051d518261f4b70e5b3758172a70e7f101e996e00a9ee0",
+    "observations.ply": "6e44511085b23715f96d93dd4bfe338b754c2b24627896efc9ab15e58fb02c5a",
+    "reference-count.bin": "1f6e031dd33eed75757df11b845fddc49b3e2f1604f9d7b19c9ae32be8d838c2",
+    "triangles.bin": "ad5dc1478de06a4c2728ea528bd9361a4b945e92a414bf4d180cedaaeaa5f4cc",
+    "vertex-area.bin": "bbabd9fcaeacacaf62cdc0f08da3f5a75228b9fc963f5ed0dd94bf736e2812a1",
+    "weight.bin": "be21622c7a8e0bacaf6fd7e6a3121384467dd031da3e3d9d9ad0b18f6cf38c5b",
+    "xyz.bin": "9b095dbdf0ce7a2e05baf0f6d0eda62f13bf9a7afc39575fb4793d15953a1819"
+  },
+  "small_recipes": {
+    "all-invalid-v1": {
+      "control_sha256": "0653e8fa80d3443ff78e84b2f0853e1c397e238b72558ce399fc3b73a5d10043",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "all-invalid-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            -1,
+            0,
+            0
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "7fc00001",
+            "00000000",
+            "00000000"
+          ]
+        ]
+      },
+      "source_sha256": "e37866eda2a6ebba95f31651d264fa10d4574e320bbc088db00b2db1ce18020e"
+    },
+    "duplicate-reversed-degenerate-v1": {
+      "control_sha256": "13ce87470ba14c9afddc88f27087b0b2a51972246c4ec91d9794bd642a497d22",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "duplicate-reversed-degenerate-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            2,
+            1,
+            0
+          ],
+          [
+            0,
+            1,
+            4
+          ],
+          [
+            0,
+            1,
+            5
+          ],
+          [
+            1,
+            1,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40c00000",
+            "00000000",
+            "00000000"
+          ]
+        ]
+      },
+      "source_sha256": "a002dac1e52a7773820b7841578db8a35b338a854ab71715762d0e3940dd036d"
+    },
+    "exceptional-values-v1": {
+      "control_sha256": "3ecf6fe0575cacba9a7c84d556fbda66484189e8b572e2dcb4804421c1729126",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "exceptional-values-v1",
+        "normal_bits": [
+          [
+            "00000000",
+            "00000000",
+            "3f800000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "ffc12345",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "7f800000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ]
+        ],
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            -1,
+            4,
+            4
+          ],
+          [
+            4,
+            4,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            0,
+            6,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "80000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ],
+          [
+            "7fa12345",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "ff800000",
+            "00000000",
+            "00000000"
+          ]
+        ]
+      },
+      "source_sha256": "42350a674f6a07a69d18cb98fd3b6b73833cbaead4ebb45fb219d96a1949f8a7"
+    },
+    "irrational-area-v1": {
+      "control_sha256": "be59a4df1e763c09ae543a27866d049aaa09bfb812c7c15fd510c18f85d4db11",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "irrational-area-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "3f800000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "3f800000",
+            "3f800000"
+          ]
+        ]
+      },
+      "source_sha256": "6ec3cfe03224bfa477585bbee065063512083916f3bb77ca915df4096e8c6d37"
+    },
+    "no-faces-v1": {
+      "control_sha256": "38ab241e877f6f5afda28a64ba53e210e7b3781fac8ba7faaaa53226ed622f85",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "no-faces-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ]
+        ]
+      },
+      "source_sha256": "81793126f0295f7a6fa72962641aa8c47bb25bc6223eaff686b66921110b0019"
+    },
+    "right-triangle-orphan-v1": {
+      "control_sha256": "c69bba4e19028a5c6e00ed6369061a497aa8588ab0f5bd4e847192b5f0e8c6e2",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "right-triangle-orphan-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ]
+        ]
+      },
+      "source_sha256": "6e44511085b23715f96d93dd4bfe338b754c2b24627896efc9ab15e58fb02c5a"
+    },
+    "unequal-adjacent-v1": {
+      "control_sha256": "b90f1607eab407901dee46bf71567e3a706e2a4a16d5607dd6022aa5b9a85a5b",
+      "record": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "unequal-adjacent-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            1,
+            3
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "41000000"
+          ]
+        ]
+      },
+      "source_sha256": "b2517ae21038133a9cab441277fae23dd2df6c4438e58a967027f708437378ed"
+    },
+    "wrong-list-count-v1": {
+      "control_sha256": "09a6ac853d1e7fe9ad5993c9c57f2366d65197f8a790b2c26b65f6eeb533fae8",
+      "record": {
+        "adverse_edits": [
+          {
+            "hex": "04",
+            "offset": 248
+          }
+        ],
+        "expected": "unsupported",
+        "name": "wrong-list-count-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ]
+        ]
+      },
+      "source_sha256": "601bf4de1a832c773d9e78df15df2c729e8ebf30785b4399c9cfacf405ce0634"
+    }
+  }
+}

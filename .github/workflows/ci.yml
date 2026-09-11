@@ -26,10 +26,14 @@ jobs:
     name: Python
     uses: ./.github/workflows/reflow-python.yml
 
+  mesh-numeric:
+    name: Mesh numerical conformance
+    uses: ./.github/workflows/reflow-mesh-numeric.yml
+
   all:
     name: all
     if: ${{ !cancelled() }}
-    needs: [mise, pre-commit, python]
+    needs: [mise, pre-commit, python, mesh-numeric]
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # release/v1
