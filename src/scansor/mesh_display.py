@@ -33,6 +33,7 @@ from scansor.mesh_publication import (
     _write_control,  # pyright: ignore[reportPrivateUsage]
 )
 from scansor.mesh_resources import (
+    MIB,
     MemoryPlan,
     ResourceMonitor,
     check_disk_space,
@@ -40,6 +41,12 @@ from scansor.mesh_resources import (
     plan_memory,
 )
 from scansor.mesh_workspace import create_workspace, remove_owned_workspace
+
+# The full 60M-vertex display join crossed 512 MiB whole-worker RSS with a
+# 64 MiB native-overhead reserve. Leave another 32 MiB outside the engine for
+# display export and its identical replay path. This is a measured candidate;
+# fresh whole-worker evidence must establish capacity at both target budgets.
+DISPLAY_SAFETY_BYTES = 96 * MIB
 
 
 @dataclass(frozen=True)
@@ -254,6 +261,7 @@ def export_display(
         source_bytes=0,
         storage="disk",
         chunk_rows=chunk_rows,
+        safety_floor_bytes=DISPLAY_SAFETY_BYTES,
     )
     workspace = create_workspace(workdir)
     monitor = ResourceMonitor(budget_bytes, workspace.access, callback=progress)
@@ -289,6 +297,7 @@ def export_display(
                 source_bytes=estimate,
                 storage="disk",
                 chunk_rows=initial.batch_rows,
+                safety_floor_bytes=DISPLAY_SAFETY_BYTES,
             )
             monitor.set_plan(plan)
             check_disk_space(workspace.access, plan.disk_estimate_bytes)

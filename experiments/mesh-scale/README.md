@@ -736,6 +736,23 @@ required. Display face remapping likewise adds the view ID after its unique
 face/corner key. Production continues to use DuckDB's normal spill policy. The complete
 512 MiB pipeline must be measured again before accepting the change's capacity.
 
+The [full flat 512 MiB case at `36a6b01`](run-grid-10000x6000-flat-512-r6.json)
+completed import and contribution publication in 876.92 seconds, with kernel
+peak RSS 457.60 MiB and sampled peak 458.57 MiB. Every canonical column, row
+digest and summary matched the frozen expectation; both published IDs match the
+earlier full flat 2 GiB result. Import's largest sampling gap was 10.38 ms, one
+interval over the 10 ms requirement.
+
+Display then failed after 394.13 seconds during face-corner export, before any
+display publication. Its sampled RSS reached 512.82 MiB against the 512 MiB
+budget; kernel high-water was 511.43 MiB. Sampling coverage and owned-workspace
+cleanup passed. The separate 6 GiB cgroup recorded reclaim activity, no OOM or
+kill, and swap remained disabled. Replay did not run. The next candidate raises
+display/replay's native-overhead reserve from 64 to 96 MiB, reducing its engine
+share while retaining the same whole-worker budget and batch size. Import's
+reservation is unchanged. Neither this allocation nor the completed import
+establishes full-pipeline capacity.
+
 ## Remaining execution evidence
 
 The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
