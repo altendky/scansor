@@ -260,7 +260,12 @@ area and weight sums for the complete `b=3,q=-8` seed-7 source. The operations t
 79.90, 45.39 and 45.23 seconds, respectively; their maximum observed RSS values
 were 334.89, 347.32 and 319.58 MiB. All owned scratch was removed. Replay sampling
 missed the 10 ms requirement; the report retains that failed coverage observation.
-The equivalent 2 GiB noisy case remains pending.
+The equivalent [2 GiB noisy case](run-grid-3000x2000-noisy-2048-r1.json) also
+completed. Its full canonical and display check records, including all IDs and
+file hashes, are identical to the 512 MiB case. Import/contribution, export and
+replay took 78.04, 43.99 and 44.59 seconds, with maximum observed RSS of 875.38,
+541.41 and 462.53 MiB. Owned scratch cleanup succeeded. Replay's largest RSS
+sampling gap was 10.28 ms, so that coverage observation remains false.
 
 ## High-valence and duplicate/degenerate fans
 
@@ -311,6 +316,14 @@ construction uses integer perimeter rotations followed by the production isolate
 PLY writer; it does not use the expectation oracle to produce source bytes.
 
 ## Remaining execution evidence
+
+The independent permutation oracle is implemented and checked on complete small
+grids. Affine bijections reorder source vertices and faces; each vertex's incident
+thirds are sorted by the new source face ordinal before accumulation, and global
+folds use the new source vertex order. Tests demonstrate changed rounded area
+bytes on the noisy grid and compare every byte with separate per-face rational
+calculations. Full-size expectation freezes, native source construction and
+resource measurements for this variant remain pending.
 
 The harness still needs measured sequential equivalent workloads at both budgets,
 adversarial source order and valence, whole-worker RSS and phase resource
