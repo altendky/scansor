@@ -104,6 +104,11 @@ def plan_memory(
             "planning",
             "requested columns and chunk do not fit",
         )
+    # Batch sizes are capped, so the initial half-share can leave usable memory
+    # unassigned. Give that remainder to DuckDB without reducing the baseline,
+    # safety, resident-column or batch reservations. Retain the 256 MiB ceiling;
+    # engine memory is only one part of the measured whole-worker working set.
+    engine = min(256 * MIB, usable - resident - rows * PER_ROW_SCRATCH)
     # Conservative working estimate: staged coordinates/faces, long-corner
     # association, two ordering generations, database pages and conversion slack.
     # It is deliberately separate from the packed 25-byte reference tuple model.
@@ -309,6 +314,7 @@ class ResourceMonitor:
         self._phase_started_ns: int = time.monotonic_ns()
         self._phase_ordinal: int = 0
         self._thread: threading.Thread | None = None
+        self._plan: MemoryPlan | None = None
 
     def __enter__(self) -> ResourceMonitor:
         self.sample()
@@ -340,6 +346,13 @@ class ResourceMonitor:
     def set_interrupt(self, interrupt: Callable[[], None] | None) -> None:
         with self._lock:
             self._interrupt = interrupt
+
+    def set_plan(self, plan: MemoryPlan) -> None:
+        """Retain immutable reservations in phase/failure telemetry, not just success."""
+        if plan.budget_bytes != self.budget_bytes:
+            raise MeshImportError("execution", "planning", "monitor budget differs")
+        with self._lock:
+            self._plan = plan
 
     def _fail(self, failure: BaseException) -> None:
         with self._lock:
@@ -420,6 +433,7 @@ class ResourceMonitor:
                 "rss_bytes": self._rss,
                 "peak_rss_bytes": self._peak,
                 "budget_bytes": self.budget_bytes,
+                "plan": None if self._plan is None else self._plan.record(),
                 "elapsed_ns": int((time.monotonic() - self._started) * 1_000_000_000),
                 "disk": dict(self._disk),
                 "sampled_disk_peak_logical_bytes": self._disk_peak,

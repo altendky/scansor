@@ -315,6 +315,30 @@ NumPy integer operations with the separate rational rounding oracle. Native sour
 construction uses integer perimeter rotations followed by the production isolated
 PLY writer; it does not use the expectation oracle to produce source bytes.
 
+## Initial sixty-million-vertex failures
+
+The complete noiseless source reached coordinate association in both disk cases
+at `8f0cf5c`, then failed before any authoritative publication:
+
+| Budget | Seconds | Maximum observed worker RSS (MiB) | DuckDB engine limit (MiB) |
+| --- | ---: | ---: | ---: |
+| [512 MiB](run-grid-10000x6000-flat-512-r1.json) | 104.91 | 373.14 | 135.6 |
+| [2 GiB](run-grid-10000x6000-flat-2048-r1.json) | 155.70 | 527.70 | 256.0 |
+
+Both failures were DuckDB block-allocation errors. Their separate 6 GiB cgroups
+reported no limit/OOM/OOM-kill events or swap, and owned scratch was removed.
+The larger worker budget did not increase the existing 256 MiB engine ceiling.
+Canonical and display comparisons could not run. The 2 GiB run also missed the
+10 ms RSS sampling requirement (12.37 ms largest observed gap).
+
+The importer now materializes coordinate association in its disposable disk
+database before running a separate global sort. The planner assigns unused batch
+headroom to the engine while preserving all existing safety and buffer reserves
+and its 256 MiB ceiling. Phase/failure telemetry now includes the actual immutable
+memory plan; the original failed reports predate that addition. These changes
+have small correctness coverage; full-scale reruns are needed to establish their
+effect. The earlier failures remain part of the evidence.
+
 ## Remaining execution evidence
 
 The independent permutation oracle is implemented and checked on complete small

@@ -67,7 +67,6 @@ SELECT c.face, c.corner, c.vertex,
        coalesce(v.z, 0::UINTEGER) AS z
 FROM corners c LEFT JOIN vertices v
   ON (CASE WHEN c.vertex >= 0 THEN c.vertex::UBIGINT ELSE NULL END) = v.vertex
-ORDER BY c.face, c.corner
 """
 
 
@@ -320,11 +319,26 @@ class DuckStaging:
         indices = np.empty((self.plan.batch_rows, 3), dtype="<i4")
         points = np.empty((self.plan.batch_rows, 3, 3), dtype="<f4")
         filled = ordinal = output_start = 0
-        self.monitor.progress(phase, 0, self.faces)
         try:
-            with cast(Any, self.connection.sql(_ASSOCIATION)).to_arrow_reader(
-                batch_size=self.plan.batch_rows
-            ) as reader:
+            # JOIN and ORDER BY in one query exhausted the engine reservation
+            # on the 60M/120M fixture. Materialize the join in our disposable
+            # disk database before starting the independent external sort.
+            # Recheck this separation against DuckDB release notes on upgrades.
+            # Rebuild on each call so checked staging mutations cannot be hidden
+            # by cached association results. Workspace cleanup owns an unfinished
+            # table if cancellation or an abandoned generator interrupts us.
+            self.monitor.progress(phase + "-join", 0, self.faces)
+            _ = self.connection.execute(
+                "CREATE OR REPLACE TABLE associated_corners AS " + _ASSOCIATION
+            )
+            self.monitor.progress(phase + "-join", self.faces, self.faces)
+            self.monitor.progress(phase, 0, self.faces)
+            with cast(
+                Any,
+                self.connection.sql(
+                    "SELECT * FROM associated_corners ORDER BY face, corner"
+                ),
+            ).to_arrow_reader(batch_size=self.plan.batch_rows) as reader:
                 for batch in reader:
                     self.monitor.check()
                     if batch.num_rows > self.plan.batch_rows:
@@ -406,6 +420,7 @@ class DuckStaging:
                 emitted_indices.flags.writeable = emitted_points.flags.writeable = False
                 yield AssociatedFaces(output_start, emitted_indices, emitted_points)
                 output_start += rows
+            _ = self.connection.execute("DROP TABLE associated_corners")
             self.monitor.progress(phase, output_start, self.faces)
         except GeneratorExit:
             raise

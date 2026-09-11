@@ -296,6 +296,11 @@ def test_memory_plan_and_managed_reservations() -> None:
     )
     plan = plan_memory(**arguments)
     assert plan.storage == "disk"
+    # Capping a batch at 48 MiB must not strand half of the remaining disk-mode
+    # budget while a native blocking query is starved of engine memory.
+    assert plan.engine_bytes == 240 * MIB
+    assert plan.batch_rows == 65_536
+    assert plan.reserved_bytes == plan.budget_bytes
     assert plan.reserved_bytes <= plan.budget_bytes
     assert plan.engine_bytes + plan.baseline_bytes < plan.reserved_bytes
     assert (
@@ -315,6 +320,28 @@ def test_memory_plan_and_managed_reservations() -> None:
         with ledger.reserve("b", 40):
             assert ledger.high_water == 100
     assert ledger.current == 0 and ledger.high_water == 100
+
+
+def test_failure_progress_retains_actual_memory_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(3, 3))
+    events: list[dict[str, Control]] = []
+    expected: dict[str, Control] | None = None
+    with (
+        pytest.raises(MeshImportError, match="cancelled"),
+        prepare_import(
+            source, tmp_path, storage="disk", chunk_rows=2, progress=events.append
+        ) as data,
+    ):
+        expected = data.plan.record()
+        data.monitor.cancel()
+        _ = next(data.staging.associated_faces())
+    assert expected is not None
+    assert events[-1]["event"] == "final"
+    assert events[-1]["plan"] == expected
+    assert any(event["plan"] == expected for event in events[:-1])
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
 def test_monitor_interrupts_native_work_and_reports_progress(
