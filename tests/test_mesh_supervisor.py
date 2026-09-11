@@ -30,7 +30,7 @@ from scansor.mesh_workspace import remove_owned_workspace
 from tests.test_mesh_artifacts import artifact_state
 
 
-def _request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequest:
+def worker_request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequest:
     source = root / "input.ply"
     with source.open("wb") as stream:
         write_recipe(stream, SMALL_RECIPES["unequal-adjacent-v1"])
@@ -39,14 +39,23 @@ def _request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequest:
     )
 
 
-def _object(value: Control) -> dict[str, Control]:
+def control_object(value: Control) -> dict[str, Control]:
     assert isinstance(value, dict)
     return value
 
 
-def _fault(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
-    def command(descriptor: int) -> list[str]:
-        return [sys.executable, "-m", "tests.mesh_fault_worker", mode, str(descriptor)]
+def fault_command(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    def command(descriptor: int, publication_descriptor: int | None) -> list[str]:
+        result = [
+            sys.executable,
+            "-m",
+            "tests.mesh_fault_worker",
+            mode,
+            str(descriptor),
+        ]
+        if publication_descriptor is not None:
+            result.append(str(publication_descriptor))
+        return result
 
     monkeypatch.setattr(
         mesh_supervisor,
@@ -56,7 +65,7 @@ def _fault(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
 
 
 def test_fresh_import_and_verification_workers(tmp_path: Path) -> None:
-    request = _request(tmp_path)
+    request = worker_request(tmp_path)
     events: list[dict[str, Control]] = []
     result = run_worker(request, tmp_path, progress=events.append)
     assert result["status"] == "complete" and result["failure"] is None
@@ -80,17 +89,20 @@ def test_fresh_import_and_verification_workers(tmp_path: Path) -> None:
         tmp_path,
     )
     assert verified["status"] == "complete"
-    assert _object(_object(verified["worker_report"])["result"])["status"] == "verified"
+    assert (
+        control_object(control_object(verified["worker_report"])["result"])["status"]
+        == "verified"
+    )
     assert (artifact_state(first), artifact_state(second)) == before
     for report in (result, verified):
-        supervision = _object(report["supervision"])
+        supervision = control_object(report["supervision"])
         assert supervision["exit_code"] == 0
         assert type(supervision["pid"]) is int and supervision["pid"] != os.getpid()
         assert 0 < int(str(supervision["kernel_peak_rss_bytes"])) < request.budget_bytes
         assert int(str(supervision["requested_sample_interval_ns"])) <= 10_000_000
         assert int(str(supervision["samples"])) > 0
-        worker_memory = _object(
-            _object(report["worker_report"])["memory_after_cleanup"]
+        worker_memory = control_object(
+            control_object(report["worker_report"])["memory_after_cleanup"]
         )
         assert int(str(supervision["kernel_peak_rss_bytes"])) >= int(
             str(worker_memory["os_peak_rss_bytes"])
@@ -98,7 +110,8 @@ def test_fresh_import_and_verification_workers(tmp_path: Path) -> None:
         with pytest.raises(ChildProcessError):
             _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
     assert (
-        _object(result["supervision"])["pid"] != _object(verified["supervision"])["pid"]
+        control_object(result["supervision"])["pid"]
+        != control_object(verified["supervision"])["pid"]
     )
     assert events[0]["type"] == "started"
     assert events[-1]["type"] == "result"
@@ -120,14 +133,14 @@ def test_fresh_import_and_verification_workers(tmp_path: Path) -> None:
 def test_abnormal_process_and_protocol_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, category: str
 ) -> None:
-    request = _request(tmp_path)
+    request = worker_request(tmp_path)
     sentinel = tmp_path / "keep.txt"
     _ = sentinel.write_bytes(b"unrelated")
-    _fault(monkeypatch, mode)
+    fault_command(monkeypatch, mode)
     result = run_worker(request, tmp_path)
     assert result["status"] == "failed"
-    assert _object(result["failure"])["category"] == category
-    assert int(str(_object(result["supervision"])["kernel_peak_rss_bytes"])) > 0
+    assert control_object(result["failure"])["category"] == category
+    assert int(str(control_object(result["supervision"])["kernel_peak_rss_bytes"])) > 0
     assert sentinel.read_bytes() == b"unrelated"
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
@@ -135,14 +148,14 @@ def test_abnormal_process_and_protocol_failures(
 def test_sigkill_after_import_preserves_only_complete_published_stage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    request = _request(tmp_path)
-    _fault(monkeypatch, "crash-after-import")
+    request = worker_request(tmp_path)
+    fault_command(monkeypatch, "crash-after-import")
     result = run_worker(request, tmp_path)
     assert (
         result["status"] == "failed"
-        and _object(result["failure"])["category"] == "worker-exit"
+        and control_object(result["failure"])["category"] == "worker-exit"
     )
-    assert _object(result["supervision"])["exit_code"] == -signal.SIGKILL
+    assert control_object(result["supervision"])["exit_code"] == -signal.SIGKILL
     stages = cast(list[dict[str, Control]], result["published"])
     assert len(stages) == 1 and stages[0]["kind"] == "import"
     with open_import(
@@ -156,8 +169,8 @@ def test_sigkill_after_import_preserves_only_complete_published_stage(
 def test_cancellation_forces_unresponsive_worker_exit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    request = _request(tmp_path)
-    _fault(monkeypatch, "ignore-term")
+    request = worker_request(tmp_path)
+    fault_command(monkeypatch, "ignore-term")
     monkeypatch.setattr(mesh_supervisor, "CANCEL_GRACE_SECONDS", 0.1)
     cancel = threading.Event()
 
@@ -168,17 +181,17 @@ def test_cancellation_forces_unresponsive_worker_exit(
     result = run_worker(request, tmp_path, cancel=cancel, progress=on_event)
     assert (
         result["status"] == "failed"
-        and _object(result["failure"])["category"] == "cancelled"
+        and control_object(result["failure"])["category"] == "cancelled"
     )
-    assert _object(result["supervision"])["exit_code"] == -signal.SIGKILL
+    assert control_object(result["supervision"])["exit_code"] == -signal.SIGKILL
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
 def test_budget_covers_worker_startup(tmp_path: Path) -> None:
-    result = run_worker(_request(tmp_path, budget=1024 * 1024), tmp_path)
+    result = run_worker(worker_request(tmp_path, budget=1024 * 1024), tmp_path)
     assert (
         result["status"] == "failed"
-        and _object(result["failure"])["category"] == "resource"
+        and control_object(result["failure"])["category"] == "resource"
     )
     assert not list(tmp_path.glob("mesh-import-*"))
     assert not list(tmp_path.glob(".scansor-mesh-*"))
@@ -194,11 +207,13 @@ def test_worker_failure_report_and_explicit_stale_retention(tmp_path: Path) -> N
     result = run_worker(request, tmp_path, retain_incomplete=True)
     assert (
         result["status"] == "failed"
-        and _object(result["failure"])["category"] == "input"
+        and control_object(result["failure"])["category"] == "input"
     )
     directory = Path(str(result["incomplete_directory"]))
     assert (
-        _object(decode_control((directory / "failure.json").read_bytes()))["status"]
+        control_object(decode_control((directory / "failure.json").read_bytes()))[
+            "status"
+        ]
         == "incomplete"
     )
     before = artifact_state(directory), artifact_state(unknown)
@@ -213,7 +228,7 @@ def test_worker_failure_report_and_explicit_stale_retention(tmp_path: Path) -> N
         == "unrecognized"
     )
     assert (artifact_state(directory), artifact_state(unknown)) == before
-    next_run = run_worker(_request(tmp_path), tmp_path)
+    next_run = run_worker(worker_request(tmp_path), tmp_path)
     assert next_run["status"] == "complete"
     assert (artifact_state(directory), artifact_state(unknown)) == before
 
@@ -237,15 +252,15 @@ def test_stale_discovery_is_bounded_and_never_follows_directory_symlinks(
 def test_stderr_is_bounded_without_blocking_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _fault(monkeypatch, "noisy-stderr")
-    result = run_worker(_request(tmp_path), tmp_path)
+    fault_command(monkeypatch, "noisy-stderr")
+    result = run_worker(worker_request(tmp_path), tmp_path)
     assert result["status"] == "complete"
-    info = _object(result["supervision"])
+    info = control_object(result["supervision"])
     assert info["stderr"] == "x" * 4096 and info["stderr_truncated"] is True
 
 
 def test_worker_request_is_strict_and_float_free(tmp_path: Path) -> None:
-    request = _request(tmp_path)
+    request = worker_request(tmp_path)
     record = request.record()
     assert WorkerRequest.from_record(decode_control(encode_control(record))) == request
     for field, invalid in (
@@ -273,7 +288,7 @@ def test_staging_from_another_pid_namespace_is_not_called_stale(tmp_path: Path) 
     )
     directory = Path(str(result["incomplete_directory"]))
     path = directory / "worker.json"
-    marker = _object(decode_control(path.read_bytes()))
+    marker = control_object(decode_control(path.read_bytes()))
     marker["pid_namespace_inode"] = os.stat("/proc/self/ns/pid").st_ino + 1
     _ = path.write_bytes(encode_control(marker))
     before = artifact_state(directory)
@@ -289,10 +304,10 @@ def test_supervisor_control_disk_failure_cleans_owned_storage(
         raise OSError(errno.ENOSPC, "injected control write failure")
 
     monkeypatch.setattr(mesh_supervisor, "_write_record", full)
-    result = run_worker(_request(tmp_path), tmp_path)
+    result = run_worker(worker_request(tmp_path), tmp_path)
     assert result["status"] == "failed"
-    assert _object(result["failure"])["category"] == "resource"
-    assert _object(result["supervision"])["pid"] is None
+    assert control_object(result["failure"])["category"] == "resource"
+    assert control_object(result["supervision"])["pid"] is None
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
@@ -300,7 +315,7 @@ def test_supervisor_control_disk_failure_cleans_owned_storage(
 def test_replaced_public_workspace_is_preserved_and_not_reported_as_owned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retain: bool
 ) -> None:
-    _fault(monkeypatch, "ignore-term")
+    fault_command(monkeypatch, "ignore-term")
     monkeypatch.setattr(mesh_supervisor, "CANCEL_GRACE_SECONDS", 0.1)
     cancel = threading.Event()
     held_away = tmp_path / "held-away"
@@ -317,7 +332,7 @@ def test_replaced_public_workspace_is_preserved_and_not_reported_as_owned(
             cancel.set()
 
     result = run_worker(
-        _request(tmp_path),
+        worker_request(tmp_path),
         tmp_path,
         progress=replace,
         cancel=cancel,
@@ -326,7 +341,7 @@ def test_replaced_public_workspace_is_preserved_and_not_reported_as_owned(
     assert len(moved) == 1
     public, identity = moved[0]
     assert result["status"] == "failed"
-    assert _object(result["failure"])["category"] == "cancelled"
+    assert control_object(result["failure"])["category"] == "cancelled"
     assert "cleanup_failure" in result
     assert "incomplete_directory" not in result
     assert result["replaced_workspace_path"] == str(public)

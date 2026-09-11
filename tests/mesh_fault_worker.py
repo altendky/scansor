@@ -48,6 +48,19 @@ def main() -> int:
         _ = signal.pause()
     from scansor import mesh_worker
 
+    if mode == "crash-copy":
+        from scansor import mesh_publication_copy
+
+        def crash_copy(
+            _source: int, target: int, _expected: object, _check: object
+        ) -> None:
+            _ = (Path(f"/proc/self/fd/{target}") / "partial").write_bytes(
+                b"owned partial copy"
+            )
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        mesh_publication_copy.copy_stage_files = crash_copy
+
     if mode == "crash-after-import":
 
         def crash(*_args: object, **_kwargs: object) -> None:

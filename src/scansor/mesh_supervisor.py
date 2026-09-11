@@ -25,9 +25,10 @@ import psutil
 from scansor.errors import ScansorError
 from scansor.mesh_controls import Control, control_id, encode_control
 from scansor.mesh_errors import MeshImportError, io_failure
+from scansor.mesh_publication_copy import directory_mount
 from scansor.mesh_worker_protocol import FrameReader
 from scansor.mesh_worker_request import WorkerRequest
-from scansor.mesh_workspace import create_workspace, remove_owned_workspace
+from scansor.mesh_workspace import Workspace, create_workspace, remove_owned_workspace
 
 SAMPLE_SECONDS = 0.005
 CANCEL_GRACE_SECONDS = 3.0
@@ -188,8 +189,11 @@ class _Messages:
             self.callback(message)
 
 
-def _worker_command(descriptor: int) -> list[str]:
-    return [sys.executable, "-m", "scansor.mesh_worker", str(descriptor)]
+def _worker_command(descriptor: int, publication_descriptor: int | None) -> list[str]:
+    command = [sys.executable, "-m", "scansor.mesh_worker", str(descriptor)]
+    if publication_descriptor is not None:
+        command.append(str(publication_descriptor))
+    return command
 
 
 def _write_record(path: Path, record: dict[str, Control]) -> None:
@@ -238,6 +242,7 @@ def run_worker(
                     "scratch must be outside read-only artifact trees",
                 )
     workspace = create_workspace(workdir)
+    publication: Workspace | None = None
     access = workspace.access
     process: subprocess.Popen[bytes] | None = None
     failure: dict[str, Control] | None = None
@@ -256,36 +261,52 @@ def run_worker(
     try:
         (access / "work").mkdir(mode=0o700)
         _write_record(access / "request.json", request.record())
-        _write_record(
-            access / "owner.json",
-            {
-                "revision": "mesh-worker-staging-v1",
-                "status": "incomplete",
-                "supervisor_pid": os.getpid(),
-                "request_id": control_id(request.record()),
-            },
-        )
+        if request.operation == "import":
+            assert request.destination is not None
+            target = os.open(
+                request.destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
+            try:
+                if directory_mount(target) != directory_mount(workspace.descriptor):
+                    publication = create_workspace(request.destination)
+            finally:
+                os.close(target)
+        roots = [workspace] + ([] if publication is None else [publication])
+        for root in roots:
+            _write_record(
+                root.access / "owner.json",
+                {
+                    "revision": "mesh-worker-staging-v1",
+                    "status": "incomplete",
+                    "supervisor_pid": os.getpid(),
+                    "request_id": control_id(request.record()),
+                },
+            )
         process = subprocess.Popen(
-            _worker_command(workspace.descriptor),
+            _worker_command(
+                workspace.descriptor,
+                None if publication is None else publication.descriptor,
+            ),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            pass_fds=(workspace.descriptor,),
+            pass_fds=tuple(root.descriptor for root in roots),
             start_new_session=True,
         )
         assert process.stdout is not None and process.stderr is not None
         messages = _Messages(request, process.pid, progress)
-        _write_record(
-            access / "worker.json",
-            {
-                "revision": "mesh-worker-process-v1",
-                "pid": process.pid,
-                "pid_namespace_inode": os.stat("/proc/self/ns/pid").st_ino,
-                "create_time_ns": int(
-                    psutil.Process(process.pid).create_time() * 1_000_000_000
-                ),
-            },
-        )
+        for root in roots:
+            _write_record(
+                root.access / "worker.json",
+                {
+                    "revision": "mesh-worker-process-v1",
+                    "pid": process.pid,
+                    "pid_namespace_inode": os.stat("/proc/self/ns/pid").st_ino,
+                    "create_time_ns": int(
+                        psutil.Process(process.pid).create_time() * 1_000_000_000
+                    ),
+                },
+            )
         with selectors.DefaultSelector() as selector:
             _ = selector.register(process.stdout, selectors.EVENT_READ, "stdout")
             _ = selector.register(process.stderr, selectors.EVENT_READ, "stderr")
@@ -422,45 +443,56 @@ def run_worker(
                 "stderr_truncated": stderr_total > len(stderr),
             },
         }
-        try:
-            if failure is not None and retain_incomplete:
-                _write_record(
-                    access / "failure.json",
-                    {
-                        "revision": "mesh-incomplete-supervisor-v1",
-                        "status": "incomplete",
-                        "failure": failure,
-                        "last_progress": report["last_progress"],
-                        "exit_code": None if process is None else process.returncode,
-                    },
-                )
-                entry = workspace.directory.stat(follow_symlinks=False)
-                if (entry.st_dev, entry.st_ino) != workspace.identity:
-                    raise MeshImportError(
-                        "integrity", "cleanup", "retained workspace path was replaced"
+        for candidate, prefix in ((publication, "publication_"), (workspace, "")):
+            if candidate is None:
+                continue
+            try:
+                if failure is not None and retain_incomplete:
+                    _write_record(
+                        candidate.access / "failure.json",
+                        {
+                            "revision": "mesh-incomplete-supervisor-v1",
+                            "status": "incomplete",
+                            "failure": failure,
+                            "last_progress": report["last_progress"],
+                            "exit_code": None
+                            if process is None
+                            else process.returncode,
+                        },
                     )
-                report["incomplete_directory"] = str(workspace.directory)
-            else:
-                remove_owned_workspace(workspace.directory, workspace.identity)
-        except BaseException as cleanup_error:
-            report["status"] = "failed"
-            report["cleanup_failure"] = str(cleanup_error)[:4096]
-            if failure is None:
-                report["failure"] = _failure(
-                    cleanup_error.category
-                    if isinstance(cleanup_error, MeshImportError)
-                    else "execution",
-                    str(cleanup_error),
-                    stage="cleanup",
-                )
-            with suppress(OSError):
-                entry = workspace.directory.stat(follow_symlinks=False)
-                if (entry.st_dev, entry.st_ino) == workspace.identity:
-                    report["incomplete_directory"] = str(workspace.directory)
+                    entry = candidate.directory.stat(follow_symlinks=False)
+                    if (entry.st_dev, entry.st_ino) != candidate.identity:
+                        raise MeshImportError(
+                            "integrity",
+                            "cleanup",
+                            "retained workspace path was replaced",
+                        )
+                    report[prefix + "incomplete_directory"] = str(candidate.directory)
                 else:
-                    report["replaced_workspace_path"] = str(workspace.directory)
-        finally:
-            workspace.close()
+                    remove_owned_workspace(candidate.directory, candidate.identity)
+            except BaseException as cleanup_error:
+                report["status"] = "failed"
+                report[prefix + "cleanup_failure"] = str(cleanup_error)[:4096]
+                if report["failure"] is None:
+                    report["failure"] = _failure(
+                        cleanup_error.category
+                        if isinstance(cleanup_error, MeshImportError)
+                        else "execution",
+                        str(cleanup_error),
+                        stage="cleanup",
+                    )
+                with suppress(OSError):
+                    entry = candidate.directory.stat(follow_symlinks=False)
+                    if (entry.st_dev, entry.st_ino) == candidate.identity:
+                        report[prefix + "incomplete_directory"] = str(
+                            candidate.directory
+                        )
+                    else:
+                        report[prefix + "replaced_workspace_path"] = str(
+                            candidate.directory
+                        )
+            finally:
+                candidate.close()
     return report
 
 

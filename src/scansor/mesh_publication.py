@@ -21,6 +21,7 @@ from scansor.mesh_accounting import AccountedImport, CompleteContributions
 from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control, encode_control
 from scansor.mesh_errors import MeshImportError, io_failure
+from scansor.mesh_publication_copy import directory_mount, publication_stage
 
 type FileRecord = tuple[int, str]
 type Check = Callable[[], None]
@@ -212,6 +213,7 @@ def _publish(
     identity: str,
     prepare: Callable[[int], dict[str, FileRecord]],
     check: Check,
+    staging_directory: Path | None,
 ) -> PublishedStage:
     # stage.parent is the trusted /proc/self/fd access path held by the foundation;
     # following that one descriptor link is intentional. All actual child opens
@@ -246,20 +248,45 @@ def _publish(
                 "publication",
                 "stage or destination path changed before publication",
             )
-        rename_no_replace(source_parent, stage.name, target_parent, name)
-        moved = True
-        if (
-            _identity(os.stat(name, dir_fd=target_parent, follow_symlinks=False))
-            != stage_identity
-            or _identity(destination.stat(follow_symlinks=False)) != target_identity
-        ):
-            raise MeshImportError(
-                "integrity",
-                "publication",
-                "published stage or destination path changed",
-            )
-        os.fsync(target_parent)
-        os.fsync(source_parent)
+        with publication_stage(
+            source_parent,
+            stage.name,
+            held,
+            expected,
+            destination,
+            directory_mount(target_parent),
+            kind,
+            check,
+            staging_directory,
+        ) as (move_parent, move_name, move_held):
+            move_identity = _identity(os.fstat(move_held))
+            if move_held != held:
+                verify_closed_tree(move_held, expected, check)
+            check()
+            if (
+                _identity(os.stat(move_name, dir_fd=move_parent, follow_symlinks=False))
+                != move_identity
+                or _identity(destination.stat(follow_symlinks=False)) != target_identity
+            ):
+                raise MeshImportError(
+                    "integrity",
+                    "publication",
+                    "stage or destination path changed before publication",
+                )
+            rename_no_replace(move_parent, move_name, target_parent, name)
+            moved = True
+            if (
+                _identity(os.stat(name, dir_fd=target_parent, follow_symlinks=False))
+                != move_identity
+                or _identity(destination.stat(follow_symlinks=False)) != target_identity
+            ):
+                raise MeshImportError(
+                    "integrity",
+                    "publication",
+                    "published stage or destination path changed",
+                )
+            os.fsync(target_parent)
+            os.fsync(move_parent)
         return PublishedStage(destination / name, kind, identity)
     except BaseException as error:
         if isinstance(error, OSError):
@@ -279,12 +306,18 @@ def _publish(
         os.close(source_parent)
 
 
-def publish_import(imported: AccountedImport, destination: Path) -> PublishedStage:
+def publish_import(
+    imported: AccountedImport,
+    destination: Path,
+    *,
+    staging_directory: Path | None = None,
+) -> PublishedStage:
     data, identity = imported.foundation, imported.identity
     data.monitor.progress("publish-import", 0, 1)
 
     def prepare(held: int) -> dict[str, FileRecord]:
         data.source.verify(progress=data.monitor.progress)
+        data.monitor.progress("publish-import", 0, 1)
         files = _materialize_columns(
             held, data.columns, imported.inventory["columns"], data.monitor.check
         )
@@ -320,6 +353,7 @@ def publish_import(imported: AccountedImport, destination: Path) -> PublishedSta
         identity,
         prepare,
         data.monitor.check,
+        staging_directory,
     )
     data.monitor.progress("publish-import", 1, 1)
     return result
@@ -329,6 +363,8 @@ def publish_contributions(
     imported: AccountedImport,
     contributions: CompleteContributions,
     destination: Path,
+    *,
+    staging_directory: Path | None = None,
 ) -> PublishedStage:
     if contributions.inventory["import_id"] != imported.identity:
         raise MeshImportError(
@@ -369,7 +405,13 @@ def publish_contributions(
 
     stage = data.import_directory.parent / "contribution"
     result = _publish(
-        stage, destination, "contribution", identity, prepare, data.monitor.check
+        stage,
+        destination,
+        "contribution",
+        identity,
+        prepare,
+        data.monitor.check,
+        staging_directory,
     )
     data.monitor.progress("publish-contributions", 1, 1)
     return result

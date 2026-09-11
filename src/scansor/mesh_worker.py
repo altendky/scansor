@@ -60,7 +60,11 @@ def process_io() -> dict[str, Control]:
 
 
 def _run(
-    request: WorkerRequest, work: Path, writer: FrameWriter, published: list[Control]
+    request: WorkerRequest,
+    work: Path,
+    writer: FrameWriter,
+    published: list[Control],
+    publication_staging: Path | None,
 ) -> dict[str, Control]:
     def progress(record: dict[str, Control]) -> None:
         _check_cancel()
@@ -100,12 +104,19 @@ def _run(
         account_import(foundation) as imported,
     ):
         _check_cancel()
-        first = publish_import(imported, request.destination)
+        first = publish_import(
+            imported, request.destination, staging_directory=publication_staging
+        )
         published.append(stage_record(first))
         writer.send({"type": "published", "stage": stage_record(first)})
         _check_cancel()
         contributions = imported.complete_contributions()
-        second = publish_contributions(imported, contributions, request.destination)
+        second = publish_contributions(
+            imported,
+            contributions,
+            request.destination,
+            staging_directory=publication_staging,
+        )
         published.append(stage_record(second))
         writer.send({"type": "published", "stage": stage_record(second)})
         result: dict[str, Control] = {
@@ -127,11 +138,11 @@ def main() -> int:
     _ = signal.signal(signal.SIGTERM, _cancel)
     _ = signal.signal(signal.SIGINT, _cancel)
     try:
-        if len(sys.argv) != 2:
+        if len(sys.argv) not in (2, 3):
             raise MeshImportError(
                 "structure",
                 "worker-request",
-                "one inherited workspace descriptor is required",
+                "a work descriptor and optional publication descriptor are required",
             )
         descriptor = int(sys.argv[1])
         info = os.fstat(descriptor)
@@ -144,6 +155,21 @@ def main() -> int:
                 "integrity", "worker-request", "inherited workspace is not private"
             )
         access = Path(f"/proc/self/fd/{descriptor}")
+        publication_staging: Path | None = None
+        if len(sys.argv) == 3:
+            publication_fd = int(sys.argv[2])
+            publication_info = os.fstat(publication_fd)
+            if (
+                not stat.S_ISDIR(publication_info.st_mode)
+                or publication_info.st_uid != os.geteuid()
+                or stat.S_IMODE(publication_info.st_mode) & 0o077
+            ):
+                raise MeshImportError(
+                    "integrity",
+                    "worker-request",
+                    "publication workspace is not private",
+                )
+            publication_staging = Path(f"/proc/self/fd/{publication_fd}")
         request_fd = os.open(
             access / "request.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
         )
@@ -178,7 +204,7 @@ def main() -> int:
                 "request_id": control_id(request.record()),
             }
         )
-        result = _run(request, work, writer, published)
+        result = _run(request, work, writer, published, publication_staging)
         _check_cancel()
         writer.send(
             {

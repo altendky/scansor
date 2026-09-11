@@ -275,6 +275,16 @@ normalization; an ensuing numeric or contribution-publication failure leaves tha
 complete import intact. This verifies newly computed files against their expected
 records. It is not source replay of a previously published artifact.
 
+When processing and output directories are on different mounts, publication
+copies the closed stage in bounded blocks into private staging on the output
+filesystem, verifies that copy, and then renames it atomically there. Linux
+[mount IDs](https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html) distinguish
+separate bind mounts as well as different devices. The supervisor owns both
+temporary directories before launching a worker, so it can clean an interrupted
+copy without relying on the child to report a newly created path. Processing
+and DuckDB spill storage remain in the requested work directory. Copying costs
+additional reads, writes and destination space; none changes semantic identity.
+
 The [read-only artifact scopes](../../../../src/scansor/mesh_artifacts.py) open
 complete import and contribution stages through held file/directory descriptors.
 They reject unexpected metadata/children, wrong lengths/encodings, noncanonical
@@ -339,6 +349,11 @@ identity checks. [Supervisor tests](../../../../tests/test_mesh_supervisor.py)
 use real fresh children, including forced termination after import publication,
 unresponsive cancellation, malformed/truncated IPC, startup-budget failure,
 disk-full controls and substituted public workspace paths.
+[Cross-filesystem tests](../../../../tests/test_mesh_cross_filesystem.py) use a
+separate Linux tmpfs to check identical bytes/IDs, failed or corrupted copies,
+no-replace publication, retention on both filesystems and forced worker death
+during a copy or after publishing import. They skip explicitly when that second
+filesystem is unavailable.
 
 The numerical conformance runner also includes the pure accumulation and digest
 tests. These are small-fixture correctness and failure checks, not S6 scale
@@ -1088,8 +1103,9 @@ statuses `[0,0,0,2]`. All positions are finite and the face is usable.
 
 These byte hashes were calculated directly from the specified small records
 using Python's explicit little-endian `struct` encoding during this design.
-S2 now verifies them independently and through its numeric/recipe primitives;
-they are not yet importer implementation evidence:
+S2 verifies them independently and through its numeric/recipe primitives; S4's
+small-recipe accounting and publication tests also check the canonical bytes
+against independent expectations:
 
 | Artifact | SHA-256 |
 | --- | --- |
