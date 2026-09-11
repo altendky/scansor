@@ -3,7 +3,7 @@
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
 The expectation builder and measured-run harness are implemented. Initial scale
 evidence includes complete six-million-vertex cases at both budgets and a complete
-sixty-million-vertex noiseless case at 2 GiB after fixes for observed resource
+sixty-million-vertex noiseless and noisy cases at 2 GiB after fixes for observed resource
 failures. The full matrix remains pending; this
 directory does not establish the complete 512 MiB or 2 GiB targets.
 
@@ -62,9 +62,8 @@ Complete expectations are retained for the six-million-vertex
 [noiseless](expected-grid-10000x6000-flat.json) and
 [noisy](expected-grid-10000x6000-noisy.json) grids. Each covers every source
 triangle and all ten canonical columns. Both six-million-vertex expectations
-have matched full-size production imports. The sixty-million-vertex noiseless
-expectation also matched the complete 2 GiB run; its noisy counterpart remains
-pending.
+have matched full-size production imports. Both sixty-million-vertex expectations
+also matched complete 2 GiB runs.
 
 ## Production source preparation
 
@@ -92,7 +91,7 @@ and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-ver
 contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
 The source files remain outside Git. Both noiseless and noisy six-million-vertex
 importer/contribution comparisons passed under both budgets. The
-sixty-million-vertex noiseless case passed at 2 GiB; remaining cases are pending.
+sixty-million-vertex cases passed at 2 GiB; their 512 MiB cases remain incomplete.
 
 ## Worker execution and phase evidence
 
@@ -391,10 +390,10 @@ reclaim events, no OOM/OOM-kill event, and no swap. Scratch cleanup and final
 phase reporting completed; RSS sampling again exceeded 10 ms (11.98 ms largest
 gap). Separating the operators alone did not establish the full-size target.
 
-The next planning revision therefore caps the engine at half the requested
+The `fd7f687` planning revision therefore caps the engine at half the requested
 worker budget instead of a fixed 256 MiB, still subject to the measured baseline,
 resident columns and fixed/batch reservations. The native-overhead safety
-allowance is at least 128 MiB after the observed 512 MiB overrun. This gives the
+allowance was at least 128 MiB after the observed 512 MiB overrun. This gives the
 2 GiB disk case a 1 GiB engine reservation while keeping explicit headroom for the
 rest of the worker. Its completed 2 GiB run is recorded below. The
 supervisor also now retains valid cleanup/final frames after requesting a stop,
@@ -642,6 +641,35 @@ time on these cached, scattered requests because it issues many small reads.
 Timing includes per-range instrumentation. This tradeoff is retained explicitly;
 it is not a speedup or a full-import capacity result. Whole-pipeline timing and
 memory still require fresh full-size measurements, including reordered inputs.
+
+## Full coordinate lookup and subsequent sorting failure
+
+The [noiseless 512 MiB case](run-grid-10000x6000-flat-512-r4.json) and
+[noisy 512 MiB case](run-grid-10000x6000-noisy-512-r2.json) at `8c26918`
+completed coordinate association for all 119,968,002 faces and staged all
+359,904,006 source corners. Both then failed in `verify-source-corners`, whose
+DuckDB query orders the working tuples by source face and corner before comparing
+their complete digest. Nothing was published and dependent operations did not run.
+
+| Fixture | Worker seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | DuckDB limit (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Noiseless | 451.91 | 367.04 | 368.22 | 162.80 | 6.40 |
+| Noisy | 447.68 | 371.30 | 372.43 | 163.05 | 9.46 |
+
+Both failures were DuckDB allocation errors, with final phase observations and
+complete owned cleanup. Their separate 6 GiB cgroups recorded page-cache reclaim
+events but no OOM/OOM-kill event or swap. Every observed RSS sampling gap including
+startup/exit stayed within 10 ms. The lower whole-worker RSS confirms that the
+replacement lookup passed the previous failure point; it does not establish
+sorting, contribution publication or display capacity.
+
+The next planner candidate reduces the minimum native-overhead safety allowance
+from 128 to 64 MiB after removal of the coordinate hash join. At 512 MiB this
+reassigns 64 MiB to DuckDB while preserving the total worker budget, fixed buffers
+and batch reservation. At 2 GiB the existing 10% safety allowance still applies.
+The earlier hash-join overrun remains evidence against inferring whole-worker
+memory from an engine limit. New full cases must establish whether this revised
+allocation completes within the unchanged RSS target.
 
 ## Remaining execution evidence
 

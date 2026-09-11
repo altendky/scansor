@@ -81,11 +81,13 @@ def plan_memory(
     # Controls/XML, snapshot/hash buffers, Arrow metadata and monitor overhead.
     # Per-row scratch includes decoder records, canonical copies, Arrow input
     # and output, two live face buffers, numeric scratch and status/index masks.
-    # The 60M-vertex join exceeded whole-worker RSS at the original 64 MiB
-    # allowance despite respecting DuckDB's separate reservation. Retain at
-    # least 128 MiB for native allocations/retention outside that engine limit;
-    # subsequent whole-worker measurements still decide whether a plan fits.
-    safety, fixed = max(128 * MIB, budget_bytes // 10), 32 * MIB
+    # Canonical row gathers replaced the large native coordinate hash join.
+    # Its former 128 MiB safety floor then starved corner sorting while measured
+    # whole-worker RSS stayed below 373 MiB in the 60M-vertex 512 MiB cases.
+    # Reassign 64 MiB to the engine at that budget, retaining the proportional
+    # reserve at larger budgets. Whole-worker measurements must still establish
+    # whether this allocation fits; the engine limit alone cannot prove that.
+    safety, fixed = max(64 * MIB, budget_bytes // 10), 32 * MIB
     usable = budget_bytes - baseline_bytes - safety - fixed
     if usable < 32 * MIB + PER_ROW_SCRATCH:
         raise MeshImportError(
