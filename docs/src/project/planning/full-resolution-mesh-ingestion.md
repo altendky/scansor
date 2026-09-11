@@ -116,6 +116,16 @@ locally. Inspect actual passing workflow reports for build-specific evidence;
 the matrix is an internal conformance gate, not a product-support commitment.
 Memory-budget and storage-backend invariance remain later gates.
 
+[Retained CI evidence](../../../../experiments/mesh-numeric-conformance-v1-evidence.json)
+from [run 34557050231](https://github.com/altendky/scansor/actions/runs/34557050231)
+records all twelve passing numeric reports for code commit `ad77b299`, with NumPy
+2.5.1 on the two locked Python versions. It includes macOS 15.7.9 arm64,
+Windows Server 2025 x86-64, and Linux x86-64 builds. All source/control/column
+hashes, Philox vectors, and implementation IDs matched. Baseline runs actually
+disabled available dispatch targets, including ASIMDHP/ASIMDDP on arm64 and
+X86_V3 plus available AVX-512 targets on x86-64. The evidence retains each
+report's full build/runtime diagnostics and its original byte hash.
+
 ## Source profile and provenance
 
 ### Starting specimen
