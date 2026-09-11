@@ -737,8 +737,9 @@ forced-spill follow-up did not run. Both cases used the same committed probe at
 cgroups with swap disabled; neither recorded a cgroup limit/OOM/OOM-kill event.
 These results establish this isolated query comparison, not full-worker capacity.
 
-The importer now includes all four fields in each corner sort, retaining source
-face/corner and contribution vertex/face/corner as the leading keys. Valid tuples
+At this checkpoint the importer included all four fields in each corner sort,
+retaining source face/corner and contribution vertex/face/corner as the leading
+keys. Valid tuples
 have unique leading keys, so the added tie-breakers preserve the required fold
 order. Complete tuple binding, null rejection and duplicate detection remain
 required. Display face remapping likewise adds the view ID after its unique
@@ -895,6 +896,71 @@ sampling gate: import and export retain false coverage flags for the four gaps
 shown above. The sequential controller stopped on those flags, after retaining
 the complete report. These misses are observations of this run; neither their
 cause nor a hard scheduling guarantee has been established.
+
+## Renewed noisy sixty-million-vertex failure
+
+The [512 MiB noisy case at `f5d553c`](run-grid-10000x6000-noisy-512-r3.json)
+finished source decoding and corner staging, then failed during the global
+source-corner verification sort. DuckDB could not allocate another 256 KiB
+within its 224,051,200-byte engine allowance (about 213.67 MiB). The worker
+stopped after 879.84 seconds. Kernel/sample RSS peaks were 442.48/443.39 MiB,
+both below the separate 512 MiB worker budget. The 6 GiB cgroup had no limit,
+OOM, kill or swap events.
+
+No import or contribution artifact was published, and display/replay did not
+run. Owned scratch cleanup and phase reporting passed. The helper delivered
+its final statistics and exited normally, but 94 sampling gaps exceeded
+10 ms, reaching 35.380457 ms. Those gaps remain failed coverage. This result
+does not establish noisy-input capacity from the completed flat case.
+
+## Matched noisy corner-sort diagnostics
+
+The noisy failure was reproduced in an isolated table of all 359,904,006
+source corners. The [64-bit-ID preparation/sort](isolated-corners-noisy-wide-214-r1.json)
+and [32-bit-ID preparation/sort](isolated-corners-noisy-compact-214-r1.json)
+both exhausted the same 224,051,200-byte engine allowance. Narrower IDs alone
+did not solve this case; the [compact fan smoke](isolated-corners-fan-compact-smoke-214-r1.json)
+completed with an exact tuple digest.
+
+Further queries selected only vertex, face and corner IDs, reconstructing
+allocation words with the existing arithmetic and bounded reads of canonical
+face areas. Complete area hashes were checked before and after querying, and
+the original four-field source tuple digest had to match. These queries used
+fresh processes and reopened the prepared databases. Matched four-field
+controls did the same, avoiding a staging/allocator-retention confound.
+
+| Fresh reopen query | Kernel peak RSS (MiB) | Result |
+| --- | ---: | --- |
+| [64-bit IDs, allocation included](isolated-corners-noisy-wide-reopen-control-214-r1.json) | 355.19 | Engine allocation failure |
+| [64-bit IDs only](isolated-corners-noisy-wide-ids-only-214-r2.json) | 367.22 | Complete original tuple digest matches |
+| [32-bit IDs, allocation included](isolated-corners-noisy-compact-reopen-control-214-r1.json) | 355.33 | Engine allocation failure |
+| [32-bit IDs only](isolated-corners-noisy-compact-ids-only-214-r2.json) | 367.00 | Complete original tuple digest matches |
+
+Both ID-only queries checked all 359,904,006 tuples and produced source digest
+`9b9feff499c82d1c51e3cb52e0ee4d007ea22c54efaf191a1444e96d3ffae623`.
+Their sort/gather/digest times were 133.67 and 133.47 seconds respectively;
+these single runs with uncontrolled caches do not establish a speed difference.
+All diagnostics ran sequentially in separate 6 GiB cgroups with swap disabled;
+none had cgroup limit/OOM/kill events. Their kernel peaks include process cleanup,
+but these are isolated queries without full-worker sampling coverage, not
+complete importer capacity measurements.
+
+The [exact initial compact-probe source](compact-corner-probe-source-r1.json)
+and [exact matched-query source](ids-only-corner-probe-source-r2.json) are retained.
+An earlier [ID-only smoke failure](isolated-corners-fan-compact-smoke-ids-only-214-r1.json)
+came from comparing `bytes` with `byte_count` metadata keys before querying.
+The full source size/hash independently matched; its [original probe source](ids-only-corner-probe-source-r1.json)
+and failed report remain available. The [corrected smoke](isolated-corners-fan-compact-smoke-ids-only-214-r2.json)
+completed before either full ID-only query.
+
+The importer now stores and sorts only the original 64-bit vertex/face IDs and
+8-bit corner IDs. It reconstructs allocation words from bounded canonical
+face-area gathers without changing arithmetic, fold order or the four-field
+verification digest. A complete area hash captured during source staging is
+checked before and after each query, including areas for faces with no valid
+corners. New corruption and cancellation cases exercise that boundary.
+Fresh complete pipelines, including reordered inputs, remain necessary to
+measure the memory and extra-I/O cost of this change.
 
 ## Remaining execution evidence
 

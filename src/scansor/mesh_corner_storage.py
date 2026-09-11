@@ -7,6 +7,7 @@ All canonical reads and engine output batches are bounded by the existing plan.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Generator
 from typing import Any, cast
 
@@ -44,6 +45,7 @@ class CornerStaging:
             )
         )
         self.source_digest: str | None = None
+        self.area_digest: str | None = None
         self._verified: bool = False
         self._consumed: bool = False
 
@@ -58,16 +60,18 @@ class CornerStaging:
         data, seen = self.data, 0
         phase = "stage-source-corners"
         digest = self._digest()
+        areas_digest = hashlib.sha256()
         _ = data.staging.connection.execute(
-            "CREATE TABLE mesh_corners(vertex UBIGINT, face UBIGINT, corner UTINYINT, allocation UBIGINT)"
+            "CREATE TABLE mesh_corners(vertex UBIGINT, face UBIGINT, corner UTINYINT)"
         )
         data.monitor.progress(phase, 0, self.count)
         for start in range(0, data.faces, data.plan.batch_rows):
+            data.monitor.check()
             stop = min(start + data.plan.batch_rows, data.faces)
             indices = data.columns["triangles.bin"].read_range(start, stop).reshape(-1)
-            thirds = corner_areas(
-                data.columns["face-area.bin"].read_range(start, stop)
-            ).view("<u8")
+            areas = data.columns["face-area.bin"].read_range(start, stop)
+            areas_digest.update(memoryview(areas).cast("B"))
+            thirds = corner_areas(areas).view("<u8")
             valid = (indices >= 0) & (indices.astype(np.int64) < data.vertices)
             offsets = np.flatnonzero(valid).astype("<u8")
             for offset in range(0, len(offsets), data.plan.batch_rows):
@@ -81,8 +85,8 @@ class CornerStaging:
                 )
                 digest.update(seen, columns)
                 batch = pa.record_batch(
-                    [pa.array(column) for column in columns],
-                    names=["vertex", "face", "corner", "allocation"],
+                    [pa.array(column) for column in columns[:3]],
+                    names=["vertex", "face", "corner"],
                 )
                 with pa.RecordBatchReader.from_batches(batch.schema, [batch]) as reader:
                     _ = data.staging.connection.register("scansor_corner_batch", reader)
@@ -95,12 +99,31 @@ class CornerStaging:
                 seen += len(positions)
                 data.monitor.progress(phase, seen, self.count)
                 del positions, columns, batch
-            del indices, thirds, valid, offsets
+            del indices, areas, thirds, valid, offsets
         self.source_digest = digest.finish()
+        self.area_digest = areas_digest.hexdigest()
+
+    def _verify_areas(self, phase: str) -> None:
+        """Bind later allocation gathers to the complete original area column."""
+        data, digest = self.data, hashlib.sha256()
+        column = data.columns["face-area.bin"]
+        # Also check the held file length for zero-row inputs.
+        _ = column.read_range(0, 0)
+        for start in range(0, data.faces, data.plan.batch_rows):
+            data.monitor.check()
+            areas = column.read_range(
+                start, min(start + data.plan.batch_rows, data.faces)
+            )
+            digest.update(memoryview(areas).cast("B"))
+            del areas
+        data.monitor.check()
+        if digest.hexdigest() != self.area_digest:
+            raise MeshImportError("integrity", phase, "canonical face areas changed")
 
     def _batches(self, query: str, phase: str) -> Generator[CornerColumns]:
         data, seen = self.data, 0
         data.monitor.progress(phase, 0, self.count)
+        self._verify_areas(phase)
         with cast(Any, data.staging.connection.sql(query)).to_arrow_reader(
             batch_size=data.plan.batch_rows
         ) as reader:
@@ -113,18 +136,24 @@ class CornerStaging:
                     raise MeshImportError(
                         "integrity", phase, "unexpected corner count or batch size"
                     )
-                columns: CornerColumns = (
-                    _numpy(batch, "vertex", "<u8"),
-                    _numpy(batch, "face", "<u8"),
-                    _numpy(batch, "corner", "u1"),
-                    _numpy(batch, "allocation", "<u8"),
+                vertices = _numpy(batch, "vertex", "<u8")
+                faces = _numpy(batch, "face", "<u8")
+                corners = _numpy(batch, "corner", "u1")
+                if np.any(faces >= data.faces):
+                    raise MeshImportError("integrity", phase, "invalid corner face ID")
+                areas = data.columns["face-area.bin"].read_rows(
+                    faces, check=data.monitor.check
                 )
+                allocation = corner_areas(areas).view("<u8")
+                allocation.flags.writeable = False
+                columns: CornerColumns = (vertices, faces, corners, allocation)
                 yield columns
                 seen += batch.num_rows
                 data.monitor.progress(phase, seen, self.count)
-                del columns, batch
+                del columns, batch, vertices, faces, corners, areas, allocation
         if seen != self.count:
             raise MeshImportError("integrity", phase, "missing source corners")
+        self._verify_areas(phase)
 
     def verify(self) -> None:
         if self.source_digest is None or self._consumed:
@@ -134,14 +163,13 @@ class CornerStaging:
                 "requires unconsumed source corner staging",
             )
         digest, seen = self._digest(), 0
-        # Source face/corner is unique. The remaining integer fields therefore
-        # cannot change a valid source order, and putting every selected field
-        # in the key lets DuckDB omit separate sort payload buffers. The full
-        # 360M-corner diagnostic at 227 MiB completed with this form while the
-        # payload form failed. Keep the digest check: duplicate/corrupt keys
-        # are invalid regardless of how their added tie-breakers sort.
+        # Sort only IDs, with every selected field in the key. The matched
+        # 360M-corner diagnostic at 213.7 MiB completed with this form; including
+        # allocation bits exhausted the same engine allowance. Bounded canonical
+        # area gathers reconstruct those bits with the original arithmetic.
+        # The full four-field digest still rejects changed or duplicate tuples.
         for columns in self._batches(
-            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY face, corner, vertex, allocation",
+            "SELECT vertex, face, corner FROM mesh_corners ORDER BY face, corner, vertex",
             "verify-source-corners",
         ):
             digest.update(seen, columns)
@@ -163,10 +191,9 @@ class CornerStaging:
                 "requires verified unconsumed corner staging",
             )
         self._consumed = True
-        # Vertex/face/corner already uniquely orders every valid tuple. As in
-        # source verification, including allocation avoids a separate payload
-        # without changing the required contribution fold order or precision.
+        # Vertex/face/corner uniquely orders every valid tuple. Reconstructing
+        # allocation leaves the required fold order and precision unchanged.
         yield from self._batches(
-            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY vertex, face, corner, allocation",
+            "SELECT vertex, face, corner FROM mesh_corners ORDER BY vertex, face, corner",
             "order-source-corners",
         )

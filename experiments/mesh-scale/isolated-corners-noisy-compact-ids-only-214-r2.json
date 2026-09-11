@@ -1,0 +1,330 @@
+{
+  "allocation_source": {
+    "actual": {
+      "bytes": 959744016,
+      "sha256": "f7e6c17afbda1337ddb86fef833c7f67e2174d962e1773b63cb9c9df56da870c"
+    },
+    "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-10000x6000-noisy-2048-r1/out/mesh-import-e24aec53ea6852f170907cad44ca26e4e3a871020e40e0622556dc1857550395/face-area.bin"
+  },
+  "before_sort": {
+    "duckdb_memory": [
+      [
+        "BASE_TABLE",
+        786432,
+        0
+      ],
+      [
+        "HASH_TABLE",
+        0,
+        0
+      ],
+      [
+        "PARQUET_READER",
+        0,
+        0
+      ],
+      [
+        "CSV_READER",
+        0,
+        0
+      ],
+      [
+        "ORDER_BY",
+        0,
+        0
+      ],
+      [
+        "ART_INDEX",
+        0,
+        0
+      ],
+      [
+        "COLUMN_DATA",
+        0,
+        0
+      ],
+      [
+        "METADATA",
+        0,
+        0
+      ],
+      [
+        "OVERFLOW_STRINGS",
+        0,
+        0
+      ],
+      [
+        "IN_MEMORY_TABLE",
+        0,
+        0
+      ],
+      [
+        "ALLOCATOR",
+        0,
+        0
+      ],
+      [
+        "EXTENSION",
+        0,
+        0
+      ],
+      [
+        "TRANSACTION",
+        0,
+        0
+      ],
+      [
+        "EXTERNAL_FILE_CACHE",
+        0,
+        0
+      ],
+      [
+        "WINDOW",
+        0,
+        0
+      ],
+      [
+        "OBJECT_CACHE",
+        0,
+        0
+      ]
+    ],
+    "elapsed_ns": 3517131333,
+    "io": {
+      "cancelled_write_bytes": 0,
+      "rchar": 1075608303,
+      "read_bytes": 66990080,
+      "syscr": 4462,
+      "syscw": 0,
+      "wchar": 0,
+      "write_bytes": 0
+    },
+    "memory": {
+      "os_peak_rss_bytes": 113156096,
+      "rss_bytes": 114507776
+    }
+  },
+  "cgroup_after_close": {
+    "available": true,
+    "memory.current": "1055899648",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+    "memory.max": "6442450944",
+    "memory.peak": "4985053184",
+    "memory.swap.current": "0",
+    "memory.swap.max": "0"
+  },
+  "cgroup_at_start": {
+    "available": true,
+    "memory.current": "109703168",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+    "memory.max": "6442450944",
+    "memory.peak": "110120960",
+    "memory.swap.current": "0",
+    "memory.swap.max": "0"
+  },
+  "compact_ids": true,
+  "config": {
+    "autoinstall_known_extensions": false,
+    "autoload_known_extensions": false,
+    "max_temp_directory_size": "40GiB",
+    "memory_limit": "224051200B",
+    "preserve_insertion_order": false,
+    "temp_directory": "/home/data/scansor-s6-evidence-fJVNUiYN/isolated-corners-noisy-compact-214-r1/spill",
+    "threads": 1
+  },
+  "digest": "9b9feff499c82d1c51e3cb52e0ee4d007ea22c54efaf191a1444e96d3ffae623",
+  "elapsed_ns": 139704124955,
+  "force_external": false,
+  "ids_only": true,
+  "implementation": {
+    "native_extensions": {
+      "_duckdb": {
+        "bytes": 60387000,
+        "sha256": "1d4ef21853b38c7db1a141191dfd873f8a4c5a5d0a1667b8f2c110d76f6590ac"
+      },
+      "numpy._core._multiarray_umath": {
+        "bytes": 10682329,
+        "sha256": "3aac21341706a466577d7c7caab9c5013e98ffb62cf98ae3bc46a3e1004f3ce0"
+      },
+      "psutil._psutil_linux": {
+        "bytes": 150904,
+        "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd"
+      },
+      "pyarrow.lib": {
+        "bytes": 4483984,
+        "sha256": "2fb24a58b0973eb19b236cc2ea447e356b4a782eea39a274145b2f0ce86368c2"
+      }
+    },
+    "python_executable": "/home/altendky/.local/share/mise/installs/python/3.12.13/bin/python3.12",
+    "python_executable_hash": {
+      "bytes": 30905176,
+      "sha256": "021044895e95be79dc2f110367607e684119afbc8ce75f6f0eec94844e0acec7"
+    },
+    "sources": {
+      "experiments/mesh_scale_check.py": "79f7de01402ea6176a027e14a3dfe98a12433d81950ccd14a37c8fbe5883c6f5",
+      "experiments/mesh_scale_failures.py": "7220f16ce5e33dd6895bd6f7ae4eb8e8286210413165f0dc6cc39ef1d0ae1042",
+      "experiments/mesh_scale_fan.py": "fbe59bbeabc0b0922e83c175e426168628d9dba14b9b061a64c24ff9862e8aaf",
+      "experiments/mesh_scale_fan_freeze.py": "29fcf04d8fcc936199b5604596b185411eb03145ae065da246a066bc163be913",
+      "experiments/mesh_scale_fan_generate.py": "b00f9acc7ecd0f084fc3a70a008075f0f3bef506168ac5b2e5031aca963f3ec3",
+      "experiments/mesh_scale_fan_source.py": "d0c65a87abc0fac7dcef07989edd27b8c67446f84aee2fb8035dd3ad47212d23",
+      "experiments/mesh_scale_freeze.py": "d52a67731a34a2e2344585f31d06105804ac18504bf85982b052ac661e961a9a",
+      "experiments/mesh_scale_generate.py": "9d48f7188c075acacf4ec4c98f3a8f178bc7de8165ad96a08baa2da1c2ac1f1c",
+      "experiments/mesh_scale_grid.py": "c310b0a8d740a0a3dd1e442b85cd1e915e0b7f13c9f2b5940eee542f35b569f3",
+      "experiments/mesh_scale_integer.py": "f7f7fd1ad49e5fc7b29e7da393a3240cd0cd3ad8b2772f60b7dbda1594ae2330",
+      "experiments/mesh_scale_measure.py": "ca04350a4d91d9a4c135b2dc05bd956993ad4b419cf36552ac69cdcdfcbad671",
+      "experiments/mesh_scale_metrics.py": "66f2b97589752ae08485daa87f36768ab7d22d5c3d660d929b98fc9b4853ddfd",
+      "experiments/mesh_scale_permuted.py": "29de8b41253c6a19d5c0537f0b8403d746059f0de329d8aa3722ece66f169666",
+      "experiments/mesh_scale_permuted_freeze.py": "30c6bcb8ecdd1d3bd860b33b7b901012976802d9b7dd79402ba8e636832be133",
+      "experiments/mesh_scale_permuted_generate.py": "7394e83c1daaecac1921eda044e7d180caadf390888cc4f72d7696a355e9ab19",
+      "experiments/mesh_scale_rounding.py": "e12f386b286fda7ecc216361d59fa909ea1ed0557b82058e4166a6913bde29b2",
+      "experiments/mesh_scale_run.py": "198ac850270b07b5af8b2778e2196129a137022ef1e210218396e3660c88e1d9",
+      "src/scansor/__init__.py": "aad269e394364c276eebfeb59a7965844d1353c1318c4525b57ef863c8d94b45",
+      "src/scansor/__main__.py": "16d3b485dfcb5a69f3b5f48497878c84d3df29eb4208de9481c82025468d79aa",
+      "src/scansor/_plyio/__init__.py": "3aa4c5058e611f6b8f5bb4ee7b1c6bab7770603d3cb1e00247e8ed01499ac275",
+      "src/scansor/_plyio/format.py": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b",
+      "src/scansor/_plyio/stream.py": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef",
+      "src/scansor/cli.py": "15c27dbadf46189d7e244f50b923db01b3fb4d830a259895405be65467a4de31",
+      "src/scansor/cli_models.py": "fc401651827eaadf068d0b90778f1f6a79a297ff0f2a7308653c655b376acd2b",
+      "src/scansor/declared_execution.py": "c4c69fb47b73dd6e6faf75b339915dae4258a059fa7f3c4e243f33c2a5000954",
+      "src/scansor/declared_execution_models.py": "385be9995c661750612df0c2875d65a8dd93cbf554a8476d17c457bbfff13084",
+      "src/scansor/declared_execution_run_models.py": "274c88846eac0f400dc2f0c14cfd0b83eae2bb6beed4089885be46bf55237d56",
+      "src/scansor/declared_execution_runs.py": "75b5cffa3a321ef8df0a567fd98e6b14399170651ea5c4f89b440cf6e8fb55af",
+      "src/scansor/declared_factor_models.py": "80e4764cd5f30d18922fb09ae7e5013f7ee3c402860135ba9a9455f48636dc48",
+      "src/scansor/declared_factors.py": "21ff39b51d672bcac60e1a8fc37d4f9a2b5d562d6469161d20d4868db1708a24",
+      "src/scansor/declared_generation.py": "d58cd7e04243bd073fda5e306aec38f8531edd2043d8b15d7a9ad39e887a8e23",
+      "src/scansor/declared_generation_models.py": "75d08836264a8d867b7116ed0471d4e6992f92f0edde25e7c040e2660118144e",
+      "src/scansor/declared_generation_runs.py": "ac31b809d71185755025311254c1471816af8416d0d41fb7d57fb8d2ef027b7f",
+      "src/scansor/declared_numpy_backend.py": "77f3a7b42d1c54ab68486ac97cf2e33cf0aa72d6f2314e077ade7b84acbd5fd4",
+      "src/scansor/declared_synthetic_fixtures.py": "706febb63327be2ee23f2b60c3f18f36781e03766bccf8fa10a711fa613a411f",
+      "src/scansor/declared_truth_comparison.py": "69a84e29a591262e3a76a845bfdabc36c067864026546904f4fc4443776d425b",
+      "src/scansor/errors.py": "be011e0361295978f5245a149e56c6632e244ced8fe6c4129030ed7f6265ba47",
+      "src/scansor/execution_models.py": "6965fc023ef82099c161f792efca2c02a1472a5f7efab0f13478d18dcfb0b85c",
+      "src/scansor/execution_run_models.py": "2ffd118873f74178e25c79d7bcab81778344ce7d2c81a096bcdb93a1cb428723",
+      "src/scansor/execution_runs.py": "315d5daabc68254fadd7873074e3920928f3d0750ce01cfab6a625bdd2d9ad8c",
+      "src/scansor/factor_models.py": "bd882f189e28da8eebc1beaeb819a7b445b7cdcc73df3f4d328a122f75ec3c6f",
+      "src/scansor/files.py": "09604bb7ce2f5c90a0519872e00a46a802dc50309de36f0580397d7b5c4569a4",
+      "src/scansor/generation_models.py": "252ba257c6168e0d6244329c58372a71d9b11d71113f74fe4336edbbfb89f85e",
+      "src/scansor/generation_runs.py": "a45ee314fdafb4deeef3e97b6295e127238a40ff24fbb507cb6b7de52d0c9991",
+      "src/scansor/geometry_evaluator.py": "39bcafa44dc550de490bde006882509d0ebbad652c0c6e7766c5e0d28eb71d5b",
+      "src/scansor/logging.py": "d2ac75dcb54b535c49365417cb01fa96ad34448265fe748e074a8d1e6a0bb12b",
+      "src/scansor/mapping_models.py": "2f48db7d7caa9b0001bc593d2bd2eb5f0dbcdd884a3da43966eb6bd0c3ddff86",
+      "src/scansor/mapping_runs.py": "d4e3c25599529a7f53686833cc9717e1e712a4e9e6076231a4ceb300b6c015cd",
+      "src/scansor/mesh_accounting.py": "9c7bd17df82eddd09c1e1f1c06872a7cffe2ec0139426a8df525defc63720c7e",
+      "src/scansor/mesh_accumulation.py": "8b8693f91a4d935cd59c2528911a89d9f4440d6b7bc2ab1bd45caa88c2cad1ee",
+      "src/scansor/mesh_artifact_io.py": "15dca7e662a9890fe7bb9be2f9d2eaa978008b985e4e518a403b0486612265a8",
+      "src/scansor/mesh_artifacts.py": "4f789332fd872443e805aa801eab579e4c08215cae5c7f6b709e3c6571f9d165",
+      "src/scansor/mesh_columns.py": "2552991bff13ea51133baaa4ce4a9dcdd7bb2ec3676f6a804e61235874d9a7bc",
+      "src/scansor/mesh_controls.py": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea",
+      "src/scansor/mesh_corner_storage.py": "1f7d1f84357c552ab005a81046f4863b77517a1fa7a6ee3ba360af4b003ec3af",
+      "src/scansor/mesh_digests.py": "fa0a92368a5fc1dfd16e2d2f25ebf0f445bfe89c5228d95c72ee6167e357d762",
+      "src/scansor/mesh_display.py": "b505405be4cf1fbc6a0f94f34a3eef5835bbb74e1e0dc26b87d82a70882537c5",
+      "src/scansor/mesh_display_numeric.py": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009",
+      "src/scansor/mesh_display_ply.py": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb",
+      "src/scansor/mesh_display_records.py": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520",
+      "src/scansor/mesh_display_semantics.py": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a",
+      "src/scansor/mesh_display_staging.py": "61b346f47008038153f5fe42e3afe6f73c8fbaf8dff812a7da5243bee36280d5",
+      "src/scansor/mesh_display_verify.py": "850619b5e4b817d795c113a94a0bda5d45e3624119a0c1a49b5d7bf179b82615",
+      "src/scansor/mesh_dispositions.py": "ee2b88da4733d05cd2c99f925ebbdc1f72b6efb5852304fce01f047815bc4f1b",
+      "src/scansor/mesh_duckdb.py": "cf35bbfa19bc488b30dc780943ad53bf73242b378574d7a4a567f3c9f8f096c7",
+      "src/scansor/mesh_errors.py": "0ee1e89e845823fddd4950b92c4993dd3354db10655c788da1cc07c2233c1560",
+      "src/scansor/mesh_import.py": "e5df16fcc04f25337861caaade9a821b90e839f2d29a72a74d2d21700d4a95b4",
+      "src/scansor/mesh_numeric.py": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f",
+      "src/scansor/mesh_ply.py": "c20844c5a6ce923c3ef73adf9f650eff6a42f28b53e0662c853bdd8fadefe9c9",
+      "src/scansor/mesh_policy.py": "eeb1a86652d4b68e85db4ec28dc1700335961875eb1c9f4cf5b93a74cd2e114c",
+      "src/scansor/mesh_process_observer.py": "5fb5e601ef427b2024fd80be3a561fce3e3e7b598c343b44b4f8a5ae7bbdc928",
+      "src/scansor/mesh_publication.py": "234d249e46c8d687bee6bb5e2646685dd79c0634c987749adfba1595fd05c0e1",
+      "src/scansor/mesh_publication_copy.py": "dcb7d7db6088a785a37616a87d330cdb65ca37363f9867d05854d7e29fae264e",
+      "src/scansor/mesh_recipes.py": "314ae42480e32ac609f3aa89c980ed0a80349845837fff4723b2f52c262f0091",
+      "src/scansor/mesh_replay.py": "0a67ab276f016222f45e43399b833f8c3a592e7b62adb0108ec77768c00a786a",
+      "src/scansor/mesh_resources.py": "1deb464ab56d4354817d850ac16d97daa2a3b1d2eebd8b42afd3ef9aee4e29ba",
+      "src/scansor/mesh_rss_protocol.py": "4de953fff70c2ced008f28d43a31f55623d1aa0dca82929e9955c2e657b6690b",
+      "src/scansor/mesh_rss_sampler.py": "bb1ad36d03e0f0e209212ef1194b76a222e9b3e3cec3ece25fcff30d9c62e1b0",
+      "src/scansor/mesh_semantics.py": "1c2ef8fbba389a58972e36173c93e610c2907491c94e42b053c8d5a8d8d53dcc",
+      "src/scansor/mesh_sidecar.py": "99b9972906aadad281b0792774faf935b763acf060da8d9e346cea3189ec76c6",
+      "src/scansor/mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+      "src/scansor/mesh_statistics.py": "caf893f0f3ff6c91e027390f468af06d24ef3c17b09a5309375395ae33e4c643",
+      "src/scansor/mesh_supervisor.py": "5cb29fe732e4f473a9ea736f578f01c6ad626262ecf9685d77d08cdcb6f6266e",
+      "src/scansor/mesh_viewer_compare.py": "1ecc9a845dc069f32b357dfe50f679efe73e51bb039d0942b7090af25a0f5db3",
+      "src/scansor/mesh_worker.py": "73092d5d59563dc61e9ccc42d4c383db7917778abc6a79fdb28af736b184dd5f",
+      "src/scansor/mesh_worker_protocol.py": "08c4fdb560f6e3fa3d11bc32a3f202548cf5941e8c1e98a8d40f89f17ed614f2",
+      "src/scansor/mesh_worker_request.py": "a9ca2ab680cecee24debfd4fdfa5d54485cf1e3d55fa4cc76540f0bb547a9634",
+      "src/scansor/mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3",
+      "src/scansor/model_declarations.py": "a41bad2423778f23bdfa0e91df994751881ca488494eadc4ec3b998bc0d58af8",
+      "src/scansor/models.py": "ba0c0fd6cc94195cfa22a95589ac53a98489f2a78f07c5e7b75dfd0109a6b511",
+      "src/scansor/observation_mapping.py": "2dec1b34347195bd8e60b658e973134310e20f7cb1887f568deca2d13d682ba4",
+      "src/scansor/ply.py": "89e26db6c2b174310ef8caab12d0164ee6df7edad6f65631e5ee46b40cbc8561",
+      "src/scansor/rigid_transform.py": "ea2defc6ca6d74696798583039ae83fdd55aec7759e0d5b3cde4247c75434846",
+      "src/scansor/runs.py": "9acfb4f8f3c45ef020c40546aac4e9dc96ece19c1422e78fdabd5924f465c821",
+      "src/scansor/serialization.py": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a",
+      "src/scansor/settings.py": "a7f457f989d8ec6064ba2002328901a8daefc68e40598ffe47b39748ae893ac2",
+      "src/scansor/stepped_model_declarations.py": "f71e2703b49716a338edda2bc1d74cc878a531f491338ad8d92c161143c084f8",
+      "src/scansor/stepped_rotational.py": "566d68db245a81e1803d4b359a9157acc0ac5b1bf95880040814e7be747e84e0",
+      "src/scansor/stepped_rotational_execution.py": "ebdbd72dc25e3080045fa2fa6dd02cbf40d592244c3f6c507da830474e198781",
+      "src/scansor/stepped_rotational_factors.py": "780c56b68d534a3e29517af56c25e95cbd58e783bbdfc7c66d3a360767ae87aa",
+      "src/scansor/stepped_rotational_generation.py": "83934150f554e5eb035000320e700b08fbba31615be1e98307b4cf925e3cfebe",
+      "src/scansor/stepped_rotational_numpy_backend.py": "dda541b43e21b6de66a45a866ff47913b1a62f2a5da01e24439fe2e52d51a404",
+      "src/scansor/synthetic_fixture.py": "5404a9c90dddf3323a908c5e2369c99b5a8acca3d298b831846a544287985940",
+      "src/scansor/synthetic_fixture_replay.py": "7823cdbf42c3e67d5541fd18c83de553069d85ecf4e7f9abacc35fd8a914ddac",
+      "src/scansor/truth_comparison.py": "f12f08b5b4f9a1b4599ac3256968912de225f3bb7ea9bf7f1043744f76e89aa2",
+      "src/scansor/tube_model_declarations.py": "e5c34a9e5ed095c32a6080aca83cd9df7814415e7685d5c3e3580c5fe89e4ea7"
+    },
+    "versions": {
+      "defusedxml": "0.7.1",
+      "duckdb": "1.5.5",
+      "numpy": "2.5.1",
+      "psutil": "7.2.2",
+      "pyarrow": "25.0.1"
+    }
+  },
+  "io_after_close": {
+    "cancelled_write_bytes": 528220160,
+    "rchar": 8945139519,
+    "read_bytes": 6608875520,
+    "syscr": 41561,
+    "syscw": 38384,
+    "wchar": 6866207393,
+    "write_bytes": 6866636800
+  },
+  "io_at_start": {
+    "cancelled_write_bytes": 0,
+    "rchar": 114791787,
+    "read_bytes": 65429504,
+    "syscr": 2595,
+    "syscw": 0,
+    "wchar": 0,
+    "write_bytes": 0
+  },
+  "keys_only": true,
+  "memory_after_close": {
+    "os_peak_rss_bytes": 384823296,
+    "rss_bytes": 116834304
+  },
+  "memory_at_start": {
+    "os_peak_rss_bytes": 111853568,
+    "rss_bytes": 112869376
+  },
+  "mode": "reopen-and-sort",
+  "order_by": "face, corner, vertex",
+  "probe_sha256": "5b54c713bd970a418b986b04aeaaf4c66d4ea96045071bc455901ddd2096ce8e",
+  "rows": 359904006,
+  "scope": "Isolate full source-corner sorting from the other import staging tables.\n\nThis diagnostic reuses a previously verified generated import. It preserves its\nowned database for a separate fresh-process reopen comparison. It is not a full\nimport, a sampling-coverage result, or a whole-worker budget guarantee.\n",
+  "sort_elapsed_ns": 133468301040,
+  "source": {
+    "compact_ids": true,
+    "id_type": "UINTEGER",
+    "inputs": {
+      "face-area.bin": {
+        "bytes": 959744016,
+        "sha256": "f7e6c17afbda1337ddb86fef833c7f67e2174d962e1773b63cb9c9df56da870c"
+      },
+      "triangles.bin": {
+        "bytes": 1439616024,
+        "sha256": "946ad455016ed84ebe35f36addd89614f1e7dc52d0adcf4d829bfcfe0b0f0e8d"
+      }
+    },
+    "prior_run_sha256": "1b3d14129f07824035002e27e54ed35096af9bd6a8e6ebe261fb60a524821a32",
+    "rows": 359904006,
+    "source_digest": "9b9feff499c82d1c51e3cb52e0ee4d007ea22c54efaf191a1444e96d3ffae623"
+  },
+  "status": "complete"
+}

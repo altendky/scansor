@@ -21,6 +21,7 @@ import pyarrow as pa  # pyright: ignore[reportMissingTypeStubs]
 
 from experiments.mesh_scale_check import file_hash
 from experiments.mesh_scale_run import implementation_record, outside_git
+from scansor.mesh_columns import Column
 from scansor.mesh_digests import RowDigest
 from scansor.mesh_numeric import corner_areas
 from scansor.mesh_resources import (
@@ -42,7 +43,9 @@ def digest_for(count: int) -> RowDigest:
     )
 
 
-def prepare(connection: Any, prior: Path) -> dict[str, Any]:
+def prepare(
+    connection: Any, prior: Path, *, compact_ids: bool = False
+) -> dict[str, Any]:
     report = json.loads(prior.read_text())
     if report["status"] != "complete":
         raise ValueError("requires a previously complete generated run")
@@ -68,8 +71,11 @@ def prepare(connection: Any, prior: Path) -> dict[str, Any]:
         raise ValueError("inconsistent canonical face columns")
     expected, seen = digest_for(3 * faces), 0
     last_progress = time.monotonic()
+    if compact_ids and (faces > 2**32 or vertices > 2**32):
+        raise ValueError("compact diagnostic IDs require counts within uint32")
+    id_type = "UINTEGER" if compact_ids else "UBIGINT"
     connection.execute(
-        "CREATE TABLE mesh_corners(vertex UBIGINT, face UBIGINT, corner UTINYINT, allocation UBIGINT)"
+        f"CREATE TABLE mesh_corners(vertex {id_type}, face {id_type}, corner UTINYINT, allocation UBIGINT)"
     )
     with (
         (source / "triangles.bin").open("rb", buffering=0) as triangles,
@@ -132,6 +138,8 @@ def prepare(connection: Any, prior: Path) -> dict[str, Any]:
         "source_digest": expected.finish(),
         "inputs": inputs,
         "prior_run_sha256": hashlib.sha256(prior.read_bytes()).hexdigest(),
+        "compact_ids": compact_ids,
+        "id_type": id_type,
     }
 
 
@@ -142,8 +150,13 @@ def main() -> None:
     _ = parser.add_argument("--engine-bytes", type=int, required=True)
     _ = parser.add_argument("--force-external", action="store_true")
     _ = parser.add_argument("--keys-only", action="store_true")
+    _ = parser.add_argument("--compact-ids", action="store_true")
+    _ = parser.add_argument("--ids-only", action="store_true")
+    _ = parser.add_argument("--allocation-source-run", type=Path)
     _ = parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.ids_only != (args.allocation_source_run is not None):
+        raise ValueError("ID-only sorting requires an explicit allocation source run")
     directory = outside_git(args.directory.parent) / args.directory.name
     output = outside_git(args.output.parent) / args.output.name
     if output.exists() or args.engine_bytes < 32 * 1024**2:
@@ -167,6 +180,8 @@ def main() -> None:
         "mode": "prepare-and-sort" if args.prior_run else "reopen-and-sort",
         "force_external": args.force_external,
         "keys_only": args.keys_only,
+        "compact_ids": args.compact_ids,
+        "ids_only": args.ids_only,
         "config": config,
         "implementation": implementation_record(),
         "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -176,15 +191,51 @@ def main() -> None:
         "status": "failed",
     }
     started = time.monotonic_ns()
+    allocation_column: Column | None = None
     connection = duckdb.connect(str(directory / "corners.duckdb"), config=config)
     try:
         if args.prior_run:
-            source = prepare(connection, outside_git(args.prior_run))
+            source = prepare(
+                connection, outside_git(args.prior_run), compact_ids=args.compact_ids
+            )
             with manifest.open("x") as stream:
                 _ = stream.write(json.dumps(source, indent=2) + "\n")
         else:
             source = json.loads(manifest.read_text())
+        if source.get("compact_ids", False) != args.compact_ids:
+            raise ValueError("reopened ID layout differs from requested diagnostic")
         result["source"] = source
+        if args.ids_only:
+            prior_path = outside_git(args.allocation_source_run)
+            prior = json.loads(prior_path.read_text())
+            imports = [
+                stage
+                for stage in prior["operations"]["import"]["outcome"]["published"]
+                if stage["kind"] == "import"
+            ]
+            if (
+                len(imports) != 1
+                or hashlib.sha256(prior_path.read_bytes()).hexdigest()
+                != source["prior_run_sha256"]
+            ):
+                raise ValueError(
+                    "allocation source differs from prepared corner inputs"
+                )
+            allocation_path = outside_git(Path(imports[0]["path"]) / "face-area.bin")
+            allocation_column = Column(
+                ColumnSpec("face-area.bin", source["rows"] // 3, 1, "<f8"),
+                max_range_bytes=BATCH * 8,
+                path=allocation_path,
+                reopen=True,
+            )
+            inventory = allocation_column.inventory()
+            observed = {"bytes": inventory["byte_count"], "sha256": inventory["sha256"]}
+            if observed != source["inputs"]["face-area.bin"]:
+                raise ValueError("complete allocation source hash differs")
+            result["allocation_source"] = {
+                "path": str(allocation_path),
+                "actual": observed,
+            }
         result["before_sort"] = {
             "elapsed_ns": time.monotonic_ns() - started,
             "memory": memory_snapshot(),
@@ -207,12 +258,18 @@ def main() -> None:
         # Face/corner is unique in the generated source. Appending the remaining
         # fields preserves its order while allowing DuckDB to omit sort payloads.
         order = "face, corner, vertex, allocation" if args.keys_only else "face, corner"
+        if args.ids_only and args.keys_only:
+            order = "face, corner, vertex"
         result["order_by"] = order
+        selected = (
+            "vertex, face, corner"
+            if args.ids_only
+            else "vertex, face, corner, allocation"
+        )
         with cast(
             Any,
             connection.sql(
-                "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY "
-                + order
+                "SELECT " + selected + " FROM mesh_corners ORDER BY " + order
             ),
         ).to_arrow_reader(batch_size=BATCH) as reader:
             for batch in reader:
@@ -220,8 +277,14 @@ def main() -> None:
                     batch.column(name)
                     .to_numpy(zero_copy_only=False)
                     .astype(dtype, copy=True)
-                    for name, dtype in FIELDS
+                    for name, dtype in (FIELDS[:3] if args.ids_only else FIELDS)
                 )
+                if allocation_column is not None:
+                    allocation = corner_areas(
+                        allocation_column.read_rows(columns[1])
+                    ).view("<u8")
+                    columns = (*columns, allocation)
+                    del allocation
                 digest.update(seen, columns)
                 seen += batch.num_rows
                 del columns, batch
@@ -230,10 +293,17 @@ def main() -> None:
         result["digest"] = digest.finish()
         if result["digest"] != source["source_digest"]:
             raise ValueError("complete sorted tuples differ from source")
+        if allocation_column is not None:
+            inventory = allocation_column.inventory()
+            observed = {"bytes": inventory["byte_count"], "sha256": inventory["sha256"]}
+            if observed != source["inputs"]["face-area.bin"]:
+                raise ValueError("allocation source changed during sorting")
         result["status"] = "complete"
     except Exception as error:
         result["error"] = {"type": type(error).__name__, "message": str(error)}
     finally:
+        if allocation_column is not None:
+            allocation_column.close()
         connection.close()
         result["elapsed_ns"] = time.monotonic_ns() - started
         result["memory_after_close"] = memory_snapshot()
