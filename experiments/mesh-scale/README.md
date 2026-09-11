@@ -401,8 +401,11 @@ fresh-worker import benchmarks. This preparation is not a bounded-import claim.
 
 Small tests complete freeze, native source construction, canonical comparisons,
 display export and full replay for both noise variants. They also check baseline
-corruption, exclusive outputs, and mapping closure on a writer failure. Full-size
-freeze, source preparation and resource runs remain pending.
+corruption, exclusive outputs, and mapping closure on a writer failure. The
+[complete noisy six-million-vertex expectation](expected-grid-3000x2000-noisy-permuted.json)
+is now frozen, and the [separately constructed source](prepared-grid-3000x2000-noisy-permuted.json)
+matched its complete hash. It contains 227,870,246 bytes and remains outside Git.
+Full resource runs for this variant remain pending.
 
 ## Remaining execution evidence
 
