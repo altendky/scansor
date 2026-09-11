@@ -54,7 +54,7 @@ def probe_failure(
     output: Path,
     *,
     kind: str,
-    cancel_phase: str = "coordinate-association-1-join",
+    cancel_phase: str = "coordinate-association-1-lookup",
     chunk_rows: int | None = None,
 ) -> dict[str, Control]:
     workdir, source = outside_git(workdir), outside_git(source)
@@ -172,7 +172,7 @@ def main() -> None:
     _ = parser.add_argument(
         "--kind", choices=("cancel", "startup-budget"), required=True
     )
-    _ = parser.add_argument("--cancel-phase", default="coordinate-association-1-join")
+    _ = parser.add_argument("--cancel-phase", default="coordinate-association-1-lookup")
     _ = parser.add_argument("--chunk-rows", type=int)
     args = parser.parse_args()
     _ = probe_failure(

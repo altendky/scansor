@@ -108,7 +108,9 @@ def test_foundation_every_source_row_across_storage_and_budget(
                 with pytest.raises(MeshImportError, match="sealed"):
                     _ = data.columns[key].inventory()
             seen = 0
-            for batch in data.staging.associated_faces():
+            for batch in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 assert batch.start == seen and len(batch.indices) <= chunk
                 assert (
                     not batch.indices.flags.writeable
@@ -173,7 +175,9 @@ def test_sidecar_interpretation_is_bound_but_paths_and_execution_are_not(
             assert str(tmp_path).encode() not in encode_control(record)
             identities.append(control_id(record))
             count = 0
-            for part in data.staging.associated_faces():
+            for part in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 count += len(part.indices)
                 status, area = face_dispositions(
                     part.indices, part.corners, vertices=data.vertices
@@ -220,19 +224,40 @@ def test_staging_verifies_ids_independently(
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
-def test_missing_lookup_and_repeated_operations(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "query",
+    (
+        "DELETE FROM vertices WHERE vertex=1",
+        "UPDATE vertices SET vertex=0 WHERE vertex=1",
+        "UPDATE vertices SET x=1 WHERE vertex=1",
+        "UPDATE vertices SET x=NULL WHERE vertex=1",
+        "DELETE FROM faces WHERE face=0",
+        "INSERT INTO faces SELECT * FROM faces WHERE face=0",
+        "UPDATE faces SET face=1 WHERE face=0",
+        "UPDATE faces SET i0=1 WHERE face=0",
+        "UPDATE faces SET i0=NULL WHERE face=0",
+    ),
+)
+def test_missing_lookup_and_repeated_operations(tmp_path: Path, query: str) -> None:
     source = tmp_path / "input.ply"
     with source.open("wb") as stream:
         write_recipe(stream, SMALL_RECIPES["right-triangle-orphan-v1"])
     with prepare_import(source, tmp_path, chunk_rows=1) as data:
         for _attempt in range(2):
-            for part in data.staging.associated_faces():
+            for part in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 assert part.indices.tolist() == [[0, 1, 2]]
                 del part
         assert data.staging.association_queries == 2
-        _ = data.staging.connection.execute("DELETE FROM vertices WHERE vertex=1")
-        with pytest.raises(MeshImportError, match="incorrect coordinate lookup"):
-            _ = list(data.staging.associated_faces())
+        _ = data.staging.connection.execute(query)
+        with pytest.raises(MeshImportError) as caught:
+            _ = list(
+                data.staging.associated_faces(
+                    xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+                )
+            )
+        assert caught.value.category == "integrity"
 
 
 @pytest.mark.parametrize("retain", (False, True))
@@ -344,7 +369,11 @@ def test_failure_progress_retains_actual_memory_plan(tmp_path: Path) -> None:
     ):
         expected = data.plan.record()
         data.monitor.cancel()
-        _ = next(data.staging.associated_faces())
+        _ = next(
+            data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            )
+        )
     assert expected is not None
     assert events[-1]["event"] == "final"
     assert events[-1]["plan"] == expected
@@ -396,7 +425,11 @@ def test_cancelled_association_closes_reader_connection_and_workspace(
     with (
         pytest.raises(MeshImportError, match="cancelled"),
         prepare_import(source, tmp_path, chunk_rows=2) as data,
-        closing(data.staging.associated_faces()) as batches,
+        closing(
+            data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            )
+        ) as batches,
     ):
         first = next(batches)
         assert first.start == 0

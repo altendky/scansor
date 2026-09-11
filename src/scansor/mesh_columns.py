@@ -11,6 +11,7 @@ import hashlib
 import io
 import os
 import stat
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -179,6 +180,67 @@ class Column:
                     done += count
             except OSError as error:
                 raise io_failure(error, "columns", row=start) from error
+        result.flags.writeable = False
+        return result
+
+    def read_rows(
+        self, indices: np.ndarray, *, check: Callable[[], None] | None = None
+    ) -> np.ndarray:
+        """Gather a bounded integer ID batch, preserving its order and duplicates.
+
+        Disk reads share the range reader's integrity checks and hold at most one
+        aligned window at a time. The caller reserves the result, a window of at
+        most max_range_bytes, and O(len(indices)) sorting/scatter scratch. This
+        is a bounded gather, not a cache or a global external sorting backend.
+        """
+        if self._closed:
+            raise MeshImportError("execution", "columns", "column is closed")
+        if indices.ndim != 1 or indices.dtype.kind not in "iu":
+            raise MeshImportError(
+                "structure", "columns", "row IDs require a one-dimensional integer array"
+            )
+        if len(indices) * self.spec.stride > self.max_range_bytes:
+            raise MeshImportError(
+                "resource-budget-too-small", "columns", "gather exceeds its reservation"
+            )
+        if len(indices) and (
+            int(indices.min()) < 0 or int(indices.max()) >= self.spec.rows
+        ):
+            raise MeshImportError("structure", "columns", "row ID is out of range")
+        if self._failed or (len(indices) and int(indices.max()) >= self._written):
+            raise MeshImportError(
+                "integrity", "columns", "requested rows are not valid written data"
+            )
+        if check is not None:
+            check()
+        if self._rows is not None:
+            result = self._rows[indices]
+        elif not len(indices):
+            # Even an empty gather must detect a changed disk-column length.
+            return self.read_range(0, 0)
+        else:
+            shape = (
+                (len(indices),)
+                if self.spec.width == 1
+                else (len(indices), self.spec.width)
+            )
+            result = np.empty(shape, dtype=self.spec.dtype)
+            order = np.argsort(indices)
+            sorted_ids = indices[order].astype(np.intp, copy=False)
+            window_rows = min(65_536, self.max_range_bytes // self.spec.stride)
+            target = result.view("u1").reshape(len(indices), self.spec.stride)
+            cursor = 0
+            while cursor < len(indices):
+                if check is not None:
+                    check()
+                start = int(sorted_ids[cursor]) // window_rows * window_rows
+                stop = min(start + window_rows, self._written)
+                limit = int(np.searchsorted(sorted_ids, stop))
+                window = self.read_range(start, stop)
+                raw = window.view("u1").reshape(stop - start, self.spec.stride)
+                target[order[cursor:limit]] = raw[sorted_ids[cursor:limit] - start]
+                cursor = limit
+                del raw, window
         result.flags.writeable = False
         return result
 

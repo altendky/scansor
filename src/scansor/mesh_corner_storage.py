@@ -22,46 +22,6 @@ from scansor.mesh_semantics import ColumnSpec
 type CornerColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 
-def verify_coordinates(data: ImportFoundation) -> None:
-    """Bind every staged coordinate word, not only its source ID, before lookup."""
-    phase, seen = "verify-coordinate-words", 0
-    data.monitor.progress(phase, 0, data.vertices)
-    with cast(
-        Any,
-        data.staging.connection.sql(
-            "SELECT vertex, x, y, z FROM vertices ORDER BY vertex"
-        ),
-    ).to_arrow_reader(batch_size=data.plan.batch_rows) as reader:
-        for batch in reader:
-            data.monitor.check()
-            count = batch.num_rows
-            if not 0 < count <= data.plan.batch_rows or seen + count > data.vertices:
-                raise MeshImportError(
-                    "integrity", phase, "unexpected staged coordinate count"
-                )
-            ids = _numpy(batch, "vertex", "<u8")
-            expected = (
-                data.columns["xyz.bin"].read_range(seen, seen + count).view("<u4")
-            )
-            if not np.array_equal(
-                ids, np.arange(seen, seen + count, dtype="<u8")
-            ) or any(
-                not np.array_equal(_numpy(batch, axis, "<u4"), expected[:, position])
-                for position, axis in enumerate(("x", "y", "z"))
-            ):
-                raise MeshImportError(
-                    "integrity",
-                    phase,
-                    "staged source ID or coordinate differs from canonical column",
-                    row=seen,
-                )
-            seen += count
-            data.monitor.progress(phase, seen, data.vertices)
-            del batch, ids, expected
-    if seen != data.vertices:
-        raise MeshImportError("integrity", phase, "missing staged coordinates")
-
-
 class CornerStaging:
     """Verified source tuples, then one total-order query for contribution folds.
 

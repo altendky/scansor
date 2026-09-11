@@ -393,12 +393,19 @@ def test_ram_disk_column_exact_bytes_and_lifetimes(
             assert result.tobytes() == source[start : start + chunk].tobytes()
             assert not result.flags.writeable
             assert not np.shares_memory(result, source)
+        ids = np.resize(np.array([spec.rows - 1, 0, spec.rows // 2, 0]), chunk)
+        gathered = column.read_rows(ids)
+        assert gathered.tobytes() == source[ids].tobytes()
+        assert gathered.flags.owndata and not gathered.flags.writeable
         inventories.append(column.inventory())
         kept = column.read_range(0, 1)
         column.close()
         assert kept.tobytes() == source[:1].tobytes()
+        assert gathered.tobytes() == source[ids].tobytes()
         with pytest.raises(MeshImportError, match="closed"):
             _ = column.read_range(0, 1)
+        with pytest.raises(MeshImportError, match="closed"):
+            _ = column.read_rows(ids[:0])
     assert inventories[0] == inventories[1]
     assert inventories[0]["sha256"] == hashlib.sha256(source.tobytes()).hexdigest()
     disk = Column(
@@ -413,6 +420,7 @@ def test_column_invalid_inputs_empty_and_unsealed_data(tmp_path: Path) -> None:
     for path in (None, tmp_path / "empty.bin"):
         column = Column(spec, path=path, max_range_bytes=12)
         assert column.read_range(0, 0).shape == (0, 3)
+        assert column.read_rows(np.empty(0, dtype="<u8")).shape == (0, 3)
         column.write_range(0, np.empty((0, 3), dtype="<i4"))
         column.finish()
         assert column.inventory()["sha256"] == hashlib.sha256(b"").hexdigest()
@@ -476,6 +484,8 @@ def test_snapshot_and_column_write_failures(
         column.write_range(0, np.ones(2))
     with pytest.raises(MeshImportError):
         column.finish()
+    with pytest.raises(MeshImportError, match="not valid written"):
+        _ = column.read_rows(np.array([0]))
     column.close()
 
 

@@ -18,6 +18,7 @@ import duckdb
 import numpy as np
 import pyarrow as _pa  # pyright: ignore[reportMissingTypeStubs]
 
+from scansor.mesh_columns import Column
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_resources import MemoryPlan, ResourceMonitor
 
@@ -65,23 +66,6 @@ def duckdb_failure(error: duckdb.Error, phase: str) -> MeshImportError:
 # PyArrow ships no type stubs. Keep its dynamic API at this execution boundary;
 # _numpy checks every output dtype, null count and ownership contract at runtime.
 pa: Any = _pa
-
-_ASSOCIATION = """
-WITH corners AS (
-    SELECT face, corner,
-           CASE corner WHEN 0 THEN i0 WHEN 1 THEN i1 ELSE i2 END AS vertex
-    FROM faces CROSS JOIN
-         (VALUES (0::UTINYINT), (1::UTINYINT), (2::UTINYINT)) AS c(corner)
-)
-SELECT c.face, c.corner, c.vertex,
-       CAST(v.vertex IS NOT NULL AS UTINYINT) AS found,
-       coalesce(v.x, 0::UINTEGER) AS x,
-       coalesce(v.y, 0::UINTEGER) AS y,
-       coalesce(v.z, 0::UINTEGER) AS z
-FROM corners c LEFT JOIN vertices v
-  ON (CASE WHEN c.vertex >= 0 THEN c.vertex::UBIGINT ELSE NULL END) = v.vertex
-"""
-
 
 def warm_baseline() -> None:
     """Initialize the actual input/output path before measuring worker baseline."""
@@ -319,126 +303,130 @@ class DuckStaging:
         except BaseException as error:
             self._error(error, "duckdb-verify")
 
-    def associated_faces(self) -> Generator[AssociatedFaces]:
+    def _verify_coordinates(self, xyz: Column) -> None:
+        """Bind every staged coordinate word before each association pass."""
+        phase, seen = "verify-coordinate-words", 0
+        self.monitor.progress(phase, 0, self.vertices)
+        with cast(
+            Any,
+            self.connection.sql("SELECT vertex, x, y, z FROM vertices ORDER BY vertex"),
+        ).to_arrow_reader(batch_size=self.plan.batch_rows) as reader:
+            for batch in reader:
+                self.monitor.check()
+                count = batch.num_rows
+                if not 0 < count <= self.plan.batch_rows or seen + count > self.vertices:
+                    raise MeshImportError(
+                        "integrity", phase, "unexpected staged coordinate count"
+                    )
+                ids = _numpy(batch, "vertex", "<u8")
+                expected = xyz.read_range(seen, seen + count).view("<u4")
+                if not np.array_equal(
+                    ids, np.arange(seen, seen + count, dtype="<u8")
+                ) or any(
+                    not np.array_equal(_numpy(batch, axis, "<u4"), expected[:, position])
+                    for position, axis in enumerate(("x", "y", "z"))
+                ):
+                    raise MeshImportError(
+                        "integrity",
+                        phase,
+                        "staged source ID or coordinate differs from canonical column",
+                        row=seen,
+                    )
+                seen += count
+                self.monitor.progress(phase, seen, self.vertices)
+                del batch, ids, expected
+        if seen != self.vertices:
+            raise MeshImportError("integrity", phase, "missing staged coordinates")
+
+    def associated_faces(
+        self, *, xyz: Column, triangles: Column
+    ) -> Generator[AssociatedFaces]:
         if self._closed or self._failed or not self._ready:
             raise MeshImportError(
                 "integrity",
                 "coordinate-association",
                 "requires complete, verified staging",
             )
-        self.association_queries += 1
-        phase = f"coordinate-association-{self.association_queries}"
-        capacity = self.plan.batch_rows * 3
-        indices = np.empty((self.plan.batch_rows, 3), dtype="<i4")
-        points = np.empty((self.plan.batch_rows, 3, 3), dtype="<f4")
-        filled = ordinal = output_start = 0
-        try:
-            # JOIN and ORDER BY in one query exhausted the engine reservation
-            # on the 60M/120M fixture. Materialize the join in our disposable
-            # disk database before starting the independent external sort.
-            # Recheck this separation against DuckDB release notes on upgrades.
-            # Rebuild on each call so checked staging mutations cannot be hidden
-            # by cached association results. Workspace cleanup owns an unfinished
-            # table if cancellation or an abandoned generator interrupts us.
-            self.monitor.progress(phase + "-join", 0, self.faces)
-            _ = self.connection.execute(
-                "CREATE OR REPLACE TABLE associated_corners AS " + _ASSOCIATION
+        if (
+            xyz.spec.rows != self.vertices
+            or triangles.spec.rows != self.faces
+            or xyz.spec.width != 3
+            or triangles.spec.width != 3
+            or xyz.spec.dtype != np.dtype("<f4")
+            or triangles.spec.dtype != np.dtype("<i4")
+        ):
+            raise MeshImportError(
+                "integrity", "coordinate-association", "incompatible canonical columns"
             )
-            self.monitor.progress(phase + "-join", self.faces, self.faces)
+        self.association_queries += 1
+        phase = f"coordinate-association-{self.association_queries}-lookup"
+        seen = 0
+        try:
+            # The full 60M fixture exceeded the 512 MiB plan's engine reservation
+            # in a global coordinate hash join. Canonical columns already supply
+            # bounded row-ID access. Keep DuckDB's source ordering and verify its
+            # coordinate/index copies on every pass; do not cache checked results.
+            self._verify_coordinates(xyz)
             self.monitor.progress(phase, 0, self.faces)
             with cast(
                 Any,
-                self.connection.sql(
-                    "SELECT * FROM associated_corners ORDER BY face, corner"
-                ),
+                self.connection.sql("SELECT face, i0, i1, i2 FROM faces ORDER BY face"),
             ).to_arrow_reader(batch_size=self.plan.batch_rows) as reader:
                 for batch in reader:
                     self.monitor.check()
-                    if batch.num_rows > self.plan.batch_rows:
+                    count = batch.num_rows
+                    if not 0 < count <= self.plan.batch_rows or seen + count > self.faces:
                         raise MeshImportError(
-                            "resource",
-                            "coordinate-association",
-                            "engine output exceeds batch reservation",
+                            "integrity", phase, "unexpected staged face count"
                         )
                     face = _numpy(batch, "face", "<u8")
-                    corner = _numpy(batch, "corner", "u1")
-                    vertex = _numpy(batch, "vertex", "<i4")
-                    found = _numpy(batch, "found", "u1")
-                    words = [_numpy(batch, axis, "<u4") for axis in ("x", "y", "z")]
-                    expected = np.arange(
-                        ordinal, ordinal + batch.num_rows, dtype=np.uint64
-                    )
-                    in_range = (vertex.astype(np.int64) >= 0) & (
-                        vertex.astype(np.int64) < self.vertices
-                    )
-                    if (
-                        not np.array_equal(face, expected // 3)
-                        or not np.array_equal(corner, expected % 3)
-                        or not np.array_equal(found, in_range.astype("u1"))
+                    if not np.array_equal(
+                        face, np.arange(seen, seen + count, dtype="<u8")
                     ):
                         raise MeshImportError(
                             "integrity",
-                            "coordinate-association",
-                            "missing/duplicated corner or incorrect coordinate lookup",
-                            row=ordinal // 3,
+                            phase,
+                            "missing or duplicated source face ID",
+                            row=seen,
                         )
-                    ordinal += batch.num_rows
-                    if ordinal > 3 * self.faces:
+                    indices = np.column_stack(
+                        [_numpy(batch, name, "<i4") for name in ("i0", "i1", "i2")]
+                    )
+                    if not np.array_equal(
+                        indices, triangles.read_range(seen, seen + count)
+                    ):
                         raise MeshImportError(
                             "integrity",
-                            "coordinate-association",
-                            "extra source corners",
+                            phase,
+                            "associated indices differ from canonical source faces",
+                            row=seen,
                         )
-                    offset = 0
-                    while offset < batch.num_rows:
-                        count = min(capacity - filled, batch.num_rows - offset)
-                        indices.reshape(-1)[filled : filled + count] = vertex[
-                            offset : offset + count
-                        ]
-                        target = points.view("<u4").reshape(-1, 3)
-                        for axis in range(3):
-                            target[filled : filled + count, axis] = words[axis][
-                                offset : offset + count
-                            ]
-                        filled += count
-                        offset += count
-                        if filled == capacity:
-                            emitted_indices, emitted_points = (
-                                indices.copy(),
-                                points.copy(),
-                            )
-                            emitted_indices.flags.writeable = (
-                                emitted_points.flags.writeable
-                            ) = False
-                            yield AssociatedFaces(
-                                output_start, emitted_indices, emitted_points
-                            )
-                            output_start += self.plan.batch_rows
-                            filled = 0
-                            self.monitor.progress(phase, output_start, self.faces)
-                            del emitted_indices, emitted_points
-                    del face, corner, vertex, found, words, expected, in_range, batch
-            if ordinal != self.faces * 3 or filled % 3:
-                raise MeshImportError(
-                    "integrity",
-                    "coordinate-association",
-                    "incomplete source corner stream",
-                )
-            if filled:
-                rows = filled // 3
-                emitted_indices, emitted_points = (
-                    indices[:rows].copy(),
-                    points[:rows].copy(),
-                )
-                emitted_indices.flags.writeable = emitted_points.flags.writeable = False
-                yield AssociatedFaces(output_start, emitted_indices, emitted_points)
-                output_start += rows
-            _ = self.connection.execute("DROP TABLE associated_corners")
-            self.monitor.progress(phase, output_start, self.faces)
+                    points = np.zeros((count, 3, 3), dtype="<f4")
+                    flat = indices.reshape(-1)
+                    valid = np.flatnonzero(
+                        (flat >= 0) & (flat.astype(np.int64) < self.vertices)
+                    )
+                    gather_rows = min(
+                        self.plan.batch_rows, xyz.max_range_bytes // xyz.spec.stride
+                    )
+                    target = points.view("<u4").reshape(-1, 3)
+                    for start in range(0, len(valid), gather_rows):
+                        positions = valid[start : start + gather_rows]
+                        gathered = xyz.read_rows(flat[positions], check=self.monitor.check)
+                        target[positions] = gathered.view("<u4")
+                        del positions, gathered
+                    indices.flags.writeable = points.flags.writeable = False
+                    yield AssociatedFaces(seen, indices, points)
+                    seen += count
+                    self.monitor.progress(phase, seen, self.faces)
+                    del face, indices, points, flat, valid, target, batch
+            if seen != self.faces:
+                raise MeshImportError("integrity", phase, "missing staged faces")
+            self.monitor.progress(phase, seen, self.faces)
         except GeneratorExit:
             raise
         except BaseException as error:
-            self._error(error, "coordinate-association")
+            self._error(error, phase)
 
     def close(self) -> None:
         self.monitor.set_interrupt(None)

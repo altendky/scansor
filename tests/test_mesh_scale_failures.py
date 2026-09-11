@@ -10,9 +10,16 @@ from scansor.mesh_controls import decode_control
 from tests.test_mesh_scale_run import fixture
 
 
-@pytest.mark.parametrize("kind", ("cancel", "startup-budget"))
+@pytest.mark.parametrize(
+    ("kind", "phase"),
+    (
+        ("cancel", "decode-vertices"),
+        ("cancel", "coordinate-association-1-lookup"),
+        ("startup-budget", "decode-vertices"),
+    ),
+)
 def test_real_stop_probe_preserves_source_and_unrelated_files(
-    tmp_path: Path, kind: str
+    tmp_path: Path, kind: str, phase: str
 ) -> None:
     frozen, source = fixture(tmp_path)
     before = source.read_bytes()
@@ -24,7 +31,7 @@ def test_real_stop_probe_preserves_source_and_unrelated_files(
         "case",
         report,
         kind=kind,
-        cancel_phase="decode-vertices",
+        cancel_phase=phase,
         chunk_rows=1,
     )
     assert result["status"] == "expected-failure-verified", result

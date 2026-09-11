@@ -439,6 +439,16 @@ operations, retained its final phase/failure report, and removed owned scratch.
 The 6 GiB cgroup recorded reclaim events, with no OOM, OOM-kill or swap. This
 failure leaves the complete sixty-million-vertex 512 MiB target unmet.
 
+The [noisy sixty-million-vertex 512 MiB disk case](run-grid-10000x6000-noisy-512-r1.json)
+at `971dc67` also failed in the first coordinate-association join, after 111.72
+seconds. DuckDB could not pin 256 KiB with 161.2 MiB of its approximately
+161.4 MiB engine allocation in use. Kernel/sample worker peaks were
+396.73/397.24 MiB, below the requested 512 MiB. It retained final phase telemetry,
+published nothing, started no dependent operation and removed owned scratch.
+The separate 6 GiB scope recorded reclaim events, with no OOM, OOM-kill or swap.
+The independent parent observer's largest RSS gap including edges was 5.41 ms.
+This confirms the low-memory failure for both full-sized grid configurations.
+
 That checkpoint changed supervisor polling from 5 ms to 1 ms and reused process
 identity metadata while taking fresh memory observations. The failed run's
 largest observed RSS gap was 5.74 ms, including startup and exit edges, with no
@@ -539,7 +549,7 @@ PYTHONPATH=src python -m experiments.mesh_scale_failures \
   --output /absolute/new/cancel-probe.json
 ```
 
-The default cancellation point is the first coordinate-association join, after
+The default cancellation point is the first coordinate-association lookup, after
 complete source staging. `--cancel-phase` can select another observed phase.
 `--kind startup-budget` instead requests an intentionally insufficient 1 MiB
 worker budget. Each underlying measured case remains a failed outcome. The
@@ -556,11 +566,46 @@ them. Markers and failed-case evidence remain outside Git for inspection. These
 checks establish observed preservation; they do not test isolation against an
 unrelated hostile process running as the same user.
 
+Both probes ran against the complete 2,279,584,241-byte sixty-million-vertex
+noiseless source at `971dc67`. The
+[cancellation probe](probe-cancel-grid-10000x6000-flat-r1.json) stopped at the
+first coordinate-association join after complete staging; its
+[underlying worker report](cancel-grid-10000x6000-flat-r1-run.json) retains the
+initiating cancellation and final phase telemetry. Worker elapsed time was
+102.61 seconds, kernel/sample peak RSS was 341.01/342.21 MiB, and the maximum
+sampling gap including edges was 4.74 ms.
+
+The [startup-budget probe](probe-startup-budget-grid-10000x6000-flat-r1.json)
+requested an intentionally insufficient 1 MiB limit. Its
+[worker report](startup-budget-grid-10000x6000-flat-r1-run.json) records a
+supervisor resource failure after 0.033 seconds, before worker phase telemetry.
+Kernel peak RSS was 79.84 MiB and sampled RSS reached 9.55 MiB; no phase telemetry
+was available to locate the kernel peak within the worker's lifetime. The maximum
+sampling gap was 1.42 ms. This is an expected failed budget, not a capacity result.
+
+Both probes matched the complete source hash before and after execution,
+preserved unrelated nested markers and metadata, published nothing, started no
+dependent operation and removed owned scratch. The probe reports establish these
+checks; their underlying measured worker outcomes remain failures.
+
 ## Remaining execution evidence
 
-The harness still needs measured sequential equivalent workloads at both budgets,
-adversarial source order and valence, whole-worker RSS and phase resource
-measurements, cancellation/resource-failure evidence, and full displayable-row
-export measurements. Large artifacts remain outside Git. Ordinary CI runs only
-small correctness tests. A source or expectation freeze is not a completed
-scale, platform, viewer, or physical-accuracy gate.
+The complete sixty-million-vertex 512 MiB target remains unmet. The noisy 2 GiB
+case is still in progress. The smaller grid, reordered-grid, fan and intentional
+failure results above are measured evidence; some operations missed the 10 ms
+sampling target and require renewed measurement with the independent observer.
+Changes to memory planning or coordinate lookup also require fresh full cases
+before they inherit any prior capacity result.
+
+The candidate lookup path uses bounded canonical row gathers in place of the
+global coordinate hash join. It retains DuckDB source ordering and independently
+checks staged coordinate words and face indices on each pass. It has not yet
+established either a full 512 MiB result or its performance under reordered
+source IDs. Contribution ordering and display remapping have their own resource
+requirements; removing one failed join cannot certify the full pipeline.
+
+The numeric CI matrix does not establish full-pipeline resource behavior on
+Windows or macOS. The stress measurements here are from one Linux host with
+uncontrolled caches; full-scale viewer interaction is also unmeasured. Large
+artifacts remain outside Git, and ordinary CI runs only small correctness tests.
+The optional private specimen and physical-accuracy questions remain separate.

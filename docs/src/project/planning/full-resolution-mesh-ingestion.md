@@ -150,7 +150,10 @@ visibly. It neither follows embedded paths nor derives units or calibration.
 The original bytes remain part of the source inventory regardless of interpretation.
 
 [Columns](../../../../src/scansor/mesh_columns.py) expose bounded, owned,
-read-only NumPy ranges over reserved RAM or buffered raw files. Writes require
+read-only NumPy ranges and row-ID gathers over reserved RAM or buffered raw files.
+Gathers preserve request order and duplicates; disk reads group a bounded request
+into bounded windows without mapping the full column or retaining a cache. The
+caller reserves output, window and index-sorting scratch. Writes require
 exact contiguous dtypes and source-prefix coverage; sealing checks complete rows
 and exact byte lengths. Source XYZ/normals, raw triangle indices, vertex status
 and normal status are populated without dropping rejected rows. Exceptional
@@ -164,10 +167,15 @@ these pending columns and never advertise complete import/contribution status.
 64-bit source ordinals, signed corner indices and unsigned coordinate words.
 Storing float32 words as integers avoids engine NaN/null conversion. Bounded
 Arrow inputs are consumed synchronously. Complete ordered ID scans reject missing
-or duplicate rows. One left-association query emits all corners in source order,
-checks exact face/corner cardinality and valid-index lookup coverage, and returns
-owned NumPy face batches. Invalid-index rows remain represented. The consumer
-must release each batch before advancing; Arrow views stay inside their reader
+or duplicate rows. Coordinate association verifies all staged coordinate words,
+reads staged faces in source order, checks their indices against canonical
+triangles and gathers valid coordinates from the canonical columns in bounded
+batches. These checks repeat on every consumption pass. Invalid-index corners
+retain zero coordinates and remain represented in owned NumPy face batches.
+This replaces a global hash join that exceeded the engine reservation on the
+sixty-million-vertex 512 MiB case; the new path still needs full-scale resource
+validation. DuckDB continues to order source rows and contribution tuples. The
+consumer must release each batch before advancing; Arrow views stay inside their reader
 scope. No table-sized result fetch or complete query per output batch is used.
 PyArrow's untyped API is confined to this checked execution boundary. Upgrade
 comments require renewed reader/copy/lifetime checks.
