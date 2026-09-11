@@ -51,7 +51,7 @@ def test_gather_order_duplicates_and_ownership(
     assert result.tobytes() == expected
 
 
-def test_disk_gather_reads_each_bounded_window_once(
+def test_disk_gather_coalesces_nearby_ids_into_bounded_spans(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reads: list[tuple[int, int]] = []
@@ -66,7 +66,43 @@ def test_disk_gather_reads_each_bounded_window_once(
         monkeypatch.setattr(Column, "read_range", tracked)
         ids = np.array([17, 0, 9, 17, 8, 0, 23, 5])
         assert column.read_rows(ids).tobytes() == values[ids].tobytes()
-        assert reads == [(0, 8), (8, 16), (16, 24)]
+        assert reads == [(0, 1), (5, 10), (17, 18), (23, 24)]
+
+
+def test_sparse_gather_io_is_bounded_by_request_not_source_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transferred = 0
+    original = Column.read_range
+
+    def tracked(column: Column, start: int, stop: int) -> np.ndarray:
+        nonlocal transferred
+        transferred += (stop - start) * column.spec.stride
+        return original(column, start, stop)
+
+    with _column(tmp_path, disk=True, rows=262_144, batch=65_536) as (column, values):
+        monkeypatch.setattr(Column, "read_range", tracked)
+        ids = np.array([200_000, 0, 300, 1_900, 8_700, 10_000, 50_000, 100_000])
+        assert column.read_rows(ids).tobytes() == values[ids].tobytes()
+        assert transferred == len(ids) * column.spec.stride
+
+
+def test_coalesced_spans_still_obey_each_read_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: list[tuple[int, int]] = []
+    original = Column.read_range
+
+    def tracked(column: Column, start: int, stop: int) -> np.ndarray:
+        assert 0 < stop - start <= 8
+        reads.append((start, stop))
+        return original(column, start, stop)
+
+    with _column(tmp_path, disk=True, rows=32, batch=8) as (column, values):
+        monkeypatch.setattr(Column, "read_range", tracked)
+        ids = np.arange(8) * 4
+        assert column.read_rows(ids).tobytes() == values[ids].tobytes()
+    assert sum(stop - start for start, stop in reads) <= 4 * len(ids)
 
 
 @pytest.mark.parametrize("disk", (False, True))
@@ -151,4 +187,4 @@ def test_gather_checks_cancellation_between_disk_windows(
         monkeypatch.setattr(Column, "read_range", tracked)
         with pytest.raises(MeshImportError, match="cancelled between windows"):
             _ = column.read_rows(np.array([0, 9, 17]), check=check)
-    assert reads == [(0, 8)]
+    assert reads == [(0, 1)]

@@ -1,0 +1,64 @@
+{
+  "batch_rows": 65536,
+  "batches": [
+    {
+      "ids_sha256": "3c8fa99178e0ae81c61f0c93cca6ce844ea8eeec57be118d84616e744f2daec4",
+      "index": 0,
+      "result_sha256": "514de3c325418c3c268b166bb725dd8cf4a4785dc766f09a34b076ca07b78a6f"
+    },
+    {
+      "ids_sha256": "338137a5ae52a64e7e5f446db3ed37522cbe53ee2241b4bc03b0229803a7267d",
+      "index": 1,
+      "result_sha256": "82e924f308cb231653d4ba483249b6907e47fb87b4aca5c86b217b39c7c65640"
+    },
+    {
+      "ids_sha256": "32e78da4aeb6f1e13be5001fbcf6c4b8e13457f7f583e99b26378edb48c3cca3",
+      "index": 2,
+      "result_sha256": "511c79182525f3e1897d1df4a2bb1f5541d1cdafa6b5d16d600bd303cb6d252a"
+    },
+    {
+      "ids_sha256": "7d3f72d37f0f0287b00a63396467c7faa811be16d7dc11722b3aafacce38b7ea",
+      "index": 3,
+      "result_sha256": "7c5f84e55c895589ecc1272b917c2e1104d508da1d0a520bd37605a64d46ae6c"
+    }
+  ],
+  "column_module_sha256": "2552991bff13ea51133baaa4ce4a9dcdd7bb2ec3676f6a804e61235874d9a7bc",
+  "elapsed_ns": 5758830083,
+  "faces": 11990002,
+  "inputs_sha256": {
+    "triangles": "7e03715eda9448443c7cf76c88fd3fd21093f09b746807f3b96f47cd35c123b0",
+    "xyz": "2c637fb8738736a846f2af475875155cee334548d0fa2875ff884f2af803ce12"
+  },
+  "largest_range_bytes": 12,
+  "logical_coordinate_bytes_read": 3145728,
+  "memory_after": {
+    "os_peak_rss_bytes": 54366208,
+    "rss_bytes": 52899840
+  },
+  "numpy": "2.5.1",
+  "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+  "probe_sha256": "f6bebfb3bfd6d4d4fd551bcbb8e619775e6e45855c552df5eb315deddaec9e14",
+  "process_io_after": {
+    "cancelled_write_bytes": 0,
+    "rchar": 226564843,
+    "read_bytes": 0,
+    "syscr": 263024,
+    "syscw": 0,
+    "wchar": 0,
+    "write_bytes": 0
+  },
+  "process_io_before": {
+    "cancelled_write_bytes": 0,
+    "rchar": 222370439,
+    "read_bytes": 0,
+    "syscr": 874,
+    "syscw": 0,
+    "wchar": 0,
+    "write_bytes": 0
+  },
+  "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+  "range_reads": 262144,
+  "requested_coordinate_bytes": 3145728,
+  "scope": "Bounded gather diagnostic only; no full-import or RSS-budget claim. Sequential fresh processes, input prehash warms uncontrolled caches, elapsed time includes per-range accounting. Logical row bytes and process I/O counters are distinct from physical device reads.",
+  "vertices": 6000000
+}

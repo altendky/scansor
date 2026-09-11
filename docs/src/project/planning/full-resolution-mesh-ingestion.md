@@ -150,9 +150,14 @@ visibly. It neither follows embedded paths nor derives units or calibration.
 The original bytes remain part of the source inventory regardless of interpretation.
 
 [Columns](../../../../src/scansor/mesh_columns.py) expose bounded, owned,
-read-only NumPy ranges and row-ID gathers over reserved RAM or buffered raw files.
+read-only NumPy ranges and row-ID gathers over reserved RAM or raw files.
 Gathers preserve request order and duplicates; disk reads group a bounded request
-into bounded windows without mapping the full column or retaining a cache. The
+into tight bounded spans without mapping the full column or retaining a cache.
+Unbuffered Python I/O avoids Python read-ahead beyond each span; OS caching and
+filesystem read-ahead remain separate.
+Coalescing permits at most three unrequested rows between requested IDs, so total
+logical row bytes read are bounded by four times the request size, independent
+of column size. Physical device I/O can be larger. The
 caller reserves output, window and index-sorting scratch. Writes require
 exact contiguous dtypes and source-prefix coverage; sealing checks complete rows
 and exact byte lengths. Source XYZ/normals, raw triangle indices, vertex status
@@ -899,7 +904,7 @@ windows with all alignment pages charged to the budget. Do not keep a whole-file
 mapping alive while assuming its touched pages cost nothing. Do not rely solely
 on garbage collection, advisory page eviction, or `memmap.flush()` to release
 resident pages. A documented platform that cannot close windows reliably uses
-buffered range reads. Both storage backends execute the same row and arithmetic
+bounded range reads. Both storage backends execute the same row and arithmetic
 semantics.
 
 The raw-column reference strategy processes the mesh in these passes. The initial

@@ -449,8 +449,8 @@ The separate 6 GiB scope recorded reclaim events, with no OOM, OOM-kill or swap.
 The independent parent observer's largest RSS gap including edges was 5.41 ms.
 This confirms the low-memory failure for both full-sized grid configurations.
 
-That checkpoint changed supervisor polling from 5 ms to 1 ms and reused process
-identity metadata while taking fresh memory observations. The failed run's
+Checkpoint `4ccb5e1` changed supervisor polling from 5 ms to 1 ms and reused process
+identity metadata while taking fresh memory observations. Its noiseless 512 MiB run's
 largest observed RSS gap was 5.74 ms, including startup and exit edges, with no
 gap above 10 ms. This is observed coverage for that run, not a scheduling
 guarantee. The kernel lifetime high-water measurement remains independent.
@@ -588,10 +588,65 @@ preserved unrelated nested markers and metadata, published nothing, started no
 dependent operation and removed owned scratch. The probe reports establish these
 checks; their underlying measured worker outcomes remain failures.
 
+## Complete sixty-million-vertex noisy case at 2 GiB
+
+The [noisy disk case at `971dc67`](run-grid-10000x6000-noisy-2048-r1.json)
+completed import/contribution, full canonical checks, display export, full display
+checks and fresh-worker replay of every exported file. All 60,000,000 vertices
+and 119,968,002 triangles were accounted for; every frozen canonical column hash
+and row digest matched. All owned scratch was removed. Published artifacts total
+20,217,841,369 logical bytes.
+
+| Operation | Worker elapsed seconds | Kernel peak MiB | Sampled peak MiB | Largest RSS gap ms |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 1,231.82 | 1,554.57 | 1,555.73 | 8.84 |
+| Display export | 593.57 | 1,817.24 | 1,818.39 | 10.29 |
+| Full display replay | 614.68 | 1,814.28 | 1,815.28 | 10.27 |
+
+Each worker stayed below 2 GiB. The independent observer met the 10 ms sampling
+target throughout import; export and replay each had one gap above 10 ms and
+retain failed sampling-coverage observations. Whole-lifetime kernel high-water
+counters remain separate evidence. The 6 GiB scope recorded reclaim events,
+with no OOM, OOM-kill or swap; caches were uncontrolled. Sampled temporary peaks
+were 21,916,133,286, 23,930,844,604 and 24,327,304,783 logical bytes, and
+20,839,178,240, 23,738,089,472 and 24,143,069,184 allocated bytes, respectively.
+Non-atomic disk-sampling limitations still apply. This case predates the bounded
+canonical gather change and does not establish its performance or capacity.
+
+## Sparse coordinate gather diagnostic
+
+Codex review of `0705424` identified that an aligned-window gather can read
+nearly the whole XYZ column for every scattered request batch. The reader now
+coalesces tight spans with at most three intervening unrequested rows, bounds
+each span by the range reservation and uses unbuffered Python I/O. Logical row
+bytes transferred are bounded by four times requested row bytes. Filesystem
+read-ahead and physical device I/O remain separate.
+
+The [diagnostic runner](../mesh_column_gather_probe.py) compared four identical
+65,536-ID batches from the already verified full six-million-vertex permuted
+artifact in sequential fresh processes. Each prehashed both complete input
+columns before measuring, so cache conditions were warm but uncontrolled.
+Both processes ran under separate 6 GiB scopes with swap disabled. The
+[prior aligned-window report](gather-before-tight-spans-r1.json) and
+[tight-span report](gather-after-tight-spans-r1.json) retain exact source/probe
+hashes, input and output hashes, process I/O counters and memory observations.
+Each requested ID and returned coordinate byte matched between implementations.
+
+| Policy | Elapsed seconds | Logical coordinate bytes read | Range reads |
+| --- | ---: | ---: | ---: |
+| Aligned windows at `625aefd` | 0.06347 | 288,000,000 | 368 |
+| Tight spans | 5.75883 | 3,145,728 | 262,144 |
+
+The tighter path fixes read amplification but substantially regresses elapsed
+time on these cached, scattered requests because it issues many small reads.
+Timing includes per-range instrumentation. This tradeoff is retained explicitly;
+it is not a speedup or a full-import capacity result. Whole-pipeline timing and
+memory still require fresh full-size measurements, including reordered inputs.
+
 ## Remaining execution evidence
 
-The complete sixty-million-vertex 512 MiB target remains unmet. The noisy 2 GiB
-case is still in progress. The smaller grid, reordered-grid, fan and intentional
+The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
+grid cases completed. The smaller grid, reordered-grid, fan and intentional
 failure results above are measured evidence; some operations missed the 10 ms
 sampling target and require renewed measurement with the independent observer.
 Changes to memory planning or coordinate lookup also require fresh full cases
