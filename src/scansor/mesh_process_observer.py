@@ -64,11 +64,17 @@ class ProcessObserver:
 
     def start(self) -> None:
         # Take an immediate observation before startup metadata is flushed.
-        with self._lock:
-            self._sample()
-        thread = threading.Thread(target=self._run, name="scansor-worker-rss")
-        self._thread = thread
-        thread.start()
+        try:
+            with self._lock:
+                self._sample()
+            thread = threading.Thread(target=self._run, name="scansor-worker-rss")
+            self._thread = thread
+            thread.start()
+        except BaseException as error:
+            with self._lock:
+                self._failure = error
+                self._stop.set()
+            raise
 
     def _run(self) -> None:
         while not self._stop.wait(self.sample_seconds):

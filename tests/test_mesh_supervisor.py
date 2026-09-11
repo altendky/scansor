@@ -94,7 +94,9 @@ def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
         _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
 
 
-@pytest.mark.parametrize("failure_site", ("selector", "sampler"))
+@pytest.mark.parametrize(
+    "failure_site", ("selector", "sampler", "initial-sample", "thread-start")
+)
 def test_observer_failures_stop_sampling_and_reap_worker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -106,12 +108,18 @@ def test_observer_failures_stop_sampling_and_reap_worker(
             raise RuntimeError("injected selector startup failure")
 
         monkeypatch.setattr(selectors, "DefaultSelector", fail_selector)
+    elif failure_site == "thread-start":
+
+        def fail_thread_start(_thread: threading.Thread) -> None:
+            raise RuntimeError("injected RSS sampling failure")
+
+        monkeypatch.setattr(threading.Thread, "start", fail_thread_start)
     else:
         original = psutil.Process.memory_info
         main_thread = threading.get_ident()
 
         def fail_background_sample(process: psutil.Process) -> object:
-            if threading.get_ident() != main_thread:
+            if failure_site == "initial-sample" or threading.get_ident() != main_thread:
                 raise RuntimeError("injected RSS sampling failure")
             return original(process)
 
@@ -120,7 +128,14 @@ def test_observer_failures_stop_sampling_and_reap_worker(
     assert result["status"] == "failed"
     assert "injected" in str(control_object(result["failure"])["message"])
     supervision = control_object(result["supervision"])
-    assert int(str(supervision["samples"])) >= 1
+    if failure_site == "initial-sample":
+        assert supervision["samples"] == 0
+    else:
+        assert int(str(supervision["samples"])) >= 1
+    if failure_site == "selector":
+        assert supervision["sampling_error"] is None
+    else:
+        assert "injected RSS sampling failure" in str(supervision["sampling_error"])
     assert control_object(supervision["sampling_edges"])["reaped_ns"] is not None
     assert not any(
         thread.name == "scansor-worker-rss" for thread in threading.enumerate()
