@@ -12,6 +12,7 @@ import pytest
 from scansor import mesh_publication_copy
 from scansor.mesh_accounting import account_import
 from scansor.mesh_controls import Control, decode_control
+from scansor.mesh_display import export_display
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_import import prepare_import
 from scansor.mesh_publication import publish_contributions, publish_import
@@ -19,6 +20,7 @@ from scansor.mesh_recipes import SMALL_RECIPES
 from scansor.mesh_replay import verify_mesh
 from scansor.mesh_supervisor import discover_staging, run_worker
 from tests.test_mesh_accounting import independent_artifacts
+from tests.test_mesh_artifacts import artifact_state, published
 from tests.test_mesh_supervisor import control_object, fault_command, worker_request
 
 
@@ -32,6 +34,36 @@ def output_filesystem(tmp_path: Path) -> Generator[Path]:
         if directory.stat().st_dev == tmp_path.stat().st_dev:
             pytest.skip("test requires genuinely different filesystems")
         yield directory
+
+
+@pytest.mark.parametrize(
+    "location", ("import", "source-child", "contribution", "symlink")
+)
+def test_display_rejects_publication_staging_inside_authority_before_cross_mount_copy(
+    tmp_path: Path, output_filesystem: Path, location: str
+) -> None:
+    first, second = published(output_filesystem, "right-triangle-orphan-v1")
+    staging = second.path if location == "contribution" else first.path
+    if location == "source-child":
+        staging /= "source"
+    elif location == "symlink":
+        link = tmp_path / "staging-link"
+        link.symlink_to(staging, target_is_directory=True)
+        staging = link
+    before = artifact_state(first.path), artifact_state(second.path)
+    names = set(output_filesystem.iterdir())
+    with pytest.raises(MeshImportError, match="outside authoritative"):
+        _ = export_display(
+            first.path,
+            second.path,
+            output_filesystem,
+            tmp_path,
+            publication_staging=staging,
+            chunk_rows=2,
+        )
+    assert (artifact_state(first.path), artifact_state(second.path)) == before
+    assert set(output_filesystem.iterdir()) == names
+    assert not list(tmp_path.glob(".scansor-*"))
 
 
 @pytest.mark.parametrize("storage", ("ram", "disk"))

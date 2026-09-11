@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control, decode_control, encode_control
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_import import prepare_import
+from scansor.mesh_numeric import NumericProfileError
 from scansor.mesh_publication import (
     PublishedStage,
     publish_contributions,
@@ -150,6 +152,29 @@ def test_query_copies_are_independent_of_canonical_files(tmp_path: Path) -> None
         changed.flags.writeable = True
         changed[:] = 999
         assert np.array_equal(original, imported.read_vertices(0, 2).columns["xyz.bin"])
+
+
+@pytest.mark.parametrize("scope", ("import", "contribution"))
+@pytest.mark.parametrize("failure", ("disk", "numeric", "value"))
+def test_readonly_scopes_preserve_caller_failures(
+    tmp_path: Path, scope: str, failure: str
+) -> None:
+    first, second = published(tmp_path, "right-triangle-orphan-v1")
+    before = artifact_state(first.path), artifact_state(second.path)
+    error = (
+        OSError(errno.ENOSPC, "output disk is full")
+        if failure == "disk"
+        else NumericProfileError("caller arithmetic failed")
+        if failure == "numeric"
+        else ValueError("caller rejected a setting")
+    )
+    with pytest.raises(type(error)) as caught, open_import(first.path) as imported:
+        if scope == "import":
+            raise error
+        with open_contributions(second.path, imported):
+            raise error
+    assert caught.value is error
+    assert (artifact_state(first.path), artifact_state(second.path)) == before
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,4043 @@
+{
+  "authority": "Generated inputs and read-only authoritative artifacts are retained separately from viewer resaves.",
+  "directory": "/tmp/scansor-s5-viewer-k1gcvc8t",
+  "finished_at": "2026-09-11T08:22:46.431105+00:00",
+  "fixtures": [
+    {
+      "contribution_id": "aa9e64627d9b0e96383ab7e2feb3ce498d955ba57b16e23de4be60c4f33e520a",
+      "display_id": "5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932",
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "aa9e64627d9b0e96383ab7e2feb3ce498d955ba57b16e23de4be60c4f33e520a",
+        "display_id": "5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932",
+        "import_id": "503dec6acc0ba1ab296348ee6361f218a91562a4270889a43a800efcfc477996",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 8,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 185216191,
+          "peak_rss_bytes": 162988032,
+          "phase": "verify-display-view-faces.bin",
+          "rss_bytes": 157925376,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 8
+        },
+        "plan": {
+          "baseline_bytes": 158777344,
+          "batch_bytes": 768,
+          "batch_rows": 1,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134285079,
+          "engine_bytes": 138715136,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 398156544,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 67108864,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "import_id": "503dec6acc0ba1ab296348ee6361f218a91562a4270889a43a800efcfc477996",
+      "large_id_codec_diagnostic": {
+        "command": [
+          "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+          "-SILENT",
+          "-AUTO_SAVE",
+          "OFF",
+          "-O",
+          "-GLOBAL_SHIFT",
+          "0",
+          "0",
+          "0",
+          "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/codec-diagnostic/codec.ply",
+          "-SET_ACTIVE_SF",
+          "0",
+          "-SET_ACTIVE_SF",
+          "1",
+          "-SET_ACTIVE_SF",
+          "2",
+          "-SET_ACTIVE_SF",
+          "3",
+          "-SET_ACTIVE_SF",
+          "4",
+          "-SET_ACTIVE_SF",
+          "5",
+          "-SET_ACTIVE_SF",
+          "6",
+          "-SET_ACTIVE_SF",
+          "7",
+          "-SET_ACTIVE_SF",
+          "8",
+          "-M_EXPORT_FMT",
+          "PLY",
+          "-PLY_EXPORT_FMT",
+          "BINARY_LE",
+          "-SAVE_MESHES",
+          "FILE",
+          "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/codec-diagnostic/roundtrip/resaved.ply"
+        ],
+        "comparison": {
+          "added_or_renamed_fields": [],
+          "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+          "dropped_or_renamed_fields": [],
+          "fields": {
+            "blue": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "green": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "red": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "scalar_contribution_status": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "scalar_normal_status": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "scalar_raw_area": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "scalar_vertex_status": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "scalar_weight": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "x": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "y": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            },
+            "z": {
+              "compared_rows": 4,
+              "different": 0,
+              "examples": [],
+              "finite_rounding": 0,
+              "to_nonfinite": 0,
+              "to_zero": 0
+            }
+          },
+          "kind": "validity",
+          "mapping": {
+            "extra_keys": 0,
+            "matched_keys_with_changed_source_vertex": 0,
+            "missing_keys": 0,
+            "reordered_matched_rows": 0,
+            "status": "exact"
+          },
+          "monitor": {
+            "budget_bytes": 536870912,
+            "completed": 1,
+            "disk": {
+              "allocated_bytes": 0,
+              "concurrent_changes": false,
+              "logical_bytes": 0
+            },
+            "elapsed_ns": 196841951,
+            "peak_rss_bytes": 168677376,
+            "phase": "compare-viewer-resaved-topology",
+            "rss_bytes": 158515200,
+            "sampled_disk_peak_logical_bytes": 0,
+            "total": 1
+          },
+          "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+          "original_population": {
+            "faces": 1,
+            "vertices": 4
+          },
+          "original_property_types": {
+            "blue": "uchar",
+            "green": "uchar",
+            "red": "uchar",
+            "scalar_contribution_status": "float",
+            "scalar_normal_status": "float",
+            "scalar_raw_area": "double",
+            "scalar_source_vertex_0": "float",
+            "scalar_source_vertex_1": "float",
+            "scalar_source_vertex_2": "float",
+            "scalar_source_vertex_3": "float",
+            "scalar_vertex_status": "float",
+            "scalar_weight": "double",
+            "x": "double",
+            "y": "double",
+            "z": "double"
+          },
+          "original_sha256": "d487b9a3e0f206af130a760aab86124d2d848afdbd97b5c319b61a3b4ab4679c",
+          "plan": {
+            "baseline_bytes": 158298112,
+            "batch_bytes": 1536,
+            "batch_rows": 2,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 134223872,
+            "engine_bytes": 138954752,
+            "engine_temp_limit_bytes": 67108864,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 397917696,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 67108864,
+            "storage": "disk"
+          },
+          "resaved_population": {
+            "faces": 1,
+            "vertices": 4
+          },
+          "resaved_property_types": {
+            "blue": "uchar",
+            "green": "uchar",
+            "red": "uchar",
+            "scalar_contribution_status": "float",
+            "scalar_normal_status": "float",
+            "scalar_raw_area": "float",
+            "scalar_source_vertex_0": "float",
+            "scalar_source_vertex_1": "float",
+            "scalar_source_vertex_2": "float",
+            "scalar_source_vertex_3": "float",
+            "scalar_vertex_status": "float",
+            "scalar_weight": "float",
+            "x": "float",
+            "y": "float",
+            "z": "float"
+          },
+          "resaved_sha256": "8038d75ad0608b5ebd2afa037955c1814e12a1300341c79d0d94deb9d7384af0",
+          "revision": "mesh-viewer-comparison-v1",
+          "topology": {
+            "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+            "different_oriented_face_groups": 0,
+            "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+            "original_indistinguishable_duplicate_groups": 0,
+            "status": "exact"
+          }
+        },
+        "diagnostic_ids": [
+          16777217,
+          9007199254740993,
+          9223372036854775809,
+          18446744073709551615
+        ],
+        "global_shift_requested": [
+          "0",
+          "0",
+          "0"
+        ],
+        "log_sha256": "9a47ccbd2476c67c3505d1324ca5553b2f65a1f7d74240a3a3cc242e4a4fa9e6",
+        "meaning": "Standalone ID codec diagnostic; these are artificial labels, not a claim that a four-vertex mesh has these source row ordinals.",
+        "returncode": 0,
+        "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Created by CloudCompare v2.14.beta (Sep 10 2026)\ncomment Created 2026-09-11T04:22:39\nobj_info Generated by CloudCompare!\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n",
+        "scalar_index_mapping": [
+          "scalar_vertex_status",
+          "scalar_normal_status",
+          "scalar_contribution_status",
+          "scalar_raw_area",
+          "scalar_weight",
+          "scalar_source_vertex_0",
+          "scalar_source_vertex_1",
+          "scalar_source_vertex_2",
+          "scalar_source_vertex_3"
+        ],
+        "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+        "source_faces": 1,
+        "source_sha256": "d487b9a3e0f206af130a760aab86124d2d848afdbd97b5c319b61a3b4ab4679c",
+        "source_vertices": 4,
+        "status": "saved",
+        "successful_field_selections": 9,
+        "viewer_scale_request": "none"
+      },
+      "legend": {
+        "additional_rejected_scalar_fields": [
+          "scalar_source_face_0",
+          "scalar_source_face_1",
+          "scalar_source_face_2",
+          "scalar_source_face_3",
+          "scalar_source_corner",
+          "scalar_face_status"
+        ],
+        "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+        "contribution_categories": {
+          "eligible": 3,
+          "isolated": 1,
+          "no-usable-area": 0,
+          "nonfinite-position": 0
+        },
+        "contribution_id": "aa9e64627d9b0e96383ab7e2feb3ce498d955ba57b16e23de4be60c4f33e520a",
+        "display_population": {
+          "rejected_corners": 0,
+          "usable_faces_per_main_view": 1,
+          "vertices_per_main_view": 4
+        },
+        "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+        "empty_views": [
+          "rejected-face-corners"
+        ],
+        "fields": {
+          "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+          "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+          "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+          "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+          "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+          "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+          "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+          "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+          "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+          "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+        },
+        "import_id": "503dec6acc0ba1ab296348ee6361f218a91562a4270889a43a800efcfc477996",
+        "limits": {
+          "face_indices": "signed little-endian int32",
+          "maximum_vertices_per_view": 2147483648
+        },
+        "main_scalar_fields": [
+          "scalar_vertex_status",
+          "scalar_normal_status",
+          "scalar_contribution_status",
+          "scalar_raw_area",
+          "scalar_weight",
+          "scalar_source_vertex_0",
+          "scalar_source_vertex_1",
+          "scalar_source_vertex_2",
+          "scalar_source_vertex_3"
+        ],
+        "normal_categories": {
+          "absent": 4,
+          "finite-nonzero": 0,
+          "nonfinite-vector": 0,
+          "zero-vector": 0
+        },
+        "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+        "omissions": {
+          "nonfinite_source_vertices": 0,
+          "rejected_corners_nonfinite_position": 0,
+          "rejected_corners_out_of_range": 0
+        },
+        "precision": {
+          "export_area_weight": "binary64",
+          "export_coordinates": "binary64",
+          "export_ids_statuses": "binary32 exact integers",
+          "viewer_preservation": "requires a separate measured viewer round-trip report"
+        },
+        "profile": "cloudcompare-audit-v1",
+        "rejected_face_colors": {
+          "1": [
+            180,
+            0,
+            180
+          ],
+          "2": [
+            220,
+            50,
+            50
+          ],
+          "3": [
+            255,
+            165,
+            0
+          ],
+          "4": [
+            80,
+            120,
+            220
+          ]
+        },
+        "revision": "mesh-display-legend-v1",
+        "source_id": "0f823f3b2ee266728f988341f811bc6c91cc0b94f97dac5c48c7d856c2772e9f",
+        "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+        "source_population": {
+          "faces": 1,
+          "vertices": 4
+        },
+        "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+        "transform": {
+          "forward_operations": [
+            "subtract-origin",
+            "multiply-by-scale"
+          ],
+          "inverse_operations": [
+            "divide-by-scale",
+            "add-origin"
+          ],
+          "meaning": "display-only; not calibration or physical units",
+          "origin_binary64_bits": [
+            "0000000000000000",
+            "0000000000000000",
+            "0000000000000000"
+          ],
+          "revision": "mesh-display-transform-v1",
+          "scale_power_of_two": 0
+        },
+        "transform_roundtrip_mismatch_rows": {
+          "displayable_rejected_corners": 0,
+          "finite_source_vertices": 0
+        },
+        "validity_colors": {
+          "eligible": [
+            40,
+            170,
+            80
+          ],
+          "isolated": [
+            255,
+            165,
+            0
+          ],
+          "no-usable-area": [
+            220,
+            50,
+            50
+          ],
+          "nonfinite-position": "not spatially displayable"
+        },
+        "weight_ramp": {
+          "clipping": false,
+          "excluded_color": [
+            128,
+            128,
+            128
+          ],
+          "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+          "logarithmic": false,
+          "maximum_binary64_bits": "4000000000000000",
+          "measure": "raw accumulated vertex area divided by complete eligible maximum",
+          "percentiles": false
+        }
+      },
+      "name": "right-triangle-orphan-v1",
+      "recipe": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "right-triangle-orphan-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ]
+        ]
+      },
+      "roundtrips": {
+        "dropped-source-key": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-REMOVE_SF",
+            "5",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/dropped-source-key/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [
+              "scalar_source_vertex_0"
+            ],
+            "fields": {},
+            "kind": "validity",
+            "mapping": {
+              "reason": "source key fields dropped or renamed: scalar_source_vertex_0",
+              "status": "unavailable"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 87803252,
+              "peak_rss_bytes": 167772160,
+              "phase": "validate-unmapped-resaved-face",
+              "rss_bytes": 159477760,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+            "plan": {
+              "baseline_bytes": 158511104,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134223872,
+              "engine_bytes": 138848256,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398024192,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "040c8e392cc642a04a790e318c75c881b92cd5bb296380dfc2f91bd0f545663c",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "reason": "source keys unavailable",
+              "status": "unverified"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "2fa2d60fe605d3e7d581ec63109e6414cf3fe4e45433820ba3e763faf8cbc516",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 validity; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_3\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 1,
+          "source_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+          "source_vertices": 4,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        },
+        "nonzero-shift": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "10",
+            "20",
+            "30",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/nonzero-shift/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "validity",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 193714208,
+              "peak_rss_bytes": 167772160,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158568448,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+            "plan": {
+              "baseline_bytes": 158437376,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134223872,
+              "engine_bytes": 138885120,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 397987328,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "resaved_sha256": "2122730d45114a8381e907b9e19227ac9a221feb25487bd982204c6970b73c2b",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "10",
+            "20",
+            "30"
+          ],
+          "log_sha256": "d804a43455d0c6ecbe27f94c518de32cde829ce511399d5ed2955f53a212f117",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 validity; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 4\nproperty double x\nproperty double y\nproperty double z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 1,
+          "source_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+          "source_vertices": 4,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        },
+        "rejected-face-corners": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/rejected-face-corners.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-SET_ACTIVE_SF",
+            "9",
+            "-SET_ACTIVE_SF",
+            "10",
+            "-SET_ACTIVE_SF",
+            "11",
+            "-SET_ACTIVE_SF",
+            "12",
+            "-SET_ACTIVE_SF",
+            "13",
+            "-SET_ACTIVE_SF",
+            "14",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/rejected-face-corners/resaved.ply"
+          ],
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_excerpt": "QSocketNotifier: Can only be used with threads started with QThread\n[04:22:38] [ccColorScalesManager] Found 0 custom scale(s) in persistent settings\n[04:22:38] [Plugin] Searching: /usr/lib/cloudcompare/plugins\n[04:22:38] [Plugin] Searching: /home/altendky/.local/share/CCCorp/CloudCompare/plugins\n[04:22:38] [Plugin] Searching: /usr/share/plasma/CCCorp/CloudCompare/plugins\n[04:22:38] [Plugin] Searching: /usr/local/share/CCCorp/CloudCompare/plugins\n[04:22:38] [Plugin] Searching: /usr/share/CCCorp/CloudCompare/plugins\n[04:22:38] [Plugin] Searching: /var/lib/snapd/desktop/CCCorp/CloudCompare/plugins\n[04:22:38] [Global Shift] Max abs. coord = 1e+04 / max abs. diag = 1e+06\n[04:22:38] [AUTO SAVE STATE] Command detected\n[04:22:38] Auto-save is disabled\n[04:22:38] [AUTO SAVE STATE] finished in 0.00 s.\n[04:22:38] [LOAD] Command detected\n[04:22:38] Opening file: '/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/rejected-face-corners.ply'\n[04:22:38] [PLY][Comment] Scansor cloudcompare-audit-v1 rejected-face-corners; display-only\n[04:22:38] [PLY][Comment] Source bindings, transforms and field meanings are in inventory.json and legend.json\n[04:22:38] [PLY] Element 'vertex' was ignored as it has 0 instance!\n[04:22:38] [PLY] Element 'face' was ignored as it has 0 instance!\n[04:22:38] An error occurred while loading 'rejected-face-corners': nothing to load\n[04:22:38] [LOAD] finished in 0.00 s.\n[04:22:38] Processed finished in 0.00 s.\n",
+          "log_sha256": "9df0844ee4842607cc0f1b65688d797bbe1b2d283c15fb4927c0d914a432f227",
+          "returncode": 1,
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3",
+            "scalar_source_face_0",
+            "scalar_source_face_1",
+            "scalar_source_face_2",
+            "scalar_source_face_3",
+            "scalar_source_corner",
+            "scalar_face_status"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38",
+          "source_vertices": 0,
+          "status": "empty-view-refused",
+          "successful_field_selections": 0,
+          "viewer_scale_request": "none"
+        },
+        "validity": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/validity/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "validity",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 155731288,
+              "peak_rss_bytes": 167657472,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158208000,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+            "plan": {
+              "baseline_bytes": 157790208,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134223872,
+              "engine_bytes": 139208704,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 397663744,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "6569826f4a0334aaa3a88dcc1b9fc0a1739422bdfe26d635dc7823946255c748",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "b1fd4948dd224ba4e08c16a1fa546921529f25a3b69b7eebd9043d49a2510955",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 validity; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 1,
+          "source_sha256": "33a8d25a9fba3d4af3e84a5d8f5b0bf40c7297832c5bf62576d2842b4f74b776",
+          "source_vertices": 4,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        },
+        "weights": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/mesh-display-5edfa984cf2deddc5d24299b763f108af27aa36604ad1bd54280f50396872932/weights.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/right-triangle-orphan-v1/weights/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 4,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "weights",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 174392679,
+              "peak_rss_bytes": 166653952,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158388224,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "b740958f5a64c5a8d809608af9b1e2f767fd85f5501c6df4c60ee8bdfcc54825",
+            "plan": {
+              "baseline_bytes": 158212096,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134223872,
+              "engine_bytes": 138997760,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 397874688,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 1,
+              "vertices": 4
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "bfbef675ba25eac73c5db6a8440c5297ad8d6e6a4f7e6ae2599ba2139afaeb1d",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "133ac196ccc578d877421eb2191b58b1560fd1293c7f0e71d8b92b67ea251660",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 weights; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 1,
+          "source_sha256": "b740958f5a64c5a8d809608af9b1e2f767fd85f5501c6df4c60ee8bdfcc54825",
+          "source_vertices": 4,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        }
+      }
+    },
+    {
+      "contribution_id": "472de3d6dc163f798d4767910225885ad00903c9a71889f8c2fa5637c2871b6e",
+      "display_id": "2397dce7d1b44bd22f536ce2c1137e80c673c71add0f01264ccd73ce465b8b54",
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "472de3d6dc163f798d4767910225885ad00903c9a71889f8c2fa5637c2871b6e",
+        "display_id": "2397dce7d1b44bd22f536ce2c1137e80c673c71add0f01264ccd73ce465b8b54",
+        "import_id": "19be33b5effd8b794aab2f8bca64188a647b59b75380307f3a86c4cf13524f3c",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 24,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 246984353,
+          "peak_rss_bytes": 167772160,
+          "phase": "verify-display-view-faces.bin",
+          "rss_bytes": 158875648,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 24
+        },
+        "plan": {
+          "baseline_bytes": 159543296,
+          "batch_bytes": 768,
+          "batch_rows": 1,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134289150,
+          "engine_bytes": 138332160,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 398539520,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 67108864,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "import_id": "19be33b5effd8b794aab2f8bca64188a647b59b75380307f3a86c4cf13524f3c",
+      "legend": {
+        "additional_rejected_scalar_fields": [
+          "scalar_source_face_0",
+          "scalar_source_face_1",
+          "scalar_source_face_2",
+          "scalar_source_face_3",
+          "scalar_source_corner",
+          "scalar_face_status"
+        ],
+        "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+        "contribution_categories": {
+          "eligible": 3,
+          "isolated": 1,
+          "no-usable-area": 1,
+          "nonfinite-position": 1
+        },
+        "contribution_id": "472de3d6dc163f798d4767910225885ad00903c9a71889f8c2fa5637c2871b6e",
+        "display_population": {
+          "rejected_corners": 7,
+          "usable_faces_per_main_view": 3,
+          "vertices_per_main_view": 5
+        },
+        "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+        "empty_views": [],
+        "fields": {
+          "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+          "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+          "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+          "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+          "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+          "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+          "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+          "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+          "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+          "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+        },
+        "import_id": "19be33b5effd8b794aab2f8bca64188a647b59b75380307f3a86c4cf13524f3c",
+        "limits": {
+          "face_indices": "signed little-endian int32",
+          "maximum_vertices_per_view": 2147483648
+        },
+        "main_scalar_fields": [
+          "scalar_vertex_status",
+          "scalar_normal_status",
+          "scalar_contribution_status",
+          "scalar_raw_area",
+          "scalar_weight",
+          "scalar_source_vertex_0",
+          "scalar_source_vertex_1",
+          "scalar_source_vertex_2",
+          "scalar_source_vertex_3"
+        ],
+        "normal_categories": {
+          "absent": 0,
+          "finite-nonzero": 2,
+          "nonfinite-vector": 1,
+          "zero-vector": 3
+        },
+        "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+        "omissions": {
+          "nonfinite_source_vertices": 1,
+          "rejected_corners_nonfinite_position": 1,
+          "rejected_corners_out_of_range": 1
+        },
+        "precision": {
+          "export_area_weight": "binary64",
+          "export_coordinates": "binary64",
+          "export_ids_statuses": "binary32 exact integers",
+          "viewer_preservation": "requires a separate measured viewer round-trip report"
+        },
+        "profile": "cloudcompare-audit-v1",
+        "rejected_face_colors": {
+          "1": [
+            180,
+            0,
+            180
+          ],
+          "2": [
+            220,
+            50,
+            50
+          ],
+          "3": [
+            255,
+            165,
+            0
+          ],
+          "4": [
+            80,
+            120,
+            220
+          ]
+        },
+        "revision": "mesh-display-legend-v1",
+        "source_id": "4e3453ebe65074a9ff7574702d219addee297d90a20fb7dc1dd7eba40d63cb40",
+        "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+        "source_population": {
+          "faces": 6,
+          "vertices": 6
+        },
+        "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+        "transform": {
+          "forward_operations": [
+            "subtract-origin",
+            "multiply-by-scale"
+          ],
+          "inverse_operations": [
+            "divide-by-scale",
+            "add-origin"
+          ],
+          "meaning": "display-only; not calibration or physical units",
+          "origin_binary64_bits": [
+            "0000000000000000",
+            "0000000000000000",
+            "0000000000000000"
+          ],
+          "revision": "mesh-display-transform-v1",
+          "scale_power_of_two": 0
+        },
+        "transform_roundtrip_mismatch_rows": {
+          "displayable_rejected_corners": 0,
+          "finite_source_vertices": 0
+        },
+        "validity_colors": {
+          "eligible": [
+            40,
+            170,
+            80
+          ],
+          "isolated": [
+            255,
+            165,
+            0
+          ],
+          "no-usable-area": [
+            220,
+            50,
+            50
+          ],
+          "nonfinite-position": "not spatially displayable"
+        },
+        "weight_ramp": {
+          "clipping": false,
+          "excluded_color": [
+            128,
+            128,
+            128
+          ],
+          "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+          "logarithmic": false,
+          "maximum_binary64_bits": "4018000000000000",
+          "measure": "raw accumulated vertex area divided by complete eligible maximum",
+          "percentiles": false
+        }
+      },
+      "name": "viewer-exact-v1",
+      "recipe": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "viewer-exact-v1",
+        "normal_bits": [
+          [
+            "3f800000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "7fc00000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "3f800000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ]
+        ],
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            2,
+            1,
+            0
+          ],
+          [
+            -1,
+            0,
+            1
+          ],
+          [
+            4,
+            4,
+            4
+          ],
+          [
+            0,
+            5,
+            1
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "40400000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "40800000",
+            "00000000"
+          ],
+          [
+            "41100000",
+            "41100000",
+            "41100000"
+          ],
+          [
+            "40a00000",
+            "40a00000",
+            "40a00000"
+          ],
+          [
+            "7fc00000",
+            "00000000",
+            "00000000"
+          ]
+        ]
+      },
+      "roundtrips": {
+        "rejected-face-corners": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/mesh-display-2397dce7d1b44bd22f536ce2c1137e80c673c71add0f01264ccd73ce465b8b54/rejected-face-corners.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-SET_ACTIVE_SF",
+            "9",
+            "-SET_ACTIVE_SF",
+            "10",
+            "-SET_ACTIVE_SF",
+            "11",
+            "-SET_ACTIVE_SF",
+            "12",
+            "-SET_ACTIVE_SF",
+            "13",
+            "-SET_ACTIVE_SF",
+            "14",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/rejected-face-corners/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_face_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "rejected-face-corners",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 220292448,
+              "peak_rss_bytes": 167772160,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158982144,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 0,
+              "vertices": 7
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_face_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_corner": "float",
+              "scalar_source_face_0": "float",
+              "scalar_source_face_1": "float",
+              "scalar_source_face_2": "float",
+              "scalar_source_face_3": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "a6385987335f4a27cf8837cd6a2724d777c98f220d5bf41b17ed53b69a6bb26c",
+            "plan": {
+              "baseline_bytes": 158851072,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134226688,
+              "engine_bytes": 138678272,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398194176,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 0,
+              "vertices": 7
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_face_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_corner": "float",
+              "scalar_source_face_0": "float",
+              "scalar_source_face_1": "float",
+              "scalar_source_face_2": "float",
+              "scalar_source_face_3": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "d37dd2d69530cbf5a68e8f4d489bd3e9f03e732755e5b63415d4c57f54bccfe2",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "d57dce29478b0f1ef980ac9ff50402bb42c2e8e36215d982507b96a4f105b475",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 rejected-face-corners; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 7\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nproperty float scalar_source_face_0\nproperty float scalar_source_face_1\nproperty float scalar_source_face_2\nproperty float scalar_source_face_3\nproperty float scalar_source_corner\nproperty float scalar_face_status\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3",
+            "scalar_source_face_0",
+            "scalar_source_face_1",
+            "scalar_source_face_2",
+            "scalar_source_face_3",
+            "scalar_source_corner",
+            "scalar_face_status"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "a6385987335f4a27cf8837cd6a2724d777c98f220d5bf41b17ed53b69a6bb26c",
+          "source_vertices": 7,
+          "status": "saved",
+          "successful_field_selections": 15,
+          "viewer_scale_request": "none"
+        },
+        "validity": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/mesh-display-2397dce7d1b44bd22f536ce2c1137e80c673c71add0f01264ccd73ce465b8b54/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/validity/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "validity",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 211403933,
+              "peak_rss_bytes": 168001536,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158900224,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 3,
+              "vertices": 5
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "55858cfd7b971ce8da479bacb507c27d879ba8fdeae9d246483238b87e7471ce",
+            "plan": {
+              "baseline_bytes": 158793728,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134227200,
+              "engine_bytes": 138706944,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398165504,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 3,
+              "vertices": 5
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "d4e90f5d4c1d99feef1c91275edd498ae987a8fae767f3b3b8882205443b0b65",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "not recoverable from resaved vertex triples",
+              "original_indistinguishable_duplicate_groups": 1,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "5065df2fb6a55bfe2e0bc8d37c6d57e8eec886631f296a0d8a4ec04ccc644a69",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 validity; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 5\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 3\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 3,
+          "source_sha256": "55858cfd7b971ce8da479bacb507c27d879ba8fdeae9d246483238b87e7471ce",
+          "source_vertices": 5,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        },
+        "weights": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/mesh-display-2397dce7d1b44bd22f536ce2c1137e80c673c71add0f01264ccd73ce465b8b54/weights.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-exact-v1/weights/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "x": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 5,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "weights",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 184764317,
+              "peak_rss_bytes": 168132608,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 158924800,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 3,
+              "vertices": 5
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "26ccd15998e0d37460fce02357961a5854b94d460aa2f3004018b3175cf1cf28",
+            "plan": {
+              "baseline_bytes": 158842880,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134227200,
+              "engine_bytes": 138682368,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398190080,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 3,
+              "vertices": 5
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "float",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "03a4abed602b574775850fcf5f6d4538331e1e7c56624e49f02e7f2842ef53ef",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "not recoverable from resaved vertex triples",
+              "original_indistinguishable_duplicate_groups": 1,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "c1392553924a918f8b488fd4856d6f317fc50d656dfd6271f5d27c08d988e61a",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 weights; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 5\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty float scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 3\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 3,
+          "source_sha256": "26ccd15998e0d37460fce02357961a5854b94d460aa2f3004018b3175cf1cf28",
+          "source_vertices": 5,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        }
+      }
+    },
+    {
+      "contribution_id": "915985ae9eec1aaf4c5b5c552fc94a7cddeea4c52250c38d2971990a9ac97233",
+      "display_id": "d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532",
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "915985ae9eec1aaf4c5b5c552fc94a7cddeea4c52250c38d2971990a9ac97233",
+        "display_id": "d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532",
+        "import_id": "8689de230461b12fe5f44203887774112f7aeae31113cbe96c9ffcf839558388",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 16,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 231882051,
+          "peak_rss_bytes": 167772160,
+          "phase": "verify-display-view-faces.bin",
+          "rss_bytes": 159047680,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 16
+        },
+        "plan": {
+          "baseline_bytes": 159744000,
+          "batch_bytes": 768,
+          "batch_rows": 1,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134286616,
+          "engine_bytes": 138231808,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 398639872,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 67108864,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "import_id": "8689de230461b12fe5f44203887774112f7aeae31113cbe96c9ffcf839558388",
+      "legend": {
+        "additional_rejected_scalar_fields": [
+          "scalar_source_face_0",
+          "scalar_source_face_1",
+          "scalar_source_face_2",
+          "scalar_source_face_3",
+          "scalar_source_corner",
+          "scalar_face_status"
+        ],
+        "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+        "contribution_categories": {
+          "eligible": 6,
+          "isolated": 1,
+          "no-usable-area": 0,
+          "nonfinite-position": 0
+        },
+        "contribution_id": "915985ae9eec1aaf4c5b5c552fc94a7cddeea4c52250c38d2971990a9ac97233",
+        "display_population": {
+          "rejected_corners": 0,
+          "usable_faces_per_main_view": 2,
+          "vertices_per_main_view": 7
+        },
+        "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+        "empty_views": [
+          "rejected-face-corners"
+        ],
+        "fields": {
+          "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+          "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+          "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+          "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+          "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+          "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+          "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+          "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+          "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+          "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+        },
+        "import_id": "8689de230461b12fe5f44203887774112f7aeae31113cbe96c9ffcf839558388",
+        "limits": {
+          "face_indices": "signed little-endian int32",
+          "maximum_vertices_per_view": 2147483648
+        },
+        "main_scalar_fields": [
+          "scalar_vertex_status",
+          "scalar_normal_status",
+          "scalar_contribution_status",
+          "scalar_raw_area",
+          "scalar_weight",
+          "scalar_source_vertex_0",
+          "scalar_source_vertex_1",
+          "scalar_source_vertex_2",
+          "scalar_source_vertex_3"
+        ],
+        "normal_categories": {
+          "absent": 7,
+          "finite-nonzero": 0,
+          "nonfinite-vector": 0,
+          "zero-vector": 0
+        },
+        "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+        "omissions": {
+          "nonfinite_source_vertices": 0,
+          "rejected_corners_nonfinite_position": 0,
+          "rejected_corners_out_of_range": 0
+        },
+        "precision": {
+          "export_area_weight": "binary64",
+          "export_coordinates": "binary64",
+          "export_ids_statuses": "binary32 exact integers",
+          "viewer_preservation": "requires a separate measured viewer round-trip report"
+        },
+        "profile": "cloudcompare-audit-v1",
+        "rejected_face_colors": {
+          "1": [
+            180,
+            0,
+            180
+          ],
+          "2": [
+            220,
+            50,
+            50
+          ],
+          "3": [
+            255,
+            165,
+            0
+          ],
+          "4": [
+            80,
+            120,
+            220
+          ]
+        },
+        "revision": "mesh-display-legend-v1",
+        "source_id": "c5c652206f1f57c7130f273f982ee9cb451da2afbb6b0761cb4a314bf67e9fec",
+        "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+        "source_population": {
+          "faces": 2,
+          "vertices": 7
+        },
+        "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+        "transform": {
+          "forward_operations": [
+            "subtract-origin",
+            "multiply-by-scale"
+          ],
+          "inverse_operations": [
+            "divide-by-scale",
+            "add-origin"
+          ],
+          "meaning": "display-only; not calibration or physical units",
+          "origin_binary64_bits": [
+            "3fe0000000000000",
+            "0000000000000000",
+            "0000000000000000"
+          ],
+          "revision": "mesh-display-transform-v1",
+          "scale_power_of_two": -1
+        },
+        "transform_roundtrip_mismatch_rows": {
+          "displayable_rejected_corners": 0,
+          "finite_source_vertices": 1
+        },
+        "validity_colors": {
+          "eligible": [
+            40,
+            170,
+            80
+          ],
+          "isolated": [
+            255,
+            165,
+            0
+          ],
+          "no-usable-area": [
+            220,
+            50,
+            50
+          ],
+          "nonfinite-position": "not spatially displayable"
+        },
+        "weight_ramp": {
+          "clipping": false,
+          "excluded_color": [
+            128,
+            128,
+            128
+          ],
+          "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+          "logarithmic": false,
+          "maximum_binary64_bits": "47f5555555555555",
+          "measure": "raw accumulated vertex area divided by complete eligible maximum",
+          "percentiles": false
+        }
+      },
+      "name": "viewer-precision-v1",
+      "recipe": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "viewer-precision-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            3,
+            4,
+            5
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "60800000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "60000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "1a800000",
+            "00000000",
+            "00000000"
+          ],
+          [
+            "00000000",
+            "1a000000",
+            "00000000"
+          ],
+          [
+            "4b800000",
+            "3f800000",
+            "00000000"
+          ]
+        ]
+      },
+      "roundtrips": {
+        "rejected-face-corners": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/mesh-display-d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532/rejected-face-corners.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-SET_ACTIVE_SF",
+            "9",
+            "-SET_ACTIVE_SF",
+            "10",
+            "-SET_ACTIVE_SF",
+            "11",
+            "-SET_ACTIVE_SF",
+            "12",
+            "-SET_ACTIVE_SF",
+            "13",
+            "-SET_ACTIVE_SF",
+            "14",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/rejected-face-corners/resaved.ply"
+          ],
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_excerpt": "QSocketNotifier: Can only be used with threads started with QThread\n[04:22:44] [ccColorScalesManager] Found 0 custom scale(s) in persistent settings\n[04:22:44] [Plugin] Searching: /usr/lib/cloudcompare/plugins\n[04:22:44] [Plugin] Searching: /home/altendky/.local/share/CCCorp/CloudCompare/plugins\n[04:22:44] [Plugin] Searching: /usr/share/plasma/CCCorp/CloudCompare/plugins\n[04:22:44] [Plugin] Searching: /usr/local/share/CCCorp/CloudCompare/plugins\n[04:22:44] [Plugin] Searching: /usr/share/CCCorp/CloudCompare/plugins\n[04:22:44] [Plugin] Searching: /var/lib/snapd/desktop/CCCorp/CloudCompare/plugins\n[04:22:44] [Global Shift] Max abs. coord = 1e+04 / max abs. diag = 1e+06\n[04:22:44] [AUTO SAVE STATE] Command detected\n[04:22:44] Auto-save is disabled\n[04:22:44] [AUTO SAVE STATE] finished in 0.00 s.\n[04:22:44] [LOAD] Command detected\n[04:22:44] Opening file: '/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/mesh-display-d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532/rejected-face-corners.ply'\n[04:22:44] [PLY][Comment] Scansor cloudcompare-audit-v1 rejected-face-corners; display-only\n[04:22:44] [PLY][Comment] Source bindings, transforms and field meanings are in inventory.json and legend.json\n[04:22:44] [PLY] Element 'vertex' was ignored as it has 0 instance!\n[04:22:44] [PLY] Element 'face' was ignored as it has 0 instance!\n[04:22:44] An error occurred while loading 'rejected-face-corners': nothing to load\n[04:22:44] [LOAD] finished in 0.00 s.\n[04:22:44] Processed finished in 0.00 s.\n",
+          "log_sha256": "ff8a493d2387ad09ceed602759910c364f88e4d19c10222557134dbf6497ee3f",
+          "returncode": 1,
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3",
+            "scalar_source_face_0",
+            "scalar_source_face_1",
+            "scalar_source_face_2",
+            "scalar_source_face_3",
+            "scalar_source_corner",
+            "scalar_face_status"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38",
+          "source_vertices": 0,
+          "status": "empty-view-refused",
+          "successful_field_selections": 0,
+          "viewer_scale_request": "none"
+        },
+        "validity": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/mesh-display-d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/validity/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 7,
+                "different": 4,
+                "examples": [
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      3,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      4,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      5,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "0000000000000000",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      6,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 0,
+                "to_nonfinite": 4,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 7,
+                "different": 3,
+                "examples": [
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      3,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      4,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      5,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 3
+              },
+              "x": {
+                "compared_rows": 7,
+                "different": 1,
+                "examples": [
+                  {
+                    "original_binary64_bits": "415ffffff0000000",
+                    "resaved_binary64_bits": "4160000000000000",
+                    "source_key": [
+                      6,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 1,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "validity",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 221221776,
+              "peak_rss_bytes": 168706048,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 159039488,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 2,
+              "vertices": 7
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "3a42dd642bbd116fd4453347adc0b0f2e4dfc6d4f7f26c9361c358f96f3ae9bc",
+            "plan": {
+              "baseline_bytes": 158932992,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134228736,
+              "engine_bytes": 138637312,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398235136,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 2,
+              "vertices": 7
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "062148c94c11c4d9726bc9d04e5606d3686e686c0ba5f2f6fe23ec8e09726842",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "9c146c0ac3da966e659b2d4e0cce1fb4ab5070dba699196de3363cb426d93d01",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 validity; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 7\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty double scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 2\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 2,
+          "source_sha256": "3a42dd642bbd116fd4453347adc0b0f2e4dfc6d4f7f26c9361c358f96f3ae9bc",
+          "source_vertices": 7,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        },
+        "weights": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/mesh-display-d2ddc96134cb9cc33807e5d0dffcbdb2f5bf9f1e89db0741da974d548ece4532/weights.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-M_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_MESHES",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/viewer-precision-v1/weights/resaved.ply"
+          ],
+          "comparison": {
+            "added_or_renamed_fields": [],
+            "authority": "Viewer files and this report do not replace authoritative mesh stages.",
+            "dropped_or_renamed_fields": [],
+            "fields": {
+              "blue": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "green": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "red": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_contribution_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_normal_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_raw_area": {
+                "compared_rows": 7,
+                "different": 4,
+                "examples": [
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      3,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      4,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "3675555555555555",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      5,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "0000000000000000",
+                    "resaved_binary64_bits": "fff0000000000000",
+                    "source_key": [
+                      6,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 0,
+                "to_nonfinite": 4,
+                "to_zero": 0
+              },
+              "scalar_vertex_status": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "scalar_weight": {
+                "compared_rows": 7,
+                "different": 3,
+                "examples": [
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      3,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      4,
+                      0
+                    ]
+                  },
+                  {
+                    "original_binary64_bits": "2e80000000000000",
+                    "resaved_binary64_bits": "0000000000000000",
+                    "source_key": [
+                      5,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 3
+              },
+              "x": {
+                "compared_rows": 7,
+                "different": 1,
+                "examples": [
+                  {
+                    "original_binary64_bits": "415ffffff0000000",
+                    "resaved_binary64_bits": "4160000000000000",
+                    "source_key": [
+                      6,
+                      0
+                    ]
+                  }
+                ],
+                "finite_rounding": 1,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "y": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              },
+              "z": {
+                "compared_rows": 7,
+                "different": 0,
+                "examples": [],
+                "finite_rounding": 0,
+                "to_nonfinite": 0,
+                "to_zero": 0
+              }
+            },
+            "kind": "weights",
+            "mapping": {
+              "extra_keys": 0,
+              "matched_keys_with_changed_source_vertex": 0,
+              "missing_keys": 0,
+              "reordered_matched_rows": 0,
+              "status": "exact"
+            },
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 1,
+              "disk": {
+                "allocated_bytes": 0,
+                "concurrent_changes": false,
+                "logical_bytes": 0
+              },
+              "elapsed_ns": 207573717,
+              "peak_rss_bytes": 168062976,
+              "phase": "compare-viewer-resaved-topology",
+              "rss_bytes": 159064064,
+              "sampled_disk_peak_logical_bytes": 0,
+              "total": 1
+            },
+            "numeric_counts": "Compared matched source keys only; finite rounding, nonzero-to-zero and nonfinite results are observations, not inferred viewer implementation causes.",
+            "original_population": {
+              "faces": 2,
+              "vertices": 7
+            },
+            "original_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "double",
+              "x": "double",
+              "y": "double",
+              "z": "double"
+            },
+            "original_sha256": "ae056fb9c70427f639f19489880c09d2a5ad40792a3250ba5c0f42ef13b3517c",
+            "plan": {
+              "baseline_bytes": 158994432,
+              "batch_bytes": 1536,
+              "batch_rows": 2,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 134228736,
+              "engine_bytes": 138606592,
+              "engine_temp_limit_bytes": 67108864,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 398265856,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 67108864,
+              "storage": "disk"
+            },
+            "resaved_population": {
+              "faces": 2,
+              "vertices": 7
+            },
+            "resaved_property_types": {
+              "blue": "uchar",
+              "green": "uchar",
+              "red": "uchar",
+              "scalar_contribution_status": "float",
+              "scalar_normal_status": "float",
+              "scalar_raw_area": "double",
+              "scalar_source_vertex_0": "float",
+              "scalar_source_vertex_1": "float",
+              "scalar_source_vertex_2": "float",
+              "scalar_source_vertex_3": "float",
+              "scalar_vertex_status": "float",
+              "scalar_weight": "float",
+              "x": "float",
+              "y": "float",
+              "z": "float"
+            },
+            "resaved_sha256": "fccdfd1cceac2c460591b551b52a94ea0904d3953daa2acceb579db51af20dc6",
+            "revision": "mesh-viewer-comparison-v1",
+            "topology": {
+              "comparison": "source vertex triples modulo cyclic rotation, retaining winding and multiplicity",
+              "different_oriented_face_groups": 0,
+              "individual_duplicate_face_identity": "no indistinguishable duplicate faces in original view",
+              "original_indistinguishable_duplicate_groups": 0,
+              "status": "exact"
+            }
+          },
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_sha256": "fdae5eab62af3b02500f31de56b419bf52979518f4db659f19724eff56b59b0b",
+          "returncode": 0,
+          "saved_header": "ply\nformat binary_little_endian 1.0\ncomment Scansor cloudcompare-audit-v1 weights; display-only\ncomment Source bindings, transforms and field meanings are in inventory.json and legend.json\nobj_info Generated by CloudCompare!\nelement vertex 7\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float scalar_vertex_status\nproperty float scalar_normal_status\nproperty float scalar_contribution_status\nproperty double scalar_raw_area\nproperty float scalar_weight\nproperty float scalar_source_vertex_0\nproperty float scalar_source_vertex_1\nproperty float scalar_source_vertex_2\nproperty float scalar_source_vertex_3\nelement face 2\nproperty list uchar int vertex_indices\nend_header\n",
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 2,
+          "source_sha256": "ae056fb9c70427f639f19489880c09d2a5ad40792a3250ba5c0f42ef13b3517c",
+          "source_vertices": 7,
+          "status": "saved",
+          "successful_field_selections": 9,
+          "viewer_scale_request": "none"
+        }
+      }
+    },
+    {
+      "contribution_id": "1a38f9276645036b94d4e5f9ee70fd02dfa8093533586330e7cb38e0ee1003af",
+      "display_id": "86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997",
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "1a38f9276645036b94d4e5f9ee70fd02dfa8093533586330e7cb38e0ee1003af",
+        "display_id": "86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997",
+        "import_id": "97a5953fbd917e27f823587776c34ee134b7863ed8c53607497ce6c1e9fb5934",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 0,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 125848933,
+          "peak_rss_bytes": 167772160,
+          "phase": "verify-display-view-faces.bin",
+          "rss_bytes": 159199232,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 0
+        },
+        "plan": {
+          "baseline_bytes": 159809536,
+          "batch_bytes": 768,
+          "batch_rows": 1,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134284948,
+          "engine_bytes": 138199040,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 398672640,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 67108864,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "import_id": "97a5953fbd917e27f823587776c34ee134b7863ed8c53607497ce6c1e9fb5934",
+      "legend": {
+        "additional_rejected_scalar_fields": [
+          "scalar_source_face_0",
+          "scalar_source_face_1",
+          "scalar_source_face_2",
+          "scalar_source_face_3",
+          "scalar_source_corner",
+          "scalar_face_status"
+        ],
+        "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+        "contribution_categories": {
+          "eligible": 0,
+          "isolated": 0,
+          "no-usable-area": 0,
+          "nonfinite-position": 1
+        },
+        "contribution_id": "1a38f9276645036b94d4e5f9ee70fd02dfa8093533586330e7cb38e0ee1003af",
+        "display_population": {
+          "rejected_corners": 0,
+          "usable_faces_per_main_view": 0,
+          "vertices_per_main_view": 0
+        },
+        "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+        "empty_views": [
+          "validity",
+          "weights",
+          "rejected-face-corners"
+        ],
+        "fields": {
+          "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+          "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+          "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+          "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+          "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+          "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+          "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+          "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+          "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+          "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+        },
+        "import_id": "97a5953fbd917e27f823587776c34ee134b7863ed8c53607497ce6c1e9fb5934",
+        "limits": {
+          "face_indices": "signed little-endian int32",
+          "maximum_vertices_per_view": 2147483648
+        },
+        "main_scalar_fields": [
+          "scalar_vertex_status",
+          "scalar_normal_status",
+          "scalar_contribution_status",
+          "scalar_raw_area",
+          "scalar_weight",
+          "scalar_source_vertex_0",
+          "scalar_source_vertex_1",
+          "scalar_source_vertex_2",
+          "scalar_source_vertex_3"
+        ],
+        "normal_categories": {
+          "absent": 1,
+          "finite-nonzero": 0,
+          "nonfinite-vector": 0,
+          "zero-vector": 0
+        },
+        "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+        "omissions": {
+          "nonfinite_source_vertices": 1,
+          "rejected_corners_nonfinite_position": 5,
+          "rejected_corners_out_of_range": 1
+        },
+        "precision": {
+          "export_area_weight": "binary64",
+          "export_coordinates": "binary64",
+          "export_ids_statuses": "binary32 exact integers",
+          "viewer_preservation": "requires a separate measured viewer round-trip report"
+        },
+        "profile": "cloudcompare-audit-v1",
+        "rejected_face_colors": {
+          "1": [
+            180,
+            0,
+            180
+          ],
+          "2": [
+            220,
+            50,
+            50
+          ],
+          "3": [
+            255,
+            165,
+            0
+          ],
+          "4": [
+            80,
+            120,
+            220
+          ]
+        },
+        "revision": "mesh-display-legend-v1",
+        "source_id": "7db4b5415dd29ea1b221ff435a97331b86351cfbe71ecb6257d31a9f93620064",
+        "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+        "source_population": {
+          "faces": 2,
+          "vertices": 1
+        },
+        "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+        "transform": {
+          "forward_operations": [
+            "subtract-origin",
+            "multiply-by-scale"
+          ],
+          "inverse_operations": [
+            "divide-by-scale",
+            "add-origin"
+          ],
+          "meaning": "display-only; not calibration or physical units",
+          "origin_binary64_bits": [
+            "0000000000000000",
+            "0000000000000000",
+            "0000000000000000"
+          ],
+          "revision": "mesh-display-transform-v1",
+          "scale_power_of_two": 0
+        },
+        "transform_roundtrip_mismatch_rows": {
+          "displayable_rejected_corners": 0,
+          "finite_source_vertices": 0
+        },
+        "validity_colors": {
+          "eligible": [
+            40,
+            170,
+            80
+          ],
+          "isolated": [
+            255,
+            165,
+            0
+          ],
+          "no-usable-area": [
+            220,
+            50,
+            50
+          ],
+          "nonfinite-position": "not spatially displayable"
+        },
+        "weight_ramp": {
+          "clipping": false,
+          "excluded_color": [
+            128,
+            128,
+            128
+          ],
+          "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+          "logarithmic": false,
+          "maximum_binary64_bits": "0000000000000000",
+          "measure": "raw accumulated vertex area divided by complete eligible maximum",
+          "percentiles": false
+        }
+      },
+      "name": "all-invalid-v1",
+      "recipe": {
+        "adverse_edits": [],
+        "expected": "complete",
+        "name": "all-invalid-v1",
+        "normal_bits": null,
+        "revision": "mesh-small-recipe-v1",
+        "triangles": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            -1,
+            0,
+            0
+          ]
+        ],
+        "xyz_bits": [
+          [
+            "7fc00001",
+            "00000000",
+            "00000000"
+          ]
+        ]
+      },
+      "roundtrips": {
+        "rejected-face-corners": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/rejected-face-corners.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-SET_ACTIVE_SF",
+            "9",
+            "-SET_ACTIVE_SF",
+            "10",
+            "-SET_ACTIVE_SF",
+            "11",
+            "-SET_ACTIVE_SF",
+            "12",
+            "-SET_ACTIVE_SF",
+            "13",
+            "-SET_ACTIVE_SF",
+            "14",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/rejected-face-corners/resaved.ply"
+          ],
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_excerpt": "QSocketNotifier: Can only be used with threads started with QThread\n[04:22:46] [ccColorScalesManager] Found 0 custom scale(s) in persistent settings\n[04:22:46] [Plugin] Searching: /usr/lib/cloudcompare/plugins\n[04:22:46] [Plugin] Searching: /home/altendky/.local/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/share/plasma/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/local/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /var/lib/snapd/desktop/CCCorp/CloudCompare/plugins\n[04:22:46] [Global Shift] Max abs. coord = 1e+04 / max abs. diag = 1e+06\n[04:22:46] [AUTO SAVE STATE] Command detected\n[04:22:46] Auto-save is disabled\n[04:22:46] [AUTO SAVE STATE] finished in 0.00 s.\n[04:22:46] [LOAD] Command detected\n[04:22:46] Opening file: '/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/rejected-face-corners.ply'\n[04:22:46] [PLY][Comment] Scansor cloudcompare-audit-v1 rejected-face-corners; display-only\n[04:22:46] [PLY][Comment] Source bindings, transforms and field meanings are in inventory.json and legend.json\n[04:22:46] [PLY] Element 'vertex' was ignored as it has 0 instance!\n[04:22:46] [PLY] Element 'face' was ignored as it has 0 instance!\n[04:22:46] An error occurred while loading 'rejected-face-corners': nothing to load\n[04:22:46] [LOAD] finished in 0.00 s.\n[04:22:46] Processed finished in 0.00 s.\n",
+          "log_sha256": "265bcaf5acbba15155038a9704e032b74ce78f293993e6deedcefb9ea06ac9b3",
+          "returncode": 1,
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3",
+            "scalar_source_face_0",
+            "scalar_source_face_1",
+            "scalar_source_face_2",
+            "scalar_source_face_3",
+            "scalar_source_corner",
+            "scalar_face_status"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38",
+          "source_vertices": 0,
+          "status": "empty-view-refused",
+          "successful_field_selections": 0,
+          "viewer_scale_request": "none"
+        },
+        "validity": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/validity.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/validity/resaved.ply"
+          ],
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_excerpt": "QSocketNotifier: Can only be used with threads started with QThread\n[04:22:45] [ccColorScalesManager] Found 0 custom scale(s) in persistent settings\n[04:22:45] [Plugin] Searching: /usr/lib/cloudcompare/plugins\n[04:22:45] [Plugin] Searching: /home/altendky/.local/share/CCCorp/CloudCompare/plugins\n[04:22:45] [Plugin] Searching: /usr/share/plasma/CCCorp/CloudCompare/plugins\n[04:22:45] [Plugin] Searching: /usr/local/share/CCCorp/CloudCompare/plugins\n[04:22:45] [Plugin] Searching: /usr/share/CCCorp/CloudCompare/plugins\n[04:22:45] [Plugin] Searching: /var/lib/snapd/desktop/CCCorp/CloudCompare/plugins\n[04:22:45] [Global Shift] Max abs. coord = 1e+04 / max abs. diag = 1e+06\n[04:22:45] [AUTO SAVE STATE] Command detected\n[04:22:45] Auto-save is disabled\n[04:22:45] [AUTO SAVE STATE] finished in 0.00 s.\n[04:22:45] [LOAD] Command detected\n[04:22:45] Opening file: '/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/validity.ply'\n[04:22:45] [PLY][Comment] Scansor cloudcompare-audit-v1 validity; display-only\n[04:22:45] [PLY][Comment] Source bindings, transforms and field meanings are in inventory.json and legend.json\n[04:22:45] [PLY] Element 'vertex' was ignored as it has 0 instance!\n[04:22:45] [PLY] Element 'face' was ignored as it has 0 instance!\n[04:22:45] An error occurred while loading 'validity': nothing to load\n[04:22:45] [LOAD] finished in 0.00 s.\n[04:22:45] Processed finished in 0.00 s.\n",
+          "log_sha256": "1bef4d2939e76bf1e794657487fffbbead9d5d72f494ce15824ef93666848e61",
+          "returncode": 1,
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "0d363c8d64f91cc4a1852fb955affad08b8eab0ee9b656afadc05cee8b868076",
+          "source_vertices": 0,
+          "status": "empty-view-refused",
+          "successful_field_selections": 0,
+          "viewer_scale_request": "none"
+        },
+        "weights": {
+          "command": [
+            "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+            "-SILENT",
+            "-AUTO_SAVE",
+            "OFF",
+            "-O",
+            "-GLOBAL_SHIFT",
+            "0",
+            "0",
+            "0",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/weights.ply",
+            "-SET_ACTIVE_SF",
+            "0",
+            "-SET_ACTIVE_SF",
+            "1",
+            "-SET_ACTIVE_SF",
+            "2",
+            "-SET_ACTIVE_SF",
+            "3",
+            "-SET_ACTIVE_SF",
+            "4",
+            "-SET_ACTIVE_SF",
+            "5",
+            "-SET_ACTIVE_SF",
+            "6",
+            "-SET_ACTIVE_SF",
+            "7",
+            "-SET_ACTIVE_SF",
+            "8",
+            "-C_EXPORT_FMT",
+            "PLY",
+            "-PLY_EXPORT_FMT",
+            "BINARY_LE",
+            "-SAVE_CLOUDS",
+            "FILE",
+            "/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/weights/resaved.ply"
+          ],
+          "global_shift_requested": [
+            "0",
+            "0",
+            "0"
+          ],
+          "log_excerpt": "QSocketNotifier: Can only be used with threads started with QThread\n[04:22:46] [ccColorScalesManager] Found 0 custom scale(s) in persistent settings\n[04:22:46] [Plugin] Searching: /usr/lib/cloudcompare/plugins\n[04:22:46] [Plugin] Searching: /home/altendky/.local/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/share/plasma/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/local/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /usr/share/CCCorp/CloudCompare/plugins\n[04:22:46] [Plugin] Searching: /var/lib/snapd/desktop/CCCorp/CloudCompare/plugins\n[04:22:46] [Global Shift] Max abs. coord = 1e+04 / max abs. diag = 1e+06\n[04:22:46] [AUTO SAVE STATE] Command detected\n[04:22:46] Auto-save is disabled\n[04:22:46] [AUTO SAVE STATE] finished in 0.00 s.\n[04:22:46] [LOAD] Command detected\n[04:22:46] Opening file: '/tmp/scansor-s5-viewer-k1gcvc8t/all-invalid-v1/mesh-display-86b7cb3465286a47b1c63cc3b5a82914d32fbc84d1fb6d7b2a4a34a461198997/weights.ply'\n[04:22:46] [PLY][Comment] Scansor cloudcompare-audit-v1 weights; display-only\n[04:22:46] [PLY][Comment] Source bindings, transforms and field meanings are in inventory.json and legend.json\n[04:22:46] [PLY] Element 'vertex' was ignored as it has 0 instance!\n[04:22:46] [PLY] Element 'face' was ignored as it has 0 instance!\n[04:22:46] An error occurred while loading 'weights': nothing to load\n[04:22:46] [LOAD] finished in 0.00 s.\n[04:22:46] Processed finished in 0.00 s.\n",
+          "log_sha256": "9aa5cb9a64b5caa3e7e94c29dd420f65dfc12601d3ada9e3233322d792f6b7fa",
+          "returncode": 1,
+          "scalar_index_mapping": [
+            "scalar_vertex_status",
+            "scalar_normal_status",
+            "scalar_contribution_status",
+            "scalar_raw_area",
+            "scalar_weight",
+            "scalar_source_vertex_0",
+            "scalar_source_vertex_1",
+            "scalar_source_vertex_2",
+            "scalar_source_vertex_3"
+          ],
+          "scope": "actual CLI load, selection of every scalar, and save; no visual GUI or physical-validation claim",
+          "source_faces": 0,
+          "source_sha256": "9583f8c7ed76198177b7c99d35c28b74410a4a50c65dbc0423b396ab93104922",
+          "source_vertices": 0,
+          "status": "empty-view-refused",
+          "successful_field_selections": 0,
+          "viewer_scale_request": "none"
+        }
+      }
+    }
+  ],
+  "gates": {
+    "explicit_nonzero_global_shift": true,
+    "gui_visual_inspection": "not performed by this CLI experiment",
+    "large_id_codec": true,
+    "precision_preservation": false,
+    "precision_preservation_meaning": "Use per-field observed differences; binary64 export is not a viewer precision guarantee.",
+    "representable_views": true,
+    "scale_resource_evidence": "not measured by this small experiment"
+  },
+  "implementation": {
+    "dependencies": {
+      "duckdb": "1.5.5",
+      "numpy": "2.5.1",
+      "pyarrow": "25.0.1"
+    },
+    "experiment_sha256": "eec17b889b4278d2c9d4cf87b34479e6fc8b2c00c9e3058a475ff2ce9365c631",
+    "files": {
+      "_plyio/format.py": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b",
+      "_plyio/stream.py": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef",
+      "mesh_display.py": "ef4ab674277f556c5953e32cb15093717aff27e3019f49bb2a517dce3995a42e",
+      "mesh_display_numeric.py": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009",
+      "mesh_display_ply.py": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb",
+      "mesh_display_records.py": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520",
+      "mesh_display_semantics.py": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a",
+      "mesh_display_staging.py": "42b1aea67bd35ab2560af24262decbcad26c70404bcace272953d39e32ce2ce4",
+      "mesh_display_verify.py": "480abd89fc6d1661578cbc9fe73d1ed0e3ce4ae00abecadd91923fc5452db684",
+      "mesh_viewer_compare.py": "1ecc9a845dc069f32b357dfe50f679efe73e51bb039d0942b7090af25a0f5db3"
+    }
+  },
+  "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+  "python": "3.12.13",
+  "revision": "mesh-display-viewer-experiment-v1",
+  "started_at": "2026-09-11T08:22:36.810078+00:00",
+  "viewer": {
+    "license": "GPL; separately installed executable, not a Scansor dependency",
+    "path": "/home/altendky/repos/CloudCompare/build/qCC/CloudCompare",
+    "sha256": "b324994f65061d901246676ee88289f30738ce192251dc2e5137ff6741dc3cb8"
+  }
+}

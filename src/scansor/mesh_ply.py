@@ -36,6 +36,11 @@ class MeshPlyError(ScansorError):
 
 def mesh_layout(header: Header) -> Layout:
     try:
+        if header.object_info:
+            raise PlyError(
+                "source profile does not admit obj_info metadata",
+                category="unsupported",
+            )
         if tuple(e.name for e in header.elements) != ("vertex", "face"):
             raise PlyError("requires vertex then face elements", category="unsupported")
         vertex, face = header.elements

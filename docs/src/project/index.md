@@ -33,7 +33,8 @@ outside the intended boundary.
     complete accounting, bounded storage, area weights, portable recipes,
     CloudCompare views, and implementation gates; S1–S4 I/O, numeric/recipe,
     source/storage, contribution accounting, publication and replay implemented;
-    visual audit and scale evidence remain open
+    S5 display exports/replay and small viewer CLI evidence implemented;
+    S6 scale/resource evidence remains open
 - [Mesh ingestion library evaluation](planning/full-resolution-mesh-library-evaluation.md)
   - **Research and provisional selection:** library/license comparison and small
     storage/random-bit probes; isolated PLY I/O and explicit NumPy-based boundary

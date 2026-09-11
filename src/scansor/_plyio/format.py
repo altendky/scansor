@@ -114,6 +114,7 @@ class Header:
     raw: bytes
     comments: tuple[bytes, ...]
     newline: bytes
+    object_info: tuple[bytes, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -210,9 +211,13 @@ def read_header(
         raise PlyError("unsupported PLY magic or format", category="unsupported")
     elements: list[Element] = []
     comments: list[bytes] = []
+    object_info: list[bytes] = []
     for line in lines[2:-1]:
         if line == b"comment" or line.startswith(b"comment "):
             comments.append(line + newline)
+            continue
+        if line == b"obj_info" or line.startswith(b"obj_info "):
+            object_info.append(line + newline)
             continue
         parts = line.decode("ascii").split(" ")
         if len(parts) == 3 and parts[0] == "element":
@@ -242,7 +247,9 @@ def read_header(
         elements[-1] = replace(element, properties=(*element.properties, prop))
     if not elements or any(not element.properties for element in elements):
         raise PlyError("each header requires elements with properties")
-    return Header(tuple(elements), bytes(raw), tuple(comments), newline)
+    return Header(
+        tuple(elements), bytes(raw), tuple(comments), newline, tuple(object_info)
+    )
 
 
 def make_header(
