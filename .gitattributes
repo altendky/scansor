@@ -1,0 +1,3 @@
+# Semantic implementation inventories hash source bytes on every platform.
+*.py text eol=lf
+*.json text eol=lf

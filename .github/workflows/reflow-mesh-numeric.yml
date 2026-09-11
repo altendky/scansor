@@ -1,0 +1,90 @@
+name: Mesh numerical conformance
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12.13", "3.13.15"]
+        os: [Linux, Windows, Darwin]
+        include:
+          - os: Linux
+            runner: ubuntu-24.04
+            arch: x86_64
+            mise-sha: 9a6c2a8b6fe77c98f1d210b4b3cbd2a0cf31886ad1baf10698757a3234c678c1
+          - os: Windows
+            runner: windows-2025
+            arch: x86_64
+            mise-sha: f1d183d107991250829292543ea1de966b9e7bf2aa57ec730533d306f44978f9
+          - os: Darwin
+            runner: macos-15
+            arch: arm64
+            mise-sha: c36958065f7f4286d6edf7077247302cff1da77c81ada4fa9a3566c0ea87e200
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          version: 2026.8.2
+          sha256: ${{ matrix.mise-sha }}
+          install_args: python uv
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python }}
+
+      - name: Verify architecture, numeric oracle, golden bytes, and dispatch
+        env:
+          EVIDENCE_DIRECTORY: ${{ runner.temp }}/mesh-conformance
+          EXPECTED_OS: ${{ matrix.os }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: >-
+          uv run --locked --python ${{ matrix.python }} python
+          -m experiments.mesh_numeric_conformance
+          --output "$EVIDENCE_DIRECTORY"
+          --expected-os "$EXPECTED_OS" --expected-arch "$EXPECTED_ARCH"
+
+      - name: Upload actual conformance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mesh-conformance-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/mesh-conformance/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  compare:
+    name: Compare all platform and dispatch identities
+    needs: conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          version: 2026.8.2
+          sha256: 9a6c2a8b6fe77c98f1d210b4b3cbd2a0cf31886ad1baf10698757a3234c678c1
+          install_args: python
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: mesh-conformance-*
+          path: ${{ runner.temp }}/mesh-matrix
+
+      - name: Require all twelve reports and identical semantic hashes
+        env:
+          MATRIX_DIRECTORY: ${{ runner.temp }}/mesh-matrix
+        run: >-
+          python -m experiments.mesh_numeric_conformance
+          --output "$MATRIX_DIRECTORY" --compare-matrix

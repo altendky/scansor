@@ -31,7 +31,7 @@ outside the intended boundary.
 - [Full-resolution mesh ingestion and visual audit](planning/full-resolution-mesh-ingestion.md)
   - **Provisional design:** external triangle-mesh profile, arbitrary units,
     complete accounting, bounded storage, area weights, portable recipes,
-    CloudCompare views, and implementation gates; isolated S1 I/O implemented,
+    CloudCompare views, and implementation gates; S1 I/O and S2 numeric/recipe core implemented,
     full ingestion and later gates remain open
 - [Mesh ingestion library evaluation](planning/full-resolution-mesh-library-evaluation.md)
   - **Research and provisional selection:** library/license comparison and small
