@@ -3,11 +3,12 @@
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
 The expectation builder and measured-run harness are implemented. Initial scale
 evidence includes complete six-million-vertex cases at both budgets, complete
-sixty-million-vertex noiseless and noisy cases at 2 GiB, and a complete noiseless
-sixty-million-vertex case below 512 MiB after fixes for observed resource
-failures. Some measurements missed the RSS sampling interval. The full matrix
-remains pending; this directory does not establish the complete 512 MiB or 2 GiB
-targets.
+sixty-million-vertex noiseless and noisy cases at 2 GiB, and complete noiseless
+and noisy cases below 512 MiB after fixes for observed resource failures. The
+fresh full noisy case at `5ffd9e7` passes all measured gates, including sampling.
+Some other measurements missed the RSS sampling interval. Renewing the complete
+matrix remains pending; these are measured configurations, not general 512 MiB
+or 2 GiB guarantees.
 
 ## Independent expected results
 
@@ -93,9 +94,9 @@ and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-ver
 contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
 The source files remain outside Git. Both noiseless and noisy six-million-vertex
 importer/contribution comparisons passed under both budgets. The
-sixty-million-vertex cases completed at 2 GiB. The noiseless case now completes
-below 512 MiB too; the noisy 512 MiB case and complete sampling coverage remain
-outstanding.
+sixty-million-vertex cases completed at 2 GiB. Both now also have complete
+512 MiB runs; the fresh noisy run passes sampling coverage too. Renewed
+comparisons across the full matrix and complete sampling coverage remain open.
 
 ## Worker execution and phase evidence
 
@@ -962,15 +963,89 @@ corners. New corruption and cancellation cases exercise that boundary.
 Fresh complete pipelines, including reordered inputs, remain necessary to
 measure the memory and extra-I/O cost of this change.
 
+## Complete cases with ID-only corner sorting
+
+The [fresh six-million-vertex flat pipeline at `5ffd9e7`](run-grid-3000x2000-flat-512-r4.json)
+completed import/contributions, display export and full replay. All canonical
+and display check records exactly match the previous flat six-million-row run.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 115.99 | 488.93 / 490.00 | 14.434904 (2 gaps over 10 ms) |
+| Display export | 73.38 | 490.17 / 491.63 | 21.179733 (3 gaps over 10 ms) |
+| Full display replay | 62.76 | 431.78 / 432.86 | 4.871388 |
+
+All workers and helpers exited normally with final statistics, no sampler
+errors, complete phase reports and owned cleanup. All RSS observations stayed
+below 512 MiB. Import and export sampling coverage failed; replay coverage
+passed. The sequential queue retains those misses and continues independent
+cases. These measurements have uncontrolled caches and do not isolate the
+runtime effect of the new allocation gathers.
+
+The [noisy six-million-vertex pipeline at the same checkpoint](run-grid-3000x2000-noisy-512-r2.json)
+also completed all three workers and exactly matched the earlier noisy
+canonical/display check records.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 160.21 | 480.64 / 481.61 | 20.025405 (15 gaps over 10 ms) |
+| Display export | 97.51 | 488.82 / 489.05 | 40.133905 (37 gaps over 10 ms) |
+| Full display replay | 157.28 | 483.53 / 484.98 | 40.539634 (7 gaps over 10 ms) |
+
+All workers/helpers exited normally without sampler errors; memory, phase
+coverage and owned cleanup passed. Sampling coverage failed in every worker.
+The slower readback and scheduling gaps are retained with the complete timing,
+I/O and environment observations rather than replaced by a selective rerun.
+An additional [host pressure snapshot](host-pressure-id-only-matrix-r1.json)
+during the next large case records substantial host-wide I/O stalls, about
+16 GiB of available RAM and no configured swap. It identifies a measurement
+condition, not which process caused it or a controlled performance comparison.
+
+## Full noisy pipeline passes at 512 MiB
+
+The [fresh sixty-million-vertex noisy pipeline at `5ffd9e7`](run-grid-10000x6000-noisy-512-r4.json)
+completed import/contributions, display export and full replay. Every canonical
+and display check record exactly matches the earlier full noisy 2 GiB result:
+all 60,000,000 vertices, 119,968,002 faces and 359,904,006 corners are retained.
+The complete source-corner digest matched after reconstructing allocation bits,
+and contribution ordering completed with the original source-order arithmetic.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 887.04 | 425.89 / 427.19 | 4.612669 |
+| Display export | 456.66 | 415.63 / 416.73 | 6.580765 |
+| Full display replay | 507.24 | 448.01 / 449.41 | 5.528296 |
+
+Every worker-memory, sampling, phase and owned-cleanup observation passed.
+Workers and helpers exited normally with acknowledged final statistics and no
+sampler errors. Import/export had no cgroup limit events. Replay reached the
+separate 6 GiB cgroup charge ceiling, recording 2,485 `memory.events max`
+events; there were no OOM/kill events or swap use. That charge includes file
+cache and other cgroup members and is distinct from worker RSS. This is a
+complete pipeline measurement at the 512 MiB worker target, not a sorting-only
+inference. It does not erase earlier failures or sampling misses in other cases.
+
+## Retained artifacts and reclaimed duplicate copies
+
+Between cases, [two redundant generated display copies](retired-generated-displays-r1.json)
+were retired to preserve scratch headroom. All files in the retained flat
+sixty-million-vertex/512 MiB display were rehashed against their complete
+measurement record. Both retired copies had identical measured file hashes
+and byte-identical small metadata, which was separately archived. Reports,
+sources and canonical import/contribution artifacts remain available; the
+manifest identifies the complete retained display replacing the two historical
+display paths. This recovered 26,157,932,544 allocated bytes (about 24.36 GiB).
+
 ## Remaining execution evidence
 
-The complete sixty-million-vertex flat pipeline now fits 512 MiB; the noisy
-512 MiB case remains unmet. Both full 2 GiB grid cases completed on earlier
-checkpoints. The smaller grid, reordered-grid, fan and intentional failure
-results above are measured evidence; remaining comparisons with the current
-observer and memory plan are pending. Some operations still missed the 10 ms
-sampling target. Failed coverage is retained separately from memory and
-correctness results, including in subsequent sequential comparisons.
+Both complete sixty-million-vertex pipelines have now fit 512 MiB; the fresh
+noisy case also passes sampling coverage. Both full 2 GiB grid cases completed
+on earlier checkpoints. Three cases of the renewed fourteen-case matrix at
+`5ffd9e7` are complete; eleven remain, including the full flat/512 MiB run,
+both full 2 GiB runs and the remaining smaller-grid/reordered/fan comparisons.
+Some operations still missed the 10 ms sampling target. Failed coverage is
+retained separately from memory and correctness, including in subsequent
+sequential comparisons.
 Changes to memory planning or coordinate lookup also require fresh full cases
 before they inherit any prior capacity result.
 
