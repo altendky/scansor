@@ -5,7 +5,7 @@ The expectation builder and measured-run harness are implemented. Initial scale
 evidence includes complete six-million-vertex cases at both budgets, complete
 sixty-million-vertex noiseless and noisy cases at 2 GiB, and complete noiseless
 and noisy cases below 512 MiB after fixes for observed resource failures. The
-fresh full noisy case at `5ffd9e7` passes all measured gates, including sampling.
+fresh full flat and noisy cases at `5ffd9e7` pass all measured gates, including sampling.
 Some other measurements missed the RSS sampling interval. Renewing the complete
 matrix remains pending; these are measured configurations, not general 512 MiB
 or 2 GiB guarantees.
@@ -95,7 +95,7 @@ contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes
 The source files remain outside Git. Both noiseless and noisy six-million-vertex
 importer/contribution comparisons passed under both budgets. The
 sixty-million-vertex cases completed at 2 GiB. Both now also have complete
-512 MiB runs; the fresh noisy run passes sampling coverage too. Renewed
+512 MiB runs; both fresh full runs pass sampling coverage too. Renewed
 comparisons across the full matrix and complete sampling coverage remain open.
 
 ## Worker execution and phase evidence
@@ -1025,6 +1025,51 @@ cache and other cgroup members and is distinct from worker RSS. This is a
 complete pipeline measurement at the 512 MiB worker target, not a sorting-only
 inference. It does not erase earlier failures or sampling misses in other cases.
 
+## Full flat pipeline passes at 512 MiB
+
+The [fresh sixty-million-vertex flat pipeline at `5ffd9e7`](run-grid-10000x6000-flat-512-r8.json)
+also completed every worker-memory, sampling, phase and cleanup observation.
+All canonical and display check records exactly match the earlier full flat
+2 GiB result. The complete populations and original tuple/fold semantics are
+preserved, as in the noisy case.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 934.46 | 424.76 / 425.26 | 4.522430 |
+| Display export | 486.48 | 443.66 / 444.44 | 5.420803 |
+| Full display replay | 503.57 | 460.41 / 461.43 | 5.318995 |
+
+All workers/helpers exited normally with final statistics and no sampler
+errors. The shared cgroup charge reached its 6 GiB ceiling during export,
+recording 1,971 cumulative `memory.events max` events after export and 4,432
+after replay. No OOM/kill events or swap use occurred. These cgroup/cache
+observations are distinct from the worker RSS peaks above. Both full 512 MiB
+cases now pass the recorded gates; earlier failures and sampling misses remain
+part of the evidence.
+
+## Flat 2 GiB replay stops at disk preflight
+
+The [fresh full flat 2 GiB case at the same checkpoint](run-grid-10000x6000-flat-2048-r4.json)
+completed import/contributions and display export. All canonical and display
+check records exactly match the current 512 MiB case. Import/export took
+947.88/464.22 seconds, with sampled peaks of 1,864.14/1,606.17 MiB and largest
+sampling gaps of 5.225035/5.519155 ms. Both workers passed every recorded
+memory, sampling, phase and cleanup observation.
+
+Replay checked the authoritative artifacts, then failed disk preflight before
+rebuilding the display: the conservative plan required 135,636,488,318 free
+bytes, while the recorded filesystem had 123,832,549,376 bytes available.
+Its 119.19-second failed worker peaked at 127.47 MiB sampled RSS and had a
+3.193048 ms maximum sampling gap. Owned cleanup passed, with no sampler error.
+The overall pipeline remains failed even though its resource observations
+passed. The cgroup recorded cumulative charge-limit events, with no OOM/kill
+or swap use. The sequential queue stopped on this failure.
+
+The earlier free-space estimate used while preparing the queue was too small
+for replay's conservative plan. The estimate and original failed result remain
+explicit. Additional duplicate generated artifacts were retired, as recorded below.
+The complete case will be rerun with unchanged code, data, budgets and checks.
+
 ## Retained artifacts and reclaimed duplicate copies
 
 Between cases, [two redundant generated display copies](retired-generated-displays-r1.json)
@@ -1032,17 +1077,36 @@ were retired to preserve scratch headroom. All files in the retained flat
 sixty-million-vertex/512 MiB display were rehashed against their complete
 measurement record. Both retired copies had identical measured file hashes
 and byte-identical small metadata, which was separately archived. Reports,
-sources and canonical import/contribution artifacts remain available; the
-manifest identifies the complete retained display replacing the two historical
-display paths. This recovered 26,157,932,544 allocated bytes (about 24.36 GiB).
+sources and canonical import/contribution artifacts remained available at
+that point. The manifest records the first retention step and its replacement
+display path. This recovered 26,157,932,544 allocated bytes (about 24.36 GiB).
+
+After the later disk-preflight failure, a [second retention manifest](retired-generated-artifacts-r2.json)
+records thirteen redundant artifact directories retired from five older cases,
+recovering another 74,931,957,760 allocated bytes (about 69.79 GiB). Every file
+in both retained complete flat/noisy 512 MiB artifact families was rehashed
+before removal. Old canonical/display check records and bulk inventory hashes
+match the retained data; historical implementation metadata is separately
+archived. Reports, telemetry, frozen expectations and original generated
+sources remain. The first manifest's retained flat display is now replaced by
+the current flat 512 MiB display; this replacement chain is explicit in the
+second manifest. Old artifact paths in reports are historical, not promises
+that every duplicate remains on disk.
+
+The remaining large cases will start only with at least 170,000,000,000 free
+bytes, allowing for the observed replay estimate, published outputs and extra
+headroom. Host writes can still change availability during a run; production
+preflight remains unchanged and failures stay explicit.
 
 ## Remaining execution evidence
 
-Both complete sixty-million-vertex pipelines have now fit 512 MiB; the fresh
-noisy case also passes sampling coverage. Both full 2 GiB grid cases completed
-on earlier checkpoints. Three cases of the renewed fourteen-case matrix at
-`5ffd9e7` are complete; eleven remain, including the full flat/512 MiB run,
-both full 2 GiB runs and the remaining smaller-grid/reordered/fan comparisons.
+Both complete sixty-million-vertex pipelines now pass all measured 512 MiB
+gates, including sampling coverage. Both full 2 GiB grid cases completed on
+earlier checkpoints. Four cases of the renewed fourteen-case matrix at
+`5ffd9e7` are complete. The first renewed flat 2 GiB case failed replay
+disk preflight; its complete rerun and the nine unstarted cases remain.
+The sequential queue is paused after reclaiming duplicate generated artifacts.
+Its next case is the complete flat 2 GiB rerun, followed by the nine unstarted cases.
 Some operations still missed the 10 ms sampling target. Failed coverage is
 retained separately from memory and correctness, including in subsequent
 sequential comparisons.
