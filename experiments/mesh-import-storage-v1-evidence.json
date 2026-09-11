@@ -1,0 +1,420 @@
+{
+  "revision": "mesh-import-storage-evidence-v1",
+  "observed_date": "2026-09-11",
+  "workers_run_sequentially": true,
+  "cache_state": "uncontrolled",
+  "reports": [
+    {
+      "association": {
+        "corners_sha256": "44b4303d16255f8338487ccdbf64bbf3c3a878d7081b7d89781e0529728a9867",
+        "faces": 398202,
+        "indices_sha256": "711c651a69e750208700657f9721ae52174e52df12d5e19884bef061cef889b7"
+      },
+      "execution": {
+        "association_queries": 1,
+        "cgroup": {
+          "available": true,
+          "memory.current": "1625960448",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 37",
+          "memory.max": "max",
+          "memory.peak": "3224899584",
+          "memory.swap.current": "0",
+          "memory.swap.max": "max"
+        },
+        "current_disk": {
+          "allocated_bytes": 19607552,
+          "concurrent_changes": false,
+          "logical_bytes": 19601880
+        },
+        "dependencies": {
+          "duckdb": "1.5.5",
+          "psutil": "7.2.2",
+          "pyarrow": "25.0.1"
+        },
+        "managed_reservation_high_water_bytes": 19305666,
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 398202,
+          "disk": {
+            "allocated_bytes": 19419136,
+            "concurrent_changes": false,
+            "logical_bytes": 19413639
+          },
+          "elapsed_ns": 2536986003,
+          "peak_rss_bytes": 242622464,
+          "phase": "coordinate-association-1",
+          "rss_bytes": 158736384,
+          "sampled_disk_peak_logical_bytes": 19413639,
+          "total": 398202
+        },
+        "plan": {
+          "baseline_bytes": 153055232,
+          "batch_bytes": 3143424,
+          "batch_rows": 4093,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 384097222,
+          "engine_bytes": 141576192,
+          "engine_temp_limit_bytes": 114739712,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 414600386,
+          "resident_columns_bytes": 16162242,
+          "safety_bytes": 67108864,
+          "storage": "ram"
+        },
+        "post_cleanup_memory": {
+          "os_peak_rss_bytes": 241696768,
+          "rss_bytes": 158744576
+        },
+        "probe_sha256": "b0eb23a735a8612a75f3c5255fe1ca9f9f560656a20295c6a9ea9572243f65d8",
+        "revision": "mesh-import-execution-v1",
+        "source_hashes": {
+          "mesh_columns.py": "f720276fddae8ad5780358563c463f991152e8ead97ff620e886e4bfbb49e8dc",
+          "mesh_duckdb.py": "93b23882cfc19c2b966a7c83c7ad82080994e36e3aa465a56438ee142c7851c7",
+          "mesh_import.py": "f803808161c27e8b0bc3536ddd12a03df2c94db6c7e883f134ff8df3865a04d3",
+          "mesh_resources.py": "419006179386287db5944d7453fb0d7e4ae528a8e6d2566e0298d853615fbd0d",
+          "mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+          "mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3"
+        }
+      },
+      "inventory": {
+        "association_revision": "source-face-corner-left-association-v1",
+        "columns": [
+          {
+            "byte_count": 2400000,
+            "dtype": "<f4",
+            "name": "xyz.bin",
+            "sha256": "247869e7ab38c9f0c52eba1259fe2b022dc15b740a8ad057d1eba52e4f23ddc8",
+            "shape": [
+              200000,
+              3
+            ]
+          },
+          {
+            "byte_count": 200000,
+            "dtype": "u1",
+            "name": "vertex-status.bin",
+            "sha256": "4cbbd9be0cba685835755f827758705db5a413c5494c34262cd25946a73e7582",
+            "shape": [
+              200000
+            ]
+          },
+          {
+            "byte_count": 200000,
+            "dtype": "u1",
+            "name": "normal-status.bin",
+            "sha256": "4cbbd9be0cba685835755f827758705db5a413c5494c34262cd25946a73e7582",
+            "shape": [
+              200000
+            ]
+          },
+          {
+            "byte_count": 4778424,
+            "dtype": "<i4",
+            "name": "triangles.bin",
+            "sha256": "711c651a69e750208700657f9721ae52174e52df12d5e19884bef061cef889b7",
+            "shape": [
+              398202,
+              3
+            ]
+          }
+        ],
+        "faces": 398202,
+        "importer_implementation": "d1a2cd658229d6a5eedff80e266057d69066c5545e8bf252f6fb4ff8017d6ebb",
+        "normal_convention": "unverified-exporter-components",
+        "numeric_revision": "ordered-binary64-v1",
+        "pending_columns": [
+          "face-area.bin",
+          "face-status.bin",
+          "reference-count.bin"
+        ],
+        "physical_unit": "unknown",
+        "profile": "binary-triangle-ply-v1",
+        "revision": "mesh-import-foundation-v1",
+        "sidecar_interpretation": {
+          "fields": {},
+          "reason": null,
+          "revision": "realityscan-rsinfo-strings-v1",
+          "status": "absent"
+        },
+        "source": {
+          "revision": "mesh-source-inventory-v1",
+          "sidecar": "absent",
+          "sources": [
+            {
+              "byte_count": 7576836,
+              "role": "mesh-ply",
+              "sha256": "5a5e213a9f706186339e21d50f23aa3ae5c4ce388461a9372d0f33191f8531cb"
+            }
+          ]
+        },
+        "source_frame_id": "fd47eef9db772cdcc750a516ed27532c63b6b6b18b06d363813fb2989e7c85e1",
+        "source_id": "f037700864fef8373b1dd5e65aaf15c4f5d827008fac669ee56b22145f6c87e9",
+        "status": "foundation-ready",
+        "vertices": 200000
+      },
+      "inventory_id": "4ff640cfcb5b9a8b4a351a6ef78b11144de6bd4cb19ff8f86aac2e5ac7abe9d2",
+      "last_progress_events": [
+        {
+          "budget_bytes": 536870912,
+          "completed": 0,
+          "disk": {
+            "allocated_bytes": 65536,
+            "concurrent_changes": false,
+            "logical_bytes": 65536
+          },
+          "elapsed_ns": 664573,
+          "peak_rss_bytes": 158154752,
+          "phase": "snapshot-mesh-ply-copy",
+          "rss_bytes": 152739840,
+          "sampled_disk_peak_logical_bytes": 65536,
+          "total": 7576836
+        },
+        {
+          "budget_bytes": 536870912,
+          "completed": 85953,
+          "disk": {
+            "allocated_bytes": 13422592,
+            "concurrent_changes": false,
+            "logical_bytes": 13413717
+          },
+          "elapsed_ns": 1002596498,
+          "peak_rss_bytes": 172331008,
+          "phase": "decode-faces",
+          "rss_bytes": 172331008,
+          "sampled_disk_peak_logical_bytes": 13413717,
+          "total": 398202
+        },
+        {
+          "budget_bytes": 536870912,
+          "completed": 384742,
+          "disk": {
+            "allocated_bytes": 19419136,
+            "concurrent_changes": false,
+            "logical_bytes": 19413639
+          },
+          "elapsed_ns": 2007877031,
+          "peak_rss_bytes": 186093568,
+          "phase": "decode-faces",
+          "rss_bytes": 186093568,
+          "sampled_disk_peak_logical_bytes": 19413639,
+          "total": 398202
+        }
+      ],
+      "machine": "x86_64",
+      "owned_cleanup_complete": true,
+      "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+      "progress_event_count": 3,
+      "python": "3.12.13",
+      "recipe": {
+        "adverse_edits": [],
+        "counter": "[source_vertex_index,0,0,0]",
+        "expected": "complete",
+        "height": 400,
+        "key": [
+          7,
+          0
+        ],
+        "model": "rectangular-height-grid-v1",
+        "noise_bits": 3,
+        "quantum_exponent": -8,
+        "raw_words_per_vertex": 4,
+        "revision": "mesh-grid-philox-v1",
+        "seed": 7,
+        "width": 500
+      },
+      "revision": "mesh-import-storage-probe-v1",
+      "scope": "S3 source columns and complete coordinate association only"
+    },
+    {
+      "association": {
+        "corners_sha256": "44b4303d16255f8338487ccdbf64bbf3c3a878d7081b7d89781e0529728a9867",
+        "faces": 398202,
+        "indices_sha256": "711c651a69e750208700657f9721ae52174e52df12d5e19884bef061cef889b7"
+      },
+      "execution": {
+        "association_queries": 1,
+        "cgroup": {
+          "available": true,
+          "memory.current": "1642450944",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 37",
+          "memory.max": "max",
+          "memory.peak": "3224899584",
+          "memory.swap.current": "0",
+          "memory.swap.max": "max"
+        },
+        "current_disk": {
+          "allocated_bytes": 27168768,
+          "concurrent_changes": false,
+          "logical_bytes": 32343339
+        },
+        "dependencies": {
+          "duckdb": "1.5.5",
+          "psutil": "7.2.2",
+          "pyarrow": "25.0.1"
+        },
+        "managed_reservation_high_water_bytes": 50331648,
+        "monitor": {
+          "budget_bytes": 2147483648,
+          "completed": 398202,
+          "disk": {
+            "allocated_bytes": 65536,
+            "concurrent_changes": false,
+            "logical_bytes": 65536
+          },
+          "elapsed_ns": 859544870,
+          "peak_rss_bytes": 255426560,
+          "phase": "coordinate-association-1",
+          "rss_bytes": 158855168,
+          "sampled_disk_peak_logical_bytes": 65536,
+          "total": 398202
+        },
+        "plan": {
+          "baseline_bytes": 153133056,
+          "batch_bytes": 50331648,
+          "batch_rows": 65536,
+          "budget_bytes": 2147483648,
+          "disk_estimate_bytes": 384097222,
+          "engine_bytes": 268435456,
+          "engine_temp_limit_bytes": 114739712,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 720202956,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 214748364,
+          "storage": "disk"
+        },
+        "post_cleanup_memory": {
+          "os_peak_rss_bytes": 254033920,
+          "rss_bytes": 158855168
+        },
+        "probe_sha256": "b0eb23a735a8612a75f3c5255fe1ca9f9f560656a20295c6a9ea9572243f65d8",
+        "revision": "mesh-import-execution-v1",
+        "source_hashes": {
+          "mesh_columns.py": "f720276fddae8ad5780358563c463f991152e8ead97ff620e886e4bfbb49e8dc",
+          "mesh_duckdb.py": "93b23882cfc19c2b966a7c83c7ad82080994e36e3aa465a56438ee142c7851c7",
+          "mesh_import.py": "f803808161c27e8b0bc3536ddd12a03df2c94db6c7e883f134ff8df3865a04d3",
+          "mesh_resources.py": "419006179386287db5944d7453fb0d7e4ae528a8e6d2566e0298d853615fbd0d",
+          "mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+          "mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3"
+        }
+      },
+      "inventory": {
+        "association_revision": "source-face-corner-left-association-v1",
+        "columns": [
+          {
+            "byte_count": 2400000,
+            "dtype": "<f4",
+            "name": "xyz.bin",
+            "sha256": "247869e7ab38c9f0c52eba1259fe2b022dc15b740a8ad057d1eba52e4f23ddc8",
+            "shape": [
+              200000,
+              3
+            ]
+          },
+          {
+            "byte_count": 200000,
+            "dtype": "u1",
+            "name": "vertex-status.bin",
+            "sha256": "4cbbd9be0cba685835755f827758705db5a413c5494c34262cd25946a73e7582",
+            "shape": [
+              200000
+            ]
+          },
+          {
+            "byte_count": 200000,
+            "dtype": "u1",
+            "name": "normal-status.bin",
+            "sha256": "4cbbd9be0cba685835755f827758705db5a413c5494c34262cd25946a73e7582",
+            "shape": [
+              200000
+            ]
+          },
+          {
+            "byte_count": 4778424,
+            "dtype": "<i4",
+            "name": "triangles.bin",
+            "sha256": "711c651a69e750208700657f9721ae52174e52df12d5e19884bef061cef889b7",
+            "shape": [
+              398202,
+              3
+            ]
+          }
+        ],
+        "faces": 398202,
+        "importer_implementation": "d1a2cd658229d6a5eedff80e266057d69066c5545e8bf252f6fb4ff8017d6ebb",
+        "normal_convention": "unverified-exporter-components",
+        "numeric_revision": "ordered-binary64-v1",
+        "pending_columns": [
+          "face-area.bin",
+          "face-status.bin",
+          "reference-count.bin"
+        ],
+        "physical_unit": "unknown",
+        "profile": "binary-triangle-ply-v1",
+        "revision": "mesh-import-foundation-v1",
+        "sidecar_interpretation": {
+          "fields": {},
+          "reason": null,
+          "revision": "realityscan-rsinfo-strings-v1",
+          "status": "absent"
+        },
+        "source": {
+          "revision": "mesh-source-inventory-v1",
+          "sidecar": "absent",
+          "sources": [
+            {
+              "byte_count": 7576836,
+              "role": "mesh-ply",
+              "sha256": "5a5e213a9f706186339e21d50f23aa3ae5c4ce388461a9372d0f33191f8531cb"
+            }
+          ]
+        },
+        "source_frame_id": "fd47eef9db772cdcc750a516ed27532c63b6b6b18b06d363813fb2989e7c85e1",
+        "source_id": "f037700864fef8373b1dd5e65aaf15c4f5d827008fac669ee56b22145f6c87e9",
+        "status": "foundation-ready",
+        "vertices": 200000
+      },
+      "inventory_id": "4ff640cfcb5b9a8b4a351a6ef78b11144de6bd4cb19ff8f86aac2e5ac7abe9d2",
+      "last_progress_events": [
+        {
+          "budget_bytes": 2147483648,
+          "completed": 0,
+          "disk": {
+            "allocated_bytes": 65536,
+            "concurrent_changes": false,
+            "logical_bytes": 65536
+          },
+          "elapsed_ns": 683021,
+          "peak_rss_bytes": 158060544,
+          "phase": "snapshot-mesh-ply-copy",
+          "rss_bytes": 152817664,
+          "sampled_disk_peak_logical_bytes": 65536,
+          "total": 7576836
+        }
+      ],
+      "machine": "x86_64",
+      "owned_cleanup_complete": true,
+      "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+      "progress_event_count": 1,
+      "python": "3.12.13",
+      "recipe": {
+        "adverse_edits": [],
+        "counter": "[source_vertex_index,0,0,0]",
+        "expected": "complete",
+        "height": 400,
+        "key": [
+          7,
+          0
+        ],
+        "model": "rectangular-height-grid-v1",
+        "noise_bits": 3,
+        "quantum_exponent": -8,
+        "raw_words_per_vertex": 4,
+        "revision": "mesh-grid-philox-v1",
+        "seed": 7,
+        "width": 500
+      },
+      "revision": "mesh-import-storage-probe-v1",
+      "scope": "S3 source columns and complete coordinate association only"
+    }
+  ]
+}

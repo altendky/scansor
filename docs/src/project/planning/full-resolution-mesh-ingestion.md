@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**Provisional contract; S1 I/O and S2 numeric/recipe core implemented, 2026-09-11.**
+**Provisional contract; S1–S3 foundations implemented, 2026-09-11.**
 This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
@@ -19,7 +19,9 @@ separate importer and artifact family; neither existing boundary is relaxed by
 pretending external observations are synthetic.
 
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
-core have the S1/S2 implementations described below. S3–S6 remain unimplemented.
+core and source/storage foundation have the S1–S3 implementations described below.
+S4–S6 remain unimplemented. A prepared foundation is not a complete import or
+contribution result.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
 solver integration, model mapping, scale/pose estimation, robust refitting,
@@ -125,6 +127,128 @@ hashes, Philox vectors, and implementation IDs matched. Baseline runs actually
 disabled available dispatch targets, including ASIMDHP/ASIMDDP on arm64 and
 X86_V3 plus available AVX-512 targets on x86-64. The evidence retains each
 report's full build/runtime diagnostics and its original byte hash.
+
+### S3 source and storage foundation
+
+[`prepare_import`](../../../../src/scansor/mesh_import.py) is a scoped internal
+foundation. It independently copies the PLY and explicitly requested sidecar,
+checks anchored handles, file and parent identities, lengths and streamed hashes,
+and processes only the verified copies. Anchored copies are rehashed and checked
+after decoding and again before issuing a foundation inventory. Original paths
+stay outside semantic
+identity. Missing or unreadable requested sidecars fail; an absent sidecar has a
+different source identity from a present empty sidecar. Ordinary source mutation,
+replacement and private-copy corruption fail rather than yielding a foundation.
+
+The replaceable [sidecar adapter](../../../../src/scansor/mesh_sidecar.py) uses
+`defusedxml.ElementTree` with DTDs, entities and external access forbidden. It
+bounds bytes, elements and depth; validates the fragment roots and duplicates;
+retains strings only; and marks malformed, oversized or unknown-field content
+visibly. It neither follows embedded paths nor derives units or calibration.
+The original bytes remain part of the source inventory regardless of interpretation.
+
+[Columns](../../../../src/scansor/mesh_columns.py) expose bounded, owned,
+read-only NumPy ranges over reserved RAM or buffered raw files. Writes require
+exact contiguous dtypes and source-prefix coverage; sealing checks complete rows
+and exact byte lengths. Source XYZ/normals, raw triangle indices, vertex status
+and normal status are populated without dropping rejected rows. Exceptional
+float encodings are canonicalized by S2. Physical units remain unknown and normal
+components remain in their unverified source convention. Face dispositions and
+numeric area hooks exist, but reference counts, final face statuses/areas and
+all contribution columns remain S4 responsibilities. Foundation inventories name
+these pending columns and never advertise complete import/contribution status.
+
+[Direct DuckDB staging](../../../../src/scansor/mesh_duckdb.py) stores explicit
+64-bit source ordinals, signed corner indices and unsigned coordinate words.
+Storing float32 words as integers avoids engine NaN/null conversion. Bounded
+Arrow inputs are consumed synchronously. Complete ordered ID scans reject missing
+or duplicate rows. One left-association query emits all corners in source order,
+checks exact face/corner cardinality and valid-index lookup coverage, and returns
+owned NumPy face batches. Invalid-index rows remain represented. The consumer
+must release each batch before advancing; Arrow views stay inside their reader
+scope. No table-sized result fetch or complete query per output batch is used.
+PyArrow's untyped API is confined to this checked execution boundary. Upgrade
+comments require renewed reader/copy/lifetime checks.
+
+The [resource planner and monitor](../../../../src/scansor/mesh_resources.py)
+reserve initialized baseline, engine cache, fixed buffers, caller-managed column
+storage, bounded conversion/numeric scratch and safety allowance. The planner
+includes future contribution columns before choosing RAM, estimates working and
+spill disk separately from canonical bytes, and rejects an infeasible minimum.
+The monitor combines sampled RSS with process-lifetime OS peak counters, checks
+the whole-worker budget, and reports progress during blocking native queries.
+Run large operations in a fresh worker so lifetime peaks describe that operation.
+Cgroup charges and sampled logical/allocated disk observations are separate
+diagnostics. Reservations and sampled disk peaks are not exact native allocation
+or disk-peak measurements, nor proof of the S6 scale targets.
+
+Workspace creation first uses a private, empty bootstrap container, creates the
+working directory beneath its held handle, and captures the working inode before
+atomically exposing its name in the destination. Bootstrap cleanup removes empty
+directories only. Processing uses a retained Linux directory descriptor through
+`/proc/self/fd`, so replacing the public path cannot redirect writes. This worker
+foundation currently requires Linux; the portable numeric gate remains separate.
+
+The private workspace assumes trusted processes sharing the Unix account. It
+handles ordinary source mutation and replacement at the supplied destination;
+it does not claim isolation from a hostile same-account process or root actively
+modifying private directories. Linux [directory creation returns a status, not an
+open handle](https://man7.org/linux/man-pages/man2/mkdir.2.html), so creation and
+handle capture inside the private namespace remain separate system calls.
+Isolation from hostile same-account code would require a separate privilege or
+sandbox design; additional pathname checks cannot establish that guarantee.
+
+Scope exit closes readers, connections, arrays and the monitor before removing
+its owned workspace. Explicit failure retention writes an incomplete diagnostic,
+not a success or resume marker. Cleanup first atomically quarantines the workspace
+using the repository's Linux
+no-replace primitive, checks the moved entry, then removes its contents through
+the same verified
+directory descriptor. It does not reopen the candidate name for recursion.
+A substituted entry is restored or retained without deleting
+its contents. Unsupported cleanup hosts fail safely. Cleanup failures do not
+overwrite an initiating processing failure. External supervision
+of killed workers and atomic stage publication remain S4 work.
+
+[Source/storage tests](../../../../tests/test_mesh_sources.py) and
+[foundation integration tests](../../../../tests/test_mesh_import.py) check
+independent source-bit expectations, RAM/disk identities across chunks and
+budgets, row association including invalid indices, XML degradation, and injected
+mutation, short writes, disk-full, permission, cancellation and budget failures.
+The [fresh-worker probe](../../../../experiments/mesh_import_storage.py) measures
+complete S3 coordinate association on a deterministic generated grid. It ends
+before contribution processing and does not replace S4 replay or S6 stress gates.
+
+[Retained S3 evidence](../../../../experiments/mesh-import-storage-v1-evidence.json)
+records two sequential fresh Linux x86-64 workers over 200,000 vertices and
+398,202 faces (500×400 grid, seed 7, three-bit dyadic noise). RAM storage used a
+512 MiB whole-worker plan with 4,093-row batches; disk storage used a 2 GiB plan
+with 65,536-row batches. Peak process RSS was 230.50 and 242.27 MiB respectively.
+The reports retain execution-source/probe hashes and a kernel peak reading after
+cleanup. Both produced the same foundation ID and exact ordered index/coordinate hashes,
+checked every source face and completed owned cleanup. Cache state was
+uncontrolled, and these differing execution settings are not a speed comparison.
+These observations cover this fixture on this runtime, not the six- and
+sixty-million-vertex targets or platform-wide full-import support.
+
+Reproduce each worker separately from the locked environment, with an explicit
+existing directory outside a Git checkout:
+
+```sh
+uv run python experiments/mesh_import_storage.py \
+  --workdir /path/to/work --output ram.json \
+  --storage ram --budget-mib 512 --chunk-rows 4093
+uv run python experiments/mesh_import_storage.py \
+  --workdir /path/to/work --output disk.json \
+  --storage disk --budget-mib 2048 --chunk-rows 65536
+```
+
+Semantic [owned-file inventories](../../../../src/scansor/mesh_controls.py) now
+bind the disposition, sidecar and source-column semantics plus defusedxml's
+version. DuckDB, PyArrow, psutil, memory plans and storage/SQL execution modules
+remain execution provenance. SQL changes affecting row/order/lookup semantics
+must revise the bound association contract; execution tuning alone does not
+change a foundation identity.
 
 ## Source profile and provenance
 
