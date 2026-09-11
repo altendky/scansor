@@ -235,3 +235,38 @@ def test_source_tree_directory_symlink_is_rejected(tmp_path: Path) -> None:
     finally:
         os.close(held)
     assert (foreign / "data.bin").read_bytes() == b"keep"
+
+
+def test_replaced_publication_destination_does_not_receive_a_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _source(tmp_path)
+    destination, moved = tmp_path / "destination", tmp_path / "moved"
+    destination.mkdir()
+    verify = mesh_publication.verify_closed_tree
+    replaced = False
+
+    def replace(
+        directory: int,
+        expected: dict[str, tuple[int, str]],
+        check: mesh_publication.Check,
+    ) -> None:
+        nonlocal replaced
+        verify(directory, expected, check)
+        if not replaced:
+            replaced = True
+            _ = destination.rename(moved)
+            destination.mkdir()
+            _ = (destination / "keep.txt").write_bytes(b"unrelated")
+
+    monkeypatch.setattr(mesh_publication, "verify_closed_tree", replace)
+    with (
+        pytest.raises(MeshImportError, match="destination path changed"),
+        prepare_import(source, tmp_path, chunk_rows=2) as data,
+        account_import(data) as imported,
+    ):
+        _ = publish_import(imported, destination)
+    assert (destination / "keep.txt").read_bytes() == b"unrelated"
+    assert {path.name for path in destination.iterdir()} == {"keep.txt"}
+    assert not list(moved.iterdir())
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
