@@ -141,6 +141,7 @@ def main() -> None:
     _ = parser.add_argument("--prior-run", type=Path)
     _ = parser.add_argument("--engine-bytes", type=int, required=True)
     _ = parser.add_argument("--force-external", action="store_true")
+    _ = parser.add_argument("--keys-only", action="store_true")
     _ = parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     directory = outside_git(args.directory.parent) / args.directory.name
@@ -165,6 +166,7 @@ def main() -> None:
         "scope": __doc__,
         "mode": "prepare-and-sort" if args.prior_run else "reopen-and-sort",
         "force_external": args.force_external,
+        "keys_only": args.keys_only,
         "config": config,
         "implementation": implementation_record(),
         "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -202,10 +204,15 @@ def main() -> None:
             _ = connection.execute("SET debug_force_external=true")
         digest, seen = digest_for(source["rows"]), 0
         sort_started = time.monotonic_ns()
+        # Face/corner is unique in the generated source. Appending the remaining
+        # fields preserves its order while allowing DuckDB to omit sort payloads.
+        order = "face, corner, vertex, allocation" if args.keys_only else "face, corner"
+        result["order_by"] = order
         with cast(
             Any,
             connection.sql(
-                "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY face, corner"
+                "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY "
+                + order
             ),
         ).to_arrow_reader(batch_size=BATCH) as reader:
             for batch in reader:

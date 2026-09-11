@@ -680,6 +680,44 @@ RSS gap was 10.022827 ms, so this run also missed the sampling requirement.
 Reassigning the safety allowance did not establish the sorting target. The
 remaining cases were not started from this failed checkpoint.
 
+## Isolated full source-corner sort
+
+The [corner-sort diagnostic](../mesh_corner_sort_probe.py) reuses the complete
+triangles and face-area columns from the verified noiseless 60M-vertex import.
+It compares both complete file hashes before staging the same 359,904,006 corner
+tuples into a separate database, without the coordinate or face staging tables.
+The expected source-order digest is computed while staging; a successful query
+must return every row with the identical complete digest. This is a diagnostic,
+not a full-import result or evidence of 10 ms RSS sampling coverage.
+
+Cases ran sequentially from `f35d661` in fresh processes and separate 6 GiB
+cgroups with swap disabled. The owned database remains outside Git for reuse.
+Caches were uncontrolled; preparing and hashing inputs can warm them. Elapsed
+times include the work named in each row and cannot be compared as pure sort
+timings when staging or failure/cleanup differs.
+
+| Case | Engine allowance (MiB) | Elapsed seconds | Kernel peak RSS (MiB) | Result |
+| --- | ---: | ---: | ---: | --- |
+| [Prepare and normal sort](isolated-corners-227-prepare-r1.json) | 227.1 | 184.40 | 411.00 | DuckDB allocation failure |
+| [Fresh reopen and normal sort](isolated-corners-227-reopen-r1.json) | 227.1 | 14.47 | 367.14 | DuckDB allocation failure |
+| [Fresh reopen and forced spill](isolated-corners-227-force-external-r1.json) | 227.1 | 132.25 | 541.37 | All tuples and digest match; RSS exceeds 512 MiB |
+| [Forced spill with smaller allowance](isolated-corners-163-force-external-r1.json) | 162.8 | 29.12 | 491.55 | DuckDB block-pin failure |
+
+All cgroups recorded no OOM/OOM-kill event and disabled swap. The successful
+forced-spill query itself took 132.18 seconds. Its complete source-order digest
+is `20d6e89e476a3fd7558d6b09afd054eaa86241564658f357663a35ef5958273d`.
+The normal reopen starts with just 0.5 MiB of database table buffers and no
+in-memory table data, yet fails too. Extra staging tables and retained preparation
+state alone therefore do not explain the observed failure.
+
+`debug_force_external` is used only by this diagnostic; production does not adopt
+it. DuckDB has an external sorter, and the failed cases do not imply that spilling
+is absent. Its [v1.5.5 sort implementation](https://github.com/duckdb/duckdb/blob/v1.5.5/src/common/sort/sort.cpp)
+omits separate payload columns when every selected field also appears in the sort
+key. The next diagnostic adds vertex/allocation as tie-breakers after the unique
+source face/corner pair. This preserves valid source order and may reduce sort
+buffers; a full measurement must establish its effect.
+
 ## Remaining execution evidence
 
 The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
