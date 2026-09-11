@@ -79,7 +79,9 @@ def test_gather_may_repeat_more_ids_than_the_source_has_rows(
 
 
 @pytest.mark.parametrize("disk", (False, True))
-def test_gather_requires_integer_bounded_written_ids(tmp_path: Path, disk: bool) -> None:
+def test_gather_requires_integer_bounded_written_ids(
+    tmp_path: Path, disk: bool
+) -> None:
     spec = ColumnSpec("partial.bin", 24, 1, "<f8")
     column = Column(
         spec,
@@ -141,7 +143,9 @@ def test_gather_checks_cancellation_between_disk_windows(
 
     def check() -> None:
         if reads:
-            raise MeshImportError("cancelled", "gather-test", "cancelled between windows")
+            raise MeshImportError(
+                "cancelled", "gather-test", "cancelled between windows"
+            )
 
     with _column(tmp_path, disk=True) as (column, _values):
         monkeypatch.setattr(Column, "read_range", tracked)

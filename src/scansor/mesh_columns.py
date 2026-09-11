@@ -197,7 +197,9 @@ class Column:
             raise MeshImportError("execution", "columns", "column is closed")
         if indices.ndim != 1 or indices.dtype.kind not in "iu":
             raise MeshImportError(
-                "structure", "columns", "row IDs require a one-dimensional integer array"
+                "structure",
+                "columns",
+                "row IDs require a one-dimensional integer array",
             )
         if len(indices) * self.spec.stride > self.max_range_bytes:
             raise MeshImportError(

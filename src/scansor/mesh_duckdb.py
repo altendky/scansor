@@ -67,6 +67,7 @@ def duckdb_failure(error: duckdb.Error, phase: str) -> MeshImportError:
 # _numpy checks every output dtype, null count and ownership contract at runtime.
 pa: Any = _pa
 
+
 def warm_baseline() -> None:
     """Initialize the actual input/output path before measuring worker baseline."""
     batch = pa.record_batch([pa.array(np.zeros(1, dtype=np.uint32))], names=["value"])
@@ -314,7 +315,10 @@ class DuckStaging:
             for batch in reader:
                 self.monitor.check()
                 count = batch.num_rows
-                if not 0 < count <= self.plan.batch_rows or seen + count > self.vertices:
+                if (
+                    not 0 < count <= self.plan.batch_rows
+                    or seen + count > self.vertices
+                ):
                     raise MeshImportError(
                         "integrity", phase, "unexpected staged coordinate count"
                     )
@@ -323,7 +327,9 @@ class DuckStaging:
                 if not np.array_equal(
                     ids, np.arange(seen, seen + count, dtype="<u8")
                 ) or any(
-                    not np.array_equal(_numpy(batch, axis, "<u4"), expected[:, position])
+                    not np.array_equal(
+                        _numpy(batch, axis, "<u4"), expected[:, position]
+                    )
                     for position, axis in enumerate(("x", "y", "z"))
                 ):
                     raise MeshImportError(
@@ -375,7 +381,10 @@ class DuckStaging:
                 for batch in reader:
                     self.monitor.check()
                     count = batch.num_rows
-                    if not 0 < count <= self.plan.batch_rows or seen + count > self.faces:
+                    if (
+                        not 0 < count <= self.plan.batch_rows
+                        or seen + count > self.faces
+                    ):
                         raise MeshImportError(
                             "integrity", phase, "unexpected staged face count"
                         )
@@ -412,7 +421,9 @@ class DuckStaging:
                     target = points.view("<u4").reshape(-1, 3)
                     for start in range(0, len(valid), gather_rows):
                         positions = valid[start : start + gather_rows]
-                        gathered = xyz.read_rows(flat[positions], check=self.monitor.check)
+                        gathered = xyz.read_rows(
+                            flat[positions], check=self.monitor.check
+                        )
                         target[positions] = gathered.view("<u4")
                         del positions, gathered
                     indices.flags.writeable = points.flags.writeable = False
