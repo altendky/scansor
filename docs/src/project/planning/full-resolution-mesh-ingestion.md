@@ -133,7 +133,9 @@ report's full build/runtime diagnostics and its original byte hash.
 [`prepare_import`](../../../../src/scansor/mesh_import.py) is a scoped internal
 foundation. It independently copies the PLY and explicitly requested sidecar,
 checks anchored handles, file and parent identities, lengths and streamed hashes,
-and processes only the verified copies. Original paths stay outside semantic
+and processes only the verified copies. Anchored copies are rehashed and checked
+after decoding and again before issuing a foundation inventory. Original paths
+stay outside semantic
 identity. Missing or unreadable requested sidecars fail; an absent sidecar has a
 different source identity from a present empty sidecar. Ordinary source mutation,
 replacement and private-copy corruption fail rather than yielding a foundation.
@@ -182,8 +184,12 @@ or disk-peak measurements, nor proof of the S6 scale targets.
 
 Scope exit closes readers, connections, arrays and the monitor before removing
 its owned workspace. Explicit failure retention writes an incomplete diagnostic,
-not a success or resume marker. Replaced paths are left untouched, and cleanup
-failures do not overwrite an initiating processing failure. External supervision
+not a success or resume marker. Cleanup first atomically quarantines the workspace
+using the repository's Linux
+no-replace primitive, checks the moved entry, then removes it through a private
+anchored directory. A substituted entry is restored or retained without deleting
+its contents. Unsupported cleanup hosts fail safely. Cleanup failures do not
+overwrite an initiating processing failure. External supervision
 of killed workers and atomic stage publication remain S4 work.
 
 [Source/storage tests](../../../../tests/test_mesh_sources.py) and
@@ -199,7 +205,7 @@ before contribution processing and does not replace S4 replay or S6 stress gates
 records two sequential fresh Linux x86-64 workers over 200,000 vertices and
 398,202 faces (500×400 grid, seed 7, three-bit dyadic noise). RAM storage used a
 512 MiB whole-worker plan with 4,093-row batches; disk storage used a 2 GiB plan
-with 65,536-row batches. Peak process RSS was 231.55 and 243.88 MiB respectively.
+with 65,536-row batches. Peak process RSS was 230.49 and 244.10 MiB respectively.
 Both produced the same foundation ID and exact ordered index/coordinate hashes,
 checked every source face and completed owned cleanup. Cache state was
 uncontrolled, and these differing execution settings are not a speed comparison.

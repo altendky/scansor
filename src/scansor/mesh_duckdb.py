@@ -7,6 +7,8 @@ No generic backend protocol, full-result fetch, or query-per-output-batch loop.
 
 from __future__ import annotations
 
+import errno
+import os
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,34 @@ import pyarrow as _pa  # pyright: ignore[reportMissingTypeStubs]
 
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_resources import MemoryPlan, ResourceMonitor
+
+
+def duckdb_failure(error: duckdb.Error, phase: str) -> MeshImportError:
+    # DuckDB does not expose filesystem errno on IOException. Match the resource
+    # diagnostics from the engine/OS, retaining other I/O failures as execution.
+    # Recheck these diagnostics on upgrades (including localized OS messages).
+    message = str(error)
+    disk_capacity = isinstance(error, duckdb.IOException) and any(
+        marker in message.lower()
+        for marker in (
+            os.strerror(errno.ENOSPC).lower(),
+            os.strerror(errno.EDQUOT).lower(),
+            "no space left on device",
+            "disk quota exceeded",
+            "not enough space on the disk",
+            "disk is full",
+            "errno 28",
+            "errno 122",
+            "max_temp_directory_size",
+        )
+    )
+    category = (
+        "resource"
+        if isinstance(error, duckdb.OutOfMemoryException) or disk_capacity
+        else "execution"
+    )
+    return MeshImportError(category, phase, message)
+
 
 # PyArrow ships no type stubs. Keep its dynamic API at this execution boundary;
 # _numpy checks every output dtype, null count and ownership contract at runtime.
@@ -139,10 +169,8 @@ class DuckStaging:
     def _error(self, error: BaseException, phase: str) -> None:
         self._failed = True
         self.monitor.check()
-        if isinstance(error, duckdb.OutOfMemoryException):
-            raise MeshImportError("resource", phase, str(error)) from error
         if isinstance(error, duckdb.Error):
-            raise MeshImportError("execution", phase, str(error)) from error
+            raise duckdb_failure(error, phase) from error
         raise error
 
     def _insert(self, table: str, batch: Any) -> None:

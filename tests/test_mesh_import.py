@@ -3,16 +3,19 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import shutil
 import struct
 import threading
 from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
 
+import duckdb
 import numpy as np
 import pytest
 
-from scansor import mesh_resources
+from scansor import mesh_resources, mesh_workspace
+from scansor.files import rename_no_replace
 from scansor.mesh_columns import Column
 from scansor.mesh_controls import (
     Control,
@@ -21,11 +24,12 @@ from scansor.mesh_controls import (
     implementation_inventory,
 )
 from scansor.mesh_dispositions import face_dispositions
-from scansor.mesh_duckdb import DuckStaging
+from scansor.mesh_duckdb import DuckStaging, duckdb_failure
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_import import prepare_import
 from scansor.mesh_recipes import SMALL_RECIPES, GridRecipe, write_recipe
 from scansor.mesh_resources import MIB, AllocationLedger, ResourceMonitor, plan_memory
+from scansor.mesh_workspace import remove_owned_workspace
 
 
 def _canonical_word(word: int) -> int:
@@ -384,3 +388,137 @@ def test_execution_modules_are_outside_semantic_inventory(
 
     monkeypatch.setattr(duckdb, "__version__", "execution-only-test-version")
     assert before == implementation_inventory("importer")
+
+
+@pytest.mark.parametrize("role", ("ply", "sidecar"))
+def test_snapshot_mutation_during_decode_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    source, sidecar = tmp_path / "input.ply", tmp_path / "input.rsInfo"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(3, 3))
+    _ = sidecar.write_bytes(b"<Model/>")
+    original = DuckStaging.stage_vertices
+
+    def mutate(stage: DuckStaging, start: int, xyz: np.ndarray) -> None:
+        original(stage, start, xyz)
+        if start != 0:
+            return
+        private = stage.monitor.directory / "import" / "source"
+        if role == "ply":
+            path = private / "observations.ply"
+            raw = bytearray(path.read_bytes())
+            offset = raw.index(b"end_header\n") + len(b"end_header\n")
+            raw[offset : offset + 4] = struct.pack("<f", 2.0)
+            _ = path.write_bytes(raw)
+        else:
+            _ = (private / "observations.rsInfo").write_bytes(b"<Bogus/>")
+
+    monkeypatch.setattr(DuckStaging, "stage_vertices", mutate)
+    with (
+        pytest.raises(MeshImportError, match="private snapshot changed"),
+        prepare_import(source, tmp_path, sidecar=sidecar, chunk_rows=1),
+    ):
+        pytest.fail("changed source bytes reached a foundation")
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+def test_inventory_rechecks_snapshot_after_foundation_is_ready(tmp_path: Path) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(2, 2))
+    with prepare_import(source, tmp_path, chunk_rows=1) as data:
+        _ = data.source.ply.path.write_bytes(b"changed")
+        with pytest.raises(MeshImportError, match="private snapshot changed"):
+            _ = data.inventory()
+
+
+def test_cleanup_does_not_resolve_public_path_during_recursive_deletion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "owned"
+    root.mkdir()
+    _ = (root / "owned-data").write_bytes(b"disposable")
+    info = root.stat()
+    original = shutil.rmtree
+
+    def swapped(path: str, *, dir_fd: int | None = None) -> None:
+        # The owned root has already moved into the private quarantine. Replacing
+        # its original public path now must not redirect recursive deletion.
+        root.mkdir()
+        _ = (root / "unrelated").write_bytes(b"keep")
+        original(path, dir_fd=dir_fd, onexc=None)
+
+    monkeypatch.setattr(shutil, "rmtree", swapped)
+    # Preserve the native implementation's descriptor-safety capability marker.
+    monkeypatch.setattr(swapped, "avoids_symlink_attacks", True, raising=False)
+    remove_owned_workspace(root, (info.st_dev, info.st_ino))
+    assert (root / "unrelated").read_bytes() == b"keep"
+    assert not list(tmp_path.glob(".scansor-cleanup-*"))
+
+
+def test_cleanup_verifies_entry_after_atomic_quarantine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, moved = tmp_path / "owned", tmp_path / "moved"
+    root.mkdir()
+    _ = (root / "original").write_bytes(b"owned")
+    info = root.stat()
+    original = rename_no_replace
+    calls = 0
+
+    def swapped(source_fd: int, source: str, target_fd: int, target: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            _ = root.rename(moved)
+            root.mkdir()
+            _ = (root / "unrelated").write_bytes(b"keep")
+        original(source_fd, source, target_fd, target)
+
+    monkeypatch.setattr(mesh_workspace, "rename_no_replace", swapped)
+    with pytest.raises(MeshImportError, match="replaced"):
+        remove_owned_workspace(root, (info.st_dev, info.st_ino))
+    assert (root / "unrelated").read_bytes() == b"keep"
+    assert (moved / "original").read_bytes() == b"owned"
+    assert not list(tmp_path.glob(".scansor-cleanup-*"))
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    (
+        ("Could not write file (OS error: No space left on device)", "resource"),
+        ("Disk quota exceeded", "resource"),
+        ("There is not enough space on the disk", "resource"),
+        ("max_temp_directory_size exceeded", "resource"),
+        ("Permission denied", "execution"),
+        ("Invalid database file", "execution"),
+    ),
+)
+def test_duckdb_capacity_errors_are_resource_failures(
+    message: str, category: str
+) -> None:
+    assert duckdb_failure(duckdb.IOException(message), "staging").category == category
+
+
+def test_duckdb_connect_disk_exhaustion_keeps_resource_category(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(2, 2))
+    original = duckdb.connect
+
+    def full(*args: Any, **kwargs: Any) -> Any:
+        if args and str(args[0]).endswith("stage.duckdb"):
+            raise duckdb.IOException("Could not write file: No space left on device")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(duckdb, "connect", full)
+    with (
+        pytest.raises(MeshImportError) as caught,
+        prepare_import(source, tmp_path),
+    ):
+        pytest.fail("disk exhaustion reached foundation")
+    assert caught.value.category == "resource"
+    assert not list(tmp_path.glob(".scansor-mesh-*"))

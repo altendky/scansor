@@ -8,7 +8,6 @@ A foundation-ready inventory is never a complete import/contribution marker.
 from __future__ import annotations
 
 import errno
-import shutil
 import tempfile
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
@@ -23,7 +22,7 @@ import psutil
 from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control, encode_control
 from scansor.mesh_dispositions import normal_status, vertex_status
-from scansor.mesh_duckdb import DuckStaging, warm_baseline
+from scansor.mesh_duckdb import DuckStaging, duckdb_failure, warm_baseline
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_numeric import check_arithmetic
 from scansor.mesh_ply import MeshPlyError, MeshPlyReader
@@ -46,6 +45,7 @@ from scansor.mesh_semantics import (
 )
 from scansor.mesh_sidecar import MAX_SIDECAR_BYTES, interpret_sidecar
 from scansor.mesh_snapshot import SourceBundle, snapshot_bundle
+from scansor.mesh_workspace import remove_owned_workspace
 
 
 @dataclass
@@ -66,6 +66,7 @@ class ImportFoundation:
     def inventory(self) -> dict[str, Control]:
         """Only columns actually completed in S3 appear in this inventory."""
         self.monitor.check()
+        self.source.verify(progress=self.monitor.progress)
         artifacts: list[Control] = [
             column.inventory()
             for name, column in self.columns.items()
@@ -195,6 +196,7 @@ def _prepare(
         del rows, indices
     columns["triangles.bin"].finish()
     staging.finish()
+    source.verify(chunk_bytes=io_block_bytes, progress=monitor.progress)
     monitor.check()
     return ImportFoundation(
         directory,
@@ -281,7 +283,9 @@ def prepare_import(
             error = MeshImportError(
                 error.detail.category, "source-decode", str(error), row=error.detail.row
             )
-        elif isinstance(error, (MemoryError, duckdb.OutOfMemoryException)):
+        elif isinstance(error, duckdb.Error):
+            error = duckdb_failure(error, "import-foundation")
+        elif isinstance(error, MemoryError):
             error = MeshImportError("resource", "import-foundation", str(error))
         elif isinstance(error, OSError):
             category = (
@@ -312,8 +316,7 @@ def prepare_import(
     finally:
         if not (failure_error is not None and retain_incomplete):
             try:
-                _check_owned_directory(directory, identity.st_dev, identity.st_ino)
-                shutil.rmtree(directory)
+                remove_owned_workspace(directory, (identity.st_dev, identity.st_ino))
             except (OSError, MeshImportError) as cleanup_error:
                 if failure_error is None:
                     raise

@@ -7,7 +7,7 @@ import hashlib
 import os
 import stat
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
@@ -56,6 +56,33 @@ class Snapshot:
     sha256: str
     stream: BinaryIO
     file_identity: tuple[int, int]
+    verified_metadata: tuple[int, int, int, int, int]
+    _verifications: int = field(default=0, init=False)
+
+    def verify(
+        self, *, chunk_bytes: int = 65_536, progress: Progress = _nothing
+    ) -> None:
+        self._verifications += 1
+        phase = f"snapshot-{self.role}-verify-{self._verifications}"
+        try:
+            if _identity(os.fstat(self.stream.fileno())) != self.verified_metadata:
+                raise MeshImportError(
+                    "integrity", phase, "private snapshot changed after verification"
+                )
+            actual = _hash(self.stream, self.byte_count, chunk_bytes, progress, phase)
+            entry = self.path.stat(follow_symlinks=False)
+            if (
+                actual != self.sha256
+                or _identity(entry) != self.verified_metadata
+                or _identity(os.fstat(self.stream.fileno())) != self.verified_metadata
+            ):
+                raise MeshImportError(
+                    "integrity", phase, "private snapshot content or path changed"
+                )
+        except OSError as error:
+            raise MeshImportError(
+                "integrity", phase, "private snapshot is no longer readable"
+            ) from error
 
     def record(self) -> dict[str, Control]:
         return {"role": self.role, "byte_count": self.byte_count, "sha256": self.sha256}
@@ -78,6 +105,13 @@ class SourceBundle:
             "sources": sources,
             "sidecar": "absent" if self.sidecar is None else "present",
         }
+
+    def verify(
+        self, *, chunk_bytes: int = 65_536, progress: Progress = _nothing
+    ) -> None:
+        self.ply.verify(chunk_bytes=chunk_bytes, progress=progress)
+        if self.sidecar is not None:
+            self.sidecar.verify(chunk_bytes=chunk_bytes, progress=progress)
 
     @property
     def identity(self) -> str:
@@ -241,7 +275,15 @@ def _snapshot(
                     "private snapshot path changed during verification",
                 )
             _ = private.seek(0)
-            return Snapshot(role, target, before.st_size, expected, private, created)
+            return Snapshot(
+                role,
+                target,
+                before.st_size,
+                expected,
+                private,
+                created,
+                _identity(os.fstat(private.fileno())),
+            )
     except BaseException as error:
         if private is not None:
             private.close()
