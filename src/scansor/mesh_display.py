@@ -229,16 +229,18 @@ def export_display(
     """Scoped internal exporter; use a fresh worker for attributable RSS evidence."""
     if transform is None:
         transform = DisplayTransform()
+    writable_paths = [destination, workdir]
+    if publication_staging is not None:
+        writable_paths.append(publication_staging)
     for artifact in (import_path, contribution_path):
         root = artifact.resolve(strict=True)
         if any(
-            path.resolve(strict=True).is_relative_to(root)
-            for path in (destination, workdir)
+            path.resolve(strict=True).is_relative_to(root) for path in writable_paths
         ):
             raise MeshImportError(
                 "structure",
                 "display-export",
-                "output and scratch must be outside authoritative artifact trees",
+                "output, publication staging and scratch must be outside authoritative artifact trees",
             )
     warm_baseline()
     baseline = int(str(memory_snapshot()["rss_bytes"]))
