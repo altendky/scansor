@@ -27,6 +27,17 @@ def duckdb_failure(error: duckdb.Error, phase: str) -> MeshImportError:
     # diagnostics from the engine/OS, retaining other I/O failures as execution.
     # Recheck these diagnostics on upgrades (including localized OS messages).
     message = str(error)
+    # Commit can wrap an allocator error in TransactionException instead of
+    # OutOfMemoryException (observed in the full 60M, 4,093-row-batch run).
+    # Match that specific native diagnostic, not arbitrary transaction text.
+    commit_memory = isinstance(
+        error, duckdb.TransactionException
+    ) and message.startswith(
+        (
+            "TransactionContext Error: Failed to commit: failed to pin block of size ",
+            "TransactionContext Error: Failed to commit: failed to allocate data of size ",
+        )
+    )
     disk_capacity = isinstance(error, duckdb.IOException) and any(
         marker in message.lower()
         for marker in (
@@ -43,7 +54,9 @@ def duckdb_failure(error: duckdb.Error, phase: str) -> MeshImportError:
     )
     category = (
         "resource"
-        if isinstance(error, duckdb.OutOfMemoryException) or disk_capacity
+        if isinstance(error, duckdb.OutOfMemoryException)
+        or disk_capacity
+        or commit_memory
         else "execution"
     )
     return MeshImportError(category, phase, message)

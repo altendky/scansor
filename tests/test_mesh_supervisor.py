@@ -43,31 +43,45 @@ def worker_request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequ
     )
 
 
-def test_slow_progress_callback_is_visible_in_actual_rss_sample_gaps(
+def test_rss_observations_continue_during_slow_progress_callback(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     delayed = False
+    calls: list[int] = []
+    original = psutil.Process.memory_info
+
+    def observed(process: psutil.Process) -> object:
+        result = original(process)
+        calls.append(threading.get_ident())
+        return result
+
+    monkeypatch.setattr(psutil.Process, "memory_info", observed)
 
     def slow(_record: dict[str, Control]) -> None:
         nonlocal delayed
         if not delayed:
             delayed = True
+            before = len(calls)
             time.sleep(0.04)
+            assert len(calls) >= before + 2
+            assert threading.get_ident() not in calls[before:]
 
     result = run_worker(worker_request(tmp_path), tmp_path, progress=slow)
     assert result["status"] == "complete"
-    edges = control_object(control_object(result["supervision"])["sampling_edges"])
-    assert int(str(edges["largest_gap_including_edges_ns"])) >= 40_000_000
-    assert int(str(edges["gaps_over_10ms_including_edges"])) >= 1
+    assert delayed
+    assert not any(
+        thread.name == "scansor-worker-rss" for thread in threading.enumerate()
+    )
 
 
 def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_selector() -> None:
-        raise RuntimeError("injected selector startup failure")
+    def fail_observer(_process: psutil.Process, _seconds: float) -> None:
+        raise RuntimeError("injected RSS observer startup failure")
 
-    monkeypatch.setattr(selectors, "DefaultSelector", fail_selector)
+    monkeypatch.setattr(mesh_supervisor, "ProcessObserver", fail_observer)
     result = run_worker(worker_request(tmp_path), tmp_path)
     assert result["status"] == "failed"
     supervision = control_object(result["supervision"])
@@ -76,6 +90,42 @@ def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
     assert "system_cpu_ns" in control_object(supervision["kernel_usage"])
     edges = control_object(supervision["sampling_edges"])
     assert edges["first_sample_ns"] is None and edges["reaped_ns"] is not None
+    with pytest.raises(ChildProcessError):
+        _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
+
+
+@pytest.mark.parametrize("failure_site", ("selector", "sampler"))
+def test_observer_failures_stop_sampling_and_reap_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_site: str,
+) -> None:
+    if failure_site == "selector":
+
+        def fail_selector() -> None:
+            raise RuntimeError("injected selector startup failure")
+
+        monkeypatch.setattr(selectors, "DefaultSelector", fail_selector)
+    else:
+        original = psutil.Process.memory_info
+        main_thread = threading.get_ident()
+
+        def fail_background_sample(process: psutil.Process) -> object:
+            if threading.get_ident() != main_thread:
+                raise RuntimeError("injected RSS sampling failure")
+            return original(process)
+
+        monkeypatch.setattr(psutil.Process, "memory_info", fail_background_sample)
+    result = run_worker(worker_request(tmp_path), tmp_path)
+    assert result["status"] == "failed"
+    assert "injected" in str(control_object(result["failure"])["message"])
+    supervision = control_object(result["supervision"])
+    assert int(str(supervision["samples"])) >= 1
+    assert control_object(supervision["sampling_edges"])["reaped_ns"] is not None
+    assert not any(
+        thread.name == "scansor-worker-rss" for thread in threading.enumerate()
+    )
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
     with pytest.raises(ChildProcessError):
         _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
 

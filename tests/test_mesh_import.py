@@ -538,6 +538,34 @@ def test_duckdb_capacity_errors_are_resource_failures(
     assert duckdb_failure(duckdb.IOException(message), "staging").category == category
 
 
+@pytest.mark.parametrize(
+    ("message", "category"),
+    (
+        (
+            "TransactionContext Error: Failed to commit: failed to pin block of size 256.0 KiB (205.7 MiB/206.3 MiB used)",
+            "resource",
+        ),
+        (
+            "TransactionContext Error: Failed to commit: failed to allocate data of size 16.0 MiB",
+            "resource",
+        ),
+        (
+            "TransactionContext Error: Failed to commit: write-write conflict",
+            "execution",
+        ),
+        ("TransactionContext Error: transaction has been aborted", "execution"),
+    ),
+)
+def test_wrapped_commit_allocator_error_keeps_resource_category(
+    message: str,
+    category: str,
+) -> None:
+    failure = duckdb_failure(duckdb.TransactionException(message), "duckdb-stage")
+    assert failure.category == category
+    assert failure.stage == "duckdb-stage"
+    assert message in str(failure)
+
+
 def test_duckdb_connect_disk_exhaustion_keeps_resource_category(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

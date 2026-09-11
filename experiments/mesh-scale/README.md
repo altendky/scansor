@@ -172,6 +172,15 @@ in the report, including conservative gaps before the first and after the last
 sample. Small ordinary tests cover byte comparison, reporting, cancellation,
 resource failure, and owned cleanup; they are not scale benchmark results.
 
+The supervisor now samples RSS on a separate parent thread so protocol parsing
+and progress callbacks do not themselves suspend polling. Sampling and the sole
+`wait4` reaper share a lock; reaping stops future observations before the PID can
+be reused. The observer is joined on both successful and failed exits, and its
+failure is retained explicitly. Tests cover measurements during a blocked
+callback, startup/background failures and a read racing with reaping. This
+improves the observation mechanism; real scheduling gaps are still reported,
+and earlier measurements retain the method actually used at their checkpoint.
+
 ## Initial six-million-vertex measurement
 
 The first [512 MiB noiseless disk case](run-grid-3000x2000-flat-512-r1.json)
@@ -444,6 +453,21 @@ already uses the first three. The same-version upstream report
 possible missed hash-join repartition under memory pressure. It is an investigation
 lead, not an established explanation of this Scansor failure. No upstream patch
 or unverified configuration workaround has been adopted.
+
+A further [full 512 MiB case with 4,093-row batches](run-grid-10000x6000-flat-512-c4093-r1.json)
+at `4ccb5e1` failed during face staging after 279.15 seconds, before reaching the
+join. Its smaller batch reservation left approximately 206.3 MiB for DuckDB,
+which failed to pin a 256 KiB block during commit. Kernel and sampled worker RSS
+were 369.15 and 370.53 MiB. All owned scratch was removed, nothing was published,
+and final phase telemetry was retained. Largest RSS gap including edges was
+6.15 ms. Changing the batch size alone did not establish the low-memory target.
+
+That native commit failure was wrapped in `TransactionException`, so the retained
+report classified it as `execution`. The adapter now recognizes the specific
+wrapped native allocation diagnostic as `resource`, while preserving transaction
+conflicts and other transaction failures as execution errors. Regression tests
+use the exact observed diagnostic and negative examples. The original report
+remains unchanged.
 
 ## Reordered source indices and faces
 

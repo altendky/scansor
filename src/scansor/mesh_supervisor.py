@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from scansor.errors import ScansorError
 from scansor.mesh_controls import Control, control_id, encode_control
 from scansor.mesh_errors import MeshImportError, io_failure
+from scansor.mesh_process_observer import ProcessObserver
 from scansor.mesh_publication_copy import directory_mount
 from scansor.mesh_worker_protocol import FrameReader
 from scansor.mesh_worker_request import WorkerRequest
@@ -265,6 +266,7 @@ def run_worker(
     publication: Workspace | None = None
     access = workspace.access
     process: subprocess.Popen[bytes] | None = None
+    observer: ProcessObserver | None = None
     failure: dict[str, Control] | None = None
     report: dict[str, Control] = {}
     messages: _Messages | None = None
@@ -277,6 +279,7 @@ def run_worker(
     launch_returned: int | None = None
     reaped: int | None = None
     gaps_over_10ms = 0
+    sampling_error: str | None = None
     kernel_peak = 0
     usage_record: dict[str, Control] = {}
     started_ns = time.monotonic_ns()
@@ -323,9 +326,9 @@ def run_worker(
         launch_returned = time.monotonic_ns()
         assert process.stdout is not None and process.stderr is not None
         messages = _Messages(request, process.pid, progress)
-        # Reuse identity metadata, not memory measurements. The sole wait4
-        # reaper below prevents PID reuse while this live-process loop samples.
         observed_process = psutil.Process(process.pid)
+        observer = ProcessObserver(observed_process, SAMPLE_SECONDS)
+        observer.start()
         for root in roots:
             _write_record(
                 root.access / "worker.json",
@@ -342,26 +345,13 @@ def run_worker(
             _ = selector.register(process.stdout, selectors.EVENT_READ, "stdout")
             _ = selector.register(process.stderr, selectors.EVENT_READ, "stderr")
             while process.returncode is None or selector.get_map():
-                now = time.monotonic_ns()
+                measured = observer.observations(check=failure is None)
                 if process.returncode is None:
-                    try:
-                        rss = observed_process.memory_info().rss
-                        peak = max(peak, rss)
-                        samples += 1
-                        if first_sample is None:
-                            first_sample = now
-                        if previous_sample is not None:
-                            gap = now - previous_sample
-                            max_gap = max(max_gap, gap)
-                            gaps_over_10ms += int(gap > 10_000_000)
-                        previous_sample = now
-                        if rss > request.budget_bytes and failure is None:
-                            failure = _failure(
-                                "resource",
-                                "sampled whole-worker RSS exceeded its budget",
-                            )
-                    except psutil.NoSuchProcess:
-                        pass
+                    if measured.peak_bytes > request.budget_bytes and failure is None:
+                        failure = _failure(
+                            "resource",
+                            "sampled whole-worker RSS exceeded its budget",
+                        )
                     if cancel is not None and cancel.is_set() and failure is None:
                         failure = _failure("cancelled", "operation cancelled")
                     if failure is not None and stop_deadline is None:
@@ -406,12 +396,19 @@ def run_worker(
                                     + str(error)[:2048]
                                 ]
                 if process.returncode is None:
-                    pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+                    pid, status, usage = observer.reap(os.WNOHANG)
                     if pid:
                         reaped = time.monotonic_ns()
                         process.returncode = os.waitstatus_to_exitcode(status)
                         kernel_peak = int(usage.ru_maxrss) * 1024
                         usage_record = _kernel_usage(usage)
+        if (
+            failure is None
+            and observer.observations().peak_bytes > request.budget_bytes
+        ):
+            failure = _failure(
+                "resource", "sampled whole-worker RSS exceeded its budget"
+            )
         if failure is None:
             try:
                 parser.finish()
@@ -448,19 +445,33 @@ def run_worker(
             str(error),
         )
     finally:
-        if process is not None:
-            if process.returncode is None:
-                with suppress(ProcessLookupError):
-                    os.kill(process.pid, signal.SIGKILL)
-                _pid, status, usage = os.wait4(process.pid, 0)
-                reaped = time.monotonic_ns()
-                process.returncode = os.waitstatus_to_exitcode(status)
-                kernel_peak = int(usage.ru_maxrss) * 1024
-                usage_record = _kernel_usage(usage)
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
+        try:
+            if process is not None:
+                if process.returncode is None:
+                    with suppress(ProcessLookupError):
+                        os.kill(process.pid, signal.SIGKILL)
+                    _pid, status, usage = (
+                        os.wait4(process.pid, 0)
+                        if observer is None
+                        else observer.reap(0)
+                    )
+                    reaped = time.monotonic_ns()
+                    process.returncode = os.waitstatus_to_exitcode(status)
+                    kernel_peak = int(usage.ru_maxrss) * 1024
+                    usage_record = _kernel_usage(usage)
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+        finally:
+            if observer is not None:
+                observer.stop()
+        if observer is not None:
+            measured = observer.observations(check=False)
+            peak, samples = measured.peak_bytes, measured.samples
+            first_sample, previous_sample = measured.first_ns, measured.last_ns
+            max_gap, gaps_over_10ms = measured.largest_gap_ns, measured.gaps_over_10ms
+            sampling_error = measured.error
         initial_gap = (
             None
             if first_sample is None or launch_started is None
@@ -486,6 +497,8 @@ def run_worker(
                 "sampled_peak_rss_bytes": peak,
                 "kernel_peak_rss_bytes": kernel_peak,
                 "requested_sample_interval_ns": round(SAMPLE_SECONDS * 1_000_000_000),
+                "sampling_method": "separate parent thread; observations serialized with the sole wait4 reaper",
+                "sampling_error": sampling_error,
                 "samples": samples,
                 "largest_observed_sample_gap_ns": max_gap,
                 "sampling_edges": {
