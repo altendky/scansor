@@ -232,6 +232,25 @@ caches. Display sampling missed the 10 ms requirement, which remains explicitly
 false in the report. This establishes a complete measured case, not completion of
 the entire resource, platform or visual-inspection gate.
 
+## Equivalent 2 GiB rerun
+
+The [second 2 GiB noiseless case](run-grid-3000x2000-flat-2048-r2.json) completed
+on the same `8f0cf5c` implementation, using RAM canonical columns for import and
+disk display staging. Its complete canonical check record and complete display
+check record are identical to the successful 512 MiB case, including all semantic
+IDs, column hashes, row digests, display file hashes and populations.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 79.09 | 866.99 | 867.99 | 8.32 |
+| Display export | 43.22 | 529.66 | 530.88 | 6.80 |
+| Full display replay | 43.27 | 566.54 | 567.69 | 10.26 |
+
+Every operation remained within its 2 GiB worker target and cleaned owned scratch.
+Replay sampling exceeded 10 ms once; that coverage observation is false. These
+sequential paired runs demonstrate equivalent complete data for this one recipe
+at both budgets, while retaining their actual resource and sampling limitations.
+
 ## Remaining execution evidence
 
 The harness still needs measured sequential equivalent workloads at both budgets,
