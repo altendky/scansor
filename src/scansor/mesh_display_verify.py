@@ -87,6 +87,7 @@ def verify_display(
     )
     workspace = create_workspace(workdir)
     monitor = ResourceMonitor(budget_bytes, workspace.access, callback=progress)
+    monitor.set_plan(initial)
     failure: BaseException | None = None
     try:
         with monitor, ExitStack() as stack:

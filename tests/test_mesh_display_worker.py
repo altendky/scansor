@@ -12,6 +12,7 @@ from scansor.mesh_display import export_display
 from scansor.mesh_display_numeric import DisplayTransform
 from scansor.mesh_display_verify import verify_display
 from scansor.mesh_errors import MeshImportError
+from scansor.mesh_resources import MIB
 from scansor.mesh_supervisor import run_worker
 from scansor.mesh_worker_request import WorkerRequest
 from tests.test_mesh_artifacts import artifact_state, published
@@ -109,6 +110,40 @@ def test_fresh_display_export_and_replay_equal_direct_full_artifacts(
         "published",
         "result",
     ]
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+def test_fresh_display_replay_early_failure_reports_initial_plan(
+    tmp_path: Path,
+) -> None:
+    imported, contributions = published(tmp_path, "right-triangle-orphan-v1")
+    exported = export_display(
+        imported.path, contributions.path, tmp_path, tmp_path, chunk_rows=2
+    )
+    artifacts = (imported.path, contributions.path, exported.stage.path)
+    before = tuple(artifact_state(path) for path in artifacts)
+    result = run_worker(
+        WorkerRequest(
+            "verify-display",
+            imported.path,
+            contribution=contributions.path,
+            display=exported.stage.path,
+            expected_display_id="a" * 64,
+            budget_bytes=512 * MIB,
+            chunk_rows=3,
+        ),
+        tmp_path,
+    )
+    assert result["status"] == "failed", result
+    assert control_object(result["failure"])["category"] == "integrity"
+    final = control_object(result["last_progress"])
+    assert final["event"] == "final"
+    assert final["phase"] == "initializing"
+    plan = control_object(final["plan"])
+    assert plan["budget_bytes"] == 512 * MIB
+    assert plan["batch_rows"] == 3
+    assert result["published"] == []
+    assert tuple(artifact_state(path) for path in artifacts) == before
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
