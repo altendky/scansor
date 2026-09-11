@@ -54,6 +54,13 @@ actual RAM/disk importer, and hashes across the maximum batch boundary. These
 checks validate the expectation method; actual full-size source hashes must
 still be compared before accepting benchmark results.
 
+The first complete six-million-vertex expectations are retained for the
+[noiseless grid](expected-grid-3000x2000-flat.json) and
+[noisy grid](expected-grid-3000x2000-noisy.json). Each includes all 11,990,002
+triangles and ten canonical columns. These manifests are independent expected
+results; they have not yet been matched against full-size production imports.
+The sixty-million-vertex expectation freezes remain pending.
+
 ## Remaining execution evidence
 
 The full harness still needs sequential equivalent workloads at both budgets,
