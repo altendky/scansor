@@ -1109,9 +1109,13 @@ considered. No CloudCompare source is needed to implement these display files.
 ### S5 implementation and viewer evidence
 
 The [display exporter](../../../../src/scansor/mesh_display.py) reads complete,
-read-only import and contribution artifacts. Direct DuckDB tables and ordered
-joins associate every finite vertex, usable face, and displayable rejected
-corner. NumPy handles bounded batches; view arrays are streamed to files.
+read-only import and contribution artifacts. Direct DuckDB tables order finite
+vertices and associate displayable rejected corners. Usable faces stream from
+canonical source order and gather their remapped IDs from a checked disk column,
+avoiding a global vertex hash join and corner sort. The complete map digest is
+bound to source-derived values before use; each NumPy gather stays within the
+planned batch reservation. View arrays are streamed to files. This candidate
+path still requires renewed S6 resource and reordered-input measurements.
 Intended output hashes, source maps, the legend and a separate display inventory
 are checked before atomic publication, including across filesystems through the
 S4 publication primitives. Display settings and semantics have their own identity.

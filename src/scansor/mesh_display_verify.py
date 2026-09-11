@@ -17,7 +17,7 @@ from scansor.errors import ScansorError
 from scansor.mesh_artifact_io import ReadDirectory, ReadFile
 from scansor.mesh_artifacts import open_contributions, open_import
 from scansor.mesh_controls import Control, control_id, encode_control
-from scansor.mesh_display import DISPLAY_SAFETY_BYTES, prepare_display
+from scansor.mesh_display import prepare_display
 from scansor.mesh_display_numeric import DisplayTransform
 from scansor.mesh_duckdb import duckdb_failure, warm_baseline
 from scansor.mesh_errors import MeshImportError, io_failure
@@ -84,7 +84,6 @@ def verify_display(
         source_bytes=0,
         storage="disk",
         chunk_rows=chunk_rows,
-        safety_floor_bytes=DISPLAY_SAFETY_BYTES,
     )
     workspace = create_workspace(workdir)
     monitor = ResourceMonitor(budget_bytes, workspace.access, callback=progress)
@@ -144,7 +143,6 @@ def verify_display(
                 source_bytes=estimate,
                 storage="disk",
                 chunk_rows=initial.batch_rows,
-                safety_floor_bytes=DISPLAY_SAFETY_BYTES,
             )
             monitor.set_plan(plan)
             check_disk_space(workspace.access, plan.disk_estimate_bytes)

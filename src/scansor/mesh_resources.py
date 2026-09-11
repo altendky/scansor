@@ -57,7 +57,6 @@ def plan_memory(
     source_bytes: int,
     storage: str = "auto",
     chunk_rows: int | None = None,
-    safety_floor_bytes: int = 64 * MIB,
 ) -> MemoryPlan:
     for name, value in (
         ("budget", budget_bytes),
@@ -66,7 +65,6 @@ def plan_memory(
         ("vertices", vertices),
         ("faces", faces),
         ("source bytes", source_bytes),
-        ("safety floor", safety_floor_bytes),
     ):
         if type(value) is not int or value < 0:
             raise MeshImportError(
@@ -89,7 +87,7 @@ def plan_memory(
     # Reassign 64 MiB to the engine at that budget, retaining the proportional
     # reserve at larger budgets. Whole-worker measurements must still establish
     # whether this allocation fits; the engine limit alone cannot prove that.
-    safety, fixed = max(64 * MIB, safety_floor_bytes, budget_bytes // 10), 32 * MIB
+    safety, fixed = max(64 * MIB, budget_bytes // 10), 32 * MIB
     usable = budget_bytes - baseline_bytes - safety - fixed
     if usable < 32 * MIB + PER_ROW_SCRATCH:
         raise MeshImportError(

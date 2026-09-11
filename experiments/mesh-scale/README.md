@@ -753,6 +753,24 @@ share while retaining the same whole-worker budget and batch size. Import's
 reservation is unchanged. Neither this allocation nor the completed import
 establishes full-pipeline capacity.
 
+The [display-only 96 MiB reserve diagnostic](run-grid-10000x6000-flat-display-reserve96-r1.json)
+at `3e478bc` reused that independently checked import, with fresh display/replay
+workers planned sequentially. Display failed after 590.54 seconds: DuckDB could
+not pin another 256 KiB at its 196.2 MiB engine limit. Kernel/sample peaks were
+502.84/503.72 MiB, below the 512 MiB whole-worker limit. One 12.47 ms sampling gap
+missed coverage. Cleanup passed; no display was published, replay did not run,
+and the separate 6 GiB cgroup recorded no OOM/kill or swap. The report embeds the
+exact diagnostic source and binds its implementation and prior import report.
+
+The next candidate removes that global usable-face join/sort. Canonical faces
+already have source order. A disk column holds one signed 32-bit view ID per
+source vertex, with `-1` for nonfinite positions. Its complete bytes are checked
+against the source-derived digest before face lookup. Each face batch gathers at
+most three times the planned batch rows through the existing bounded column
+reader, preserving source corner order and checking valid remapped IDs. The
+failed display-specific memory adjustment is removed. Complete fresh resource,
+reordered-input and output-identity measurements remain required.
+
 ## Remaining execution evidence
 
 The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
