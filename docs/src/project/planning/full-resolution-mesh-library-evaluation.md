@@ -376,10 +376,16 @@ The probe exercised 4,099 rows with these independently constructed columns:
 
 ```python
 i = np.arange(4099, dtype="<u8")
-bits = ((i * 104729) % 0x7f800000).astype("<u4")
+bits = ((i * 104729) % 0x7F800000).astype("<u4")
 bits[:8] = [
-    0, 0x80000000, 1, 0x7f7fffff,
-    0x7f800000, 0xff800000, 0x7fc00000, 0x7fc00001,
+    0,
+    0x80000000,
+    1,
+    0x7F7FFFFF,
+    0x7F800000,
+    0xFF800000,
+    0x7FC00000,
+    0x7FC00001,
 ]
 columns = {
     "xyz_component": bits.view("<f4"),
