@@ -3,10 +3,12 @@ from __future__ import annotations
 import errno
 import io
 import os
+import selectors
 import signal
 import struct
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import cast
 
@@ -37,6 +39,43 @@ def worker_request(root: Path, *, budget: int = 512 * 1024 * 1024) -> WorkerRequ
     return WorkerRequest(
         "import", source, destination=root, budget_bytes=budget, chunk_rows=2
     )
+
+
+def test_slow_progress_callback_is_visible_in_actual_rss_sample_gaps(
+    tmp_path: Path,
+) -> None:
+    delayed = False
+
+    def slow(_record: dict[str, Control]) -> None:
+        nonlocal delayed
+        if not delayed:
+            delayed = True
+            time.sleep(0.04)
+
+    result = run_worker(worker_request(tmp_path), tmp_path, progress=slow)
+    assert result["status"] == "complete"
+    edges = control_object(control_object(result["supervision"])["sampling_edges"])
+    assert int(str(edges["largest_gap_including_edges_ns"])) >= 40_000_000
+    assert int(str(edges["gaps_over_10ms_including_edges"])) >= 1
+
+
+def test_exception_reaper_keeps_kernel_usage_and_reports_unsampled_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_selector() -> None:
+        raise RuntimeError("injected selector startup failure")
+
+    monkeypatch.setattr(selectors, "DefaultSelector", fail_selector)
+    result = run_worker(worker_request(tmp_path), tmp_path)
+    assert result["status"] == "failed"
+    supervision = control_object(result["supervision"])
+    assert supervision["exit_code"] == -signal.SIGKILL
+    assert supervision["samples"] == 0
+    assert "system_cpu_ns" in control_object(supervision["kernel_usage"])
+    edges = control_object(supervision["sampling_edges"])
+    assert edges["first_sample_ns"] is None and edges["reaped_ns"] is not None
+    with pytest.raises(ChildProcessError):
+        _ = os.waitpid(int(str(supervision["pid"])), os.WNOHANG)
 
 
 def control_object(value: Control) -> dict[str, Control]:
@@ -101,6 +140,24 @@ def test_fresh_import_and_verification_workers(tmp_path: Path) -> None:
         assert 0 < int(str(supervision["kernel_peak_rss_bytes"])) < request.budget_bytes
         assert int(str(supervision["requested_sample_interval_ns"])) <= 10_000_000
         assert int(str(supervision["samples"])) > 0
+        edges = control_object(supervision["sampling_edges"])
+        assert (
+            0
+            <= int(str(edges["initial_gap_ns"]))
+            <= int(str(edges["largest_gap_including_edges_ns"]))
+        )
+        assert (
+            0
+            <= int(str(edges["terminal_gap_ns"]))
+            <= int(str(edges["largest_gap_including_edges_ns"]))
+        )
+        assert (
+            int(str(edges["launch_started_ns"]))
+            <= int(str(edges["launch_returned_ns"]))
+            <= int(str(edges["first_sample_ns"]))
+            <= int(str(edges["last_sample_ns"]))
+            <= int(str(edges["reaped_ns"]))
+        )
         worker_memory = control_object(
             control_object(report["worker_report"])["memory_after_cleanup"]
         )

@@ -19,8 +19,12 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psutil
+
+if TYPE_CHECKING:
+    import resource
 
 from scansor.errors import ScansorError
 from scansor.mesh_controls import Control, control_id, encode_control
@@ -32,6 +36,19 @@ from scansor.mesh_workspace import Workspace, create_workspace, remove_owned_wor
 
 SAMPLE_SECONDS = 0.005
 CANCEL_GRACE_SECONDS = 3.0
+
+
+def _kernel_usage(usage: resource.struct_rusage) -> dict[str, Control]:
+    return {
+        "user_cpu_ns": round(usage.ru_utime * 1_000_000_000),
+        "system_cpu_ns": round(usage.ru_stime * 1_000_000_000),
+        "minor_faults": usage.ru_minflt,
+        "major_faults": usage.ru_majflt,
+        "filesystem_inputs": usage.ru_inblock,
+        "filesystem_outputs": usage.ru_oublock,
+        "voluntary_context_switches": usage.ru_nvcsw,
+        "involuntary_context_switches": usage.ru_nivcsw,
+    }
 
 
 def _failure(
@@ -252,6 +269,11 @@ def run_worker(
     stderr_total = 0
     peak = samples = max_gap = 0
     previous_sample: int | None = None
+    first_sample: int | None = None
+    launch_started: int | None = None
+    launch_returned: int | None = None
+    reaped: int | None = None
+    gaps_over_10ms = 0
     kernel_peak = 0
     usage_record: dict[str, Control] = {}
     started_ns = time.monotonic_ns()
@@ -282,6 +304,7 @@ def run_worker(
                     "request_id": control_id(request.record()),
                 },
             )
+        launch_started = time.monotonic_ns()
         process = subprocess.Popen(
             _worker_command(
                 workspace.descriptor,
@@ -293,6 +316,7 @@ def run_worker(
             pass_fds=tuple(root.descriptor for root in roots),
             start_new_session=True,
         )
+        launch_returned = time.monotonic_ns()
         assert process.stdout is not None and process.stderr is not None
         messages = _Messages(request, process.pid, progress)
         for root in roots:
@@ -317,8 +341,12 @@ def run_worker(
                         rss = psutil.Process(process.pid).memory_info().rss
                         peak = max(peak, rss)
                         samples += 1
+                        if first_sample is None:
+                            first_sample = now
                         if previous_sample is not None:
-                            max_gap = max(max_gap, now - previous_sample)
+                            gap = now - previous_sample
+                            max_gap = max(max_gap, gap)
+                            gaps_over_10ms += int(gap > 10_000_000)
                         previous_sample = now
                         if rss > request.budget_bytes and failure is None:
                             failure = _failure(
@@ -362,18 +390,10 @@ def run_worker(
                 if process.returncode is None:
                     pid, status, usage = os.wait4(process.pid, os.WNOHANG)
                     if pid:
+                        reaped = time.monotonic_ns()
                         process.returncode = os.waitstatus_to_exitcode(status)
                         kernel_peak = int(usage.ru_maxrss) * 1024
-                        usage_record = {
-                            "user_cpu_ns": round(usage.ru_utime * 1_000_000_000),
-                            "system_cpu_ns": round(usage.ru_stime * 1_000_000_000),
-                            "minor_faults": usage.ru_minflt,
-                            "major_faults": usage.ru_majflt,
-                            "filesystem_inputs": usage.ru_inblock,
-                            "filesystem_outputs": usage.ru_oublock,
-                            "voluntary_context_switches": usage.ru_nvcsw,
-                            "involuntary_context_switches": usage.ru_nivcsw,
-                        }
+                        usage_record = _kernel_usage(usage)
         if failure is None:
             try:
                 parser.finish()
@@ -415,12 +435,24 @@ def run_worker(
                 with suppress(ProcessLookupError):
                     os.kill(process.pid, signal.SIGKILL)
                 _pid, status, usage = os.wait4(process.pid, 0)
+                reaped = time.monotonic_ns()
                 process.returncode = os.waitstatus_to_exitcode(status)
                 kernel_peak = int(usage.ru_maxrss) * 1024
+                usage_record = _kernel_usage(usage)
             if process.stdout is not None:
                 process.stdout.close()
             if process.stderr is not None:
                 process.stderr.close()
+        initial_gap = (
+            None
+            if first_sample is None or launch_started is None
+            else first_sample - launch_started
+        )
+        terminal_gap = (
+            None
+            if previous_sample is None or reaped is None
+            else reaped - previous_sample
+        )
         report = {
             "revision": "mesh-worker-outcome-v1",
             "status": "complete" if failure is None else "failed",
@@ -438,6 +470,22 @@ def run_worker(
                 "requested_sample_interval_ns": round(SAMPLE_SECONDS * 1_000_000_000),
                 "samples": samples,
                 "largest_observed_sample_gap_ns": max_gap,
+                "sampling_edges": {
+                    "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+                    "launch_started_ns": launch_started,
+                    "launch_returned_ns": launch_returned,
+                    "first_sample_ns": first_sample,
+                    "last_sample_ns": previous_sample,
+                    "reaped_ns": reaped,
+                    "initial_gap_ns": initial_gap,
+                    "terminal_gap_ns": terminal_gap,
+                    "largest_gap_including_edges_ns": max(
+                        max_gap, initial_gap or 0, terminal_gap or 0
+                    ),
+                    "gaps_over_10ms_including_edges": gaps_over_10ms
+                    + int(initial_gap is not None and initial_gap > 10_000_000)
+                    + int(terminal_gap is not None and terminal_gap > 10_000_000),
+                },
                 "kernel_usage": usage_record,
                 "stderr": bytes(stderr).decode("utf-8", errors="replace"),
                 "stderr_truncated": stderr_total > len(stderr),

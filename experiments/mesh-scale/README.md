@@ -110,14 +110,66 @@ Progress records now include immediate phase transitions and a final observation
 with monotonic timestamps, phase ordinals, previous completed counters, process
 I/O, and logical/allocated disk observations and sampled peaks. Periodic records
 continue during native queries. Observation start/end timestamps expose the
-measurement window. These disk samples cover the monitor's working tree; the
-full harness still needs to account for published files and destination staging
-outside it. Neither requested RSS intervals nor sampled disk peaks establish a
-hard bound on unobserved intervals.
+measurement window. These disk samples cover the monitor's working tree. The
+harness separately samples its entire owned run root, including destination
+staging and completed publications, and reports temporary and published file
+bytes separately. Logical file length and allocated `st_blocks` are distinct;
+filesystem metadata and journal allocation are excluded. Concurrent moves can
+make a sample partial. Neither requested RSS intervals nor sampled disk peaks
+establish a hard bound on unobserved intervals.
+
+## Sequential measured cases
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_run \
+  --frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name grid-3000x2000-noisy-512 \
+  --budget-mib 512 --storage disk \
+  --output /absolute/new/run-grid-3000x2000-noisy-512.json
+```
+
+The default runs complete import/contribution, display export, and display replay
+in separate fresh workers, sequentially. Independent read-only comparisons after
+import check every canonical column against the frozen hashes, all ordered row
+digests, populations, categories and numeric summaries. Display checks scan all
+exported rows and full file hashes; the final worker regenerates every display
+data file from the authoritative columns. `--through import` or `--through display`
+records an explicitly partial pipeline. These switches do not reduce row counts.
+
+Use separate names and output paths for 512 MiB and 2 GiB cases. Keep the larger
+grid on disk at both budgets. Source, work, output artifacts and streamed NDJSON
+must remain outside Git. The small report can be retained after inspection. The
+harness rejects existing case/report/telemetry paths, preserves failed outcomes
+and completed publications, and stops dependent operations after failure.
+`--cancel-phase NAME --cancel-completed N` requests cancellation when a worker
+progress observation first reaches that phase/counter; the report identifies
+whether it triggered. It is a failure probe, not a successful full-data run.
+
+Reports include exact implementation and native-extension hashes, dependency
+versions, host/cgroup/cache observations, kernel process high-water RSS and usage
+counters, sampled RSS gaps including startup/exit edges, phase elapsed/I/O totals,
+and sampled disk peaks. Each operation retains its complete supervisor outcome
+and a hash of its streamed protocol telemetry. Startup through process exit is
+covered by kernel RSS; parent observations and later independent checks are
+outside worker RSS and have separate timing. Phase I/O includes telemetry/IPC;
+the execution report records allocation reservations, not a native-allocation
+profile. Cgroup charge can include the parent, page cache and other listed
+members, and its kernel peak may predate the operation. A fresh dedicated cgroup
+makes that scope easier to interpret. A cgroup cap is not the worker RSS budget.
+
+The source is fully hashed immediately before launch, which can warm the page
+cache. Cache conditions are explicitly uncontrolled; the harness never drops
+global caches. A completed pipeline does not imply that observed sampling gaps
+met 10 ms or that every resource target passed. Those observations remain separate
+in the report, including conservative gaps before the first and after the last
+sample. Small ordinary tests cover byte comparison, reporting, cancellation,
+resource failure, and owned cleanup; they are not scale benchmark results.
 
 ## Remaining execution evidence
 
-The full harness still needs sequential equivalent workloads at both budgets,
+The harness still needs measured sequential equivalent workloads at both budgets,
 adversarial source order and valence, whole-worker RSS and phase resource
 measurements, cancellation/resource-failure evidence, and full displayable-row
 export measurements. Large artifacts remain outside Git. Ordinary CI runs only
