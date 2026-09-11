@@ -1,0 +1,939 @@
+{
+  "date_local": "2026-09-10",
+  "experiment": "issue-29-isolated-sort-v1",
+  "platform": "Linux x86-64",
+  "probe_sources": {
+    "scansor-29-cgroup-supervisor.py": {
+      "sha256": "c06e8d5b19cf5c0339101d39d77d30ba06ee40fe004d7f35583ee4557eaa9dd9",
+      "text": "\"\"\"Stdlib-only supervisor remains alive to read cgroup counters after worker exit.\"\"\"\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\noutput=Path(sys.argv[1])\ngroup=Path('/sys/fs/cgroup') / Path('/proc/self/cgroup').read_text().strip().split('::')[1].lstrip('/')\ndef counters():\n names=['memory.max','memory.high','memory.current','memory.peak','memory.events','memory.swap.max','memory.swap.current','memory.stat','memory.oom.group']\n return {name:(group/name).read_text().strip() for name in names}\ninitial=counters()\nassert initial['memory.max']==os.environ['SCANSOR_CGROUP_MAX_BYTES'], initial\nassert initial['memory.swap.max']=='0', initial\noutput.with_name('cgroup-initial.json').write_text(json.dumps({'cgroup_path':str(group),'initial':initial},indent=2)+'\\n')\nstart=time.monotonic()\nworker=subprocess.Popen(sys.argv[2:])\ntimeout=False\ntry:\n worker.wait(timeout=90)\nexcept subprocess.TimeoutExpired:\n timeout=True\n worker.kill()\n worker.wait()\nreport={'cgroup_path':str(group),'initial':initial,'final':counters(),'worker_returncode':worker.returncode,'timeout':timeout,'worker_wall_seconds':time.monotonic()-start}\noutput.write_text(json.dumps(report,indent=2)+'\\n')\n"
+    },
+    "scansor-29-sort-probe.py": {
+      "sha256": "94d0049faeee038bd75e24ae635cc595f8564e9bdad2ef94c1edcf3cbe1409c8",
+      "text": "\"\"\"Disposable isolated sort comparison; synthetic records, no PLY parser.\"\"\"\nimport argparse\nimport hashlib\nimport json\nimport math\nimport os\nfrom pathlib import Path\nimport resource\nimport threading\nimport time\nimport traceback\n\nimport numpy as np\nimport psutil\nimport pyarrow as pa\nimport pyarrow.parquet as pq\n\nDTYPE=np.dtype([('v','<u8'),('f','<u8'),('c','u1'),('area','<f8')])\nSCHEMA=pa.schema([('v',pa.uint64()),('f',pa.uint64()),('c',pa.uint8()),('area',pa.float64())])\n\ndef values(q):\n    return [q//12 + np.uint64(2**53), q//3, (q%3).astype('u1'), (q%257).astype('<f8')/8]\n\ndef generate(path,n):\n    assert math.gcd(1_000_003,n)==1\n    start=time.monotonic()\n    digest=hashlib.sha256()\n    with pq.ParquetWriter(path,SCHEMA,compression='NONE',use_dictionary=False,write_statistics=True) as writer:\n        for begin in range(0,n,65536):\n            q=(np.arange(begin,min(n,begin+65536),dtype='<u8')*1_000_003+17)%n\n            cols=values(q)\n            writer.write_batch(pa.record_batch([pa.array(a) for a in cols],schema=SCHEMA),row_group_size=65536)\n    with path.open('rb') as stream: sha=hashlib.file_digest(stream,'sha256').hexdigest()\n    manifest={'rows':n,'packed_bytes':n*DTYPE.itemsize,'file_bytes':path.stat().st_size,'sha256':sha,'generation_seconds':time.monotonic()-start,'recipe':'q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8'}\n    path.with_suffix('.json').write_text(json.dumps(manifest,indent=2)+'\\n')\n    print(json.dumps(manifest))\n\nclass Monitor:\n    def __init__(self,work):\n        self.work=work\n        self.proc=psutil.Process()\n        self.rss=self.proc.memory_info().rss\n        self.spill=0\n        self.files=0\n        self.phase='setup'\n        self.rows=0\n        self.phases={}\n        self.stop=threading.Event()\n        self.thread=threading.Thread(target=self.run,daemon=True)\n    def sample(self):\n        rss=self.proc.memory_info().rss\n        self.rss=max(self.rss,rss)\n        self.phases[self.phase]=max(self.phases.get(self.phase,0),rss)\n        spill=files=0\n        for path in self.work.rglob('*'):\n            try:\n                if path.is_file():\n                    stat=path.stat()\n                    files+=stat.st_blocks*512\n                    if 'spill' in path.parts: spill+=stat.st_size\n            except FileNotFoundError: pass\n        self.spill=max(self.spill,spill)\n        self.files=max(self.files,files)\n        report={'phase':self.phase,'rows_seen':self.rows,'peak_rss_bytes':self.rss,'spill_peak_bytes':self.spill,'work_allocated_peak_bytes':self.files,'phase_rss':self.phases}\n        temp=self.work/'heartbeat.partial'\n        temp.write_text(json.dumps(report))\n        temp.replace(self.work/'heartbeat.json')\n    def run(self):\n        while not self.stop.wait(.01): self.sample()\n\ndef execute(args):\n    work=args.work\n    (work/'spill').mkdir()\n    os.environ['POLARS_MAX_THREADS']='1'\n    os.environ['POLARS_OOC_MEMORY_BUDGET_MB']=str(args.memory_mb)\n    os.environ['POLARS_OOC_DISK_BUDGET_MB']='4000'\n    os.environ['POLARS_OOC_SPILL_DIR']=str(work/'spill')\n    os.environ['POLARS_TEMP_DIR']=str(work/'spill')\n    if args.backend=='polars':\n        import polars as pl\n        version=pl.__version__\n    else:\n        import duckdb\n        version=duckdb.__version__\n    monitor=Monitor(work)\n    monitor.thread.start()\n    begin=time.monotonic()\n    con=None\n    rows=0\n    copied_bytes=0\n    first=None\n    hashes=[hashlib.sha256() for _ in range(4)]\n    try:\n        monitor.phase='scan-sort-before-first-batch'\n        if args.backend=='polars':\n            query=pl.scan_parquet(args.source,low_memory=args.scan_profile=='low-memory',parallel='none' if args.scan_profile=='low-memory' else 'auto').sort('v','f','c')\n            # Version-sensitive API/OOC controls: review changelogs and retest\n            # exact bits/order, copies, lifetime, cancellation and memory on updates.\n            if args.output_mode=='parquet':\n                query.sink_parquet(work/'sorted.parquet',compression='uncompressed',row_group_size=65536,maintain_order=True,engine='streaming')\n                iterator=pq.ParquetFile(work/'sorted.parquet').iter_batches(batch_size=args.batch)\n            else:\n                iterator=query.collect_batches(chunk_size=args.batch,maintain_order=True,lazy=True,engine='streaming')\n        else:\n            con=duckdb.connect(config={'threads':1,'memory_limit':f'{args.memory_mb*1_000_000}B','temp_directory':str(work/'spill'),'max_temp_directory_size':'4000000000B','autoinstall_known_extensions':False,'autoload_known_extensions':False})\n            iterator=con.read_parquet(str(args.source)).order('v,f,c').to_arrow_reader(batch_size=args.batch)\n        for batch in iterator:\n            if first is None: first=time.monotonic()-begin\n            monitor.phase='consume-and-verify'\n            if args.backend=='polars' and args.output_mode=='batches':\n                cols=[]\n                assert batch.schema==dict(zip(SCHEMA.names,[pl.UInt64,pl.UInt64,pl.UInt8,pl.Float64]))\n                for series in batch.iter_columns():\n                    if series.n_chunks()>1:\n                        copied_bytes+=series.estimated_size()\n                        series=series.rechunk()\n                    cols.append(series.to_numpy(allow_copy=False))\n            else:\n                assert batch.schema==SCHEMA\n                cols=[s.to_numpy(zero_copy_only=True) for s in batch.columns]\n            count=len(cols[0])\n            assert 0<count<=args.batch\n            expected=values(np.arange(rows,rows+count,dtype='<u8'))\n            for actual,wanted,dtype,h in zip(cols,expected,['<u8','<u8','u1','<f8'],hashes,strict=True):\n                assert actual.dtype==np.dtype(dtype)\n                assert not actual.flags.writeable\n                assert actual.tobytes()==wanted.tobytes(), (rows,dtype)\n                h.update(actual.tobytes())\n            rows+=count\n            monitor.rows=rows\n        assert rows==args.rows\n        result={'status':'passed','hashes':dict(zip(SCHEMA.names,[h.hexdigest() for h in hashes],strict=True))}\n    except Exception as e:\n        result={'status':'failed','error':str(e),'error_type':type(e).__name__,'traceback':traceback.format_exc()}\n    finally:\n        if con is not None: con.close()\n        monitor.stop.set();monitor.thread.join();monitor.sample()\n    result.update({'backend':args.backend,'version':version,'rows_seen':rows,'elapsed_seconds':time.monotonic()-begin,'first_batch_seconds':first,'post_first_batch_seconds':None if first is None else time.monotonic()-begin-first,'peak_rss_bytes':max(monitor.rss,resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024),'sampled_rss_bytes':monitor.rss,'spill_peak_bytes':monitor.spill,'work_allocated_peak_bytes':monitor.files,'phase_rss':monitor.phases,'rechunk_copy_bytes':copied_bytes,'memory_budget_bytes':args.memory_mb*1_000_000,'disk_budget_bytes':4_000_000_000,'batch':args.batch})\n    (work/'worker.json').write_text(json.dumps(result,indent=2)+'\\n')\n    print(json.dumps(result))\n\nparser=argparse.ArgumentParser()\nparser.add_argument('--generate',action='store_true')\nparser.add_argument('--source',type=Path,required=True)\nparser.add_argument('--rows',type=int,required=True)\nparser.add_argument('--backend',choices=['duckdb','polars'])\nparser.add_argument('--work',type=Path)\nparser.add_argument('--memory-mb',type=int,default=128)\nparser.add_argument('--batch',type=int,default=4093)\nparser.add_argument('--scan-profile',choices=['default','low-memory'],default='default')\nparser.add_argument('--output-mode',choices=['batches','parquet'],default='batches')\nargs=parser.parse_args()\nif args.generate: generate(args.source,args.rows)\nelse: execute(args)\n"
+    },
+    "scansor-29-sort-runner.py": {
+      "sha256": "b4e84939884260c870015225bf0346db05e56bc1f089d7c28f98bad2ad96f5ff",
+      "text": "import argparse\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport tempfile\n\nparser=argparse.ArgumentParser()\nparser.add_argument('--rows',type=int,required=True)\nparser.add_argument('--memory-mb',type=int,default=128)\nparser.add_argument('--cap-mib',type=int,default=512)\nparser.add_argument('--repeat',type=int,default=1)\nparser.add_argument('--first',choices=['duckdb','polars'],default='duckdb')\nparser.add_argument('--backend',choices=['duckdb','polars'])\nparser.add_argument('--scan-profile',choices=['default','low-memory'],default='default')\nparser.add_argument('--output-mode',choices=['batches','parquet'],default='batches')\nargs=parser.parse_args()\nbase=Path('/home/altendky/repos/scansor/local-inputs/issue-29-probes')\nbase.mkdir(exist_ok=True)\nsource=base/f'sort-{args.rows}.parquet'\nmanifest=json.loads(source.with_suffix('.json').read_text())\nassert manifest['rows']==args.rows\nreference=None\nbackends=[args.backend] if args.backend else [args.first, 'polars' if args.first=='duckdb' else 'duckdb']\nfor backend in backends:\n    label=f'{backend}-n{args.rows}-m{args.memory_mb}-cap{args.cap_mib}-r{args.repeat}'\n    if args.scan_profile!='default': label+='-'+args.scan_profile\n    if args.output_mode!='batches': label+='-'+args.output_mode\n    out=Path('/tmp')/f'scansor-29-sort-{label}.json'\n    assert not out.exists(), f'Refusing to overwrite {out}'\n    with tempfile.TemporaryDirectory(prefix='sort-work-',dir=base) as folder:\n        work=Path(folder)\n        env=dict(os.environ,TMPDIR=str(work),OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',SCANSOR_CGROUP_MAX_BYTES=str(args.cap_mib*2**20))\n        for key in list(env):\n            if key.startswith('POLARS_'): del env[key]\n        cmd=['systemd-run','--user','--scope','--quiet',f'--unit=scansor-29-sort-{label}','-p',f'MemoryMax={args.cap_mib*2**20}','-p','MemorySwapMax=0','-p','OOMPolicy=continue','/tmp/scansor-29-probe/bin/python','/tmp/scansor-29-cgroup-supervisor.py',str(work/'cgroup.json'),'/tmp/scansor-29-probe/bin/python','/tmp/scansor-29-sort-probe.py','--source',str(source),'--rows',str(args.rows),'--backend',backend,'--work',str(work),'--memory-mb',str(args.memory_mb),'--scan-profile',args.scan_profile,'--output-mode',args.output_mode]\n        try:\n            proc=subprocess.run(cmd,env=env,capture_output=True,text=True,timeout=110)\n        finally:\n            # Also stop the whole scope on a runner timeout/interruption.\n            subprocess.run(['systemctl','--user','stop',f'scansor-29-sort-{label}.scope'],capture_output=True,text=True,timeout=15)\n        out.with_suffix('.stderr').write_text(proc.stderr)\n        # A scope reports failure after a worker OOM even if the supervisor saves counters.\n        # Preserve that evidence before the temporary work directory is removed.\n        cg=json.loads((work/'cgroup.json').read_text())\n        hb=json.loads((work/'heartbeat.json').read_text()) if (work/'heartbeat.json').exists() else {}\n        result=json.loads((work/'worker.json').read_text()) if (work/'worker.json').exists() else {'status':'worker-terminated'}\n        result.update({'systemd_run_returncode':proc.returncode,'scan_profile':args.scan_profile,'output_mode':args.output_mode,'backend':backend,'source':manifest,'cgroup':cg,'heartbeat':hb,'memory_budget_bytes':args.memory_mb*1_000_000,'disk_budget_bytes':4_000_000_000,'batch':4093})\n        if result['status']=='passed':\n            if reference is None: reference=result['hashes']\n            else: assert reference==result['hashes']\n        out.write_text(json.dumps(result,indent=2)+'\\n')\n    result['work_cleanup_verified']=not work.exists()\n    out.write_text(json.dumps(result,indent=2)+'\\n')\n    print(json.dumps({'backend':backend,'rows':args.rows,'memory_MB':args.memory_mb,'cap_MiB':args.cap_mib,'status':result['status'],'rows_seen':result.get('rows_seen',hb.get('rows_seen')),'phase':hb.get('phase'),'seconds':round(result.get('elapsed_seconds',cg['worker_wall_seconds']),3),'first_batch_seconds':result.get('first_batch_seconds'),'rss_MiB':round(result.get('peak_rss_bytes',hb.get('peak_rss_bytes',0))/2**20,2),'spill_MiB':round(result.get('spill_peak_bytes',hb.get('spill_peak_bytes',0))/2**20,2),'events':cg['final']['memory.events'],'exitcode':cg['worker_returncode'],'error':result.get('error')}),flush=True)\n"
+    }
+  },
+  "protocol": {
+    "batch_rows": 4093,
+    "cache": "OS file caches not flushed or controlled; this is a warm/unspecified cache comparison, not physical disk throughput or a cold-cache claim.",
+    "cgroup_limits_bytes": [
+      536870912,
+      2147483648
+    ],
+    "disk": "Peak logical spill occupancy and allocated work files sampled every 10 ms; excludes shared source file; not total I/O volume. All workers use the same filesystem and are cleaned before the next.",
+    "dtypes": {
+      "area": "float64",
+      "c": "uint8",
+      "f": "uint64",
+      "v": "uint64"
+    },
+    "duckdb_query": "connection.read_parquet(source).order(\"v,f,c\").to_arrow_reader(batch_size=4093)",
+    "engine_memory_budget_bytes": 128000000,
+    "engine_spill_budget_bytes": 4000000000,
+    "execution": "One benchmark at a time; separate fresh Linux cgroup v2 scopes; source generation excluded. Small pair repeated in reverse order. Large DuckDB r2 precedes Polars r3 and DuckDB r3; failed Polars r2 only has journal evidence and is omitted.",
+    "expected_output": "q=0..N-1: v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8. Every output row is checked byte for byte against this closed form, including uint64 IDs above 2**53.",
+    "headroom_control": "One additional 2 GiB pair, Polars then DuckDB, keeps both engine budgets unchanged to measure peak memory without the tighter cgroup forcing reclamation or termination.",
+    "input": "Identical shared uncompressed Parquet file per row count; row groups of 65536; no dictionary encoding; statistics enabled. Source file hashes rechecked after all runs.",
+    "memory": "Cgroup cap controls charged memory, not all worker RSS. RSS includes shared/file mappings accounted differently by cgroups. Failed workers only have sampled RSS lower bounds, not final ru_maxrss.",
+    "polars_controls": "low_memory=True, parallel=\"none\"; either the same batch iterator or sink_parquet(compression=\"uncompressed\", row_group_size=65536, maintain_order=True, engine=\"streaming\") then PyArrow batch reads.",
+    "polars_default_query": "pl.scan_parquet(source, low_memory=False, parallel=\"auto\").sort(\"v\", \"f\", \"c\").collect_batches(chunk_size=4093, maintain_order=True, lazy=True, engine=\"streaming\")",
+    "sampling_interval_seconds": 0.01,
+    "sort_keys": [
+      "v",
+      "f",
+      "c"
+    ],
+    "source_snapshot_note": "Retained source snapshots below reproduce the final harness; large DuckDB r2 used the same worker but OOMPolicy=stop and the earlier supervisor without memory.oom.group/initial-file reporting. That successful run had no OOM events. All other included runs used the retained sources.",
+    "swap_limit_bytes": 0,
+    "threads_per_engine": 1,
+    "total_time": "Includes scan, sort, batch conversion, exact per-row validation, hashes and connection cleanup; excludes interpreter/import time and source generation. First-batch latency is measured separately.",
+    "worker_timeout_seconds": 90
+  },
+  "python": "3.12.13",
+  "runs": [
+    {
+      "backend": "duckdb",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-duckdb-n2400000-m128-cap512-r1.scope",
+        "final": {
+          "memory.current": "11423744",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "137019392",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9654272",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10694656",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 1.166734613943845
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 0.5378881287761033,
+      "first_batch_seconds": 0.24902397906407714,
+      "hashes": {
+        "area": "bc15c19cc826a8d74b699b1ba698e92875abd77ef8c4fee3b9ebc658eea2a800",
+        "c": "68640dd5188c1e5f7934e0c15eb3ad63b982e6f6b97a56ce7859e6eb436e5343",
+        "f": "4d1e1a9677196c66f4e25dc346806502c92f3ec39f8d808d99d51c706c4c4d60",
+        "v": "094ad896e46bf47cf0b9f3bd0738f1e3e834b26d0bcc68904f0ab0d67d27dd76"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 196280320,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 196280320,
+          "scan-sort-before-first-batch": 189464576
+        },
+        "rows_seen": 2400000,
+        "spill_peak_bytes": 0,
+        "work_allocated_peak_bytes": 8192
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 196280320,
+      "phase_rss": {
+        "consume-and-verify": 196280320,
+        "scan-sort-before-first-batch": 189464576
+      },
+      "post_first_batch_seconds": 0.2888645608909428,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 2400000,
+      "run": "duckdb-n2400000-m128-cap512-r1",
+      "sampled_rss_bytes": 196280320,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 67248550,
+        "generation_seconds": 0.48759581288322806,
+        "packed_bytes": 60000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 2400000,
+        "sha256": "06f3dc36676d9ec16972cc673ba60f6c7e5d56894488d7aa8372e77370d0dbef"
+      },
+      "spill_peak_bytes": 0,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.5.5",
+      "work_allocated_peak_bytes": 8192,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n2400000-m128-cap512-r1.scope",
+        "final": {
+          "memory.current": "12419072",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "253317120",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9986048",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "11018240",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 1.6179229859262705
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 0.6984965801239014,
+      "first_batch_seconds": 0.48770231613889337,
+      "hashes": {
+        "area": "bc15c19cc826a8d74b699b1ba698e92875abd77ef8c4fee3b9ebc658eea2a800",
+        "c": "68640dd5188c1e5f7934e0c15eb3ad63b982e6f6b97a56ce7859e6eb436e5343",
+        "f": "4d1e1a9677196c66f4e25dc346806502c92f3ec39f8d808d99d51c706c4c4d60",
+        "v": "094ad896e46bf47cf0b9f3bd0738f1e3e834b26d0bcc68904f0ab0d67d27dd76"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 318554112,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 318554112,
+          "scan-sort-before-first-batch": 303386624
+        },
+        "rows_seen": 2400000,
+        "spill_peak_bytes": 0,
+        "work_allocated_peak_bytes": 8192
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 318554112,
+      "phase_rss": {
+        "consume-and-verify": 318554112,
+        "scan-sort-before-first-batch": 303386624
+      },
+      "post_first_batch_seconds": 0.21079480089247227,
+      "rechunk_copy_bytes": 2353475,
+      "rows_seen": 2400000,
+      "run": "polars-n2400000-m128-cap512-r1",
+      "sampled_rss_bytes": 318554112,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 67248550,
+        "generation_seconds": 0.48759581288322806,
+        "packed_bytes": 60000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 2400000,
+        "sha256": "06f3dc36676d9ec16972cc673ba60f6c7e5d56894488d7aa8372e77370d0dbef"
+      },
+      "spill_peak_bytes": 0,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.44.2",
+      "work_allocated_peak_bytes": 8192,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n2400000-m128-cap512-r2.scope",
+        "final": {
+          "memory.current": "12951552",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "251506688",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9695232",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10424320",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 1.5173081648536026
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 0.6649083532392979,
+      "first_batch_seconds": 0.4657526998780668,
+      "hashes": {
+        "area": "bc15c19cc826a8d74b699b1ba698e92875abd77ef8c4fee3b9ebc658eea2a800",
+        "c": "68640dd5188c1e5f7934e0c15eb3ad63b982e6f6b97a56ce7859e6eb436e5343",
+        "f": "4d1e1a9677196c66f4e25dc346806502c92f3ec39f8d808d99d51c706c4c4d60",
+        "v": "094ad896e46bf47cf0b9f3bd0738f1e3e834b26d0bcc68904f0ab0d67d27dd76"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 317808640,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 317808640,
+          "scan-sort-before-first-batch": 304803840
+        },
+        "rows_seen": 2400000,
+        "spill_peak_bytes": 0,
+        "work_allocated_peak_bytes": 8192
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 317808640,
+      "phase_rss": {
+        "consume-and-verify": 317808640,
+        "scan-sort-before-first-batch": 304803840
+      },
+      "post_first_batch_seconds": 0.1991561222821474,
+      "rechunk_copy_bytes": 2353475,
+      "rows_seen": 2400000,
+      "run": "polars-n2400000-m128-cap512-r2",
+      "sampled_rss_bytes": 317808640,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 67248550,
+        "generation_seconds": 0.48759581288322806,
+        "packed_bytes": 60000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 2400000,
+        "sha256": "06f3dc36676d9ec16972cc673ba60f6c7e5d56894488d7aa8372e77370d0dbef"
+      },
+      "spill_peak_bytes": 0,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.44.2",
+      "work_allocated_peak_bytes": 8192,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "duckdb",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-duckdb-n2400000-m128-cap512-r2.scope",
+        "final": {
+          "memory.current": "12640256",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "136515584",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9641984",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10457088",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 1.0666927453130484
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 0.515153837390244,
+      "first_batch_seconds": 0.24076401302590966,
+      "hashes": {
+        "area": "bc15c19cc826a8d74b699b1ba698e92875abd77ef8c4fee3b9ebc658eea2a800",
+        "c": "68640dd5188c1e5f7934e0c15eb3ad63b982e6f6b97a56ce7859e6eb436e5343",
+        "f": "4d1e1a9677196c66f4e25dc346806502c92f3ec39f8d808d99d51c706c4c4d60",
+        "v": "094ad896e46bf47cf0b9f3bd0738f1e3e834b26d0bcc68904f0ab0d67d27dd76"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 196341760,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 196341760,
+          "scan-sort-before-first-batch": 193052672
+        },
+        "rows_seen": 2400000,
+        "spill_peak_bytes": 0,
+        "work_allocated_peak_bytes": 8192
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 196341760,
+      "phase_rss": {
+        "consume-and-verify": 196341760,
+        "scan-sort-before-first-batch": 193052672
+      },
+      "post_first_batch_seconds": 0.2743901959620416,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 2400000,
+      "run": "duckdb-n2400000-m128-cap512-r2",
+      "sampled_rss_bytes": 196341760,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 67248550,
+        "generation_seconds": 0.48759581288322806,
+        "packed_bytes": 60000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 2400000,
+        "sha256": "06f3dc36676d9ec16972cc673ba60f6c7e5d56894488d7aa8372e77370d0dbef"
+      },
+      "spill_peak_bytes": 0,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.5.5",
+      "work_allocated_peak_bytes": 8192,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "duckdb",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-duckdb-n24000000-m128-cap512-r2.scope",
+        "final": {
+          "memory.current": "15446016",
+          "memory.events": "low 0\nhigh 0\nmax 1158\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.peak": "536870912",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "10444800",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.peak": "10731520",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 9.188221761956811
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 8.623440439347178,
+      "first_batch_seconds": 3.7619391549378633,
+      "hashes": {
+        "area": "7e6208825e7d357f6c2510426f6fadeb90039d1729fe18d24a7700414829f16d",
+        "c": "a6b1286e54354e6cf00cf701e82abd524620dacaadb4136385720bfa597718df",
+        "f": "548ba82c6f4c538cf64ca0cc3b9f7440182bdddbcdd2dcd91d36a9cb7617db61",
+        "v": "4a69b8b3d241d11a7935b454208171e18919c2f4be85ff07caa6d14a3c2dddfe"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 251658240,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 251658240,
+          "scan-sort-before-first-batch": 247148544
+        },
+        "rows_seen": 24000000,
+        "spill_peak_bytes": 456720384,
+        "work_allocated_peak_bytes": 456740864
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "stop",
+      "output_mode": "batches",
+      "peak_rss_bytes": 251658240,
+      "phase_rss": {
+        "consume-and-verify": 251658240,
+        "scan-sort-before-first-batch": 247148544
+      },
+      "post_first_batch_seconds": 4.861502042971551,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 24000000,
+      "run": "duckdb-n24000000-m128-cap512-r2",
+      "sampled_rss_bytes": 251658240,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "spill_peak_bytes": 456720384,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.5.5",
+      "work_allocated_peak_bytes": 456740864,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n24000000-m128-cap512-r3.scope",
+        "final": {
+          "memory.current": "12795904",
+          "memory.events": "low 0\nhigh 0\nmax 935\noom 2\noom_kill 1\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "536870912",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9723904",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10424320",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": -9,
+        "worker_wall_seconds": 1.8180153449065983
+      },
+      "disk_budget_bytes": 4000000000,
+      "heartbeat": {
+        "peak_rss_bytes": 943898624,
+        "phase": "scan-sort-before-first-batch",
+        "phase_rss": {
+          "scan-sort-before-first-batch": 943898624
+        },
+        "rows_seen": 0,
+        "spill_peak_bytes": 501519312,
+        "work_allocated_peak_bytes": 502611968
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "run": "polars-n24000000-m128-cap512-r3",
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "status": "worker-terminated",
+      "systemd_run_returncode": 0,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "duckdb",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-duckdb-n24000000-m128-cap512-r3.scope",
+        "final": {
+          "memory.current": "32600064",
+          "memory.events": "low 0\nhigh 0\nmax 928\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "536870912",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "10055680",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10878976",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 9.836536936927587
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 9.247084352187812,
+      "first_batch_seconds": 4.508956053294241,
+      "hashes": {
+        "area": "7e6208825e7d357f6c2510426f6fadeb90039d1729fe18d24a7700414829f16d",
+        "c": "a6b1286e54354e6cf00cf701e82abd524620dacaadb4136385720bfa597718df",
+        "f": "548ba82c6f4c538cf64ca0cc3b9f7440182bdddbcdd2dcd91d36a9cb7617db61",
+        "v": "4a69b8b3d241d11a7935b454208171e18919c2f4be85ff07caa6d14a3c2dddfe"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 250515456,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 250515456,
+          "scan-sort-before-first-batch": 246808576
+        },
+        "rows_seen": 24000000,
+        "spill_peak_bytes": 425525248,
+        "work_allocated_peak_bytes": 425545728
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 250515456,
+      "phase_rss": {
+        "consume-and-verify": 250515456,
+        "scan-sort-before-first-batch": 246808576
+      },
+      "post_first_batch_seconds": 4.73812883393839,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 24000000,
+      "run": "duckdb-n24000000-m128-cap512-r3",
+      "sampled_rss_bytes": 250515456,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "spill_peak_bytes": 425525248,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.5.5",
+      "work_allocated_peak_bytes": 425545728,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n240000-m128-cap512-r1-low-memory-parquet.scope",
+        "final": {
+          "memory.current": "24358912",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "105402368",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "10129408",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10420224",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 0.9662035498768091
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 0.09402614086866379,
+      "first_batch_seconds": 0.06752352975308895,
+      "hashes": {
+        "area": "710cd15930761422a50d66a2ae4c07df885f94d57d6fc26ebc70dcd6b54d8955",
+        "c": "210c296a469d781603dcc4963a0ab6a386b80e4bb70452e815a78c49ca5b1783",
+        "f": "cb217c9a4b1265f001cd153bfe83e1384eb4e0258cd4ac0210ec073492ec1f20",
+        "v": "a5a2cabe82738733b3056d4526df3ff8b4f739179ec0563d874388889f45d7e9"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 166522880,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 166522880,
+          "scan-sort-before-first-batch": 146313216
+        },
+        "rows_seen": 240000,
+        "spill_peak_bytes": 0,
+        "work_allocated_peak_bytes": 3301376
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "parquet",
+      "peak_rss_bytes": 166522880,
+      "phase_rss": {
+        "consume-and-verify": 166522880,
+        "scan-sort-before-first-batch": 146313216
+      },
+      "post_first_batch_seconds": 0.026503016240894794,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 240000,
+      "run": "polars-n240000-m128-cap512-r1-low-memory-parquet",
+      "sampled_rss_bytes": 166522880,
+      "scan_profile": "low-memory",
+      "source": {
+        "file_bytes": 6725491,
+        "generation_seconds": 0.1911253472790122,
+        "packed_bytes": 6000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 240000,
+        "sha256": "c1b5dd737d72b932775f535a2fd92c941d6cdc16259d62475f9df4d0150dbfee"
+      },
+      "spill_peak_bytes": 0,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.44.2",
+      "work_allocated_peak_bytes": 3301376,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n24000000-m128-cap512-r1-low-memory.scope",
+        "final": {
+          "memory.current": "12345344",
+          "memory.events": "low 0\nhigh 0\nmax 2264\noom 1\noom_kill 1\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "536870912",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "10096640",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10420224",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": -9,
+        "worker_wall_seconds": 2.2693370669148862
+      },
+      "disk_budget_bytes": 4000000000,
+      "heartbeat": {
+        "peak_rss_bytes": 963510272,
+        "phase": "scan-sort-before-first-batch",
+        "phase_rss": {
+          "scan-sort-before-first-batch": 963510272
+        },
+        "rows_seen": 0,
+        "spill_peak_bytes": 587866360,
+        "work_allocated_peak_bytes": 589074432
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "run": "polars-n24000000-m128-cap512-r1-low-memory",
+      "scan_profile": "low-memory",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "status": "worker-terminated",
+      "systemd_run_returncode": 0,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n24000000-m128-cap512-r1-low-memory-parquet.scope",
+        "final": {
+          "memory.current": "11563008",
+          "memory.events": "low 0\nhigh 0\nmax 1059\noom 1\noom_kill 1\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "536870912",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "10416128",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "536870912",
+          "memory.oom.group": "0",
+          "memory.peak": "10682368",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": -9,
+        "worker_wall_seconds": 2.118780239019543
+      },
+      "disk_budget_bytes": 4000000000,
+      "heartbeat": {
+        "peak_rss_bytes": 945352704,
+        "phase": "scan-sort-before-first-batch",
+        "phase_rss": {
+          "scan-sort-before-first-batch": 945352704
+        },
+        "rows_seen": 0,
+        "spill_peak_bytes": 532457824,
+        "work_allocated_peak_bytes": 533585920
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "parquet",
+      "run": "polars-n24000000-m128-cap512-r1-low-memory-parquet",
+      "scan_profile": "low-memory",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "status": "worker-terminated",
+      "systemd_run_returncode": 0,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "polars",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-polars-n24000000-m128-cap2048-r1.scope",
+        "final": {
+          "memory.current": "15945728",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "2147483648",
+          "memory.oom.group": "0",
+          "memory.peak": "1687080960",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9719808",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "2147483648",
+          "memory.oom.group": "0",
+          "memory.peak": "10440704",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 9.132814130280167
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 8.280379679054022,
+      "first_batch_seconds": 6.167364472988993,
+      "hashes": {
+        "area": "7e6208825e7d357f6c2510426f6fadeb90039d1729fe18d24a7700414829f16d",
+        "c": "a6b1286e54354e6cf00cf701e82abd524620dacaadb4136385720bfa597718df",
+        "f": "548ba82c6f4c538cf64ca0cc3b9f7440182bdddbcdd2dcd91d36a9cb7617db61",
+        "v": "4a69b8b3d241d11a7935b454208171e18919c2f4be85ff07caa6d14a3c2dddfe"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 1737592832,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 1429819392,
+          "scan-sort-before-first-batch": 1737592832
+        },
+        "rows_seen": 24000000,
+        "spill_peak_bytes": 496602456,
+        "work_allocated_peak_bytes": 497684480
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 1744568320,
+      "phase_rss": {
+        "consume-and-verify": 1429819392,
+        "scan-sort-before-first-batch": 1737592832
+      },
+      "post_first_batch_seconds": 2.1130156400613487,
+      "rechunk_copy_bytes": 24455675,
+      "rows_seen": 24000000,
+      "run": "polars-n24000000-m128-cap2048-r1",
+      "sampled_rss_bytes": 1737592832,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "spill_peak_bytes": 496602456,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.44.2",
+      "work_allocated_peak_bytes": 497684480,
+      "work_cleanup_verified": true
+    },
+    {
+      "backend": "duckdb",
+      "batch": 4093,
+      "cgroup": {
+        "cgroup_path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-29-sort-duckdb-n24000000-m128-cap2048-r1.scope",
+        "final": {
+          "memory.current": "14446592",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "2147483648",
+          "memory.oom.group": "0",
+          "memory.peak": "667402240",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "initial": {
+          "memory.current": "9797632",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.high": "max",
+          "memory.max": "2147483648",
+          "memory.oom.group": "0",
+          "memory.peak": "10579968",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0"
+        },
+        "timeout": false,
+        "worker_returncode": 0,
+        "worker_wall_seconds": 7.279747758992016
+      },
+      "disk_budget_bytes": 4000000000,
+      "elapsed_seconds": 6.658266411162913,
+      "first_batch_seconds": 2.9088358860462904,
+      "hashes": {
+        "area": "7e6208825e7d357f6c2510426f6fadeb90039d1729fe18d24a7700414829f16d",
+        "c": "a6b1286e54354e6cf00cf701e82abd524620dacaadb4136385720bfa597718df",
+        "f": "548ba82c6f4c538cf64ca0cc3b9f7440182bdddbcdd2dcd91d36a9cb7617db61",
+        "v": "4a69b8b3d241d11a7935b454208171e18919c2f4be85ff07caa6d14a3c2dddfe"
+      },
+      "heartbeat": {
+        "peak_rss_bytes": 251949056,
+        "phase": "consume-and-verify",
+        "phase_rss": {
+          "consume-and-verify": 251949056,
+          "scan-sort-before-first-batch": 249475072
+        },
+        "rows_seen": 24000000,
+        "spill_peak_bytes": 460881920,
+        "work_allocated_peak_bytes": 460898304
+      },
+      "memory_budget_bytes": 128000000,
+      "oom_policy": "continue",
+      "output_mode": "batches",
+      "peak_rss_bytes": 251949056,
+      "phase_rss": {
+        "consume-and-verify": 251949056,
+        "scan-sort-before-first-batch": 249475072
+      },
+      "post_first_batch_seconds": 3.749431069009006,
+      "rechunk_copy_bytes": 0,
+      "rows_seen": 24000000,
+      "run": "duckdb-n24000000-m128-cap2048-r1",
+      "sampled_rss_bytes": 251949056,
+      "scan_profile": "default",
+      "source": {
+        "file_bytes": 672480203,
+        "generation_seconds": 3.3564581680111587,
+        "packed_bytes": 600000000,
+        "recipe": "q=(row*1000003+17)%N; v=2**53+q//12; f=q//3; c=q%3; area=(q%257)/8",
+        "rows": 24000000,
+        "sha256": "2dff280bdc2ba57ef129af588bb4c9c9cf0eac333600fcb3adeed1fb8d2b2a73"
+      },
+      "spill_peak_bytes": 460881920,
+      "status": "passed",
+      "systemd_run_returncode": 0,
+      "version": "1.5.5",
+      "work_allocated_peak_bytes": 460898304,
+      "work_cleanup_verified": true
+    }
+  ],
+  "scope": "Synthetic isolated scan, three-key sort, bounded NumPy output and exact verification; not a full importer or general backend benchmark.",
+  "timezone": "America/New_York",
+  "versions": {
+    "duckdb": "1.5.5",
+    "numpy": "2.5.1",
+    "polars": "1.44.2",
+    "polars-runtime-32": "1.44.2",
+    "psutil": "7.2.2",
+    "pyarrow": "25.0.1"
+  }
+}

@@ -18,6 +18,13 @@ arbitrary-domain sampling, broader adapters, external-source probes, additional
 combined adverse evidence, and physical experiments remain open. Results should
 update the architecture and decisions rather than be inferred in advance.
 
+**Design update, 2026-09-10:** the
+[mesh-ingestion contract](planning/full-resolution-mesh-ingestion.md) specifies
+the first external triangle profile and its staged implementation gates. The
+[library review](planning/full-resolution-mesh-library-evaluation.md) adds local
+content-round-trip and random-bit probes. Ingestion, cross-platform reproduction,
+memory targets, and the CloudCompare round trip remain unimplemented gates.
+
 ## Immediate Planning Decisions
 
 - What retention duration and cleanup timing should each disposable public
@@ -231,29 +238,31 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
 - Which adapter operations are safe to retry, what idempotency or reconciliation
   mechanisms do their remote APIs provide, and does the resulting policy justify
   Tenacity, backoff, or a small local implementation?
-- At what payload size and access pattern should observation arrays move out of
-  JSON-compatible control records, and do Parquet or Arrow, Zarr, HDF5, or an
-  adapter-native format meet the required schema, audit, and interoperability
-  boundary?
-- What canonical observation representation and importer identity/configuration
-  contract can deterministically reproduce an import while retaining original
-  byte hashes, source sidecars, point identity/order, and adapter-neutral
-  semantics?
-- What execution and artifact contract can prove that full processing inspected
-  every source point, explicitly weighted every admitted point, disposed every
-  excluded point, and remained bounded-memory at multi-million-point scale while
-  keeping downsampled quick-mode claims distinct?
+- When do compression, object access, single-container integration, or tabular
+  queries justify moving beyond the mesh contract's initial raw numeric columns
+  to the reviewed Zarr, HDF5, or Arrow candidates? Alternate-backend gates belong
+  to the library evaluation rather than a second import specification.
+- Can the specified mesh-ingestion stages demonstrate identical canonical bytes
+  across the proposed platform matrix, complete source replay/accounting, and the
+  2 GiB and 512 MiB targets on the same six-million and sixty-million vertex
+  workloads? These remain implementation/evidence gates, not measured guarantees.
+- Can the initial CloudCompare round trip preserve the promised point IDs,
+  dispositions, face multiplicity, and scalar fields while reporting precision
+  and face-identity loss explicitly?
 - How should surface-area and declared target-element importance weights compose
   and normalize, and which semantics prevent triangulation density from becoming
   unintended fit importance without erasing deliberate surface priorities?
+- How should later external-source fitting define role-safe mesh support,
+  training-only normalization, and objective coefficients versus residual
+  multipliers? The role-agnostic import weights cannot bypass held-out isolation.
 - How should an iterative fit, localized-deviation identification, explicit
   exclusion or downweighting, and refit policy define deterministic thresholds,
   stopping limits, point histories, model-identity implications, and evidence
   boundaries without selecting an automatic-defect or acceptance policy?
-- What minimal versioned recipe contract and portable numerical construction can
-  bind model, sample allocation/order, seed, adverse cases, encoding, identities,
-  and exact bytes without committing generated large files or selecting a cache
-  implementation prematurely?
+- What portable sampling constructions extend beyond the specified dyadic grid
+  and explicit Philox raw-bit recipe when richer analytic surfaces or physical
+  noise models are needed? Existing synthetic generators retain their separate
+  repeatability limits until independently extended.
 - How should imported and user-declared scale/pose constraints represent
   provenance, uncertainty, exact versus weighted semantics, conflicts, and
   unresolved degrees of freedom before feeding the fixed-pose shape workflow?

@@ -28,6 +28,13 @@ outside the intended boundary.
 - [Integrated planning program](planning/index.md) - **Provisional:** shared
   terminology, deterministic generated-first critical path, staged dependency
   graph, evidence gates, deferred physical validation, and five owned tracks
+- [Full-resolution mesh ingestion and visual audit](planning/full-resolution-mesh-ingestion.md)
+  - **Provisional design:** external triangle-mesh profile, arbitrary units,
+    complete accounting, bounded storage, area weights, portable recipes,
+    CloudCompare views, and implementation gates; not implemented
+- [Mesh ingestion library evaluation](planning/full-resolution-mesh-library-evaluation.md)
+  - **Research and provisional selection:** library/license comparison and small
+    storage/random-bit probes; isolated PLY I/O and explicit NumPy-based boundary
 - [Declared analytic model contract](planning/declared-analytic-model-contract.md)
   - **Provisional:** implemented internal declaration records and shared analytic
   evaluator for declared planes, coaxial cylinders, bounded domains, shape
