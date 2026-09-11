@@ -123,6 +123,18 @@ def test_failed_worker_is_retained_and_dependent_steps_do_not_run(
     failure = object_record(object_record(measured["outcome"])["failure"])
     assert failure["category"] == ("cancelled" if cancel else "resource")
     assert object_record(measured["cancellation"])["triggered"] is cancel
+    if cancel:
+        outcome = object_record(measured["outcome"])
+        assert (
+            object_record(measured["observations"])["phase_coverage_complete"] is True
+        )
+        assert object_record(outcome["last_progress"])["event"] == "final"
+        assert (
+            object_record(object_record(outcome["worker_report"])["failure"])[
+                "category"
+            ]
+            == "cancelled"
+        )
     assert (
         object_record(measured["observations"])["work_directory_empty_after_exit"]
         is True

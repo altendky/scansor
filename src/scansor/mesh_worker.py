@@ -60,8 +60,12 @@ def _run(
     publication_staging: Path | None,
 ) -> dict[str, Control]:
     def progress(record: dict[str, Control]) -> None:
-        _check_cancel()
+        # Send before interrupting: a phase transition has already changed the
+        # monitor's state, so dropping it would also leave the final observation
+        # unable to close the last phase seen by the parent. Final telemetry
+        # likewise survives the stop while cancellation remains the failure.
         writer.send({"type": "progress", "record": record})
+        _check_cancel()
 
     def announce(stage: PublishedStage) -> None:
         record = stage_record(stage)

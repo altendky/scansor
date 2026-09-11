@@ -289,6 +289,51 @@ def test_requested_stop_retains_worker_cleanup_and_final_report(
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
+@pytest.mark.parametrize("reason", ("cancelled", "resource"))
+def test_real_worker_emits_final_phase_after_supervised_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    request = worker_request(tmp_path)
+    cancel = threading.Event()
+    events: list[dict[str, Control]] = []
+    triggered = False
+
+    def oversized_rss(_process: object) -> SimpleNamespace:
+        return SimpleNamespace(rss=request.budget_bytes + 1)
+
+    def progress(event: dict[str, Control]) -> None:
+        nonlocal triggered
+        events.append(event)
+        if event["type"] == "progress" and not triggered:
+            # Wait for the actual worker's monitor to start. Inject only the
+            # parent's RSS observation; SIGTERM and worker cleanup remain real.
+            triggered = True
+            if reason == "cancelled":
+                cancel.set()
+            else:
+                monkeypatch.setattr(psutil.Process, "memory_info", oversized_rss)
+
+    outcome = run_worker(request, tmp_path, cancel=cancel, progress=progress)
+    assert triggered
+    assert outcome["status"] == "failed"
+    assert control_object(outcome["failure"])["category"] == reason
+    assert control_object(outcome["supervision"])["exit_code"] == 1
+    worker = control_object(outcome["worker_report"])
+    assert worker["status"] == "failed"
+    assert control_object(worker["failure"])["category"] == "cancelled"
+    assert control_object(outcome["last_progress"])["event"] == "final"
+    assert (
+        sum(
+            event["type"] == "progress"
+            and control_object(event["record"])["event"] == "final"
+            for event in events
+        )
+        == 1
+    )
+    assert outcome["published"] == []
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
 def test_worker_failure_report_and_explicit_stale_retention(tmp_path: Path) -> None:
     request = WorkerRequest(
         "import", tmp_path / "missing.ply", destination=tmp_path, chunk_rows=2

@@ -34,7 +34,10 @@ from scansor.mesh_worker_protocol import FrameReader
 from scansor.mesh_worker_request import WorkerRequest
 from scansor.mesh_workspace import Workspace, create_workspace, remove_owned_workspace
 
-SAMPLE_SECONDS = 0.005
+# Leave scheduling and bounded protocol-processing headroom below S6's 10 ms
+# observation target. Five-millisecond polls missed it in full-size runs. This
+# requested interval is not a guarantee: retain actual gaps and kernel peaks.
+SAMPLE_SECONDS = 0.001
 CANCEL_GRACE_SECONDS = 3.0
 
 
@@ -320,6 +323,9 @@ def run_worker(
         launch_returned = time.monotonic_ns()
         assert process.stdout is not None and process.stderr is not None
         messages = _Messages(request, process.pid, progress)
+        # Reuse identity metadata, not memory measurements. The sole wait4
+        # reaper below prevents PID reuse while this live-process loop samples.
+        observed_process = psutil.Process(process.pid)
         for root in roots:
             _write_record(
                 root.access / "worker.json",
@@ -328,7 +334,7 @@ def run_worker(
                     "pid": process.pid,
                     "pid_namespace_inode": os.stat("/proc/self/ns/pid").st_ino,
                     "create_time_ns": int(
-                        psutil.Process(process.pid).create_time() * 1_000_000_000
+                        observed_process.create_time() * 1_000_000_000
                     ),
                 },
             )
@@ -339,7 +345,7 @@ def run_worker(
                 now = time.monotonic_ns()
                 if process.returncode is None:
                     try:
-                        rss = psutil.Process(process.pid).memory_info().rss
+                        rss = observed_process.memory_info().rss
                         peak = max(peak, rss)
                         samples += 1
                         if first_sample is None:

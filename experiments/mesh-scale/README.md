@@ -2,8 +2,9 @@
 
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
 The expectation builder and measured-run harness are implemented. Initial scale
-evidence includes a complete six-million-vertex import/contribution/display/replay
-case after fixing an observed display failure. The full matrix remains pending; this
+evidence includes complete six-million-vertex cases at both budgets and a complete
+sixty-million-vertex noiseless case at 2 GiB after fixes for observed resource
+failures. The full matrix remains pending; this
 directory does not establish the complete 512 MiB or 2 GiB targets.
 
 ## Independent expected results
@@ -61,8 +62,9 @@ Complete expectations are retained for the six-million-vertex
 [noiseless](expected-grid-10000x6000-flat.json) and
 [noisy](expected-grid-10000x6000-noisy.json) grids. Each covers every source
 triangle and all ten canonical columns. Both six-million-vertex expectations
-have matched full-size production imports; the sixty-million-vertex canonical
-comparisons remain pending.
+have matched full-size production imports. The sixty-million-vertex noiseless
+expectation also matched the complete 2 GiB run; its noisy counterpart remains
+pending.
 
 ## Production source preparation
 
@@ -88,9 +90,9 @@ and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-ver
 [noiseless](prepared-grid-10000x6000-flat.json) and
 [noisy](prepared-grid-10000x6000-noisy.json) files. The two smaller files each
 contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
-The source files remain outside Git. The noiseless six-million-vertex
-importer/contribution comparisons passed under both budgets; the rest remain
-pending.
+The source files remain outside Git. Both noiseless and noisy six-million-vertex
+importer/contribution comparisons passed under both budgets. The
+sixty-million-vertex noiseless case passed at 2 GiB; remaining cases are pending.
 
 ## Worker execution and phase evidence
 
@@ -331,10 +333,11 @@ The larger worker budget did not increase the existing 256 MiB engine ceiling.
 Canonical and display comparisons could not run. The 2 GiB run also missed the
 10 ms RSS sampling requirement (12.37 ms largest observed gap).
 
-The importer now materializes coordinate association in its disposable disk
-database before running a separate global sort. The planner assigns unused batch
-headroom to the engine while preserving all existing safety and buffer reserves
-and its 256 MiB ceiling. Phase/failure telemetry now includes the actual immutable
+At `a2e743c`, the importer began materializing coordinate association in its
+disposable disk database before running a separate global sort. That planner
+assigned unused batch headroom to the engine while preserving the then-current
+safety and buffer reserves and 256 MiB ceiling. Phase/failure telemetry includes
+the actual immutable
 memory plan; the original failed reports predate that addition. These changes
 have small correctness coverage; full-scale reruns are needed to establish their
 effect. The earlier failures remain part of the evidence.
@@ -362,10 +365,39 @@ worker budget instead of a fixed 256 MiB, still subject to the measured baseline
 resident columns and fixed/batch reservations. The native-overhead safety
 allowance is at least 128 MiB after the observed 512 MiB overrun. This gives the
 2 GiB disk case a 1 GiB engine reservation while keeping explicit headroom for the
-rest of the worker. Full-scale validation of this revision is pending. The
+rest of the worker. Its completed 2 GiB run is recorded below. The
 supervisor also now retains valid cleanup/final frames after requesting a stop,
 while preserving the initiating failure; real subprocess tests cover both user
 cancellation and a supervisor RSS stop.
+
+## Complete sixty-million-vertex 2 GiB case
+
+The [third noiseless 2 GiB disk case](run-grid-10000x6000-flat-2048-r3.json),
+at `fd7f687`, completed import/contribution, display export and fresh full replay.
+All 60,000,000 vertices and 119,968,002 faces matched the independent frozen
+canonical hashes, source-order digests, categories and numeric summaries. Display
+checks covered every exported row and complete file; replay regenerated and
+compared all five data files. No population or precision was reduced.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 1,227.42 | 2,000.95 | 2,001.60 | 46.64 |
+| Display export | 609.35 | 1,593.70 | 1,594.57 | 101.12 |
+| Full display replay | 578.60 | 1,618.81 | 1,619.47 | 23.34 |
+
+Every operation stayed within the 2 GiB worker RSS target and removed its owned
+scratch. The complete published artifacts total 20,217,841,369 logical bytes.
+Sampled temporary peaks were 19,348,506,456, 23,163,581,881 and 23,683,937,868
+logical bytes for import, export and replay; allocated peaks were 17,845,899,264,
+22,968,332,288 and 23,499,173,888 bytes. Sampling limitations apply to these disk
+peaks.
+
+The separate 6 GiB cgroup reached its charge cap and recorded reclaim events,
+with no OOM, OOM-kill or swap. Page-cache charge and the measurement parent are
+included in that scope. Caches were uncontrolled. All three operations missed
+the 10 ms RSS sampling requirement, which remains false in their reports despite
+complete kernel lifetime high-water observations. This is a completed full-data
+case with a failed sampling-coverage gate, not proof of the entire scale matrix.
 
 ## Reordered source indices and faces
 
@@ -406,6 +438,37 @@ corruption, exclusive outputs, and mapping closure on a writer failure. The
 is now frozen, and the [separately constructed source](prepared-grid-3000x2000-noisy-permuted.json)
 matched its complete hash. It contains 227,870,246 bytes and remains outside Git.
 Full resource runs for this variant remain pending.
+
+## Intentional stop probes
+
+Run these separately from throughput measurements, with a new name and report
+path for each probe:
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_failures \
+  --frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name cancel-noisy-grid --kind cancel \
+  --output /absolute/new/cancel-probe.json
+```
+
+The default cancellation point is the first coordinate-association join, after
+complete source staging. `--cancel-phase` can select another observed phase.
+`--kind startup-budget` instead requests an intentionally insufficient 1 MiB
+worker budget. Each underlying measured case remains a failed outcome. The
+separate probe report is successful only when the requested failure was observed,
+owned scratch was removed, no artifact was published, and dependent operations
+did not start. Cancellation additionally requires final phase telemetry and a
+worker report preserving cancellation as the failure.
+
+Both probes hash the complete source before and after execution and preserve an
+unrelated sibling directory containing nested marker files. The report compares
+their full contents, directory entries, device/inode, mode, size, and modification
+and change timestamps. Access times are excluded because inspection can update
+them. Markers and failed-case evidence remain outside Git for inspection. These
+checks establish observed preservation; they do not test isolation against an
+unrelated hostile process running as the same user.
 
 ## Remaining execution evidence
 
