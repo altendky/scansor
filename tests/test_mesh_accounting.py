@@ -287,7 +287,16 @@ def test_high_valence_source_order_repeated_winding_and_orphans(tmp_path: Path) 
 
 @pytest.mark.parametrize(
     "mutation",
-    ("coordinate", "index", "missing", "duplicate", "allocation", "wrong-vertex"),
+    (
+        "coordinate",
+        "index",
+        "missing",
+        "duplicate",
+        "allocation",
+        "wrong-vertex",
+        "null-vertex",
+        "null-allocation",
+    ),
 )
 def test_working_relations_are_bound_to_canonical_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
@@ -303,6 +312,8 @@ def test_working_relations_are_bound_to_canonical_rows(
             "duplicate": "UPDATE mesh_corners SET face=1 WHERE face=0",
             "allocation": "UPDATE mesh_corners SET allocation=0 WHERE face=0",
             "wrong-vertex": "UPDATE mesh_corners SET vertex=3 WHERE face=0 AND corner=0",
+            "null-vertex": "UPDATE mesh_corners SET vertex=NULL WHERE face=0 AND corner=0",
+            "null-allocation": "UPDATE mesh_corners SET allocation=NULL WHERE face=0 AND corner=0",
         }[mutation]
         _ = corners.data.staging.connection.execute(query)
         verify(corners)

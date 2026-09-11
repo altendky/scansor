@@ -718,6 +718,24 @@ key. The next diagnostic adds vertex/allocation as tie-breakers after the unique
 source face/corner pair. This preserves valid source order and may reduce sort
 buffers; a full measurement must establish its effect.
 
+The [normal-policy query with complete keys at 162.8 MiB](isolated-corners-163-keys-r1.json)
+still failed, after 21.39 seconds with 311.90 MiB kernel peak RSS. At
+[227.1 MiB](isolated-corners-227-keys-normal-r1.json), it completed all 359,904,006
+rows with the identical source digest: the query took 84.49 seconds and kernel
+peak RSS was 398.21 MiB. This case used normal spilling, so its conditional
+forced-spill follow-up did not run. Both cases used the same committed probe at
+`ebb2ee0`, the same database, fresh sequential processes and separate 6 GiB
+cgroups with swap disabled; neither recorded a cgroup limit/OOM/OOM-kill event.
+These results establish this isolated query comparison, not full-worker capacity.
+
+The importer now includes all four fields in each corner sort, retaining source
+face/corner and contribution vertex/face/corner as the leading keys. Valid tuples
+have unique leading keys, so the added tie-breakers preserve the required fold
+order. Complete tuple binding, null rejection and duplicate detection remain
+required. Display face remapping likewise adds the view ID after its unique
+face/corner key. Production continues to use DuckDB's normal spill policy. The complete
+512 MiB pipeline must be measured again before accepting the change's capacity.
+
 ## Remaining execution evidence
 
 The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB

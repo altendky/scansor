@@ -292,6 +292,8 @@ ON (CASE WHEN c.vertex >= 0 AND c.vertex < {population}
         # reservations on the six-million-vertex S6 grid. Associate corners once
         # and regroup in bounded NumPy buffers, as in the import association.
         # Selection, source-face order and remapped indices remain identical.
+        # Include the remapped ID after the unique face/corner key so DuckDB
+        # can return every field from its sort keys without separate payloads.
         population = self.data.imported.vertices
         query = f"""WITH corners AS (
 SELECT f.face_id, c.corner,
@@ -304,7 +306,7 @@ SELECT c.face_id, c.corner, v.view_id FROM corners c
 LEFT JOIN display_vertices v ON
 (CASE WHEN c.vertex >= 0 AND c.vertex < {population}
 THEN c.vertex::UBIGINT ELSE NULL END) = v.source_id
-ORDER BY c.face_id, c.corner"""
+ORDER BY c.face_id, c.corner, v.view_id"""
         capacity = self.plan.batch_rows * 3
         faces = np.empty(capacity, dtype="<u8")
         views = np.empty(capacity, dtype="<i4")

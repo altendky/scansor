@@ -134,8 +134,14 @@ class CornerStaging:
                 "requires unconsumed source corner staging",
             )
         digest, seen = self._digest(), 0
+        # Source face/corner is unique. The remaining integer fields therefore
+        # cannot change a valid source order, and putting every selected field
+        # in the key lets DuckDB omit separate sort payload buffers. The full
+        # 360M-corner diagnostic at 227 MiB completed with this form while the
+        # payload form failed. Keep the digest check: duplicate/corrupt keys
+        # are invalid regardless of how their added tie-breakers sort.
         for columns in self._batches(
-            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY face, corner",
+            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY face, corner, vertex, allocation",
             "verify-source-corners",
         ):
             digest.update(seen, columns)
@@ -157,7 +163,10 @@ class CornerStaging:
                 "requires verified unconsumed corner staging",
             )
         self._consumed = True
+        # Vertex/face/corner already uniquely orders every valid tuple. As in
+        # source verification, including allocation avoids a separate payload
+        # without changing the required contribution fold order or precision.
         yield from self._batches(
-            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY vertex, face, corner",
+            "SELECT vertex, face, corner, allocation FROM mesh_corners ORDER BY vertex, face, corner, allocation",
             "order-source-corners",
         )
