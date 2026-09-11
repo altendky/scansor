@@ -60,9 +60,9 @@ Complete expectations are retained for the six-million-vertex
 [noisy](expected-grid-3000x2000-noisy.json) grids, and the sixty-million-vertex
 [noiseless](expected-grid-10000x6000-flat.json) and
 [noisy](expected-grid-10000x6000-noisy.json) grids. Each covers every source
-triangle and all ten canonical columns. The six-million-vertex noiseless
-expectation has matched full-size production imports; the other three full-size
-canonical comparisons remain pending.
+triangle and all ten canonical columns. Both six-million-vertex expectations
+have matched full-size production imports; the sixty-million-vertex canonical
+comparisons remain pending.
 
 ## Production source preparation
 
@@ -250,6 +250,65 @@ Every operation remained within its 2 GiB worker target and cleaned owned scratc
 Replay sampling exceeded 10 ms once; that coverage observation is false. These
 sequential paired runs demonstrate equivalent complete data for this one recipe
 at both budgets, while retaining their actual resource and sampling limitations.
+
+## Initial noisy grid measurement
+
+The full [noisy six-million-vertex 512 MiB case](run-grid-3000x2000-noisy-512-r1.json)
+completed import/contribution, export and replay using the fixed `8f0cf5c`
+implementation. All frozen canonical expectations matched, including the ordered
+area and weight sums for the complete `b=3,q=-8` seed-7 source. The operations took
+79.90, 45.39 and 45.23 seconds, respectively; their maximum observed RSS values
+were 334.89, 347.32 and 319.58 MiB. All owned scratch was removed. Replay sampling
+missed the 10 ms requirement; the report retains that failed coverage observation.
+The equivalent 2 GiB noisy case remains pending.
+
+## High-valence and duplicate/degenerate fans
+
+The independent fan oracle and separate native source construction are implemented.
+The base square fan has 1,048,577 vertices and 1,048,576 triangles. Its perimeter
+edges alternate lengths one and three, so the center receives over a million
+unequal rounded corner thirds in source order. The radius is 262,144; integer
+coordinates are exactly representable as binary32. Oracle integer folds round
+every addition to binary64, rather than summing exactly and rounding once.
+
+The adverse variant appends four duplicate usable faces, two repeated-index faces
+and two faces with distinct collinear vertices. It has 1,048,584 source triangles.
+Every source corner still contributes to reference counts; only usable faces
+contribute area. All original vertices remain eligible, and the display includes
+all 12 finite, in-range corners of the four rejected faces. The center reference
+counts are 1,048,576 and 1,048,582 for the base and adverse variants.
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_fan_freeze \
+  --workdir /absolute/existing/directory/outside/git \
+  --output /absolute/new/expected-fan.json --adverse
+PYTHONPATH=src python -m experiments.mesh_scale_fan_generate \
+  --frozen /absolute/new/expected-fan.json \
+  --workdir /absolute/existing/directory/outside/git \
+  --name source-fan.ply --output /absolute/new/prepared-fan.json
+```
+
+Omit `--adverse` for the base fan. `--radius` permits powers of two from 4 through
+262,144 for small correctness checks; the scale recipe uses the default 262,144.
+Use `mesh_scale_run` with the frozen manifest and verified source for subsequent
+full measurements. It checks fan-specific face categories and rejected-corner
+populations in addition to all canonical bytes, numeric summaries and display
+files. Large files stay outside Git; outputs are created exclusively.
+
+Both complete fan expectations are frozen:
+[base](expected-fan-262144-base.json) and
+[adverse](expected-fan-262144-adverse.json). Separately generated source files
+matched their entire expected hashes, as recorded in the
+[base](prepared-fan-262144-base.json) and
+[adverse](prepared-fan-262144-adverse.json) preparation reports. Source files are
+26,214,621 and 26,214,725 bytes. Full resource runs remain pending.
+
+Small tests compare every source and canonical byte against independently rounded
+per-face rational calculations, exercise the maximum batch boundary, and run the
+entire import/export/replay path for both variants. The oracle uses Python and
+NumPy integer operations with the separate rational rounding oracle. Native source
+construction uses integer perimeter rotations followed by the production isolated
+PLY writer; it does not use the expectation oracle to produce source bytes.
 
 ## Remaining execution evidence
 

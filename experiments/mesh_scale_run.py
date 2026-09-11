@@ -1,4 +1,4 @@
-"""Opt-in sequential full grid import/contribution/display/replay benchmark.
+"""Opt-in sequential full generated-mesh import/contribution/display/replay benchmark.
 
 Run one case at a time as python -m experiments.mesh_scale_run. Large sources,
 workspaces, telemetry and outputs must be outside Git. Expectations must already
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import cast
 
 from experiments.mesh_scale_check import (
-    check_grid_display,
+    check_display,
     check_import,
     file_hash,
     load_expectation,
@@ -135,7 +135,9 @@ def run_case(
     expected, frozen_sha = load_expectation(frozen)
     implementation = implementation_record()
     report: dict[str, Control] = {
-        "revision": "mesh-scale-grid-run-v1",
+        "revision": "mesh-scale-fan-run-v1"
+        if "radius" in expected
+        else "mesh-scale-grid-run-v1",
         "status": "failed",
         "started_utc": datetime.now(UTC).isoformat(),
         "case": name,
@@ -146,7 +148,7 @@ def run_case(
         "through": through,
         "operations": {},
         "checks": {},
-        "scope": "One sequential complete generated grid case. Post-worker checks scan every canonical column and compare frozen hashes and row digests; display replay rebuilds every exported data file. Independent checks run outside measured workers. No viewer interaction or physical validation is measured.",
+        "scope": "One sequential complete generated case. Post-worker checks scan every canonical column and compare frozen hashes and row digests; display replay rebuilds every exported data file. Independent checks run outside measured workers. No viewer interaction or physical validation is measured.",
     }
     started = time.monotonic_ns()
     try:
@@ -219,7 +221,7 @@ def run_case(
             )
             third, third_id = published(displayed, "display")
             check_started = time.monotonic_ns()
-            checks["display"] = check_grid_display(
+            checks["display"] = check_display(
                 third,
                 expected,
                 display_id=third_id,

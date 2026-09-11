@@ -28,7 +28,8 @@ def load_expectation(path: Path) -> tuple[dict[str, Control], str]:
     ).encode()
     if (
         canonical != raw
-        or record.get("revision") != "mesh-scale-grid-expectation-v1"
+        or record.get("revision")
+        not in ("mesh-scale-grid-expectation-v1", "mesh-scale-fan-expectation-v1")
         or record.get("status") != "complete"
     ):
         raise ValueError("a complete canonical expectation freeze is required")
@@ -105,7 +106,8 @@ def check_import(
             "contribution_vertices": contributions["vertices"],
         }
         _same(digests, expected["row_digests"], "all source-order row digests")
-        # This first expectation revision is explicitly the all-finite usable grid.
+        # Both admitted expectation profiles have finite positions, absent
+        # normals and complete in-range references; fans may reject some faces.
         _same(
             imported.summary["vertex_category_counts"],
             {"finite-position": n, "nonfinite-position": 0},
@@ -118,13 +120,16 @@ def check_import(
         )
         _same(
             imported.summary["face_category_counts"],
-            {
-                "usable": m,
-                "index-out-of-range": 0,
-                "nonfinite-position": 0,
-                "repeated-index": 0,
-                "zero-computed-area": 0,
-            },
+            expected.get(
+                "face_category_counts",
+                {
+                    "usable": m,
+                    "index-out-of-range": 0,
+                    "nonfinite-position": 0,
+                    "repeated-index": 0,
+                    "zero-computed-area": 0,
+                },
+            ),
             "face categories",
         )
         _same(
@@ -172,7 +177,7 @@ def check_import(
         }
 
 
-def check_grid_display(
+def check_display(
     path: Path,
     expected: dict[str, Control],
     *,
@@ -196,7 +201,7 @@ def check_grid_display(
             name: stack.enter_context(closing(ReadFile(directory, name)))
             for name in names
         }
-        return _check_grid_display(
+        return _check_display(
             files,
             expected,
             display_id=display_id,
@@ -206,7 +211,7 @@ def check_grid_display(
         )
 
 
-def _check_grid_display(
+def _check_display(
     opened: dict[str, ReadFile],
     expected: dict[str, Control],
     *,
@@ -233,13 +238,19 @@ def _check_grid_display(
         {"vertices": n, "faces": m},
         "display source populations",
     )
+    population = object_record(
+        expected.get(
+            "display_population",
+            {
+                "vertices_per_main_view": n,
+                "usable_faces_per_main_view": m,
+                "rejected_corners": 0,
+            },
+        )
+    )
     _same(
         legend["display_population"],
-        {
-            "vertices_per_main_view": n,
-            "usable_faces_per_main_view": m,
-            "rejected_corners": 0,
-        },
+        population,
         "full displayable-row population",
     )
     _same(
@@ -278,7 +289,9 @@ def _check_grid_display(
         reader = DisplayPlyReader(file.stream, kind, chunk_rows=65536)
         _same(
             [reader.vertices, reader.faces],
-            [0, 0] if kind == "rejected-face-corners" else [n, m],
+            [integer(population["rejected_corners"]), 0]
+            if kind == "rejected-face-corners"
+            else [n, integer(population["usable_faces_per_main_view"])],
             "display PLY populations",
         )
         reader.validate_all()
