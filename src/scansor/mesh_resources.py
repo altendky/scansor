@@ -178,6 +178,22 @@ def memory_snapshot() -> dict[str, Control]:
     return {"rss_bytes": int(info.rss), "os_peak_rss_bytes": peak}
 
 
+def process_io_snapshot() -> dict[str, Control]:
+    """Linux process counters include telemetry, metadata and IPC, not just data."""
+    if sys.platform != "linux":
+        return {"available": False}
+    with Path("/proc/self/io").open("r", encoding="ascii") as stream:
+        raw = stream.read(4097)
+    if len(raw) > 4096:
+        raise MeshImportError(
+            "execution", "worker-measurement", "unexpected process I/O record size"
+        )
+    return {
+        name: int(value)
+        for name, value in (line.split(":", 1) for line in raw.splitlines())
+    }
+
+
 def cgroup_snapshot() -> dict[str, Control]:
     """Linux cgroup charge is separate from process RSS; do not equate them."""
     if sys.platform != "linux":
@@ -243,11 +259,12 @@ def check_disk_space(directory: Path, required: int) -> None:
 
 
 class ResourceMonitor:
-    """Owned sampling thread, cancellation and <=5s progress during native queries.
+    """Owned sampling, periodic progress, immediate phase records and cancellation.
 
     check() propagates monitor/callback failures and budget violations. The owner
     installs DuckDB's interrupt callback while that connection is alive, then
-    clears it before closing. A killed process requires S4's external supervisor.
+    clears it before closing. Phase callbacks run synchronously; observation
+    windows expose telemetry overhead. A killed process requires the supervisor.
     """
 
     def __init__(
@@ -277,6 +294,7 @@ class ResourceMonitor:
         self.report_seconds: float = report_seconds
         self._stop: threading.Event = threading.Event()
         self._lock: threading.RLock = threading.RLock()
+        self._report_lock: threading.RLock = threading.RLock()
         self._failure: BaseException | None = None
         self._interrupt: Callable[[], None] | None = None
         self._phase: str = "initializing"
@@ -286,12 +304,18 @@ class ResourceMonitor:
         self._rss: int = 0
         self._disk: dict[str, Control] = {}
         self._disk_peak: int = 0
+        self._disk_allocated_peak: int | None = None
         self._started: float = time.monotonic()
+        self._phase_started_ns: int = time.monotonic_ns()
+        self._phase_ordinal: int = 0
         self._thread: threading.Thread | None = None
 
     def __enter__(self) -> ResourceMonitor:
         self.sample()
         self.check()
+        if self.callback is not None:
+            self._emit("phase", boundary_ns=self._phase_started_ns)
+            self.check()
         self._thread = threading.Thread(
             target=self._run, name="scansor-mesh-monitor", daemon=True
         )
@@ -305,6 +329,13 @@ class ResourceMonitor:
         if exc_type is None:
             self.sample()
             self.check()
+            if self.callback is not None:
+                self._emit("final")
+                self.check()
+        elif self.callback is not None:
+            # Preserve the initiating failure if final telemetry also fails.
+            with suppress(BaseException):
+                self._emit("final")
 
     def set_interrupt(self, interrupt: Callable[[], None] | None) -> None:
         with self._lock:
@@ -333,15 +364,34 @@ class ResourceMonitor:
 
     def progress(self, phase: str, completed: int, total: int) -> None:
         self.check()
-        with self._lock:
-            if not 0 <= completed <= total or (
-                phase == self._phase
-                and (completed < self._completed or total != self._total)
-            ):
-                raise MeshImportError(
-                    "execution", phase, "progress counters are not monotone"
+        # Serialize phase changes with periodic delivery, without holding the
+        # memory-sampling/interrupt lock while invoking a caller's callback.
+        with self._report_lock:
+            with self._lock:
+                if not 0 <= completed <= total or (
+                    phase == self._phase
+                    and (completed < self._completed or total != self._total)
+                ):
+                    raise MeshImportError(
+                        "execution", phase, "progress counters are not monotone"
+                    )
+                changed = phase != self._phase
+                previous: dict[str, Control] = {
+                    "phase": self._phase,
+                    "phase_ordinal": self._phase_ordinal,
+                    "phase_started_ns": self._phase_started_ns,
+                    "completed": self._completed,
+                    "total": self._total,
+                }
+                if changed:
+                    self._phase_ordinal += 1
+                    self._phase_started_ns = time.monotonic_ns()
+                self._phase, self._completed, self._total = phase, completed, total
+            if changed and self.callback is not None:
+                self._emit(
+                    "phase", boundary_ns=self._phase_started_ns, previous=previous
                 )
-            self._phase, self._completed, self._total = phase, completed, total
+                self.check()
 
     def sample(self) -> None:
         current = memory_snapshot()
@@ -373,7 +423,41 @@ class ResourceMonitor:
                 "elapsed_ns": int((time.monotonic() - self._started) * 1_000_000_000),
                 "disk": dict(self._disk),
                 "sampled_disk_peak_logical_bytes": self._disk_peak,
+                "sampled_disk_peak_allocated_bytes": self._disk_allocated_peak,
+                "phase_ordinal": self._phase_ordinal,
+                "phase_started_ns": self._phase_started_ns,
             }
+
+    def _emit(
+        self,
+        event: str,
+        *,
+        boundary_ns: int | None = None,
+        previous: dict[str, Control] | None = None,
+    ) -> None:
+        with self._report_lock:
+            observation_start = time.monotonic_ns()
+            disk = disk_snapshot(self.directory)
+            io = process_io_snapshot()
+            with self._lock:
+                self._disk = disk
+                self._disk_peak = max(self._disk_peak, int(str(disk["logical_bytes"])))
+                allocated = disk["allocated_bytes"]
+                if type(allocated) is int:
+                    self._disk_allocated_peak = max(
+                        self._disk_allocated_peak or 0, allocated
+                    )
+                record = self.record()
+            record.update(
+                event=event,
+                monotonic_ns=observation_start if boundary_ns is None else boundary_ns,
+                observation_started_ns=observation_start,
+                observation_finished_ns=time.monotonic_ns(),
+                process_io=io,
+                previous_phase=previous,
+            )
+            if self.callback is not None:
+                self.callback(record)
 
     def _run(self) -> None:
         reported = 0.0
@@ -382,14 +466,7 @@ class ResourceMonitor:
                 self.sample()
                 now = time.monotonic()
                 if now - reported >= self.report_seconds:
-                    disk = disk_snapshot(self.directory)
-                    with self._lock:
-                        self._disk = disk
-                        self._disk_peak = max(
-                            self._disk_peak, int(str(disk["logical_bytes"]))
-                        )
-                    if self.callback is not None:
-                        self.callback(self.record())
+                    self._emit("periodic")
                     reported = now
                 if self._stop.wait(self.sample_seconds):
                     break

@@ -48,6 +48,28 @@ def main() -> int:
         _ = signal.pause()
     from scansor import mesh_worker
 
+    if mode == "display-cleanup-failure":
+        from scansor import mesh_display
+
+        def fail_display_cleanup(_path: Path, _identity: tuple[int, int]) -> None:
+            raise RuntimeError("injected display cleanup failure after publication")
+
+        mesh_display.remove_owned_workspace = fail_display_cleanup  # pyright: ignore[reportPrivateLocalImportUsage]
+
+    if mode == "crash-after-display":
+        from scansor.mesh_controls import Control
+
+        send = FrameWriter.send
+
+        def crash_after_display(self: FrameWriter, record: dict[str, Control]) -> None:
+            send(self, record)
+            if record.get("type") == "published":
+                stage = record.get("stage")
+                if isinstance(stage, dict) and stage.get("kind") == "display":
+                    os.kill(os.getpid(), signal.SIGKILL)
+
+        FrameWriter.send = crash_after_display
+
     if mode == "crash-copy":
         from scansor import mesh_publication_copy
 

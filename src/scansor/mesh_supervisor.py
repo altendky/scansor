@@ -118,11 +118,13 @@ class _Messages:
         elif kind == "published":
             stage = _object(message.get("stage"))
             identity = stage.get("identity")
-            expected_kind = "import" if not self.published else "contribution"
+            kinds = self.request.published_kinds
+            expected_kind = (
+                kinds[len(self.published)] if len(self.published) < len(kinds) else None
+            )
             if (
                 not self.started
-                or self.request.operation != "import"
-                or len(self.published) >= 2
+                or expected_kind is None
                 or message.keys() != {"type", "stage"}
                 or stage.keys() != {"kind", "path", "identity"}
                 or stage["kind"] != expected_kind
@@ -170,15 +172,13 @@ class _Messages:
                 "result" if status == "complete" else "failure",
             ):
                 _ = _object(message[name])
-            if (
-                status == "complete"
-                and self.request.operation == "import"
-                and len(self.published) != 2
+            if status == "complete" and len(self.published) != len(
+                self.request.published_kinds
             ):
                 raise MeshImportError(
                     "integrity",
                     "worker-protocol",
-                    "import completed without both published stages",
+                    "operation completed without its required published stages",
                 )
             self.result = message
         else:
@@ -221,8 +221,8 @@ def run_worker(
 ) -> dict[str, Control]:
     """Run one fresh worker synchronously; failure always has an explicit report.
 
-    At most one progress frame, two published-stage records and one final result
-    are retained. Cancellation first sends SIGTERM, then SIGKILL after three
+    The latest progress frame, up to two required published stages and one final
+    result are retained. Cancellation first sends SIGTERM, then SIGKILL after three
     seconds if needed. Nothing outside the held workspace is cleaned.
     """
     if sys.platform != "linux" or not hasattr(os, "wait4"):
@@ -231,15 +231,15 @@ def run_worker(
         )
     retain_incomplete = _retention(retain_incomplete)
     request = WorkerRequest.from_record(request.record())
-    if request.operation == "verify":
-        for path in (request.source, request.contribution):
-            if path is not None and workdir.resolve(strict=True).is_relative_to(
+    for path in request.readonly_artifacts:
+        for writable in (workdir, request.destination):
+            if writable is not None and writable.resolve(strict=True).is_relative_to(
                 path.resolve(strict=True)
             ):
                 raise MeshImportError(
                     "structure",
                     "supervisor",
-                    "scratch must be outside read-only artifact trees",
+                    "scratch and destination must be outside read-only artifact trees",
                 )
     workspace = create_workspace(workdir)
     publication: Workspace | None = None
@@ -261,7 +261,7 @@ def run_worker(
     try:
         (access / "work").mkdir(mode=0o700)
         _write_record(access / "request.json", request.record())
-        if request.operation == "import":
+        if request.published_kinds:
             assert request.destination is not None
             target = os.open(
                 request.destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW

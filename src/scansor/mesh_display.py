@@ -225,6 +225,7 @@ def export_display(
     chunk_rows: int | None = None,
     progress: Callable[[dict[str, Control]], None] | None = None,
     publication_staging: Path | None = None,
+    on_published: Callable[[PublishedStage], None] | None = None,
 ) -> DisplayExport:
     """Scoped internal exporter; use a fresh worker for attributable RSS evidence."""
     if transform is None:
@@ -330,6 +331,8 @@ def export_display(
                 monitor.check,
                 publication_staging,
             )
+            if on_published is not None:
+                on_published(published)
             monitor.progress("publish-display", 1, 1)
             data.check()
         execution: dict[str, Control] = {

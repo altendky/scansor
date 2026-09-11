@@ -12,6 +12,8 @@ from typing import BinaryIO, cast
 
 from scansor.mesh_accounting import account_import
 from scansor.mesh_controls import MAX_CONTROL_BYTES, Control, control_id, decode_control
+from scansor.mesh_display import export_display
+from scansor.mesh_display_verify import verify_display
 from scansor.mesh_errors import MeshImportError, io_failure
 from scansor.mesh_import import prepare_import
 from scansor.mesh_numeric import NumericProfileError
@@ -21,7 +23,7 @@ from scansor.mesh_publication import (
     publish_import,
 )
 from scansor.mesh_replay import verify_mesh
-from scansor.mesh_resources import cgroup_snapshot, memory_snapshot
+from scansor.mesh_resources import cgroup_snapshot, memory_snapshot, process_io_snapshot
 from scansor.mesh_worker_protocol import FrameWriter
 from scansor.mesh_worker_request import WorkerRequest
 
@@ -47,16 +49,7 @@ def stage_record(stage: PublishedStage) -> dict[str, Control]:
 
 def process_io() -> dict[str, Control]:
     """Kernel process counters include metadata and IPC, not only mesh payloads."""
-    with Path("/proc/self/io").open("r", encoding="ascii") as stream:
-        raw = stream.read(4097)
-    if len(raw) > 4096:
-        raise MeshImportError(
-            "execution", "worker-measurement", "unexpected process I/O record size"
-        )
-    return {
-        name: int(value)
-        for name, value in (line.split(":", 1) for line in raw.splitlines())
-    }
+    return process_io_snapshot()
 
 
 def _run(
@@ -70,6 +63,11 @@ def _run(
         _check_cancel()
         writer.send({"type": "progress", "record": record})
 
+    def announce(stage: PublishedStage) -> None:
+        record = stage_record(stage)
+        published.append(record)
+        writer.send({"type": "published", "stage": record})
+
     if request.operation == "verify":
         return verify_mesh(
             request.source,
@@ -82,6 +80,20 @@ def _run(
             chunk_rows=request.chunk_rows,
             progress=progress,
         )
+    if request.operation == "verify-display":
+        assert request.display is not None and request.contribution is not None
+        return verify_display(
+            request.display,
+            request.source,
+            request.contribution,
+            work,
+            expected_display_id=request.expected_display_id,
+            expected_import_id=request.expected_import_id,
+            expected_contribution_id=request.expected_contribution_id,
+            budget_bytes=request.budget_bytes,
+            chunk_rows=request.chunk_rows,
+            progress=progress,
+        )
     assert request.destination is not None
     if request.destination.resolve(strict=True).is_relative_to(
         work.parent.resolve(strict=True)
@@ -91,6 +103,30 @@ def _run(
             "worker-request",
             "published artifacts must be outside disposable worker storage",
         )
+    if request.operation == "display":
+        assert request.contribution is not None
+        exported = export_display(
+            request.source,
+            request.contribution,
+            request.destination,
+            work,
+            transform=request.display_transform,
+            expected_import_id=request.expected_import_id,
+            expected_contribution_id=request.expected_contribution_id,
+            budget_bytes=request.budget_bytes,
+            chunk_rows=request.chunk_rows,
+            progress=progress,
+            publication_staging=publication_staging,
+            on_published=announce,
+        )
+        return {
+            "revision": "mesh-display-run-v1",
+            "status": "complete",
+            "display": stage_record(exported.stage),
+            "inventory": exported.inventory,
+            "legend": exported.legend,
+            "execution": exported.execution,
+        }
     with (
         prepare_import(
             request.source,
@@ -107,8 +143,7 @@ def _run(
         first = publish_import(
             imported, request.destination, staging_directory=publication_staging
         )
-        published.append(stage_record(first))
-        writer.send({"type": "published", "stage": stage_record(first)})
+        announce(first)
         _check_cancel()
         contributions = imported.complete_contributions()
         second = publish_contributions(
@@ -117,8 +152,7 @@ def _run(
             request.destination,
             staging_directory=publication_staging,
         )
-        published.append(stage_record(second))
-        writer.send({"type": "published", "stage": stage_record(second)})
+        announce(second)
         result: dict[str, Control] = {
             "revision": "mesh-import-run-v1",
             "status": "complete",
