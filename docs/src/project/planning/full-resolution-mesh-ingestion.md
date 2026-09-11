@@ -2,13 +2,13 @@
 
 ## Status and boundary
 
-**Provisional design, 2026-09-10; not implemented.** This is the internal contract
+**Provisional contract; S1 I/O implemented, 2026-09-11.** This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
 area-derived contribution data, and CloudCompare inspection exports. It does not
 admit these observations to the existing synthetic-only fitting workflow.
 
-The [current PLY reader](../../../../src/scansor/ply.py) accepts an in-memory byte
+The [existing inspection reader](../../../../src/scansor/ply.py) accepts an in-memory byte
 string, a strict vertex-only header, and physical units `m` or `mm`. It creates a
 metre-valued float64 array under an internal size limit, rejects nonfinite data,
 and does not accept mesh faces or exporter comments. The
@@ -17,11 +17,49 @@ requires replay-verified project-owned synthetic provenance. This design needs a
 separate importer and artifact family; neither existing boundary is relaxed by
 pretending external observations are synthetic.
 
-Every requirement below describes future behavior. Internal revision names are
-implementation targets, not public schemas or compatibility promises. Full-data
+The isolated reader/writer and strict mesh profile now have the bounded S1
+implementation described below. S2–S6 remain unimplemented. Internal revision
+names are implementation targets, not public schemas or compatibility promises. Full-data
 solver integration, model mapping, scale/pose estimation, robust refitting,
 target-surface importance, additional formats, CAD publication, physical accuracy,
-and acceptance remain later work. No follow-up issues are automatically created.
+and acceptance remain later work. Implementation issues are
+[#32](https://github.com/altendky/scansor/issues/32) through
+[#37](https://github.com/altendky/scansor/issues/37).
+
+### S1 implementation evidence
+
+The [independent I/O package](../../../../src/scansor/_plyio/__init__.py) parses
+bounded little-endian headers into scalar/list metadata. Fixed list lengths are
+explicit caller assertions, validated for every record read or written. It has
+no Scansor imports, unit conversion, geometric interpretation or canonicalization.
+The [mesh adapter](../../../../src/scansor/mesh_ply.py) enforces this document's
+triangle profile and translates plain contextual errors to application errors.
+The existing inspection and generated fitting paths retain their previous rules.
+
+`MeshPlyReader.read_range(element, start, stop)` returns owned read-only structured
+NumPy records. Scalar properties are named fields; a fixed list is a nested field
+with `count` and `values`. A reader validates exact file length at construction;
+`validate_all(chunk_rows=...)` additionally checks every record's list count.
+Reading a subset does not certify an entire source. The caller owns its seekable
+stream, serializes access, and closes it. No mappings or hidden caches are retained.
+
+Each read has a configured maximum result byte count, a bounded transient I/O
+block, and at most a one-byte-per-row list-validation mask. Header metadata and
+caller-retained results cost additional memory; this is an allocation boundary,
+not a demonstrated whole-worker RSS budget. S3 owns that budget planner. The
+writer accepts contiguous records with the exact declared dtype in source order,
+handles short writes, and checks complete coverage with `finish()`. It leaves
+flush, close, snapshots and atomic publication to its caller; write failures
+prevent it from certifying a complete payload.
+
+[Focused tests](../../../../tests/test_mesh_ply.py) reconstruct the 261-byte
+golden independently, check exact exceptional float/index bits, all truncation
+offsets, malformed declarations and list counts, overflow and allocation limits,
+short reads/writes, contextual I/O failures, and chunk boundaries. The extraction
+test copies the package and runs a read/write round trip while rejecting every
+nonstandard-library import except NumPy and the copied package. These tests are
+S1 evidence only; source snapshots, geometry/weights, replay, viewer and stress
+gates still belong to their later slices.
 
 ## Source profile and provenance
 
