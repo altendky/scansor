@@ -308,7 +308,7 @@ Both complete fan expectations are frozen:
 matched their entire expected hashes, as recorded in the
 [base](prepared-fan-262144-base.json) and
 [adverse](prepared-fan-262144-adverse.json) preparation reports. Source files are
-26,214,621 and 26,214,725 bytes. Full resource runs remain pending.
+26,214,621 and 26,214,725 bytes.
 
 Small tests compare every source and canonical byte against independently rounded
 per-face rational calculations, exercise the maximum batch boundary, and run the
@@ -316,6 +316,28 @@ entire import/export/replay path for both variants. The oracle uses Python and
 NumPy integer operations with the separate rational rounding oracle. Native source
 construction uses integer perimeter rotations followed by the production isolated
 PLY writer; it does not use the expectation oracle to produce source bytes.
+
+Both complete variants ran at both budgets on `4ccb5e1`. The 512 MiB cases used
+disk canonical columns; the 2 GiB cases selected RAM columns. All operations
+completed, all frozen canonical expectations and complete display comparisons
+passed, and fresh workers replayed all display data files. Canonical check records
+and display check records are identical across budgets within each variant.
+
+| Variant and budget | Import seconds / peak MiB | Export seconds / peak MiB | Replay seconds / peak MiB |
+| --- | ---: | ---: | ---: |
+| [Base, 512 MiB](run-fan-262144-base-512-r1.json) | 9.46 / 384.55 | 6.72 / 344.14 | 6.94 / 345.55 |
+| [Base, 2 GiB](run-fan-262144-base-2048-r1.json) | 9.17 / 439.68 | 7.04 / 404.89 | 6.77 / 405.15 |
+| [Adverse, 512 MiB](run-fan-262144-adverse-512-r1.json) | 9.86 / 345.29 | 6.99 / 325.03 | 6.83 / 325.52 |
+| [Adverse, 2 GiB](run-fan-262144-adverse-2048-r1.json) | 10.27 / 425.70 | 7.29 / 392.64 | 7.42 / 392.62 |
+
+Peak MiB is the larger of kernel lifetime high-water and parent sampled RSS.
+All operations remained within their worker budgets and removed owned scratch.
+The adverse display retained all 12 rejected corners. The base 2 GiB export had
+an 18.05 ms maximum RSS gap; adverse 2 GiB replay had a 15.63 ms gap. All remaining
+fan operations stayed within 10 ms, including startup and exit edges. Reports
+retain these failed coverage observations and distinct cgroup/disk measurements.
+The cases ran sequentially in separate 6 GiB cgroups with swap disabled and
+uncontrolled caches; timings are observations, not performance guarantees.
 
 ## Initial sixty-million-vertex failures
 
@@ -399,6 +421,30 @@ the 10 ms RSS sampling requirement, which remains false in their reports despite
 complete kernel lifetime high-water observations. This is a completed full-data
 case with a failed sampling-coverage gate, not proof of the entire scale matrix.
 
+The [third 512 MiB noiseless disk case](run-grid-10000x6000-flat-512-r3.json)
+at `4ccb5e1` failed during the first coordinate-association join after 110.39
+seconds. DuckDB could not pin a 256 KiB block with 161.7 MiB of its approximately
+162 MiB allocation in use. Whole-worker RSS remained below the requested limit:
+396.39 MiB kernel and 397.30 MiB sampled. It published nothing, stopped dependent
+operations, retained its final phase/failure report, and removed owned scratch.
+The 6 GiB cgroup recorded reclaim events, with no OOM, OOM-kill or swap. This
+failure leaves the complete sixty-million-vertex 512 MiB target unmet.
+
+That checkpoint changed supervisor polling from 5 ms to 1 ms and reused process
+identity metadata while taking fresh memory observations. The failed run's
+largest observed RSS gap was 5.74 ms, including startup and exit edges, with no
+gap above 10 ms. This is observed coverage for that run, not a scheduling
+guarantee. The kernel lifetime high-water measurement remains independent.
+
+DuckDB's [out-of-memory guidance](https://duckdb.org/docs/current/guides/performance/oom)
+recommends single-thread operation, disabled insertion-order preservation,
+headroom outside the engine limit and narrow working types; the current path
+already uses the first three. The same-version upstream report
+[duckdb/duckdb#25206](https://github.com/duckdb/duckdb/issues/25206) describes a
+possible missed hash-join repartition under memory pressure. It is an investigation
+lead, not an established explanation of this Scansor failure. No upstream patch
+or unverified configuration workaround has been adopted.
+
 ## Reordered source indices and faces
 
 Affine bijections reorder source vertices and faces; each vertex's incident
@@ -437,7 +483,23 @@ corruption, exclusive outputs, and mapping closure on a writer failure. The
 [complete noisy six-million-vertex expectation](expected-grid-3000x2000-noisy-permuted.json)
 is now frozen, and the [separately constructed source](prepared-grid-3000x2000-noisy-permuted.json)
 matched its complete hash. It contains 227,870,246 bytes and remains outside Git.
-Full resource runs for this variant remain pending.
+The [full permuted 512 MiB disk case](run-grid-3000x2000-noisy-permuted-512-r1.json)
+at `4ccb5e1` completed import/contribution, display export and fresh full replay.
+Every canonical column, source-order digest, numeric summary and full display
+file matched its expected or replayed result. Import, export and replay took
+117.86, 53.35 and 54.06 seconds, with maximum observed worker RSS of 364.88,
+380.30 and 403.48 MiB. All owned scratch was removed; largest RSS gaps were
+9.70, 6.85 and 7.07 ms, respectively, including startup and exit edges.
+
+The [equivalent 2 GiB case](run-grid-3000x2000-noisy-permuted-2048-r1.json)
+selected RAM canonical columns and completed all three operations in 100.04,
+45.40 and 45.03 seconds. Maximum observed worker RSS was 1,625.75, 1,206.51 and
+1,206.16 MiB. Its complete canonical and display check records are identical to
+the 512 MiB case. All owned scratch was removed; every operation stayed within
+its RSS budget and the observed 10 ms sampling target, with maximum gaps of
+7.21, 7.01 and 7.32 ms. Both cases used the same frozen complete source and fixed
+implementation, sequential execution, separate 6 GiB cgroups with swap disabled,
+and uncontrolled caches.
 
 ## Intentional stop probes
 

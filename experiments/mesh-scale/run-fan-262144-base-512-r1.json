@@ -1,0 +1,3254 @@
+{
+  "case": "fan-262144-base-512-r1",
+  "checks": {
+    "canonical": {
+      "columns": {
+        "contribution-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "face-area.bin": {
+          "bytes": 8388608,
+          "sha256": "08cec71789ecbe27b68c0857e86876ef022609f6575f318ea3ff13270b1401ae"
+        },
+        "face-status.bin": {
+          "bytes": 1048576,
+          "sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
+        },
+        "normal-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "reference-count.bin": {
+          "bytes": 8388616,
+          "sha256": "75f4f424b8bf47ee20c75e18d8d55d1f0f00cd5b5aaf938dea83ec72fdff2443"
+        },
+        "triangles.bin": {
+          "bytes": 12582912,
+          "sha256": "2ad54b4a993fbe0deb4400db4e6fc5570f70a8a1cd07da96b3d094f2a2b2cd11"
+        },
+        "vertex-area.bin": {
+          "bytes": 8388616,
+          "sha256": "1476be0dab3a30238d21cba07ce17715118a41fa63b9966402e793f0a31e0085"
+        },
+        "vertex-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "weight.bin": {
+          "bytes": 8388616,
+          "sha256": "6f4463e974eca10fb080ae8deba96a6b3ac502bf0add1cfd2c1eabbb0b3fb04e"
+        },
+        "xyz.bin": {
+          "bytes": 12582924,
+          "sha256": "8e0d12cfe645e9a66d7ffa79abf052ec46fdc48fa07b038aa9e9b1bd8ff7e17c"
+        }
+      },
+      "contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+      "contribution_summary": {
+        "category_counts": {
+          "eligible": 1048577,
+          "isolated": 0,
+          "no-usable-area": 0,
+          "nonfinite-position": 0
+        },
+        "eligible_area_sum": {
+          "measure": "source-order-left-fold-of-vertex-areas",
+          "population": "eligible-vertices",
+          "unit": "source-coordinate-squared",
+          "value_bits": "424ffffffffccccc"
+        },
+        "revision": "mesh-contribution-summary-v1",
+        "vertex_area_range": {
+          "maximum_bits": "4235555555559999",
+          "measure": "accumulated-vertex-area",
+          "minimum_bits": "4105555555555555",
+          "population": "eligible-vertices",
+          "unit": "source-coordinate-squared"
+        },
+        "vertices": 1048577,
+        "weight_range": {
+          "maximum_bits": "41155556aaad1111",
+          "measure": "normalized-weight",
+          "minimum_bits": "3fe55556aaaccccd",
+          "population": "eligible-vertices",
+          "unit": "dimensionless"
+        },
+        "weight_sum": {
+          "measure": "source-order-left-fold-of-normalized-weights",
+          "population": "eligible-vertices",
+          "unit": "dimensionless",
+          "value_bits": "4130000100034443"
+        }
+      },
+      "faces": 1048576,
+      "import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+      "import_summary": {
+        "face_category_counts": {
+          "index-out-of-range": 0,
+          "nonfinite-position": 0,
+          "repeated-index": 0,
+          "usable": 1048576,
+          "zero-computed-area": 0
+        },
+        "faces": 1048576,
+        "in_range_source_corners": 3145728,
+        "normal_category_counts": {
+          "absent": 1048577,
+          "finite-nonzero": 0,
+          "nonfinite-vector": 0,
+          "zero-vector": 0
+        },
+        "out_of_range_source_corners": 0,
+        "revision": "mesh-import-summary-v1",
+        "usable_face_area_sum": {
+          "measure": "source-order-left-fold-of-face-areas",
+          "population": "usable-source-faces",
+          "unit": "source-coordinate-squared",
+          "value_bits": "4250000000000000"
+        },
+        "vertex_category_counts": {
+          "finite-position": 1048577,
+          "nonfinite-position": 0
+        },
+        "vertices": 1048577
+      },
+      "row_digests": {
+        "contribution_vertices": "cb0d3e31bdd3d543f7f570f7ff180992a5703401751706f6e9563b2fe0124924",
+        "import_faces": "1042dc7f387154f1ea86d7428666d296dc8ac23f84b4cbee9ec8db176ea4dd8d",
+        "import_vertices": "8bb0d66d371648b05f41ff5374ebaafa8e9c710b7430bd33533106a50eebcd6e"
+      },
+      "source_id": "cf192d36d5d9bbc382bde402618637d6a740b9b33de409797337c70b358c79b5",
+      "status": "verified-complete-canonical-data",
+      "vertices": 1048577
+    },
+    "canonical_elapsed_ns": 1507908203,
+    "display": {
+      "contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+      "display_id": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+      "files": [
+        {
+          "byte_count": 88081181,
+          "name": "validity.ply",
+          "sha256": "0c5d59b95ef0cb7bb49c653381c05a7f4a12914d40f60fd5728ca1e7f0cbb481"
+        },
+        {
+          "byte_count": 88081180,
+          "name": "weights.ply",
+          "sha256": "2b0260c04efb2fbf999e36f685009e6273c23a49d33709343642907df466fddb"
+        },
+        {
+          "byte_count": 941,
+          "name": "rejected-face-corners.ply",
+          "sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38"
+        },
+        {
+          "byte_count": 8388616,
+          "dtype": "<u8",
+          "name": "view-vertices.bin",
+          "sha256": "66cc03cbbae6c3efa622c2a8d186c7fa32478fcbe50d3ee73c5bed9f8bb582fb",
+          "shape": [
+            1048577
+          ]
+        },
+        {
+          "byte_count": 8388608,
+          "dtype": "<u8",
+          "name": "view-faces.bin",
+          "sha256": "a78cee677876b925402c15818acd3fc020a47754d9d1c26688914ea09070f8d0",
+          "shape": [
+            1048576
+          ]
+        }
+      ],
+      "import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+      "population": {
+        "rejected_corners": 0,
+        "usable_faces_per_main_view": 1048576,
+        "vertices_per_main_view": 1048577
+      },
+      "semantic_replay": "requires separate verify-display worker",
+      "status": "verified-full-display-rows-and-hashes"
+    },
+    "display_elapsed_ns": 688665009
+  },
+  "elapsed_including_checks_ns": 25728680794,
+  "expectation": {
+    "adverse": false,
+    "center_area_bits": "4235555555559999",
+    "center_reference_count": 1048576,
+    "columns": {
+      "contribution-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "face-area.bin": {
+        "bytes": 8388608,
+        "sha256": "08cec71789ecbe27b68c0857e86876ef022609f6575f318ea3ff13270b1401ae"
+      },
+      "face-status.bin": {
+        "bytes": 1048576,
+        "sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
+      },
+      "normal-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "reference-count.bin": {
+        "bytes": 8388616,
+        "sha256": "75f4f424b8bf47ee20c75e18d8d55d1f0f00cd5b5aaf938dea83ec72fdff2443"
+      },
+      "triangles.bin": {
+        "bytes": 12582912,
+        "sha256": "2ad54b4a993fbe0deb4400db4e6fc5570f70a8a1cd07da96b3d094f2a2b2cd11"
+      },
+      "vertex-area.bin": {
+        "bytes": 8388616,
+        "sha256": "1476be0dab3a30238d21cba07ce17715118a41fa63b9966402e793f0a31e0085"
+      },
+      "vertex-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "weight.bin": {
+        "bytes": 8388616,
+        "sha256": "6f4463e974eca10fb080ae8deba96a6b3ac502bf0add1cfd2c1eabbb0b3fb04e"
+      },
+      "xyz.bin": {
+        "bytes": 12582924,
+        "sha256": "8e0d12cfe645e9a66d7ffa79abf052ec46fdc48fa07b038aa9e9b1bd8ff7e17c"
+      }
+    },
+    "display_population": {
+      "rejected_corners": 0,
+      "usable_faces_per_main_view": 1048576,
+      "vertices_per_main_view": 1048577
+    },
+    "face_area_sum_bits": "4250000000000000",
+    "face_category_counts": {
+      "index-out-of-range": 0,
+      "nonfinite-position": 0,
+      "repeated-index": 0,
+      "usable": 1048576,
+      "zero-computed-area": 0
+    },
+    "faces": 1048576,
+    "in_range_source_corners": 3145728,
+    "radius": 262144,
+    "row_digests": {
+      "contribution_vertices": "cb0d3e31bdd3d543f7f570f7ff180992a5703401751706f6e9563b2fe0124924",
+      "import_faces": "1042dc7f387154f1ea86d7428666d296dc8ac23f84b4cbee9ec8db176ea4dd8d",
+      "import_vertices": "8bb0d66d371648b05f41ff5374ebaafa8e9c710b7430bd33533106a50eebcd6e"
+    },
+    "source": {
+      "bytes": 26214621,
+      "sha256": "b7c255f72eda4b872fefe88ed5a11cc5b89c476d70b958e70bb930fcb3a4a994"
+    },
+    "vertex_area_range_bits": [
+      "4105555555555555",
+      "4235555555559999"
+    ],
+    "vertex_area_sum_bits": "424ffffffffccccc",
+    "vertices": 1048577,
+    "weight_range_bits": [
+      "3fe55556aaaccccd",
+      "41155556aaad1111"
+    ],
+    "weight_sum_bits": "4130000100034443"
+  },
+  "frozen_manifest_sha256": "178a950d01ae895facf3679615ab6616ebe1be7797a8b9fd31c0b5734ea8cd64",
+  "host_after_checks": {
+    "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+    "cgroup": {
+      "available": true,
+      "cgroup.procs": "432811",
+      "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+      "memory.current": "356040704",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.max": "6442450944",
+      "memory.peak": "805900288",
+      "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=3062\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=3062",
+      "memory.stat": "anon 36515840\nfile 308645888\nkernel 9404416\nkernel_stack 262144\npagetables 499712\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 12288\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36458496\ninactive_file 308637696\nactive_file 4096\nunevictable 0\nslab_reclaimable 8284952\nslab_unreclaimable 393064\nslab 8678016\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 599756\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 93562\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 63\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+      "memory.swap.current": "0",
+      "memory.swap.max": "0",
+      "memory.swap.peak": "0",
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+    },
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "cpu_logical": 16,
+    "cpu_physical": 8,
+    "environment": {
+      "MALLOC_ARENA_MAX": null,
+      "MKL_NUM_THREADS": null,
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "PYTHONHASHSEED": null,
+      "PYTHONMALLOC": null
+    },
+    "filesystem": {
+      "free_bytes": 309854957568,
+      "path": "/home/data/scansor-s6-evidence-fJVNUiYN",
+      "total_bytes": 3041876828160
+    },
+    "load_average_milli": [
+      1413,
+      2039,
+      2437
+    ],
+    "machine": "x86_64",
+    "memory_available_bytes": 24824197120,
+    "memory_total_bytes": 66069004288,
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+    "swap_in_bytes": 0,
+    "swap_out_bytes": 0,
+    "swap_total_bytes": 0,
+    "swap_used_bytes": 0
+  },
+  "implementation": {
+    "native_extensions": {
+      "_duckdb": {
+        "bytes": 60387000,
+        "sha256": "1d4ef21853b38c7db1a141191dfd873f8a4c5a5d0a1667b8f2c110d76f6590ac"
+      },
+      "numpy._core._multiarray_umath": {
+        "bytes": 10682329,
+        "sha256": "3aac21341706a466577d7c7caab9c5013e98ffb62cf98ae3bc46a3e1004f3ce0"
+      },
+      "psutil._psutil_linux": {
+        "bytes": 150904,
+        "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd"
+      },
+      "pyarrow.lib": {
+        "bytes": 4483984,
+        "sha256": "2fb24a58b0973eb19b236cc2ea447e356b4a782eea39a274145b2f0ce86368c2"
+      }
+    },
+    "python_executable": "/home/altendky/.local/share/mise/installs/python/3.12.13/bin/python3.12",
+    "python_executable_hash": {
+      "bytes": 30905176,
+      "sha256": "021044895e95be79dc2f110367607e684119afbc8ce75f6f0eec94844e0acec7"
+    },
+    "sources": {
+      "experiments/mesh_scale_check.py": "79f7de01402ea6176a027e14a3dfe98a12433d81950ccd14a37c8fbe5883c6f5",
+      "experiments/mesh_scale_failures.py": "c7a9f2a0e444b3d173af43e63372ef0bee12dcd8a5954012cbc3ae6c608a366f",
+      "experiments/mesh_scale_fan.py": "fbe59bbeabc0b0922e83c175e426168628d9dba14b9b061a64c24ff9862e8aaf",
+      "experiments/mesh_scale_fan_freeze.py": "29fcf04d8fcc936199b5604596b185411eb03145ae065da246a066bc163be913",
+      "experiments/mesh_scale_fan_generate.py": "b00f9acc7ecd0f084fc3a70a008075f0f3bef506168ac5b2e5031aca963f3ec3",
+      "experiments/mesh_scale_fan_source.py": "d0c65a87abc0fac7dcef07989edd27b8c67446f84aee2fb8035dd3ad47212d23",
+      "experiments/mesh_scale_freeze.py": "d52a67731a34a2e2344585f31d06105804ac18504bf85982b052ac661e961a9a",
+      "experiments/mesh_scale_generate.py": "9d48f7188c075acacf4ec4c98f3a8f178bc7de8165ad96a08baa2da1c2ac1f1c",
+      "experiments/mesh_scale_grid.py": "c310b0a8d740a0a3dd1e442b85cd1e915e0b7f13c9f2b5940eee542f35b569f3",
+      "experiments/mesh_scale_integer.py": "f7f7fd1ad49e5fc7b29e7da393a3240cd0cd3ad8b2772f60b7dbda1594ae2330",
+      "experiments/mesh_scale_measure.py": "e4d323e247ce1f3b4e3cca1af4c5c11a28ad50a608457af82f6c2c0c073eaf38",
+      "experiments/mesh_scale_metrics.py": "66f2b97589752ae08485daa87f36768ab7d22d5c3d660d929b98fc9b4853ddfd",
+      "experiments/mesh_scale_permuted.py": "29de8b41253c6a19d5c0537f0b8403d746059f0de329d8aa3722ece66f169666",
+      "experiments/mesh_scale_permuted_freeze.py": "30c6bcb8ecdd1d3bd860b33b7b901012976802d9b7dd79402ba8e636832be133",
+      "experiments/mesh_scale_permuted_generate.py": "7394e83c1daaecac1921eda044e7d180caadf390888cc4f72d7696a355e9ab19",
+      "experiments/mesh_scale_rounding.py": "e12f386b286fda7ecc216361d59fa909ea1ed0557b82058e4166a6913bde29b2",
+      "experiments/mesh_scale_run.py": "198ac850270b07b5af8b2778e2196129a137022ef1e210218396e3660c88e1d9",
+      "src/scansor/__init__.py": "aad269e394364c276eebfeb59a7965844d1353c1318c4525b57ef863c8d94b45",
+      "src/scansor/__main__.py": "16d3b485dfcb5a69f3b5f48497878c84d3df29eb4208de9481c82025468d79aa",
+      "src/scansor/_plyio/__init__.py": "3aa4c5058e611f6b8f5bb4ee7b1c6bab7770603d3cb1e00247e8ed01499ac275",
+      "src/scansor/_plyio/format.py": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b",
+      "src/scansor/_plyio/stream.py": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef",
+      "src/scansor/cli.py": "15c27dbadf46189d7e244f50b923db01b3fb4d830a259895405be65467a4de31",
+      "src/scansor/cli_models.py": "fc401651827eaadf068d0b90778f1f6a79a297ff0f2a7308653c655b376acd2b",
+      "src/scansor/declared_execution.py": "c4c69fb47b73dd6e6faf75b339915dae4258a059fa7f3c4e243f33c2a5000954",
+      "src/scansor/declared_execution_models.py": "385be9995c661750612df0c2875d65a8dd93cbf554a8476d17c457bbfff13084",
+      "src/scansor/declared_execution_run_models.py": "274c88846eac0f400dc2f0c14cfd0b83eae2bb6beed4089885be46bf55237d56",
+      "src/scansor/declared_execution_runs.py": "75b5cffa3a321ef8df0a567fd98e6b14399170651ea5c4f89b440cf6e8fb55af",
+      "src/scansor/declared_factor_models.py": "80e4764cd5f30d18922fb09ae7e5013f7ee3c402860135ba9a9455f48636dc48",
+      "src/scansor/declared_factors.py": "21ff39b51d672bcac60e1a8fc37d4f9a2b5d562d6469161d20d4868db1708a24",
+      "src/scansor/declared_generation.py": "d58cd7e04243bd073fda5e306aec38f8531edd2043d8b15d7a9ad39e887a8e23",
+      "src/scansor/declared_generation_models.py": "75d08836264a8d867b7116ed0471d4e6992f92f0edde25e7c040e2660118144e",
+      "src/scansor/declared_generation_runs.py": "ac31b809d71185755025311254c1471816af8416d0d41fb7d57fb8d2ef027b7f",
+      "src/scansor/declared_numpy_backend.py": "77f3a7b42d1c54ab68486ac97cf2e33cf0aa72d6f2314e077ade7b84acbd5fd4",
+      "src/scansor/declared_synthetic_fixtures.py": "706febb63327be2ee23f2b60c3f18f36781e03766bccf8fa10a711fa613a411f",
+      "src/scansor/declared_truth_comparison.py": "69a84e29a591262e3a76a845bfdabc36c067864026546904f4fc4443776d425b",
+      "src/scansor/errors.py": "be011e0361295978f5245a149e56c6632e244ced8fe6c4129030ed7f6265ba47",
+      "src/scansor/execution_models.py": "6965fc023ef82099c161f792efca2c02a1472a5f7efab0f13478d18dcfb0b85c",
+      "src/scansor/execution_run_models.py": "2ffd118873f74178e25c79d7bcab81778344ce7d2c81a096bcdb93a1cb428723",
+      "src/scansor/execution_runs.py": "315d5daabc68254fadd7873074e3920928f3d0750ce01cfab6a625bdd2d9ad8c",
+      "src/scansor/factor_models.py": "bd882f189e28da8eebc1beaeb819a7b445b7cdcc73df3f4d328a122f75ec3c6f",
+      "src/scansor/files.py": "09604bb7ce2f5c90a0519872e00a46a802dc50309de36f0580397d7b5c4569a4",
+      "src/scansor/generation_models.py": "252ba257c6168e0d6244329c58372a71d9b11d71113f74fe4336edbbfb89f85e",
+      "src/scansor/generation_runs.py": "a45ee314fdafb4deeef3e97b6295e127238a40ff24fbb507cb6b7de52d0c9991",
+      "src/scansor/geometry_evaluator.py": "39bcafa44dc550de490bde006882509d0ebbad652c0c6e7766c5e0d28eb71d5b",
+      "src/scansor/logging.py": "d2ac75dcb54b535c49365417cb01fa96ad34448265fe748e074a8d1e6a0bb12b",
+      "src/scansor/mapping_models.py": "2f48db7d7caa9b0001bc593d2bd2eb5f0dbcdd884a3da43966eb6bd0c3ddff86",
+      "src/scansor/mapping_runs.py": "d4e3c25599529a7f53686833cc9717e1e712a4e9e6076231a4ceb300b6c015cd",
+      "src/scansor/mesh_accounting.py": "898be92d39edcd1502b7f5d1caf48b05cb39acf93bb65c7f90d26b6ccfb990f8",
+      "src/scansor/mesh_accumulation.py": "8b8693f91a4d935cd59c2528911a89d9f4440d6b7bc2ab1bd45caa88c2cad1ee",
+      "src/scansor/mesh_artifact_io.py": "15dca7e662a9890fe7bb9be2f9d2eaa978008b985e4e518a403b0486612265a8",
+      "src/scansor/mesh_artifacts.py": "4f789332fd872443e805aa801eab579e4c08215cae5c7f6b709e3c6571f9d165",
+      "src/scansor/mesh_columns.py": "f720276fddae8ad5780358563c463f991152e8ead97ff620e886e4bfbb49e8dc",
+      "src/scansor/mesh_controls.py": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea",
+      "src/scansor/mesh_corner_storage.py": "d1ebb1ce22ead297b2a6075fe6583151f4ea7a8ca53036c0edbdb9be2c6f94fc",
+      "src/scansor/mesh_digests.py": "fa0a92368a5fc1dfd16e2d2f25ebf0f445bfe89c5228d95c72ee6167e357d762",
+      "src/scansor/mesh_display.py": "b505405be4cf1fbc6a0f94f34a3eef5835bbb74e1e0dc26b87d82a70882537c5",
+      "src/scansor/mesh_display_numeric.py": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009",
+      "src/scansor/mesh_display_ply.py": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb",
+      "src/scansor/mesh_display_records.py": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520",
+      "src/scansor/mesh_display_semantics.py": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a",
+      "src/scansor/mesh_display_staging.py": "e14a11e4f0a62fe480ffad6030961df8d87506906eed85aaa4702347973887b0",
+      "src/scansor/mesh_display_verify.py": "2faba2e6dfe6d8ce590bd6c5d15a5afb9d7e7bf98d0e9bfe64bd8547148cedb3",
+      "src/scansor/mesh_dispositions.py": "ee2b88da4733d05cd2c99f925ebbdc1f72b6efb5852304fce01f047815bc4f1b",
+      "src/scansor/mesh_duckdb.py": "2c79a4f69a7cdf82c7a6c1222476a5b18be0672d5e7d2ab9e37fef35bd138aaa",
+      "src/scansor/mesh_errors.py": "0ee1e89e845823fddd4950b92c4993dd3354db10655c788da1cc07c2233c1560",
+      "src/scansor/mesh_import.py": "e5df16fcc04f25337861caaade9a821b90e839f2d29a72a74d2d21700d4a95b4",
+      "src/scansor/mesh_numeric.py": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f",
+      "src/scansor/mesh_ply.py": "c20844c5a6ce923c3ef73adf9f650eff6a42f28b53e0662c853bdd8fadefe9c9",
+      "src/scansor/mesh_policy.py": "eeb1a86652d4b68e85db4ec28dc1700335961875eb1c9f4cf5b93a74cd2e114c",
+      "src/scansor/mesh_publication.py": "234d249e46c8d687bee6bb5e2646685dd79c0634c987749adfba1595fd05c0e1",
+      "src/scansor/mesh_publication_copy.py": "dcb7d7db6088a785a37616a87d330cdb65ca37363f9867d05854d7e29fae264e",
+      "src/scansor/mesh_recipes.py": "314ae42480e32ac609f3aa89c980ed0a80349845837fff4723b2f52c262f0091",
+      "src/scansor/mesh_replay.py": "0a67ab276f016222f45e43399b833f8c3a592e7b62adb0108ec77768c00a786a",
+      "src/scansor/mesh_resources.py": "6940fb057f1d3fbf4e5e5c3d4c8393fcb0afcb1effe7853a3af7072f34a91527",
+      "src/scansor/mesh_semantics.py": "1c2ef8fbba389a58972e36173c93e610c2907491c94e42b053c8d5a8d8d53dcc",
+      "src/scansor/mesh_sidecar.py": "99b9972906aadad281b0792774faf935b763acf060da8d9e346cea3189ec76c6",
+      "src/scansor/mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+      "src/scansor/mesh_statistics.py": "caf893f0f3ff6c91e027390f468af06d24ef3c17b09a5309375395ae33e4c643",
+      "src/scansor/mesh_supervisor.py": "e9a152ce7f2caec71de70699e77588d8d78b24fbbd54966fcc520ded251bb27a",
+      "src/scansor/mesh_viewer_compare.py": "1ecc9a845dc069f32b357dfe50f679efe73e51bb039d0942b7090af25a0f5db3",
+      "src/scansor/mesh_worker.py": "73092d5d59563dc61e9ccc42d4c383db7917778abc6a79fdb28af736b184dd5f",
+      "src/scansor/mesh_worker_protocol.py": "08c4fdb560f6e3fa3d11bc32a3f202548cf5941e8c1e98a8d40f89f17ed614f2",
+      "src/scansor/mesh_worker_request.py": "a9ca2ab680cecee24debfd4fdfa5d54485cf1e3d55fa4cc76540f0bb547a9634",
+      "src/scansor/mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3",
+      "src/scansor/model_declarations.py": "a41bad2423778f23bdfa0e91df994751881ca488494eadc4ec3b998bc0d58af8",
+      "src/scansor/models.py": "ba0c0fd6cc94195cfa22a95589ac53a98489f2a78f07c5e7b75dfd0109a6b511",
+      "src/scansor/observation_mapping.py": "2dec1b34347195bd8e60b658e973134310e20f7cb1887f568deca2d13d682ba4",
+      "src/scansor/ply.py": "89e26db6c2b174310ef8caab12d0164ee6df7edad6f65631e5ee46b40cbc8561",
+      "src/scansor/rigid_transform.py": "ea2defc6ca6d74696798583039ae83fdd55aec7759e0d5b3cde4247c75434846",
+      "src/scansor/runs.py": "9acfb4f8f3c45ef020c40546aac4e9dc96ece19c1422e78fdabd5924f465c821",
+      "src/scansor/serialization.py": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a",
+      "src/scansor/settings.py": "a7f457f989d8ec6064ba2002328901a8daefc68e40598ffe47b39748ae893ac2",
+      "src/scansor/stepped_model_declarations.py": "f71e2703b49716a338edda2bc1d74cc878a531f491338ad8d92c161143c084f8",
+      "src/scansor/stepped_rotational.py": "566d68db245a81e1803d4b359a9157acc0ac5b1bf95880040814e7be747e84e0",
+      "src/scansor/stepped_rotational_execution.py": "ebdbd72dc25e3080045fa2fa6dd02cbf40d592244c3f6c507da830474e198781",
+      "src/scansor/stepped_rotational_factors.py": "780c56b68d534a3e29517af56c25e95cbd58e783bbdfc7c66d3a360767ae87aa",
+      "src/scansor/stepped_rotational_generation.py": "83934150f554e5eb035000320e700b08fbba31615be1e98307b4cf925e3cfebe",
+      "src/scansor/stepped_rotational_numpy_backend.py": "dda541b43e21b6de66a45a866ff47913b1a62f2a5da01e24439fe2e52d51a404",
+      "src/scansor/synthetic_fixture.py": "5404a9c90dddf3323a908c5e2369c99b5a8acca3d298b831846a544287985940",
+      "src/scansor/synthetic_fixture_replay.py": "7823cdbf42c3e67d5541fd18c83de553069d85ecf4e7f9abacc35fd8a914ddac",
+      "src/scansor/truth_comparison.py": "f12f08b5b4f9a1b4599ac3256968912de225f3bb7ea9bf7f1043744f76e89aa2",
+      "src/scansor/tube_model_declarations.py": "e5c34a9e5ed095c32a6080aca83cd9df7814415e7685d5c3e3580c5fe89e4ea7"
+    },
+    "versions": {
+      "defusedxml": "0.7.1",
+      "duckdb": "1.5.5",
+      "numpy": "2.5.1",
+      "psutil": "7.2.2",
+      "pyarrow": "25.0.1"
+    }
+  },
+  "operations": {
+    "display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 282157056,
+          "files": 23,
+          "logical_bytes": 282084302,
+          "observation_finished_ns": 2386805721515683,
+          "observation_started_ns": 2386805719876486,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 282157056,
+          "published_logical_bytes": 282084302,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 56394797,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 301363200,
+          "logical_bytes": 301283125,
+          "published_allocated_bytes": 282157056,
+          "published_logical_bytes": 282084302,
+          "temporary_allocated_bytes": 212180992,
+          "temporary_logical_bytes": 212147466
+        },
+        "samples": 150,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 6737699564,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "354631680",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "618348544",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=271\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=271",
+          "memory.stat": "anon 34725888\nfile 308568064\nkernel 9404416\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 24576\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 34725888\ninactive_file 308551680\nactive_file 4096\nunevictable 0\nslab_reclaimable 8275416\nslab_unreclaimable 396312\nslab 8671728\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 392009\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 66967\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 41\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 309855191040,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1314,
+          2040,
+          2441
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24783740928,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "154349568",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "482267136",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+          "memory.stat": "anon 34721792\nfile 115535872\nkernel 3588096\nkernel_stack 262144\npagetables 491520\nsec_pagetables 0\npercpu 288\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 20480\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 34594816\ninactive_file 115535872\nactive_file 4096\nunevictable 0\nslab_reclaimable 2576368\nslab_unreclaimable 250208\nslab 2826576\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 190815\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 51901\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 19\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 310047707136,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1341,
+          2058,
+          2449
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24930791424,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 536870912,
+          "completed": 1,
+          "disk": {
+            "allocated_bytes": 3158016,
+            "concurrent_changes": false,
+            "logical_bytes": 3158016
+          },
+          "elapsed_ns": 5669387003,
+          "event": "final",
+          "monotonic_ns": 2386805668560505,
+          "observation_finished_ns": 2386805668684606,
+          "observation_started_ns": 2386805668560505,
+          "peak_rss_bytes": 360853504,
+          "phase": "publish-display",
+          "phase_ordinal": 30,
+          "phase_started_ns": 2386805135487218,
+          "plan": {
+            "baseline_bytes": 149684224,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 1431372118,
+            "engine_bytes": 169082880,
+            "engine_temp_limit_bytes": 335544384,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 536870912,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 134217728,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 6651904,
+            "rchar": 655685297,
+            "read_bytes": 4096,
+            "syscr": 10356,
+            "syscw": 4727,
+            "wchar": 262923313,
+            "write_bytes": 263020544
+          },
+          "rss_bytes": 162070528,
+          "sampled_disk_peak_allocated_bytes": 212152320,
+          "sampled_disk_peak_logical_bytes": 212145360,
+          "total": 1
+        },
+        "published": [
+          {
+            "identity": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+            "kind": "display",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-display-bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e"
+          }
+        ],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 536870912,
+          "elapsed_ns": 6722480266,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 359550976,
+          "kernel_usage": {
+            "filesystem_inputs": 8,
+            "filesystem_outputs": 513712,
+            "involuntary_context_switches": 506,
+            "major_faults": 0,
+            "minor_faults": 201192,
+            "system_cpu_ns": 521595000,
+            "user_cpu_ns": 7496192000,
+            "voluntary_context_switches": 2561
+          },
+          "largest_observed_sample_gap_ns": 5111514,
+          "pid": 433104,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 360853504,
+          "samples": 5850,
+          "sampling_edges": {
+            "first_sample_ns": 2386799025693497,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 6756729,
+            "largest_gap_including_edges_ns": 6756729,
+            "last_sample_ns": 2386805717323244,
+            "launch_returned_ns": 2386799019422321,
+            "launch_started_ns": 2386799018936768,
+            "reaped_ns": 2386805717566420,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 243176
+          },
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "413470720",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "618348544",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 6651904,
+            "rchar": 655685768,
+            "read_bytes": 4096,
+            "syscr": 10361,
+            "syscw": 4728,
+            "wchar": 262924675,
+            "write_bytes": 263020544
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 359550976,
+            "rss_bytes": 162070528
+          },
+          "published": [
+            {
+              "identity": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-display-bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e"
+            }
+          ],
+          "result": {
+            "display": {
+              "identity": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-display-bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e"
+            },
+            "execution": {
+              "duckdb": "1.5.5",
+              "monitor": {
+                "budget_bytes": 536870912,
+                "completed": 1,
+                "disk": {
+                  "allocated_bytes": 3158016,
+                  "concurrent_changes": false,
+                  "logical_bytes": 3158016
+                },
+                "elapsed_ns": 5669532356,
+                "peak_rss_bytes": 360853504,
+                "phase": "publish-display",
+                "phase_ordinal": 30,
+                "phase_started_ns": 2386805135487218,
+                "plan": {
+                  "baseline_bytes": 149684224,
+                  "batch_bytes": 50331648,
+                  "batch_rows": 65536,
+                  "budget_bytes": 536870912,
+                  "disk_estimate_bytes": 1431372118,
+                  "engine_bytes": 169082880,
+                  "engine_temp_limit_bytes": 335544384,
+                  "fixed_buffers_bytes": 33554432,
+                  "reserved_bytes": 536870912,
+                  "resident_columns_bytes": 0,
+                  "safety_bytes": 134217728,
+                  "storage": "disk"
+                },
+                "rss_bytes": 162070528,
+                "sampled_disk_peak_allocated_bytes": 212152320,
+                "sampled_disk_peak_logical_bytes": 212145360,
+                "total": 1
+              },
+              "plan": {
+                "baseline_bytes": 149684224,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 536870912,
+                "disk_estimate_bytes": 1431372118,
+                "engine_bytes": 169082880,
+                "engine_temp_limit_bytes": 335544384,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 536870912,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 134217728,
+                "storage": "disk"
+              },
+              "storage": "streamed files and direct DuckDB; no full resident view"
+            },
+            "inventory": {
+              "association_revision": "all-finite-source-vertices-usable-source-faces-rejected-face-corner-order-v1",
+              "contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+              "files": [
+                {
+                  "byte_count": 88081181,
+                  "name": "validity.ply",
+                  "sha256": "0c5d59b95ef0cb7bb49c653381c05a7f4a12914d40f60fd5728ca1e7f0cbb481"
+                },
+                {
+                  "byte_count": 88081180,
+                  "name": "weights.ply",
+                  "sha256": "2b0260c04efb2fbf999e36f685009e6273c23a49d33709343642907df466fddb"
+                },
+                {
+                  "byte_count": 941,
+                  "name": "rejected-face-corners.ply",
+                  "sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38"
+                },
+                {
+                  "byte_count": 8388616,
+                  "dtype": "<u8",
+                  "name": "view-vertices.bin",
+                  "sha256": "66cc03cbbae6c3efa622c2a8d186c7fa32478fcbe50d3ee73c5bed9f8bb582fb",
+                  "shape": [
+                    1048577
+                  ]
+                },
+                {
+                  "byte_count": 8388608,
+                  "dtype": "<u8",
+                  "name": "view-faces.bin",
+                  "sha256": "a78cee677876b925402c15818acd3fc020a47754d9d1c26688914ea09070f8d0",
+                  "shape": [
+                    1048576
+                  ]
+                }
+              ],
+              "implementation": {
+                "dependencies": {
+                  "numpy": "2.5.1"
+                },
+                "files": [
+                  {
+                    "name": "_plyio/format.py",
+                    "sha256": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b"
+                  },
+                  {
+                    "name": "_plyio/stream.py",
+                    "sha256": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef"
+                  },
+                  {
+                    "name": "mesh_controls.py",
+                    "sha256": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea"
+                  },
+                  {
+                    "name": "mesh_numeric.py",
+                    "sha256": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f"
+                  },
+                  {
+                    "name": "mesh_display_numeric.py",
+                    "sha256": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009"
+                  },
+                  {
+                    "name": "mesh_display_ply.py",
+                    "sha256": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb"
+                  },
+                  {
+                    "name": "mesh_display_records.py",
+                    "sha256": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520"
+                  },
+                  {
+                    "name": "mesh_display_semantics.py",
+                    "sha256": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a"
+                  },
+                  {
+                    "name": "serialization.py",
+                    "sha256": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a"
+                  }
+                ],
+                "revision": "mesh-display-implementation-v1"
+              },
+              "implementation_id": "9f451eba95ebecb0c5ed4a37d8f5394982b609aa95a7a4af5d5132116f15bb8e",
+              "import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+              "legend": {
+                "byte_count": 5063,
+                "name": "legend.json",
+                "sha256": "d59fa6f40f7694e18310c4b78f7e8ad161363cb0a83e7fc0bc5af2d3bd6dad63"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "revision": "mesh-display-v1",
+              "source_id": "cf192d36d5d9bbc382bde402618637d6a740b9b33de409797337c70b358c79b5",
+              "status": "complete"
+            },
+            "legend": {
+              "additional_rejected_scalar_fields": [
+                "scalar_source_face_0",
+                "scalar_source_face_1",
+                "scalar_source_face_2",
+                "scalar_source_face_3",
+                "scalar_source_corner",
+                "scalar_face_status"
+              ],
+              "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+              "contribution_categories": {
+                "eligible": 1048577,
+                "isolated": 0,
+                "no-usable-area": 0,
+                "nonfinite-position": 0
+              },
+              "contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+              "display_population": {
+                "rejected_corners": 0,
+                "usable_faces_per_main_view": 1048576,
+                "vertices_per_main_view": 1048577
+              },
+              "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+              "empty_views": [
+                "rejected-face-corners"
+              ],
+              "fields": {
+                "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+                "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+                "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+                "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+                "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+                "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+                "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+                "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+                "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+                "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+              },
+              "import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+              "limits": {
+                "face_indices": "signed little-endian int32",
+                "maximum_vertices_per_view": 2147483648
+              },
+              "main_scalar_fields": [
+                "scalar_vertex_status",
+                "scalar_normal_status",
+                "scalar_contribution_status",
+                "scalar_raw_area",
+                "scalar_weight",
+                "scalar_source_vertex_0",
+                "scalar_source_vertex_1",
+                "scalar_source_vertex_2",
+                "scalar_source_vertex_3"
+              ],
+              "normal_categories": {
+                "absent": 1048577,
+                "finite-nonzero": 0,
+                "nonfinite-vector": 0,
+                "zero-vector": 0
+              },
+              "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+              "omissions": {
+                "nonfinite_source_vertices": 0,
+                "rejected_corners_nonfinite_position": 0,
+                "rejected_corners_out_of_range": 0
+              },
+              "precision": {
+                "export_area_weight": "binary64",
+                "export_coordinates": "binary64",
+                "export_ids_statuses": "binary32 exact integers",
+                "viewer_preservation": "requires a separate measured viewer round-trip report"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "rejected_face_colors": {
+                "1": [
+                  180,
+                  0,
+                  180
+                ],
+                "2": [
+                  220,
+                  50,
+                  50
+                ],
+                "3": [
+                  255,
+                  165,
+                  0
+                ],
+                "4": [
+                  80,
+                  120,
+                  220
+                ]
+              },
+              "revision": "mesh-display-legend-v1",
+              "source_id": "cf192d36d5d9bbc382bde402618637d6a740b9b33de409797337c70b358c79b5",
+              "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+              "source_population": {
+                "faces": 1048576,
+                "vertices": 1048577
+              },
+              "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+              "transform": {
+                "forward_operations": [
+                  "subtract-origin",
+                  "multiply-by-scale"
+                ],
+                "inverse_operations": [
+                  "divide-by-scale",
+                  "add-origin"
+                ],
+                "meaning": "display-only; not calibration or physical units",
+                "origin_binary64_bits": [
+                  "0000000000000000",
+                  "0000000000000000",
+                  "0000000000000000"
+                ],
+                "revision": "mesh-display-transform-v1",
+                "scale_power_of_two": 0
+              },
+              "transform_roundtrip_mismatch_rows": {
+                "displayable_rejected_corners": 0,
+                "finite_source_vertices": 0
+              },
+              "validity_colors": {
+                "eligible": [
+                  40,
+                  170,
+                  80
+                ],
+                "isolated": [
+                  255,
+                  165,
+                  0
+                ],
+                "no-usable-area": [
+                  220,
+                  50,
+                  50
+                ],
+                "nonfinite-position": "not spatially displayable"
+              },
+              "weight_ramp": {
+                "clipping": false,
+                "excluded_color": [
+                  128,
+                  128,
+                  128
+                ],
+                "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+                "logarithmic": false,
+                "maximum_binary64_bits": "4235555555559999",
+                "measure": "raw accumulated vertex area divided by complete eligible maximum",
+                "percentiles": false
+              }
+            },
+            "revision": "mesh-display-run-v1",
+            "status": "complete"
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 32,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 50331942,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16779138,
+              "read_bytes": 0,
+              "syscr": 53,
+              "syscw": 6,
+              "wchar": 14318,
+              "write_bytes": 20480
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 2946787,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049021,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1513,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 21757371,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389398,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1534,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 21103365,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389398,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1521,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 566091797,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40900123,
+              "read_bytes": 0,
+              "syscr": 171,
+              "syscw": 2,
+              "wchar": 2841,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 397486683,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22067275,
+              "read_bytes": 0,
+              "syscr": 129,
+              "syscw": 1,
+              "wchar": 1486,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 24305115,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389727,
+              "read_bytes": 0,
+              "syscr": 140,
+              "syscw": 1,
+              "wchar": 1509,
+              "write_bytes": 0
+            },
+            "last_completed": 8388608,
+            "last_total": 8388608,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 3431519,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048680,
+              "read_bytes": 0,
+              "syscr": 19,
+              "syscw": 1,
+              "wchar": 1510,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 3171946,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049018,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1513,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 22237874,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389395,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1515,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 33942320,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584030,
+              "read_bytes": 0,
+              "syscr": 204,
+              "syscw": 1,
+              "wchar": 1513,
+              "write_bytes": 0
+            },
+            "last_completed": 12582912,
+            "last_total": 12582912,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 3157292,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048680,
+              "read_bytes": 0,
+              "syscr": 21,
+              "syscw": 1,
+              "wchar": 1505,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 33274718,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584041,
+              "read_bytes": 0,
+              "syscr": 206,
+              "syscw": 1,
+              "wchar": 1491,
+              "write_bytes": 0
+            },
+            "last_completed": 12582924,
+            "last_total": 12582924,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 350480588,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23076573,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1497,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 74794122,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26335332,
+              "read_bytes": 0,
+              "syscr": 461,
+              "syscw": 1,
+              "wchar": 1458,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 7597630,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 121,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1532,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-corners": {
+            "elapsed_ns": 694268551,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23434,
+              "read_bytes": 0,
+              "syscr": 208,
+              "syscw": 482,
+              "wchar": 42306554,
+              "write_bytes": 42303488
+            },
+            "last_completed": 3145728,
+            "last_total": 3145728,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 236216290,
+            "io_delta": {
+              "cancelled_write_bytes": 6651904,
+              "rchar": 24096534,
+              "read_bytes": 0,
+              "syscr": 153,
+              "syscw": 7,
+              "wchar": 530939,
+              "write_bytes": 540672
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 961148635,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 32241,
+              "read_bytes": 0,
+              "syscr": 286,
+              "syscw": 2292,
+              "wchar": 157290750,
+              "write_bytes": 157294592
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 4886148,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 3649,
+              "read_bytes": 0,
+              "syscr": 9,
+              "syscw": 2,
+              "wchar": 2593,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "publish-display": {
+            "elapsed_ns": 533073287,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 192966943,
+              "read_bytes": 0,
+              "syscr": 3128,
+              "syscw": 4,
+              "wchar": 9971,
+              "write_bytes": 12288
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 374398744,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22032759,
+              "read_bytes": 0,
+              "syscr": 161,
+              "syscw": 982,
+              "wchar": 21749949,
+              "write_bytes": 21811200
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 665630807,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40916760,
+              "read_bytes": 4096,
+              "syscr": 318,
+              "syscw": 926,
+              "wchar": 40980350,
+              "write_bytes": 41037824
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 1777489,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69108,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1570,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 376521,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 129,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1568,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 25624839,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13632369,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1562,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 90612256,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74456181,
+              "read_bytes": 0,
+              "syscr": 1166,
+              "syscw": 1,
+              "wchar": 1551,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 18375597,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13629215,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1560,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 98107429,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74456660,
+              "read_bytes": 0,
+              "syscr": 1171,
+              "syscw": 2,
+              "wchar": 2956,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 122668225,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 4189,
+              "read_bytes": 0,
+              "syscr": 38,
+              "syscw": 1,
+              "wchar": 1527,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 225989264,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 7578,
+              "read_bytes": 0,
+              "syscr": 68,
+              "syscw": 1,
+              "wchar": 1528,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 536870912,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-contribution-617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+        "destination": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out",
+        "display": null,
+        "display_transform": null,
+        "expected_contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+        "expected_display_id": null,
+        "expected_import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+        "operation": "display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-import-3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+        "storage": "disk"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 52285,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1-display.ndjson",
+        "records": 41,
+        "sha256": "0571ada9c4118d9794c9a1c2f541c89f874d11b4ecdb744a357d30abfabc3eae"
+      }
+    },
+    "import": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 89182208,
+          "files": 16,
+          "logical_bytes": 89135659,
+          "observation_finished_ns": 2386797474341825,
+          "observation_started_ns": 2386797473425161,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 89182208,
+          "published_logical_bytes": 89135659,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 58798027,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 123908096,
+          "logical_bytes": 125480056,
+          "published_allocated_bytes": 89182208,
+          "published_logical_bytes": 89135659,
+          "temporary_allocated_bytes": 115503104,
+          "temporary_logical_bytes": 125480056
+        },
+        "samples": 223,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 9475583345,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "155025408",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "482267136",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+          "memory.stat": "anon 33239040\nfile 115535872\nkernel 4894720\nkernel_stack 262144\npagetables 1474560\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 20480\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 33234944\ninactive_file 115535872\nactive_file 4096\nunevictable 0\nslab_reclaimable 2607848\nslab_unreclaimable 499656\nslab 3107504\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 172088\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 51901\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 19\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 310047727616,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1371,
+          2076,
+          2458
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24926023680,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "61050880",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "62283776",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+          "memory.stat": "anon 32657408\nfile 26222592\nkernel 1122304\nkernel_stack 262144\npagetables 561152\nsec_pagetables 0\npercpu 288\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 4096\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 32653312\ninactive_file 26218496\nactive_file 4096\nunevictable 0\nslab_reclaimable 21704\nslab_unreclaimable 263200\nslab 284904\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 10944\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 0\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 310137221120,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1316,
+          2077,
+          2460
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24814997504,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 536870912,
+          "completed": 1,
+          "disk": {
+            "allocated_bytes": 23871488,
+            "concurrent_changes": false,
+            "logical_bytes": 23867392
+          },
+          "elapsed_ns": 8428873202,
+          "event": "final",
+          "monotonic_ns": 2386797428925679,
+          "observation_finished_ns": 2386797429143261,
+          "observation_started_ns": 2386797428925679,
+          "peak_rss_bytes": 403230720,
+          "phase": "publish-contributions",
+          "phase_ordinal": 55,
+          "phase_started_ns": 2386797222038382,
+          "plan": {
+            "baseline_bytes": 150171648,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 1028653508,
+            "engine_bytes": 168595456,
+            "engine_temp_limit_bytes": 335544384,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 536870912,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 134217728,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 0,
+            "rchar": 493157285,
+            "read_bytes": 16384,
+            "syscr": 7807,
+            "syscw": 5591,
+            "wchar": 231078406,
+            "write_bytes": 231366656
+          },
+          "rss_bytes": 157061120,
+          "sampled_disk_peak_allocated_bytes": 115482624,
+          "sampled_disk_peak_logical_bytes": 123837708,
+          "total": 1
+        },
+        "published": [
+          {
+            "identity": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+            "kind": "import",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-import-3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132"
+          },
+          {
+            "identity": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+            "kind": "contribution",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-contribution-617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092"
+          }
+        ],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 536870912,
+          "elapsed_ns": 9464624082,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 401883136,
+          "kernel_usage": {
+            "filesystem_inputs": 32,
+            "filesystem_outputs": 451888,
+            "involuntary_context_switches": 504,
+            "major_faults": 0,
+            "minor_faults": 160894,
+            "system_cpu_ns": 487718000,
+            "user_cpu_ns": 9710492000,
+            "voluntary_context_switches": 3979
+          },
+          "largest_observed_sample_gap_ns": 4606342,
+          "pid": 432882,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 403230720,
+          "samples": 8258,
+          "sampling_edges": {
+            "first_sample_ns": 2386788034862401,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 7366143,
+            "largest_gap_including_edges_ns": 7366143,
+            "last_sample_ns": 2386797470847214,
+            "launch_returned_ns": 2386788027920568,
+            "launch_started_ns": 2386788027496258,
+            "reaped_ns": 2386797471896974,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 1049760
+          },
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "208433152",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "482267136",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 0,
+            "rchar": 493157750,
+            "read_bytes": 16384,
+            "syscr": 7812,
+            "syscw": 5592,
+            "wchar": 231079770,
+            "write_bytes": 231366656
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 401883136,
+            "rss_bytes": 157061120
+          },
+          "published": [
+            {
+              "identity": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+              "kind": "import",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-import-3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132"
+            },
+            {
+              "identity": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+              "kind": "contribution",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-contribution-617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092"
+            }
+          ],
+          "result": {
+            "contribution": {
+              "identity": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+              "kind": "contribution",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-contribution-617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092"
+            },
+            "execution": {
+              "association_queries": 1,
+              "cgroup": {
+                "available": true,
+                "memory.current": "448688128",
+                "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+                "memory.max": "6442450944",
+                "memory.peak": "482267136",
+                "memory.swap.current": "0",
+                "memory.swap.max": "0"
+              },
+              "current_disk": {
+                "allocated_bytes": 34713600,
+                "concurrent_changes": false,
+                "logical_bytes": 34708488
+              },
+              "dependencies": {
+                "duckdb": "1.5.5",
+                "psutil": "7.2.2",
+                "pyarrow": "25.0.1"
+              },
+              "managed_reservation_high_water_bytes": 50331648,
+              "monitor": {
+                "budget_bytes": 536870912,
+                "completed": 1,
+                "disk": {
+                  "allocated_bytes": 52551680,
+                  "concurrent_changes": false,
+                  "logical_bytes": 52534297
+                },
+                "elapsed_ns": 8339950022,
+                "peak_rss_bytes": 403230720,
+                "phase": "publish-contributions",
+                "phase_ordinal": 55,
+                "phase_started_ns": 2386797222038382,
+                "plan": {
+                  "baseline_bytes": 150171648,
+                  "batch_bytes": 50331648,
+                  "batch_rows": 65536,
+                  "budget_bytes": 536870912,
+                  "disk_estimate_bytes": 1028653508,
+                  "engine_bytes": 168595456,
+                  "engine_temp_limit_bytes": 335544384,
+                  "fixed_buffers_bytes": 33554432,
+                  "reserved_bytes": 536870912,
+                  "resident_columns_bytes": 0,
+                  "safety_bytes": 134217728,
+                  "storage": "disk"
+                },
+                "rss_bytes": 361422848,
+                "sampled_disk_peak_allocated_bytes": 115482624,
+                "sampled_disk_peak_logical_bytes": 123837708,
+                "total": 1
+              },
+              "plan": {
+                "baseline_bytes": 150171648,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 536870912,
+                "disk_estimate_bytes": 1028653508,
+                "engine_bytes": 168595456,
+                "engine_temp_limit_bytes": 335544384,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 536870912,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 134217728,
+                "storage": "disk"
+              },
+              "revision": "mesh-import-execution-v1"
+            },
+            "faces": 1048576,
+            "import": {
+              "identity": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+              "kind": "import",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-import-3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132"
+            },
+            "revision": "mesh-import-run-v1",
+            "source_id": "cf192d36d5d9bbc382bde402618637d6a740b9b33de409797337c70b358c79b5",
+            "status": "complete",
+            "vertices": 1048577
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 57,
+        "final_observation_seen": true,
+        "phases": {
+          "account-source-vertices": {
+            "elapsed_ns": 480756792,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 31529914,
+              "read_bytes": 0,
+              "syscr": 150,
+              "syscw": 19,
+              "wchar": 1051496,
+              "write_bytes": 1052672
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "coordinate-association-1": {
+            "elapsed_ns": 890571685,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12607980,
+              "read_bytes": 8192,
+              "syscr": 239,
+              "syscw": 36,
+              "wchar": 9440362,
+              "write_bytes": 9445376
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "coordinate-association-1-join": {
+            "elapsed_ns": 635921959,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 21201,
+              "read_bytes": 0,
+              "syscr": 188,
+              "syscw": 22,
+              "wchar": 4740946,
+              "write_bytes": 4743168
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "decode-faces": {
+            "elapsed_ns": 315106210,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13638064,
+              "read_bytes": 0,
+              "syscr": 511,
+              "syscw": 998,
+              "wchar": 33342978,
+              "write_bytes": 33402880
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "decode-vertices": {
+            "elapsed_ns": 360936322,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12598966,
+              "read_bytes": 8192,
+              "syscr": 300,
+              "syscw": 1038,
+              "wchar": 36488938,
+              "write_bytes": 36564992
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "fold-vertex-corners": {
+            "elapsed_ns": 93329423,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 4960,
+              "read_bytes": 0,
+              "syscr": 60,
+              "syscw": 20,
+              "wchar": 27709,
+              "write_bytes": 8192
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 18
+          },
+          "initializing": {
+            "elapsed_ns": 1263577,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 438,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 883,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "normalize-vertex-weights": {
+            "elapsed_ns": 384113932,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 27270752,
+              "read_bytes": 0,
+              "syscr": 155,
+              "syscw": 19,
+              "wchar": 8391516,
+              "write_bytes": 8392704
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "order-source-corners": {
+            "elapsed_ns": 2250215995,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 29977,
+              "read_bytes": 0,
+              "syscr": 281,
+              "syscw": 51,
+              "wchar": 16806119,
+              "write_bytes": 16777216
+            },
+            "last_completed": 3145728,
+            "last_total": 3145728,
+            "occurrences": 17
+          },
+          "publish-contributions": {
+            "elapsed_ns": 206887297,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 35664805,
+              "read_bytes": 0,
+              "syscr": 426,
+              "syscw": 23,
+              "wchar": 4202874,
+              "write_bytes": 4214784
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "publish-import": {
+            "elapsed_ns": 336500567,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 116511288,
+              "read_bytes": 0,
+              "syscr": 1352,
+              "syscw": 5,
+              "wchar": 7244,
+              "write_bytes": 8192
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 2
+          },
+          "snapshot-mesh-ply-copy": {
+            "elapsed_ns": 122257906,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26284082,
+              "read_bytes": 0,
+              "syscr": 441,
+              "syscw": 403,
+              "wchar": 26216592,
+              "write_bytes": 26218496
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-private-rehash": {
+            "elapsed_ns": 105262902,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26157160,
+              "read_bytes": 0,
+              "syscr": 441,
+              "syscw": 6,
+              "wchar": 13765,
+              "write_bytes": 20480
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-source-rehash": {
+            "elapsed_ns": 61198098,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26217068,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1127,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-1": {
+            "elapsed_ns": 62355441,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26151586,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1536,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-2": {
+            "elapsed_ns": 184752920,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 71357525,
+              "read_bytes": 0,
+              "syscr": 606,
+              "syscw": 1,
+              "wchar": 1549,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-3": {
+            "elapsed_ns": 64203718,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26151255,
+              "read_bytes": 0,
+              "syscr": 422,
+              "syscw": 1,
+              "wchar": 1528,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "stage-source-corners": {
+            "elapsed_ns": 1321884341,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 21015761,
+              "read_bytes": 0,
+              "syscr": 423,
+              "syscw": 2939,
+              "wchar": 90332252,
+              "write_bytes": 90517504
+            },
+            "last_completed": 3145728,
+            "last_total": 3145728,
+            "occurrences": 1
+          },
+          "verify-coordinate-words": {
+            "elapsed_ns": 52204031,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584745,
+              "read_bytes": 0,
+              "syscr": 34,
+              "syscw": 1,
+              "wchar": 1537,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-source-corners": {
+            "elapsed_ns": 427179029,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 14570,
+              "read_bytes": 0,
+              "syscr": 130,
+              "syscw": 2,
+              "wchar": 2907,
+              "write_bytes": 0
+            },
+            "last_completed": 3145728,
+            "last_total": 3145728,
+            "occurrences": 1
+          },
+          "verify-staged-faces": {
+            "elapsed_ns": 21712243,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 66337,
+              "read_bytes": 0,
+              "syscr": 9,
+              "syscw": 1,
+              "wchar": 1527,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "verify-staged-vertices": {
+            "elapsed_ns": 50044555,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1602,
+              "read_bytes": 0,
+              "syscr": 16,
+              "syscw": 2,
+              "wchar": 2892,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 536870912,
+        "chunk_rows": null,
+        "contribution": null,
+        "destination": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out",
+        "display": null,
+        "display_transform": null,
+        "expected_contribution_id": null,
+        "expected_display_id": null,
+        "expected_import_id": null,
+        "operation": "import",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/source-fan-262144-base.ply",
+        "storage": "disk"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 78245,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1-import.ndjson",
+        "records": 70,
+        "sha256": "51a55767757aafaf97f74b2acbd06fe4cb1548f105af54e55f30d02ef2b6cbbc"
+      }
+    },
+    "verify-display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 282157056,
+          "files": 23,
+          "logical_bytes": 282084302,
+          "observation_finished_ns": 2386813365589155,
+          "observation_started_ns": 2386813364272065,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 282157056,
+          "published_logical_bytes": 282084302,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 57146998,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 494010368,
+          "logical_bytes": 493904295,
+          "published_allocated_bytes": 282157056,
+          "published_logical_bytes": 282084302,
+          "temporary_allocated_bytes": 211853312,
+          "temporary_logical_bytes": 211819993
+        },
+        "samples": 158,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 6955655333,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "355778560",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "805900288",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=3062\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=3062",
+          "memory.stat": "anon 36462592\nfile 308645888\nkernel 9445376\nkernel_stack 262144\npagetables 499712\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 12288\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36458496\ninactive_file 308637696\nactive_file 4096\nunevictable 0\nslab_reclaimable 8284952\nslab_unreclaimable 452976\nslab 8737928\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 599743\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 93562\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 63\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 309854957568,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1413,
+          2039,
+          2437
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24824160256,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "432811",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope",
+          "memory.current": "354697216",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "618348544",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=271\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=271",
+          "memory.stat": "anon 36454400\nfile 308568064\nkernel 9318400\nkernel_stack 262144\npagetables 499712\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 24576\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36356096\ninactive_file 308568064\nactive_file 4096\nunevictable 0\nslab_reclaimable 8275216\nslab_unreclaimable 255176\nslab 8530392\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 399973\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 66967\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 43\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-base-512-r1.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 309855154176,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          1314,
+          2040,
+          2441
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 24796569600,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 536870912,
+          "completed": 8388608,
+          "disk": {
+            "allocated_bytes": 196120576,
+            "concurrent_changes": false,
+            "logical_bytes": 196098542
+          },
+          "elapsed_ns": 5809523358,
+          "event": "final",
+          "monotonic_ns": 2386813302433742,
+          "observation_finished_ns": 2386813302691964,
+          "observation_started_ns": 2386813302433742,
+          "peak_rss_bytes": 362332160,
+          "phase": "verify-display-view-faces.bin",
+          "phase_ordinal": 34,
+          "phase_started_ns": 2386813278618308,
+          "plan": {
+            "baseline_bytes": 149602304,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 1431372118,
+            "engine_bytes": 169164800,
+            "engine_temp_limit_bytes": 335544384,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 536870912,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 134217728,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 6324224,
+            "rchar": 655360344,
+            "read_bytes": 8192,
+            "syscr": 10379,
+            "syscw": 4728,
+            "wchar": 262586050,
+            "write_bytes": 262680576
+          },
+          "rss_bytes": 171945984,
+          "sampled_disk_peak_allocated_bytes": 211841024,
+          "sampled_disk_peak_logical_bytes": 211818681,
+          "total": 8388608
+        },
+        "published": [],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 536870912,
+          "elapsed_ns": 6937349119,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 361168896,
+          "kernel_usage": {
+            "filesystem_inputs": 16,
+            "filesystem_outputs": 513048,
+            "involuntary_context_switches": 443,
+            "major_faults": 0,
+            "minor_faults": 199767,
+            "system_cpu_ns": 552936000,
+            "user_cpu_ns": 7672124000,
+            "voluntary_context_switches": 2229
+          },
+          "largest_observed_sample_gap_ns": 5183028,
+          "pid": 433292,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 362332160,
+          "samples": 6004,
+          "sampling_edges": {
+            "first_sample_ns": 2386806456166000,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 5999320,
+            "largest_gap_including_edges_ns": 5999320,
+            "last_sample_ns": 2386813361518933,
+            "launch_returned_ns": 2386806450622369,
+            "launch_started_ns": 2386806450166680,
+            "reaped_ns": 2386813362305684,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 786751
+          },
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "424763392",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "805900288",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 6324224,
+            "rchar": 655360814,
+            "read_bytes": 8192,
+            "syscr": 10384,
+            "syscw": 4729,
+            "wchar": 262587442,
+            "write_bytes": 262680576
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 361168896,
+            "rss_bytes": 171945984
+          },
+          "published": [],
+          "result": {
+            "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+            "contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+            "display_id": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+            "import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+            "monitor": {
+              "budget_bytes": 536870912,
+              "completed": 8388608,
+              "disk": {
+                "allocated_bytes": 196120576,
+                "concurrent_changes": false,
+                "logical_bytes": 196098542
+              },
+              "elapsed_ns": 5809696171,
+              "peak_rss_bytes": 362332160,
+              "phase": "verify-display-view-faces.bin",
+              "phase_ordinal": 34,
+              "phase_started_ns": 2386813278618308,
+              "plan": {
+                "baseline_bytes": 149602304,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 536870912,
+                "disk_estimate_bytes": 1431372118,
+                "engine_bytes": 169164800,
+                "engine_temp_limit_bytes": 335544384,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 536870912,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 134217728,
+                "storage": "disk"
+              },
+              "rss_bytes": 171945984,
+              "sampled_disk_peak_allocated_bytes": 211841024,
+              "sampled_disk_peak_logical_bytes": 211818681,
+              "total": 8388608
+            },
+            "plan": {
+              "baseline_bytes": 149602304,
+              "batch_bytes": 50331648,
+              "batch_rows": 65536,
+              "budget_bytes": 536870912,
+              "disk_estimate_bytes": 1431372118,
+              "engine_bytes": 169164800,
+              "engine_temp_limit_bytes": 335544384,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 536870912,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 134217728,
+              "storage": "disk"
+            },
+            "revision": "mesh-display-verification-v1",
+            "status": "verified",
+            "verified_data_files": 5
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 36,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 53503485,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16779138,
+              "read_bytes": 0,
+              "syscr": 53,
+              "syscw": 6,
+              "wchar": 13907,
+              "write_bytes": 20480
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 3118642,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049021,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1102,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 22442334,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389398,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1123,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 22665361,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389398,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1110,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 631487392,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40900123,
+              "read_bytes": 0,
+              "syscr": 171,
+              "syscw": 2,
+              "wchar": 2024,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 385943396,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22066261,
+              "read_bytes": 0,
+              "syscr": 120,
+              "syscw": 1,
+              "wchar": 1075,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 23063571,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389388,
+              "read_bytes": 0,
+              "syscr": 137,
+              "syscw": 1,
+              "wchar": 1097,
+              "write_bytes": 0
+            },
+            "last_completed": 8388608,
+            "last_total": 8388608,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 3166769,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049017,
+              "read_bytes": 0,
+              "syscr": 22,
+              "syscw": 1,
+              "wchar": 1098,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 3029499,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049018,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1102,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 22451059,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389395,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1104,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 33900551,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584029,
+              "read_bytes": 0,
+              "syscr": 204,
+              "syscw": 1,
+              "wchar": 1101,
+              "write_bytes": 0
+            },
+            "last_completed": 12582912,
+            "last_total": 12582912,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 3178280,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048680,
+              "read_bytes": 0,
+              "syscr": 21,
+              "syscw": 1,
+              "wchar": 1094,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 33254246,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584041,
+              "read_bytes": 0,
+              "syscr": 206,
+              "syscw": 1,
+              "wchar": 1080,
+              "write_bytes": 0
+            },
+            "last_completed": 12582924,
+            "last_total": 12582924,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 261240772,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23074207,
+              "read_bytes": 0,
+              "syscr": 118,
+              "syscw": 1,
+              "wchar": 1086,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 75054466,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26335332,
+              "read_bytes": 0,
+              "syscr": 461,
+              "syscw": 1,
+              "wchar": 1047,
+              "write_bytes": 0
+            },
+            "last_completed": 26214621,
+            "last_total": 26214621,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 6609686,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 121,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1532,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-corners": {
+            "elapsed_ns": 749237119,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 24943,
+              "read_bytes": 0,
+              "syscr": 221,
+              "syscw": 481,
+              "wchar": 41977494,
+              "write_bytes": 41975808
+            },
+            "last_completed": 3145728,
+            "last_total": 3145728,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 215131131,
+            "io_delta": {
+              "cancelled_write_bytes": 6324224,
+              "rchar": 23768292,
+              "read_bytes": 4096,
+              "syscr": 149,
+              "syscw": 8,
+              "wchar": 532317,
+              "write_bytes": 540672
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 1060894720,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 35574,
+              "read_bytes": 0,
+              "syscr": 316,
+              "syscw": 2292,
+              "wchar": 157290761,
+              "write_bytes": 157294592
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 3266220,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 11766,
+              "read_bytes": 0,
+              "syscr": 13,
+              "syscw": 2,
+              "wchar": 1771,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 393984934,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22033434,
+              "read_bytes": 4096,
+              "syscr": 167,
+              "syscw": 982,
+              "wchar": 21749946,
+              "write_bytes": 21811200
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 693602936,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40917767,
+              "read_bytes": 0,
+              "syscr": 327,
+              "syscw": 926,
+              "wchar": 40980347,
+              "write_bytes": 41037824
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 2734338,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69108,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1570,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 466111,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 129,
+              "read_bytes": 0,
+              "syscr": 2,
+              "syscw": 1,
+              "wchar": 1568,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 20094490,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13632368,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1562,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 86142717,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74455841,
+              "read_bytes": 0,
+              "syscr": 1163,
+              "syscw": 1,
+              "wchar": 1551,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 19731553,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13629213,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1560,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 82449694,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74455841,
+              "read_bytes": 0,
+              "syscr": 1163,
+              "syscw": 1,
+              "wchar": 1561,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-display-rejected-face-corners.ply": {
+            "elapsed_ns": 495494,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1071,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1565,
+              "write_bytes": 0
+            },
+            "last_completed": 941,
+            "last_total": 941,
+            "occurrences": 1
+          },
+          "verify-display-validity.ply": {
+            "elapsed_ns": 237226841,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 88089470,
+              "read_bytes": 0,
+              "syscr": 1421,
+              "syscw": 1,
+              "wchar": 1559,
+              "write_bytes": 0
+            },
+            "last_completed": 88081181,
+            "last_total": 88081181,
+            "occurrences": 1
+          },
+          "verify-display-view-faces.bin": {
+            "elapsed_ns": 23815434,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389758,
+              "read_bytes": 0,
+              "syscr": 140,
+              "syscw": 1,
+              "wchar": 1562,
+              "write_bytes": 0
+            },
+            "last_completed": 8388608,
+            "last_total": 8388608,
+            "occurrences": 1
+          },
+          "verify-display-view-vertices.bin": {
+            "elapsed_ns": 22556948,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389426,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1565,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "verify-display-weights.ply": {
+            "elapsed_ns": 235057371,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 88089129,
+              "read_bytes": 0,
+              "syscr": 1418,
+              "syscw": 1,
+              "wchar": 1556,
+              "write_bytes": 0
+            },
+            "last_completed": 88081180,
+            "last_total": 88081180,
+            "occurrences": 1
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 130391984,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 4649,
+              "read_bytes": 0,
+              "syscr": 43,
+              "syscw": 2,
+              "wchar": 2899,
+              "write_bytes": 0
+            },
+            "last_completed": 1048576,
+            "last_total": 1048576,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 247878207,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8253,
+              "read_bytes": 0,
+              "syscr": 74,
+              "syscw": 1,
+              "wchar": 1525,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 536870912,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-contribution-617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+        "destination": null,
+        "display": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-display-bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+        "display_transform": null,
+        "expected_contribution_id": "617ebfca660e6368b7626d011239f6dc7e63a9ac92c275714f3d3fbce1b32092",
+        "expected_display_id": "bba916c3d7df37f9795ac973cc423d2b2be1b401e6f044ba528652df117f531e",
+        "expected_import_id": "3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+        "operation": "verify-display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1/out/mesh-import-3e7ccb82f9298e0e05c7e2a71a6f4afd143b44465e8e6c600d7b37aae2990132",
+        "storage": "disk"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 44383,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1-verify-display.ndjson",
+        "records": 44,
+        "sha256": "4ffb4e6a9c8a18b17f908ec6bac444905fb1d7f1eb956bf7c088127172137d08"
+      }
+    }
+  },
+  "revision": "mesh-scale-fan-run-v1",
+  "run_root": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-base-512-r1",
+  "scope": "One sequential complete generated case. Post-worker checks scan every canonical column and compare frozen hashes and row digests; display replay rebuilds every exported data file. Independent checks run outside measured workers. No viewer interaction or physical validation is measured.",
+  "source": {
+    "actual": {
+      "bytes": 26214621,
+      "sha256": "b7c255f72eda4b872fefe88ed5a11cc5b89c476d70b958e70bb930fcb3a4a994"
+    },
+    "path": "/home/data/scansor-s6-evidence-fJVNUiYN/source-fan-262144-base.ply"
+  },
+  "started_utc": "2026-09-11T12:22:33.977688+00:00",
+  "status": "complete",
+  "through": "verify-display"
+}
