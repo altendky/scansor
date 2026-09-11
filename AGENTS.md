@@ -7,6 +7,16 @@ For scope, status, architecture, decisions, and open questions, start with:
 
 - [Project documentation](docs/src/project/index.md)
 
+## Dependency and PLY Reader Boundaries
+
+- Avoid GPL-, LGPL-, and AGPL-licensed dependencies for now. Explicitly alert the
+  user whenever considering one, including a transitive dependency; do not adopt
+  it without a new user decision.
+- Do not consult, copy, translate, or port `plyfile` source when working on
+  Scansor.
+- Keep the PLY reader isolated from Scansor-specific semantics so it can be
+  extracted into a separate package with little work.
+
 ## Onshape Workspace
 
 - Coordination folder: [Scansor][scansor-folder], ID

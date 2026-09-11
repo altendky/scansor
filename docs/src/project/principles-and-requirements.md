@@ -53,6 +53,11 @@ for example prioritizing interfaces over lower-accuracy cast surfaces. Area and
 target-importance weighting may be combined; their exact normalization and
 semantics remain open.
 
+The [mesh-ingestion design](planning/full-resolution-mesh-ingestion.md) specifies
+an initial area-only policy, accounting, and bounded execution contract for later
+implementation. Its import eligibility is distinct from mapping, activation, and
+fitting, and does not make external observations synthetic.
+
 Future robust processing may use an auditable iterative fit, localized-deviation
 identification, policy-driven exclusion or downweighting, and refit workflow.
 Bumps, scratches, mold flashing, and other local deviations may be treated as
@@ -74,8 +79,9 @@ recipes committed to the repository, not committed as multi-megabyte PLY
 fixtures. A recipe should bind its parametric model, sampling allocation and
 order, seed, noise and adverse cases, encoding, identity expectations, and the
 information needed to recreate exact sample bytes. Generated large files and
-temporary caches should remain outside the repository. The recipe schema,
-generator implementation, and cache design remain open.
+temporary caches should remain outside the repository. The mesh-ingestion design
+selects one bounded portable recipe and its verification gates; broader sampling
+schemas, generator coverage, and product cache design remain open.
 
 ## Semantic Degradation Is Explicit
 

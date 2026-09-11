@@ -29,8 +29,17 @@ integration, implement Scansor as a product, or establish a production stack.
 Current product boundaries and research findings remain authoritative in the
 parent [project documentation](../index.md).
 
+**Design update, 2026-09-10:** issue #29 now has a specified external mesh import
+and visual-audit contract with a library evaluation. Its bounded local design
+probes do not implement ingestion or establish external-source fitting evidence.
+
 ## Tracks
 
+- [Full-resolution mesh ingestion and visual audit](full-resolution-mesh-ingestion.md)
+  - provisional design for the first external mesh profile, complete accounting,
+    bounded arrays, area contribution, portable fixtures, and visual audit;
+    [library comparison](full-resolution-mesh-library-evaluation.md) and six
+    dependency-ordered implementation gates; no external fitting admission
 - [Declared analytic model generated workflow](declared-analytic-model-generated-workflow.md)
   - provisional shared synthetic generation, mapping, fixed-pose execution,
     held-out assessment, publication, and read-only verification for the

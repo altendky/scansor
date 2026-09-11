@@ -42,6 +42,40 @@ in package metadata when an implementation stack is selected.
 
 ## Provisional Directions
 
+### Specify full-resolution external mesh import before integrating fitting
+
+The [mesh-ingestion contract](planning/full-resolution-mesh-ingestion.md) owns
+the first external PLY profile, arbitrary-unit semantics, source identity,
+bounded arrays, every-record accounting, initial area policy, portable recipes,
+visual audit, and dependency-ordered implementation gates. The
+[library evaluation](planning/full-resolution-mesh-library-evaluation.md) records
+candidate tradeoffs and bounded local probes. Both remain design directions;
+they do not implement external ingestion or relax synthetic fitting admission.
+
+Per the user's dependency direction, avoid GPL/LGPL/AGPL dependencies and alert
+the user whenever one is considered. Keep PLY I/O isolated for later extraction;
+do not consult or reuse `plyfile` source. The initial implementation plan uses
+Python/NumPy I/O and numeric columns, an explicit Philox recipe, and separately
+verified external CloudCompare display files. Broader storage, compression,
+topology algorithms, and solver integration have their own evidence gates.
+
+### Start mesh bulk processing directly with DuckDB
+
+The user selected DuckDB as the initial processing backend after the aligned
+pipeline and isolated sorting probes, then deferred the proposed compatibility
+interface. Use [DuckDB directly](planning/full-resolution-mesh-ingestion.md#direct-duckdb-processing)
+for staging, scans, ID association and ordering, with bounded PyArrow/NumPy
+interchange for numeric work. A generic backend layer can wait for a concrete need.
+Canonical source/column formats and numeric rules remain application-owned;
+engine staging is disposable. Implement DuckDB first, with complete-path resource,
+correctness and cancellation gates. This is a selected implementation direction,
+not a completed importer or production resource guarantee.
+
+Defer a Polars adapter. [Issue #30](https://github.com/altendky/scansor/issues/30)
+records its materializing sort path, observed memory growth, upstream work and
+conditions for reconsideration. The user accepts its unstable APIs with update
+checks; API stability and initial preference do not override the measured needs.
+
 ### Sequence the first evidence program through explicit gates
 
 Start with a generated contract, deterministic generator/evaluator oracle,

@@ -17,6 +17,12 @@ more limited standard-library alternative when the library improves the API,
 typing, validation, diagnostics, or testability. This is a selection criterion,
 not a rule to add dependencies without a concrete benefit.
 
+**User direction, 2026-09-10:** avoid GPL, LGPL, and AGPL dependencies for now and
+flag them explicitly whenever considered, including transitive dependencies.
+Keep the PLY reader easy to extract and do not use `plyfile` source for Scansor.
+The [mesh library evaluation](planning/full-resolution-mesh-library-evaluation.md)
+applies this direction to parsing, large arrays, numeric generation, and tooling.
+
 ## CLI
 
 Use [Cyclopts][cyclopts] as the provisional CLI library. Its annotation-driven

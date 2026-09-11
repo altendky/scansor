@@ -149,9 +149,12 @@ shape, numeric representation, and content hash.
 No durable production format is selected. NumPy `.npy` or `.npz` is acceptable
 only as an internal prototype-fixture convenience, not as a public interchange
 or archival contract. Arrow or [Apache Parquet][parquet] remain future tabular
-candidates. Evaluate [Zarr][zarr] or HDF5 only if representative payloads
-demonstrate chunked, out-of-core, or object-access needs. PLY, LAS, and similar
-formats remain adapter formats rather than canonical application storage.
+candidates. The [mesh library evaluation](planning/full-resolution-mesh-library-evaluation.md)
+now supplies the representative out-of-core use case for [Zarr][zarr], HDF5,
+Arrow, and raw NumPy-backed columns. Its provisional initial choice and bounded
+local probes are owned there; they do not select a durable production format.
+PLY, LAS, and similar formats remain adapter formats rather than canonical
+application storage.
 
 A bounded format fixture should include representative coordinates, normals,
 memberships, stable observation identifiers, optional attributes, and deliberate

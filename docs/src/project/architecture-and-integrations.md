@@ -87,9 +87,11 @@ Large deterministic stress inputs should be reconstructed from small versioned
 repository recipes rather than retained as large PLY fixtures. Those recipes
 should bind the parametric model, sampling allocation and order, seed, noise and
 adverse cases, encoding, identity expectations, and exact-byte reproduction.
-Generated bulk files and temporary caches remain outside the repository. This
-requirement does not select a recipe schema, generator, bulk format, or cache
-implementation.
+Generated bulk files and temporary caches remain outside the repository. The
+[mesh-ingestion design](planning/full-resolution-mesh-ingestion.md) specifies a
+bounded internal recipe, arithmetic, and bulk-column encoding for its later
+implementation. It does not change the existing generators' repeatability claims
+or select a durable product schema or cache implementation.
 
 Scansor owns canonical identities. Source/platform IDs and topology references
 are revision-scoped bindings and provenance. Source snapshots, user-confirmed
@@ -109,7 +111,7 @@ adapter because point-cloud selection and grouping are central to its workflow.
 This is a hypothesis, not a completed comparison or commitment.
 
 An observation input should provide stable observation IDs, overlapping
-memberships, explicit units, coordinate frames and transforms, optional normals
+memberships, explicit unit status, coordinate frames and transforms, optional normals
 and attributes, provenance, and source handles where available. Incoming modes
 may include open files, project exports, sidecars, plugins/exporters, and direct
 APIs when useful. PLY, LAS, and similar formats remain adapter formats rather
@@ -119,10 +121,15 @@ A future external-source import should preserve and hash the original bytes,
 identify the importer implementation and configuration, and deterministically
 produce a canonical observation stream or artifact. Relevant source sidecars
 should remain attached as provenance; for a RealityScan PLY probe, this includes
-transform or scale information such as `.rsInfo` when present. RealityScan PLY is
-a likely first bounded ingestion probe, while E57 may later be appropriate for
-original scanner data. Neither choice makes PLY or E57 canonical, selects a
-supported adapter, or supersedes the separate CloudCompare selection hypothesis.
+transform or scale information such as `.rsInfo` when present. The
+[full-resolution mesh contract](planning/full-resolution-mesh-ingestion.md) now
+specifies the first RealityScan-derived PLY profile, unknown physical units,
+source bindings, isolated reader, failure/accounting semantics, and CloudCompare
+visual audit. Its [library evaluation](planning/full-resolution-mesh-library-evaluation.md)
+records the initial storage and generation choices and bounded local probes.
+This remains design work, not implemented ingestion or external-source fitting.
+E57 remains a later scanner-data candidate. Neither format becomes canonical
+application semantics or supersedes the separate observation-selection hypothesis.
 
 Full-processing import and mapping should inspect every source point, give every
 admitted point an explicit weighted contribution, and record an explicit
@@ -135,11 +142,12 @@ change canonical identities, order, admission, weighting, or dispositions.
 ### Future Contribution and Robust-Refit Policy
 
 **Provisional:** Observation contribution should be a versioned policy input,
-not a fixed property of the solver. For mesh-derived vertices, a first policy may
-derive surface-area weights to reduce sensitivity to triangulation density.
+not a fixed property of the solver. The mesh-ingestion contract specifies the
+initial area-allocation and normalization policy for later implementation.
 Separate declared target-element importance may prioritize interfaces over
-lower-accuracy cast surfaces. These weight sources may compose, but no
-normalization, combination rule, or default is selected.
+lower-accuracy cast surfaces. Their composition with area weights remains open.
+Import-time mesh weights cannot be reused in fitting without the separately gated
+training/held-out isolation and objective-weight semantics.
 
 A later robust workflow may alternate fitting with explicit identification of
 localized deviations, policy-driven exclusion or downweighting, and refitting.
