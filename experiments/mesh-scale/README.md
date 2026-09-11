@@ -671,6 +671,15 @@ The earlier hash-join overrun remains evidence against inferring whole-worker
 memory from an engine limit. New full cases must establish whether this revised
 allocation completes within the unchanged RSS target.
 
+The [next noiseless 512 MiB case](run-grid-10000x6000-flat-512-r5.json), at
+`01b17c6`, also failed in `verify-source-corners`: DuckDB exhausted its 227.1 MiB
+allowance while allocating a 256 KiB block. Worker elapsed time was 443.73 seconds;
+kernel and sampled RSS peaks were 461.22 and 462.04 MiB. Owned cleanup and final
+phase reporting completed, with no cgroup OOM/OOM-kill event or swap. The largest
+RSS gap was 10.022827 ms, so this run also missed the sampling requirement.
+Reassigning the safety allowance did not establish the sorting target. The
+remaining cases were not started from this failed checkpoint.
+
 ## Remaining execution evidence
 
 The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
