@@ -2,10 +2,12 @@
 
 This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
 The expectation builder and measured-run harness are implemented. Initial scale
-evidence includes complete six-million-vertex cases at both budgets and a complete
-sixty-million-vertex noiseless and noisy cases at 2 GiB after fixes for observed resource
-failures. The full matrix remains pending; this
-directory does not establish the complete 512 MiB or 2 GiB targets.
+evidence includes complete six-million-vertex cases at both budgets, complete
+sixty-million-vertex noiseless and noisy cases at 2 GiB, and a complete noiseless
+sixty-million-vertex case below 512 MiB after fixes for observed resource
+failures. Some measurements missed the RSS sampling interval. The full matrix
+remains pending; this directory does not establish the complete 512 MiB or 2 GiB
+targets.
 
 ## Independent expected results
 
@@ -91,7 +93,9 @@ and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-ver
 contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
 The source files remain outside Git. Both noiseless and noisy six-million-vertex
 importer/contribution comparisons passed under both budgets. The
-sixty-million-vertex cases passed at 2 GiB; their 512 MiB cases remain incomplete.
+sixty-million-vertex cases completed at 2 GiB. The noiseless case now completes
+below 512 MiB too; the noisy 512 MiB case and complete sampling coverage remain
+outstanding.
 
 ## Worker execution and phase evidence
 
@@ -856,21 +860,60 @@ The replacement helper uses acknowledged final delivery and detects owner
 socket closure. The 80 MiB allowance and new observation mechanism require
 fresh complete measurements, including the sixty-million-vertex cases.
 
+The [fresh six-million-vertex flat case at `8de5bbc`](run-grid-3000x2000-flat-512-r3.json)
+uses the committed 80 MiB allowance and acknowledged sampler, without the
+diagnostic wrappers. Import, export and replay passed all RSS, sampling,
+phase-coverage and cleanup checks. Their sampled peaks were 472.55, 428.46 and
+466.68 MiB; kernel peaks were 471.69, 427.47 and 465.48 MiB. Actual maximum gaps,
+including startup and reaping edges, were 4.19, 4.02 and 4.38 ms. All helpers
+exited normally with complete final statistics; cgroup OOM/kill and swap counters
+remained zero. Complete canonical and display check records match the prior
+flat case. Worker supervision elapsed times were 85.95, 45.27 and 46.15 seconds;
+caches remained uncontrolled. This case complements the full flat case below;
+other budget and adverse-input comparisons remain pending.
+
+## Complete sixty-million-vertex flat pipeline with the independent observer
+
+The [fresh full 512 MiB disk case at `8de5bbc`](run-grid-10000x6000-flat-512-r7.json)
+completed import/contribution, display export and fresh display replay. Every
+canonical and display check record equals the earlier full 2 GiB flat case,
+including all column hashes, ordered digests, numeric summaries and artifact IDs.
+All 60,000,000 vertices and 119,968,002 triangles were retained. This is the first
+complete fresh pipeline on this workload below the 512 MiB worker RSS target.
+
+| Operation | Worker seconds | Kernel peak MiB | Sampled peak MiB | Largest RSS gap ms | Gaps over 10 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Import/contribution | 1035.22 | 429.21 | 430.14 | 13.775336 | 3 |
+| Display export | 499.84 | 445.76 | 446.79 | 10.280404 | 1 |
+| Display replay | 476.01 | 411.91 | 412.83 | 5.494217 | 0 |
+
+All workers and helpers exited normally, final statistics were acknowledged,
+phase coverage and owned scratch cleanup passed, and no sampler error occurred.
+The separate 6 GiB cgroup recorded no limit/OOM/kill events or swap use. Caches
+were uncontrolled. Complete memory/accounting success does **not** pass the
+sampling gate: import and export retain false coverage flags for the four gaps
+shown above. The sequential controller stopped on those flags, after retaining
+the complete report. These misses are observations of this run; neither their
+cause nor a hard scheduling guarantee has been established.
+
 ## Remaining execution evidence
 
-The complete sixty-million-vertex 512 MiB target remains unmet. Both full 2 GiB
-grid cases completed. The smaller grid, reordered-grid, fan and intentional
-failure results above are measured evidence; some operations missed the 10 ms
-sampling target and require renewed measurement with the independent observer.
+The complete sixty-million-vertex flat pipeline now fits 512 MiB; the noisy
+512 MiB case remains unmet. Both full 2 GiB grid cases completed on earlier
+checkpoints. The smaller grid, reordered-grid, fan and intentional failure
+results above are measured evidence; remaining comparisons with the current
+observer and memory plan are pending. Some operations still missed the 10 ms
+sampling target. Failed coverage is retained separately from memory and
+correctness results, including in subsequent sequential comparisons.
 Changes to memory planning or coordinate lookup also require fresh full cases
 before they inherit any prior capacity result.
 
-The candidate lookup path uses bounded canonical row gathers in place of the
+The lookup path uses bounded canonical row gathers in place of the
 global coordinate hash join. It retains DuckDB source ordering and independently
-checks staged coordinate words and face indices on each pass. It has not yet
-established either a full 512 MiB result or its performance under reordered
-source IDs. Contribution ordering and display remapping have their own resource
-requirements; removing one failed join cannot certify the full pipeline.
+checks staged coordinate words and face indices on each pass. The fresh flat
+512 MiB result covers the full pipeline; renewed reordered-source measurements
+remain necessary. Contribution ordering and display remapping have their own
+resource requirements, covered separately in each report.
 
 The numeric CI matrix does not establish full-pipeline resource behavior on
 Windows or macOS. The stress measurements here are from one Linux host with
