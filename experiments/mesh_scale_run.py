@@ -137,6 +137,8 @@ def run_case(
     report: dict[str, Control] = {
         "revision": "mesh-scale-fan-run-v1"
         if "radius" in expected
+        else "mesh-scale-permuted-grid-run-v1"
+        if "vertex_multiplier" in expected
         else "mesh-scale-grid-run-v1",
         "status": "failed",
         "started_utc": datetime.now(UTC).isoformat(),

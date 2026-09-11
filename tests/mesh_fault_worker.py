@@ -32,6 +32,57 @@ def main() -> int:
     from scansor.mesh_worker_request import WorkerRequest
 
     writer = FrameWriter(cast(BinaryIO, sys.stdout.buffer))
+    if mode == "cooperative-stop":
+        from scansor.mesh_resources import (
+            cgroup_snapshot,
+            memory_snapshot,
+            process_io_snapshot,
+        )
+
+        class StopRequested(Exception):
+            pass
+
+        def stop(_number: int, _frame: object) -> None:
+            raise StopRequested
+
+        request = WorkerRequest.from_record(
+            decode_control((access / "request.json").read_bytes())
+        )
+        _ = signal.signal(signal.SIGTERM, stop)
+        try:
+            writer.send(
+                {
+                    "type": "started",
+                    "pid": os.getpid(),
+                    "request_id": control_id(request.record()),
+                }
+            )
+            _ = signal.pause()
+        except StopRequested:
+            writer.send(
+                {
+                    "type": "progress",
+                    "record": {
+                        "phase": "fault-cleanup",
+                        "completed": 1,
+                        "total": 1,
+                        "budget_bytes": request.budget_bytes,
+                        "event": "final",
+                    },
+                }
+            )
+            writer.send(
+                {
+                    "type": "result",
+                    "status": "failed",
+                    "published": [],
+                    "failure": {"category": "cancelled", "message": "stop received"},
+                    "memory_after_cleanup": memory_snapshot(),
+                    "io_after_cleanup": process_io_snapshot(),
+                    "cgroup": cgroup_snapshot(),
+                }
+            )
+            return 1
     if mode in ("ignore-term", "wrong-start"):
         request = WorkerRequest.from_record(
             decode_control((access / "request.json").read_bytes())

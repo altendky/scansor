@@ -339,15 +339,72 @@ memory plan; the original failed reports predate that addition. These changes
 have small correctness coverage; full-scale reruns are needed to establish their
 effect. The earlier failures remain part of the evidence.
 
-## Remaining execution evidence
+The [512 MiB rerun](run-grid-10000x6000-flat-512-r2.json) at `a2e743c` stopped
+during the separate join after 287.58 seconds: measured worker RSS exceeded its
+ceiling (536.45 MiB kernel, 537.18 MiB sampled). Its retained memory plan assigned
+223.04 MiB to DuckDB. The 6 GiB cgroup reached its charge limit and recorded
+reclaim events, with no OOM/OOM-kill event or swap. The supervisor requested the
+stop and cleaned all owned scratch; no authoritative artifact was published.
+The original supervisor discarded subsequent worker frames after deciding to
+stop, so that report has no final worker telemetry or complete phase coverage.
+Its largest RSS gap was 13.51 ms. This remains a failed target measurement.
 
-The independent permutation oracle is implemented and checked on complete small
-grids. Affine bijections reorder source vertices and faces; each vertex's incident
+The equivalent [2 GiB rerun](run-grid-10000x6000-flat-2048-r2.json) completed
+the entire join in 199.38 seconds, then failed in the separate sort at the same
+256 MiB engine ceiling. Total worker elapsed time was 353.93 seconds; kernel and
+sampled RSS peaks were 571.32 and 572.09 MiB. Cgroup charge reached 6 GiB with
+reclaim events, no OOM/OOM-kill event, and no swap. Scratch cleanup and final
+phase reporting completed; RSS sampling again exceeded 10 ms (11.98 ms largest
+gap). Separating the operators alone did not establish the full-size target.
+
+The next planning revision therefore caps the engine at half the requested
+worker budget instead of a fixed 256 MiB, still subject to the measured baseline,
+resident columns and fixed/batch reservations. The native-overhead safety
+allowance is at least 128 MiB after the observed 512 MiB overrun. This gives the
+2 GiB disk case a 1 GiB engine reservation while keeping explicit headroom for the
+rest of the worker. Full-scale validation of this revision is pending. The
+supervisor also now retains valid cleanup/final frames after requesting a stop,
+while preserving the initiating failure; real subprocess tests cover both user
+cancellation and a supervisor RSS stop.
+
+## Reordered source indices and faces
+
+Affine bijections reorder source vertices and faces; each vertex's incident
 thirds are sorted by the new source face ordinal before accumulation, and global
 folds use the new source vertex order. Tests demonstrate changed rounded area
 bytes on the noisy grid and compare every byte with separate per-face rational
-calculations. Full-size expectation freezes, native source construction and
-resource measurements for this variant remain pending.
+calculations. The default multipliers are 131,071 for vertices and 524,287 for
+faces, with offsets 17 and 29. Both maps must be bijections for the requested
+population; invalid parameters fail instead of silently changing the recipe.
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_permuted_freeze \
+  --workdir /absolute/existing/directory/outside/git \
+  --output /absolute/new/expected-permuted.json
+PYTHONPATH=src python -m experiments.mesh_scale_permuted_generate \
+  --frozen /absolute/new/expected-permuted.json \
+  --baseline-frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --baseline-source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name source-permuted.ply --output /absolute/new/prepared-permuted.json
+```
+
+The default is the complete noisy six-million-vertex grid. `--flat` selects the
+flat variant; width, height, seed and the four map parameters are explicit inputs.
+The native source preparer reads an already verified production PLY, gathers at
+most 65,536 rows at a time through a read-only mapping, remaps face references, and
+writes every row through the isolated PLY writer. It does not use oracle code to
+generate source data. It hashes the entire baseline before and after construction,
+then compares every output byte through the frozen expected hash. Read-only mapped
+pages can become resident during preparation; that RSS is outside the subsequent
+fresh-worker import benchmarks. This preparation is not a bounded-import claim.
+
+Small tests complete freeze, native source construction, canonical comparisons,
+display export and full replay for both noise variants. They also check baseline
+corruption, exclusive outputs, and mapping closure on a writer failure. Full-size
+freeze, source preparation and resource runs remain pending.
+
+## Remaining execution evidence
 
 The harness still needs measured sequential equivalent workloads at both budgets,
 adversarial source order and valence, whole-worker RSS and phase resource

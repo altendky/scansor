@@ -81,7 +81,11 @@ def plan_memory(
     # Controls/XML, snapshot/hash buffers, Arrow metadata and monitor overhead.
     # Per-row scratch includes decoder records, canonical copies, Arrow input
     # and output, two live face buffers, numeric scratch and status/index masks.
-    safety, fixed = max(64 * MIB, budget_bytes // 10), 32 * MIB
+    # The 60M-vertex join exceeded whole-worker RSS at the original 64 MiB
+    # allowance despite respecting DuckDB's separate reservation. Retain at
+    # least 128 MiB for native allocations/retention outside that engine limit;
+    # subsequent whole-worker measurements still decide whether a plan fits.
+    safety, fixed = max(128 * MIB, budget_bytes // 10), 32 * MIB
     usable = budget_bytes - baseline_bytes - safety - fixed
     if usable < 32 * MIB + PER_ROW_SCRATCH:
         raise MeshImportError(
@@ -89,7 +93,11 @@ def plan_memory(
             "planning",
             "baseline, safety and minimum engine/batch do not fit",
         )
-    engine = min(256 * MIB, max(32 * MIB, usable // 2))
+    # A fixed 256 MiB ceiling prevented the 2 GiB 60M fixture from sorting even
+    # while whole-worker RSS remained below 600 MiB. Scale the ceiling with B,
+    # while keeping at least half of B available to the rest of the process.
+    engine_ceiling = max(32 * MIB, budget_bytes // 2)
+    engine = min(engine_ceiling, max(32 * MIB, usable // 2))
     available = usable - engine
     requested = MAX_BATCH_ROWS if chunk_rows is None else chunk_rows
     # Reserve the complete import+contribution column family even during S3.
@@ -106,9 +114,9 @@ def plan_memory(
         )
     # Batch sizes are capped, so the initial half-share can leave usable memory
     # unassigned. Give that remainder to DuckDB without reducing the baseline,
-    # safety, resident-column or batch reservations. Retain the 256 MiB ceiling;
-    # engine memory is only one part of the measured whole-worker working set.
-    engine = min(256 * MIB, usable - resident - rows * PER_ROW_SCRATCH)
+    # safety, resident-column or batch reservations. Engine memory is only one
+    # part of the measured whole-worker working set.
+    engine = min(engine_ceiling, usable - resident - rows * PER_ROW_SCRATCH)
     # Conservative working estimate: staged coordinates/faces, long-corner
     # association, two ordering generations, database pages and conversion slack.
     # It is deliberately separate from the packed 25-byte reference tuple model.

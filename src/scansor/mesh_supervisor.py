@@ -279,6 +279,7 @@ def run_worker(
     started_ns = time.monotonic_ns()
     stop_deadline: float | None = None
     killed = False
+    receiving = True
     parser = FrameReader()
     try:
         (access / "work").mkdir(mode=0o700)
@@ -376,17 +377,28 @@ def run_worker(
                     elif key.data == "stderr":
                         stderr_total += len(data)
                         stderr.extend(data[: max(0, 4096 - len(stderr))])
-                    elif failure is None:
+                    elif receiving:
+                        # A requested stop does not invalidate the protocol.
+                        # Keep cleanup/final observations and any publication
+                        # that raced with cancellation; preserve the initiating
+                        # resource/cancellation failure as the overall outcome.
                         try:
                             for message in parser.feed(data):
                                 messages.accept(message)
                         except BaseException as error:
-                            failure = _failure(
-                                "worker-protocol"
-                                if isinstance(error, ScansorError)
-                                else "execution",
-                                str(error),
-                            )
+                            receiving = False
+                            if failure is None:
+                                failure = _failure(
+                                    "worker-protocol"
+                                    if isinstance(error, ScansorError)
+                                    else "execution",
+                                    str(error),
+                                )
+                            else:
+                                failure["notes"] = [
+                                    "Further worker telemetry could not be accepted: "
+                                    + str(error)[:2048]
+                                ]
                 if process.returncode is None:
                     pid, status, usage = os.wait4(process.pid, os.WNOHANG)
                     if pid:

@@ -10,8 +10,10 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
+import psutil
 import pytest
 
 from scansor import mesh_supervisor
@@ -251,6 +253,39 @@ def test_budget_covers_worker_startup(tmp_path: Path) -> None:
         and control_object(result["failure"])["category"] == "resource"
     )
     assert not list(tmp_path.glob("mesh-import-*"))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+@pytest.mark.parametrize("reason", ("cancelled", "resource"))
+def test_requested_stop_retains_worker_cleanup_and_final_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    request = worker_request(tmp_path)
+    fault_command(monkeypatch, "cooperative-stop")
+    cancel = threading.Event()
+    events: list[dict[str, Control]] = []
+
+    def oversized_rss(_process: object) -> SimpleNamespace:
+        return SimpleNamespace(rss=request.budget_bytes + 1)
+
+    def progress(event: dict[str, Control]) -> None:
+        events.append(event)
+        if event["type"] == "started":
+            if reason == "cancelled":
+                cancel.set()
+            else:
+                monkeypatch.setattr(psutil.Process, "memory_info", oversized_rss)
+
+    outcome = run_worker(request, tmp_path, cancel=cancel, progress=progress)
+    assert outcome["status"] == "failed"
+    assert control_object(outcome["failure"])["category"] == reason
+    assert control_object(outcome["supervision"])["exit_code"] == 1
+    final = control_object(outcome["worker_report"])
+    assert final["status"] == "failed"
+    assert control_object(final["failure"])["category"] == "cancelled"
+    assert int(str(control_object(final["memory_after_cleanup"])["rss_bytes"])) > 0
+    assert control_object(outcome["last_progress"])["event"] == "final"
+    assert [event["type"] for event in events] == ["started", "progress", "result"]
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 

@@ -29,7 +29,11 @@ def load_expectation(path: Path) -> tuple[dict[str, Control], str]:
     if (
         canonical != raw
         or record.get("revision")
-        not in ("mesh-scale-grid-expectation-v1", "mesh-scale-fan-expectation-v1")
+        not in (
+            "mesh-scale-grid-expectation-v1",
+            "mesh-scale-fan-expectation-v1",
+            "mesh-scale-permuted-grid-expectation-v1",
+        )
         or record.get("status") != "complete"
     ):
         raise ValueError("a complete canonical expectation freeze is required")
