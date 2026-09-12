@@ -1,0 +1,4 @@
+# Preserve the exact source bytes bound by manifest hashes.
+*.ply binary
+*.rsInfo -text whitespace=cr-at-eol
+*.txt text eol=lf

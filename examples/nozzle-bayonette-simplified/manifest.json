@@ -1,0 +1,22 @@
+{
+  "status": "captured simplified example; exploratory, not physical ground truth",
+  "name": "nozzle-bayonette-simplified",
+  "units": "unknown source units",
+  "source": "User-provided RealityScan simplified handheld fan nozzle mesh",
+  "original_source_sha256": "b76c83e0d4cc93ffd9f11220b1051b961a2f511c18e47b0f7cca5634fe64434c",
+  "simplification": "Actual output 49,994 triangles; complete simplification settings not recorded",
+  "files": {
+    "nozzle-bayonette-simplified.ply": {
+      "bytes": 1250160,
+      "sha256": "537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358"
+    },
+    "nozzle-bayonette-simplified.ply.rsInfo": {
+      "bytes": 1788,
+      "sha256": "1abb69aeb9ff5cee35367ca6116650a6a0a8886c67be156baa2bc7d93644c850"
+    }
+  },
+  "vertices": 24999,
+  "triangles": 49994,
+  "coordinate_note": "Export transform matches original source; preserve coordinates and sidecar. Signed approximately unit vertex normals verified.",
+  "selection": "selections/outer-band.json"
+}
