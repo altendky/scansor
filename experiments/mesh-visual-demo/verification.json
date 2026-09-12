@@ -1,0 +1,203 @@
+{
+  "browser_views": [
+    [
+      "mesh",
+      {
+        "result": {
+          "type": "string",
+          "value": "{\"polygons\":556,\"circles\":319,\"description\":\"Start with geometry: equal-size interior neighborhoods carry 16 times as many vertices on the fine side. The transition strip is intentionally different from either uniform interior.\"}"
+        }
+      }
+    ],
+    [
+      "validity",
+      {
+        "result": {
+          "type": "string",
+          "value": "{\"polygons\":556,\"circles\":319,\"description\":\"Green: eligible surface vertices. Red: vertices used only by rejected faces, with no usable area. Orange: the isolated vertex. The nonfinite source vertex has no drawable location.\"}"
+        }
+      }
+    ],
+    [
+      "weights",
+      {
+        "result": {
+          "type": "string",
+          "value": "{\"polygons\":556,\"circles\":319,\"description\":\"Yellow represents larger area contributions; blue represents smaller contributions. Coarse interior vertices have exactly 16\u00d7 the weight of fine interior vertices. Boundaries and the transition strip differ. Excluded vertices are gray; mid-range weights can also look gray. Hover to distinguish them.\"}"
+        }
+      }
+    ],
+    [
+      "rejected-face-corners",
+      {
+        "result": {
+          "type": "string",
+          "value": "{\"polygons\":556,\"circles\":9,\"description\":\"Each colored marker is a corner of a rejected face. Missing/out-of-range and nonfinite corners have no drawable position. Hover to see source face, corner and reason; coincident records are listed together.\"}"
+        }
+      }
+    ],
+    [
+      "reference",
+      {
+        "result": {
+          "type": "string",
+          "value": "{\"polygons\":556,\"circles\":309,\"description\":\"The clean reference contains exactly the same usable surface and computed weights, without the diagnostic fixtures below it. Compare this with Validity: rejected faces do not alter the valid surface contributions.\"}"
+        }
+      }
+    ]
+  ],
+  "checks": {
+    "browser": "Brave, isolated profile, all five modes rendered and screenshots inspected for weights/rejections; expected polygon/marker counts, hover and marker toggle verified",
+    "checks": "Ruff, formatting, basedpyright and changed-file hooks passed",
+    "cloudcompare": "Native scene opened and captured in a separate X11 GUI; RGB and visible glyphs confirmed",
+    "geometry": "556positive triangles, totalarea32, all interior edges twice and boundary edges only on outer rectangle",
+    "pipeline": "Clean/broken import, accounting, export and complete display replay passed; exact16:1interiorweight ratio; valid surface rows identical",
+    "source_sha256": {
+      "experiments/mesh-visual-demo/walkthrough.html": "18021b540ae4a393f4b9e14fb236ae04b1583d2d36398f34ed654aa89495de70",
+      "experiments/mesh_visual_demo.py": "43a501fdf98d08caf27e46f9271e1baffc307ac0784a27be579211c48de9a6d6"
+    }
+  },
+  "fixtures": {
+    "broken": {
+      "display_population": {
+        "rejected_corners": 10,
+        "usable_faces_per_main_view": 556,
+        "vertices_per_main_view": 319
+      },
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "9ddfdb3c34308b981d642b48389a36a9ccc376fa384394b2d21cb43a2e46cb4c",
+        "display_id": "1b73c5a1f2afd166472bbe0e0b336933614fad6a73d7c02e770a5894e2eb3a98",
+        "import_id": "ffbe1b185981f344eb3a38b6ff8100a05e30cad9b59d2ec1892698a0fd5ece9c",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 4448,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 393746248,
+          "peak_rss_bytes": 135180288,
+          "phase": "verify-display-view-faces.bin",
+          "phase_ordinal": 36,
+          "phase_started_ns": 2435853881946783,
+          "plan": {
+            "baseline_bytes": 130961408,
+            "batch_bytes": 46848,
+            "batch_rows": 61,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 134765904,
+            "engine_bytes": 268435456,
+            "engine_temp_limit_bytes": 67108864,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 516884224,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 83886080,
+            "storage": "disk"
+          },
+          "rss_bytes": 130080768,
+          "sampled_disk_peak_allocated_bytes": 0,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 4448
+        },
+        "plan": {
+          "baseline_bytes": 130961408,
+          "batch_bytes": 46848,
+          "batch_rows": 61,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134765904,
+          "engine_bytes": 268435456,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 516884224,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 83886080,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "interior_weight_ratio": 16.0,
+      "source_population": {
+        "faces": 560,
+        "vertices": 320
+      }
+    },
+    "clean": {
+      "display_population": {
+        "rejected_corners": 0,
+        "usable_faces_per_main_view": 556,
+        "vertices_per_main_view": 309
+      },
+      "display_verification": {
+        "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+        "contribution_id": "80c1951c7f4cea452ac52aca363b2f47e93426f8a80bb687e50bb6827b6adfae",
+        "display_id": "6aa76067d3808499e48c8bb60fbc8e08c5b670020ba727b9b17a2b8290a5970a",
+        "import_id": "084da328d49b3a19a52cf36b0b5ae1e452d953492f6de5606225361dff9a886d",
+        "monitor": {
+          "budget_bytes": 536870912,
+          "completed": 4448,
+          "disk": {
+            "allocated_bytes": 0,
+            "concurrent_changes": false,
+            "logical_bytes": 0
+          },
+          "elapsed_ns": 375343964,
+          "peak_rss_bytes": 133910528,
+          "phase": "verify-display-view-faces.bin",
+          "phase_ordinal": 36,
+          "phase_started_ns": 2435852633635523,
+          "plan": {
+            "baseline_bytes": 130056192,
+            "batch_bytes": 46848,
+            "batch_rows": 61,
+            "budget_bytes": 536870912,
+            "disk_estimate_bytes": 134760034,
+            "engine_bytes": 268435456,
+            "engine_temp_limit_bytes": 67108864,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 515979008,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 83886080,
+            "storage": "disk"
+          },
+          "rss_bytes": 129011712,
+          "sampled_disk_peak_allocated_bytes": 0,
+          "sampled_disk_peak_logical_bytes": 0,
+          "total": 4448
+        },
+        "plan": {
+          "baseline_bytes": 130056192,
+          "batch_bytes": 46848,
+          "batch_rows": 61,
+          "budget_bytes": 536870912,
+          "disk_estimate_bytes": 134760034,
+          "engine_bytes": 268435456,
+          "engine_temp_limit_bytes": 67108864,
+          "fixed_buffers_bytes": 33554432,
+          "reserved_bytes": 515979008,
+          "resident_columns_bytes": 0,
+          "safety_bytes": 83886080,
+          "storage": "disk"
+        },
+        "revision": "mesh-display-verification-v1",
+        "status": "verified",
+        "verified_data_files": 5
+      },
+      "interior_weight_ratio": 16.0,
+      "source_population": {
+        "faces": 556,
+        "vertices": 309
+      }
+    }
+  },
+  "runtime_base_commit": "7c2dccf34d1e8834e70278cf6f84121cff51f937",
+  "scope": "Retained local demonstration observations, not platform or production acceptance. Generated binary artifacts remain ignored and can be rebuilt.",
+  "screenshots_sha256": {
+    "cloudcompare.png": "84e718b41341bfa1859df0b666f554bc220e141afd3b847fc404d193199c4c0d",
+    "rejected-face-corners.png": "729ad04689dca38ba3bcfd66f1cacbb1a61d86bc6f48ed331474fb0bc076eace",
+    "weights.png": "df72188f49d9674939bdf8ab429f143821fbb24a518bc2525e39538ca82e7d08"
+  }
+}
