@@ -1,0 +1,11 @@
+{
+  "status": "exploratory cone-side and perpendicular plane model",
+  "parameter_order": ["center_x", "center_y", "axis_slope_x", "axis_slope_y", "reference_radius", "plane_offset", "taper"],
+  "axial_domain": [-2.0, 5.0],
+  "meaning": "Finite lateral support measured along the unit axis from its local-z=0 reference point; conservative bounds enclose the band and top-plane guide. These are not inferred physical edges.",
+  "radius": "reference_radius + taper * axial_coordinate; strictly positive at the reference and both support endpoints",
+  "residual": "signed orthogonal distance to the lateral surface; projections outside support are rejected, with no cap/edge-distance substitution",
+  "constraint": "plane normal equals cone axis exactly; plane offset is fitted independently, not fixed to a support endpoint",
+  "selection_policy": "reuse the saved outer-band and top-face IDs unchanged; no residual trimming",
+  "weighting": "one global normalization of whole-mesh incident-area weights across both selections"
+}

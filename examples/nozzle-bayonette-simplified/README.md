@@ -6,8 +6,10 @@ directly in Git. Source units are unconfirmed. This is a captured exploratory
 example, not physical ground truth or an admitted product fitting fixture.
 
 The main outer wall has a small taper, with bayonet features at one end and a
-steeper conical region at the other. A cylinder is an initial approximation.
-Cone support is tracked in [#48](https://github.com/altendky/scansor/issues/48);
+steeper conical region at the other. The current example uses a cone/frustum
+approximation with a perpendicular top
+plane; the earlier cylinder fits are retained as comparisons.
+Cone implementation is tracked in [#48](https://github.com/altendky/scansor/issues/48);
 uneven-coverage weighting is tracked in [#47](https://github.com/altendky/scansor/issues/47).
 
 ## Stored inputs
@@ -28,7 +30,40 @@ original inspection and are now saved explicitly; replay does not need the
 original mesh. No residual-based trimming is applied. Vertex weights are recomputed
 as one third of each incident triangle's area on the whole simplified mesh.
 
-## Reproduce the cylinder fit
+## Current workflow: cone/frustum and perpendicular plane
+
+```sh
+PYTHONPATH=src:. python -m experiments.run_nozzle_cone_plane \
+  --output local-inputs/nozzle-bayonette-simplified-cone-fit
+```
+
+This replaces the cylinder with a cone side while keeping the same 1,261 outer-band
+vertices and 642 top-face vertices. The top plane normal remains exactly the cone
+axis; both regions contribute to the joint fit. Radius and signed taper are fitted,
+with finite positive-radius support declared in `models/cone-plane.json`.
+
+| Metric | Joint cylinder/plane | Joint cone/plane |
+| --- | ---: | ---: |
+| Lateral orthogonal RMS | 0.01247 | 0.00761 |
+| Plane orthogonal RMS | 0.02315 | 0.02315 |
+| Combined area-weighted RMS | 0.01513 | 0.01225 |
+
+The fitted signed half-angle is about **0.892 degrees**, widening toward the top.
+Reference diameter is about **18.79278** source units. The diameter at the top plane
+is about **18.92855**, extrapolated beyond the selected lateral band. Taper adds one
+parameter; improvement on these fitted observations is not physical validation.
+
+Open the generated `scan-joint-residuals.ply`, `joint-cone-guide.ply`, and
+`perpendicular-plane-guide.ply` together in CloudCompare. Cyan is the cone, magenta
+the plane, and residual colors are explained in `VIEW.txt`. `fit.json` compares
+against the refitted cylinder baseline on exactly the same selections and includes
+common axial-bin residual summaries. `residuals.npz` retains every ID, area weight,
+and both radial and orthogonal cone residuals.
+
+See [the cone experiment](../../experiments/mesh-cone-fit/README.md) for the
+parameterization, exact constraint, finite support rules, and numerical tests.
+
+## Earlier cylinder-only comparison
 
 From the repository root, with the project's Python dependencies installed:
 
@@ -54,7 +89,7 @@ to 0.011914 (about 0.39%). This comparison supports retaining this particular sm
 example; it is not a general claim about simplification accuracy. The original
 full-resolution scan and its private reports are not included or needed for replay.
 
-## Joint cylinder and perpendicular top plane
+## Earlier joint cylinder and perpendicular top plane
 
 `selections/top-face.json` and `selections/top-face-vertex-ids.txt` retain the
 user-approved 642-vertex upper annular face. Its geometric gates use the saved
