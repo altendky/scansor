@@ -1,0 +1,32 @@
+{
+  "status": "user-approved fixed top-face selection",
+  "axial_range": [
+    4.1,
+    4.6
+  ],
+  "radius_range": [
+    8.4,
+    9.2
+  ],
+  "minimum_axial_normal_dot": 0.9,
+  "selected_vertices": 642,
+  "source_sha256": "537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358",
+  "axis_seed": {
+    "center": [
+      -0.3171482160971745,
+      -1.2705574443335363,
+      27.023286496487028
+    ],
+    "axis": [
+      -0.027912834810700574,
+      -0.03379293992759593,
+      0.9990389936653525
+    ],
+    "meaning": "Fixed cylinder-only fitted axis used to define selection gates before joint fitting; never updated during the joint fit."
+  },
+  "vertex_ids_file": "top-face-vertex-ids.txt",
+  "vertex_ids_sha256": "53e3c3a161472b72c6558031377a3c59ddf67886c1edbfddabd6b21711cab224",
+  "indexing": "zero-based source vertex row IDs",
+  "weighting": "one third of each usable incident triangle area, computed on the entire simplified mesh",
+  "meaning": "Upper annular face, excluding inner and outer edge transitions. User confirmed the displayed gold selection. No residual trimming. Unknown source units."
+}

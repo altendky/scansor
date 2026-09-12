@@ -53,3 +53,55 @@ the reduced fit on the original selected observations increased RMS from 0.01186
 to 0.011914 (about 0.39%). This comparison supports retaining this particular small
 example; it is not a general claim about simplification accuracy. The original
 full-resolution scan and its private reports are not included or needed for replay.
+
+## Joint cylinder and perpendicular top plane
+
+`selections/top-face.json` and `selections/top-face-vertex-ids.txt` retain the
+user-approved 642-vertex upper annular face. Its geometric gates use the saved
+cylinder-only reference axis, with radial bounds 8.4 to 9.2, axial bounds 4.1 to
+4.6, and an axial normal dot product of at least 0.9. The reference and both
+selections remain fixed throughout joint fitting; the fitted axis may move.
+
+```sh
+PYTHONPATH=src:. python -m experiments.run_nozzle_cylinder_plane \
+  --output local-inputs/nozzle-bayonette-simplified-joint-fit
+```
+
+The plane normal and cylinder axis are the same unit vector by construction.
+Both regions inform that axis. Cylinder position/radius and plane offset also
+vary. Whole-mesh incident-area weights are normalized once over both regions;
+surfaces do not receive equal total weight by default. The selected cylinder area
+is about 129.69 and plane area about 30.96 in squared source units. Every selected
+observation participates, without residual trimming.
+
+| Metric | Cylinder fixed; plane offset fitted | Joint fit |
+| --- | ---: | ---: |
+| Diameter | 18.79095 | 18.79299 |
+| Cylinder radial RMS | 0.01197 | 0.01247 |
+| Plane normal-distance RMS | 0.05403 | 0.02315 |
+| Combined area-weighted RMS | 0.02604 | 0.01513 |
+
+The shared axis changes by about 0.441 degrees. These numbers describe the
+constrained compromise on this selection, not physical accuracy. An unconstrained
+weighted plane has RMS about 0.02312 on the same plane vertices; the remaining
+plane residual is therefore not explained solely by perpendicularity.
+
+Outputs include `fit.json` (parameters, source/selection/implementation hashes,
+three starting guesses, comparison metrics), `residuals.npz` (both complete ID
+lists, areas, residuals), and three display PLY files. Open those PLY files together
+in CloudCompare:
+
+- `scan-joint-residuals.ply`: full source geometry with signed residual colors.
+- `joint-cylinder-guide.ply`: cyan fitted-cylinder guide, extended to the top plane.
+- `perpendicular-plane-guide.ply`: magenta annular plane guide.
+
+Gray is unselected context. Blue/white/red represents negative/zero/positive
+residual. Each region uses its own symmetric scale without clipping; `VIEW.txt`
+records the actual ranges. Guide tubes have radius 0.012 for visibility, not an
+uncertainty interpretation. Plane guides extend from radius 8.2 to 10.2 for
+visibility beyond the selected rim; these are display bounds, not fitted face
+boundaries. Hide the guides to inspect the residual colors unobstructed.
+
+This remains a separate experiment with in-memory arrays and a fixed declared
+relationship. It does not implement a general constraint system or extend the
+existing synthetic-only product admission path.
