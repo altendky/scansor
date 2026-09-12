@@ -5,16 +5,31 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from experiments.mesh_cylinder_fit import fit_cylinder, residual_jacobian
 from scansor._plyio import Reader, build_layout, read_header
 
 
-def run(example: Path, output: Path) -> None:
-    """Check source/selection identity, recompute mesh areas, then fit all saved IDs."""
+@dataclass(frozen=True)
+class NozzleExample:
+    xyz: NDArray[np.float64]
+    normals: NDArray[np.float64]
+    triangles: NDArray[np.int32]
+    weights: NDArray[np.float64]
+    ids: NDArray[np.int64]
+    selection: dict[str, Any]
+    selection_path: Path
+    zero_area_faces: int
+
+
+def load_example(example: Path) -> NozzleExample:
+    """Verify source and cylinder selection, returning full-mesh geometry/areas."""
     manifest = json.loads((example / "manifest.json").read_text())
     for name, expected in manifest["files"].items():
         with (example / name).open("rb") as stream:
@@ -86,6 +101,23 @@ def run(example: Path, output: Path) -> None:
     )
     if not np.array_equal(np.flatnonzero(selected), ids):
         raise ValueError("geometric gates do not reproduce the saved selection")
+    return NozzleExample(
+        xyz,
+        normals,
+        triangles,
+        weights,
+        ids,
+        selection,
+        selection_path,
+        int(np.count_nonzero(areas == 0)),
+    )
+
+
+def run(example: Path, output: Path) -> None:
+    """Check source/selection identity, recompute mesh areas, then fit all saved IDs."""
+    data = load_example(example)
+    xyz, weights, ids = data.xyz, data.weights, data.ids
+    selection, selection_path = data.selection, data.selection_path
     frame = np.array(selection["fit_frame"]["columns"])
     origin = np.array(selection["fit_frame"]["origin"])
     points = (xyz[ids] - origin) @ frame
@@ -105,7 +137,7 @@ def run(example: Path, output: Path) -> None:
         "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "numpy_version": np.__version__,
         "selected_vertices": len(ids),
-        "zero_area_faces": int(np.count_nonzero(areas == 0)),
+        "zero_area_faces": data.zero_area_faces,
         "fit": result,
         "diameter": float(2 * parameters[4]),
         "axis_world": fit_axis.tolist(),
