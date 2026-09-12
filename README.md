@@ -36,6 +36,11 @@ not been established.
 - [Project documentation](docs/src/project/index.md) - annotated source hub for
   scope, requirements, architecture, research, decisions, and open questions
 
+## Captured examples
+
+Small exploratory datasets and replay instructions are indexed in
+[examples/](examples/README.md). These are not physical-validation evidence.
+
 ## License
 
 Licensed under either of:

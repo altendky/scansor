@@ -5,6 +5,8 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-added-large-files
+        # Deliberately retained 1.25 MB captured example; keep the default elsewhere.
+        exclude: ^examples/nozzle-bayonette-simplified/nozzle-bayonette-simplified\.ply$
       - id: check-case-conflict
       - id: check-json
       - id: check-merge-conflict

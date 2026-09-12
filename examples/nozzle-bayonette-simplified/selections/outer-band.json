@@ -1,0 +1,64 @@
+{
+  "axis_seed": {
+    "center": [
+      -0.17851424343699349,
+      -1.1589745382023346,
+      26.523937927224004
+    ],
+    "axis": [
+      0.000675135678632837,
+      -0.015914832068988666,
+      0.9998731231071426
+    ],
+    "meaning": "All-area point covariance smallest-eigenvector orientation for inspection only; not fitted cylinder axis."
+  },
+  "axial_range": [
+    -0.6,
+    1.6
+  ],
+  "radius_range": [
+    8.9,
+    10
+  ],
+  "minimum_outward_normal_dot": 0.7,
+  "maximum_abs_axial_normal_dot": 0.35,
+  "status": "exploratory fixed selection on simplified mesh",
+  "source_sha256": "537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358",
+  "vertex_ids_file": "outer-band-vertex-ids.txt",
+  "vertex_ids_sha256": "6a34b965a578b3fa94dcad95f3e4236ea804bf22df06bbcbbbf863fd903aeada",
+  "selected_vertices": 1261,
+  "indexing": "zero-based source vertex row IDs",
+  "weighting": "one third of each usable incident triangle area, computed on the entire simplified mesh",
+  "meaning": "Same pre-fit geometric gates as the original band; different observations after simplification. No residual trimming. Unknown units.",
+  "fit_frame": {
+    "origin": [
+      -0.17817602244445682,
+      -1.1669473508810067,
+      27.02484180597154
+    ],
+    "columns": [
+      [
+        0.9999997720381432,
+        1.0746031922990095e-05,
+        0.000675135678632837
+      ],
+      [
+        0.0,
+        0.9998733510401283,
+        -0.015914832068988666
+      ],
+      [
+        -0.0006752211946948284,
+        0.015914828441013995,
+        0.9998731231071426
+      ]
+    ]
+  },
+  "initial_parameters": [
+    0,
+    0,
+    0,
+    0,
+    9.4
+  ]
+}
