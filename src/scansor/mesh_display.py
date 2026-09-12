@@ -225,6 +225,7 @@ def export_display(
     chunk_rows: int | None = None,
     progress: Callable[[dict[str, Control]], None] | None = None,
     publication_staging: Path | None = None,
+    on_published: Callable[[PublishedStage], None] | None = None,
 ) -> DisplayExport:
     """Scoped internal exporter; use a fresh worker for attributable RSS evidence."""
     if transform is None:
@@ -256,6 +257,7 @@ def export_display(
     )
     workspace = create_workspace(workdir)
     monitor = ResourceMonitor(budget_bytes, workspace.access, callback=progress)
+    monitor.set_plan(initial)
     failure: BaseException | None = None
     try:
         with monitor, ExitStack() as stack:
@@ -288,6 +290,7 @@ def export_display(
                 storage="disk",
                 chunk_rows=initial.batch_rows,
             )
+            monitor.set_plan(plan)
             check_disk_space(workspace.access, plan.disk_estimate_bytes)
             check_disk_space(destination, estimate)
             stage, legend, inventory = prepare_display(
@@ -330,6 +333,8 @@ def export_display(
                 monitor.check,
                 publication_staging,
             )
+            if on_published is not None:
+                on_published(published)
             monitor.progress("publish-display", 1, 1)
             data.check()
         execution: dict[str, Control] = {

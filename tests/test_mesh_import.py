@@ -108,7 +108,9 @@ def test_foundation_every_source_row_across_storage_and_budget(
                 with pytest.raises(MeshImportError, match="sealed"):
                     _ = data.columns[key].inventory()
             seen = 0
-            for batch in data.staging.associated_faces():
+            for batch in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 assert batch.start == seen and len(batch.indices) <= chunk
                 assert (
                     not batch.indices.flags.writeable
@@ -173,7 +175,9 @@ def test_sidecar_interpretation_is_bound_but_paths_and_execution_are_not(
             assert str(tmp_path).encode() not in encode_control(record)
             identities.append(control_id(record))
             count = 0
-            for part in data.staging.associated_faces():
+            for part in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 count += len(part.indices)
                 status, area = face_dispositions(
                     part.indices, part.corners, vertices=data.vertices
@@ -220,19 +224,40 @@ def test_staging_verifies_ids_independently(
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
-def test_missing_lookup_and_repeated_operations(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "query",
+    (
+        "DELETE FROM vertices WHERE vertex=1",
+        "UPDATE vertices SET vertex=0 WHERE vertex=1",
+        "UPDATE vertices SET x=1 WHERE vertex=1",
+        "UPDATE vertices SET x=NULL WHERE vertex=1",
+        "DELETE FROM faces WHERE face=0",
+        "INSERT INTO faces SELECT * FROM faces WHERE face=0",
+        "UPDATE faces SET face=1 WHERE face=0",
+        "UPDATE faces SET i0=1 WHERE face=0",
+        "UPDATE faces SET i0=NULL WHERE face=0",
+    ),
+)
+def test_missing_lookup_and_repeated_operations(tmp_path: Path, query: str) -> None:
     source = tmp_path / "input.ply"
     with source.open("wb") as stream:
         write_recipe(stream, SMALL_RECIPES["right-triangle-orphan-v1"])
     with prepare_import(source, tmp_path, chunk_rows=1) as data:
         for _attempt in range(2):
-            for part in data.staging.associated_faces():
+            for part in data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            ):
                 assert part.indices.tolist() == [[0, 1, 2]]
                 del part
         assert data.staging.association_queries == 2
-        _ = data.staging.connection.execute("DELETE FROM vertices WHERE vertex=1")
-        with pytest.raises(MeshImportError, match="incorrect coordinate lookup"):
-            _ = list(data.staging.associated_faces())
+        _ = data.staging.connection.execute(query)
+        with pytest.raises(MeshImportError) as caught:
+            _ = list(
+                data.staging.associated_faces(
+                    xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+                )
+            )
+        assert caught.value.category == "integrity"
 
 
 @pytest.mark.parametrize("retain", (False, True))
@@ -296,6 +321,20 @@ def test_memory_plan_and_managed_reservations() -> None:
     )
     plan = plan_memory(**arguments)
     assert plan.storage == "disk"
+    # Capping a batch at 48 MiB must not strand half of the remaining disk-mode
+    # budget while a native blocking query is starved of engine memory.
+    assert plan.engine_bytes == 224 * MIB
+    assert plan.safety_bytes == 80 * MIB
+    assert plan.batch_rows == 65_536
+    assert plan.reserved_bytes == plan.budget_bytes
+    larger_arguments = arguments.copy()
+    larger_arguments["budget_bytes"] = 2048 * MIB
+    larger = plan_memory(**larger_arguments)
+    assert larger.storage == "disk"
+    assert larger.engine_bytes == 1024 * MIB
+    assert larger.safety_bytes == larger.budget_bytes // 10
+    assert larger.batch_rows == plan.batch_rows
+    assert larger.reserved_bytes <= larger.budget_bytes
     assert plan.reserved_bytes <= plan.budget_bytes
     assert plan.engine_bytes + plan.baseline_bytes < plan.reserved_bytes
     assert (
@@ -315,6 +354,32 @@ def test_memory_plan_and_managed_reservations() -> None:
         with ledger.reserve("b", 40):
             assert ledger.high_water == 100
     assert ledger.current == 0 and ledger.high_water == 100
+
+
+def test_failure_progress_retains_actual_memory_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input.ply"
+    with source.open("wb") as stream:
+        write_recipe(stream, GridRecipe(3, 3))
+    events: list[dict[str, Control]] = []
+    expected: dict[str, Control] | None = None
+    with (
+        pytest.raises(MeshImportError, match="cancelled"),
+        prepare_import(
+            source, tmp_path, storage="disk", chunk_rows=2, progress=events.append
+        ) as data,
+    ):
+        expected = data.plan.record()
+        data.monitor.cancel()
+        _ = next(
+            data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            )
+        )
+    assert expected is not None
+    assert events[-1]["event"] == "final"
+    assert events[-1]["plan"] == expected
+    assert any(event["plan"] == expected for event in events[:-1])
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
 def test_monitor_interrupts_native_work_and_reports_progress(
@@ -361,7 +426,11 @@ def test_cancelled_association_closes_reader_connection_and_workspace(
     with (
         pytest.raises(MeshImportError, match="cancelled"),
         prepare_import(source, tmp_path, chunk_rows=2) as data,
-        closing(data.staging.associated_faces()) as batches,
+        closing(
+            data.staging.associated_faces(
+                xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+            )
+        ) as batches,
     ):
         first = next(batches)
         assert first.start == 0
@@ -501,6 +570,34 @@ def test_duckdb_capacity_errors_are_resource_failures(
     message: str, category: str
 ) -> None:
     assert duckdb_failure(duckdb.IOException(message), "staging").category == category
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    (
+        (
+            "TransactionContext Error: Failed to commit: failed to pin block of size 256.0 KiB (205.7 MiB/206.3 MiB used)",
+            "resource",
+        ),
+        (
+            "TransactionContext Error: Failed to commit: failed to allocate data of size 16.0 MiB",
+            "resource",
+        ),
+        (
+            "TransactionContext Error: Failed to commit: write-write conflict",
+            "execution",
+        ),
+        ("TransactionContext Error: transaction has been aborted", "execution"),
+    ),
+)
+def test_wrapped_commit_allocator_error_keeps_resource_category(
+    message: str,
+    category: str,
+) -> None:
+    failure = duckdb_failure(duckdb.TransactionException(message), "duckdb-stage")
+    assert failure.category == category
+    assert failure.stage == "duckdb-stage"
+    assert message in str(failure)
 
 
 def test_duckdb_connect_disk_exhaustion_keeps_resource_category(

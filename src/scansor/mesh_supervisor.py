@@ -19,19 +19,40 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psutil
+
+if TYPE_CHECKING:
+    import resource
 
 from scansor.errors import ScansorError
 from scansor.mesh_controls import Control, control_id, encode_control
 from scansor.mesh_errors import MeshImportError, io_failure
+from scansor.mesh_process_observer import ProcessObserver
 from scansor.mesh_publication_copy import directory_mount
 from scansor.mesh_worker_protocol import FrameReader
 from scansor.mesh_worker_request import WorkerRequest
 from scansor.mesh_workspace import Workspace, create_workspace, remove_owned_workspace
 
-SAMPLE_SECONDS = 0.005
+# Leave scheduling and bounded protocol-processing headroom below S6's 10 ms
+# observation target. Five-millisecond polls missed it in full-size runs. This
+# requested interval is not a guarantee: retain actual gaps and kernel peaks.
+SAMPLE_SECONDS = 0.001
 CANCEL_GRACE_SECONDS = 3.0
+
+
+def _kernel_usage(usage: resource.struct_rusage) -> dict[str, Control]:
+    return {
+        "user_cpu_ns": round(usage.ru_utime * 1_000_000_000),
+        "system_cpu_ns": round(usage.ru_stime * 1_000_000_000),
+        "minor_faults": usage.ru_minflt,
+        "major_faults": usage.ru_majflt,
+        "filesystem_inputs": usage.ru_inblock,
+        "filesystem_outputs": usage.ru_oublock,
+        "voluntary_context_switches": usage.ru_nvcsw,
+        "involuntary_context_switches": usage.ru_nivcsw,
+    }
 
 
 def _failure(
@@ -118,11 +139,13 @@ class _Messages:
         elif kind == "published":
             stage = _object(message.get("stage"))
             identity = stage.get("identity")
-            expected_kind = "import" if not self.published else "contribution"
+            kinds = self.request.published_kinds
+            expected_kind = (
+                kinds[len(self.published)] if len(self.published) < len(kinds) else None
+            )
             if (
                 not self.started
-                or self.request.operation != "import"
-                or len(self.published) >= 2
+                or expected_kind is None
                 or message.keys() != {"type", "stage"}
                 or stage.keys() != {"kind", "path", "identity"}
                 or stage["kind"] != expected_kind
@@ -170,15 +193,13 @@ class _Messages:
                 "result" if status == "complete" else "failure",
             ):
                 _ = _object(message[name])
-            if (
-                status == "complete"
-                and self.request.operation == "import"
-                and len(self.published) != 2
+            if status == "complete" and len(self.published) != len(
+                self.request.published_kinds
             ):
                 raise MeshImportError(
                     "integrity",
                     "worker-protocol",
-                    "import completed without both published stages",
+                    "operation completed without its required published stages",
                 )
             self.result = message
         else:
@@ -221,8 +242,8 @@ def run_worker(
 ) -> dict[str, Control]:
     """Run one fresh worker synchronously; failure always has an explicit report.
 
-    At most one progress frame, two published-stage records and one final result
-    are retained. Cancellation first sends SIGTERM, then SIGKILL after three
+    The latest progress frame, up to two required published stages and one final
+    result are retained. Cancellation first sends SIGTERM, then SIGKILL after three
     seconds if needed. Nothing outside the held workspace is cleaned.
     """
     if sys.platform != "linux" or not hasattr(os, "wait4"):
@@ -231,20 +252,21 @@ def run_worker(
         )
     retain_incomplete = _retention(retain_incomplete)
     request = WorkerRequest.from_record(request.record())
-    if request.operation == "verify":
-        for path in (request.source, request.contribution):
-            if path is not None and workdir.resolve(strict=True).is_relative_to(
+    for path in request.readonly_artifacts:
+        for writable in (workdir, request.destination):
+            if writable is not None and writable.resolve(strict=True).is_relative_to(
                 path.resolve(strict=True)
             ):
                 raise MeshImportError(
                     "structure",
                     "supervisor",
-                    "scratch must be outside read-only artifact trees",
+                    "scratch and destination must be outside read-only artifact trees",
                 )
     workspace = create_workspace(workdir)
     publication: Workspace | None = None
     access = workspace.access
     process: subprocess.Popen[bytes] | None = None
+    observer: ProcessObserver | None = None
     failure: dict[str, Control] | None = None
     report: dict[str, Control] = {}
     messages: _Messages | None = None
@@ -252,16 +274,23 @@ def run_worker(
     stderr_total = 0
     peak = samples = max_gap = 0
     previous_sample: int | None = None
+    first_sample: int | None = None
+    launch_started: int | None = None
+    launch_returned: int | None = None
+    reaped: int | None = None
+    gaps_over_10ms = 0
+    sampling_error: str | None = None
     kernel_peak = 0
     usage_record: dict[str, Control] = {}
     started_ns = time.monotonic_ns()
     stop_deadline: float | None = None
     killed = False
+    receiving = True
     parser = FrameReader()
     try:
         (access / "work").mkdir(mode=0o700)
         _write_record(access / "request.json", request.record())
-        if request.operation == "import":
+        if request.published_kinds:
             assert request.destination is not None
             target = os.open(
                 request.destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -282,6 +311,10 @@ def run_worker(
                     "request_id": control_id(request.record()),
                 },
             )
+        # Start the small helper before the worker so interpreter startup is
+        # outside the measured worker lifetime. It owns no workspace handles.
+        observer = ProcessObserver(SAMPLE_SECONDS)
+        launch_started = time.monotonic_ns()
         process = subprocess.Popen(
             _worker_command(
                 workspace.descriptor,
@@ -293,8 +326,11 @@ def run_worker(
             pass_fds=tuple(root.descriptor for root in roots),
             start_new_session=True,
         )
+        launch_returned = time.monotonic_ns()
         assert process.stdout is not None and process.stderr is not None
+        observer.start(process.pid)
         messages = _Messages(request, process.pid, progress)
+        observed_process = psutil.Process(process.pid)
         for root in roots:
             _write_record(
                 root.access / "worker.json",
@@ -303,7 +339,7 @@ def run_worker(
                     "pid": process.pid,
                     "pid_namespace_inode": os.stat("/proc/self/ns/pid").st_ino,
                     "create_time_ns": int(
-                        psutil.Process(process.pid).create_time() * 1_000_000_000
+                        observed_process.create_time() * 1_000_000_000
                     ),
                 },
             )
@@ -311,22 +347,13 @@ def run_worker(
             _ = selector.register(process.stdout, selectors.EVENT_READ, "stdout")
             _ = selector.register(process.stderr, selectors.EVENT_READ, "stderr")
             while process.returncode is None or selector.get_map():
-                now = time.monotonic_ns()
+                measured = observer.observations(check=failure is None)
                 if process.returncode is None:
-                    try:
-                        rss = psutil.Process(process.pid).memory_info().rss
-                        peak = max(peak, rss)
-                        samples += 1
-                        if previous_sample is not None:
-                            max_gap = max(max_gap, now - previous_sample)
-                        previous_sample = now
-                        if rss > request.budget_bytes and failure is None:
-                            failure = _failure(
-                                "resource",
-                                "sampled whole-worker RSS exceeded its budget",
-                            )
-                    except psutil.NoSuchProcess:
-                        pass
+                    if measured.peak_bytes > request.budget_bytes and failure is None:
+                        failure = _failure(
+                            "resource",
+                            "sampled whole-worker RSS exceeded its budget",
+                        )
                     if cancel is not None and cancel.is_set() and failure is None:
                         failure = _failure("cancelled", "operation cancelled")
                     if failure is not None and stop_deadline is None:
@@ -348,32 +375,42 @@ def run_worker(
                     elif key.data == "stderr":
                         stderr_total += len(data)
                         stderr.extend(data[: max(0, 4096 - len(stderr))])
-                    elif failure is None:
+                    elif receiving:
+                        # A requested stop does not invalidate the protocol.
+                        # Keep cleanup/final observations and any publication
+                        # that raced with cancellation; preserve the initiating
+                        # resource/cancellation failure as the overall outcome.
                         try:
                             for message in parser.feed(data):
                                 messages.accept(message)
                         except BaseException as error:
-                            failure = _failure(
-                                "worker-protocol"
-                                if isinstance(error, ScansorError)
-                                else "execution",
-                                str(error),
-                            )
+                            receiving = False
+                            if failure is None:
+                                failure = _failure(
+                                    "worker-protocol"
+                                    if isinstance(error, ScansorError)
+                                    else "execution",
+                                    str(error),
+                                )
+                            else:
+                                failure["notes"] = [
+                                    "Further worker telemetry could not be accepted: "
+                                    + str(error)[:2048]
+                                ]
                 if process.returncode is None:
                     pid, status, usage = os.wait4(process.pid, os.WNOHANG)
                     if pid:
+                        reaped = time.monotonic_ns()
                         process.returncode = os.waitstatus_to_exitcode(status)
                         kernel_peak = int(usage.ru_maxrss) * 1024
-                        usage_record = {
-                            "user_cpu_ns": round(usage.ru_utime * 1_000_000_000),
-                            "system_cpu_ns": round(usage.ru_stime * 1_000_000_000),
-                            "minor_faults": usage.ru_minflt,
-                            "major_faults": usage.ru_majflt,
-                            "filesystem_inputs": usage.ru_inblock,
-                            "filesystem_outputs": usage.ru_oublock,
-                            "voluntary_context_switches": usage.ru_nvcsw,
-                            "involuntary_context_switches": usage.ru_nivcsw,
-                        }
+                        usage_record = _kernel_usage(usage)
+        if (
+            failure is None
+            and observer.observations().peak_bytes > request.budget_bytes
+        ):
+            failure = _failure(
+                "resource", "sampled whole-worker RSS exceeded its budget"
+            )
         if failure is None:
             try:
                 parser.finish()
@@ -410,17 +447,47 @@ def run_worker(
             str(error),
         )
     finally:
-        if process is not None:
-            if process.returncode is None:
-                with suppress(ProcessLookupError):
-                    os.kill(process.pid, signal.SIGKILL)
-                _pid, status, usage = os.wait4(process.pid, 0)
-                process.returncode = os.waitstatus_to_exitcode(status)
-                kernel_peak = int(usage.ru_maxrss) * 1024
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
+        try:
+            if process is not None:
+                if process.returncode is None:
+                    with suppress(ProcessLookupError):
+                        os.kill(process.pid, signal.SIGKILL)
+                    _pid, status, usage = os.wait4(process.pid, 0)
+                    reaped = time.monotonic_ns()
+                    process.returncode = os.waitstatus_to_exitcode(status)
+                    kernel_peak = int(usage.ru_maxrss) * 1024
+                    usage_record = _kernel_usage(usage)
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+        finally:
+            if observer is not None:
+                observer.stop()
+        if observer is not None:
+            measured = observer.observations(check=False)
+            peak, samples = measured.peak_bytes, measured.samples
+            first_sample, previous_sample = measured.first_ns, measured.last_ns
+            max_gap, gaps_over_10ms = measured.largest_gap_ns, measured.gaps_over_10ms
+            sampling_error = measured.error
+            if failure is None and sampling_error is not None:
+                failure = _failure(
+                    "execution", "RSS observation failed: " + sampling_error
+                )
+            if failure is None and peak > request.budget_bytes:
+                failure = _failure(
+                    "resource", "final sampled whole-worker RSS exceeded its budget"
+                )
+        initial_gap = (
+            None
+            if first_sample is None or launch_started is None
+            else first_sample - launch_started
+        )
+        terminal_gap = (
+            None
+            if previous_sample is None or reaped is None
+            else reaped - previous_sample
+        )
         report = {
             "revision": "mesh-worker-outcome-v1",
             "status": "complete" if failure is None else "failed",
@@ -436,8 +503,28 @@ def run_worker(
                 "sampled_peak_rss_bytes": peak,
                 "kernel_peak_rss_bytes": kernel_peak,
                 "requested_sample_interval_ns": round(SAMPLE_SECONDS * 1_000_000_000),
+                "sampling_method": "prestarted independent helper; held proc statm descriptor; acknowledged final cumulative observations; parent alone calls wait4",
+                "sampler_pid": None if observer is None else observer.pid,
+                "sampler_exit_code": None if observer is None else observer.exit_code,
+                "sampling_error": sampling_error,
                 "samples": samples,
                 "largest_observed_sample_gap_ns": max_gap,
+                "sampling_edges": {
+                    "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+                    "launch_started_ns": launch_started,
+                    "launch_returned_ns": launch_returned,
+                    "first_sample_ns": first_sample,
+                    "last_sample_ns": previous_sample,
+                    "reaped_ns": reaped,
+                    "initial_gap_ns": initial_gap,
+                    "terminal_gap_ns": terminal_gap,
+                    "largest_gap_including_edges_ns": max(
+                        max_gap, initial_gap or 0, terminal_gap or 0
+                    ),
+                    "gaps_over_10ms_including_edges": gaps_over_10ms
+                    + int(initial_gap is not None and initial_gap > 10_000_000)
+                    + int(terminal_gap is not None and terminal_gap > 10_000_000),
+                },
                 "kernel_usage": usage_record,
                 "stderr": bytes(stderr).decode("utf-8", errors="replace"),
                 "stderr_truncated": stderr_total > len(stderr),

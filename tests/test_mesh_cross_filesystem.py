@@ -13,12 +13,14 @@ from scansor import mesh_publication_copy
 from scansor.mesh_accounting import account_import
 from scansor.mesh_controls import Control, decode_control
 from scansor.mesh_display import export_display
+from scansor.mesh_display_verify import verify_display
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_import import prepare_import
 from scansor.mesh_publication import publish_contributions, publish_import
 from scansor.mesh_recipes import SMALL_RECIPES
 from scansor.mesh_replay import verify_mesh
 from scansor.mesh_supervisor import discover_staging, run_worker
+from scansor.mesh_worker_request import WorkerRequest
 from tests.test_mesh_accounting import independent_artifacts
 from tests.test_mesh_artifacts import artifact_state, published
 from tests.test_mesh_supervisor import control_object, fault_command, worker_request
@@ -112,6 +114,47 @@ def test_supervised_cross_filesystem_publication_has_identical_stage_ids(
     assert [stage["identity"] for stage in before] == [
         stage["identity"] for stage in after
     ]
+    assert not list(output_filesystem.glob(".scansor-*"))
+    assert not list(tmp_path.glob(".scansor-*"))
+
+
+@pytest.mark.parametrize("mode", ("complete", "crash-copy"))
+def test_display_worker_owns_cross_filesystem_staging_and_preserves_authority(
+    tmp_path: Path, output_filesystem: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    first, second = published(tmp_path, "exceptional-values-v1")
+    before = artifact_state(first.path), artifact_state(second.path)
+    sentinel = output_filesystem / "keep.txt"
+    _ = sentinel.write_bytes(b"unrelated")
+    if mode != "complete":
+        fault_command(monkeypatch, mode)
+    result = run_worker(
+        WorkerRequest(
+            "display",
+            first.path,
+            contribution=second.path,
+            destination=output_filesystem,
+            chunk_rows=2,
+        ),
+        tmp_path,
+    )
+    assert result["status"] == ("complete" if mode == "complete" else "failed")
+    stages = cast(list[dict[str, Control]], result["published"])
+    assert len(stages) == (1 if mode == "complete" else 0)
+    if stages:
+        assert (
+            verify_display(
+                Path(str(stages[0]["path"])),
+                first.path,
+                second.path,
+                tmp_path,
+                expected_display_id=str(stages[0]["identity"]),
+                chunk_rows=2,
+            )["status"]
+            == "verified"
+        )
+    assert sentinel.read_bytes() == b"unrelated"
+    assert (artifact_state(first.path), artifact_state(second.path)) == before
     assert not list(output_filesystem.glob(".scansor-*"))
     assert not list(tmp_path.glob(".scansor-*"))
 

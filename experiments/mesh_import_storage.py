@@ -52,7 +52,10 @@ def run(options: Any) -> dict[str, Control]:
         ) as foundation:
             inventory = foundation.inventory()
             seen = 0
-            for batch in foundation.staging.associated_faces():
+            for batch in foundation.staging.associated_faces(
+                xyz=foundation.columns["xyz.bin"],
+                triangles=foundation.columns["triangles.bin"],
+            ):
                 assert batch.start == seen
                 expected = recipe.faces(batch.start, batch.start + len(batch.indices))
                 assert np.array_equal(batch.indices, expected)

@@ -17,7 +17,7 @@ import numpy as np
 from scansor.mesh_accumulation import CORNER_REVISION, CornerFold, VertexContributions
 from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control, control_id
-from scansor.mesh_corner_storage import CornerStaging, verify_coordinates
+from scansor.mesh_corner_storage import CornerStaging
 from scansor.mesh_digests import RowDigest
 from scansor.mesh_dispositions import face_dispositions
 from scansor.mesh_duckdb import duckdb_failure
@@ -139,16 +139,16 @@ def _faces(data: ImportFoundation) -> tuple[list[int], int, float, str]:
     counts, invalid, total, seen = [0] * 5, 0, 0.0, 0
     specs = import_specs(data.vertices, data.faces, normals=data.has_normals)[-3:]
     digest = RowDigest("mesh-import-faces-v1", specs, max_rows=data.plan.batch_rows)
-    for batch in data.staging.associated_faces():
+    for batch in data.staging.associated_faces(
+        xyz=data.columns["xyz.bin"], triangles=data.columns["triangles.bin"]
+    ):
         data.monitor.check()
         stop = batch.start + len(batch.indices)
-        if batch.start != seen or not np.array_equal(
-            batch.indices, data.columns["triangles.bin"].read_range(batch.start, stop)
-        ):
+        if batch.start != seen:
             raise MeshImportError(
                 "integrity",
                 "account-faces",
-                "associated indices differ from canonical source faces",
+                "associated batches are not in source order",
                 row=seen,
             )
         status, areas = face_dispositions(
@@ -187,7 +187,6 @@ def _write_fold(
 
 
 def _account(data: ImportFoundation, columns: dict[str, Column]) -> AccountedImport:
-    verify_coordinates(data)
     face_counts, invalid, face_total, face_digest = _faces(data)
     corner_count = 3 * data.faces - invalid
     corners = CornerStaging(data, count=corner_count)

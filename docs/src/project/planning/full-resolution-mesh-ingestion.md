@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**Provisional contract; S1–S5 implementation, 2026-09-11.**
+**Provisional contract; S1–S6 implementation and measured limits, 2026-09-12.**
 This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
@@ -21,8 +21,10 @@ pretending external observations are synthetic.
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
 core, source/storage foundation and full contribution/replay path have the S1–S4
 implementations described below. S5 adds the internal display exporter, replay,
-and measured small CloudCompare CLI round trips described below. S6
-scale/resource evidence remains open. A prepared foundation is not a complete import or
+and measured small CloudCompare CLI round trips described below. S6 adds the
+generated scale/resource matrix, including failed sampling observations and
+reordered-input performance limits described below. A prepared foundation is not
+a complete import or
 contribution result; S4 must finish and independently publish each stage.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
@@ -150,7 +152,15 @@ visibly. It neither follows embedded paths nor derives units or calibration.
 The original bytes remain part of the source inventory regardless of interpretation.
 
 [Columns](../../../../src/scansor/mesh_columns.py) expose bounded, owned,
-read-only NumPy ranges over reserved RAM or buffered raw files. Writes require
+read-only NumPy ranges and row-ID gathers over reserved RAM or raw files.
+Gathers preserve request order and duplicates; disk reads group a bounded request
+into tight bounded spans without mapping the full column or retaining a cache.
+Unbuffered Python I/O avoids Python read-ahead beyond each span; OS caching and
+filesystem read-ahead remain separate.
+Coalescing permits at most three unrequested rows between requested IDs, so total
+logical row bytes read are bounded by four times the request size, independent
+of column size. Physical device I/O can be larger. The
+caller reserves output, window and index-sorting scratch. Writes require
 exact contiguous dtypes and source-prefix coverage; sealing checks complete rows
 and exact byte lengths. Source XYZ/normals, raw triangle indices, vertex status
 and normal status are populated without dropping rejected rows. Exceptional
@@ -164,10 +174,15 @@ these pending columns and never advertise complete import/contribution status.
 64-bit source ordinals, signed corner indices and unsigned coordinate words.
 Storing float32 words as integers avoids engine NaN/null conversion. Bounded
 Arrow inputs are consumed synchronously. Complete ordered ID scans reject missing
-or duplicate rows. One left-association query emits all corners in source order,
-checks exact face/corner cardinality and valid-index lookup coverage, and returns
-owned NumPy face batches. Invalid-index rows remain represented. The consumer
-must release each batch before advancing; Arrow views stay inside their reader
+or duplicate rows. Coordinate association verifies all staged coordinate words,
+reads staged faces in source order, checks their indices against canonical
+triangles and gathers valid coordinates from the canonical columns in bounded
+batches. These checks repeat on every consumption pass. Invalid-index corners
+retain zero coordinates and remain represented in owned NumPy face batches.
+This replaces a global hash join that exceeded the engine reservation on the
+sixty-million-vertex 512 MiB case; the new path still needs full-scale resource
+validation. DuckDB continues to order source rows and contribution tuples. The
+consumer must release each batch before advancing; Arrow views stay inside their reader
 scope. No table-sized result fetch or complete query per output batch is used.
 PyArrow's untyped API is confined to this checked execution boundary. Upgrade
 comments require renewed reader/copy/lifetime checks.
@@ -891,7 +906,7 @@ windows with all alignment pages charged to the budget. Do not keep a whole-file
 mapping alive while assuming its touched pages cost nothing. Do not rely solely
 on garbage collection, advisory page eviction, or `memmap.flush()` to release
 resident pages. A documented platform that cannot close windows reliably uses
-buffered range reads. Both storage backends execute the same row and arithmetic
+bounded range reads. Both storage backends execute the same row and arithmetic
 semantics.
 
 The raw-column reference strategy processes the mesh in these passes. The initial
@@ -1093,12 +1108,69 @@ considered. No CloudCompare source is needed to implement these display files.
 
 ## Verification and implementation sequence
 
+### S6 generated scale and resource evidence
+
+The [opt-in scale harness](../../../../experiments/mesh-scale/README.md) freezes
+independently checked expectations before interpreting measured runs. Integer
+Philox/encoding logic and rational rounding oracles cover complete noiseless
+and noisy seed-7 grids, deterministic source-index/face permutations, and
+high-valence fans with duplicate/degenerate variants. Large sources, scratch,
+artifacts and streamed telemetry remain outside Git; compact reports retain
+full hashes and exact runtime identities. Ordinary CI exercises small
+correctness and failure cases rather than running the stress workloads.
+
+Each full case runs import/contribution accounting, display export and complete
+display replay in separate fresh workers, sequentially. Independent readback
+checks every canonical column, ordered digest, population and numeric summary.
+Display checks cover all file hashes, profiles, populations and identities;
+replay rebuilds every display file from authoritative columns. The current
+budget comparisons use the same frozen sources and runtime implementation,
+comparing complete canonical and display check records at 512 MiB and 2 GiB.
+The larger input uses disk storage under both budgets.
+
+Coordinate association gathers bounded canonical rows and verifies staged
+coordinate words and indices. Corner staging stores the original integer IDs;
+bounded face-area gathers reconstruct allocation bits while preserving the
+original four-field digest and ordered arithmetic. Complete area hashes bind
+that source before and after each query, including faces emitting no corners.
+Display face remapping uses a source-verified disk column of display vertex IDs.
+These execution changes preserve the complete accounting and numeric contract.
+
+Whole-worker RSS includes startup through exit, with kernel high-water counters
+and a separate observer ready before worker launch. Actual observation gaps,
+including startup and exit edges, are reported rather than inferred from the
+requested interval. Reports also retain phase timing, allocation plans, I/O,
+logical/allocated disk, progress, versions, host/cache conditions, cgroup charge,
+swap/OOM and cleanup. A dedicated cgroup includes file cache and other members;
+its charge limit is distinct from the worker RSS budget. Observed scheduling
+gaps can fail the 10 ms sampling target even when the operation completes.
+
+The retained evidence distinguishes complete pipelines, failed attempts and
+isolated diagnostics. It includes deliberate cancellation/resource failures
+with owned cleanup and unchanged sources/unrelated markers. It also records a
+replay disk-preflight failure and the verified retirement of duplicate generated
+artifacts before an unchanged-code/budget rerun. Historical artifact paths and
+replacement copies are identified by retention manifests.
+
+These are measurements on one Linux host with uncontrolled caches. Bounded
+sparse reads also introduce a substantial reordered-input timing regression,
+reported with the complete case results. They do not establish a runtime,
+universal memory-capacity or physical-accuracy guarantee. Full Windows/macOS
+resource behavior and large interactive viewer inspection remain unmeasured;
+the numeric CI matrix and S5 small viewer CLI evidence have narrower scopes.
+The private specimen remains optional and does not gate generated evidence.
+
 ### S5 implementation and viewer evidence
 
 The [display exporter](../../../../src/scansor/mesh_display.py) reads complete,
-read-only import and contribution artifacts. Direct DuckDB tables and ordered
-joins associate every finite vertex, usable face, and displayable rejected
-corner. NumPy handles bounded batches; view arrays are streamed to files.
+read-only import and contribution artifacts. Direct DuckDB tables order finite
+vertices and associate displayable rejected corners. Usable faces stream from
+canonical source order and gather their remapped IDs from a checked disk column,
+avoiding a global vertex hash join and corner sort. The complete map digest is
+bound to source-derived values before use; each NumPy gather stays within the
+planned batch reservation. View arrays are streamed to files. The S6 matrix below
+measures this path,
+including its reordered-input performance regression.
 Intended output hashes, source maps, the legend and a separate display inventory
 are checked before atomic publication, including across filesystems through the
 S4 publication primitives. Display settings and semantics have their own identity.

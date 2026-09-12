@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import struct
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
 
 from scansor import mesh_accounting
 from scansor.mesh_accounting import account_import
 from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control, control_id
-from scansor.mesh_corner_storage import CornerStaging
+from scansor.mesh_corner_storage import CornerColumns, CornerStaging
 from scansor.mesh_errors import MeshImportError
 from scansor.mesh_import import prepare_import
 from scansor.mesh_numeric import NumericProfileError
@@ -287,7 +289,17 @@ def test_high_valence_source_order_repeated_winding_and_orphans(tmp_path: Path) 
 
 @pytest.mark.parametrize(
     "mutation",
-    ("coordinate", "index", "missing", "duplicate", "allocation", "wrong-vertex"),
+    (
+        "coordinate",
+        "index",
+        "missing",
+        "duplicate",
+        "wrong-face",
+        "wrong-vertex",
+        "null-vertex",
+        "null-face",
+        "null-corner",
+    ),
 )
 def test_working_relations_are_bound_to_canonical_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
@@ -301,8 +313,11 @@ def test_working_relations_are_bound_to_canonical_rows(
         query = {
             "missing": "DELETE FROM mesh_corners WHERE face=0 AND corner=0",
             "duplicate": "UPDATE mesh_corners SET face=1 WHERE face=0",
-            "allocation": "UPDATE mesh_corners SET allocation=0 WHERE face=0",
+            "wrong-face": "UPDATE mesh_corners SET face=18446744073709551615 WHERE face=0",
             "wrong-vertex": "UPDATE mesh_corners SET vertex=3 WHERE face=0 AND corner=0",
+            "null-vertex": "UPDATE mesh_corners SET vertex=NULL WHERE face=0 AND corner=0",
+            "null-face": "UPDATE mesh_corners SET face=NULL WHERE face=0 AND corner=0",
+            "null-corner": "UPDATE mesh_corners SET corner=NULL WHERE face=0 AND corner=0",
         }[mutation]
         _ = corners.data.staging.connection.execute(query)
         verify(corners)
@@ -322,6 +337,96 @@ def test_working_relations_are_bound_to_canonical_rows(
         with account_import(data):
             pytest.fail("corrupt working relation accepted")
     assert caught.value.category == "integrity"
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+@pytest.mark.parametrize("when", ("before-verify", "before-order", "last-batch"))
+@pytest.mark.parametrize("mutation", ("content", "truncate", "append"))
+def test_corner_allocation_source_changes_are_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str, mutation: str
+) -> None:
+    base = SMALL_RECIPES["unequal-adjacent-v1"]
+    # The last face emits no corners. Its bytes must still remain source-bound.
+    recipe = SmallRecipe(
+        "unreferenced-face-area-v1", base.xyz_bits, (*base.triangles, (-1, -1, -1))
+    )
+    source, sentinel = tmp_path / "input.ply", tmp_path / "keep.txt"
+    with source.open("wb") as stream:
+        write_recipe(stream, recipe)
+    _ = sentinel.write_bytes(b"unrelated")
+    verify, ordered = CornerStaging.verify, CornerStaging.ordered
+
+    def corrupt(corners: CornerStaging) -> None:
+        path = corners.data.columns["face-area.bin"].path
+        assert path is not None
+        with path.open("r+b") as stream:
+            if mutation == "truncate":
+                _ = stream.truncate(path.stat().st_size - 1)
+            elif mutation == "append":
+                _ = stream.seek(0, 2)
+                _ = stream.write(b"\0")
+            else:
+                _ = stream.seek(-8, 2)
+                _ = stream.write(struct.pack("<d", 1.0))
+
+    def verify_with_corruption(corners: CornerStaging) -> None:
+        if when == "before-verify":
+            corrupt(corners)
+        verify(corners)
+
+    def order_with_corruption(corners: CornerStaging) -> Generator[CornerColumns]:
+        if when == "before-order":
+            corrupt(corners)
+        seen = 0
+        for batch in ordered(corners):
+            seen += len(batch[0])
+            if when == "last-batch" and seen == corners.count:
+                corrupt(corners)
+            yield batch
+
+    monkeypatch.setattr(CornerStaging, "verify", verify_with_corruption)
+    monkeypatch.setattr(CornerStaging, "ordered", order_with_corruption)
+    with (
+        pytest.raises(
+            MeshImportError, match=r"face areas changed|column length"
+        ) as caught,
+        prepare_import(source, tmp_path, storage="disk", chunk_rows=2) as data,
+        account_import(data),
+    ):
+        pytest.fail("changed canonical allocation source accepted")
+    assert caught.value.category == "integrity"
+    assert sentinel.read_bytes() == b"unrelated"
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
+def test_corner_area_verification_cancellation_cleans_owned_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, sentinel = tmp_path / "input.ply", tmp_path / "keep.txt"
+    with source.open("wb") as stream:
+        write_recipe(stream, SMALL_RECIPES["unequal-adjacent-v1"])
+    _ = sentinel.write_bytes(b"unrelated")
+    verify, read_range = CornerStaging.verify, Column.read_range
+
+    def cancel_during_verification(corners: CornerStaging) -> None:
+        def read_and_cancel(column: Column, start: int, stop: int) -> np.ndarray:
+            result = read_range(column, start, stop)
+            if column is corners.data.columns["face-area.bin"] and stop > start:
+                corners.data.monitor.cancel()
+            return result
+
+        monkeypatch.setattr(Column, "read_range", read_and_cancel)
+        verify(corners)
+
+    monkeypatch.setattr(CornerStaging, "verify", cancel_during_verification)
+    with (
+        pytest.raises(MeshImportError, match="cancel") as caught,
+        prepare_import(source, tmp_path, storage="disk", chunk_rows=1) as data,
+        account_import(data),
+    ):
+        pytest.fail("cancellation during area verification ignored")
+    assert caught.value.category == "cancelled"
+    assert sentinel.read_bytes() == b"unrelated"
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 

@@ -8,6 +8,7 @@ Check DuckDB/Arrow changelogs and renew lifetime/spill tests on upgrades.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +17,7 @@ import duckdb
 import numpy as np
 
 from scansor.mesh_artifacts import ContributionArtifact
+from scansor.mesh_columns import Column
 from scansor.mesh_controls import Control
 from scansor.mesh_digests import RowDigest
 from scansor.mesh_duckdb import _numpy, pa  # pyright: ignore[reportPrivateUsage]
@@ -79,6 +81,8 @@ class DisplayStaging:
         self.corners: int = 0
         self.ready: bool = False
         self.closed: bool = False
+        self.view_ids: Column | None = None
+        self.view_digest: str | None = None
         self.connection: duckdb.DuckDBPyConnection = duckdb.connect(
             str(directory / "display.duckdb"),
             config={
@@ -92,6 +96,11 @@ class DisplayStaging:
             },
         )
         try:
+            self.view_ids = Column(
+                ColumnSpec("display-view-ids.bin", data.imported.vertices, 1, "<i4"),
+                max_range_bytes=plan.batch_rows * 3 * 4,
+                path=directory / "display-view-ids.bin",
+            )
             _ = self.connection.execute(
                 "CREATE TABLE display_vertices(source_id UBIGINT, view_id INTEGER, x UINTEGER, y UINTEGER, z UINTEGER, normal_status UTINYINT, contribution_status UTINYINT, area UBIGINT, weight UBIGINT)"
             )
@@ -100,14 +109,18 @@ class DisplayStaging:
             )
             monitor.set_interrupt(self.connection.interrupt)
         except BaseException:
-            self.connection.close()
+            self.close()
             raise
 
     def close(self) -> None:
         if not self.closed:
             self.closed = True
             self.monitor.set_interrupt(None)
-            self.connection.close()
+            try:
+                self.connection.close()
+            finally:
+                if self.view_ids is not None:
+                    self.view_ids.close()
 
     def _insert(
         self,
@@ -202,6 +215,8 @@ class DisplayStaging:
                 "execution", "display-staging", "staging is single-use"
             )
         data, chunk = self.data, self.plan.batch_rows
+        assert self.view_ids is not None
+        view_digest = hashlib.sha256()
         digest, seen = self._digest("display_vertices", VERTEX_FIELDS, self.vertices), 0
         phase = "stage-display-vertices"
         self.monitor.progress(phase, 0, data.imported.vertices)
@@ -221,13 +236,20 @@ class DisplayStaging:
                 values["vertex-area.bin"][mask].view("<u8"),
                 values["weight.bin"][mask].view("<u8"),
             )
+            view_ids = np.full(stop - start, -1, dtype="<i4")
+            view_ids[mask] = columns[1]
+            view_digest.update(memoryview(view_ids).cast("B"))
+            self.view_ids.write_range(start, view_ids)
             if count:
                 self._update(digest, seen, columns)
                 self._insert("display_vertices", VERTEX_FIELDS, columns)
             seen += count
             self.monitor.progress(phase, stop, data.imported.vertices)
-            del values, mask, positions, xyz, columns
+            del values, mask, positions, xyz, columns, view_ids
         self._verify("display_vertices", VERTEX_FIELDS, self.vertices, digest.finish())
+        self.view_ids.finish()
+        self.view_digest = view_digest.hexdigest()
+        self._verify_view_ids()
         digest = self._digest("display_faces", FACE_FIELDS, data.imported.faces)
         phase = "stage-display-faces"
         self.monitor.progress(phase, 0, data.imported.faces)
@@ -288,15 +310,68 @@ ON (CASE WHEN c.vertex >= 0 AND c.vertex < {population}
 
     def face_batches(self) -> Generator[tuple[np.ndarray, ...]]:
         self._ready()
-        query = """SELECT f.face_id, a.view_id AS i0, b.view_id AS i1, c.view_id AS i2
-FROM display_faces f
-LEFT JOIN display_vertices a ON f.i0::BIGINT = a.source_id
-LEFT JOIN display_vertices b ON f.i1::BIGINT = b.source_id
-LEFT JOIN display_vertices c ON f.i2::BIGINT = c.source_id
-WHERE f.status = 0 ORDER BY f.face_id"""
-        yield from self.batches(
-            query, FACE_FIELDS[:-1], self.faces, "export-display-faces"
-        )
+        # At 60M vertices the global corner join/sort either crossed 512 MiB RSS
+        # or exhausted its reduced engine allowance. Canonical faces already
+        # have source order. Gather their remapped IDs from a checked disk column
+        # in bounded batches; no vertex-sized hash table or global sort is needed.
+        self._verify_view_ids()
+        assert self.view_ids is not None
+        data, chunk = self.data.imported, self.plan.batch_rows
+        phase, seen = "export-display-face-lookup", 0
+        self.monitor.progress(phase, 0, data.faces)
+        for start in range(0, data.faces, chunk):
+            self.monitor.check()
+            stop = min(start + chunk, data.faces)
+            values = data.read_faces(start, stop).columns
+            mask = values["face-status.bin"] == 0
+            ids = np.arange(start, stop, dtype="<u8")[mask]
+            indices = values["triangles.bin"][mask]
+            if indices.size and (
+                int(indices.min()) < 0 or int(indices.max()) >= data.vertices
+            ):
+                raise MeshImportError(
+                    "integrity", "display-remap", "usable face has invalid source ID"
+                )
+            views = self.view_ids.read_rows(
+                indices.reshape(-1), check=self.monitor.check
+            ).reshape(-1, 3)
+            if views.size and (
+                int(views.min()) < 0 or int(views.max()) >= self.vertices
+            ):
+                raise MeshImportError(
+                    "integrity", "display-remap", "usable face lacks a finite view ID"
+                )
+            if len(ids):
+                columns = (ids, *(views[:, axis].copy() for axis in range(3)))
+                for column in columns:
+                    column.flags.writeable = False
+                yield columns
+                seen += len(ids)
+                del columns
+            self.monitor.progress(phase, stop, data.faces)
+            del values, mask, ids, indices, views
+        if seen != self.faces:
+            raise MeshImportError(
+                "integrity", "display-remap", "incomplete usable face population"
+            )
+
+    def _verify_view_ids(self) -> None:
+        assert self.view_ids is not None and self.view_digest is not None
+        digest = hashlib.sha256()
+        phase, total = "verify-display-view-ids", self.data.imported.vertices
+        self.monitor.progress(phase, 0, total)
+        _ = self.view_ids.read_range(0, 0)
+        for start in range(0, total, self.plan.batch_rows):
+            self.monitor.check()
+            stop = min(start + self.plan.batch_rows, total)
+            rows = self.view_ids.read_range(start, stop)
+            digest.update(memoryview(rows).cast("B"))
+            self.monitor.progress(phase, stop, total)
+            del rows
+        if digest.hexdigest() != self.view_digest:
+            raise MeshImportError(
+                "integrity", "display-remap", "view IDs differ from source vertex order"
+            )
 
     def corner_batches(self) -> Generator[tuple[np.ndarray, ...]]:
         self._ready()

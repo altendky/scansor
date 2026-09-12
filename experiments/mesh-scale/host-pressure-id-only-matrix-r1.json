@@ -1,0 +1,18 @@
+{
+  "memory": {
+    "Dirty": "194708 kB",
+    "MemAvailable": "16518252 kB",
+    "MemFree": "6592348 kB",
+    "MemTotal": "64520512 kB",
+    "SwapFree": "0 kB",
+    "SwapTotal": "0 kB",
+    "Writeback": "272 kB"
+  },
+  "pressure": {
+    "cpu": "some avg10=0.03 avg60=1.16 avg300=5.32 total=19302537052\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+    "io": "some avg10=4.73 avg60=28.63 avg300=27.54 total=18739682131\nfull avg10=4.54 avg60=25.18 avg300=23.96 total=16863163466\n",
+    "memory": "some avg10=3.55 avg60=1.24 avg300=1.27 total=1930086984\nfull avg10=3.55 avg60=1.22 avg300=1.03 total=1700949880\n"
+  },
+  "recorded_utc": "2026-09-11T20:29:14.648541+00:00",
+  "scope": "Read-only host snapshot during the sequential 5ffd9e7 matrix, while the 60M noisy case was running. PSI is host-wide, not an attribution to this worker or to external activity. It does not control cache state or isolate a code performance difference."
+}

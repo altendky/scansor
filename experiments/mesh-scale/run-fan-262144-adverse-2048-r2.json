@@ -1,0 +1,3282 @@
+{
+  "case": "fan-262144-adverse-2048-r2",
+  "checks": {
+    "canonical": {
+      "columns": {
+        "contribution-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "face-area.bin": {
+          "bytes": 8388672,
+          "sha256": "b30c69e5bc244008896f3de90d0b2e218554736df3d17ce383d93f1c9fada2de"
+        },
+        "face-status.bin": {
+          "bytes": 1048584,
+          "sha256": "77cdd4d2ace2bd8b7b301074c67b45adfb26e03e54f885587b0b75b8655f979b"
+        },
+        "normal-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "reference-count.bin": {
+          "bytes": 8388616,
+          "sha256": "7d713fc5157bd3857786597b08f4a0b9a92dcf940243436a75e79f5354954a3e"
+        },
+        "triangles.bin": {
+          "bytes": 12583008,
+          "sha256": "5ccdc8739db4a2b42dd1c9d45a0fea6195c2e9cccce3ec1911329bb747d8b544"
+        },
+        "vertex-area.bin": {
+          "bytes": 8388616,
+          "sha256": "0d0de768adb83f1e2205a1b7ae3c9d9dfd5f72b0a6c79cf77250d0d95e3e941d"
+        },
+        "vertex-status.bin": {
+          "bytes": 1048577,
+          "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+        },
+        "weight.bin": {
+          "bytes": 8388616,
+          "sha256": "b6691181ec53044cacbd6136e607da05a4b92bfe330bc86375441f93d0ed3775"
+        },
+        "xyz.bin": {
+          "bytes": 12582924,
+          "sha256": "8e0d12cfe645e9a66d7ffa79abf052ec46fdc48fa07b038aa9e9b1bd8ff7e17c"
+        }
+      },
+      "contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+      "contribution_summary": {
+        "category_counts": {
+          "eligible": 1048577,
+          "isolated": 0,
+          "no-usable-area": 0,
+          "nonfinite-position": 0
+        },
+        "eligible_area_sum": {
+          "measure": "source-order-left-fold-of-vertex-areas",
+          "population": "eligible-vertices",
+          "unit": "source-coordinate-squared",
+          "value_bits": "42500003fffe6667"
+        },
+        "revision": "mesh-contribution-summary-v1",
+        "vertex_area_range": {
+          "maximum_bits": "4235555aaaaaeeef",
+          "measure": "accumulated-vertex-area",
+          "minimum_bits": "4105555555555555",
+          "population": "eligible-vertices",
+          "unit": "source-coordinate-squared"
+        },
+        "vertices": 1048577,
+        "weight_range": {
+          "maximum_bits": "41155556aaad1110",
+          "measure": "normalized-weight",
+          "minimum_bits": "3fe5555155587775",
+          "population": "eligible-vertices",
+          "unit": "dimensionless"
+        },
+        "weight_sum": {
+          "measure": "source-order-left-fold-of-normalized-weights",
+          "population": "eligible-vertices",
+          "unit": "dimensionless",
+          "value_bits": "4130000100046ef0"
+        }
+      },
+      "faces": 1048584,
+      "import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+      "import_summary": {
+        "face_category_counts": {
+          "index-out-of-range": 0,
+          "nonfinite-position": 0,
+          "repeated-index": 2,
+          "usable": 1048580,
+          "zero-computed-area": 2
+        },
+        "faces": 1048584,
+        "in_range_source_corners": 3145752,
+        "normal_category_counts": {
+          "absent": 1048577,
+          "finite-nonzero": 0,
+          "nonfinite-vector": 0,
+          "zero-vector": 0
+        },
+        "out_of_range_source_corners": 0,
+        "revision": "mesh-import-summary-v1",
+        "usable_face_area_sum": {
+          "measure": "source-order-left-fold-of-face-areas",
+          "population": "usable-source-faces",
+          "unit": "source-coordinate-squared",
+          "value_bits": "4250000400000000"
+        },
+        "vertex_category_counts": {
+          "finite-position": 1048577,
+          "nonfinite-position": 0
+        },
+        "vertices": 1048577
+      },
+      "row_digests": {
+        "contribution_vertices": "9e713024f9bf48987677b9aa6b8a232fc7b32965bc95b32a485fa84a3d3508e1",
+        "import_faces": "4560f0876c4e9e8a5a51e64973bcad9b4a70bfd6397487baa366cf3ecaffae1c",
+        "import_vertices": "372a5cf7265e269c49be0e6423e248425dcd3e88c636b29286ee06d3ed069bbd"
+      },
+      "source_id": "9493c594003ee59a898b5d4878c48b0fe3197bef585f8b54b2bd50293047267a",
+      "status": "verified-complete-canonical-data",
+      "vertices": 1048577
+    },
+    "canonical_elapsed_ns": 1906537976,
+    "display": {
+      "contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+      "display_id": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+      "files": [
+        {
+          "byte_count": 88081233,
+          "name": "validity.ply",
+          "sha256": "f31a4eb3f47abfff4e46cdf57292dbfc45025ed505e4c3f713ca16259a40ee57"
+        },
+        {
+          "byte_count": 88081232,
+          "name": "weights.ply",
+          "sha256": "23421eea416870f58af0a130902eae69b357b537c93f957c971151264b6ce696"
+        },
+        {
+          "byte_count": 2082,
+          "name": "rejected-face-corners.ply",
+          "sha256": "ac3315f62e3026e7c24a510d92d9e00c966dbd5889f732518d00e4028464d090"
+        },
+        {
+          "byte_count": 8388616,
+          "dtype": "<u8",
+          "name": "view-vertices.bin",
+          "sha256": "66cc03cbbae6c3efa622c2a8d186c7fa32478fcbe50d3ee73c5bed9f8bb582fb",
+          "shape": [
+            1048577
+          ]
+        },
+        {
+          "byte_count": 8388640,
+          "dtype": "<u8",
+          "name": "view-faces.bin",
+          "sha256": "778a468ac4e652883dcecf200a08bdcb47d47a6338f7fdd68c8a3019d79202cd",
+          "shape": [
+            1048580
+          ]
+        }
+      ],
+      "import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+      "population": {
+        "rejected_corners": 12,
+        "usable_faces_per_main_view": 1048580,
+        "vertices_per_main_view": 1048577
+      },
+      "semantic_replay": "requires separate verify-display worker",
+      "status": "verified-full-display-rows-and-hashes"
+    },
+    "display_elapsed_ns": 840162930
+  },
+  "elapsed_including_checks_ns": 27372588744,
+  "expectation": {
+    "adverse": true,
+    "center_area_bits": "4235555aaaaaeeef",
+    "center_reference_count": 1048582,
+    "columns": {
+      "contribution-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "face-area.bin": {
+        "bytes": 8388672,
+        "sha256": "b30c69e5bc244008896f3de90d0b2e218554736df3d17ce383d93f1c9fada2de"
+      },
+      "face-status.bin": {
+        "bytes": 1048584,
+        "sha256": "77cdd4d2ace2bd8b7b301074c67b45adfb26e03e54f885587b0b75b8655f979b"
+      },
+      "normal-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "reference-count.bin": {
+        "bytes": 8388616,
+        "sha256": "7d713fc5157bd3857786597b08f4a0b9a92dcf940243436a75e79f5354954a3e"
+      },
+      "triangles.bin": {
+        "bytes": 12583008,
+        "sha256": "5ccdc8739db4a2b42dd1c9d45a0fea6195c2e9cccce3ec1911329bb747d8b544"
+      },
+      "vertex-area.bin": {
+        "bytes": 8388616,
+        "sha256": "0d0de768adb83f1e2205a1b7ae3c9d9dfd5f72b0a6c79cf77250d0d95e3e941d"
+      },
+      "vertex-status.bin": {
+        "bytes": 1048577,
+        "sha256": "2cb74edba754a81d121c9db6833704a8e7d417e5b13d1a19f4a52f007d644264"
+      },
+      "weight.bin": {
+        "bytes": 8388616,
+        "sha256": "b6691181ec53044cacbd6136e607da05a4b92bfe330bc86375441f93d0ed3775"
+      },
+      "xyz.bin": {
+        "bytes": 12582924,
+        "sha256": "8e0d12cfe645e9a66d7ffa79abf052ec46fdc48fa07b038aa9e9b1bd8ff7e17c"
+      }
+    },
+    "display_population": {
+      "rejected_corners": 12,
+      "usable_faces_per_main_view": 1048580,
+      "vertices_per_main_view": 1048577
+    },
+    "face_area_sum_bits": "4250000400000000",
+    "face_category_counts": {
+      "index-out-of-range": 0,
+      "nonfinite-position": 0,
+      "repeated-index": 2,
+      "usable": 1048580,
+      "zero-computed-area": 2
+    },
+    "faces": 1048584,
+    "in_range_source_corners": 3145752,
+    "radius": 262144,
+    "row_digests": {
+      "contribution_vertices": "9e713024f9bf48987677b9aa6b8a232fc7b32965bc95b32a485fa84a3d3508e1",
+      "import_faces": "4560f0876c4e9e8a5a51e64973bcad9b4a70bfd6397487baa366cf3ecaffae1c",
+      "import_vertices": "372a5cf7265e269c49be0e6423e248425dcd3e88c636b29286ee06d3ed069bbd"
+    },
+    "source": {
+      "bytes": 26214725,
+      "sha256": "f7ce0116170f1280d35d3fe8db00f163ee611e8442fa7c7aa715302aeb9612a6"
+    },
+    "vertex_area_range_bits": [
+      "4105555555555555",
+      "4235555aaaaaeeef"
+    ],
+    "vertex_area_sum_bits": "42500003fffe6667",
+    "vertices": 1048577,
+    "weight_range_bits": [
+      "3fe5555155587775",
+      "41155556aaad1110"
+    ],
+    "weight_sum_bits": "4130000100046ef0"
+  },
+  "frozen_manifest_sha256": "794793199227b34bfc10e95636531d1daccf0f1decef37b7059a9375b8fd4994",
+  "host_after_checks": {
+    "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+    "cgroup": {
+      "available": true,
+      "cgroup.procs": "1722594",
+      "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+      "memory.current": "341291008",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "memory.max": "6442450944",
+      "memory.peak": "706535424",
+      "memory.pressure": "some avg10=0.05 avg60=0.06 avg300=0.01 total=73954\nfull avg10=0.05 avg60=0.06 avg300=0.01 total=73954",
+      "memory.stat": "anon 36433920\nfile 294834176\nkernel 9297920\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 77824\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36421632\ninactive_file 289652736\nactive_file 5181440\nunevictable 0\nslab_reclaimable 8280144\nslab_unreclaimable 256400\nslab 8536544\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1754\nworkingset_activate_anon 0\nworkingset_activate_file 18\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 19\npgsteal 19\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 19\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 19\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 528626\npgmajfault 39\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 38672\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 81\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+      "memory.swap.current": "0",
+      "memory.swap.max": "0",
+      "memory.swap.peak": "0",
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+    },
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "cpu_logical": 16,
+    "cpu_physical": 8,
+    "environment": {
+      "MALLOC_ARENA_MAX": null,
+      "MKL_NUM_THREADS": null,
+      "NPY_DISABLE_CPU_FEATURES": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "PYTHONHASHSEED": null,
+      "PYTHONMALLOC": null
+    },
+    "filesystem": {
+      "free_bytes": 148718096384,
+      "path": "/home/data/scansor-s6-evidence-fJVNUiYN",
+      "total_bytes": 3041876828160
+    },
+    "load_average_milli": [
+      3330,
+      3664,
+      3612
+    ],
+    "machine": "x86_64",
+    "memory_available_bytes": 16449363968,
+    "memory_total_bytes": 66069004288,
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+    "swap_in_bytes": 0,
+    "swap_out_bytes": 0,
+    "swap_total_bytes": 0,
+    "swap_used_bytes": 0
+  },
+  "implementation": {
+    "native_extensions": {
+      "_duckdb": {
+        "bytes": 60387000,
+        "sha256": "1d4ef21853b38c7db1a141191dfd873f8a4c5a5d0a1667b8f2c110d76f6590ac"
+      },
+      "numpy._core._multiarray_umath": {
+        "bytes": 10682329,
+        "sha256": "3aac21341706a466577d7c7caab9c5013e98ffb62cf98ae3bc46a3e1004f3ce0"
+      },
+      "psutil._psutil_linux": {
+        "bytes": 150904,
+        "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd"
+      },
+      "pyarrow.lib": {
+        "bytes": 4483984,
+        "sha256": "2fb24a58b0973eb19b236cc2ea447e356b4a782eea39a274145b2f0ce86368c2"
+      }
+    },
+    "python_executable": "/home/altendky/.local/share/mise/installs/python/3.12.13/bin/python3.12",
+    "python_executable_hash": {
+      "bytes": 30905176,
+      "sha256": "021044895e95be79dc2f110367607e684119afbc8ce75f6f0eec94844e0acec7"
+    },
+    "sources": {
+      "experiments/mesh_scale_check.py": "79f7de01402ea6176a027e14a3dfe98a12433d81950ccd14a37c8fbe5883c6f5",
+      "experiments/mesh_scale_failures.py": "7220f16ce5e33dd6895bd6f7ae4eb8e8286210413165f0dc6cc39ef1d0ae1042",
+      "experiments/mesh_scale_fan.py": "fbe59bbeabc0b0922e83c175e426168628d9dba14b9b061a64c24ff9862e8aaf",
+      "experiments/mesh_scale_fan_freeze.py": "29fcf04d8fcc936199b5604596b185411eb03145ae065da246a066bc163be913",
+      "experiments/mesh_scale_fan_generate.py": "b00f9acc7ecd0f084fc3a70a008075f0f3bef506168ac5b2e5031aca963f3ec3",
+      "experiments/mesh_scale_fan_source.py": "d0c65a87abc0fac7dcef07989edd27b8c67446f84aee2fb8035dd3ad47212d23",
+      "experiments/mesh_scale_freeze.py": "d52a67731a34a2e2344585f31d06105804ac18504bf85982b052ac661e961a9a",
+      "experiments/mesh_scale_generate.py": "9d48f7188c075acacf4ec4c98f3a8f178bc7de8165ad96a08baa2da1c2ac1f1c",
+      "experiments/mesh_scale_grid.py": "c310b0a8d740a0a3dd1e442b85cd1e915e0b7f13c9f2b5940eee542f35b569f3",
+      "experiments/mesh_scale_integer.py": "f7f7fd1ad49e5fc7b29e7da393a3240cd0cd3ad8b2772f60b7dbda1594ae2330",
+      "experiments/mesh_scale_measure.py": "ca04350a4d91d9a4c135b2dc05bd956993ad4b419cf36552ac69cdcdfcbad671",
+      "experiments/mesh_scale_metrics.py": "66f2b97589752ae08485daa87f36768ab7d22d5c3d660d929b98fc9b4853ddfd",
+      "experiments/mesh_scale_permuted.py": "29de8b41253c6a19d5c0537f0b8403d746059f0de329d8aa3722ece66f169666",
+      "experiments/mesh_scale_permuted_freeze.py": "30c6bcb8ecdd1d3bd860b33b7b901012976802d9b7dd79402ba8e636832be133",
+      "experiments/mesh_scale_permuted_generate.py": "7394e83c1daaecac1921eda044e7d180caadf390888cc4f72d7696a355e9ab19",
+      "experiments/mesh_scale_rounding.py": "e12f386b286fda7ecc216361d59fa909ea1ed0557b82058e4166a6913bde29b2",
+      "experiments/mesh_scale_run.py": "198ac850270b07b5af8b2778e2196129a137022ef1e210218396e3660c88e1d9",
+      "src/scansor/__init__.py": "aad269e394364c276eebfeb59a7965844d1353c1318c4525b57ef863c8d94b45",
+      "src/scansor/__main__.py": "16d3b485dfcb5a69f3b5f48497878c84d3df29eb4208de9481c82025468d79aa",
+      "src/scansor/_plyio/__init__.py": "3aa4c5058e611f6b8f5bb4ee7b1c6bab7770603d3cb1e00247e8ed01499ac275",
+      "src/scansor/_plyio/format.py": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b",
+      "src/scansor/_plyio/stream.py": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef",
+      "src/scansor/cli.py": "15c27dbadf46189d7e244f50b923db01b3fb4d830a259895405be65467a4de31",
+      "src/scansor/cli_models.py": "fc401651827eaadf068d0b90778f1f6a79a297ff0f2a7308653c655b376acd2b",
+      "src/scansor/declared_execution.py": "c4c69fb47b73dd6e6faf75b339915dae4258a059fa7f3c4e243f33c2a5000954",
+      "src/scansor/declared_execution_models.py": "385be9995c661750612df0c2875d65a8dd93cbf554a8476d17c457bbfff13084",
+      "src/scansor/declared_execution_run_models.py": "274c88846eac0f400dc2f0c14cfd0b83eae2bb6beed4089885be46bf55237d56",
+      "src/scansor/declared_execution_runs.py": "75b5cffa3a321ef8df0a567fd98e6b14399170651ea5c4f89b440cf6e8fb55af",
+      "src/scansor/declared_factor_models.py": "80e4764cd5f30d18922fb09ae7e5013f7ee3c402860135ba9a9455f48636dc48",
+      "src/scansor/declared_factors.py": "21ff39b51d672bcac60e1a8fc37d4f9a2b5d562d6469161d20d4868db1708a24",
+      "src/scansor/declared_generation.py": "d58cd7e04243bd073fda5e306aec38f8531edd2043d8b15d7a9ad39e887a8e23",
+      "src/scansor/declared_generation_models.py": "75d08836264a8d867b7116ed0471d4e6992f92f0edde25e7c040e2660118144e",
+      "src/scansor/declared_generation_runs.py": "ac31b809d71185755025311254c1471816af8416d0d41fb7d57fb8d2ef027b7f",
+      "src/scansor/declared_numpy_backend.py": "77f3a7b42d1c54ab68486ac97cf2e33cf0aa72d6f2314e077ade7b84acbd5fd4",
+      "src/scansor/declared_synthetic_fixtures.py": "706febb63327be2ee23f2b60c3f18f36781e03766bccf8fa10a711fa613a411f",
+      "src/scansor/declared_truth_comparison.py": "69a84e29a591262e3a76a845bfdabc36c067864026546904f4fc4443776d425b",
+      "src/scansor/errors.py": "be011e0361295978f5245a149e56c6632e244ced8fe6c4129030ed7f6265ba47",
+      "src/scansor/execution_models.py": "6965fc023ef82099c161f792efca2c02a1472a5f7efab0f13478d18dcfb0b85c",
+      "src/scansor/execution_run_models.py": "2ffd118873f74178e25c79d7bcab81778344ce7d2c81a096bcdb93a1cb428723",
+      "src/scansor/execution_runs.py": "315d5daabc68254fadd7873074e3920928f3d0750ce01cfab6a625bdd2d9ad8c",
+      "src/scansor/factor_models.py": "bd882f189e28da8eebc1beaeb819a7b445b7cdcc73df3f4d328a122f75ec3c6f",
+      "src/scansor/files.py": "09604bb7ce2f5c90a0519872e00a46a802dc50309de36f0580397d7b5c4569a4",
+      "src/scansor/generation_models.py": "252ba257c6168e0d6244329c58372a71d9b11d71113f74fe4336edbbfb89f85e",
+      "src/scansor/generation_runs.py": "a45ee314fdafb4deeef3e97b6295e127238a40ff24fbb507cb6b7de52d0c9991",
+      "src/scansor/geometry_evaluator.py": "39bcafa44dc550de490bde006882509d0ebbad652c0c6e7766c5e0d28eb71d5b",
+      "src/scansor/logging.py": "d2ac75dcb54b535c49365417cb01fa96ad34448265fe748e074a8d1e6a0bb12b",
+      "src/scansor/mapping_models.py": "2f48db7d7caa9b0001bc593d2bd2eb5f0dbcdd884a3da43966eb6bd0c3ddff86",
+      "src/scansor/mapping_runs.py": "d4e3c25599529a7f53686833cc9717e1e712a4e9e6076231a4ceb300b6c015cd",
+      "src/scansor/mesh_accounting.py": "9c7bd17df82eddd09c1e1f1c06872a7cffe2ec0139426a8df525defc63720c7e",
+      "src/scansor/mesh_accumulation.py": "8b8693f91a4d935cd59c2528911a89d9f4440d6b7bc2ab1bd45caa88c2cad1ee",
+      "src/scansor/mesh_artifact_io.py": "15dca7e662a9890fe7bb9be2f9d2eaa978008b985e4e518a403b0486612265a8",
+      "src/scansor/mesh_artifacts.py": "4f789332fd872443e805aa801eab579e4c08215cae5c7f6b709e3c6571f9d165",
+      "src/scansor/mesh_columns.py": "2552991bff13ea51133baaa4ce4a9dcdd7bb2ec3676f6a804e61235874d9a7bc",
+      "src/scansor/mesh_controls.py": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea",
+      "src/scansor/mesh_corner_storage.py": "c621eeec2e57008945c95771c7ac26a16cadde4efecbf9c5b7eeb5e8ae59a890",
+      "src/scansor/mesh_digests.py": "fa0a92368a5fc1dfd16e2d2f25ebf0f445bfe89c5228d95c72ee6167e357d762",
+      "src/scansor/mesh_display.py": "b505405be4cf1fbc6a0f94f34a3eef5835bbb74e1e0dc26b87d82a70882537c5",
+      "src/scansor/mesh_display_numeric.py": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009",
+      "src/scansor/mesh_display_ply.py": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb",
+      "src/scansor/mesh_display_records.py": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520",
+      "src/scansor/mesh_display_semantics.py": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a",
+      "src/scansor/mesh_display_staging.py": "61b346f47008038153f5fe42e3afe6f73c8fbaf8dff812a7da5243bee36280d5",
+      "src/scansor/mesh_display_verify.py": "850619b5e4b817d795c113a94a0bda5d45e3624119a0c1a49b5d7bf179b82615",
+      "src/scansor/mesh_dispositions.py": "ee2b88da4733d05cd2c99f925ebbdc1f72b6efb5852304fce01f047815bc4f1b",
+      "src/scansor/mesh_duckdb.py": "cf35bbfa19bc488b30dc780943ad53bf73242b378574d7a4a567f3c9f8f096c7",
+      "src/scansor/mesh_errors.py": "0ee1e89e845823fddd4950b92c4993dd3354db10655c788da1cc07c2233c1560",
+      "src/scansor/mesh_import.py": "e5df16fcc04f25337861caaade9a821b90e839f2d29a72a74d2d21700d4a95b4",
+      "src/scansor/mesh_numeric.py": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f",
+      "src/scansor/mesh_ply.py": "c20844c5a6ce923c3ef73adf9f650eff6a42f28b53e0662c853bdd8fadefe9c9",
+      "src/scansor/mesh_policy.py": "eeb1a86652d4b68e85db4ec28dc1700335961875eb1c9f4cf5b93a74cd2e114c",
+      "src/scansor/mesh_process_observer.py": "5fb5e601ef427b2024fd80be3a561fce3e3e7b598c343b44b4f8a5ae7bbdc928",
+      "src/scansor/mesh_publication.py": "234d249e46c8d687bee6bb5e2646685dd79c0634c987749adfba1595fd05c0e1",
+      "src/scansor/mesh_publication_copy.py": "dcb7d7db6088a785a37616a87d330cdb65ca37363f9867d05854d7e29fae264e",
+      "src/scansor/mesh_recipes.py": "314ae42480e32ac609f3aa89c980ed0a80349845837fff4723b2f52c262f0091",
+      "src/scansor/mesh_replay.py": "0a67ab276f016222f45e43399b833f8c3a592e7b62adb0108ec77768c00a786a",
+      "src/scansor/mesh_resources.py": "1deb464ab56d4354817d850ac16d97daa2a3b1d2eebd8b42afd3ef9aee4e29ba",
+      "src/scansor/mesh_rss_protocol.py": "4de953fff70c2ced008f28d43a31f55623d1aa0dca82929e9955c2e657b6690b",
+      "src/scansor/mesh_rss_sampler.py": "bb1ad36d03e0f0e209212ef1194b76a222e9b3e3cec3ece25fcff30d9c62e1b0",
+      "src/scansor/mesh_semantics.py": "1c2ef8fbba389a58972e36173c93e610c2907491c94e42b053c8d5a8d8d53dcc",
+      "src/scansor/mesh_sidecar.py": "99b9972906aadad281b0792774faf935b763acf060da8d9e346cea3189ec76c6",
+      "src/scansor/mesh_snapshot.py": "710d58764eddf9df1f88c70894e94635cffd90943e17f12f64332be7c440c2e4",
+      "src/scansor/mesh_statistics.py": "caf893f0f3ff6c91e027390f468af06d24ef3c17b09a5309375395ae33e4c643",
+      "src/scansor/mesh_supervisor.py": "5cb29fe732e4f473a9ea736f578f01c6ad626262ecf9685d77d08cdcb6f6266e",
+      "src/scansor/mesh_viewer_compare.py": "1ecc9a845dc069f32b357dfe50f679efe73e51bb039d0942b7090af25a0f5db3",
+      "src/scansor/mesh_worker.py": "73092d5d59563dc61e9ccc42d4c383db7917778abc6a79fdb28af736b184dd5f",
+      "src/scansor/mesh_worker_protocol.py": "08c4fdb560f6e3fa3d11bc32a3f202548cf5941e8c1e98a8d40f89f17ed614f2",
+      "src/scansor/mesh_worker_request.py": "a9ca2ab680cecee24debfd4fdfa5d54485cf1e3d55fa4cc76540f0bb547a9634",
+      "src/scansor/mesh_workspace.py": "9c41e2b3bbd90ed4e36d8d12df3a531c4ae7b255fcf9a57004bef9e96e5d9db3",
+      "src/scansor/model_declarations.py": "a41bad2423778f23bdfa0e91df994751881ca488494eadc4ec3b998bc0d58af8",
+      "src/scansor/models.py": "ba0c0fd6cc94195cfa22a95589ac53a98489f2a78f07c5e7b75dfd0109a6b511",
+      "src/scansor/observation_mapping.py": "2dec1b34347195bd8e60b658e973134310e20f7cb1887f568deca2d13d682ba4",
+      "src/scansor/ply.py": "89e26db6c2b174310ef8caab12d0164ee6df7edad6f65631e5ee46b40cbc8561",
+      "src/scansor/rigid_transform.py": "ea2defc6ca6d74696798583039ae83fdd55aec7759e0d5b3cde4247c75434846",
+      "src/scansor/runs.py": "9acfb4f8f3c45ef020c40546aac4e9dc96ece19c1422e78fdabd5924f465c821",
+      "src/scansor/serialization.py": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a",
+      "src/scansor/settings.py": "a7f457f989d8ec6064ba2002328901a8daefc68e40598ffe47b39748ae893ac2",
+      "src/scansor/stepped_model_declarations.py": "f71e2703b49716a338edda2bc1d74cc878a531f491338ad8d92c161143c084f8",
+      "src/scansor/stepped_rotational.py": "566d68db245a81e1803d4b359a9157acc0ac5b1bf95880040814e7be747e84e0",
+      "src/scansor/stepped_rotational_execution.py": "ebdbd72dc25e3080045fa2fa6dd02cbf40d592244c3f6c507da830474e198781",
+      "src/scansor/stepped_rotational_factors.py": "780c56b68d534a3e29517af56c25e95cbd58e783bbdfc7c66d3a360767ae87aa",
+      "src/scansor/stepped_rotational_generation.py": "83934150f554e5eb035000320e700b08fbba31615be1e98307b4cf925e3cfebe",
+      "src/scansor/stepped_rotational_numpy_backend.py": "dda541b43e21b6de66a45a866ff47913b1a62f2a5da01e24439fe2e52d51a404",
+      "src/scansor/synthetic_fixture.py": "5404a9c90dddf3323a908c5e2369c99b5a8acca3d298b831846a544287985940",
+      "src/scansor/synthetic_fixture_replay.py": "7823cdbf42c3e67d5541fd18c83de553069d85ecf4e7f9abacc35fd8a914ddac",
+      "src/scansor/truth_comparison.py": "f12f08b5b4f9a1b4599ac3256968912de225f3bb7ea9bf7f1043744f76e89aa2",
+      "src/scansor/tube_model_declarations.py": "e5c34a9e5ed095c32a6080aca83cd9df7814415e7685d5c3e3580c5fe89e4ea7"
+    },
+    "versions": {
+      "defusedxml": "0.7.1",
+      "duckdb": "1.5.5",
+      "numpy": "2.5.1",
+      "psutil": "7.2.2",
+      "pyarrow": "25.0.1"
+    }
+  },
+  "operations": {
+    "display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 282169344,
+          "files": 23,
+          "logical_bytes": 282085822,
+          "observation_finished_ns": 2432555211352753,
+          "observation_started_ns": 2432555210046016,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 282169344,
+          "published_logical_bytes": 282085822,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 62054753,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 298926080,
+          "logical_bytes": 298827485,
+          "published_allocated_bytes": 282169344,
+          "published_logical_bytes": 282085822,
+          "temporary_allocated_bytes": 209731584,
+          "temporary_logical_bytes": 209691554
+        },
+        "samples": 160,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 7234643430,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "340283392",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "494481408",
+          "memory.pressure": "some avg10=0.12 avg60=0.07 avg300=0.01 total=72789\nfull avg10=0.12 avg60=0.07 avg300=0.01 total=72789",
+          "memory.stat": "anon 34648064\nfile 294629376\nkernel 9699328\nkernel_stack 262144\npagetables 606208\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 49152\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 34652160\ninactive_file 289439744\nactive_file 5181440\nunevictable 0\nslab_reclaimable 8306304\nslab_unreclaimable 496104\nslab 8802408\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1754\nworkingset_activate_anon 0\nworkingset_activate_file 18\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 19\npgsteal 19\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 19\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 19\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 330825\npgmajfault 39\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 24665\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 58\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 148718170112,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3302,
+          3669,
+          3613
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16370454528,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "134819840",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "318763008",
+          "memory.pressure": "some avg10=0.28 avg60=0.08 avg300=0.01 total=71184\nfull avg10=0.28 avg60=0.08 avg300=0.01 total=71184",
+          "memory.stat": "anon 34648064\nfile 96407552\nkernel 3588096\nkernel_stack 262144\npagetables 491520\nsec_pagetables 0\npercpu 288\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 16384\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 34631680\ninactive_file 96366592\nactive_file 45056\nunevictable 0\nslab_reclaimable 2572728\nslab_unreclaimable 250680\nslab 2823408\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1732\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 11\npgsteal 11\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 11\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 11\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 128678\npgmajfault 1\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 8698\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 53\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 148911341568,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3416,
+          3698,
+          3622
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 15902887936,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 2147483648,
+          "completed": 1,
+          "disk": {
+            "allocated_bytes": 7356416,
+            "concurrent_changes": false,
+            "logical_bytes": 7352324
+          },
+          "elapsed_ns": 6147441220,
+          "event": "final",
+          "monotonic_ns": 2432555155672619,
+          "observation_finished_ns": 2432555155802311,
+          "observation_started_ns": 2432555155672619,
+          "peak_rss_bytes": 236466176,
+          "phase": "publish-display",
+          "phase_ordinal": 32,
+          "phase_started_ns": 2432554566602803,
+          "plan": {
+            "baseline_bytes": 134017024,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 2147483648,
+            "disk_estimate_bytes": 1431379790,
+            "engine_bytes": 1073741824,
+            "engine_temp_limit_bytes": 335546432,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 1506393292,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 214748364,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 0,
+            "rchar": 683185302,
+            "read_bytes": 5165056,
+            "syscr": 10551,
+            "syscw": 4705,
+            "wchar": 260472061,
+            "write_bytes": 260579328
+          },
+          "rss_bytes": 146640896,
+          "sampled_disk_peak_allocated_bytes": 209707008,
+          "sampled_disk_peak_logical_bytes": 209688128,
+          "total": 1
+        },
+        "published": [
+          {
+            "identity": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+            "kind": "display",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-display-e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a"
+          }
+        ],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 2147483648,
+          "elapsed_ns": 7222370983,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 235003904,
+          "kernel_usage": {
+            "filesystem_inputs": 10088,
+            "filesystem_outputs": 508944,
+            "involuntary_context_switches": 684,
+            "major_faults": 38,
+            "minor_faults": 200184,
+            "system_cpu_ns": 643433000,
+            "user_cpu_ns": 7605482000,
+            "voluntary_context_switches": 2785
+          },
+          "largest_observed_sample_gap_ns": 7805195,
+          "pid": 1723103,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 236466176,
+          "sampler_exit_code": 0,
+          "sampler_pid": 1723102,
+          "samples": 6388,
+          "sampling_edges": {
+            "first_sample_ns": 2432548059465835,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 574150,
+            "largest_gap_including_edges_ns": 7805195,
+            "last_sample_ns": 2432555200809812,
+            "launch_returned_ns": 2432548059448729,
+            "launch_started_ns": 2432548058891685,
+            "reaped_ns": 2432555201208401,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 398589
+          },
+          "sampling_error": null,
+          "sampling_method": "prestarted independent helper; held proc statm descriptor; acknowledged final cumulative observations; parent alone calls wait4",
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "405364736",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "494481408",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 0,
+            "rchar": 683185775,
+            "read_bytes": 5165056,
+            "syscr": 10556,
+            "syscw": 4706,
+            "wchar": 260473424,
+            "write_bytes": 260579328
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 235003904,
+            "rss_bytes": 146640896
+          },
+          "published": [
+            {
+              "identity": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-display-e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a"
+            }
+          ],
+          "result": {
+            "display": {
+              "identity": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+              "kind": "display",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-display-e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a"
+            },
+            "execution": {
+              "duckdb": "1.5.5",
+              "monitor": {
+                "budget_bytes": 2147483648,
+                "completed": 1,
+                "disk": {
+                  "allocated_bytes": 7356416,
+                  "concurrent_changes": false,
+                  "logical_bytes": 7352324
+                },
+                "elapsed_ns": 6147571493,
+                "peak_rss_bytes": 236466176,
+                "phase": "publish-display",
+                "phase_ordinal": 32,
+                "phase_started_ns": 2432554566602803,
+                "plan": {
+                  "baseline_bytes": 134017024,
+                  "batch_bytes": 50331648,
+                  "batch_rows": 65536,
+                  "budget_bytes": 2147483648,
+                  "disk_estimate_bytes": 1431379790,
+                  "engine_bytes": 1073741824,
+                  "engine_temp_limit_bytes": 335546432,
+                  "fixed_buffers_bytes": 33554432,
+                  "reserved_bytes": 1506393292,
+                  "resident_columns_bytes": 0,
+                  "safety_bytes": 214748364,
+                  "storage": "disk"
+                },
+                "rss_bytes": 146640896,
+                "sampled_disk_peak_allocated_bytes": 209707008,
+                "sampled_disk_peak_logical_bytes": 209688128,
+                "total": 1
+              },
+              "plan": {
+                "baseline_bytes": 134017024,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 2147483648,
+                "disk_estimate_bytes": 1431379790,
+                "engine_bytes": 1073741824,
+                "engine_temp_limit_bytes": 335546432,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 1506393292,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 214748364,
+                "storage": "disk"
+              },
+              "storage": "streamed files and direct DuckDB; no full resident view"
+            },
+            "inventory": {
+              "association_revision": "all-finite-source-vertices-usable-source-faces-rejected-face-corner-order-v1",
+              "contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+              "files": [
+                {
+                  "byte_count": 88081233,
+                  "name": "validity.ply",
+                  "sha256": "f31a4eb3f47abfff4e46cdf57292dbfc45025ed505e4c3f713ca16259a40ee57"
+                },
+                {
+                  "byte_count": 88081232,
+                  "name": "weights.ply",
+                  "sha256": "23421eea416870f58af0a130902eae69b357b537c93f957c971151264b6ce696"
+                },
+                {
+                  "byte_count": 2082,
+                  "name": "rejected-face-corners.ply",
+                  "sha256": "ac3315f62e3026e7c24a510d92d9e00c966dbd5889f732518d00e4028464d090"
+                },
+                {
+                  "byte_count": 8388616,
+                  "dtype": "<u8",
+                  "name": "view-vertices.bin",
+                  "sha256": "66cc03cbbae6c3efa622c2a8d186c7fa32478fcbe50d3ee73c5bed9f8bb582fb",
+                  "shape": [
+                    1048577
+                  ]
+                },
+                {
+                  "byte_count": 8388640,
+                  "dtype": "<u8",
+                  "name": "view-faces.bin",
+                  "sha256": "778a468ac4e652883dcecf200a08bdcb47d47a6338f7fdd68c8a3019d79202cd",
+                  "shape": [
+                    1048580
+                  ]
+                }
+              ],
+              "implementation": {
+                "dependencies": {
+                  "numpy": "2.5.1"
+                },
+                "files": [
+                  {
+                    "name": "_plyio/format.py",
+                    "sha256": "0b163c58f773a293bb13a7d5031b2337562846dd3478bf4d24d0239a3e31bd3b"
+                  },
+                  {
+                    "name": "_plyio/stream.py",
+                    "sha256": "5af50681ca7d42c3aa0adfeb59df76676409cffd542b92fbe41e966321ee33ef"
+                  },
+                  {
+                    "name": "mesh_controls.py",
+                    "sha256": "8948961a6f98cec844944b8933cc7dee104a884d74217cc36099f3992cd135ea"
+                  },
+                  {
+                    "name": "mesh_numeric.py",
+                    "sha256": "acd0e8525272208b9dfab380d93a2e4861368a8f51b9d50a6037d2c15fd3d88f"
+                  },
+                  {
+                    "name": "mesh_display_numeric.py",
+                    "sha256": "49b42125f932a2eb7d22c9e13ce4e8e9bc7a8cde6498952b59d4f2fda2d67009"
+                  },
+                  {
+                    "name": "mesh_display_ply.py",
+                    "sha256": "ee5abdbf138e0c2eb27aca7c5f51369900d2d83776ba5a58c2f679034226babb"
+                  },
+                  {
+                    "name": "mesh_display_records.py",
+                    "sha256": "2b5b96d04912128dbc99817835009b388a80ec6f1d816c1bb7d1c60aee137520"
+                  },
+                  {
+                    "name": "mesh_display_semantics.py",
+                    "sha256": "bbe0eb193636b52cad6e66d34245c6bc6eeaf7abb53b0bb4c7d20fe52cf4872a"
+                  },
+                  {
+                    "name": "serialization.py",
+                    "sha256": "cb99d090fb9929f407a651bd906e96b788d9d0347d156634b253ad5eeefdfc4a"
+                  }
+                ],
+                "revision": "mesh-display-implementation-v1"
+              },
+              "implementation_id": "9f451eba95ebecb0c5ed4a37d8f5394982b609aa95a7a4af5d5132116f15bb8e",
+              "import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+              "legend": {
+                "byte_count": 5033,
+                "name": "legend.json",
+                "sha256": "239af5f27de5960219fdb14a818d6bdcc7caee7082d2817a9cd7ee35cc21772f"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "revision": "mesh-display-v1",
+              "source_id": "9493c594003ee59a898b5d4878c48b0fe3197bef585f8b54b2bd50293047267a",
+              "status": "complete"
+            },
+            "legend": {
+              "additional_rejected_scalar_fields": [
+                "scalar_source_face_0",
+                "scalar_source_face_1",
+                "scalar_source_face_2",
+                "scalar_source_face_3",
+                "scalar_source_corner",
+                "scalar_face_status"
+              ],
+              "authority": "Display artifacts and viewer edits never replace import or contribution data; colors do not indicate physical error severity.",
+              "contribution_categories": {
+                "eligible": 1048577,
+                "isolated": 0,
+                "no-usable-area": 0,
+                "nonfinite-position": 0
+              },
+              "contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+              "display_population": {
+                "rejected_corners": 12,
+                "usable_faces_per_main_view": 1048580,
+                "vertices_per_main_view": 1048577
+              },
+              "duplicate_face_identity": "A resave that reorders indistinguishable duplicate faces cannot recover their individual source face IDs from vertex triples alone.",
+              "empty_views": [],
+              "fields": {
+                "coordinates": "source float32 widened to float64, then the recorded display-only transform",
+                "rejected_vertex_values": "area, weight and vertex statuses still describe the source vertex, which may also belong to usable faces",
+                "scalar_contribution_status": "0=eligible, 2=isolated, 3=no-usable-area",
+                "scalar_face_status": "1=index-out-of-range, 2=nonfinite-position, 3=repeated-index, 4=zero-computed-area",
+                "scalar_normal_status": "0=absent, 1=finite-nonzero, 2=zero-vector, 3=nonfinite-vector; independent of color",
+                "scalar_raw_area": "authoritative source vertex area, in unknown source-coordinate squared units",
+                "scalar_source_corner": "original zero-based corner 0, 1 or 2 of the rejected source face",
+                "scalar_vertex_status": "0=finite-position; nonfinite positions have no display location",
+                "scalar_weight": "dimensionless triangle-area-mean-one-v1 weight; not a solver weight",
+                "source_digits": "four successive 16-bit source row ID digits, least significant first, each exactly representable in binary32"
+              },
+              "import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+              "limits": {
+                "face_indices": "signed little-endian int32",
+                "maximum_vertices_per_view": 2147483648
+              },
+              "main_scalar_fields": [
+                "scalar_vertex_status",
+                "scalar_normal_status",
+                "scalar_contribution_status",
+                "scalar_raw_area",
+                "scalar_weight",
+                "scalar_source_vertex_0",
+                "scalar_source_vertex_1",
+                "scalar_source_vertex_2",
+                "scalar_source_vertex_3"
+              ],
+              "normal_categories": {
+                "absent": 1048577,
+                "finite-nonzero": 0,
+                "nonfinite-vector": 0,
+                "zero-vector": 0
+              },
+              "omission_access": "Authoritative source vertex and face row queries retain all nondisplayable records; no coordinates are invented.",
+              "omissions": {
+                "nonfinite_source_vertices": 0,
+                "rejected_corners_nonfinite_position": 0,
+                "rejected_corners_out_of_range": 0
+              },
+              "precision": {
+                "export_area_weight": "binary64",
+                "export_coordinates": "binary64",
+                "export_ids_statuses": "binary32 exact integers",
+                "viewer_preservation": "requires a separate measured viewer round-trip report"
+              },
+              "profile": "cloudcompare-audit-v1",
+              "rejected_face_colors": {
+                "1": [
+                  180,
+                  0,
+                  180
+                ],
+                "2": [
+                  220,
+                  50,
+                  50
+                ],
+                "3": [
+                  255,
+                  165,
+                  0
+                ],
+                "4": [
+                  80,
+                  120,
+                  220
+                ]
+              },
+              "revision": "mesh-display-legend-v1",
+              "source_id": "9493c594003ee59a898b5d4878c48b0fe3197bef585f8b54b2bd50293047267a",
+              "source_normals": "retained in authoritative data; omitted from PLY views to avoid viewer normalization implying measurement preservation",
+              "source_population": {
+                "faces": 1048584,
+                "vertices": 1048577
+              },
+              "topology": "Every usable source face retains winding and multiplicity after index remapping; source maps bind original export row order.",
+              "transform": {
+                "forward_operations": [
+                  "subtract-origin",
+                  "multiply-by-scale"
+                ],
+                "inverse_operations": [
+                  "divide-by-scale",
+                  "add-origin"
+                ],
+                "meaning": "display-only; not calibration or physical units",
+                "origin_binary64_bits": [
+                  "0000000000000000",
+                  "0000000000000000",
+                  "0000000000000000"
+                ],
+                "revision": "mesh-display-transform-v1",
+                "scale_power_of_two": 0
+              },
+              "transform_roundtrip_mismatch_rows": {
+                "displayable_rejected_corners": 0,
+                "finite_source_vertices": 0
+              },
+              "validity_colors": {
+                "eligible": [
+                  40,
+                  170,
+                  80
+                ],
+                "isolated": [
+                  255,
+                  165,
+                  0
+                ],
+                "no-usable-area": [
+                  220,
+                  50,
+                  50
+                ],
+                "nonfinite-position": "not spatially displayable"
+              },
+              "weight_ramp": {
+                "clipping": false,
+                "excluded_color": [
+                  128,
+                  128,
+                  128
+                ],
+                "formula": "r=RN(area/max); t=round-ties-even(RN(255*r)); RGB=(t,t,255-t)",
+                "logarithmic": false,
+                "maximum_binary64_bits": "4235555aaaaaeeef",
+                "measure": "raw accumulated vertex area divided by complete eligible maximum",
+                "percentiles": false
+              }
+            },
+            "revision": "mesh-display-run-v1",
+            "status": "complete"
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 34,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 55050564,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16779522,
+              "read_bytes": 0,
+              "syscr": 56,
+              "syscw": 6,
+              "wchar": 14328,
+              "write_bytes": 20480
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 3716590,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048724,
+              "read_bytes": 0,
+              "syscr": 22,
+              "syscw": 1,
+              "wchar": 1523,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 27001290,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389528,
+              "read_bytes": 0,
+              "syscr": 141,
+              "syscw": 2,
+              "wchar": 2904,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 25256502,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389760,
+              "read_bytes": 0,
+              "syscr": 142,
+              "syscw": 1,
+              "wchar": 1532,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 697894354,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40900806,
+              "read_bytes": 0,
+              "syscr": 175,
+              "syscw": 1,
+              "wchar": 1520,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 428532576,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22067521,
+              "read_bytes": 0,
+              "syscr": 131,
+              "syscw": 1,
+              "wchar": 1496,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 25722177,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389469,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1519,
+              "write_bytes": 0
+            },
+            "last_completed": 8388672,
+            "last_total": 8388672,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 3532921,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048694,
+              "read_bytes": 0,
+              "syscr": 21,
+              "syscw": 1,
+              "wchar": 1520,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 3689652,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049029,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1523,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 25357898,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389411,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1525,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 37283868,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584490,
+              "read_bytes": 0,
+              "syscr": 209,
+              "syscw": 1,
+              "wchar": 1523,
+              "write_bytes": 0
+            },
+            "last_completed": 12583008,
+            "last_total": 12583008,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 4678425,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048686,
+              "read_bytes": 0,
+              "syscr": 21,
+              "syscw": 1,
+              "wchar": 1515,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 38400552,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584405,
+              "read_bytes": 0,
+              "syscr": 209,
+              "syscw": 1,
+              "wchar": 1502,
+              "write_bytes": 0
+            },
+            "last_completed": 12582924,
+            "last_total": 12582924,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 317800187,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23075665,
+              "read_bytes": 0,
+              "syscr": 130,
+              "syscw": 1,
+              "wchar": 1507,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 98578164,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26336163,
+              "read_bytes": 0,
+              "syscr": 467,
+              "syscw": 1,
+              "wchar": 1468,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 11704921,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 468,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1539,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-lookup": {
+            "elapsed_ns": 425131353,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26229484,
+              "read_bytes": 0,
+              "syscr": 230,
+              "syscw": 437,
+              "wchar": 35654699,
+              "write_bytes": 35655680
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 208444383,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16788403,
+              "read_bytes": 0,
+              "syscr": 97,
+              "syscw": 8,
+              "wchar": 532183,
+              "write_bytes": 540672
+            },
+            "last_completed": 12,
+            "last_total": 12,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 1196572577,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40330,
+              "read_bytes": 0,
+              "syscr": 352,
+              "syscw": 2293,
+              "wchar": 157290779,
+              "write_bytes": 157298688
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 2548234,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 3666,
+              "read_bytes": 0,
+              "syscr": 9,
+              "syscw": 2,
+              "wchar": 2613,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "publish-display": {
+            "elapsed_ns": 589069816,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 192970656,
+              "read_bytes": 0,
+              "syscr": 3150,
+              "syscw": 5,
+              "wchar": 11317,
+              "write_bytes": 12288
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 447331695,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22035336,
+              "read_bytes": 8192,
+              "syscr": 184,
+              "syscw": 984,
+              "wchar": 21751670,
+              "write_bytes": 21815296
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 763985132,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40920229,
+              "read_bytes": 16384,
+              "syscr": 345,
+              "syscw": 943,
+              "wchar": 45174683,
+              "write_bytes": 45236224
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 2296091,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69105,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1573,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 947843,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1266,
+              "read_bytes": 0,
+              "syscr": 3,
+              "syscw": 1,
+              "wchar": 1570,
+              "write_bytes": 0
+            },
+            "last_completed": 12,
+            "last_total": 12,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 22036692,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13632740,
+              "read_bytes": 0,
+              "syscr": 426,
+              "syscw": 1,
+              "wchar": 1563,
+              "write_bytes": 0
+            },
+            "last_completed": 1048580,
+            "last_total": 1048580,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 88325257,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74455886,
+              "read_bytes": 0,
+              "syscr": 1163,
+              "syscw": 1,
+              "wchar": 1554,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 23721701,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13630415,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1561,
+              "write_bytes": 0
+            },
+            "last_completed": 1048580,
+            "last_total": 1048580,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 103311033,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74456613,
+              "read_bytes": 0,
+              "syscr": 1171,
+              "syscw": 1,
+              "wchar": 1562,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-display-view-ids": {
+            "elapsed_ns": 22891541,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389556,
+              "read_bytes": 0,
+              "syscr": 44,
+              "syscw": 2,
+              "wchar": 3087,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 2
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 206031979,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 7004,
+              "read_bytes": 0,
+              "syscr": 62,
+              "syscw": 1,
+              "wchar": 1534,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 240467503,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8396,
+              "read_bytes": 4096,
+              "syscr": 74,
+              "syscw": 1,
+              "wchar": 1539,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 2147483648,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-contribution-e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+        "destination": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out",
+        "display": null,
+        "display_transform": null,
+        "expected_contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+        "expected_display_id": null,
+        "expected_import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+        "operation": "display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-import-4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+        "storage": "disk"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 55988,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2-display.ndjson",
+        "records": 44,
+        "sha256": "6d28d477ccac6ad2c087eaa287fb3cedef3d2a041e84595755a04484ff9aa0b7"
+      }
+    },
+    "import": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 89194496,
+          "files": 16,
+          "logical_bytes": 89135931,
+          "observation_finished_ns": 2432546067014928,
+          "observation_started_ns": 2432546066097697,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 89194496,
+          "published_logical_bytes": 89135931,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 53390907,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 109432832,
+          "logical_bytes": 109355484,
+          "published_allocated_bytes": 89194496,
+          "published_logical_bytes": 89135931,
+          "temporary_allocated_bytes": 91582464,
+          "temporary_logical_bytes": 91527046
+        },
+        "samples": 240,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 9940898419,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "134762496",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "318763008",
+          "memory.pressure": "some avg10=0.34 avg60=0.09 avg300=0.01 total=71184\nfull avg10=0.34 avg60=0.09 avg300=0.01 total=71184",
+          "memory.stat": "anon 33398784\nfile 96407552\nkernel 3674112\nkernel_stack 262144\npagetables 491520\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 16384\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 33394688\ninactive_file 96366592\nactive_file 45056\nunevictable 0\nslab_reclaimable 2594528\nslab_unreclaimable 336064\nslab 2930592\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1732\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 11\npgsteal 11\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 11\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 11\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 110006\npgmajfault 1\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 8698\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 53\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 148911124480,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3453,
+          3710,
+          3625
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16976912384,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "41680896",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "42897408",
+          "memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+          "memory.stat": "anon 32829440\nfile 7127040\nkernel 1126400\nkernel_stack 262144\npagetables 569344\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 4096\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 32800768\ninactive_file 7086080\nactive_file 45056\nunevictable 0\nslab_reclaimable 18200\nslab_unreclaimable 266192\nslab 284392\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1729\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 0\npgsteal 0\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 0\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 0\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 10553\npgmajfault 1\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 0\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 149000798208,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3899,
+          3803,
+          3655
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16994004992,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 2147483648,
+          "completed": 1,
+          "disk": {
+            "allocated_bytes": 13123584,
+            "concurrent_changes": false,
+            "logical_bytes": 13119488
+          },
+          "elapsed_ns": 8881097943,
+          "event": "final",
+          "monotonic_ns": 2432546004442058,
+          "observation_finished_ns": 2432546004604294,
+          "observation_started_ns": 2432546004442058,
+          "peak_rss_bytes": 287739904,
+          "phase": "publish-contributions",
+          "phase_ordinal": 54,
+          "phase_started_ns": 2432545730260319,
+          "plan": {
+            "baseline_bytes": 134197248,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 2147483648,
+            "disk_estimate_bytes": 1028658900,
+            "engine_bytes": 1073741824,
+            "engine_temp_limit_bytes": 335546432,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 1569488283,
+            "resident_columns_bytes": 62914767,
+            "safety_bytes": 214748364,
+            "storage": "ram"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 0,
+            "rchar": 343396656,
+            "read_bytes": 8192,
+            "syscr": 7432,
+            "syscw": 5594,
+            "wchar": 193351497,
+            "write_bytes": 193654784
+          },
+          "rss_bytes": 140091392,
+          "sampled_disk_peak_allocated_bytes": 91570176,
+          "sampled_disk_peak_logical_bytes": 91526220,
+          "total": 1
+        },
+        "published": [
+          {
+            "identity": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+            "kind": "import",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-import-4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b"
+          },
+          {
+            "identity": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+            "kind": "contribution",
+            "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-contribution-e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a"
+          }
+        ],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 2147483648,
+          "elapsed_ns": 9930848821,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 286212096,
+          "kernel_usage": {
+            "filesystem_inputs": 16,
+            "filesystem_outputs": 378232,
+            "involuntary_context_switches": 330,
+            "major_faults": 0,
+            "minor_faults": 97280,
+            "system_cpu_ns": 474319000,
+            "user_cpu_ns": 10234904000,
+            "voluntary_context_switches": 3887
+          },
+          "largest_observed_sample_gap_ns": 2468551,
+          "pid": 1722678,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 287739904,
+          "sampler_exit_code": 0,
+          "sampler_pid": 1722677,
+          "samples": 8836,
+          "sampling_edges": {
+            "first_sample_ns": 2432536197448446,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 519637,
+            "largest_gap_including_edges_ns": 2468551,
+            "last_sample_ns": 2432546055312697,
+            "launch_returned_ns": 2432536197435477,
+            "launch_started_ns": 2432536196928809,
+            "reaped_ns": 2432546056281420,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 968723
+          },
+          "sampling_error": null,
+          "sampling_method": "prestarted independent helper; held proc statm descriptor; acknowledged final cumulative observations; parent alone calls wait4",
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "195645440",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "318763008",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 0,
+            "rchar": 343397123,
+            "read_bytes": 8192,
+            "syscr": 7437,
+            "syscw": 5595,
+            "wchar": 193352868,
+            "write_bytes": 193654784
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 286212096,
+            "rss_bytes": 140091392
+          },
+          "published": [
+            {
+              "identity": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+              "kind": "import",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-import-4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b"
+            },
+            {
+              "identity": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+              "kind": "contribution",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-contribution-e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a"
+            }
+          ],
+          "result": {
+            "contribution": {
+              "identity": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+              "kind": "contribution",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-contribution-e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a"
+            },
+            "execution": {
+              "association_queries": 1,
+              "cgroup": {
+                "available": true,
+                "memory.current": "310439936",
+                "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+                "memory.max": "6442450944",
+                "memory.peak": "318763008",
+                "memory.swap.current": "0",
+                "memory.swap.max": "0"
+              },
+              "current_disk": {
+                "allocated_bytes": 20226048,
+                "concurrent_changes": false,
+                "logical_bytes": 20218667
+              },
+              "dependencies": {
+                "duckdb": "1.5.5",
+                "psutil": "7.2.2",
+                "pyarrow": "25.0.1"
+              },
+              "managed_reservation_high_water_bytes": 113246415,
+              "monitor": {
+                "budget_bytes": 2147483648,
+                "completed": 1,
+                "disk": {
+                  "allocated_bytes": 20226048,
+                  "concurrent_changes": false,
+                  "logical_bytes": 20218667
+                },
+                "elapsed_ns": 8827235886,
+                "peak_rss_bytes": 287739904,
+                "phase": "publish-contributions",
+                "phase_ordinal": 54,
+                "phase_started_ns": 2432545730260319,
+                "plan": {
+                  "baseline_bytes": 134197248,
+                  "batch_bytes": 50331648,
+                  "batch_rows": 65536,
+                  "budget_bytes": 2147483648,
+                  "disk_estimate_bytes": 1028658900,
+                  "engine_bytes": 1073741824,
+                  "engine_temp_limit_bytes": 335546432,
+                  "fixed_buffers_bytes": 33554432,
+                  "reserved_bytes": 1569488283,
+                  "resident_columns_bytes": 62914767,
+                  "safety_bytes": 214748364,
+                  "storage": "ram"
+                },
+                "rss_bytes": 233177088,
+                "sampled_disk_peak_allocated_bytes": 91570176,
+                "sampled_disk_peak_logical_bytes": 91526220,
+                "total": 1
+              },
+              "plan": {
+                "baseline_bytes": 134197248,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 2147483648,
+                "disk_estimate_bytes": 1028658900,
+                "engine_bytes": 1073741824,
+                "engine_temp_limit_bytes": 335546432,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 1569488283,
+                "resident_columns_bytes": 62914767,
+                "safety_bytes": 214748364,
+                "storage": "ram"
+              },
+              "revision": "mesh-import-execution-v1"
+            },
+            "faces": 1048584,
+            "import": {
+              "identity": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+              "kind": "import",
+              "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-import-4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b"
+            },
+            "revision": "mesh-import-run-v1",
+            "source_id": "9493c594003ee59a898b5d4878c48b0fe3197bef585f8b54b2bd50293047267a",
+            "status": "complete",
+            "vertices": 1048577
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 56,
+        "final_observation_seen": true,
+        "phases": {
+          "account-source-vertices": {
+            "elapsed_ns": 568975804,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 71270,
+              "read_bytes": 0,
+              "syscr": 53,
+              "syscw": 2,
+              "wchar": 2929,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "coordinate-association-1-lookup": {
+            "elapsed_ns": 910353620,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23903,
+              "read_bytes": 0,
+              "syscr": 211,
+              "syscw": 3,
+              "wchar": 3098,
+              "write_bytes": 4096
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "decode-faces": {
+            "elapsed_ns": 376433498,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13640098,
+              "read_bytes": 0,
+              "syscr": 528,
+              "syscw": 984,
+              "wchar": 20761746,
+              "write_bytes": 20824064
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "decode-vertices": {
+            "elapsed_ns": 365585008,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12599441,
+              "read_bytes": 0,
+              "syscr": 303,
+              "syscw": 987,
+              "wchar": 21808870,
+              "write_bytes": 21872640
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "fold-vertex-corners": {
+            "elapsed_ns": 819029831,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8511,
+              "read_bytes": 0,
+              "syscr": 92,
+              "syscw": 19,
+              "wchar": 29172,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 18
+          },
+          "initializing": {
+            "elapsed_ns": 1892420,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 543,
+              "read_bytes": 0,
+              "syscr": 7,
+              "syscw": 2,
+              "wchar": 1773,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "normalize-vertex-weights": {
+            "elapsed_ns": 413446188,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 7646,
+              "read_bytes": 0,
+              "syscr": 67,
+              "syscw": 1,
+              "wchar": 1526,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "order-source-corners": {
+            "elapsed_ns": 1868107556,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 27596,
+              "read_bytes": 0,
+              "syscr": 258,
+              "syscw": 18,
+              "wchar": 27622,
+              "write_bytes": 0
+            },
+            "last_completed": 3145752,
+            "last_total": 3145752,
+            "occurrences": 17
+          },
+          "publish-contributions": {
+            "elapsed_ns": 274181739,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 35666970,
+              "read_bytes": 0,
+              "syscr": 445,
+              "syscw": 66,
+              "wchar": 19931553,
+              "write_bytes": 19955712
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "publish-import": {
+            "elapsed_ns": 612552649,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 116521235,
+              "read_bytes": 4096,
+              "syscr": 1444,
+              "syscw": 125,
+              "wchar": 45097583,
+              "write_bytes": 45125632
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 2
+          },
+          "snapshot-mesh-ply-copy": {
+            "elapsed_ns": 111381291,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26283782,
+              "read_bytes": 0,
+              "syscr": 436,
+              "syscw": 402,
+              "wchar": 26215771,
+              "write_bytes": 26218496
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-private-rehash": {
+            "elapsed_ns": 117356894,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26157619,
+              "read_bytes": 0,
+              "syscr": 443,
+              "syscw": 6,
+              "wchar": 13766,
+              "write_bytes": 20480
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-source-rehash": {
+            "elapsed_ns": 74734714,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26217577,
+              "read_bytes": 0,
+              "syscr": 429,
+              "syscw": 1,
+              "wchar": 1128,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-1": {
+            "elapsed_ns": 75948086,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26151708,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1543,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-2": {
+            "elapsed_ns": 223247572,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26270246,
+              "read_bytes": 0,
+              "syscr": 502,
+              "syscw": 1,
+              "wchar": 1554,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "snapshot-mesh-ply-verify-3": {
+            "elapsed_ns": 84089406,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26152062,
+              "read_bytes": 0,
+              "syscr": 428,
+              "syscw": 1,
+              "wchar": 1533,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "stage-source-corners": {
+            "elapsed_ns": 1241229164,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 41759,
+              "read_bytes": 4096,
+              "syscr": 367,
+              "syscw": 2969,
+              "wchar": 59442668,
+              "write_bytes": 59633664
+            },
+            "last_completed": 3145752,
+            "last_total": 3145752,
+            "occurrences": 1
+          },
+          "verify-coordinate-words": {
+            "elapsed_ns": 61054425,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 2176,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1544,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-source-corners": {
+            "elapsed_ns": 609389726,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 20826,
+              "read_bytes": 0,
+              "syscr": 184,
+              "syscw": 2,
+              "wchar": 2927,
+              "write_bytes": 0
+            },
+            "last_completed": 3145752,
+            "last_total": 3145752,
+            "occurrences": 1
+          },
+          "verify-staged-faces": {
+            "elapsed_ns": 23282212,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 66683,
+              "read_bytes": 0,
+              "syscr": 12,
+              "syscw": 1,
+              "wchar": 1534,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "verify-staged-vertices": {
+            "elapsed_ns": 48666823,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1490,
+              "read_bytes": 0,
+              "syscr": 14,
+              "syscw": 1,
+              "wchar": 1527,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 2147483648,
+        "chunk_rows": null,
+        "contribution": null,
+        "destination": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out",
+        "display": null,
+        "display_transform": null,
+        "expected_contribution_id": null,
+        "expected_display_id": null,
+        "expected_import_id": null,
+        "operation": "import",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/source-fan-262144-adverse.ply",
+        "storage": "auto"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 77414,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2-import.ndjson",
+        "records": 69,
+        "sha256": "fb080f339db0b98918786acc73537e5acc79dc3eca97503d424281c15deb1e36"
+      }
+    },
+    "verify-display": {
+      "cancellation": {
+        "requested_completed": 0,
+        "requested_phase": null,
+        "trigger_record": null,
+        "triggered": false
+      },
+      "disk": {
+        "any_observed_concurrent_changes": false,
+        "final": {
+          "allocated_bytes": 282169344,
+          "files": 23,
+          "logical_bytes": 282085822,
+          "observation_finished_ns": 2432563099926648,
+          "observation_started_ns": 2432563098323411,
+          "observed_concurrent_changes": false,
+          "published_allocated_bytes": 282169344,
+          "published_logical_bytes": 282085822,
+          "temporary_allocated_bytes": 0,
+          "temporary_logical_bytes": 0
+        },
+        "largest_observed_sample_gap_ns": 58113640,
+        "observation_error": null,
+        "requested_interval_ns": 50000000,
+        "sampled_peaks": {
+          "allocated_bytes": 491905024,
+          "logical_bytes": 491777523,
+          "published_allocated_bytes": 282169344,
+          "published_logical_bytes": 282085822,
+          "temporary_allocated_bytes": 209735680,
+          "temporary_logical_bytes": 209691701
+        },
+        "samples": 158,
+        "scope": "Sampled file lengths and st_blocks for the entire owned run root, including completed outputs. Filesystem-wide metadata/journal space is excluded; non-atomic samples are lower bounds on intervening peaks."
+      },
+      "elapsed_including_measurement_ns": 7055051284,
+      "host_after": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "341368832",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "706535424",
+          "memory.pressure": "some avg10=0.05 avg60=0.06 avg300=0.01 total=73954\nfull avg10=0.05 avg60=0.06 avg300=0.01 total=73954",
+          "memory.stat": "anon 36384768\nfile 294830080\nkernel 9326592\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 77824\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36417536\ninactive_file 289652736\nactive_file 5181440\nunevictable 0\nslab_reclaimable 8280144\nslab_unreclaimable 284024\nslab 8564168\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1754\nworkingset_activate_anon 0\nworkingset_activate_file 18\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 19\npgsteal 19\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 19\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 19\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 528614\npgmajfault 39\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 38672\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 81\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 148718096384,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3330,
+          3664,
+          3612
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16439992320,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "host_before": {
+        "cache_conditions": "Uncontrolled host/page cache; no global cache drop. Source preparation and other host activity can affect cache residency.",
+        "cgroup": {
+          "available": true,
+          "cgroup.procs": "1722594",
+          "membership": "/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope",
+          "memory.current": "340684800",
+          "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+          "memory.max": "6442450944",
+          "memory.peak": "494481408",
+          "memory.pressure": "some avg10=0.12 avg60=0.07 avg300=0.01 total=72789\nfull avg10=0.12 avg60=0.07 avg300=0.01 total=72789",
+          "memory.stat": "anon 36364288\nfile 294629376\nkernel 9322496\nkernel_stack 262144\npagetables 495616\nsec_pagetables 0\npercpu 576\nsock 0\nvmalloc 0\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 49152\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 0\nactive_anon 36360192\ninactive_file 289452032\nactive_file 5181440\nunevictable 0\nslab_reclaimable 8275152\nslab_unreclaimable 255016\nslab 8530168\nhugetlb 0\nworkingset_refault_anon 0\nworkingset_refault_file 1754\nworkingset_activate_anon 0\nworkingset_activate_file 18\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgpromote_success 0\npgscan 19\npgsteal 19\npswpin 0\npswpout 0\npgscan_kswapd 0\npgscan_direct 19\npgscan_khugepaged 0\npgscan_proactive 0\npgsteal_kswapd 0\npgsteal_direct 19\npgsteal_khugepaged 0\npgsteal_proactive 0\npgfault 338786\npgmajfault 39\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 24667\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 60\nthp_collapse_alloc 0\nthp_swpout 0\nthp_swpout_fallback 0\nnuma_pages_migrated 0\nnuma_pte_updates 0\nnuma_hint_faults 0",
+          "memory.swap.current": "0",
+          "memory.swap.max": "0",
+          "memory.swap.peak": "0",
+          "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/scansor-s6-fan-262144-adverse-2048-r2.scope"
+        },
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cpu_logical": 16,
+        "cpu_physical": 8,
+        "environment": {
+          "MALLOC_ARENA_MAX": null,
+          "MKL_NUM_THREADS": null,
+          "NPY_DISABLE_CPU_FEATURES": null,
+          "OMP_NUM_THREADS": null,
+          "OPENBLAS_NUM_THREADS": null,
+          "PYTHONHASHSEED": null,
+          "PYTHONMALLOC": null
+        },
+        "filesystem": {
+          "free_bytes": 148718170112,
+          "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+          "total_bytes": 3041876828160
+        },
+        "load_average_milli": [
+          3302,
+          3669,
+          3613
+        ],
+        "machine": "x86_64",
+        "memory_available_bytes": 16347750400,
+        "memory_total_bytes": 66069004288,
+        "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+        "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+        "swap_in_bytes": 0,
+        "swap_out_bytes": 0,
+        "swap_total_bytes": 0,
+        "swap_used_bytes": 0
+      },
+      "measurement_error": null,
+      "observations": {
+        "phase_coverage_complete": true,
+        "sample_gaps_including_edges_within_10ms": true,
+        "whole_worker_rss_within_budget": true,
+        "work_directory_empty_after_exit": true
+      },
+      "outcome": {
+        "failure": null,
+        "last_progress": {
+          "budget_bytes": 2147483648,
+          "completed": 8388640,
+          "disk": {
+            "allocated_bytes": 200323072,
+            "concurrent_changes": false,
+            "logical_bytes": 200294127
+          },
+          "elapsed_ns": 5871291277,
+          "event": "final",
+          "monotonic_ns": 2432563022913120,
+          "observation_finished_ns": 2432563023228100,
+          "observation_started_ns": 2432563022913120,
+          "peak_rss_bytes": 236474368,
+          "phase": "verify-display-view-faces.bin",
+          "phase_ordinal": 36,
+          "phase_started_ns": 2432562996728577,
+          "plan": {
+            "baseline_bytes": 133885952,
+            "batch_bytes": 50331648,
+            "batch_rows": 65536,
+            "budget_bytes": 2147483648,
+            "disk_estimate_bytes": 1431379790,
+            "engine_bytes": 1073741824,
+            "engine_temp_limit_bytes": 335546432,
+            "fixed_buffers_bytes": 33554432,
+            "reserved_bytes": 1506262220,
+            "resident_columns_bytes": 0,
+            "safety_bytes": 214748364,
+            "storage": "disk"
+          },
+          "previous_phase": null,
+          "process_io": {
+            "cancelled_write_bytes": 0,
+            "rchar": 683177046,
+            "read_bytes": 24576,
+            "syscr": 10484,
+            "syscw": 4705,
+            "wchar": 260468367,
+            "write_bytes": 260567040
+          },
+          "rss_bytes": 146530304,
+          "sampled_disk_peak_allocated_bytes": 209723392,
+          "sampled_disk_peak_logical_bytes": 209690374,
+          "total": 8388640
+        },
+        "published": [],
+        "revision": "mesh-worker-outcome-v1",
+        "status": "complete",
+        "supervision": {
+          "budget_bytes": 2147483648,
+          "elapsed_ns": 7026663092,
+          "exit_code": 0,
+          "kernel_peak_rss_bytes": 235610112,
+          "kernel_usage": {
+            "filesystem_inputs": 48,
+            "filesystem_outputs": 508920,
+            "involuntary_context_switches": 752,
+            "major_faults": 0,
+            "minor_faults": 187899,
+            "system_cpu_ns": 603044000,
+            "user_cpu_ns": 7535570000,
+            "voluntary_context_switches": 2467
+          },
+          "largest_observed_sample_gap_ns": 2453250,
+          "pid": 1723418,
+          "requested_sample_interval_ns": 1000000,
+          "sampled_peak_rss_bytes": 236474368,
+          "sampler_exit_code": 0,
+          "sampler_pid": 1723417,
+          "samples": 6251,
+          "sampling_edges": {
+            "first_sample_ns": 2432556131807356,
+            "gaps_over_10ms_including_edges": 0,
+            "initial_gap_ns": 524255,
+            "largest_gap_including_edges_ns": 2453250,
+            "last_sample_ns": 2432563088101745,
+            "launch_returned_ns": 2432556131794928,
+            "launch_started_ns": 2432556131283101,
+            "reaped_ns": 2432563088247510,
+            "scope": "Conservative coverage from before process launch through wait4 reaping, including parent launch/observation overhead around the child's actual lifetime.",
+            "terminal_gap_ns": 145765
+          },
+          "sampling_error": null,
+          "sampling_method": "prestarted independent helper; held proc statm descriptor; acknowledged final cumulative observations; parent alone calls wait4",
+          "stderr": "",
+          "stderr_truncated": false
+        },
+        "worker_report": {
+          "cgroup": {
+            "available": true,
+            "memory.current": "407306240",
+            "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+            "memory.max": "6442450944",
+            "memory.peak": "706535424",
+            "memory.swap.current": "0",
+            "memory.swap.max": "0"
+          },
+          "io_after_cleanup": {
+            "cancelled_write_bytes": 0,
+            "rchar": 683177516,
+            "read_bytes": 24576,
+            "syscr": 10489,
+            "syscw": 4706,
+            "wchar": 260469758,
+            "write_bytes": 260567040
+          },
+          "memory_after_cleanup": {
+            "os_peak_rss_bytes": 235610112,
+            "rss_bytes": 146538496
+          },
+          "published": [],
+          "result": {
+            "authority": "Replayed from supplied authoritative columns; source geometry replay is a separate check.",
+            "contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+            "display_id": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+            "import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+            "monitor": {
+              "budget_bytes": 2147483648,
+              "completed": 8388640,
+              "disk": {
+                "allocated_bytes": 200323072,
+                "concurrent_changes": false,
+                "logical_bytes": 200294127
+              },
+              "elapsed_ns": 5871471863,
+              "peak_rss_bytes": 236474368,
+              "phase": "verify-display-view-faces.bin",
+              "phase_ordinal": 36,
+              "phase_started_ns": 2432562996728577,
+              "plan": {
+                "baseline_bytes": 133885952,
+                "batch_bytes": 50331648,
+                "batch_rows": 65536,
+                "budget_bytes": 2147483648,
+                "disk_estimate_bytes": 1431379790,
+                "engine_bytes": 1073741824,
+                "engine_temp_limit_bytes": 335546432,
+                "fixed_buffers_bytes": 33554432,
+                "reserved_bytes": 1506262220,
+                "resident_columns_bytes": 0,
+                "safety_bytes": 214748364,
+                "storage": "disk"
+              },
+              "rss_bytes": 146530304,
+              "sampled_disk_peak_allocated_bytes": 209723392,
+              "sampled_disk_peak_logical_bytes": 209690374,
+              "total": 8388640
+            },
+            "plan": {
+              "baseline_bytes": 133885952,
+              "batch_bytes": 50331648,
+              "batch_rows": 65536,
+              "budget_bytes": 2147483648,
+              "disk_estimate_bytes": 1431379790,
+              "engine_bytes": 1073741824,
+              "engine_temp_limit_bytes": 335546432,
+              "fixed_buffers_bytes": 33554432,
+              "reserved_bytes": 1506262220,
+              "resident_columns_bytes": 0,
+              "safety_bytes": 214748364,
+              "storage": "disk"
+            },
+            "revision": "mesh-display-verification-v1",
+            "status": "verified",
+            "verified_data_files": 5
+          },
+          "status": "complete",
+          "type": "result"
+        }
+      },
+      "phase_totals": {
+        "boundaries": 38,
+        "final_observation_seen": true,
+        "phases": {
+          "artifact-check-normalization": {
+            "elapsed_ns": 53917859,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16779516,
+              "read_bytes": 0,
+              "syscr": 56,
+              "syscw": 6,
+              "wchar": 14322,
+              "write_bytes": 20480
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-contribution-status.bin": {
+            "elapsed_ns": 3640481,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049026,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1517,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-vertex-area.bin": {
+            "elapsed_ns": 24148309,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389408,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1538,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-hash-weight.bin": {
+            "elapsed_ns": 24066054,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389751,
+              "read_bytes": 0,
+              "syscr": 142,
+              "syscw": 1,
+              "wchar": 1525,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-contribution-vertices": {
+            "elapsed_ns": 670481136,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40900213,
+              "read_bytes": 0,
+              "syscr": 171,
+              "syscw": 2,
+              "wchar": 2853,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-faces": {
+            "elapsed_ns": 405268500,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22066509,
+              "read_bytes": 0,
+              "syscr": 123,
+              "syscw": 1,
+              "wchar": 1490,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-area.bin": {
+            "elapsed_ns": 20561466,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389463,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1513,
+              "write_bytes": 0
+            },
+            "last_completed": 8388672,
+            "last_total": 8388672,
+            "occurrences": 1
+          },
+          "artifact-import-hash-face-status.bin": {
+            "elapsed_ns": 2859512,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049031,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1514,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "artifact-import-hash-normal-status.bin": {
+            "elapsed_ns": 3273696,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1049022,
+              "read_bytes": 0,
+              "syscr": 24,
+              "syscw": 1,
+              "wchar": 1517,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-reference-count.bin": {
+            "elapsed_ns": 24953800,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389403,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1519,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "artifact-import-hash-triangles.bin": {
+            "elapsed_ns": 34521018,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584139,
+              "read_bytes": 0,
+              "syscr": 206,
+              "syscw": 1,
+              "wchar": 1517,
+              "write_bytes": 0
+            },
+            "last_completed": 12583008,
+            "last_total": 12583008,
+            "occurrences": 1
+          },
+          "artifact-import-hash-vertex-status.bin": {
+            "elapsed_ns": 3444624,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1048680,
+              "read_bytes": 0,
+              "syscr": 21,
+              "syscw": 1,
+              "wchar": 1509,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-import-hash-xyz.bin": {
+            "elapsed_ns": 36292165,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 12584088,
+              "read_bytes": 0,
+              "syscr": 207,
+              "syscw": 1,
+              "wchar": 1495,
+              "write_bytes": 0
+            },
+            "last_completed": 12582924,
+            "last_total": 12582924,
+            "occurrences": 1
+          },
+          "artifact-import-vertices": {
+            "elapsed_ns": 264478046,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 23074287,
+              "read_bytes": 0,
+              "syscr": 118,
+              "syscw": 1,
+              "wchar": 1501,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "artifact-source-mesh-ply": {
+            "elapsed_ns": 81073612,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26335771,
+              "read_bytes": 0,
+              "syscr": 463,
+              "syscw": 1,
+              "wchar": 1462,
+              "write_bytes": 0
+            },
+            "last_completed": 26214725,
+            "last_total": 26214725,
+            "occurrences": 1
+          },
+          "count-display-rejected-corners": {
+            "elapsed_ns": 11606353,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 465,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1537,
+              "write_bytes": 0
+            },
+            "last_completed": 1,
+            "last_total": 1,
+            "occurrences": 1
+          },
+          "export-display-face-lookup": {
+            "elapsed_ns": 413644113,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 26228955,
+              "read_bytes": 0,
+              "syscr": 225,
+              "syscw": 436,
+              "wchar": 35653306,
+              "write_bytes": 35655680
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "export-display-rejected-corners": {
+            "elapsed_ns": 216947871,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 16788849,
+              "read_bytes": 12288,
+              "syscr": 102,
+              "syscw": 9,
+              "wchar": 533566,
+              "write_bytes": 540672
+            },
+            "last_completed": 12,
+            "last_total": 12,
+            "occurrences": 1
+          },
+          "export-display-vertices": {
+            "elapsed_ns": 1145917371,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 38419,
+              "read_bytes": 0,
+              "syscr": 337,
+              "syscw": 2293,
+              "wchar": 157290779,
+              "write_bytes": 157298688
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "initializing": {
+            "elapsed_ns": 3678342,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 11741,
+              "read_bytes": 0,
+              "syscr": 13,
+              "syscw": 2,
+              "wchar": 2601,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "stage-display-faces": {
+            "elapsed_ns": 439275525,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 22035257,
+              "read_bytes": 4096,
+              "syscr": 184,
+              "syscw": 984,
+              "wchar": 21751663,
+              "write_bytes": 21815296
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "stage-display-vertices": {
+            "elapsed_ns": 744228596,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 40919434,
+              "read_bytes": 4096,
+              "syscr": 339,
+              "syscw": 943,
+              "wchar": 45174667,
+              "write_bytes": 45236224
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-face": {
+            "elapsed_ns": 2823693,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 69103,
+              "read_bytes": 0,
+              "syscr": 20,
+              "syscw": 1,
+              "wchar": 1571,
+              "write_bytes": 0
+            },
+            "last_completed": 0,
+            "last_total": 0,
+            "occurrences": 1
+          },
+          "validate-display-rejected-face-corners-vertex": {
+            "elapsed_ns": 970722,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 1299,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1568,
+              "write_bytes": 0
+            },
+            "last_completed": 12,
+            "last_total": 12,
+            "occurrences": 1
+          },
+          "validate-display-validity-face": {
+            "elapsed_ns": 20967252,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13632425,
+              "read_bytes": 0,
+              "syscr": 425,
+              "syscw": 1,
+              "wchar": 1561,
+              "write_bytes": 0
+            },
+            "last_completed": 1048580,
+            "last_total": 1048580,
+            "occurrences": 1
+          },
+          "validate-display-validity-vertex": {
+            "elapsed_ns": 100991459,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74456566,
+              "read_bytes": 0,
+              "syscr": 1169,
+              "syscw": 1,
+              "wchar": 1552,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "validate-display-weights-face": {
+            "elapsed_ns": 21360859,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 13630376,
+              "read_bytes": 0,
+              "syscr": 423,
+              "syscw": 1,
+              "wchar": 1559,
+              "write_bytes": 0
+            },
+            "last_completed": 1048580,
+            "last_total": 1048580,
+            "occurrences": 1
+          },
+          "validate-display-weights-vertex": {
+            "elapsed_ns": 91130974,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 74456221,
+              "read_bytes": 0,
+              "syscr": 1166,
+              "syscw": 1,
+              "wchar": 1560,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          },
+          "verify-display-rejected-face-corners.ply": {
+            "elapsed_ns": 540173,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 2207,
+              "read_bytes": 0,
+              "syscr": 5,
+              "syscw": 1,
+              "wchar": 1565,
+              "write_bytes": 0
+            },
+            "last_completed": 2082,
+            "last_total": 2082,
+            "occurrences": 1
+          },
+          "verify-display-validity.ply": {
+            "elapsed_ns": 263771186,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 88090327,
+              "read_bytes": 0,
+              "syscr": 1427,
+              "syscw": 1,
+              "wchar": 1558,
+              "write_bytes": 0
+            },
+            "last_completed": 88081233,
+            "last_total": 88081233,
+            "occurrences": 1
+          },
+          "verify-display-view-faces.bin": {
+            "elapsed_ns": 26184543,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8390145,
+              "read_bytes": 0,
+              "syscr": 145,
+              "syscw": 1,
+              "wchar": 1561,
+              "write_bytes": 0
+            },
+            "last_completed": 8388640,
+            "last_total": 8388640,
+            "occurrences": 1
+          },
+          "verify-display-view-ids": {
+            "elapsed_ns": 23112170,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389547,
+              "read_bytes": 0,
+              "syscr": 44,
+              "syscw": 2,
+              "wchar": 3082,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 2
+          },
+          "verify-display-view-vertices.bin": {
+            "elapsed_ns": 24090469,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 8389431,
+              "read_bytes": 0,
+              "syscr": 139,
+              "syscw": 1,
+              "wchar": 1566,
+              "write_bytes": 0
+            },
+            "last_completed": 8388616,
+            "last_total": 8388616,
+            "occurrences": 1
+          },
+          "verify-display-weights.ply": {
+            "elapsed_ns": 249986133,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 88089636,
+              "read_bytes": 0,
+              "syscr": 1421,
+              "syscw": 1,
+              "wchar": 1555,
+              "write_bytes": 0
+            },
+            "last_completed": 88081232,
+            "last_total": 88081232,
+            "occurrences": 1
+          },
+          "verify-display_faces": {
+            "elapsed_ns": 140225207,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 4924,
+              "read_bytes": 0,
+              "syscr": 44,
+              "syscw": 1,
+              "wchar": 1532,
+              "write_bytes": 0
+            },
+            "last_completed": 1048584,
+            "last_total": 1048584,
+            "occurrences": 1
+          },
+          "verify-display_vertices": {
+            "elapsed_ns": 276545514,
+            "io_delta": {
+              "cancelled_write_bytes": 0,
+              "rchar": 9381,
+              "read_bytes": 4096,
+              "syscr": 83,
+              "syscw": 1,
+              "wchar": 1536,
+              "write_bytes": 0
+            },
+            "last_completed": 1048577,
+            "last_total": 1048577,
+            "occurrences": 1
+          }
+        },
+        "scope": "Worker phase boundary intervals; I/O includes telemetry/IPC and observations have explicit start/end windows. Startup and post-monitor cleanup are covered separately by whole-worker supervision."
+      },
+      "request": {
+        "budget_bytes": 2147483648,
+        "chunk_rows": null,
+        "contribution": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-contribution-e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+        "destination": null,
+        "display": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-display-e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+        "display_transform": null,
+        "expected_contribution_id": "e891ef8aa16e6594664c4b5aa4478d01c093229a5af6c2fcd0d1af236c94df8a",
+        "expected_display_id": "e54c7bc607e3cc02124b8e75c4105bdbb63817d28bc1d44b9a162b725535203a",
+        "expected_import_id": "4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+        "operation": "verify-display",
+        "revision": "mesh-worker-request-v2",
+        "sidecar": null,
+        "source": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2/out/mesh-import-4cf64a47322f3924ea4b88e7847a38f502f11c1e05edcd58504625c141b6173b",
+        "storage": "disk"
+      },
+      "scope": "Whole-worker kernel RSS/CPU/fault counters include startup through exit. Parent telemetry, file sampling, and subsequent independent artifact validation are outside worker RSS. Cgroup charge can include the parent, file cache and other listed members; it is not RSS. The cgroup kernel peak may predate this operation. A completed operation does not by itself pass resource or sampling-coverage observations.",
+      "status": "complete",
+      "telemetry": {
+        "bytes": 52458,
+        "path": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2-verify-display.ndjson",
+        "records": 46,
+        "sha256": "4cfa605dc8fe067a7f41feeb2008e4d75c94e5a43fa47c3757fdb700aa12a957"
+      }
+    }
+  },
+  "revision": "mesh-scale-fan-run-v1",
+  "run_root": "/home/data/scansor-s6-evidence-fJVNUiYN/fan-262144-adverse-2048-r2",
+  "scope": "One sequential complete generated case. Post-worker checks scan every canonical column and compare frozen hashes and row digests; display replay rebuilds every exported data file. Independent checks run outside measured workers. No viewer interaction or physical validation is measured.",
+  "source": {
+    "actual": {
+      "bytes": 26214725,
+      "sha256": "f7ce0116170f1280d35d3fe8db00f163ee611e8442fa7c7aa715302aeb9612a6"
+    },
+    "path": "/home/data/scansor-s6-evidence-fJVNUiYN/source-fan-262144-adverse.ply"
+  },
+  "started_utc": "2026-09-12T01:05:02.094880+00:00",
+  "status": "complete",
+  "through": "verify-display"
+}

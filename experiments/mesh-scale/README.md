@@ -1,0 +1,1246 @@
+# S6 mesh scale validation
+
+This opt-in work belongs to [issue #37](https://github.com/altendky/scansor/issues/37).
+The expectation builder, measured-run harness and generated matrix are implemented.
+At runtime revision `5ffd9e7`, all fourteen sequential import/contribution,
+display-export and display-replay pipelines completed. All seven 512 MiB/2 GiB
+pairs have identical complete source, expectation, canonical and display check
+records. Every worker stayed within its requested RSS budget and exited normally;
+owned cleanup and phase coverage passed. Seven cases missed the 10 ms sampling
+target, so the complete matrix does **not** pass every measurement gate.
+
+## Current complete matrix
+
+The [comparison summary](current-matrix-summary.json) binds the exact report
+hashes and identical runtime implementation, including dependencies and native
+extension. Each linked report retains the three separate worker measurements.
+Times below exclude independent parent readback; RSS and sampling maxima are
+across import, export and replay. These are measurements from one Linux host
+with uncontrolled caches, not general capacity or runtime guarantees.
+
+| Input / worker budget | Import / export / replay (s) | Largest kernel / sampled RSS (MiB) | Largest sampling gap (ms) | Sampling coverage |
+| --- | ---: | ---: | ---: | --- |
+| [6M flat / 512 MiB](run-grid-3000x2000-flat-512-r4.json) | 115.99 / 73.38 / 62.76 | 490.17 / 491.63 | 21.179733 | Fail (5 gaps over 10 ms) |
+| [6M flat / 2 GiB](run-grid-3000x2000-flat-2048-r3.json) | 76.75 / 41.07 / 39.81 | 1784.08 / 1785.07 | 16.499528 | Fail (2 gaps over 10 ms) |
+| [6M noisy / 512 MiB](run-grid-3000x2000-noisy-512-r2.json) | 160.21 / 97.51 / 157.28 | 488.82 / 489.05 | 40.539634 | Fail (59 gaps over 10 ms) |
+| [6M noisy / 2 GiB](run-grid-3000x2000-noisy-2048-r2.json) | 75.04 / 40.84 / 41.22 | 1337.27 / 1338.42 | 11.763170 | Fail (1 gap over 10 ms) |
+| [60M flat / 512 MiB](run-grid-10000x6000-flat-512-r8.json) | 934.46 / 486.48 / 503.57 | 460.41 / 461.43 | 5.420803 | Pass |
+| [60M flat / 2 GiB](run-grid-10000x6000-flat-2048-r5.json) | 883.02 / 446.65 / 446.35 | 1784.74 / 1785.47 | 4.730483 | Pass |
+| [60M noisy / 512 MiB](run-grid-10000x6000-noisy-512-r4.json) | 887.04 / 456.66 / 507.24 | 448.01 / 449.41 | 6.580765 | Pass |
+| [60M noisy / 2 GiB](run-grid-10000x6000-noisy-2048-r2.json) | 844.07 / 437.03 / 445.53 | 1862.88 / 1863.60 | 4.894708 | Pass |
+| [6M reordered noisy / 512 MiB](run-grid-3000x2000-noisy-permuted-512-r2.json) | 1845.26 / 841.45 / 895.03 | 476.81 / 477.54 | 9.676364 | Pass |
+| [6M reordered noisy / 2 GiB](run-grid-3000x2000-noisy-permuted-2048-r2.json) | 81.37 / 926.51 / 963.95 | 1438.45 / 1439.25 | 18.695885 | Fail (4 gaps over 10 ms) |
+| [Fan base / 512 MiB](run-fan-262144-base-512-r2.json) | 10.48 / 7.79 / 7.47 | 224.20 / 225.35 | 4.998645 | Pass |
+| [Fan base / 2 GiB](run-fan-262144-base-2048-r2.json) | 10.40 / 7.07 / 6.74 | 272.21 / 273.37 | 11.227830 | Fail (1 gap over 10 ms) |
+| [Fan adverse / 512 MiB](run-fan-262144-adverse-512-r2.json) | 10.44 / 7.42 / 6.93 | 224.71 / 225.55 | 12.099725 | Fail (1 gap over 10 ms) |
+| [Fan adverse / 2 GiB](run-fan-262144-adverse-2048-r2.json) | 9.93 / 7.22 / 7.03 | 272.95 / 274.41 | 7.805195 | Pass |
+
+Both sixty-million-vertex inputs used disk storage under both budgets and passed
+all recorded observations. The smaller regular and reordered 2 GiB imports
+selected RAM; their 512 MiB counterparts used disk. All 42 workers and sampler
+helpers exited normally without measurement errors. Cgroup OOM/kill and swap
+counters remained zero. Some large cases reached the separate 6 GiB cgroup
+charge ceiling, which includes file cache and differs from worker RSS.
+
+Reordered input exposes a substantial many-small-read regression. Its 512 MiB
+import took 1,845 seconds, versus 81 seconds with RAM at 2 GiB; export/replay
+remained slow at both budgets. Phase counters and historical comparisons below
+make the regression explicit. They do not isolate sorting performance or
+establish physical disk throughput. The seven sampling-coverage failures remain
+failures; successful data and RSS observations do not erase them. Earlier failed
+attempts and diagnostic checkpoints remain below as historical evidence.
+
+## Independent expected results
+
+From the repository root, using the locked Python environment:
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_freeze \
+  --workdir /absolute/existing/directory/outside/git \
+  --output /absolute/new/expected-grid.json \
+  --width 3000 --height 2000 --noisy
+```
+
+Omit `--noisy` for the noiseless recipe. The seed defaults to 7; noisy grids use
+`b=3,q=-8`. The required populations are:
+
+| Width | Height | Vertices | Triangles |
+| --- | --- | --- | --- |
+| 3,000 | 2,000 | 6,000,000 | 11,990,002 |
+| 10,000 | 6,000 | 60,000,000 | 119,968,002 |
+
+Freeze both noise configurations at each size before interpreting measurements.
+The manifest contains the complete expected source hash, all ten canonical
+column hashes, three source-order row digests, reference counts, ordered area
+and weight sums, and area/weight ranges. It also records the expectation digest,
+oracle source hashes, runtime versions/native extension hash, and progress.
+Output files are created exclusively; failed attempts retain a failed manifest.
+
+The oracle does not import production Scansor code. It uses independently
+implemented integer Philox rounds and exact binary32 coordinate encodings.
+The grid's squared cross-product norm is exactly
+`144 + (16*dx*dx + 9*dy*dy)/65536`, with height differences in integer units of
+1/256. There are only 64 absolute slope pairs. The standard-library rational
+oracle independently rounds each square root, half-area, and corner third.
+Integer operations then reproduce the required rounding after each ordered
+vertex addition, global addition, multiplication, and normalization division.
+No floating reduction or production kernel supplies expected values.
+
+The builder streams every source row and canonical record. Arrays are bounded
+by 65,536 rows; the largest height read is bounded by 65,536 plus twice the grid
+width plus two bytes. Owned temporary files hold one byte per source height and
+eight bytes per vertex area, then are removed. They must be outside Git,
+including ignored paths. This is a specialized experiment oracle, not a general
+floating-point package or a runtime backend.
+
+Tests compare every noisy slope against separate rational geometry, complete
+small-grid bytes against a per-face rational oracle, full hashes against the
+actual RAM/disk importer, and hashes across the maximum batch boundary. These
+checks validate the expectation method; actual full-size source hashes must
+still be compared before accepting benchmark results.
+
+Complete expectations are retained for the six-million-vertex
+[noiseless](expected-grid-3000x2000-flat.json) and
+[noisy](expected-grid-3000x2000-noisy.json) grids, and the sixty-million-vertex
+[noiseless](expected-grid-10000x6000-flat.json) and
+[noisy](expected-grid-10000x6000-noisy.json) grids. Each covers every source
+triangle and all ten canonical columns. Both six-million-vertex expectations
+have matched full-size production imports. Both sixty-million-vertex expectations
+also matched complete 2 GiB runs.
+
+## Production source preparation
+
+Generate and hash each complete source independently of the expectation builder:
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_generate \
+  --frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --workdir /absolute/existing/directory/outside/git \
+  --name source-grid-3000x2000-noisy.ply \
+  --output /absolute/new/prepared-grid.json
+```
+
+This calls the production recipe and PLY writer, then compares the entire file's
+size and hash with the frozen expectation. Source/report creation is exclusive.
+A mismatch is a failure; the generated bytes remain available for inspection.
+The small report binds the frozen manifest, generator implementation, preparation
+script and runtime. Its timing measures source preparation, not ingestion.
+
+All four production source files matched their complete frozen hashes. Retained
+reports cover the six-million-vertex [noiseless](prepared-grid-3000x2000-flat.json)
+and [noisy](prepared-grid-3000x2000-noisy.json) files, and the sixty-million-vertex
+[noiseless](prepared-grid-10000x6000-flat.json) and
+[noisy](prepared-grid-10000x6000-noisy.json) files. The two smaller files each
+contain 227,870,239 bytes; the two larger files each contain 2,279,584,241 bytes.
+The source files remain outside Git. Both noiseless and noisy six-million-vertex
+importer/contribution comparisons passed under both budgets. The
+sixty-million-vertex cases completed at 2 GiB. Both now also have complete
+512 MiB runs; both fresh full runs pass sampling coverage too. Renewed
+comparisons across the full matrix and complete sampling coverage remain open.
+
+## Worker execution and phase evidence
+
+The internal `WorkerRequest`/`run_worker` path supports `display` and
+`verify-display` in addition to `import` and `verify`. For display operations,
+`source` identifies the authoritative import and `contribution` identifies its
+contribution artifact. Export requires `destination`; replay requires `display`.
+Expected IDs can pin all supplied artifacts. Export accepts the existing
+display-only transform; replay reads it from the legend. Display execution uses
+disk storage and rejects a RAM request.
+
+Fresh workers inherit owned scratch handles and, when needed, separately owned
+destination staging. Publication is reported immediately before subsequent
+validation/cleanup, preserving the completed artifact in a later failure report.
+The parent retains kernel RSS high-water through process exit via `wait4`.
+Small tests exercise export/replay equality, actual cross-filesystem copying,
+crashes, cleanup failures, and read-only containment.
+
+Progress records now include immediate phase transitions and a final observation,
+with monotonic timestamps, phase ordinals, previous completed counters, process
+I/O, and logical/allocated disk observations and sampled peaks. Periodic records
+continue during native queries. Observation start/end timestamps expose the
+measurement window. These disk samples cover the monitor's working tree. The
+harness separately samples its entire owned run root, including destination
+staging and completed publications, and reports temporary and published file
+bytes separately. Logical file length and allocated `st_blocks` are distinct;
+filesystem metadata and journal allocation are excluded. Concurrent moves can
+make a sample partial. Neither requested RSS intervals nor sampled disk peaks
+establish a hard bound on unobserved intervals.
+
+## Sequential measured cases
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_run \
+  --frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name grid-3000x2000-noisy-512 \
+  --budget-mib 512 --storage disk \
+  --output /absolute/new/run-grid-3000x2000-noisy-512.json
+```
+
+The default runs complete import/contribution, display export, and display replay
+in separate fresh workers, sequentially. Independent read-only comparisons after
+import check every canonical column against the frozen hashes, all ordered row
+digests, populations, categories and numeric summaries. Display checks scan all
+exported rows and full file hashes; the final worker regenerates every display
+data file from the authoritative columns. `--through import` or `--through display`
+records an explicitly partial pipeline. These switches do not reduce row counts.
+
+Use separate names and output paths for 512 MiB and 2 GiB cases. Keep the larger
+grid on disk at both budgets. Source, work, output artifacts and streamed NDJSON
+must remain outside Git. The small report can be retained after inspection. The
+harness rejects existing case/report/telemetry paths, preserves failed outcomes
+and completed publications, and stops dependent operations after failure.
+`--cancel-phase NAME --cancel-completed N` requests cancellation when a worker
+progress observation first reaches that phase/counter; the report identifies
+whether it triggered. It is a failure probe, not a successful full-data run.
+
+Reports include exact implementation and native-extension hashes, dependency
+versions, host/cgroup/cache observations, kernel process high-water RSS and usage
+counters, sampled RSS gaps including startup/exit edges, phase elapsed/I/O totals,
+and sampled disk peaks. Each operation retains its complete supervisor outcome
+and a hash of its streamed protocol telemetry. Startup through process exit is
+covered by kernel RSS; parent observations and later independent checks are
+outside worker RSS and have separate timing. Phase I/O includes telemetry/IPC;
+the execution report records allocation reservations, not a native-allocation
+profile. Cgroup charge can include the parent, page cache and other listed
+members, and its kernel peak may predate the operation. A fresh dedicated cgroup
+makes that scope easier to interpret. A cgroup cap is not the worker RSS budget.
+
+The source is fully hashed immediately before launch, which can warm the page
+cache. Cache conditions are explicitly uncontrolled; the harness never drops
+global caches. A completed pipeline does not imply that observed sampling gaps
+met 10 ms or that every resource target passed. Those observations remain separate
+in the report, including conservative gaps before the first and after the last
+sample. Small ordinary tests cover byte comparison, reporting, cancellation,
+resource failure, and owned cleanup; they are not scale benchmark results.
+
+The supervisor starts a separate RSS helper before launching the worker. It
+transfers a held `/proc/PID/statm` descriptor; Linux keeps that handle tied to
+the original process, including after numeric PID reuse. The parent alone
+calls `wait4`. Bounded cumulative messages do not suspend sampling when parent
+protocol processing is busy, and an acknowledgement confirms delivery of the
+final statistics before the helper exits successfully. Both processes are
+reaped on failure paths. Helper errors invalidate coverage, including errors
+discovered after the worker completes. Helper RSS is outside the worker budget
+but included in its cgroup's charge. Tests cover a parent C call holding the
+GIL, final peak delivery without intermediate drainage, helper/worker startup
+failures, owner loss and late errors. Real scheduling gaps are still reported;
+this mechanism does not guarantee a 10 ms interval. Earlier measurements retain
+their original method, including the previous parent-thread observer.
+
+## Initial six-million-vertex measurement
+
+The first [512 MiB noiseless disk case](run-grid-3000x2000-flat-512-r1.json)
+used implementation checkpoint `7ee7619`. Complete import and contribution took
+79.87 seconds and matched all ten frozen canonical column hashes, all three
+ordered row digests, categories, sums and ranges. Kernel peak RSS was 334 MiB;
+sampled RSS reached 335 MiB. All 6,000,000 vertices and 11,990,002 triangles were
+accounted for. This is one run with uncontrolled caches, not a runtime guarantee.
+
+Display export failed after 34.19 seconds while remapping faces. DuckDB could not
+pin another 256 KiB block within its approximately 135 MiB engine allocation.
+Kernel peak RSS was 336 MiB and sampled RSS reached 338 MiB, both below the
+512 MiB worker target. The worker exited normally with a resource-failure report;
+the separate 6 GiB cgroup reported no limit, OOM, OOM-kill or swap events. All
+owned scratch was removed and both completed authoritative artifacts remained.
+No display artifact was published, and display replay did not run.
+
+The failed query contains three vertex joins followed by sorting. DuckDB
+[documents limitations when several blocking operators share a query](https://duckdb.org/docs/current/guides/performance/how_to_tune_workloads#limitations).
+That is consistent with this failure. The remapping implementation now expands
+usable faces to corners, performs one vertex lookup and sorts by source face and
+corner, then regroups triangles in bounded arrays. The first full-size rerun
+completed, as detailed below. Both original failed results remain evidence.
+
+The equivalent [2 GiB case](run-grid-3000x2000-flat-2048-r1.json) on the same
+implementation selected RAM columns. Complete import/contribution took 76.69
+seconds, with kernel peak RSS of 850 MiB and sampled peak of 852 MiB. All canonical
+checks, hashes and IDs were identical to the 512 MiB disk case. Display again
+failed before yielding remapped faces, this time at the 256 MiB engine cap:
+34.22 seconds, kernel peak RSS 595 MiB, sampled peak 596 MiB. Owned scratch cleanup
+succeeded. Raising the worker budget alone did not resolve this query shape.
+
+RSS sampling also missed the requested 10 ms coverage: the largest observed
+intervals were 11.00 ms for import and 19.01 ms for display. The report preserves
+the gaps and flags coverage as false. Kernel high-water and sampled RSS are
+retained separately; they are distinct observations and can differ slightly.
+Successful canonical accounting does not erase either the display failure or
+the sampling gap.
+
+## Complete 512 MiB rerun after remapping fix
+
+The [second 512 MiB noiseless disk case](run-grid-3000x2000-flat-512-r2.json),
+at checkpoint `8f0cf5c`, completed the entire import/contribution/display/replay
+pipeline. It used the same complete source and frozen expectation as both
+original runs. All ten canonical hashes, three row digests, categories, sums,
+ranges and source/import/contribution IDs matched. Both main display views
+contain all 6,000,000 vertices and 11,990,002 usable faces. A separate fresh
+worker regenerated and compared all five display data files.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 79.09 | 335.28 | 333.07 | 7.24 |
+| Display export | 43.70 | 332.89 | 334.09 | 11.92 |
+| Full display replay | 45.01 | 321.64 | 322.91 | 9.45 |
+
+All worker RSS observations stayed below 512 MiB; all owned scratch was removed.
+The resulting authoritative and display files contain 2,021,337,320 logical bytes
+in total. These are observations from one sequential run with uncontrolled
+caches. Display sampling missed the 10 ms requirement, which remains explicitly
+false in the report. This establishes a complete measured case, not completion of
+the entire resource, platform or visual-inspection gate.
+
+## Equivalent 2 GiB rerun
+
+The [second 2 GiB noiseless case](run-grid-3000x2000-flat-2048-r2.json) completed
+on the same `8f0cf5c` implementation, using RAM canonical columns for import and
+disk display staging. Its complete canonical check record and complete display
+check record are identical to the successful 512 MiB case, including all semantic
+IDs, column hashes, row digests, display file hashes and populations.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 79.09 | 866.99 | 867.99 | 8.32 |
+| Display export | 43.22 | 529.66 | 530.88 | 6.80 |
+| Full display replay | 43.27 | 566.54 | 567.69 | 10.26 |
+
+Every operation remained within its 2 GiB worker target and cleaned owned scratch.
+Replay sampling exceeded 10 ms once; that coverage observation is false. These
+sequential paired runs demonstrate equivalent complete data for this one recipe
+at both budgets, while retaining their actual resource and sampling limitations.
+
+## Initial noisy grid measurement
+
+The full [noisy six-million-vertex 512 MiB case](run-grid-3000x2000-noisy-512-r1.json)
+completed import/contribution, export and replay using the fixed `8f0cf5c`
+implementation. All frozen canonical expectations matched, including the ordered
+area and weight sums for the complete `b=3,q=-8` seed-7 source. The operations took
+79.90, 45.39 and 45.23 seconds, respectively; their maximum observed RSS values
+were 334.89, 347.32 and 319.58 MiB. All owned scratch was removed. Replay sampling
+missed the 10 ms requirement; the report retains that failed coverage observation.
+The equivalent [2 GiB noisy case](run-grid-3000x2000-noisy-2048-r1.json) also
+completed. Its full canonical and display check records, including all IDs and
+file hashes, are identical to the 512 MiB case. Import/contribution, export and
+replay took 78.04, 43.99 and 44.59 seconds, with maximum observed RSS of 875.38,
+541.41 and 462.53 MiB. Owned scratch cleanup succeeded. Replay's largest RSS
+sampling gap was 10.28 ms, so that coverage observation remains false.
+
+## High-valence and duplicate/degenerate fans
+
+The independent fan oracle and separate native source construction are implemented.
+The base square fan has 1,048,577 vertices and 1,048,576 triangles. Its perimeter
+edges alternate lengths one and three, so the center receives over a million
+unequal rounded corner thirds in source order. The radius is 262,144; integer
+coordinates are exactly representable as binary32. Oracle integer folds round
+every addition to binary64, rather than summing exactly and rounding once.
+
+The adverse variant appends four duplicate usable faces, two repeated-index faces
+and two faces with distinct collinear vertices. It has 1,048,584 source triangles.
+Every source corner still contributes to reference counts; only usable faces
+contribute area. All original vertices remain eligible, and the display includes
+all 12 finite, in-range corners of the four rejected faces. The center reference
+counts are 1,048,576 and 1,048,582 for the base and adverse variants.
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_fan_freeze \
+  --workdir /absolute/existing/directory/outside/git \
+  --output /absolute/new/expected-fan.json --adverse
+PYTHONPATH=src python -m experiments.mesh_scale_fan_generate \
+  --frozen /absolute/new/expected-fan.json \
+  --workdir /absolute/existing/directory/outside/git \
+  --name source-fan.ply --output /absolute/new/prepared-fan.json
+```
+
+Omit `--adverse` for the base fan. `--radius` permits powers of two from 4 through
+262,144 for small correctness checks; the scale recipe uses the default 262,144.
+Use `mesh_scale_run` with the frozen manifest and verified source for subsequent
+full measurements. It checks fan-specific face categories and rejected-corner
+populations in addition to all canonical bytes, numeric summaries and display
+files. Large files stay outside Git; outputs are created exclusively.
+
+Both complete fan expectations are frozen:
+[base](expected-fan-262144-base.json) and
+[adverse](expected-fan-262144-adverse.json). Separately generated source files
+matched their entire expected hashes, as recorded in the
+[base](prepared-fan-262144-base.json) and
+[adverse](prepared-fan-262144-adverse.json) preparation reports. Source files are
+26,214,621 and 26,214,725 bytes.
+
+Small tests compare every source and canonical byte against independently rounded
+per-face rational calculations, exercise the maximum batch boundary, and run the
+entire import/export/replay path for both variants. The oracle uses Python and
+NumPy integer operations with the separate rational rounding oracle. Native source
+construction uses integer perimeter rotations followed by the production isolated
+PLY writer; it does not use the expectation oracle to produce source bytes.
+
+Both complete variants ran at both budgets on `4ccb5e1`. The 512 MiB cases used
+disk canonical columns; the 2 GiB cases selected RAM columns. All operations
+completed, all frozen canonical expectations and complete display comparisons
+passed, and fresh workers replayed all display data files. Canonical check records
+and display check records are identical across budgets within each variant.
+
+| Variant and budget | Import seconds / peak MiB | Export seconds / peak MiB | Replay seconds / peak MiB |
+| --- | ---: | ---: | ---: |
+| [Base, 512 MiB](run-fan-262144-base-512-r1.json) | 9.46 / 384.55 | 6.72 / 344.14 | 6.94 / 345.55 |
+| [Base, 2 GiB](run-fan-262144-base-2048-r1.json) | 9.17 / 439.68 | 7.04 / 404.89 | 6.77 / 405.15 |
+| [Adverse, 512 MiB](run-fan-262144-adverse-512-r1.json) | 9.86 / 345.29 | 6.99 / 325.03 | 6.83 / 325.52 |
+| [Adverse, 2 GiB](run-fan-262144-adverse-2048-r1.json) | 10.27 / 425.70 | 7.29 / 392.64 | 7.42 / 392.62 |
+
+Peak MiB is the larger of kernel lifetime high-water and parent sampled RSS.
+All operations remained within their worker budgets and removed owned scratch.
+The adverse display retained all 12 rejected corners. The base 2 GiB export had
+an 18.05 ms maximum RSS gap; adverse 2 GiB replay had a 15.63 ms gap. All remaining
+fan operations stayed within 10 ms, including startup and exit edges. Reports
+retain these failed coverage observations and distinct cgroup/disk measurements.
+The cases ran sequentially in separate 6 GiB cgroups with swap disabled and
+uncontrolled caches; timings are observations, not performance guarantees.
+
+## Initial sixty-million-vertex failures
+
+The complete noiseless source reached coordinate association in both disk cases
+at `8f0cf5c`, then failed before any authoritative publication:
+
+| Budget | Seconds | Maximum observed worker RSS (MiB) | DuckDB engine limit (MiB) |
+| --- | ---: | ---: | ---: |
+| [512 MiB](run-grid-10000x6000-flat-512-r1.json) | 104.91 | 373.14 | 135.6 |
+| [2 GiB](run-grid-10000x6000-flat-2048-r1.json) | 155.70 | 527.70 | 256.0 |
+
+Both failures were DuckDB block-allocation errors. Their separate 6 GiB cgroups
+reported no limit/OOM/OOM-kill events or swap, and owned scratch was removed.
+The larger worker budget did not increase the existing 256 MiB engine ceiling.
+Canonical and display comparisons could not run. The 2 GiB run also missed the
+10 ms RSS sampling requirement (12.37 ms largest observed gap).
+
+At `a2e743c`, the importer began materializing coordinate association in its
+disposable disk database before running a separate global sort. That planner
+assigned unused batch headroom to the engine while preserving the then-current
+safety and buffer reserves and 256 MiB ceiling. Phase/failure telemetry includes
+the actual immutable
+memory plan; the original failed reports predate that addition. These changes
+have small correctness coverage; full-scale reruns are needed to establish their
+effect. The earlier failures remain part of the evidence.
+
+The [512 MiB rerun](run-grid-10000x6000-flat-512-r2.json) at `a2e743c` stopped
+during the separate join after 287.58 seconds: measured worker RSS exceeded its
+ceiling (536.45 MiB kernel, 537.18 MiB sampled). Its retained memory plan assigned
+223.04 MiB to DuckDB. The 6 GiB cgroup reached its charge limit and recorded
+reclaim events, with no OOM/OOM-kill event or swap. The supervisor requested the
+stop and cleaned all owned scratch; no authoritative artifact was published.
+The original supervisor discarded subsequent worker frames after deciding to
+stop, so that report has no final worker telemetry or complete phase coverage.
+Its largest RSS gap was 13.51 ms. This remains a failed target measurement.
+
+The equivalent [2 GiB rerun](run-grid-10000x6000-flat-2048-r2.json) completed
+the entire join in 199.38 seconds, then failed in the separate sort at the same
+256 MiB engine ceiling. Total worker elapsed time was 353.93 seconds; kernel and
+sampled RSS peaks were 571.32 and 572.09 MiB. Cgroup charge reached 6 GiB with
+reclaim events, no OOM/OOM-kill event, and no swap. Scratch cleanup and final
+phase reporting completed; RSS sampling again exceeded 10 ms (11.98 ms largest
+gap). Separating the operators alone did not establish the full-size target.
+
+The `fd7f687` planning revision therefore caps the engine at half the requested
+worker budget instead of a fixed 256 MiB, still subject to the measured baseline,
+resident columns and fixed/batch reservations. The native-overhead safety
+allowance was at least 128 MiB after the observed 512 MiB overrun. This gives the
+2 GiB disk case a 1 GiB engine reservation while keeping explicit headroom for the
+rest of the worker. Its completed 2 GiB run is recorded below. The
+supervisor also now retains valid cleanup/final frames after requesting a stop,
+while preserving the initiating failure; real subprocess tests cover both user
+cancellation and a supervisor RSS stop.
+
+## Complete sixty-million-vertex 2 GiB case
+
+The [third noiseless 2 GiB disk case](run-grid-10000x6000-flat-2048-r3.json),
+at `fd7f687`, completed import/contribution, display export and fresh full replay.
+All 60,000,000 vertices and 119,968,002 faces matched the independent frozen
+canonical hashes, source-order digests, categories and numeric summaries. Display
+checks covered every exported row and complete file; replay regenerated and
+compared all five data files. No population or precision was reduced.
+
+| Operation | Seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 1,227.42 | 2,000.95 | 2,001.60 | 46.64 |
+| Display export | 609.35 | 1,593.70 | 1,594.57 | 101.12 |
+| Full display replay | 578.60 | 1,618.81 | 1,619.47 | 23.34 |
+
+Every operation stayed within the 2 GiB worker RSS target and removed its owned
+scratch. The complete published artifacts total 20,217,841,369 logical bytes.
+Sampled temporary peaks were 19,348,506,456, 23,163,581,881 and 23,683,937,868
+logical bytes for import, export and replay; allocated peaks were 17,845,899,264,
+22,968,332,288 and 23,499,173,888 bytes. Sampling limitations apply to these disk
+peaks.
+
+The separate 6 GiB cgroup reached its charge cap and recorded reclaim events,
+with no OOM, OOM-kill or swap. Page-cache charge and the measurement parent are
+included in that scope. Caches were uncontrolled. All three operations missed
+the 10 ms RSS sampling requirement, which remains false in their reports despite
+complete kernel lifetime high-water observations. This is a completed full-data
+case with a failed sampling-coverage gate, not proof of the entire scale matrix.
+
+The [third 512 MiB noiseless disk case](run-grid-10000x6000-flat-512-r3.json)
+at `4ccb5e1` failed during the first coordinate-association join after 110.39
+seconds. DuckDB could not pin a 256 KiB block with 161.7 MiB of its approximately
+162 MiB allocation in use. Whole-worker RSS remained below the requested limit:
+396.39 MiB kernel and 397.30 MiB sampled. It published nothing, stopped dependent
+operations, retained its final phase/failure report, and removed owned scratch.
+The 6 GiB cgroup recorded reclaim events, with no OOM, OOM-kill or swap. This
+failure leaves the complete sixty-million-vertex 512 MiB target unmet.
+
+The [noisy sixty-million-vertex 512 MiB disk case](run-grid-10000x6000-noisy-512-r1.json)
+at `971dc67` also failed in the first coordinate-association join, after 111.72
+seconds. DuckDB could not pin 256 KiB with 161.2 MiB of its approximately
+161.4 MiB engine allocation in use. Kernel/sample worker peaks were
+396.73/397.24 MiB, below the requested 512 MiB. It retained final phase telemetry,
+published nothing, started no dependent operation and removed owned scratch.
+The separate 6 GiB scope recorded reclaim events, with no OOM, OOM-kill or swap.
+The independent parent observer's largest RSS gap including edges was 5.41 ms.
+This confirms the low-memory failure for both full-sized grid configurations.
+
+Checkpoint `4ccb5e1` changed supervisor polling from 5 ms to 1 ms and reused process
+identity metadata while taking fresh memory observations. Its noiseless 512 MiB run's
+largest observed RSS gap was 5.74 ms, including startup and exit edges, with no
+gap above 10 ms. This is observed coverage for that run, not a scheduling
+guarantee. The kernel lifetime high-water measurement remains independent.
+
+DuckDB's [out-of-memory guidance](https://duckdb.org/docs/current/guides/performance/oom)
+recommends single-thread operation, disabled insertion-order preservation,
+headroom outside the engine limit and narrow working types; the current path
+already uses the first three. The same-version upstream report
+[duckdb/duckdb#25206](https://github.com/duckdb/duckdb/issues/25206) describes a
+possible missed hash-join repartition under memory pressure. It is an investigation
+lead, not an established explanation of this Scansor failure. No upstream patch
+or unverified configuration workaround has been adopted.
+
+A further [full 512 MiB case with 4,093-row batches](run-grid-10000x6000-flat-512-c4093-r1.json)
+at `4ccb5e1` failed during face staging after 279.15 seconds, before reaching the
+join. Its smaller batch reservation left approximately 206.3 MiB for DuckDB,
+which failed to pin a 256 KiB block during commit. Kernel and sampled worker RSS
+were 369.15 and 370.53 MiB. All owned scratch was removed, nothing was published,
+and final phase telemetry was retained. Largest RSS gap including edges was
+6.15 ms. Changing the batch size alone did not establish the low-memory target.
+
+That native commit failure was wrapped in `TransactionException`, so the retained
+report classified it as `execution`. The adapter now recognizes the specific
+wrapped native allocation diagnostic as `resource`, while preserving transaction
+conflicts and other transaction failures as execution errors. Regression tests
+use the exact observed diagnostic and negative examples. The original report
+remains unchanged.
+
+## Reordered source indices and faces
+
+Affine bijections reorder source vertices and faces; each vertex's incident
+thirds are sorted by the new source face ordinal before accumulation, and global
+folds use the new source vertex order. Tests demonstrate changed rounded area
+bytes on the noisy grid and compare every byte with separate per-face rational
+calculations. The default multipliers are 131,071 for vertices and 524,287 for
+faces, with offsets 17 and 29. Both maps must be bijections for the requested
+population; invalid parameters fail instead of silently changing the recipe.
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_permuted_freeze \
+  --workdir /absolute/existing/directory/outside/git \
+  --output /absolute/new/expected-permuted.json
+PYTHONPATH=src python -m experiments.mesh_scale_permuted_generate \
+  --frozen /absolute/new/expected-permuted.json \
+  --baseline-frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --baseline-source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name source-permuted.ply --output /absolute/new/prepared-permuted.json
+```
+
+The default is the complete noisy six-million-vertex grid. `--flat` selects the
+flat variant; width, height, seed and the four map parameters are explicit inputs.
+The native source preparer reads an already verified production PLY, gathers at
+most 65,536 rows at a time through a read-only mapping, remaps face references, and
+writes every row through the isolated PLY writer. It does not use oracle code to
+generate source data. It hashes the entire baseline before and after construction,
+then compares every output byte through the frozen expected hash. Read-only mapped
+pages can become resident during preparation; that RSS is outside the subsequent
+fresh-worker import benchmarks. This preparation is not a bounded-import claim.
+
+Small tests complete freeze, native source construction, canonical comparisons,
+display export and full replay for both noise variants. They also check baseline
+corruption, exclusive outputs, and mapping closure on a writer failure. The
+[complete noisy six-million-vertex expectation](expected-grid-3000x2000-noisy-permuted.json)
+is now frozen, and the [separately constructed source](prepared-grid-3000x2000-noisy-permuted.json)
+matched its complete hash. It contains 227,870,246 bytes and remains outside Git.
+The [full permuted 512 MiB disk case](run-grid-3000x2000-noisy-permuted-512-r1.json)
+at `4ccb5e1` completed import/contribution, display export and fresh full replay.
+Every canonical column, source-order digest, numeric summary and full display
+file matched its expected or replayed result. Import, export and replay took
+117.86, 53.35 and 54.06 seconds, with maximum observed worker RSS of 364.88,
+380.30 and 403.48 MiB. All owned scratch was removed; largest RSS gaps were
+9.70, 6.85 and 7.07 ms, respectively, including startup and exit edges.
+
+The [equivalent 2 GiB case](run-grid-3000x2000-noisy-permuted-2048-r1.json)
+selected RAM canonical columns and completed all three operations in 100.04,
+45.40 and 45.03 seconds. Maximum observed worker RSS was 1,625.75, 1,206.51 and
+1,206.16 MiB. Its complete canonical and display check records are identical to
+the 512 MiB case. All owned scratch was removed; every operation stayed within
+its RSS budget and the observed 10 ms sampling target, with maximum gaps of
+7.21, 7.01 and 7.32 ms. Both cases used the same frozen complete source and fixed
+implementation, sequential execution, separate 6 GiB cgroups with swap disabled,
+and uncontrolled caches.
+
+## Intentional stop probes
+
+Run these separately from throughput measurements, with a new name and report
+path for each probe:
+
+```sh
+PYTHONPATH=src python -m experiments.mesh_scale_failures \
+  --frozen experiments/mesh-scale/expected-grid-3000x2000-noisy.json \
+  --source /absolute/outside/git/source-grid-3000x2000-noisy.ply \
+  --workdir /absolute/existing/directory/outside/git \
+  --name cancel-noisy-grid --kind cancel \
+  --output /absolute/new/cancel-probe.json
+```
+
+The default cancellation point is the first coordinate-association lookup, after
+complete source staging. `--cancel-phase` can select another observed phase.
+`--kind startup-budget` instead requests an intentionally insufficient 1 MiB
+worker budget. Each underlying measured case remains a failed outcome. The
+separate probe report is successful only when the requested failure was observed,
+owned scratch was removed, no artifact was published, and dependent operations
+did not start. Cancellation additionally requires final phase telemetry and a
+worker report preserving cancellation as the failure.
+
+Both probes hash the complete source before and after execution and preserve an
+unrelated sibling directory containing nested marker files. The report compares
+their full contents, directory entries, device/inode, mode, size, and modification
+and change timestamps. Access times are excluded because inspection can update
+them. Markers and failed-case evidence remain outside Git for inspection. These
+checks establish observed preservation; they do not test isolation against an
+unrelated hostile process running as the same user.
+
+Both probes ran against the complete 2,279,584,241-byte sixty-million-vertex
+noiseless source at `971dc67`. The
+[cancellation probe](probe-cancel-grid-10000x6000-flat-r1.json) stopped at the
+first coordinate-association join after complete staging; its
+[underlying worker report](cancel-grid-10000x6000-flat-r1-run.json) retains the
+initiating cancellation and final phase telemetry. Worker elapsed time was
+102.61 seconds, kernel/sample peak RSS was 341.01/342.21 MiB, and the maximum
+sampling gap including edges was 4.74 ms.
+
+The [startup-budget probe](probe-startup-budget-grid-10000x6000-flat-r1.json)
+requested an intentionally insufficient 1 MiB limit. Its
+[worker report](startup-budget-grid-10000x6000-flat-r1-run.json) records a
+supervisor resource failure after 0.033 seconds, before worker phase telemetry.
+Kernel peak RSS was 79.84 MiB and sampled RSS reached 9.55 MiB; no phase telemetry
+was available to locate the kernel peak within the worker's lifetime. The maximum
+sampling gap was 1.42 ms. This is an expected failed budget, not a capacity result.
+
+Both probes matched the complete source hash before and after execution,
+preserved unrelated nested markers and metadata, published nothing, started no
+dependent operation and removed owned scratch. The probe reports establish these
+checks; their underlying measured worker outcomes remain failures.
+
+## Complete sixty-million-vertex noisy case at 2 GiB
+
+The [noisy disk case at `971dc67`](run-grid-10000x6000-noisy-2048-r1.json)
+completed import/contribution, full canonical checks, display export, full display
+checks and fresh-worker replay of every exported file. All 60,000,000 vertices
+and 119,968,002 triangles were accounted for; every frozen canonical column hash
+and row digest matched. All owned scratch was removed. Published artifacts total
+20,217,841,369 logical bytes.
+
+| Operation | Worker elapsed seconds | Kernel peak MiB | Sampled peak MiB | Largest RSS gap ms |
+| --- | ---: | ---: | ---: | ---: |
+| Import and contribution | 1,231.82 | 1,554.57 | 1,555.73 | 8.84 |
+| Display export | 593.57 | 1,817.24 | 1,818.39 | 10.29 |
+| Full display replay | 614.68 | 1,814.28 | 1,815.28 | 10.27 |
+
+Each worker stayed below 2 GiB. The independent observer met the 10 ms sampling
+target throughout import; export and replay each had one gap above 10 ms and
+retain failed sampling-coverage observations. Whole-lifetime kernel high-water
+counters remain separate evidence. The 6 GiB scope recorded reclaim events,
+with no OOM, OOM-kill or swap; caches were uncontrolled. Sampled temporary peaks
+were 21,916,133,286, 23,930,844,604 and 24,327,304,783 logical bytes, and
+20,839,178,240, 23,738,089,472 and 24,143,069,184 allocated bytes, respectively.
+Non-atomic disk-sampling limitations still apply. This case predates the bounded
+canonical gather change and does not establish its performance or capacity.
+
+## Sparse coordinate gather diagnostic
+
+Codex review of `0705424` identified that an aligned-window gather can read
+nearly the whole XYZ column for every scattered request batch. The reader now
+coalesces tight spans with at most three intervening unrequested rows, bounds
+each span by the range reservation and uses unbuffered Python I/O. Logical row
+bytes transferred are bounded by four times requested row bytes. Filesystem
+read-ahead and physical device I/O remain separate.
+
+The [diagnostic runner](../mesh_column_gather_probe.py) compared four identical
+65,536-ID batches from the already verified full six-million-vertex permuted
+artifact in sequential fresh processes. Each prehashed both complete input
+columns before measuring, so cache conditions were warm but uncontrolled.
+Both processes ran under separate 6 GiB scopes with swap disabled. The
+[prior aligned-window report](gather-before-tight-spans-r1.json) and
+[tight-span report](gather-after-tight-spans-r1.json) retain exact source/probe
+hashes, input and output hashes, process I/O counters and memory observations.
+Each requested ID and returned coordinate byte matched between implementations.
+
+| Policy | Elapsed seconds | Logical coordinate bytes read | Range reads |
+| --- | ---: | ---: | ---: |
+| Aligned windows at `625aefd` | 0.06347 | 288,000,000 | 368 |
+| Tight spans | 5.75883 | 3,145,728 | 262,144 |
+
+The tighter path fixes read amplification but substantially regresses elapsed
+time on these cached, scattered requests because it issues many small reads.
+Timing includes per-range instrumentation. This tradeoff is retained explicitly;
+it is not a speedup or a full-import capacity result. Whole-pipeline timing and
+memory still require fresh full-size measurements, including reordered inputs.
+
+## Full coordinate lookup and subsequent sorting failure
+
+The [noiseless 512 MiB case](run-grid-10000x6000-flat-512-r4.json) and
+[noisy 512 MiB case](run-grid-10000x6000-noisy-512-r2.json) at `8c26918`
+completed coordinate association for all 119,968,002 faces and staged all
+359,904,006 source corners. Both then failed in `verify-source-corners`, whose
+DuckDB query orders the working tuples by source face and corner before comparing
+their complete digest. Nothing was published and dependent operations did not run.
+
+| Fixture | Worker seconds | Kernel peak RSS (MiB) | Sampled peak RSS (MiB) | DuckDB limit (MiB) | Largest RSS gap (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Noiseless | 451.91 | 367.04 | 368.22 | 162.80 | 6.40 |
+| Noisy | 447.68 | 371.30 | 372.43 | 163.05 | 9.46 |
+
+Both failures were DuckDB allocation errors, with final phase observations and
+complete owned cleanup. Their separate 6 GiB cgroups recorded page-cache reclaim
+events but no OOM/OOM-kill event or swap. Every observed RSS sampling gap including
+startup/exit stayed within 10 ms. The lower whole-worker RSS confirms that the
+replacement lookup passed the previous failure point; it does not establish
+sorting, contribution publication or display capacity.
+
+The next planner candidate reduces the minimum native-overhead safety allowance
+from 128 to 64 MiB after removal of the coordinate hash join. At 512 MiB this
+reassigns 64 MiB to DuckDB while preserving the total worker budget, fixed buffers
+and batch reservation. At 2 GiB the existing 10% safety allowance still applies.
+The earlier hash-join overrun remains evidence against inferring whole-worker
+memory from an engine limit. New full cases must establish whether this revised
+allocation completes within the unchanged RSS target.
+
+The [next noiseless 512 MiB case](run-grid-10000x6000-flat-512-r5.json), at
+`01b17c6`, also failed in `verify-source-corners`: DuckDB exhausted its 227.1 MiB
+allowance while allocating a 256 KiB block. Worker elapsed time was 443.73 seconds;
+kernel and sampled RSS peaks were 461.22 and 462.04 MiB. Owned cleanup and final
+phase reporting completed, with no cgroup OOM/OOM-kill event or swap. The largest
+RSS gap was 10.022827 ms, so this run also missed the sampling requirement.
+Reassigning the safety allowance did not establish the sorting target. The
+remaining cases were not started from this failed checkpoint.
+
+## Isolated full source-corner sort
+
+The [corner-sort diagnostic](../mesh_corner_sort_probe.py) reuses the complete
+triangles and face-area columns from the verified noiseless 60M-vertex import.
+It compares both complete file hashes before staging the same 359,904,006 corner
+tuples into a separate database, without the coordinate or face staging tables.
+The expected source-order digest is computed while staging; a successful query
+must return every row with the identical complete digest. This is a diagnostic,
+not a full-import result or evidence of 10 ms RSS sampling coverage.
+
+Cases ran sequentially from `f35d661` in fresh processes and separate 6 GiB
+cgroups with swap disabled. The owned database remains outside Git for reuse.
+Caches were uncontrolled; preparing and hashing inputs can warm them. Elapsed
+times include the work named in each row and cannot be compared as pure sort
+timings when staging or failure/cleanup differs.
+
+| Case | Engine allowance (MiB) | Elapsed seconds | Kernel peak RSS (MiB) | Result |
+| --- | ---: | ---: | ---: | --- |
+| [Prepare and normal sort](isolated-corners-227-prepare-r1.json) | 227.1 | 184.40 | 411.00 | DuckDB allocation failure |
+| [Fresh reopen and normal sort](isolated-corners-227-reopen-r1.json) | 227.1 | 14.47 | 367.14 | DuckDB allocation failure |
+| [Fresh reopen and forced spill](isolated-corners-227-force-external-r1.json) | 227.1 | 132.25 | 541.37 | All tuples and digest match; RSS exceeds 512 MiB |
+| [Forced spill with smaller allowance](isolated-corners-163-force-external-r1.json) | 162.8 | 29.12 | 491.55 | DuckDB block-pin failure |
+
+All cgroups recorded no OOM/OOM-kill event and disabled swap. The successful
+forced-spill query itself took 132.18 seconds. Its complete source-order digest
+is `20d6e89e476a3fd7558d6b09afd054eaa86241564658f357663a35ef5958273d`.
+The normal reopen starts with just 0.5 MiB of database table buffers and no
+in-memory table data, yet fails too. Extra staging tables and retained preparation
+state alone therefore do not explain the observed failure.
+
+`debug_force_external` is used only by this diagnostic; production does not adopt
+it. DuckDB has an external sorter, and the failed cases do not imply that spilling
+is absent. Its [v1.5.5 sort implementation](https://github.com/duckdb/duckdb/blob/v1.5.5/src/common/sort/sort.cpp)
+omits separate payload columns when every selected field also appears in the sort
+key. The next diagnostic adds vertex/allocation as tie-breakers after the unique
+source face/corner pair. This preserves valid source order and may reduce sort
+buffers; a full measurement must establish its effect.
+
+The [normal-policy query with complete keys at 162.8 MiB](isolated-corners-163-keys-r1.json)
+still failed, after 21.39 seconds with 311.90 MiB kernel peak RSS. At
+[227.1 MiB](isolated-corners-227-keys-normal-r1.json), it completed all 359,904,006
+rows with the identical source digest: the query took 84.49 seconds and kernel
+peak RSS was 398.21 MiB. This case used normal spilling, so its conditional
+forced-spill follow-up did not run. Both cases used the same committed probe at
+`ebb2ee0`, the same database, fresh sequential processes and separate 6 GiB
+cgroups with swap disabled; neither recorded a cgroup limit/OOM/OOM-kill event.
+These results establish this isolated query comparison, not full-worker capacity.
+
+At this checkpoint the importer included all four fields in each corner sort,
+retaining source face/corner and contribution vertex/face/corner as the leading
+keys. Valid tuples
+have unique leading keys, so the added tie-breakers preserve the required fold
+order. Complete tuple binding, null rejection and duplicate detection remain
+required. Display face remapping likewise adds the view ID after its unique
+face/corner key. Production continues to use DuckDB's normal spill policy. The complete
+512 MiB pipeline must be measured again before accepting the change's capacity.
+
+The [full flat 512 MiB case at `36a6b01`](run-grid-10000x6000-flat-512-r6.json)
+completed import and contribution publication in 876.92 seconds, with kernel
+peak RSS 457.60 MiB and sampled peak 458.57 MiB. Every canonical column, row
+digest and summary matched the frozen expectation; both published IDs match the
+earlier full flat 2 GiB result. Import's largest sampling gap was 10.38 ms, one
+interval over the 10 ms requirement.
+
+Display then failed after 394.13 seconds during face-corner export, before any
+display publication. Its sampled RSS reached 512.82 MiB against the 512 MiB
+budget; kernel high-water was 511.43 MiB. Sampling coverage and owned-workspace
+cleanup passed. The separate 6 GiB cgroup recorded reclaim activity, no OOM or
+kill, and swap remained disabled. Replay did not run. The next candidate raises
+display/replay's native-overhead reserve from 64 to 96 MiB, reducing its engine
+share while retaining the same whole-worker budget and batch size. Import's
+reservation is unchanged. Neither this allocation nor the completed import
+establishes full-pipeline capacity.
+
+The [display-only 96 MiB reserve diagnostic](run-grid-10000x6000-flat-display-reserve96-r1.json)
+at `3e478bc` reused that independently checked import, with fresh display/replay
+workers planned sequentially. Display failed after 590.54 seconds: DuckDB could
+not pin another 256 KiB at its 196.2 MiB engine limit. Kernel/sample peaks were
+502.84/503.72 MiB, below the 512 MiB whole-worker limit. One 12.47 ms sampling gap
+missed coverage. Cleanup passed; no display was published, replay did not run,
+and the separate 6 GiB cgroup recorded no OOM/kill or swap. The report embeds the
+exact diagnostic source and binds its implementation and prior import report.
+
+The candidate removes that global usable-face join/sort. Canonical faces
+already have source order. A disk column holds one signed 32-bit view ID per
+source vertex, with `-1` for nonfinite positions. Its complete bytes are checked
+against the source-derived digest before face lookup. Each face batch gathers at
+most three times the planned batch rows through the existing bounded column
+reader, preserving source corner order and checking valid remapped IDs. The
+failed display-specific memory adjustment is removed. Complete fresh resource,
+reordered-input and output-identity measurements remain required.
+
+The [full display/replay lookup diagnostic at `e3ae379`](run-grid-10000x6000-flat-display-lookup-r1.json)
+completed both workers at the 512 MiB target. Export took 885.71 seconds with
+446.56 MiB kernel and 447.83 MiB sampled peak RSS; complete fresh-worker replay
+took 673.39 seconds with 459.39/460.66 MiB peaks. Every display file hash, profile
+and expected population check passed, replay rebuilt all data, and the complete
+display check record is identical to the earlier full flat 2 GiB result. The
+published display occupies 13,078,922,602 logical bytes. Both operations cleaned
+their owned scratch; neither recorded OOM/kill or swap use. This reuses the
+independently verified r6 import, rather than measuring a fresh complete import.
+
+Sampling coverage failed: export had 52 gaps over 10 ms with a 61.22 ms maximum;
+replay had four with a 29.79 ms maximum. Kernel high-water and sampled RSS fit the
+budget, but these gaps remain failed observation coverage. The parent-only
+diagnostics below investigate observation delays before the renewed full
+matrix. No timing tolerance or source/output sampling is substituted for that
+requirement.
+
+The [parent GC timing diagnostic](diagnostic-grid-3000x2000-flat-512-gc-observer-r2.json)
+ran the complete six-million-vertex flat pipeline with unchanged `e3ae379`
+worker code and parent-only instrumentation. All operations completed within
+512 MiB, but six observation gaps exceeded 10 ms. None overlapped the 34 recorded
+GC events; the longest GC pause was 6.02 ms, while missed intervals ranged from
+11.19 to 24.50 ms. This rules out GC overlap for those six observations; it does
+not establish the cause of every earlier gap.
+
+The first attempt's [pipeline report](run-grid-3000x2000-flat-512-gc-observer-r1.json)
+is retained with an explicit [diagnostic-save failure record](diagnostic-grid-3000x2000-flat-512-gc-observer-r1-failed.json).
+The pipeline completed, but a floating-point diagnostic metadata field was
+rejected by the integer-only control writer. Its GC correlation data was not
+saved; the corrected attempt records the setting in integer nanoseconds.
+
+A [subsequent diagnostic](diagnostic-grid-3000x2000-flat-512-gc-observer-switch1-r1.json)
+temporarily requested a 1 ms thread-switch interval in the measurement parent
+and recorded both current and preceding RSS-call timing. All three operations
+completed within the RSS budget, but export still had gaps of 28.07 and
+20.01 ms. Neither overlapped GC; the current and preceding RSS reads each took
+less than 0.35 ms. The separate 6 GiB cgroup limit was not reached. These
+observations do not identify the remaining scheduling delay, and the interval
+change is not adopted. The workers retained their normal interpreter settings.
+Python describes
+[`setswitchinterval`](https://docs.python.org/3.12/library/sys.html#sys.setswitchinterval)
+as an ideal timeslice, with actual scheduling subject to longer internal work
+and OS decisions. Changing it cannot establish the 10 ms coverage requirement
+without complete measured observations.
+
+The [independent sampler-process prototype](diagnostic-grid-3000x2000-flat-512-process-observer-r1.json)
+prestarted a helper before each worker and passed a held `/proc/PID/statm`
+descriptor, avoiding the parent's interpreter locks. Its small host smoke test
+continued sampling during a 593 ms parent C call, with a 1.21 ms maximum gap.
+The full six-million-vertex attempt nevertheless failed import: sampled/kernel
+RSS reached 513.88/512.72 MiB during contribution ordering, and two sampling gaps
+exceeded 10 ms, with a 19.24 ms maximum. Owned scratch was removed, nothing was
+published, and all helpers exited normally. The complete diagnostic sources
+are embedded in the report. This prototype is not adopted into the supervisor;
+neither sampling coverage nor the near-limit importer allocation is resolved.
+
+The [helper timing display/replay diagnostic](run-grid-3000x2000-flat-display-observer-timing-r1.json)
+reused a fully checked six-million-vertex import and retained per-iteration helper
+wall/CPU clocks, scheduler counters and fault/context-switch counts for delayed
+observations. Both workers completed with every resource/coverage/cleanup check
+passing: sampled peaks were 495.81 and 486.55 MiB, and maximum gaps were 7.70 and
+4.82 ms. The complete display check record matched the previous six-million-row
+flat result. No gap exceeded 10 ms, so this attempt cannot explain the earlier
+misses. Its instrumentation can perturb timing, and it does not remeasure import.
+
+The [80 MiB safety-reserve diagnostic](diagnostic-grid-3000x2000-flat-512-safety80-timing-r1.json)
+reassigned 16 MiB from the engine reservation while keeping the 512 MiB total,
+batch rows and complete source populations. Import, display and replay completed
+in 110.12, 60.07 and 54.23 seconds with sampled peaks of 473.50, 486.03 and
+482.24 MiB. All canonical and display check records matched the previous flat
+case; only the separately recorded validation times differed. Recorded maximum
+gaps were 7.30, 7.48 and 6.25 ms, but the display helper reported missing final
+statistics. Its old harness incorrectly reported coverage as passing despite
+`sampling_error`; that raw result remains unchanged and its coverage is
+incomplete. The current harness requires error-free sampling and the supervisor
+also fails on late observer errors or late peaks above the requested budget.
+The replacement helper uses acknowledged final delivery and detects owner
+socket closure. The 80 MiB allowance and new observation mechanism require
+fresh complete measurements, including the sixty-million-vertex cases.
+
+The [fresh six-million-vertex flat case at `8de5bbc`](run-grid-3000x2000-flat-512-r3.json)
+uses the committed 80 MiB allowance and acknowledged sampler, without the
+diagnostic wrappers. Import, export and replay passed all RSS, sampling,
+phase-coverage and cleanup checks. Their sampled peaks were 472.55, 428.46 and
+466.68 MiB; kernel peaks were 471.69, 427.47 and 465.48 MiB. Actual maximum gaps,
+including startup and reaping edges, were 4.19, 4.02 and 4.38 ms. All helpers
+exited normally with complete final statistics; cgroup OOM/kill and swap counters
+remained zero. Complete canonical and display check records match the prior
+flat case. Worker supervision elapsed times were 85.95, 45.27 and 46.15 seconds;
+caches remained uncontrolled. This case complements the full flat case below;
+other budget and adverse-input comparisons were pending at that checkpoint.
+The current complete matrix above supersedes that execution status.
+
+## Complete sixty-million-vertex flat pipeline with the independent observer
+
+The [fresh full 512 MiB disk case at `8de5bbc`](run-grid-10000x6000-flat-512-r7.json)
+completed import/contribution, display export and fresh display replay. Every
+canonical and display check record equals the earlier full 2 GiB flat case,
+including all column hashes, ordered digests, numeric summaries and artifact IDs.
+All 60,000,000 vertices and 119,968,002 triangles were retained. This is the first
+complete fresh pipeline on this workload below the 512 MiB worker RSS target.
+
+| Operation | Worker seconds | Kernel peak MiB | Sampled peak MiB | Largest RSS gap ms | Gaps over 10 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Import/contribution | 1035.22 | 429.21 | 430.14 | 13.775336 | 3 |
+| Display export | 499.84 | 445.76 | 446.79 | 10.280404 | 1 |
+| Display replay | 476.01 | 411.91 | 412.83 | 5.494217 | 0 |
+
+All workers and helpers exited normally, final statistics were acknowledged,
+phase coverage and owned scratch cleanup passed, and no sampler error occurred.
+The separate 6 GiB cgroup recorded no limit/OOM/kill events or swap use. Caches
+were uncontrolled. Complete memory/accounting success does **not** pass the
+sampling gate: import and export retain false coverage flags for the four gaps
+shown above. The sequential controller stopped on those flags, after retaining
+the complete report. These misses are observations of this run; neither their
+cause nor a hard scheduling guarantee has been established.
+
+## Renewed noisy sixty-million-vertex failure
+
+The [512 MiB noisy case at `f5d553c`](run-grid-10000x6000-noisy-512-r3.json)
+finished source decoding and corner staging, then failed during the global
+source-corner verification sort. DuckDB could not allocate another 256 KiB
+within its 224,051,200-byte engine allowance (about 213.67 MiB). The worker
+stopped after 879.84 seconds. Kernel/sample RSS peaks were 442.48/443.39 MiB,
+both below the separate 512 MiB worker budget. The 6 GiB cgroup had no limit,
+OOM, kill or swap events.
+
+No import or contribution artifact was published, and display/replay did not
+run. Owned scratch cleanup and phase reporting passed. The helper delivered
+its final statistics and exited normally, but 94 sampling gaps exceeded
+10 ms, reaching 35.380457 ms. Those gaps remain failed coverage. This result
+does not establish noisy-input capacity from the completed flat case.
+
+## Matched noisy corner-sort diagnostics
+
+The noisy failure was reproduced in an isolated table of all 359,904,006
+source corners. The [64-bit-ID preparation/sort](isolated-corners-noisy-wide-214-r1.json)
+and [32-bit-ID preparation/sort](isolated-corners-noisy-compact-214-r1.json)
+both exhausted the same 224,051,200-byte engine allowance. Narrower IDs alone
+did not solve this case; the [compact fan smoke](isolated-corners-fan-compact-smoke-214-r1.json)
+completed with an exact tuple digest.
+
+Further queries selected only vertex, face and corner IDs, reconstructing
+allocation words with the existing arithmetic and bounded reads of canonical
+face areas. Complete area hashes were checked before and after querying, and
+the original four-field source tuple digest had to match. These queries used
+fresh processes and reopened the prepared databases. Matched four-field
+controls did the same, avoiding a staging/allocator-retention confound.
+
+| Fresh reopen query | Kernel peak RSS (MiB) | Result |
+| --- | ---: | --- |
+| [64-bit IDs, allocation included](isolated-corners-noisy-wide-reopen-control-214-r1.json) | 355.19 | Engine allocation failure |
+| [64-bit IDs only](isolated-corners-noisy-wide-ids-only-214-r2.json) | 367.22 | Complete original tuple digest matches |
+| [32-bit IDs, allocation included](isolated-corners-noisy-compact-reopen-control-214-r1.json) | 355.33 | Engine allocation failure |
+| [32-bit IDs only](isolated-corners-noisy-compact-ids-only-214-r2.json) | 367.00 | Complete original tuple digest matches |
+
+Both ID-only queries checked all 359,904,006 tuples and produced source digest
+`9b9feff499c82d1c51e3cb52e0ee4d007ea22c54efaf191a1444e96d3ffae623`.
+Their sort/gather/digest times were 133.67 and 133.47 seconds respectively;
+these single runs with uncontrolled caches do not establish a speed difference.
+All diagnostics ran sequentially in separate 6 GiB cgroups with swap disabled;
+none had cgroup limit/OOM/kill events. Their kernel peaks include process cleanup,
+but these are isolated queries without full-worker sampling coverage, not
+complete importer capacity measurements.
+
+The [exact initial compact-probe source](compact-corner-probe-source-r1.json)
+and [exact matched-query source](ids-only-corner-probe-source-r2.json) are retained.
+An earlier [ID-only smoke failure](isolated-corners-fan-compact-smoke-ids-only-214-r1.json)
+came from comparing `bytes` with `byte_count` metadata keys before querying.
+The full source size/hash independently matched; its [original probe source](ids-only-corner-probe-source-r1.json)
+and failed report remain available. The [corrected smoke](isolated-corners-fan-compact-smoke-ids-only-214-r2.json)
+completed before either full ID-only query.
+
+The importer now stores and sorts only the original 64-bit vertex/face IDs and
+8-bit corner IDs. It reconstructs allocation words from bounded canonical
+face-area gathers without changing arithmetic, fold order or the four-field
+verification digest. A complete area hash captured during source staging is
+checked before and after each query, including areas for faces with no valid
+corners. New corruption and cancellation cases exercise that boundary.
+Fresh complete pipelines, including reordered inputs, remain necessary to
+measure the memory and extra-I/O cost of this change.
+
+## Complete cases with ID-only corner sorting
+
+The [fresh six-million-vertex flat pipeline at `5ffd9e7`](run-grid-3000x2000-flat-512-r4.json)
+completed import/contributions, display export and full replay. All canonical
+and display check records exactly match the previous flat six-million-row run.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 115.99 | 488.93 / 490.00 | 14.434904 (2 gaps over 10 ms) |
+| Display export | 73.38 | 490.17 / 491.63 | 21.179733 (3 gaps over 10 ms) |
+| Full display replay | 62.76 | 431.78 / 432.86 | 4.871388 |
+
+All workers and helpers exited normally with final statistics, no sampler
+errors, complete phase reports and owned cleanup. All RSS observations stayed
+below 512 MiB. Import and export sampling coverage failed; replay coverage
+passed. The sequential queue retains those misses and continues independent
+cases. These measurements have uncontrolled caches and do not isolate the
+runtime effect of the new allocation gathers.
+
+The [noisy six-million-vertex pipeline at the same checkpoint](run-grid-3000x2000-noisy-512-r2.json)
+also completed all three workers and exactly matched the earlier noisy
+canonical/display check records.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 160.21 | 480.64 / 481.61 | 20.025405 (15 gaps over 10 ms) |
+| Display export | 97.51 | 488.82 / 489.05 | 40.133905 (37 gaps over 10 ms) |
+| Full display replay | 157.28 | 483.53 / 484.98 | 40.539634 (7 gaps over 10 ms) |
+
+All workers/helpers exited normally without sampler errors; memory, phase
+coverage and owned cleanup passed. Sampling coverage failed in every worker.
+The slower readback and scheduling gaps are retained with the complete timing,
+I/O and environment observations rather than replaced by a selective rerun.
+An additional [host pressure snapshot](host-pressure-id-only-matrix-r1.json)
+during the next large case records substantial host-wide I/O stalls, about
+16 GiB of available RAM and no configured swap. It identifies a measurement
+condition, not which process caused it or a controlled performance comparison.
+
+## Full noisy pipeline passes at 512 MiB
+
+The [fresh sixty-million-vertex noisy pipeline at `5ffd9e7`](run-grid-10000x6000-noisy-512-r4.json)
+completed import/contributions, display export and full replay. Every canonical
+and display check record exactly matches the earlier full noisy 2 GiB result:
+all 60,000,000 vertices, 119,968,002 faces and 359,904,006 corners are retained.
+The complete source-corner digest matched after reconstructing allocation bits,
+and contribution ordering completed with the original source-order arithmetic.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 887.04 | 425.89 / 427.19 | 4.612669 |
+| Display export | 456.66 | 415.63 / 416.73 | 6.580765 |
+| Full display replay | 507.24 | 448.01 / 449.41 | 5.528296 |
+
+Every worker-memory, sampling, phase and owned-cleanup observation passed.
+Workers and helpers exited normally with acknowledged final statistics and no
+sampler errors. Import/export had no cgroup limit events. Replay reached the
+separate 6 GiB cgroup charge ceiling, recording 2,485 `memory.events max`
+events; there were no OOM/kill events or swap use. That charge includes file
+cache and other cgroup members and is distinct from worker RSS. This is a
+complete pipeline measurement at the 512 MiB worker target, not a sorting-only
+inference. It does not erase earlier failures or sampling misses in other cases.
+
+## Full flat pipeline passes at 512 MiB
+
+The [fresh sixty-million-vertex flat pipeline at `5ffd9e7`](run-grid-10000x6000-flat-512-r8.json)
+also completed every worker-memory, sampling, phase and cleanup observation.
+All canonical and display check records exactly match the earlier full flat
+2 GiB result. The complete populations and original tuple/fold semantics are
+preserved, as in the noisy case.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 934.46 | 424.76 / 425.26 | 4.522430 |
+| Display export | 486.48 | 443.66 / 444.44 | 5.420803 |
+| Full display replay | 503.57 | 460.41 / 461.43 | 5.318995 |
+
+All workers/helpers exited normally with final statistics and no sampler
+errors. The shared cgroup charge reached its 6 GiB ceiling during export,
+recording 1,971 cumulative `memory.events max` events after export and 4,432
+after replay. No OOM/kill events or swap use occurred. These cgroup/cache
+observations are distinct from the worker RSS peaks above. Both full 512 MiB
+cases now pass the recorded gates; earlier failures and sampling misses remain
+part of the evidence.
+
+## Flat 2 GiB replay stops at disk preflight
+
+The [fresh full flat 2 GiB case at the same checkpoint](run-grid-10000x6000-flat-2048-r4.json)
+completed import/contributions and display export. All canonical and display
+check records exactly match the current 512 MiB case. Import/export took
+947.88/464.22 seconds, with sampled peaks of 1,864.14/1,606.17 MiB and largest
+sampling gaps of 5.225035/5.519155 ms. Both workers passed every recorded
+memory, sampling, phase and cleanup observation.
+
+Replay checked the authoritative artifacts, then failed disk preflight before
+rebuilding the display: the conservative plan required 135,636,488,318 free
+bytes, while the recorded filesystem had 123,832,549,376 bytes available.
+Its 119.19-second failed worker peaked at 127.47 MiB sampled RSS and had a
+3.193048 ms maximum sampling gap. Owned cleanup passed, with no sampler error.
+The overall pipeline remains failed even though its resource observations
+passed. The cgroup recorded cumulative charge-limit events, with no OOM/kill
+or swap use. The sequential queue stopped on this failure.
+
+The earlier free-space estimate used while preparing the queue was too small
+for replay's conservative plan. The estimate and original failed result remain
+explicit. Additional duplicate generated artifacts were retired, as recorded below.
+The complete case was rerun with unchanged code, data, budgets and checks,
+as recorded next.
+
+## Full flat 2 GiB rerun after reclaiming disk
+
+The [complete flat 2 GiB rerun at `5ffd9e7`](run-grid-10000x6000-flat-2048-r5.json)
+started with 198,751,907,840 bytes free. All canonical and display check records
+exactly match the current flat 512 MiB case, with the same runtime source,
+native-extension, dependency and executable identities. Both larger flat runs
+use disk storage and retain all 60,000,000 vertices and 119,968,002 faces.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 883.02 | 1,784.74 / 1,785.47 | 4.565888 |
+| Display export | 446.65 | 1,483.16 / 1,484.23 | 4.180643 |
+| Full display replay | 446.35 | 1,589.10 / 1,590.34 | 4.730483 |
+
+All worker-memory, sampling, phase and owned-cleanup observations passed.
+Workers and helpers exited normally without sampler errors. The separate
+6 GiB cgroup charge ceiling was reached in all three operations, recording
+9,023/22,149/32,919 cumulative `memory.events max` events after import/export/
+replay. No OOM/kill or swap use occurred. The cgroup includes file cache and
+other members; its charge is separate from the worker RSS reported above.
+The earlier disk-preflight failure remains a failed pipeline in its own report.
+Caches were uncontrolled, so elapsed differences are not an isolated speedup.
+
+## Full noisy 2 GiB pipeline completes the large budget pairs
+
+The [complete noisy 2 GiB case at `5ffd9e7`](run-grid-10000x6000-noisy-2048-r2.json)
+started with 178,523,480,064 bytes free. All canonical and display check records
+exactly match the current noisy 512 MiB case, including complete populations,
+ordered digests, numeric summaries and artifact identities. Both current large
+budget pairs have identical source, frozen-expectation and runtime identities.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 844.07 | 1,862.88 / 1,863.60 | 4.524278 |
+| Display export | 437.03 | 1,510.22 / 1,511.20 | 4.894708 |
+| Full display replay | 445.53 | 1,707.54 / 1,708.56 | 4.769987 |
+
+All worker-memory, sampling, phase and owned-cleanup observations passed.
+Workers/helpers exited normally without sampler errors. The dedicated
+6 GiB cgroup reached its charge ceiling, with 12,270/29,009/42,413 cumulative
+`memory.events max` events after import/export/replay and no OOM/kill or swap.
+This includes file cache and other cgroup members, separate from worker RSS.
+All four current sixty-million-vertex pipelines now pass every recorded worker
+gate. Earlier failed attempts and small-case sampling misses remain evidence;
+these single-host measurements do not establish a universal capacity guarantee.
+
+## Reordered 512 MiB pipeline: complete data, substantial timing regression
+
+The [current reordered six-million-vertex case](run-grid-3000x2000-noisy-permuted-512-r2.json)
+completed every worker-memory, sampling, phase and owned-cleanup observation.
+All canonical and display check records exactly match the earlier reordered
+case. Every worker/helper exited normally without sampler errors. The dedicated
+cgroup recorded no charge-limit, OOM/kill or swap events.
+
+| Worker | Elapsed (s) | Kernel/sample peak RSS (MiB) | Largest sample gap (ms) |
+| --- | ---: | ---: | ---: |
+| Import/contributions | 1,845.26 | 476.81 / 477.54 | 6.540266 |
+| Display export | 841.45 | 475.29 / 476.52 | 5.413498 |
+| Full display replay | 895.03 | 476.18 / 477.45 | 9.676364 |
+
+The complete case, including independent checks, took 3,599.78 seconds. The
+[earlier same-source 512 MiB report](run-grid-3000x2000-noisy-permuted-512-r1.json)
+recorded 117.86/53.35/54.06 seconds for import/export/replay. This is a substantial
+measured regression. Caches were uncontrolled and multiple execution changes
+separate the checkpoints, so these figures are not an isolated comparison of
+one optimization or DuckDB sorting alone.
+
+The current phase counters expose the expensive access pattern:
+
+| Phase | Elapsed (s) | Process read calls | Kernel storage-read bytes |
+| --- | ---: | ---: | ---: |
+| Coordinate association | 887.94 | 36,226,345 | 50,036,736 |
+| Contribution ordering and area gathers | 911.02 | 36,230,503 | 192,413,696 |
+| Display face lookup | 801.26 | 34,502,925 | 0 |
+| Replay face lookup | 852.64 | 34,517,175 | 0 |
+
+These are complete phase/process counters, including telemetry and other reads,
+not a profile isolating Python, monitoring, query execution or filesystem costs.
+In particular, both slow display phases had millions of read calls with zero
+kernel storage-read bytes. The bounded logical-read policy prevents the earlier
+read amplification but generates many small accesses for scattered rows. The
+full-source timing cost remains explicit; no rows or precision were discarded.
+The source's 2 GiB counterpart is being measured separately.
+
+## Retained artifacts and reclaimed duplicate copies
+
+Between cases, [two redundant generated display copies](retired-generated-displays-r1.json)
+were retired to preserve scratch headroom. All files in the retained flat
+sixty-million-vertex/512 MiB display were rehashed against their complete
+measurement record. Both retired copies had identical measured file hashes
+and byte-identical small metadata, which was separately archived. Reports,
+sources and canonical import/contribution artifacts remained available at
+that point. The manifest records the first retention step and its replacement
+display path. This recovered 26,157,932,544 allocated bytes (about 24.36 GiB).
+
+After the later disk-preflight failure, a [second retention manifest](retired-generated-artifacts-r2.json)
+records thirteen redundant artifact directories retired from five older cases,
+recovering another 74,931,957,760 allocated bytes (about 69.79 GiB). Every file
+in both retained complete flat/noisy 512 MiB artifact families was rehashed
+before removal. Old canonical/display check records and bulk inventory hashes
+match the retained data; historical implementation metadata is separately
+archived. Reports, telemetry, frozen expectations and original generated
+sources remain. The first manifest's retained flat display is now replaced by
+the current flat 512 MiB display; this replacement chain is explicit in the
+second manifest. Old artifact paths in reports are historical, not promises
+that every duplicate remains on disk.
+
+The remaining large cases were started only with at least 170,000,000,000 free
+bytes, allowing for the observed replay estimate, published outputs and extra
+headroom. Host writes can still change availability during a run; production
+preflight remains unchanged and failures stay explicit.
+
+## Measurement limits and remaining platform evidence
+
+All fourteen current cases and seven complete budget pairs are recorded above.
+The lookup path uses bounded canonical row gathers in place of the global
+coordinate hash join. It retains DuckDB source ordering and independently checks
+staged coordinate words and face indices on each pass. Contribution ordering and
+display remapping have their own resource requirements, measured separately.
+Changes to memory planning or coordinate lookup require fresh full cases before
+they inherit a prior capacity result.
+
+Seven cases missed the 10 ms sampling target. Failed coverage remains separate
+from memory and correctness; the full matrix is not an all-gates pass. The
+reordered-input regression remains a measured limitation. No runtime guarantee
+is selected by the contract.
+
+The numeric CI matrix does not establish full-pipeline resource behavior on
+Windows or macOS. The stress measurements here are from one Linux host with
+uncontrolled caches; full-scale viewer interaction is also unmeasured. Large
+artifacts remain outside Git, and ordinary CI runs only small correctness tests.
+The optional private specimen and physical-accuracy questions remain separate.

@@ -32,6 +32,57 @@ def main() -> int:
     from scansor.mesh_worker_request import WorkerRequest
 
     writer = FrameWriter(cast(BinaryIO, sys.stdout.buffer))
+    if mode == "cooperative-stop":
+        from scansor.mesh_resources import (
+            cgroup_snapshot,
+            memory_snapshot,
+            process_io_snapshot,
+        )
+
+        class StopRequested(Exception):
+            pass
+
+        def stop(_number: int, _frame: object) -> None:
+            raise StopRequested
+
+        request = WorkerRequest.from_record(
+            decode_control((access / "request.json").read_bytes())
+        )
+        _ = signal.signal(signal.SIGTERM, stop)
+        try:
+            writer.send(
+                {
+                    "type": "started",
+                    "pid": os.getpid(),
+                    "request_id": control_id(request.record()),
+                }
+            )
+            _ = signal.pause()
+        except StopRequested:
+            writer.send(
+                {
+                    "type": "progress",
+                    "record": {
+                        "phase": "fault-cleanup",
+                        "completed": 1,
+                        "total": 1,
+                        "budget_bytes": request.budget_bytes,
+                        "event": "final",
+                    },
+                }
+            )
+            writer.send(
+                {
+                    "type": "result",
+                    "status": "failed",
+                    "published": [],
+                    "failure": {"category": "cancelled", "message": "stop received"},
+                    "memory_after_cleanup": memory_snapshot(),
+                    "io_after_cleanup": process_io_snapshot(),
+                    "cgroup": cgroup_snapshot(),
+                }
+            )
+            return 1
     if mode in ("ignore-term", "wrong-start"):
         request = WorkerRequest.from_record(
             decode_control((access / "request.json").read_bytes())
@@ -47,6 +98,28 @@ def main() -> int:
         )
         _ = signal.pause()
     from scansor import mesh_worker
+
+    if mode == "display-cleanup-failure":
+        from scansor import mesh_display
+
+        def fail_display_cleanup(_path: Path, _identity: tuple[int, int]) -> None:
+            raise RuntimeError("injected display cleanup failure after publication")
+
+        mesh_display.remove_owned_workspace = fail_display_cleanup  # pyright: ignore[reportPrivateLocalImportUsage]
+
+    if mode == "crash-after-display":
+        from scansor.mesh_controls import Control
+
+        send = FrameWriter.send
+
+        def crash_after_display(self: FrameWriter, record: dict[str, Control]) -> None:
+            send(self, record)
+            if record.get("type") == "published":
+                stage = record.get("stage")
+                if isinstance(stage, dict) and stage.get("kind") == "display":
+                    os.kill(os.getpid(), signal.SIGKILL)
+
+        FrameWriter.send = crash_after_display
 
     if mode == "crash-copy":
         from scansor import mesh_publication_copy

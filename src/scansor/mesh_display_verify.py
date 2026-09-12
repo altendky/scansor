@@ -87,6 +87,7 @@ def verify_display(
     )
     workspace = create_workspace(workdir)
     monitor = ResourceMonitor(budget_bytes, workspace.access, callback=progress)
+    monitor.set_plan(initial)
     failure: BaseException | None = None
     try:
         with monitor, ExitStack() as stack:
@@ -144,6 +145,7 @@ def verify_display(
                 storage="disk",
                 chunk_rows=initial.batch_rows,
             )
+            monitor.set_plan(plan)
             check_disk_space(workspace.access, plan.disk_estimate_bytes)
             _, rebuilt_legend, rebuilt = prepare_display(
                 data, workspace.access, plan, monitor, transform

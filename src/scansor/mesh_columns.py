@@ -1,7 +1,8 @@
 """Canonical NumPy range storage with explicit ownership and sequential coverage.
 
-Disk columns use buffered I/O, never whole-file mappings. Reads are owned and
-readonly on both paths. The worker plan must reserve resident RAM columns and
+Disk columns use unbuffered Python file I/O, never whole-file mappings. OS page
+caching and filesystem read-ahead still apply. Reads are owned and readonly on
+both paths. The worker plan must reserve resident RAM columns and
 each simultaneously retained result; max_range_bytes bounds a single read/write.
 """
 
@@ -11,6 +12,8 @@ import hashlib
 import io
 import os
 import stat
+from collections.abc import Callable
+from itertools import chain
 from pathlib import Path
 from typing import cast
 
@@ -49,7 +52,7 @@ class Column:
         self.max_range_bytes: int = max_range_bytes
         self.path: Path | None = path
         self._rows: np.ndarray | None = None
-        self._stream: io.BufferedIOBase | None = None
+        self._stream: io.BufferedIOBase | io.RawIOBase | None = None
         self._written: int = 0
         self._sealed: bool = False
         self._failed: bool = False
@@ -88,8 +91,8 @@ class Column:
                         | getattr(os, "O_NOFOLLOW", 0)
                         | getattr(os, "O_NONBLOCK", 0),
                     )
-                    opened = os.fdopen(fd, "rb")
-                    self._stream = cast(io.BufferedIOBase, cast(object, opened))
+                    opened = os.fdopen(fd, "rb", buffering=0)
+                    self._stream = cast(io.RawIOBase, cast(object, opened))
                     info = os.fstat(fd)
                     if not stat.S_ISREG(info.st_mode) or (info.st_dev, info.st_ino) != (
                         entry.st_dev,
@@ -100,7 +103,7 @@ class Column:
                         )
                 else:
                     self._stream = cast(
-                        io.BufferedIOBase, cast(object, path.open("x+b"))
+                        io.RawIOBase, cast(object, path.open("x+b", buffering=0))
                     )
                 if reopen:
                     if os.fstat(self._stream.fileno()).st_size != spec.byte_count:
@@ -179,6 +182,78 @@ class Column:
                     done += count
             except OSError as error:
                 raise io_failure(error, "columns", row=start) from error
+        result.flags.writeable = False
+        return result
+
+    def read_rows(
+        self, indices: np.ndarray, *, check: Callable[[], None] | None = None
+    ) -> np.ndarray:
+        """Gather a bounded integer ID batch, preserving its order and duplicates.
+
+        Disk reads share the range reader's integrity checks and hold at most one
+        tight span at a time. The caller reserves the result, a span of at
+        most max_range_bytes, and O(len(indices)) sorting/scatter scratch. This
+        is a bounded gather, not a cache or a global external sorting backend.
+        Coalescing permits gaps of at most three unrequested rows, bounding total
+        logical transferred row bytes to four times the request size, independent of
+        source size/locality. Unbuffered Python I/O avoids Python read-ahead;
+        filesystem/block-device reads can be larger than these logical reads.
+        """
+        if self._closed:
+            raise MeshImportError("execution", "columns", "column is closed")
+        if indices.ndim != 1 or indices.dtype.kind not in "iu":
+            raise MeshImportError(
+                "structure",
+                "columns",
+                "row IDs require a one-dimensional integer array",
+            )
+        if len(indices) * self.spec.stride > self.max_range_bytes:
+            raise MeshImportError(
+                "resource-budget-too-small", "columns", "gather exceeds its reservation"
+            )
+        if len(indices) and (
+            int(indices.min()) < 0 or int(indices.max()) >= self.spec.rows
+        ):
+            raise MeshImportError("structure", "columns", "row ID is out of range")
+        if self._failed or (len(indices) and int(indices.max()) >= self._written):
+            raise MeshImportError(
+                "integrity", "columns", "requested rows are not valid written data"
+            )
+        if check is not None:
+            check()
+        if self._rows is not None:
+            result = self._rows[indices]
+        elif not len(indices):
+            # Even an empty gather must detect a changed disk-column length.
+            return self.read_range(0, 0)
+        else:
+            shape = (
+                (len(indices),)
+                if self.spec.width == 1
+                else (len(indices), self.spec.width)
+            )
+            result = np.empty(shape, dtype=self.spec.dtype)
+            order = np.argsort(indices)
+            sorted_ids = indices[order].astype(np.intp, copy=False)
+            window_rows = min(65_536, self.max_range_bytes // self.spec.stride)
+            target = result.view("u1").reshape(len(indices), self.spec.stride)
+            breaks = np.flatnonzero(np.diff(sorted_ids) > 4) + 1
+            cursor = 0
+            for run_end in chain(map(int, breaks), (len(sorted_ids),)):
+                last = int(sorted_ids[run_end - 1]) + 1
+                while cursor < run_end:
+                    if check is not None:
+                        check()
+                    start = int(sorted_ids[cursor])
+                    limit = int(
+                        np.searchsorted(sorted_ids, min(start + window_rows, last))
+                    )
+                    stop = int(sorted_ids[limit - 1]) + 1
+                    window = self.read_range(start, stop)
+                    raw = window.view("u1").reshape(stop - start, self.spec.stride)
+                    target[order[cursor:limit]] = raw[sorted_ids[cursor:limit] - start]
+                    cursor = limit
+                    del raw, window
         result.flags.writeable = False
         return result
 

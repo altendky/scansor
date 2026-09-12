@@ -1,0 +1,136 @@
+{
+  "checks": {
+    "cancellation_triggered": true,
+    "dependent_operations_not_started": true,
+    "final_phase_observed": true,
+    "nothing_published": true,
+    "owned_work_removed": true,
+    "requested_failure_observed": true,
+    "source_bytes_unchanged": true,
+    "unrelated_contents_and_metadata_unchanged": true,
+    "worker_cancellation_preserved": true
+  },
+  "kind": "cancel",
+  "marker": "/home/data/scansor-s6-evidence-fJVNUiYN/cancel-grid-10000x6000-flat-r1-unrelated",
+  "marker_after": {
+    ".": {
+      "content": null,
+      "ctime_ns": 1789131023910344736,
+      "device": 64515,
+      "inode": 88647909,
+      "kind": "directory",
+      "mode": 16832,
+      "mtime_ns": 1789131023910344736,
+      "size": 4096
+    },
+    "keep.bin": {
+      "content": {
+        "bytes": 36,
+        "sha256": "0f7e13af9233e4a79cc3b36c1e1d18044ca9884fea5cd4837b4c967479a81ac0"
+      },
+      "ctime_ns": 1789131023911316575,
+      "device": 64515,
+      "inode": 88647911,
+      "kind": "file",
+      "mode": 33204,
+      "mtime_ns": 1789131023911316575,
+      "size": 36
+    },
+    "nested": {
+      "content": null,
+      "ctime_ns": 1789131023911316575,
+      "device": 64515,
+      "inode": 88647910,
+      "kind": "directory",
+      "mode": 16832,
+      "mtime_ns": 1789131023911316575,
+      "size": 4096
+    },
+    "nested/keep.bin": {
+      "content": {
+        "bytes": 25,
+        "sha256": "75bf688d50ea6fd17a0863b5a1dcb06dd9b1740574bdd759b20a5f0e7ef48130"
+      },
+      "ctime_ns": 1789131023911366121,
+      "device": 64515,
+      "inode": 88647912,
+      "kind": "file",
+      "mode": 33204,
+      "mtime_ns": 1789131023911366121,
+      "size": 25
+    }
+  },
+  "marker_before": {
+    ".": {
+      "content": null,
+      "ctime_ns": 1789131023910344736,
+      "device": 64515,
+      "inode": 88647909,
+      "kind": "directory",
+      "mode": 16832,
+      "mtime_ns": 1789131023910344736,
+      "size": 4096
+    },
+    "keep.bin": {
+      "content": {
+        "bytes": 36,
+        "sha256": "0f7e13af9233e4a79cc3b36c1e1d18044ca9884fea5cd4837b4c967479a81ac0"
+      },
+      "ctime_ns": 1789131023911316575,
+      "device": 64515,
+      "inode": 88647911,
+      "kind": "file",
+      "mode": 33204,
+      "mtime_ns": 1789131023911316575,
+      "size": 36
+    },
+    "nested": {
+      "content": null,
+      "ctime_ns": 1789131023911316575,
+      "device": 64515,
+      "inode": 88647910,
+      "kind": "directory",
+      "mode": 16832,
+      "mtime_ns": 1789131023911316575,
+      "size": 4096
+    },
+    "nested/keep.bin": {
+      "content": {
+        "bytes": 25,
+        "sha256": "75bf688d50ea6fd17a0863b5a1dcb06dd9b1740574bdd759b20a5f0e7ef48130"
+      },
+      "ctime_ns": 1789131023911366121,
+      "device": 64515,
+      "inode": 88647912,
+      "kind": "file",
+      "mode": 33204,
+      "mtime_ns": 1789131023911366121,
+      "size": 25
+    }
+  },
+  "measured_report": "/home/data/scansor-s6-evidence-fJVNUiYN/cancel-grid-10000x6000-flat-r1-run.json",
+  "measured_report_hash": {
+    "bytes": 42079,
+    "sha256": "532f886ea818b69bca43733351ff2d7e53f39b00c809fb14eef1d2d755b4ec2d"
+  },
+  "measured_status": "failed",
+  "revision": "mesh-scale-failure-probe-v1",
+  "scope": "Intentional worker stop, not a throughput or completed full-import case. Complete source hashes and unrelated marker contents/metadata are checked after worker exit; original failed worker measurements are retained separately.",
+  "source": "/home/data/scansor-s6-evidence-fJVNUiYN/source-grid-10000x6000-flat.ply",
+  "source_after": {
+    "bytes": 2279584241,
+    "sha256": "b045ffc6a873023ebd2ef3ce20b210251b62c9f26cb55be117e894e02f993881"
+  },
+  "source_before": {
+    "bytes": 2279584241,
+    "sha256": "b045ffc6a873023ebd2ef3ce20b210251b62c9f26cb55be117e894e02f993881"
+  },
+  "status": "expected-failure-verified",
+  "worker_failure": {
+    "category": "cancelled",
+    "message": "operation cancelled",
+    "notes": [],
+    "row": null,
+    "stage": "supervisor"
+  }
+}

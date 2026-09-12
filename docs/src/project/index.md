@@ -34,7 +34,8 @@ outside the intended boundary.
     CloudCompare views, and implementation gates; S1–S4 I/O, numeric/recipe,
     source/storage, contribution accounting, publication and replay implemented;
     S5 display exports/replay and small viewer CLI evidence implemented;
-    S6 scale/resource evidence remains open
+    S6 generated Linux scale/resource evidence recorded, including sampling
+    failures and reordered-input performance limits
 - [Mesh ingestion library evaluation](planning/full-resolution-mesh-library-evaluation.md)
   - **Research and provisional selection:** library/license comparison and small
     storage/random-bit probes; isolated PLY I/O and explicit NumPy-based boundary

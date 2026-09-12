@@ -129,6 +129,7 @@ def _prepare(
         storage=storage,
         chunk_rows=chunk_rows,
     )
+    monitor.set_plan(plan)
     check_disk_space(directory, max(0, plan.disk_estimate_bytes - total_source))
     ledger = AllocationLedger(plan.resident_columns_bytes + plan.batch_bytes)
     _ = stack.enter_context(

@@ -1,0 +1,56 @@
+{
+  "files": [
+    {
+      "byte_count": 5819584755,
+      "name": "validity.ply",
+      "sha256": "7cfe7864f90599d8fbd91972b0f72eb915db9e5c87d53af696bd1a2493ed5d49"
+    },
+    {
+      "byte_count": 5819584754,
+      "name": "weights.ply",
+      "sha256": "56db0355f628cbdea37cf9826c424ffd6d3388b05919d9e42bd07f45d7e25fe9"
+    },
+    {
+      "byte_count": 941,
+      "name": "rejected-face-corners.ply",
+      "sha256": "f1e28683cfdbd2a201f4e915c1309380da1d4e3cc66a4cff672891e975c1ad38"
+    },
+    {
+      "byte_count": 480000000,
+      "dtype": "<u8",
+      "name": "view-vertices.bin",
+      "sha256": "536144e3554d20e046652b3c43174172c17c4e65e5569661ff5624fe244bf673",
+      "shape": [
+        60000000
+      ]
+    },
+    {
+      "byte_count": 959744016,
+      "dtype": "<u8",
+      "name": "view-faces.bin",
+      "sha256": "643ed295970aa4d983ea8b2f47c251262d580fe635b6b4e3d3eb16bf0ce10855",
+      "shape": [
+        119968002
+      ]
+    }
+  ],
+  "recorded_utc": "2026-09-11T21:04:15.399823+00:00",
+  "retained": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-10000x6000-flat-512-r7/out/mesh-display-743189aeae1db199981d2faa017181677f45f074981d5812cd70526c26347414",
+  "retired": [
+    {
+      "allocated_bytes": 13078966272,
+      "logical_bytes": 13078922602,
+      "metadata_archive": "/home/data/scansor-s6-evidence-fJVNUiYN/retired-generated-displays-r1/grid-10000x6000-flat-display-lookup-r1",
+      "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-10000x6000-flat-display-lookup-r1/out/mesh-display-743189aeae1db199981d2faa017181677f45f074981d5812cd70526c26347414",
+      "status": "removed"
+    },
+    {
+      "allocated_bytes": 13078966272,
+      "logical_bytes": 13078922602,
+      "metadata_archive": "/home/data/scansor-s6-evidence-fJVNUiYN/retired-generated-displays-r1/grid-10000x6000-flat-2048-r3",
+      "path": "/home/data/scansor-s6-evidence-fJVNUiYN/grid-10000x6000-flat-2048-r3/out/mesh-display-743189aeae1db199981d2faa017181677f45f074981d5812cd70526c26347414",
+      "status": "removed"
+    }
+  ],
+  "scope": "Two redundant agent-generated display copies retired between benchmarks. All full measurement reports, sources, import/contribution artifacts and the verified retained display remain. Small display metadata is copied here; old report paths are historical and the retained display is their exact content replacement."
+}

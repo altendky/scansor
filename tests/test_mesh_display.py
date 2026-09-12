@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import struct
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -160,6 +161,36 @@ def test_export_exact_independent_fields_maps_topology_and_invariance(
     assert len(set(ids)) == 1
 
 
+@pytest.mark.parametrize("corruption", ("mapped-id", "missing-id", "truncated"))
+def test_display_rejects_corrupt_disk_view_ids_before_face_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str
+) -> None:
+    first, second = published(tmp_path, "unequal-adjacent-v1")
+    before = artifact_state(first.path), artifact_state(second.path)
+    batches = DisplayStaging.face_batches
+
+    def corrupt(
+        self: DisplayStaging,
+    ) -> Generator[tuple[np.ndarray, ...]]:
+        assert self.view_ids is not None and self.view_ids.path is not None
+        with self.view_ids.path.open("r+b") as stream:
+            if corruption == "truncated":
+                _ = stream.truncate(0)
+            else:
+                _ = stream.write(
+                    struct.pack("<i", 1 if corruption == "mapped-id" else -1)
+                )
+        yield from batches(self)
+
+    monkeypatch.setattr(DisplayStaging, "face_batches", corrupt)
+    with pytest.raises(MeshImportError) as caught:
+        _ = export_display(first.path, second.path, tmp_path, tmp_path, chunk_rows=1)
+    assert caught.value.category == "integrity"
+    assert (artifact_state(first.path), artifact_state(second.path)) == before
+    assert not list(tmp_path.glob("mesh-display-*"))
+    assert not list(tmp_path.glob(".scansor-mesh-*"))
+
+
 def test_transform_changes_only_display_and_is_bound_to_identity(
     tmp_path: Path,
 ) -> None:
@@ -280,9 +311,18 @@ def test_export_rejects_changed_working_tuples_before_lookup(
     assert not list(tmp_path.glob(".scansor-mesh-*"))
 
 
+@pytest.mark.parametrize(
+    "cancel_phase",
+    (
+        "export-display-vertices",
+        "verify-display-view-ids",
+        "export-display-face-lookup",
+    ),
+)
 def test_display_cancellation_cleans_staging_and_preserves_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    cancel_phase: str,
 ) -> None:
     first, second = published(tmp_path, "unequal-adjacent-v1")
     before = artifact_state(first.path), artifact_state(second.path)
@@ -291,7 +331,7 @@ def test_display_cancellation_cleans_staging_and_preserves_authority(
 
     def cancel(self: ResourceMonitor, phase: str, completed: int, total: int) -> None:
         progress(self, phase, completed, total)
-        if phase == "export-display-vertices":
+        if phase == cancel_phase:
             self.cancel()
             self.check()
 
