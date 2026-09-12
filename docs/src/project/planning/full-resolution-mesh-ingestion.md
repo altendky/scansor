@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**Provisional contract; S1–S5 implementation, 2026-09-11.**
+**Provisional contract; S1–S6 implementation and measured limits, 2026-09-12.**
 This is the internal contract
 and implementation sequence for [issue #29][issue-29], following the requirements
 in [PR #28][pr-28]. It specifies full-resolution external mesh ingestion,
@@ -21,8 +21,10 @@ pretending external observations are synthetic.
 The isolated reader/writer, strict mesh profile, and deterministic numeric/recipe
 core, source/storage foundation and full contribution/replay path have the S1–S4
 implementations described below. S5 adds the internal display exporter, replay,
-and measured small CloudCompare CLI round trips described below. S6
-scale/resource evidence remains open. A prepared foundation is not a complete import or
+and measured small CloudCompare CLI round trips described below. S6 adds the
+generated scale/resource matrix, including failed sampling observations and
+reordered-input performance limits described below. A prepared foundation is not
+a complete import or
 contribution result; S4 must finish and independently publish each stage.
 Internal revision
 names are implementation targets, not public schemas or compatibility promises. Full-data
@@ -1106,6 +1108,58 @@ considered. No CloudCompare source is needed to implement these display files.
 
 ## Verification and implementation sequence
 
+### S6 generated scale and resource evidence
+
+The [opt-in scale harness](../../../../experiments/mesh-scale/README.md) freezes
+independently checked expectations before interpreting measured runs. Integer
+Philox/encoding logic and rational rounding oracles cover complete noiseless
+and noisy seed-7 grids, deterministic source-index/face permutations, and
+high-valence fans with duplicate/degenerate variants. Large sources, scratch,
+artifacts and streamed telemetry remain outside Git; compact reports retain
+full hashes and exact runtime identities. Ordinary CI exercises small
+correctness and failure cases rather than running the stress workloads.
+
+Each full case runs import/contribution accounting, display export and complete
+display replay in separate fresh workers, sequentially. Independent readback
+checks every canonical column, ordered digest, population and numeric summary.
+Display checks cover all file hashes, profiles, populations and identities;
+replay rebuilds every display file from authoritative columns. The current
+budget comparisons use the same frozen sources and runtime implementation,
+comparing complete canonical and display check records at 512 MiB and 2 GiB.
+The larger input uses disk storage under both budgets.
+
+Coordinate association gathers bounded canonical rows and verifies staged
+coordinate words and indices. Corner staging stores the original integer IDs;
+bounded face-area gathers reconstruct allocation bits while preserving the
+original four-field digest and ordered arithmetic. Complete area hashes bind
+that source before and after each query, including faces emitting no corners.
+Display face remapping uses a source-verified disk column of display vertex IDs.
+These execution changes preserve the complete accounting and numeric contract.
+
+Whole-worker RSS includes startup through exit, with kernel high-water counters
+and a separate observer ready before worker launch. Actual observation gaps,
+including startup and exit edges, are reported rather than inferred from the
+requested interval. Reports also retain phase timing, allocation plans, I/O,
+logical/allocated disk, progress, versions, host/cache conditions, cgroup charge,
+swap/OOM and cleanup. A dedicated cgroup includes file cache and other members;
+its charge limit is distinct from the worker RSS budget. Observed scheduling
+gaps can fail the 10 ms sampling target even when the operation completes.
+
+The retained evidence distinguishes complete pipelines, failed attempts and
+isolated diagnostics. It includes deliberate cancellation/resource failures
+with owned cleanup and unchanged sources/unrelated markers. It also records a
+replay disk-preflight failure and the verified retirement of duplicate generated
+artifacts before an unchanged-code/budget rerun. Historical artifact paths and
+replacement copies are identified by retention manifests.
+
+These are measurements on one Linux host with uncontrolled caches. Bounded
+sparse reads also introduce a substantial reordered-input timing regression,
+reported with the complete case results. They do not establish a runtime,
+universal memory-capacity or physical-accuracy guarantee. Full Windows/macOS
+resource behavior and large interactive viewer inspection remain unmeasured;
+the numeric CI matrix and S5 small viewer CLI evidence have narrower scopes.
+The private specimen remains optional and does not gate generated evidence.
+
 ### S5 implementation and viewer evidence
 
 The [display exporter](../../../../src/scansor/mesh_display.py) reads complete,
@@ -1114,8 +1168,9 @@ vertices and associate displayable rejected corners. Usable faces stream from
 canonical source order and gather their remapped IDs from a checked disk column,
 avoiding a global vertex hash join and corner sort. The complete map digest is
 bound to source-derived values before use; each NumPy gather stays within the
-planned batch reservation. View arrays are streamed to files. This candidate
-path still requires renewed S6 resource and reordered-input measurements.
+planned batch reservation. View arrays are streamed to files. The S6 matrix below
+measures this path,
+including its reordered-input performance regression.
 Intended output hashes, source maps, the legend and a separate display inventory
 are checked before atomic publication, including across filesystems through the
 S4 publication primitives. Display settings and semantics have their own identity.
