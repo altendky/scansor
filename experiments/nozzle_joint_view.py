@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -86,6 +87,9 @@ def export_view(
     axis_point: Array,
     plane_point: Array,
     radius: float,
+    *,
+    taper: float = 0.0,
+    lateral_kind: Literal["cylinder", "cone"] = "cylinder",
 ) -> None:
     rgb = np.tile(np.array([125, 140, 150], dtype=np.uint8), (len(data.xyz), 1))
     # Independent symmetric scales retain each region's residual detail without clipping.
@@ -112,24 +116,32 @@ def export_view(
     low = float(np.min((data.xyz[data.ids] - axis_point) @ axis))
     high = float((plane_point - axis_point) @ axis)
     cylinder_paths = [
-        (axis_point + height * axis + radius * radial, True) for height in (low, high)
+        (axis_point + height * axis + (radius + taper * height) * radial, True)
+        for height in (low, high)
     ]
     for angle in np.linspace(0, 2 * np.pi, 8, endpoint=False):
         rr = np.cos(angle) * u + np.sin(angle) * v
         cylinder_paths.append(
-            (axis_point + np.array([low, high])[:, None] * axis + radius * rr, False)
+            (
+                axis_point
+                + np.array([low, high])[:, None] * axis
+                + (radius + taper * np.array([low, high]))[:, None] * rr,
+                False,
+            )
         )
-    guide_mesh(cylinder_paths, (20, 240, 220), output / "joint-cylinder-guide.ply")
+    guide_mesh(
+        cylinder_paths, (20, 240, 220), output / f"joint-{lateral_kind}-guide.ply"
+    )
     plane_paths = [(plane_point + r * radial, True) for r in (8.2, 10.2)]
     for angle in np.linspace(0, 2 * np.pi, 8, endpoint=False):
         rr = np.cos(angle) * u + np.sin(angle) * v
         plane_paths.append((plane_point + np.array([8.2, 10.2])[:, None] * rr, False))
     guide_mesh(plane_paths, (240, 60, 215), output / "perpendicular-plane-guide.ply")
     _ = (output / "VIEW.txt").write_text(
-        "Open the three PLY files together in CloudCompare. Cyan: jointly fitted cylinder; magenta: perpendicular plane.\n"
+        f"Open the three PLY files together in CloudCompare. Cyan: jointly fitted {lateral_kind}; magenta: perpendicular plane.\n"
         + "Guides extend outside the selected regions to show the relationship. Tube radius 0.012 is for visibility, not an error bound.\n"
         + "Gray: unselected context. Blue/white/red: negative/zero/positive signed residual. All source vertices and triangles are retained.\n"
-        + f"Cylinder color range: +/-{limits[0]:.8f}; plane color range: +/-{limits[1]:.8f} source units. Separate scales, no clipping.\n"
-        + "Cylinder positive means radially outside; plane positive means along the shared +axis normal. Unknown source units.\n"
+        + f"{lateral_kind.capitalize()} color range: +/-{limits[0]:.8f}; plane color range: +/-{limits[1]:.8f} source units. Separate scales, no clipping.\n"
+        + f"{lateral_kind.capitalize()} positive means outside the lateral surface; plane positive means along the shared +axis normal. Unknown source units.\n"
         + "PLY guides are tessellated display geometry, not additional observations. Toggle the guide objects to see residual colors unobstructed.\n"
     )
