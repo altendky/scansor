@@ -35,8 +35,11 @@
 <section><h2>1 · Select observations</h2>
 <label>Active surface<select id="region"><option value="lateral_ids">Cone side · amber</option><option value="plane_ids">End plane · violet</option></select></label>
 <div id="counts">Loading mesh…</div>
-<label>Left-drag tool<select id="tool"><option value="orbit">No selection</option><option value="replace">Rectangle · replace</option><option value="add">Rectangle · add</option><option value="remove">Rectangle · remove</option></select></label>
-<p class="hint">Rectangles select through the mesh, including the back. Added vertices move from the other surface.</p>
+<label>Selection shape<select id="selection-shape"><option value="paint">Paint</option><option value="rectangle">Rectangle</option></select></label>
+<label>Depth<select id="selection-depth"><option value="first_surface">First surface</option><option value="through_all">Through all</option></select></label>
+<label id="brush-settings">Brush diameter <output id="brush-size-value">40 px</output><input id="brush-size" type="range" min="4" max="160" value="40"></label>
+<label>Selection operation<select id="tool"><option value="orbit">No selection</option><option value="replace">Replace</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
+<p class="hint">Paint several patches with Add, or erase with Remove. First surface excludes occluded vertices; Through all reaches behind the mesh. Added vertices move from other selections. Escape cancels the current stroke.</p>
 <div class="row"><button id="reset">Restore example graph</button></div>
 </section>
 <section><h2>2 · Fit surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
@@ -51,7 +54,7 @@
 <section><h2>Save the current graph</h2><div class="row"><button id="save" disabled>Save graph</button><button id="load">Load graph</button></div><input id="file" type="file" accept="application/json,.json" hidden>
 <p class="hint">Saves the current operations, dependencies, declarations and selections. No edit history or old results are stored.</p></section>
 </aside>
-<div id="viewport"><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
+<div id="viewport"><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><div id="brush-cursor" hidden></div><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
 </main>
 <footer>Captured scan · units unconfirmed · exploratory fit, not physical validation <span id="render-stats"></span></footer>
 </body></html>

@@ -237,3 +237,17 @@ def test_reads_original_single_constraint_recipe(graph: FeatureGraph) -> None:
     fit = next(n for n in stored["nodes"] if n["id"] == "fit")
     assert fit["constraints"] == ["perpendicular"]
     assert "constraint" not in fit
+
+
+def test_first_surface_selection_depth_round_trip(graph: FeatureGraph) -> None:
+    _ = graph.replace(changed(graph, "outer_band", depth="first_surface"), token(graph))
+    restored = FeatureGraph(
+        graph.workspace, Recipe.model_validate(graph.snapshot()["recipe"])
+    )
+    recipe = cast(dict[str, Any], restored.snapshot()["recipe"])
+    assert (
+        next(n for n in recipe["nodes"] if n["id"] == "outer_band")["depth"]
+        == "first_surface"
+    )
+    with pytest.raises(ValueError):
+        _ = changed(graph, "outer_band", depth="front_normals")

@@ -2,15 +2,16 @@
 
 ## Status and scope
 
-**Future requirements and provisional next-step proposal, 2026-09-12.** These
+**Current prototype and future requirements, 2026-09-13.** These
 requirements follow the initial
 [nozzle browser experiment](../../../../experiments/browser_viewer/README.md).
 The first backend DAG slice now evaluates source, selection, surface,
 perpendicular, coaxial and joint-fit records for the captured nozzle. A browser
 feature tree and a script use that same backend. Cone/cylinder choice is recipe
 data. Current-graph save/load and dependent-result invalidation are implemented;
-change history is not. Additional selection tools and surface discovery below
-remain future requirements.
+change history is not. Painting and shared first-surface/through-all selection
+are now implemented in the browser prototype. Additional shapes and surface
+discovery below remain future requirements.
 
 Browser-first remains an experiment sequence, not a browser-only product choice.
 Selection records, operation evaluation, model declarations and fit results must
@@ -43,10 +44,18 @@ How memberships may overlap between surfaces is also a separate policy; the
 current experiment's disjoint cone/plane requirement is not automatically a
 universal selection rule.
 
-Additional shapes, painting and first-surface implementation are **future tasks**,
-not prerequisites for the first feature-graph implementation. The existing
-rectangle tool can initially record its implemented through-all behavior; it
-must not advertise first-surface selection before that behavior exists.
+**Implemented prototype, 2026-09-13:** a circular painting brush supports Add,
+Remove and whole-stroke Replace, with continuous coverage between pointer events.
+Painting and rectangles share First surface and Through all modes. First surface
+means unoccluded source vertices at their projected positions, using double-sided
+mesh triangles clipped to the frustum. Guides do not occlude selections. The
+implementation and numerical tolerance are described in the browser README.
+
+Each completed gesture replaces current membership and records its depth setting;
+in-progress preview can be cancelled. Resolved source IDs are persisted, but no
+stroke log or camera sequence is retained. Full gesture provenance/replay remains
+open. Standalone circle and polygon selection, seed fitting, growth and inset
+remain **future tasks**.
 
 ## Painted seeds and assisted surface identification
 
@@ -189,8 +198,8 @@ surface type comes from the declaration without adding a new solver family.
 Reuse applicable existing declaration concepts while keeping the captured-example
 adapter separate from the canonical synthetic-only admission contract.
 
-After this slice, add painting, shared first-surface selection semantics, further
-selection shapes, seed fitting, growth and boundary inset as independently
+Continue with further selection shapes, seed fitting, growth and boundary inset
+as independently
 inspectable operation types. This order gives those tools an operation graph and
 current-recipe replay model from their first implementation, without deciding
 edit-history policy.
