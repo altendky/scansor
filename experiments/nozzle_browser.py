@@ -213,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
                             raise StaleGraph("graph changed before evaluation")
                         self.app.graph_job_token = payload.token
                         self.app.graph_job = self.app.worker.submit(
-                            self.app.graph.evaluate, payload.token
+                            self.app.graph.evaluate, payload.token, payload.target
                         )
                     self.json_reply(202, {"status": "running"})
                 return

@@ -54,8 +54,8 @@ implementation and numerical tolerance are described in the browser README.
 Each completed gesture replaces current membership and records its depth setting;
 in-progress preview can be cancelled. Resolved source IDs are persisted, but no
 stroke log or camera sequence is retained. Full gesture provenance/replay remains
-open. Standalone circle and polygon selection, seed fitting, growth and inset
-remain **future tasks**.
+open. Standalone circle/polygon selection and inset remain **future tasks**. The
+seed-fit and connected-growth proposal slice below is now implemented.
 
 ## Painted seeds and assisted surface identification
 
@@ -72,6 +72,52 @@ and declares that they belong to a cone side. Retain the following operations:
    edge observations, fillets or transitions to neighboring surfaces.
 5. **Use the resulting selection:** explicitly reference the resulting membership
    in subsequent fitting, retaining the earlier seed and intermediate results.
+
+### Connected additions
+
+**Requirement, 2026-09-13:** proposed additions must be contiguous with the seed
+selection. Geometric agreement alone is insufficient. Every added vertex must
+have a path to a seed vertex along valid mesh edges, through vertices that satisfy
+the growth criteria. Do not jump between nearby disconnected components, across
+rejected vertices, or over gaps using spatial nearest-neighbor links.
+
+Several disconnected painted patches are valid seeds. Grow from each eligible
+patch; their proposals may merge when an eligible path connects them. The result
+need not be a single connected component. Preserve the explicit seed membership;
+seed outliers must be diagnosed and must not serve as bridges through rejected
+geometry. Degenerate triangles must not introduce traversal edges.
+
+The implemented prototype uses distance to a fixed preliminary surface
+and normal agreement as eligibility criteria, followed by mesh-edge flood fill.
+Distance and angular thresholds are explicit recipe settings, not physical
+accuracy claims. Vertices assigned to other surface selections are barriers for
+proposal growth under the prototype's current disjoint-membership policy. This
+avoids silently reallocating observations when asking for a proposal.
+
+Growth follows the mesh and may wrap around the hidden side of the part. The
+camera depth setting used to paint a seed does not limit this topology-based
+operation. Disconnected but geometrically identical surfaces remain excluded.
+
+The seed-only fit is separate from the final constrained solve. Do not use the
+end plane or another surface's observations to silently stabilize the seed fit.
+Insufficient seed coverage or an ill-conditioned fit should stop the proposal
+with a diagnostic. The adapter now fits cone/cylinder seeds directly and plane seeds through
+area-weighted covariance, independently of final-fit observations.
+
+Preview additions separately from the seed before applying them. Keep seed,
+preliminary fit and growth as distinct current graph nodes; accepting the result
+changes the final fit's selection reference. These are recipe dependencies, not
+an edit-history log. Editing the seed or thresholds invalidates descendants.
+
+Boundary inset remains a subsequent operation. It can disconnect a grown region,
+so the later policy must specify seed protection and discard additions that lose
+all paths to retained seed vertices. Do not claim the contiguity requirement is
+satisfied merely because it held before erosion.
+
+The first implementation tests demonstrate: growth on the intended surface;
+exclusion of a disconnected matching surface; no crossing of an ineligible strip
+or another selection; multiple seed patches; and invalidation after seed edits.
+Automatic iterative refitting, inset policy and mesh repair remain deferred.
 
 Each step should be inspectable and editable. Expansion should expose its criteria
 and preview the proposed membership; it must not silently replace the seed. A

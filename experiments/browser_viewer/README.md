@@ -125,11 +125,51 @@ physical boundaries or uncertainty. Residual colors use independent symmetric
 blue/white/red scales for each region, with limits shown in the UI. Units remain
 unconfirmed, and lower training residual is not physical validation.
 
+## Seed fit and connected proposals
+
+For the active surface, **Fit seed and propose** fits only its painted seed,
+then proposes a single connected expansion. Set the maximum orthogonal distance
+in source units and maximum normal angle in degrees. Defaults (`0.05`, `20°`)
+are exploratory starting values, not calibrated accuracy limits. Cones and
+cylinders use the example's local frame and initialization; planes use an
+area-weighted covariance fit. Insufficient coverage or poor conditioning fails
+visibly. Inspect the preliminary fit node for its parameters and diagnostics.
+
+Candidates must meet both thresholds and lie inside the declared finite side
+support (for cones/cylinders). Every addition must have an eligible mesh-edge path
+to an eligible seed vertex. Degenerate triangles provide no traversal edges.
+Other referenced selections are barriers. Matching but disconnected components
+are excluded; multiple seed patches can grow independently and merge. Growth
+can wrap around the hidden side, independently of the painting depth setting.
+Normals are oriented consistently with the seed's average agreement. Seed
+outliers are retained but reported and cannot bridge rejected areas.
+
+Bright green previews the additions relative to the seed; the existing final-fit
+guides still describe the final solve. **Apply proposal** changes the surface's
+input to the growth node and invalidates its final fit. Evaluating the final fit
+then consumes that membership. Seed → preliminary fit → growth remain distinct
+recipe nodes. A new proposal leaves an applied result unchanged until Apply;
+unreferenced superseded proposal nodes are removed rather than kept as history.
+**Hide preview** hides the overlay while leaving the current proposal inspectable.
+
+Use **Edit seed** to paint the retained seed of an applied growth selection;
+this invalidates its descendants. Derived memberships cannot be painted directly.
+Manual edits that would modify another derived selection are rejected. Growth
+barriers are explicit selection references: cyclic proposal dependencies are
+rejected, and final solves check disjoint resolved memberships again. This is not
+a simultaneous competitive region-growing algorithm.
+
+Save/load preserves the recipe; derived memberships and seed-fit diagnostics are
+recomputed on evaluation. The script accepts `--target NODE_ID` to evaluate a
+proposal without executing the final joint fit. No iterative refitting, boundary
+inset, gesture history or automatic physical-feature identification is implemented.
+
 ## Backend graph and current-recipe persistence
 
 The backend DAG is implemented in `experiments/feature_graph.py`; the tree is a
 frontend presentation. Supported nodes are source, selection, surface declaration,
-perpendicular relationship, coaxial relationship and joint fit. Joint-fit records
+preliminary seed fit, connected growth, perpendicular relationship, coaxial
+relationship and joint fit. Joint-fit records
 reference a list of constraint IDs; older single-constraint recipes can still be
 loaded. One joint-fit node evaluates the coupled
 surfaces together; geometric constraints do not create execution cycles.

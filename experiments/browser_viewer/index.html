@@ -13,7 +13,7 @@
 <h1>Fit the nozzle</h1><p class="muted">Declared surfaces and selections feed a shared fit.</p>
 <section><h2>Feature tree</h2><div id="feature-tree"></div>
 <h2 id="properties-title">Feature properties</h2>
-<p id="feature-description" class="hint"></p>
+<p id="feature-description" class="hint"></p><dl id="feature-diagnostics"></dl>
 <form id="feature-properties" hidden>
 <label>Name<input id="feature-label" required maxlength="120"></label>
 <label>Fit type<select id="surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option><option value="plane">Plane</option></select></label>
@@ -41,6 +41,16 @@
 <label>Selection operation<select id="tool"><option value="orbit">No selection</option><option value="replace">Replace</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
 <p class="hint">Paint several patches with Add, or erase with Remove. First surface excludes occluded vertices; Through all reaches behind the mesh. Added vertices move from other selections. Escape cancels the current stroke.</p>
 <div class="row"><button id="reset">Restore example graph</button></div>
+</section>
+<section id="growth-panel"><h2>Propose connected additions</h2>
+<p class="hint">Fit the active surface's seed only, then grow along mesh edges. Other selections are barriers. Proposed additions appear green until applied.</p>
+<label>Maximum distance (source units)<input id="growth-distance" type="number" min="0.000001" step="any" value="0.05"></label>
+<label>Maximum normal angle (degrees)<input id="growth-angle" type="number" min="0.01" max="90" step="any" value="20"></label>
+<button id="propose-growth">Fit seed and propose</button>
+<p id="growth-status" role="status"></p>
+<div class="row"><button id="apply-growth" disabled>Apply proposal</button><button id="hide-growth">Hide preview</button></div>
+<button id="edit-growth-seed" hidden>Edit seed</button>
+<p class="hint">Apply changes the fit's input; it preserves seed → preliminary fit → growth in the graph. No iterative refit or boundary inset yet.</p>
 </section>
 <section><h2>2 · Fit surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
 <p id="status" role="status" aria-live="polite">Loading…</p><dl id="metrics"></dl>

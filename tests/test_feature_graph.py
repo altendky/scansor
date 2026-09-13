@@ -68,7 +68,15 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
     _ = graph.replace(recipe, token(graph))
     snapshot = graph.snapshot()
     assert snapshot["result"] is None
-    assert set(snapshot) == {"recipe", "token", "states", "errors", "result"}
+    assert set(snapshot) == {
+        "recipe",
+        "token",
+        "states",
+        "errors",
+        "result",
+        "derived",
+        "memberships",
+    }
     assert set(recipe.model_dump()) == {"schema_version", "nodes", "output"}
     loaded = FeatureGraph(
         graph.workspace, Recipe.model_validate_json(recipe.model_dump_json())
@@ -251,3 +259,99 @@ def test_first_surface_selection_depth_round_trip(graph: FeatureGraph) -> None:
     )
     with pytest.raises(ValueError):
         _ = changed(graph, "outer_band", depth="front_normals")
+
+
+def proposal_recipe(graph: FeatureGraph) -> Recipe:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["nodes"].extend(
+        [
+            {
+                "id": "seed_fit",
+                "label": "Seed only",
+                "operation": "seed_fit",
+                "selection": "outer_band",
+                "kind": "cone",
+                "axial_domain": [-2, 5],
+            },
+            {
+                "id": "growth",
+                "label": "Connected additions",
+                "operation": "growth",
+                "seed_fit": "seed_fit",
+                "barriers": ["top_face"],
+                "distance": 0.05,
+                "angle_degrees": 20,
+            },
+        ]
+    )
+    return Recipe.model_validate(payload)
+
+
+def test_proposal_apply_replay_and_seed_invalidation(graph: FeatureGraph) -> None:
+    original = graph.workspace.default.lateral_ids
+    _ = graph.replace(proposal_recipe(graph), token(graph))
+    state = graph.evaluate(token(graph), "growth")
+    derived = cast(dict[str, Any], state["derived"])
+    assert derived["growth"]["added_ids"]
+    assert set(original) <= set(derived["growth"]["ids"])
+    assert not set(derived["growth"]["ids"]).intersection(
+        graph.workspace.default.plane_ids
+    )
+    assert state["result"] is None
+    _ = graph.replace(changed(graph, "side", selection="growth"), token(graph))
+    state = graph.evaluate(token(graph))
+    assert state["result"] is not None
+    replay = FeatureGraph(graph.workspace, Recipe.model_validate(state["recipe"]))
+    assert replay.evaluate(token(replay))["result"] == state["result"]
+    state = graph.replace(changed(graph, "outer_band", ids=original[::2]), token(graph))
+    assert state["result"] is None
+    assert cast(dict[str, Any], state["memberships"])["growth"] is None
+    assert "growth" not in cast(dict[str, Any], state["derived"])
+
+
+def test_proposal_needs_no_plane_observations(graph: FeatureGraph) -> None:
+    _ = graph.replace(proposal_recipe(graph), token(graph))
+    _ = graph.replace(changed(graph, "top_face", ids=[]), token(graph))
+    assert "growth" in cast(
+        dict[str, Any], graph.evaluate(token(graph), "growth")["derived"]
+    )
+
+
+def test_growth_cycles_and_invalid_thresholds_rejected(graph: FeatureGraph) -> None:
+    _ = graph.replace(proposal_recipe(graph), token(graph))
+    with pytest.raises(ValueError, match="cycle"):
+        _ = graph.replace(changed(graph, "growth", barriers=["growth"]), token(graph))
+    with pytest.raises(ValueError):
+        _ = changed(graph, "growth", distance=float("nan"))
+
+
+def test_late_seed_fit_cannot_publish_after_edit(
+    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import experiments.feature_graph as module
+
+    _ = graph.replace(proposal_recipe(graph), token(graph))
+    started, release = Event(), Event()
+    from experiments.selection_growth import fit_seed as original_fit
+
+    def delayed(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        started.set()
+        assert release.wait(5)
+        return original_fit(*args, **kwargs)
+
+    monkeypatch.setattr(module, "fit_seed", delayed)
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        pending = worker.submit(graph.evaluate, token(graph), "growth")
+        assert started.wait(5)
+        try:
+            _ = graph.replace(
+                changed(
+                    graph, "outer_band", ids=graph.workspace.default.lateral_ids[::2]
+                ),
+                token(graph),
+            )
+        finally:
+            release.set()
+        with pytest.raises(StaleGraph):
+            _ = pending.result(timeout=5)
+    assert graph.snapshot()["derived"] == {}
