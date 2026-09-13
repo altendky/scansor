@@ -10,6 +10,7 @@ let metadata, positions, session, result = null, busy = false;
 let pending = false, frames = 0;
 let graphState, bindings, selectedFeatureId;
 let selectionDrawing = false, selectionPending = false;
+let previewGrowthId = null, editingSeedFor = null, growthSettingsFor = null;
 const palette = ['#f2b544', '#bd91f4', '#67dba2', '#ec9174', '#72b7ed', '#e6d979'];
 const status = (message, error = false) => {
   $('status').textContent = message;
@@ -40,6 +41,35 @@ function clearGuides() {
     overlays.remove(child); child.geometry.dispose(); child.material.dispose();
   }
 }
+function graphNode(id) { return graphState.recipe.nodes.find(n => n.id === id); }
+function seedNode(selectionId) {
+  const node = graphNode(selectionId);
+  return node.operation === 'growth' ? graphNode(graphNode(node.seed_fit).selection) : node;
+}
+function growthFor(surface) {
+  const selected = graphNode(surface.selection);
+  return graphState.recipe.nodes.find(n => n.operation === 'growth' && n.id !== selected.id && graphNode(n.seed_fit).selection === seedNode(surface.selection).id && !graphState.recipe.nodes.some(other => other.selection === n.id || other.barriers?.includes(n.id))) || (selected.operation === 'growth' ? selected : null);
+}
+function updateGrowthPanel() {
+  const surface = bindings.surfaces.find(s => s.id === $('region').value);
+  if (!surface) return;
+  const growth = growthFor(surface), preview = graphState.derived?.[previewGrowthId];
+  const settingsKey = surface.id + ':' + (growth?.id || 'none');
+  if (growthSettingsFor !== settingsKey) {
+    growthSettingsFor = settingsKey;
+    if (growth) { $('growth-distance').value = growth.distance; $('growth-angle').value = growth.angle_degrees; }
+  }
+  $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
+  $('apply-growth').disabled = busy || selectionDrawing || selectionPending || !preview || growth?.id !== previewGrowthId;
+  $('edit-growth-seed').hidden = graphNode(surface.selection).operation !== 'growth';
+  $('edit-growth-seed').textContent = editingSeedFor === surface.id ? 'Show grown selection' : 'Edit seed';
+  if (preview && growth?.id === previewGrowthId) {
+    const fitted = graphState.derived[ growth.seed_fit ];
+    $('growth-status').textContent = `${preview.added_ids.length} proposed additions · seed RMS ${fitted.weighted_rms.toFixed(5)} · ${preview.rejected_seed_ids.length} seed vertices outside thresholds.`;
+  } else if (growth && graphState.errors[growth.id]) $('growth-status').textContent = graphState.errors[growth.id];
+  else if (graphNode(surface.selection).operation === 'growth') $('growth-status').textContent = editingSeedFor === surface.id ? 'Editing the retained seed. Growth and final fit will become stale.' : 'Using a derived selection. Choose Edit seed to change its input.';
+  else $('growth-status').textContent = 'No proposal preview. Paint seeds, then fit and propose.';
+}
 function paint() {
   const colors = mesh.geometry.getAttribute('color');
   const gray = new THREE.Color('#8796a2');
@@ -61,14 +91,20 @@ function paint() {
     }
     $('legend').textContent = `Blue: negative · white: zero · red: positive. Per-surface scales: ${scales.map(s => '±' + s.toFixed(5)).join(', ')} source units.`;
   } else if ($('colors').value === 'residual') $('legend').textContent = 'Fit the current selection to show residuals. Showing regions for now.';
+  const preview = graphState.derived?.[previewGrowthId];
+  if (preview) {
+    const green = new THREE.Color('#4dff91');
+    for (const id of preview.added_ids) colors.setXYZ(id, green.r, green.g, green.b);
+    $('legend').textContent = 'Bright green: proposed additions. Existing selection colors: seeds/current membership.';
+  }
   colors.needsUpdate = true;
-  selectedPoints.geometry.setIndex(Object.values(session).flat());
+  selectedPoints.geometry.setIndex([...Object.values(session).flat(), ...(preview?.added_ids || [])]);
   selectedPoints.visible = $('points').checked;
   overlays.visible = $('guides').checked;
   $('counts').textContent = bindings.surfaces.map(s => `${s.label}: ${session[s.id].length.toLocaleString()}`).join(' · ');
 
   $('fit').disabled = busy || selectionDrawing || selectionPending || bindings.surfaces.some(s => session[s.id].length < (s.kind === 'plane' ? 3 : 7));
-  draw();
+  updateGrowthPanel(); draw();
 }
 function acceptGraph(state) {
   graphState = state;
@@ -79,7 +115,7 @@ function acceptGraph(state) {
   const ids = new Set([lateral.id, plane.id]);
   for (const c of constraints) for (const id of c.operation === 'coaxial' ? [c.surface, c.reference] : [c.lateral, c.plane]) ids.add(id);
   bindings = {lateral, plane, surfaces: [...ids].map(id => nodes[id])};
-  session = Object.fromEntries(bindings.surfaces.map(n => [n.id, nodes[n.selection].ids]));
+  session = Object.fromEntries(bindings.surfaces.map(n => [n.id, editingSeedFor === n.id ? seedNode(n.selection).ids : (state.memberships[n.selection] ?? seedNode(n.selection).ids)]));
   const active = $('region').value;
   $('region').replaceChildren(...bindings.surfaces.map((n, i) => new Option(n.label + ' · ' + ['amber','violet','green','salmon','blue','yellow'][i % palette.length], n.id)));
   if (ids.has(active)) $('region').value = active;
@@ -99,7 +135,9 @@ function acceptGraph(state) {
     info.textContent = (state.states[id] || 'unevaluated') + (node.kind ? ' · ' + node.kind : '') + (node.ids ? ' · ' + node.ids.length + ' vertices' : '');
     if (state.errors[id]) { info.textContent += ' · ' + state.errors[id]; info.className = 'failed'; }
     li.append(info); if (seen.has(id)) return li; seen.add(id);
-    const inputs = node.operation === 'joint_fit' ? node.constraints : node.operation === 'coaxial' ? [node.surface, node.reference] : node.operation === 'perpendicular' ? [node.lateral,node.plane] : node.operation === 'surface' ? [node.selection] : node.operation === 'selection' ? [node.source] : [];
+    const inputs = node.operation === 'joint_fit' ? node.constraints : node.operation === 'coaxial' ? [node.surface, node.reference] : node.operation === 'perpendicular' ? [node.lateral,node.plane] : ['surface','seed_fit'].includes(node.operation) ? [node.selection] : node.operation === 'growth' ? [node.seed_fit, ...node.barriers] : node.operation === 'growth' ? 'Connected growth · uses the preliminary seed fit and treats referenced selections as barriers.'
+    : node.operation === 'seed_fit' ? 'Preliminary fit · fitted only to seed observations, without final-fit constraints.'
+    : node.operation === 'selection' ? [node.source] : [];
     if (inputs.length) { const ul = document.createElement('ul'); for (const input of inputs) ul.append(tree(input)); li.append(ul); }
     return li;
   };
@@ -123,8 +161,26 @@ function showProperties() {
     : node.operation === 'joint_fit' ? 'Joint solve · evaluates the linked surface fits and their constraint.'
     : node.operation === 'coaxial' ? 'Coaxial constraint · both surfaces adjust together on one shared axis.'
     : node.operation === 'perpendicular' ? 'Constraint · aligns the plane normal with the cone or cylinder axis.'
+    : node.operation === 'growth' ? 'Connected growth · uses the preliminary seed fit and treats referenced selections as barriers.'
+    : node.operation === 'seed_fit' ? 'Preliminary fit · fitted only to seed observations, without final-fit constraints.'
     : node.operation === 'selection' ? `Selection · ${node.ids.length} vertices. Edit membership with the selection tools.`
     : 'Source · captured mesh and reference binding.';
+  $('feature-diagnostics').replaceChildren();
+  const diagnostic = graphState.derived?.[node.id];
+  if (node.operation === 'seed_fit' && diagnostic) {
+    const p = diagnostic.parameters;
+    const values = {'Seed RMS': diagnostic.weighted_rms.toFixed(5), 'Condition': diagnostic.condition.toExponential(3)};
+    if (node.kind === 'plane') { values['Normal'] = p.slice(0,3).map(v => v.toFixed(5)).join(', '); values['Plane offset'] = p[3].toFixed(5); }
+    else { values['Reference diameter'] = (2*p[4]).toFixed(5); values['Half-angle'] = (Math.atan(p[6])*180/Math.PI).toFixed(4) + '°'; values['Axis slopes'] = p.slice(2,4).map(v => v.toFixed(5)).join(', '); }
+    for (const [label, value] of Object.entries(values)) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = label; dd.textContent = value; $('feature-diagnostics').append(dt,dd); }
+  }
+  if (node.operation === 'growth') {
+    previewGrowthId = null;
+    $('growth-distance').value = node.distance; $('growth-angle').value = node.angle_degrees;
+    const surface = bindings.surfaces.find(s => seedNode(s.selection).id === graphNode(node.seed_fit).selection);
+    if (surface) $('region').value = surface.id;
+    updateGrowthPanel(); paint();
+  }
   if (!isSurfaceFit) return;
   $('feature-label').value = node.label;
   $('surface-kind').value = node.kind;
@@ -134,11 +190,12 @@ function showProperties() {
   $('fit-compatibility').textContent = asPlane
     ? 'This constraint currently requires a plane here. Other pairings need additional solver support.'
     : asLateral ? 'This joint group supports coaxial cones and cylinders, with a perpendicular plane.' : 'Available fit types: cone, cylinder and plane.';
-  $('feature-selection').replaceChildren(...nodes.filter(n => n.operation === 'selection').map(n => new Option(n.label + ` (${n.ids.length} vertices)`, n.id)));
+  $('feature-selection').replaceChildren(...nodes.filter(n => ['selection','growth'].includes(n.operation)).map(n => new Option(n.label, n.id)));
   $('feature-selection').value = node.selection;
   $('axial-properties').hidden = node.kind === 'plane';
   $('axial-start').value = node.axial_domain[0]; $('axial-end').value = node.axial_domain[1];
   if (bindings.surfaces.some(s => s.id === node.id)) $('region').value = node.id;
+  updateGrowthPanel();
 }
 async function replaceRecipe(recipe) {
   try {
@@ -150,9 +207,17 @@ async function replaceRecipe(recipe) {
 }
 async function change(next, region, depth) {
   const recipe = structuredClone(graphState.recipe);
-  for (const surface of bindings.surfaces) recipe.nodes.find(n => n.id === surface.selection).ids = next[surface.id];
+  for (const surface of bindings.surfaces) {
+    const selected = graphNode(surface.selection);
+    if (selected.operation === 'growth' && editingSeedFor !== surface.id) {
+      if (JSON.stringify(next[surface.id]) !== JSON.stringify(graphState.memberships[surface.selection])) throw new Error('This stroke overlaps another derived selection; edit its seed separately.');
+      continue;
+    }
+    recipe.nodes.find(n => n.id === seedNode(surface.selection).id).ids = next[surface.id];
+  }
   const active = bindings.surfaces.find(s => s.id === region);
-  recipe.nodes.find(n => n.id === active.selection).depth = depth;
+  recipe.nodes.find(n => n.id === seedNode(active.selection).id).depth = depth;
+  previewGrowthId = null;
   await replaceRecipe(recipe);
 }
 function guides(data) {
@@ -278,7 +343,7 @@ async function start() {
     event.preventDefault();
     const recipe = structuredClone(graphState.recipe);
     const reference = recipe.nodes.find(n => n.id === $('new-surface-reference').value);
-    const source = recipe.nodes.find(n => n.id === reference.selection).source;
+    const source = seedNode(reference.selection).source;
     const id = 'surface_' + crypto.randomUUID().replaceAll('-', '');
     const label = $('new-surface-label').value;
     const zs = []; for (let i = 2; i < positions.length; i += 3) zs.push(positions[i]);
@@ -296,6 +361,55 @@ async function start() {
       $('tool').value = 'add'; $('tool').onchange();
       status('Surface added with an empty selection. Select its observations, then evaluate the joint fit.');
     }
+  };
+  for (const id of ['growth-distance', 'growth-angle']) $(id).addEventListener('input', () => { previewGrowthId = null; paint(); });
+  $('propose-growth').onclick = async () => {
+    if (busy || selectionPending || selectionDrawing) return;
+    const surface = bindings.surfaces.find(s => s.id === $('region').value);
+    const distance = Number($('growth-distance').value), angle = Number($('growth-angle').value);
+    if (!(distance > 0) || !(angle > 0 && angle <= 90)) { status('Enter a positive distance and an angle between 0 and 90 degrees.', true); return; }
+    busy = true; previewGrowthId = null; paint();
+    try {
+      const recipe = structuredClone(graphState.recipe), seed = seedNode(surface.selection);
+      const found = growthFor(surface);
+      const existing = found?.id === surface.selection ? null : found;
+      const seedFitId = existing?.seed_fit || 'seedfit_' + crypto.randomUUID().replaceAll('-', '');
+      const growthId = existing?.id || 'growth_' + crypto.randomUUID().replaceAll('-', '');
+      const records = [
+        {id: seedFitId, label: (surface.label + ' seed fit').slice(0,120), operation: 'seed_fit', selection: seed.id, kind: surface.kind, axial_domain: surface.axial_domain},
+        {id: growthId, label: (surface.label + ' growth').slice(0,120), operation: 'growth', seed_fit: seedFitId, barriers: bindings.surfaces.filter(s => s.id !== surface.id).map(s => s.selection), distance, angle_degrees: angle},
+      ];
+      for (const node of records) { const index = recipe.nodes.findIndex(n => n.id === node.id); if (index < 0) recipe.nodes.push(node); else recipe.nodes[index] = node; }
+      acceptGraph(await request('/api/graph', {token: graphState.token, recipe}));
+      await request('/api/graph/evaluate', {token: graphState.token, target: growthId});
+      let state;
+      do { await new Promise(resolve => setTimeout(resolve,150)); state = await request('/api/graph'); acceptGraph(state); } while (state.evaluation_running);
+      if (state.evaluation_error) throw new Error(state.evaluation_error);
+      if (!state.derived[growthId]) throw new Error('Proposal became stale; fit and propose again.');
+      previewGrowthId = growthId; editingSeedFor = null; acceptGraph(state);
+      status('Proposal ready. Inspect the green additions, then Apply if useful.');
+    } catch (error) { status(error.message, true); }
+    finally { busy = false; paint(); }
+  };
+  $('apply-growth').onclick = async () => {
+    const surface = bindings.surfaces.find(s => s.id === $('region').value);
+    if (!graphState.derived?.[previewGrowthId] || growthFor(surface)?.id !== previewGrowthId) return;
+    const recipe = structuredClone(graphState.recipe);
+    const previous = graphNode(surface.selection);
+    recipe.nodes.find(n => n.id === surface.id).selection = previewGrowthId;
+    if (previous.operation === 'growth') {
+      for (const id of [previous.id, previous.seed_fit]) {
+        if (!recipe.nodes.some(n => n.selection === id || n.seed_fit === id || n.barriers?.includes(id))) recipe.nodes = recipe.nodes.filter(n => n.id !== id);
+      }
+    }
+    previewGrowthId = null; editingSeedFor = null;
+    await replaceRecipe(recipe);
+  };
+  $('hide-growth').onclick = () => { previewGrowthId = null; paint(); };
+  $('edit-growth-seed').onclick = () => {
+    const id = $('region').value;
+    editingSeedFor = editingSeedFor === id ? null : id;
+    previewGrowthId = null; acceptGraph(graphState);
   };
   $('home').onclick = () => home(); $('side').onclick = () => home('side'); $('top').onclick = () => home('top');
   for (const name of ['colors', 'guides', 'points']) $(name).onchange = paint;
@@ -348,6 +462,8 @@ async function start() {
   canvas.addEventListener('pointerdown', event => {
     if (event.button !== 0) { cancelStroke(); return; }
     if ($('tool').value === 'orbit' || busy || selectionPending) return;
+    if (graphNode(bindings.surfaces.find(s => s.id === $('region').value).selection).operation === 'growth' && editingSeedFor !== $('region').value) { status('Choose Edit seed before painting a derived selection.', true); return; }
+    previewGrowthId = null;
     cancelStroke(); event.preventDefault(); canvas.focus();
     camera.updateMatrixWorld(); mesh.updateMatrixWorld();
     const matrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(mesh.matrixWorld);
