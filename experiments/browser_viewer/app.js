@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
 import { viewPlaneAnchor } from './navigation-math.js';
-import { editSelectionGroups, rectangleHits } from './selection.js';
+import { editSelectionGroups, selectionProjection, brushHits } from './selection.js';
 
 const $ = id => document.getElementById(id);
 const viewport = $('viewport');
@@ -9,6 +9,7 @@ let renderer, scene, camera, controls, mesh, selectedPoints, overlays;
 let metadata, positions, session, result = null, busy = false;
 let pending = false, frames = 0;
 let graphState, bindings, selectedFeatureId;
+let selectionDrawing = false, selectionPending = false;
 const palette = ['#f2b544', '#bd91f4', '#67dba2', '#ec9174', '#72b7ed', '#e6d979'];
 const status = (message, error = false) => {
   $('status').textContent = message;
@@ -66,7 +67,7 @@ function paint() {
   overlays.visible = $('guides').checked;
   $('counts').textContent = bindings.surfaces.map(s => `${s.label}: ${session[s.id].length.toLocaleString()}`).join(' · ');
 
-  $('fit').disabled = busy || bindings.surfaces.some(s => session[s.id].length < (s.kind === 'plane' ? 3 : 7));
+  $('fit').disabled = busy || selectionDrawing || selectionPending || bindings.surfaces.some(s => session[s.id].length < (s.kind === 'plane' ? 3 : 7));
   draw();
 }
 function acceptGraph(state) {
@@ -147,9 +148,11 @@ async function replaceRecipe(recipe) {
     acceptGraph(await request('/api/graph')); status(error.message, true);
   }
 }
-async function change(next) {
+async function change(next, region, depth) {
   const recipe = structuredClone(graphState.recipe);
   for (const surface of bindings.surfaces) recipe.nodes.find(n => n.id === surface.selection).ids = next[surface.id];
+  const active = bindings.surfaces.find(s => s.id === region);
+  recipe.nodes.find(n => n.id === active.selection).depth = depth;
   await replaceRecipe(recipe);
 }
 function guides(data) {
@@ -313,25 +316,89 @@ async function start() {
     } catch (error) { status(error.message, true); }
     finally { $('file').value = ''; }
   };
-  let startPoint = null;
-  const xy = event => { const r = renderer.domElement.getBoundingClientRect(); return [event.clientX - r.left, event.clientY - r.top]; };
-  renderer.domElement.addEventListener('pointerdown', event => {
-    if ($('tool').value === 'orbit' || event.button !== 0) return;
-    startPoint = xy(event); renderer.domElement.setPointerCapture(event.pointerId);
+  let stroke = null, projectionCache = null;
+  const canvas = renderer.domElement;
+  const xy = event => { const r = canvas.getBoundingClientRect(); return [event.clientX - r.left, event.clientY - r.top]; };
+  const cursor = event => {
+    const brush = $('brush-cursor'), diameter = Number($('brush-size').value), point = xy(event);
+    brush.hidden = $('selection-shape').value !== 'paint' || $('tool').value === 'orbit' || (event.buttons && !(event.buttons & 1));
+    Object.assign(brush.style, {left: `${point[0] - diameter / 2}px`, top: `${point[1] - diameter / 2}px`, width: `${diameter}px`, height: `${diameter}px`});
+  };
+  const cancelStroke = () => {
+    if (!stroke) return;
+    const pointerId = stroke.pointerId;
+    stroke = null; selectionDrawing = false; $('rectangle').hidden = true;
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    acceptGraph(graphState); status('Selection gesture cancelled.');
+  };
+  const preview = () => {
+    session = editSelectionGroups(stroke.original, stroke.region, stroke.hits, stroke.operation);
+    result = null; clearGuides(); $('metrics').replaceChildren(); paint();
+  };
+  const extend = point => {
+    if (stroke.shape === 'paint') {
+      for (const id of brushHits(stroke.projection, stroke.previous, point, stroke.radius, stroke.depth)) stroke.hits.add(id);
+      stroke.previous = point; preview();
+    } else {
+      const start = stroke.start;
+      Object.assign($('rectangle').style, {left: `${Math.min(start[0], point[0])}px`, top: `${Math.min(start[1], point[1])}px`, width: `${Math.abs(start[0] - point[0])}px`, height: `${Math.abs(start[1] - point[1])}px`});
+      $('rectangle').hidden = false;
+    }
+  };
+  canvas.addEventListener('pointerdown', event => {
+    if (event.button !== 0) { cancelStroke(); return; }
+    if ($('tool').value === 'orbit' || busy || selectionPending) return;
+    cancelStroke(); event.preventDefault(); canvas.focus();
+    camera.updateMatrixWorld(); mesh.updateMatrixWorld();
+    const matrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(mesh.matrixWorld);
+    const key = [...matrix.elements, viewport.clientWidth, viewport.clientHeight, $('selection-depth').value].join(',');
+    if (projectionCache?.key !== key) {
+      const clip = new Float64Array(positions.length / 3 * 4), vector = new THREE.Vector4();
+      for (let i = 0; i < positions.length / 3; i++) {
+        vector.set(positions[3*i], positions[3*i+1], positions[3*i+2], 1).applyMatrix4(matrix); vector.toArray(clip, i*4);
+      }
+      projectionCache = {key, value: selectionProjection(clip, geometry.index.array, viewport.clientWidth, viewport.clientHeight, $('selection-depth').value === 'first_surface')};
+    }
+    const point = xy(event);
+    stroke = {pointerId: event.pointerId, original: structuredClone(session), region: $('region').value, operation: $('tool').value,
+      shape: $('selection-shape').value, depth: $('selection-depth').value, radius: Number($('brush-size').value) / 2,
+      projection: projectionCache.value, start: point, previous: point, hits: new Set()};
+    status('Selection preview. Release to apply; Escape to cancel.');
+    selectionDrawing = true; canvas.setPointerCapture(event.pointerId); extend(point); paint();
   });
-  renderer.domElement.addEventListener('pointermove', event => {
-    if (!startPoint) return; const end = xy(event), box = $('rectangle'); box.hidden = false;
-    Object.assign(box.style, {left: `${Math.min(startPoint[0], end[0])}px`, top: `${Math.min(startPoint[1], end[1])}px`, width: `${Math.abs(startPoint[0] - end[0])}px`, height: `${Math.abs(startPoint[1] - end[1])}px`});
+  canvas.addEventListener('pointermove', event => {
+    cursor(event);
+    if (stroke && stroke.pointerId === event.pointerId) extend(xy(event));
   });
-  renderer.domElement.addEventListener('pointerup', event => {
-    if (!startPoint) return;
-    const end = xy(event), rect = {left: Math.min(startPoint[0], end[0]), right: Math.max(startPoint[0], end[0]), top: Math.min(startPoint[1], end[1]), bottom: Math.max(startPoint[1], end[1])};
-    startPoint = null; $('rectangle').hidden = true;
-    camera.updateMatrixWorld(); const point = new THREE.Vector3();
-    const hits = rectangleHits(positions, xyz => { point.fromArray(xyz).project(camera); return [(point.x + 1) / 2 * viewport.clientWidth, (1 - point.y) / 2 * viewport.clientHeight, point.z]; }, rect);
-    change(editSelectionGroups(session, $('region').value, hits, $('tool').value));
+  canvas.addEventListener('pointerleave', () => { $('brush-cursor').hidden = true; });
+  canvas.addEventListener('pointerup', async event => {
+    if (!stroke || stroke.pointerId !== event.pointerId || event.button !== 0) return;
+    const end = xy(event); extend(end);
+    if (stroke.shape === 'rectangle') {
+      const a = stroke.start;
+      stroke.projection.points.forEach((p, id) => {
+        if (p && p[0] >= Math.min(a[0], end[0]) && p[0] <= Math.max(a[0], end[0]) && p[1] >= Math.min(a[1], end[1]) && p[1] <= Math.max(a[1], end[1]) && (stroke.depth === 'through_all' || stroke.projection.visible(id))) stroke.hits.add(id);
+      });
+    }
+    const completed = stroke;
+    stroke = null; selectionDrawing = false; selectionPending = true; $('rectangle').hidden = true;
+    document.querySelector('aside').inert = true;
+    status('Saving selection…');
+    try { await change(editSelectionGroups(completed.original, completed.region, completed.hits, completed.operation), completed.region, completed.depth); }
+    catch (error) { acceptGraph(graphState); status('Could not verify selection save. Reload the viewer: ' + error.message, true); }
+    finally { selectionPending = false; document.querySelector('aside').inert = false; paint(); }
   });
-  renderer.domElement.addEventListener('pointercancel', () => { startPoint = null; $('rectangle').hidden = true; });
+  canvas.addEventListener('pointercancel', cancelStroke);
+  canvas.addEventListener('lostpointercapture', cancelStroke);
+  canvas.addEventListener('wheel', cancelStroke, {capture: true});
+  window.addEventListener('blur', cancelStroke);
+  window.addEventListener('resize', cancelStroke);
+  window.addEventListener('keydown', event => { if (event.key === 'Escape') cancelStroke(); });
+  for (const id of ['selection-shape', 'selection-depth', 'tool', 'region', 'brush-size']) {
+    $(id).addEventListener('input', cancelStroke);
+  }
+  $('selection-shape').onchange = () => { $('brush-settings').hidden = $('selection-shape').value !== 'paint'; $('brush-cursor').hidden = true; };
+  $('brush-size').oninput = () => { $('brush-size-value').textContent = $('brush-size').value + ' px'; };
   const state = await request('/api/graph'); acceptGraph(state); status('Feature graph loaded. Ready to evaluate.');
 }
 start().catch(error => status(`Could not start viewer: ${error.message}`, true));

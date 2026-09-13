@@ -61,17 +61,44 @@ roll. Side and Top explicitly change orientation. The Alt behavior follows
 identical sensitivity, pivot picking, or all Onshape shortcuts. Other navigation
 configurations remain future work. Navigation is isolated in `navigation.js`.
 
-Choose a surface and rectangle operation: replace, add or remove. Rectangles
-select **through** the mesh, including hidden vertices. Added vertices are moved
-out of all other participating surfaces, maintaining disjoint memberships. Edits
-update current
-backend selection nodes. No undo stack, revision chain or change log is retained.
+Choose an active surface, **Paint** or **Rectangle**, and Add, Remove or Replace.
+The shared **Depth** selector offers **First surface** (default) and **Through all**
+for both tools. Paint uses a circular brush with an adjustable diameter in CSS
+pixels and a visible footprint. Click to dab, or drag to sweep a continuous strip;
+separate Add strokes create multiple patches. Replace replaces the selection with
+the whole stroke, not only the latest dab. Added vertices move out of all other
+participating selections to maintain the current solver's disjoint memberships.
+
+Painting previews membership during the stroke. Release commits one current-graph
+update and invalidates dependent fits. Escape, pointer cancellation, focus loss,
+resize or starting camera navigation cancels the unfinished gesture. Navigation
+bindings are unchanged. Edits wait for any running fit to finish. A pending
+selection save temporarily disables sidebar controls and further painting.
+
+First surface tests visibility at each candidate vertex's exact projected
+position against the captured mesh's double-sided triangles. Occluders are clipped
+to the camera frustum, including triangles crossing the near plane. A screen-tile
+index and a cache for the current view avoid full triangle scans for every dab.
+Changing the view or depth mode replaces that cache. Through all does not build
+the occlusion index.
+An occluder must be closer by more than `1e-9` in normalized device depth; this is
+a numerical tolerance, not a physical surface-distance threshold. Guides and
+selection markers do not occlude the scan. Through all skips occlusion tests but
+still excludes vertices outside the camera frustum. These semantics are shared
+with rectangles. Brush footprints smaller than the local vertex spacing can
+select nothing; the tool selects existing vertices, not new surface samples.
+
+The backend retains resolved source vertex IDs and the active selection's most
+recently applied depth mode. Mixed strokes do not retain a stroke log or camera
+snapshots, and their gesture sequence cannot be replayed. Saved IDs reproduce the
+current membership. Gesture provenance and assisted seed fit/grow/inset operations
+remain future work; no undo stack, revision chain or change log is retained.
 Restore example graph reloads the checked-in example recipe from disk.
 
 The feature tree displays backend nodes, dependencies and evaluation status.
 Select a surface-fit feature to edit its name, fit type, input selection and
 axial domain, then apply its properties. Selecting a participating fit also
-activates its selection for rectangle editing. Each fit owns its type; the joint
+activates its selection for editing. Each fit owns its type; the joint
 solve evaluates them together. This adapter supports one perpendicular plane and
 a connected group of coaxial cones/cylinders. Incompatible type choices are
 disabled with an explanation.
@@ -79,7 +106,7 @@ Shared inputs are referenced rather than copied into separate backend nodes.
 Use **Add surface fit** to choose a cone/cylinder type and an existing surface
 whose axis it should share. This creates a surface declaration, an empty selection
 and an explicit coaxial constraint, then adds the constraint to the joint solve.
-The new selection becomes active; use rectangle selection to supply observations.
+The new selection becomes active; use painting or rectangle selection to supply observations.
 Select the coaxial constraint in the tree to edit its reference surface. The
 backend rejects references that disconnect the group. Initial axial support spans
 the mesh's display-Z extent with a small margin; adjust it in fit properties to

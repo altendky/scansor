@@ -42,7 +42,7 @@ class Selection(Node):
     operation: Literal["selection"]
     source: str
     ids: list[VertexId] = Field(max_length=25_000)
-    depth: Literal["through_all"] = "through_all"
+    depth: Literal["through_all", "first_surface"] = "through_all"
 
 
 class Surface(Node):
