@@ -35,6 +35,11 @@ probes do not implement ingestion or establish external-source fitting evidence.
 
 ## Tracks
 
+- [Selection tools and feature graph](selection-feature-graph.md)
+  - future interactive selection requirements and a provisional, frontend-independent
+    operation-graph slice for the captured nozzle experiment; additional tools
+    and automatic expansion/inset remain deferred
+
 - [Full-resolution mesh ingestion and visual audit](full-resolution-mesh-ingestion.md)
   - provisional design for the first external mesh profile, complete accounting,
     bounded arrays, area contribution, portable fixtures, and visual audit;

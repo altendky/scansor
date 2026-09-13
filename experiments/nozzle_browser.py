@@ -14,6 +14,7 @@ from typing import ClassVar, override
 
 from pydantic import ValidationError
 
+from experiments.feature_graph import FeatureGraph, GraphRequest, Recipe, StaleGraph
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
 ASSETS = Path(__file__).with_name("browser_viewer")
@@ -22,11 +23,24 @@ ASSETS = Path(__file__).with_name("browser_viewer")
 class NozzleServer(ThreadingHTTPServer):
     """One bounded fit worker; HTTP remains available during fitting."""
 
-    def __init__(self, workspace: NozzleWorkspace, port: int = 0) -> None:
+    def __init__(
+        self, workspace: NozzleWorkspace, port: int = 0, recipe: Recipe | None = None
+    ) -> None:
         self.workspace: NozzleWorkspace = workspace
         self.worker: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
         self.lock: threading.Lock = threading.Lock()
         self.job: Future[SessionFit] | None = None
+        self.graph_job: Future[dict[str, object]] | None = None
+        self.graph: FeatureGraph = FeatureGraph(
+            workspace,
+            recipe
+            or Recipe.model_validate_json(
+                Path(
+                    "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
+                ).read_text()
+            ),
+        )
+        self.graph_job_token: str = ""
         self.job_id: str = ""
         self.buffers: dict[str, bytes] = {
             "/mesh/positions": workspace.local.astype("<f4").tobytes(),
@@ -107,6 +121,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/meta":
             self.json_reply(200, self.app.workspace.metadata())
+        elif self.path == "/api/graph/example":
+            self.json_reply(
+                200,
+                Recipe.model_validate_json(
+                    Path(
+                        "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
+                    ).read_text()
+                ).model_dump(),
+            )
+        elif self.path == "/api/graph":
+            state = self.app.graph.snapshot()
+            with self.app.lock:
+                job, token = self.app.graph_job, self.app.graph_job_token
+            state["evaluation_running"] = job is not None and not job.done()
+            if job is not None and job.done() and token == state["token"]:
+                try:
+                    _ = job.result()
+                except Exception as error:
+                    state["evaluation_error"] = str(error)
+            self.json_reply(200, state)
         elif self.path.startswith("/api/fit/"):
             with self.app.lock:
                 job, job_id = self.app.job, self.app.job_id
@@ -138,7 +172,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self.allowed():
             return
-        if self.path not in ("/api/session", "/api/fit"):
+        if self.path not in (
+            "/api/session",
+            "/api/fit",
+            "/api/graph",
+            "/api/graph/evaluate",
+        ):
             self.json_reply(404, {"error": "not found"})
             return
         if (
@@ -152,8 +191,34 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 1_000_000:
                 raise ValueError("expected a session under 1 MB")
             self.connection.settimeout(5)
+            body = self.rfile.read(length)
+            if self.path.startswith("/api/graph"):
+                payload = GraphRequest.model_validate_json(body)
+                if self.path == "/api/graph":
+                    if payload.recipe is None:
+                        raise ValueError("expected a current recipe")
+                    state = self.app.graph.replace(payload.recipe, payload.token)
+                    self.json_reply(200, state)
+                else:
+                    with self.app.lock:
+                        if (
+                            self.app.graph_job is not None
+                            and not self.app.graph_job.done()
+                        ):
+                            self.json_reply(
+                                409, {"error": "a graph evaluation is already running"}
+                            )
+                            return
+                        if payload.token != self.app.graph.snapshot()["token"]:
+                            raise StaleGraph("graph changed before evaluation")
+                        self.app.graph_job_token = payload.token
+                        self.app.graph_job = self.app.worker.submit(
+                            self.app.graph.evaluate, payload.token
+                        )
+                    self.json_reply(202, {"status": "running"})
+                return
             session = self.app.workspace.validate(
-                NozzleSession.model_validate_json(self.rfile.read(length))
+                NozzleSession.model_validate_json(body)
             )
             if self.path == "/api/session":
                 self.json_reply(200, session.model_dump())
@@ -166,6 +231,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.app.job = self.app.worker.submit(self.app.workspace.fit, session)
                 job_id = self.app.job_id
             self.json_reply(202, {"job_id": job_id})
+        except StaleGraph as error:
+            self.json_reply(409, {"error": str(error)})
         except (ValueError, ValidationError, TimeoutError) as error:
             self.json_reply(422, {"error": str(error)})
 
@@ -175,13 +242,22 @@ def main() -> None:
     _ = parser.add_argument(
         "--example", type=Path, default=Path("examples/nozzle-bayonette-simplified")
     )
+    _ = parser.add_argument(
+        "--recipe",
+        type=Path,
+        default=Path("examples/nozzle-bayonette-simplified/recipes/cone-plane.json"),
+    )
     _ = parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
     if not (ASSETS / "node_modules/three/build/three.module.js").is_file():
         parser.error(
             "run npm ci --ignore-scripts --prefix experiments/browser_viewer first"
         )
-    with NozzleServer(NozzleWorkspace(args.example), args.port) as server:
+    with NozzleServer(
+        NozzleWorkspace(args.example),
+        args.port,
+        Recipe.model_validate_json(args.recipe.read_text()),
+    ) as server:
         print(
             f"Nozzle selection experiment: http://127.0.0.1:{server.server_port}/",
             flush=True,

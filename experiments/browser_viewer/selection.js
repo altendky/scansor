@@ -1,6 +1,10 @@
 // Source row IDs remain unchanged. Rectangle selection includes hidden vertices.
 export function editSelection(session, region, hits, operation) {
-  const next = structuredClone(session);
+  return {...session, ...editSelectionGroups({lateral_ids: session.lateral_ids, plane_ids: session.plane_ids}, region, hits, operation)};
+}
+
+export function editSelectionGroups(groups, region, hits, operation) {
+  const next = structuredClone(groups);
   const selected = new Set(operation === 'replace' ? [] : next[region]);
   for (const id of hits) {
     if (operation === 'remove') selected.delete(id);
@@ -8,8 +12,7 @@ export function editSelection(session, region, hits, operation) {
   }
   next[region] = [...selected].sort((a, b) => a - b);
   if (operation !== 'remove') {
-    const other = region === 'lateral_ids' ? 'plane_ids' : 'lateral_ids';
-    next[other] = next[other].filter(id => !selected.has(id));
+    for (const other of Object.keys(next)) if (other !== region) next[other] = next[other].filter(id => !selected.has(id));
   }
   return next;
 }

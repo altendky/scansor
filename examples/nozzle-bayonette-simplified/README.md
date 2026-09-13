@@ -16,8 +16,11 @@ uneven-coverage weighting is tracked in [#47](https://github.com/altendky/scanso
 
 The [local browser prototype](../../experiments/browser_viewer/README.md) loads this
 example, edits cone/plane vertex memberships, reruns their joint fit, and displays
-guides and residual colors. Sessions save as source-bound JSON for reuse outside
-the browser. This remains an exploratory frontend, not a product UI commitment.
+guides and residual colors. The backend feature graph drives both the UI and
+script. Current recipes save as
+source-bound JSON; undo and change history are deferred. The checked-in
+`recipes/cone-plane.json` and `recipes/cylinder-plane.json` declare alternative
+fits using the same selections. This remains an exploratory frontend, not a product UI commitment.
 
 ## Stored inputs
 

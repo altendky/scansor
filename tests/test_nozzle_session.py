@@ -160,3 +160,41 @@ def test_fit_worker_does_not_block_reads_or_queue_more_fits(
     finally:
         release.set()
         connection.close()
+
+
+def test_graph_http_edits_and_evaluation(server: NozzleServer) -> None:
+    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+    headers = {"Content-Type": "application/json", "X-Scansor-Request": "1"}
+    try:
+        connection.request("GET", "/api/graph")
+        state = json.loads(connection.getresponse().read())
+        for node in state["recipe"]["nodes"]:
+            if node["id"] == "side":
+                node["kind"] = "cylinder"
+        body = json.dumps({"token": state["token"], "recipe": state["recipe"]})
+        connection.request("POST", "/api/graph", body=body, headers=headers)
+        response = connection.getresponse()
+        assert response.status == 200
+        updated = json.loads(response.read())
+        assert updated["result"] is None
+        connection.request("POST", "/api/graph", body=body, headers=headers)
+        response = connection.getresponse()
+        assert response.status == 409
+        _ = response.read()
+        connection.request(
+            "POST",
+            "/api/graph/evaluate",
+            body=json.dumps({"token": updated["token"]}),
+            headers=headers,
+        )
+        response = connection.getresponse()
+        assert response.status == 202
+        _ = response.read()
+        assert server.graph_job is not None
+        _ = server.graph_job.result(timeout=5)
+        connection.request("GET", "/api/graph")
+        result = json.loads(connection.getresponse().read())
+        assert result["states"]["fit"] == "ready"
+        assert result["result"]["signed_half_angle_degrees"] == 0
+    finally:
+        connection.close()

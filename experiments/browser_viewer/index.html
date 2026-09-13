@@ -10,15 +10,36 @@
 <header><strong>Scansor</strong><span>Nozzle selection</span><small>EXPERIMENT</small></header>
 <main>
 <aside>
-<h1>Fit the nozzle</h1><p class="muted">Cone side + perpendicular end plane. Both selections inform their shared axis.</p>
+<h1>Fit the nozzle</h1><p class="muted">Declared surfaces and selections feed a shared fit.</p>
+<section><h2>Feature tree</h2><div id="feature-tree"></div>
+<h2 id="properties-title">Feature properties</h2>
+<p id="feature-description" class="hint"></p>
+<form id="feature-properties" hidden>
+<label>Name<input id="feature-label" required maxlength="120"></label>
+<label>Fit type<select id="surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option><option value="plane">Plane</option></select></label>
+<label>Input selection<select id="feature-selection"></select></label>
+<div id="axial-properties"><label>Axial start<input id="axial-start" type="number" step="any" required></label><label>Axial end<input id="axial-end" type="number" step="any" required></label></div>
+<p id="fit-compatibility" class="hint"></p>
+<button type="submit">Apply fit properties</button>
+</form>
+<details id="add-surface-panel"><summary>Add surface fit</summary>
+<form id="add-surface-form">
+<label>Name<input id="new-surface-label" value="Additional surface" required maxlength="100"></label>
+<label>Fit type<select id="new-surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option></select></label>
+<label>Share axis with<select id="new-surface-reference"></select></label>
+<p class="hint">Creates an empty selection and a coaxial constraint. Select its observations, then evaluate all surfaces together.</p>
+<button type="submit">Add coaxial surface</button>
+</form></details>
+<form id="constraint-properties" hidden><label>Share axis with<select id="constraint-reference"></select></label><button type="submit">Apply constraint</button></form>
+<p class="hint">Edit the current graph. Change history and undo are not tracked.</p></section>
 <section><h2>1 · Select observations</h2>
 <label>Active surface<select id="region"><option value="lateral_ids">Cone side · amber</option><option value="plane_ids">End plane · violet</option></select></label>
 <div id="counts">Loading mesh…</div>
 <label>Left-drag tool<select id="tool"><option value="orbit">No selection</option><option value="replace">Rectangle · replace</option><option value="add">Rectangle · add</option><option value="remove">Rectangle · remove</option></select></label>
 <p class="hint">Rectangles select through the mesh, including the back. Added vertices move from the other surface.</p>
-<div class="row"><button id="undo" disabled>Undo</button><button id="reset">Restore saved regions</button></div>
+<div class="row"><button id="reset">Restore example graph</button></div>
 </section>
-<section><h2>2 · Fit both surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
+<section><h2>2 · Fit surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
 <p id="status" role="status" aria-live="polite">Loading…</p><dl id="metrics"></dl>
 </section>
 <section><h2>3 · Inspect</h2>
@@ -27,8 +48,8 @@
 <label class="check"><input type="checkbox" id="points" checked> Show selected vertices</label>
 <p id="legend" class="hint">Amber: cone · violet: plane · gray: context</p>
 </section>
-<section><h2>Keep this selection</h2><div class="row"><button id="save" disabled>Save session</button><button id="load">Load session</button></div><input id="file" type="file" accept="application/json,.json" hidden>
-<p class="hint">Saves vertex IDs for this exact mesh and model. Loading restores selections; fit again to calculate results.</p></section>
+<section><h2>Save the current graph</h2><div class="row"><button id="save" disabled>Save graph</button><button id="load">Load graph</button></div><input id="file" type="file" accept="application/json,.json" hidden>
+<p class="hint">Saves the current operations, dependencies, declarations and selections. No edit history or old results are stored.</p></section>
 </aside>
 <div id="viewport"><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
 </main>
