@@ -14,6 +14,11 @@ outside the intended boundary.
 
 ## Documentation
 
+- [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
+  - **Provisional experiment:** local selection editing, joint cone/plane fitting,
+    and residual display; frontend-independent sessions and Python adapter;
+    browser-first exploration does not select a browser-only product architecture
+
 - [Terminology and scope](terminology-and-scope.md) - **Current direction:**
   canonical terminology, the user-to-product contract, initial model families,
   and explicit exclusions

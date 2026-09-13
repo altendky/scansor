@@ -1,5 +1,14 @@
 # Repository and Development Tooling
 
+## Browser experiment tooling
+
+The isolated [nozzle browser experiment](../../../experiments/browser_viewer/README.md)
+uses mise-pinned Node 25.8.2 and an npm lockfile for Three.js 0.186.0 (MIT).
+Node installs assets and runs JavaScript checks; the local Python server serves
+those assets directly without a bundler or running Node service. The Python CI
+check job also runs the browser syntax and selection tests. This does not select
+a production frontend or change the Python processing dependency policy.
+
 ## Status
 
 **Provisional, updated 2026-09-09.** The internal CLI fixture now has locked mise

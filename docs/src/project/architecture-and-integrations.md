@@ -7,6 +7,13 @@ Keeping the authoritative fit local and heavy GUIs external are current product
 boundaries. Product-level canonical-flow mechanics, adapter contracts, snapshots,
 and integration choices remain provisional, not committed interfaces.
 
+The [nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
+provisionally explores a Scansor-owned selection/inspection frontend alongside
+those external tools. Its local Python fitting and source-bound session records
+remain independent of browser code. Browser-first is an experiment sequence, not
+a browser-only product commitment; a native frontend and broader GUI boundaries
+remain open.
+
 ## Canonical Flow
 
 External tools own the heavy graphical workflows. Adapters should convert their

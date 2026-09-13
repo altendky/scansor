@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scansor · Nozzle selection</title><link rel="stylesheet" href="/style.css">
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header><strong>Scansor</strong><span>Nozzle selection</span><small>EXPERIMENT</small></header>
+<main>
+<aside>
+<h1>Fit the nozzle</h1><p class="muted">Cone side + perpendicular end plane. Both selections inform their shared axis.</p>
+<section><h2>1 · Select observations</h2>
+<label>Active surface<select id="region"><option value="lateral_ids">Cone side · amber</option><option value="plane_ids">End plane · violet</option></select></label>
+<div id="counts">Loading mesh…</div>
+<label>Left-drag tool<select id="tool"><option value="orbit">No selection</option><option value="replace">Rectangle · replace</option><option value="add">Rectangle · add</option><option value="remove">Rectangle · remove</option></select></label>
+<p class="hint">Rectangles select through the mesh, including the back. Added vertices move from the other surface.</p>
+<div class="row"><button id="undo" disabled>Undo</button><button id="reset">Restore saved regions</button></div>
+</section>
+<section><h2>2 · Fit both surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
+<p id="status" role="status" aria-live="polite">Loading…</p><dl id="metrics"></dl>
+</section>
+<section><h2>3 · Inspect</h2>
+<label>Mesh colors<select id="colors"><option value="selection">Selected regions</option><option value="residual">Signed residuals</option></select></label>
+<label class="check"><input type="checkbox" id="guides" checked> Show fitted guides</label>
+<label class="check"><input type="checkbox" id="points" checked> Show selected vertices</label>
+<p id="legend" class="hint">Amber: cone · violet: plane · gray: context</p>
+</section>
+<section><h2>Keep this selection</h2><div class="row"><button id="save" disabled>Save session</button><button id="load">Load session</button></div><input id="file" type="file" accept="application/json,.json" hidden>
+<p class="hint">Saves vertex IDs for this exact mesh and model. Loading restores selections; fit again to calculate results.</p></section>
+</aside>
+<div id="viewport"><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
+</main>
+<footer>Captured scan · units unconfirmed · exploratory fit, not physical validation <span id="render-stats"></span></footer>
+</body></html>
