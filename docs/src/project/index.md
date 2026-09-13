@@ -14,6 +14,12 @@ outside the intended boundary.
 
 ## Documentation
 
+- [Selection tools and feature graph](planning/selection-feature-graph.md)
+  - **Future requirements and provisional next step:** independent selection shape
+    and depth mode, painted seeds and assisted growth/inset, backend DAG and
+    frontend feature tree, and a bounded implemented nozzle recipe; change history
+    is deferred
+
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** local selection editing, joint cone/plane fitting,
     and residual display; frontend-independent sessions and Python adapter;

@@ -63,65 +63,109 @@ configurations remain future work. Navigation is isolated in `navigation.js`.
 
 Choose a surface and rectangle operation: replace, add or remove. Rectangles
 select **through** the mesh, including hidden vertices. Added vertices are moved
-out of the other surface, maintaining disjoint memberships. Undo retains up to
-30 selection edits; Restore saved regions returns to the captured ID lists.
+out of all other participating surfaces, maintaining disjoint memberships. Edits
+update current
+backend selection nodes. No undo stack, revision chain or change log is retained.
+Restore example graph reloads the checked-in example recipe from disk.
 
-Fit cone + plane uses every selected observation with whole-mesh incident-area
-weights and the existing exact shared-axis constraint. Invalid or insufficient
-geometry fails visibly. Membership is fixed during fitting, with no residual
-trimming. Editing selections invalidates the displayed fit. Results arriving
-for an older selection are discarded by the UI.
+The feature tree displays backend nodes, dependencies and evaluation status.
+Select a surface-fit feature to edit its name, fit type, input selection and
+axial domain, then apply its properties. Selecting a participating fit also
+activates its selection for rectangle editing. Each fit owns its type; the joint
+solve evaluates them together. This adapter supports one perpendicular plane and
+a connected group of coaxial cones/cylinders. Incompatible type choices are
+disabled with an explanation.
+Shared inputs are referenced rather than copied into separate backend nodes.
+Use **Add surface fit** to choose a cone/cylinder type and an existing surface
+whose axis it should share. This creates a surface declaration, an empty selection
+and an explicit coaxial constraint, then adds the constraint to the joint solve.
+The new selection becomes active; use rectangle selection to supply observations.
+Select the coaxial constraint in the tree to edit its reference surface. The
+backend rejects references that disconnect the group. Initial axial support spans
+the mesh's display-Z extent with a small margin; adjust it in fit properties to
+bound the intended side. This is an initial guess, not detected segmentation.
 
-Cyan guides show the cone, and pink guides show the perpendicular plane. They
-show through the mesh for inspection; their finite display extents are not
-inferred physical boundaries or uncertainty. Residual colors use independent
-symmetric blue/white/red scales for each region, with limits shown in the UI.
-Units remain unconfirmed, and lower training residual is not physical validation.
+Selection references and all relationships come from the recipe.
+Changing a node invalidates its dependent results. Evaluate runs the declared
+joint fit; all participating surfaces inform the shared axis, using whole-mesh incident-area
+weights and fixed memberships. Unsupported combinations and poor geometry fail
+visibly. A result from a graph edited during evaluation is discarded by the
+backend, not merely hidden by the browser.
 
-## Portable session and adapter boundary
+Side guides match their selection colors; pink guides show the perpendicular plane.
+They show through the mesh for inspection; their display extents are not inferred
+physical boundaries or uncertainty. Residual colors use independent symmetric
+blue/white/red scales for each region, with limits shown in the UI. Units remain
+unconfirmed, and lower training residual is not physical validation.
 
-Save session downloads JSON containing schema version, source and model hashes,
-and sorted zero-based source vertex IDs for both regions. It contains no browser
-objects, camera, renderer indices, or cached fit. Load validates the same source
-and model before changing the selection; refit to calculate results.
+## Backend graph and current-recipe persistence
 
-The schema is experimental and requires the captured example and its saved fit
-frame. It is not a self-contained replacement for the mesh, model or provenance.
-Python replay without HTTP or a browser:
+The backend DAG is implemented in `experiments/feature_graph.py`; the tree is a
+frontend presentation. Supported nodes are source, selection, surface declaration,
+perpendicular relationship, coaxial relationship and joint fit. Joint-fit records
+reference a list of constraint IDs; older single-constraint recipes can still be
+loaded. One joint-fit node evaluates the coupled
+surfaces together; geometric constraints do not create execution cycles.
 
-```python
-from pathlib import Path
+The multi-side solver in `experiments/mesh_coaxial_fit.py` shares four axis
+parameters across all sides and the plane normal, with independent radius and
+optional taper for each side and one plane offset. It minimizes the combined
+area-weighted orthogonal residuals with analytic derivatives. The existing axis
+is free to move; there is no fixed-axis mode. Arbitrary constraint networks,
+multiple planes and arbitrary model families remain future work. The example's
+local parameter frame and positive-radius finite-side support limits still apply.
+Synthetic checks cover exact recovery, finite-difference derivatives, and an
+added surface moving the original axis. A browser check uses a split of the saved
+band selection to exercise multiple fits; that split is not a newly identified
+physical feature or a claim of improved reconstruction.
 
-from experiments.nozzle_session import NozzleSession, NozzleWorkspace
+Save graph downloads the **current recipe only**: schema version, nodes and output
+reference. Source/reference hashes bind it to the captured mesh and adapter frame.
+Load validates bindings, input types, dependencies and memberships before replacing
+the current graph. It does not restore historical versions or cached fits.
+Previous settings/results, event history, undo and persistent change logs are
+explicitly out of scope. In-flight invalidation counters retain no previous state.
 
-workspace = NozzleWorkspace(Path("examples/nozzle-bayonette-simplified"))
-session = NozzleSession.model_validate_json(Path("nozzle-selection.json").read_text())
-result = workspace.fit(session)
+The example includes `recipes/cone-plane.json` and `recipes/cylinder-plane.json`.
+The same backend used by the UI can execute either recipe without a browser:
+
+```sh
+OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
+  python -m experiments.feature_graph \
+  --recipe examples/nozzle-bayonette-simplified/recipes/cone-plane.json \
+  --output local-inputs/nozzle-graph-fit.json
 ```
 
-`NozzleWorkspace` is the frontend-independent adapter. `nozzle_browser.py` adds
-HTTP transport only. The server binds to loopback and exposes a fixed route list,
-not a general directory server. Native clients may use the Python API or HTTP:
+The output path must not already exist. This writes the current evaluated graph
+and current result; it is an explicit export, not automatic historical storage.
+The earlier fixed runners remain comparative experiment reproducers. New graph
+workflows use declaration-driven evaluation instead. The captured-example adapter
+still fixes geometry loading, local frame and initialization conventions; it is
+not a general mesh/model solver or part of canonical synthetic-only admission.
+
+The browser server accepts `--recipe PATH` to choose its initial graph. Its HTTP
+adapter binds to loopback and serves a fixed route list, not arbitrary files:
 
 | Route | Payload / response |
 | --- | --- |
-| GET `/api/meta` | Source counts, default session, display frame, binary layouts |
-| GET `/mesh/positions` | Little-endian float32 XYZ, in saved fit-frame coordinates |
+| GET `/api/meta` | Source counts, display frame and binary layouts |
+| GET `/mesh/positions` | Little-endian float32 XYZ in the saved fit frame |
 | GET `/mesh/indices` | Little-endian uint32 triangle triples, source order |
-| POST `/api/session` | Validate session, return canonical session |
-| POST `/api/fit` | Session; returns a job ID, or 409 if a fit is running |
-| GET `/api/fit/{id}` | Running, failed, or complete with fit parameters/residuals |
+| GET `/api/graph` | Current recipe, token, statuses, errors and current output |
+| POST `/api/graph` | Current token and replacement recipe; validate and invalidate |
+| POST `/api/graph/evaluate` | Current token; start evaluation in one worker |
+| GET `/api/graph/example` | Reload the checked-in cone example recipe |
 
 POST requests require `Content-Type: application/json` and
-`X-Scansor-Request: 1`. Sessions are limited to 1 MB. Host/Origin checks require
-the printed numeric loopback URL. Only the latest fit is retained; an older job
-may return 404. Fits run in one worker thread so HTTP and browser interaction
-remain available. This is not a hardened deployment service or a stable public API.
+`X-Scansor-Request: 1`; bodies are limited to 1 MB. Stale edit tokens are rejected
+with 409. Old stateless `/api/session` and `/api/fit` endpoints remain available
+for the original experiment checks; the graph UI does not use them. The local
+server is not a hardened deployment service or stable public API.
 
-Geometry stays resident in the renderer; camera movement does not fetch the mesh
-again. Frames are requested on changes rather than an idle animation loop.
-The displayed submission time is CPU time, not GPU completion or interactive FPS.
-This small in-memory experiment makes no bounded-memory or large-model claim.
+Geometry stays resident; camera movement does not refetch it. Frames are requested
+on changes rather than an idle animation loop. Submission time is CPU time, not
+GPU completion or interactive FPS. This remains a small in-memory experiment,
+without bounded-memory or large-model claims.
 
 ## Initial local observation
 
@@ -139,14 +183,14 @@ ANGLE/OpenGL on the Intel GPU. The UI stopped requesting frames while idle.
 ```sh
 npm run check --prefix experiments/browser_viewer
 OPENBLAS_NUM_THREADS=2 uv run --locked pytest \
-  tests/test_nozzle_session.py tests/test_mesh_cone_plane_fit.py
+  tests/test_feature_graph.py tests/test_nozzle_session.py tests/test_mesh_cone_plane_fit.py
 ```
 
 Tests cover source/model binding, invalid IDs, disjoint selection edits, fitting
 an edited membership, saved fit replay, binary geometry, origin/path boundaries,
 and a fit worker that does not block reads or queue concurrent fits. The JavaScript
 checks run in CI alongside the Python checks. Actual navigation, selection,
-save/load and residual display were also exercised locally in Brave.
+graph save/load and residual display were also exercised locally in Brave.
 
 Before choosing a product frontend, assess visible-surface selection, larger
 meshes/LOD, memory across browser processes, keyboard/touch accessibility,

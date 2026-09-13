@@ -17,3 +17,12 @@ button, select { color: inherit; background: #253342; border: 1px solid #4b6175;
 .navigation-options legend { padding: 0 4px; color: #a6b6c5; }
 .navigation-options label { display: flex; align-items: center; gap: 6px; margin: 4px 0; cursor: pointer; }
 .navigation-options input { accent-color: #77d3ea; }
+
+#feature-tree ul { list-style: none; padding-left: 12px; border-left: 1px solid #4b6175; margin: 5px 0; }
+#feature-tree > ul { padding-left: 0; border: none; } #feature-tree li { font-size: 12px; padding: 3px 0; }
+#feature-tree small { display: block; color: #a6b6c5; } #feature-tree .failed { color: #ffab94; }
+
+#feature-tree button { padding: 3px 6px; font-size: 12px; text-align: left; }
+#feature-tree button[aria-pressed="true"] { border-color: #77d3ea; background: #166579; }
+#feature-properties input, #add-surface-form input { display: block; width: 100%; margin-top: 7px; padding: 8px; font: inherit; color: inherit; background: #253342; border: 1px solid #4b6175; border-radius: 6px; }
+#properties-title { margin-top: 20px; }
