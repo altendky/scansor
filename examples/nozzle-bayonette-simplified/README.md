@@ -12,6 +12,13 @@ plane; the earlier cylinder fits are retained as comparisons.
 Cone implementation is tracked in [#48](https://github.com/altendky/scansor/issues/48);
 uneven-coverage weighting is tracked in [#47](https://github.com/altendky/scansor/issues/47).
 
+## Interactive selection experiment
+
+The [local browser prototype](../../experiments/browser_viewer/README.md) loads this
+example, edits cone/plane vertex memberships, reruns their joint fit, and displays
+guides and residual colors. Sessions save as source-bound JSON for reuse outside
+the browser. This remains an exploratory frontend, not a product UI commitment.
+
 ## Stored inputs
 
 - `nozzle-bayonette-simplified.ply`: unchanged simplified export with XYZ,

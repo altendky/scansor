@@ -29,6 +29,11 @@ jobs:
       - name: Lint
         run: uv run --locked --python 3.12.13 ruff check .
 
+      - name: Browser experiment checks
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
+          npm run check --prefix experiments/browser_viewer
+
       - name: Type check
         run: uv run --locked --python 3.12.13 basedpyright
 

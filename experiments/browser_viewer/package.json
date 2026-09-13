@@ -1,0 +1,7 @@
+{
+  "name": "scansor-browser-experiment",
+  "private": true,
+  "type": "module",
+  "scripts": {"check": "node --check app.js && node --check navigation.js && node --test *.test.js"},
+  "dependencies": {"three": "0.186.0"}
+}
