@@ -373,6 +373,24 @@ wheels = [
 ]
 
 [[package]]
+name = "rhino3dm"
+version = "8.32.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/a4/199102b5d74d90a8cc60d86148732dc1d347362fa7ca4fe5e18f87efed3f/rhino3dm-8.32.1.tar.gz", hash = "sha256:cc02d9fd08a6a3d26e781dfa2f585f5d70a8a821ddafc59d31b9d81305bdf691", size = 76222754, upload-time = "2026-08-24T14:49:44.778Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/7b/6820b92bff8bcc9bc420057228dbe2f828c3d9ddc553d46e5908dab3aa7b/rhino3dm-8.32.1-cp312-cp312-macosx_14_0_universal2.whl", hash = "sha256:79d1ef0b9dc0e36c93a0b3ab706da8dfebd0ccd42c29b7af3ed3813270bcbb14", size = 5563730, upload-time = "2026-08-24T14:49:00.031Z" },
+    { url = "https://files.pythonhosted.org/packages/57/06/8f724a5afb7e3fe02297f0f16d66c8a7437d377c90d27eaeaa64b3cdcc74/rhino3dm-8.32.1-cp312-cp312-macosx_15_0_universal2.whl", hash = "sha256:9ed6112ffd06d46eea97d836da06f29d717432c6da593bfa42aa16b4394d0f34", size = 5412319, upload-time = "2026-08-24T14:49:02.128Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/88/f703ab8c3f4a0ef1c0f10891552b5c802c918467bace96ae6267bcdaacc4/rhino3dm-8.32.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0233b41926e160205c67a9d5c3445442e5f633889a997d274fd25f48264f5a4d", size = 5055645, upload-time = "2026-08-24T14:49:04.227Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/47/f38203b06679bec8d8bf55000b72eb88a0145d7c74667b5fe6215e475673/rhino3dm-8.32.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e3920246e25fc8a605fd025bfbf37902f6af409eba049c73a5e8e9a7db44e281", size = 5309215, upload-time = "2026-08-24T14:49:06.341Z" },
+    { url = "https://files.pythonhosted.org/packages/56/f1/17c001a36b10c3f0c6ab166f20cf63e7f6914a3dec5d62ca2587cf4b095d/rhino3dm-8.32.1-cp312-cp312-win_amd64.whl", hash = "sha256:3dfe4059d9a0c4bd06c64bd667155341f832fb6fff39f0ec667dfb4b5b345a67", size = 2525162, upload-time = "2026-08-24T14:49:08.526Z" },
+    { url = "https://files.pythonhosted.org/packages/67/0b/d2db93d380fb85040aeddb8f9a50a4f6c803b0c8345f44ed4ac4652ec54b/rhino3dm-8.32.1-cp313-cp313-macosx_14_0_universal2.whl", hash = "sha256:5cfbf11820a6dfa1a9b593347d75e6d0eb7808780f752a217c0a2777cce2df61", size = 5564102, upload-time = "2026-08-24T14:49:10.525Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/8d/6f8d3b1060898a552f6b75ca3f4f1afb2e37fcc93369593ed25d3da2083b/rhino3dm-8.32.1-cp313-cp313-macosx_15_0_universal2.whl", hash = "sha256:22411196df28da6a7cacb7ee1454649922a1b02b2df9581f25fa98912a94b300", size = 5412498, upload-time = "2026-08-24T14:49:12.666Z" },
+    { url = "https://files.pythonhosted.org/packages/03/05/743b369efd981921eeaa0070c398fcd7f828f5b4a8b06e1a85a1c7ad3e77/rhino3dm-8.32.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:6fdd5dc659553afad3f2e7629a01928ea29668e846199edb3f65dec1dec3f527", size = 5058152, upload-time = "2026-08-24T14:49:14.641Z" },
+    { url = "https://files.pythonhosted.org/packages/81/a1/0bc15655f6a7f944e8af510133f355c15777b517a135d6c936647be0dc01/rhino3dm-8.32.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:64449123b89fc99e8aff21c403a31bfdd7255921efb42b6494d5fcd86cf96be1", size = 5312579, upload-time = "2026-08-24T14:49:16.757Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/19/6fbf2e2ac91fca0cfd49588f3daa4f64b84fd8bb7c5cadcd7fe304bedcdf/rhino3dm-8.32.1-cp313-cp313-win_amd64.whl", hash = "sha256:cf3f10a9cc683d5a222e8839ddfdc6a0a1282a03b5d37501f666e662888faa2f", size = 2525056, upload-time = "2026-08-24T14:49:18.961Z" },
+]
+
+[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -435,6 +453,7 @@ dependencies = [
     { name = "psutil" },
     { name = "pyarrow" },
     { name = "pydantic" },
+    { name = "rhino3dm" },
     { name = "structlog" },
 ]
 
@@ -455,6 +474,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pyarrow", specifier = ">=25.0.1" },
     { name = "pydantic", specifier = ">=2.11" },
+    { name = "rhino3dm", specifier = ">=8.17,<9" },
     { name = "structlog", specifier = ">=25.4" },
 ]
 

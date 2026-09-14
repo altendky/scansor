@@ -4,67 +4,84 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scansor · Nozzle selection</title><link rel="stylesheet" href="/style.css">
 <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
-<script type="module" src="/app.js"></script>
+<script type="module">
+import('/app.js').catch((error) => {
+  document.getElementById('startup-error').hidden = false;
+  document.getElementById('startup-detail').textContent = error.message;
+  document.querySelector('main').inert = true;
+  document.getElementById('creation-toolbar').inert = true;
+  document.getElementById('project-toolbar').inert = true;
+});
+document.getElementById('recover-actions').onclick = async () => {
+  const message = document.getElementById('startup-detail');
+  try {
+    const response = await fetch('/api/graph');
+    if (!response.ok) throw new Error('Could not read the current session. Keep the server running.');
+    const state = await response.json();
+    const url = URL.createObjectURL(new Blob([JSON.stringify(state.recipe, null, 2) + '\n'], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'nozzle-actions-recovery.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    message.textContent = 'Actions downloaded. After restarting the server, reload and use Load actions.';
+  } catch (error) { message.textContent = error.message; }
+};
+</script>
 </head>
 <body>
-<header><strong>Scansor</strong><span>Nozzle selection</span><small>EXPERIMENT</small></header>
+<header><strong>Scansor</strong><span>Nozzle selection</span><small>EXPERIMENT</small><nav id="project-toolbar" aria-label="Project actions"><div class="row"><button id="save" disabled>Save actions</button><button id="load">Load actions</button></div><input id="file" type="file" accept="application/json,.json" hidden><button id="reset">Restore example</button></nav></header>
+<div id="startup-error" role="alert" hidden><strong>The viewer could not start.</strong><p>Your actions may still be on the running server. Save them below before restarting it, then reload this page.</p><button id="recover-actions">Save actions for recovery</button><p id="startup-detail"></p></div>
+<nav id="creation-toolbar" aria-label="Create features"><button id="add-selection">New selection</button><button id="new-fit">New fit</button><button id="new-joint">New joint</button><button id="new-rotation">Rotational symmetry</button><button id="export-rhino">Export Rhino…</button></nav>
 <main>
 <aside>
-<h1>Fit the nozzle</h1><p class="muted">Declared surfaces and selections feed a shared fit.</p>
-<section><h2>Feature tree</h2><div id="feature-tree"></div>
-<h2 id="properties-title">Feature properties</h2>
-<p id="feature-description" class="hint"></p><dl id="feature-diagnostics"></dl>
-<form id="feature-properties" hidden>
-<label>Name<input id="feature-label" required maxlength="120"></label>
-<label>Fit type<select id="surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option><option value="plane">Plane</option></select></label>
-<label>Input selection<select id="feature-selection"></select></label>
-<div id="axial-properties"><label>Axial start<input id="axial-start" type="number" step="any" required></label><label>Axial end<input id="axial-end" type="number" step="any" required></label></div>
-<p id="fit-compatibility" class="hint"></p>
-<button type="submit">Apply fit properties</button>
-</form>
-<details id="add-surface-panel"><summary>Add surface fit</summary>
-<form id="add-surface-form">
-<label>Name<input id="new-surface-label" value="Additional surface" required maxlength="100"></label>
-<label>Fit type<select id="new-surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option></select></label>
-<label>Share axis with<select id="new-surface-reference"></select></label>
-<p class="hint">Creates an empty selection and a coaxial constraint. Select its observations, then evaluate all surfaces together.</p>
-<button type="submit">Add coaxial surface</button>
-</form></details>
-<form id="constraint-properties" hidden><label>Share axis with<select id="constraint-reference"></select></label><button type="submit">Apply constraint</button></form>
-<p class="hint">Edit the current graph. Change history and undo are not tracked.</p></section>
-<section><h2>1 · Select observations</h2>
-<label>Active surface<select id="region"><option value="lateral_ids">Cone side · amber</option><option value="plane_ids">End plane · violet</option></select></label>
-<div id="counts">Loading mesh…</div>
-<label>Selection shape<select id="selection-shape"><option value="paint">Paint</option><option value="rectangle">Rectangle</option></select></label>
+<div id="features-panel" tabindex="0" aria-label="Features">
+<ul id="action-list" aria-label="Features in evaluation order"></ul>
+<p id="action-announcement" class="sr-only" role="status" aria-live="polite"></p>
+</div>
+<div id="feature-divider" role="separator" tabindex="0" aria-label="Resize feature tree and attributes" aria-orientation="horizontal" aria-controls="features-panel feature-properties-panel" aria-valuemin="15" aria-valuemax="85" aria-valuenow="40" title="Drag to resize; use Up/Down keys when focused"></div>
+<div id="feature-properties-panel" tabindex="0" aria-label="Selected feature information">
+<section><h2 id="properties-title">Action properties</h2><p id="feature-state" class="hint"></p><p id="feature-description" class="hint"></p>
+<form id="action-properties">
+<label>Name<input id="action-label" required maxlength="120"></label>
+<div id="fit-properties"><label>Fit type<select id="surface-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option><option value="plane">Plane</option></select></label>
+<label>Earlier selections<select id="fit-inputs" multiple size="4"></select></label>
+<label>Axial start<input id="axial-start" type="number" step="any"></label><label>Axial end<input id="axial-end" type="number" step="any"></label></div>
+<div id="growth-properties"><label>Earlier fit<select id="growth-fit"></select></label><label>Barrier selections<select id="growth-barriers" multiple size="4"></select></label><label>Maximum distance<input id="growth-distance" type="number" min="0.000001" step="any"></label><label>Normal angle (degrees)<input id="growth-angle" type="number" min="0.01" max="90" step="any"></label></div>
+<div id="constraint-properties"><label>First fit<select id="constraint-a"></select></label><label>Second fit<select id="constraint-b"></select></label></div>
+<div id="rotation-properties"><label><input id="rotation-extents" type="checkbox" checked> Match exported extents across symmetry copies</label><p class="hint">Uses all three selections to bound one patch, then rotates that patch. Disable for independent bounds.</p><label>Axis fit<select id="rotation-axis"></select></label><label>Fit at 0°<select id="rotation-input-0"></select></label><label>Fit at 120°<select id="rotation-input-1"></select></label><label>Fit at 240°<select id="rotation-input-2"></select></label><p class="hint">Same-type surfaces are exact 120° copies around the shared axis. Existing fit types are preserved.</p></div><div id="joint-properties"><label>Earlier constraints<select id="joint-inputs" multiple size="4"></select></label><label>Add fitted surfaces<select id="joint-add-fits" multiple size="4"></select></label><button type="button" id="extend-joint">Add fits to this joint</button><p class="hint">Planes become perpendicular to the shared axis; cones/cylinders become coaxial. Moves this joint after the new inputs and constraints.</p></div>
+<button>Apply properties</button></form>
+<button id="delete-action">Delete action</button>
+</section>
+<section id="selection-tools" hidden><h2>Edit selection</h2><div id="counts"></div>
+<label>Shape<select id="selection-shape"><option value="paint">Paint</option><option value="rectangle">Rectangle</option></select></label>
 <label>Depth<select id="selection-depth"><option value="first_surface">First surface</option><option value="through_all">Through all</option></select></label>
 <label id="brush-settings">Brush diameter <output id="brush-size-value">40 px</output><input id="brush-size" type="range" min="4" max="160" value="40"></label>
-<label>Selection operation<select id="tool"><option value="orbit">No selection</option><option value="replace">Replace</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
-<p class="hint">Paint several patches with Add, or erase with Remove. First surface excludes occluded vertices; Through all reaches behind the mesh. Added vertices move from other selections. Escape cancels the current stroke.</p>
-<div class="row"><button id="reset">Restore example graph</button></div>
+<label>Operation<select id="tool"><option value="orbit">No selection</option><option value="add">Add</option><option value="remove">Remove</option><option value="replace">Replace</option></select></label>
+<p class="hint">Raw selections may overlap. Fits count their input union once; joints require disjoint fit observations. Escape cancels a stroke.</p></section>
+<section id="feature-inspection"><h2>Evaluate and inspect</h2><button id="fit" class="primary" disabled>Evaluate action</button>
+<button id="propose-growth" hidden>Propose connected additions</button><button id="use-growth" hidden>Fit grown selection</button>
+<div id="overlap-details" hidden></div><dl id="metrics"></dl>
 </section>
-<section id="growth-panel"><h2>Propose connected additions</h2>
-<p class="hint">Fit the active surface's seed only, then grow along mesh edges. Other selections are barriers. Proposed additions appear green until applied.</p>
-<label>Maximum distance (source units)<input id="growth-distance" type="number" min="0.000001" step="any" value="0.05"></label>
-<label>Maximum normal angle (degrees)<input id="growth-angle" type="number" min="0.01" max="90" step="any" value="20"></label>
-<button id="propose-growth">Fit seed and propose</button>
-<p id="growth-status" role="status"></p>
-<div class="row"><button id="apply-growth" disabled>Apply proposal</button><button id="hide-growth">Hide preview</button></div>
-<button id="edit-growth-seed" hidden>Edit seed</button>
-<p class="hint">Apply changes the fit's input; it preserves seed → preliminary fit → growth in the graph. No iterative refit or boundary inset yet.</p>
-</section>
-<section><h2>2 · Fit surfaces</h2><button id="fit" class="primary" disabled>Fit cone + plane</button>
-<p id="status" role="status" aria-live="polite">Loading…</p><dl id="metrics"></dl>
-</section>
-<section><h2>3 · Inspect</h2>
-<label>Mesh colors<select id="colors"><option value="selection">Selected regions</option><option value="residual">Signed residuals</option></select></label>
-<label class="check"><input type="checkbox" id="guides" checked> Show fitted guides</label>
-<label class="check"><input type="checkbox" id="points" checked> Show selected vertices</label>
-<p id="legend" class="hint">Amber: cone · violet: plane · gray: context</p>
-</section>
-<section><h2>Save the current graph</h2><div class="row"><button id="save" disabled>Save graph</button><button id="load">Load graph</button></div><input id="file" type="file" accept="application/json,.json" hidden>
-<p class="hint">Saves the current operations, dependencies, declarations and selections. No edit history or old results are stored.</p></section>
+
+
+
+</div>
 </aside>
-<div id="viewport"><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><div id="brush-cursor" hidden></div><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
+<div id="viewport"><div id="overlap-banner" hidden role="status"><strong id="overlap-summary"></strong><span>Magenta markers show conflicting vertices, including those behind the mesh.</span><button id="inspect-overlap">Inspect conflicting fits</button></div><div class="viewbar"><button id="home">Fit view</button><button id="side">Side</button><button id="top">Top</button><span id="mesh-info"></span></div><div class="viewport-options"><fieldset class="navigation-options"><legend>Navigation</legend><label title="Keep the point under the cursor in place while zooming"><input id="cursor-zoom" type="checkbox" checked> Zoom at cursor</label><label title="Rotate about the surface point under the cursor at the start of a drag"><input id="cursor-rotate" type="checkbox" checked> Rotate at cursor</label></fieldset><details class="display-options"><summary>Display</summary><label>Mesh colors<select id="colors"><option value="selection">Selections</option><option value="residual">Selected result residuals</option></select></label>
+<label class="check"><input type="checkbox" id="guides" checked> Show selected action's guides</label><label class="check"><input type="checkbox" id="points" checked> Show selected vertices</label><p id="legend" class="hint"></p></details></div><div id="brush-cursor" hidden></div><div id="rectangle" hidden></div><div class="viewhint">Right-drag: rotate · Alt+right: upright rotate · Ctrl+right / middle: pan · wheel: zoom</div></div>
 </main>
-<footer>Captured scan · units unconfirmed · exploratory fit, not physical validation <span id="render-stats"></span></footer>
-</body></html>
+<footer><p id="status" role="status" aria-live="polite">Loading…</p>Captured scan · units unconfirmed · exploratory fit, not physical validation <span id="render-stats"></span></footer>
+<dialog id="fit-dialog" aria-labelledby="fit-dialog-title"><h2 id="fit-dialog-title">New standalone fit</h2><form id="add-fit-form">
+<label>Name<input id="new-fit-label" value="Surface fit" required maxlength="120"></label>
+<label>Type<select id="new-fit-kind"><option value="cone">Cone</option><option value="cylinder">Cylinder</option><option value="plane">Plane</option></select></label>
+<label>Selections<select id="new-fit-inputs" multiple size="4" required></select></label>
+<button>Add fit</button></form><button type="button" data-close-dialog="fit-dialog">Cancel</button></dialog>
+<dialog id="joint-dialog" aria-labelledby="joint-dialog-title"><h2 id="joint-dialog-title">New joint</h2><form id="add-joint-form">
+<label>Name<input id="new-joint-label" value="Joint fit" required maxlength="100"></label>
+<label>Axis fit<select id="new-joint-side" required></select></label>
+<label>Perpendicular plane fits<select id="new-joint-plane" multiple size="4" required></select></label>
+<label>Additional coaxial fits<select id="new-joint-extra" multiple size="3"></select></label>
+<p class="hint">Creates constraint actions followed by a joint solve. Currently supports independently offset perpendicular planes and coaxial cone/cylinder fits.</p>
+<button>Add joint</button></form><button type="button" data-close-dialog="joint-dialog">Cancel</button></dialog>
+<dialog id="rotation-dialog" aria-labelledby="rotation-title"><h2 id="rotation-title">Rotational surface symmetry</h2><form id="rotation-form"><label>Name<input id="rotation-label" value="Threefold surface symmetry" required maxlength="120"></label><label>Joint to extend<select id="rotation-joint" required></select></label><label>Fit at 0°<select id="rotation-plane-0" required></select></label><label>Fit at 120°<select id="rotation-plane-1" required></select></label><label>Fit at 240°<select id="rotation-plane-2" required></select></label><p class="hint">Choose three existing fits of the same type (plane, cylinder, or cone), ordered by positive (right-hand) rotation about the joint's axis. Their observations also refine the shared axis. Create fits for selections first; this action preserves their types and memberships.</p><p id="rotation-error" role="alert"></p><button>Add symmetry to joint</button></form><button type="button" data-close-dialog="rotation-dialog">Cancel</button></dialog><dialog id="export-dialog" aria-labelledby="export-title"><h2 id="export-title">Export fitted surfaces</h2><form id="export-form"><label>Fit or joint<select id="export-target" required></select></label><label>Coordinate units<select id="export-units" required><option value="">Choose units…</option><option value="Millimeters">Millimeters</option><option value="Centimeters">Centimeters</option><option value="Meters">Meters</option></select></label><p class="hint">Source units are unconfirmed. This assigns units without rescaling coordinates.</p><label><input id="export-axis-up" type="checkbox" checked> Orient fitted axis up and center on Z</label><label>Origin along axis<select id="export-origin-plane"><option value="">Keep current axial position</option></select></label><p class="hint">Choose a plane in this export to place its intersection with the fitted axis at the origin.</p><label><input id="export-mesh" type="checkbox" checked> Include original reference mesh</label><p class="hint">Exports separate CAD surfaces and a reference mesh in one .3dm file. Planes use rectangular bounds; cylinders and cones use full turns around the selected axial span. With axis-up off, exports in the original scan orientation.</p><p id="export-error" role="alert"></p><button id="export-download">Evaluate and download .3dm</button></form><button type="button" data-close-dialog="export-dialog">Cancel</button></dialog></body></html>

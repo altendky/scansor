@@ -6,13 +6,12 @@ import argparse
 import hashlib
 import json
 from copy import deepcopy
-from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from threading import RLock
 from typing import Annotated, Any, ClassVar, Literal, cast, final
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from experiments.nozzle_coaxial import FitSelection, fit_group
 from experiments.nozzle_session import (
@@ -46,16 +45,11 @@ class Selection(Node):
     depth: Literal["through_all", "first_surface"] = "through_all"
 
 
-class Surface(Node):
-    operation: Literal["surface"]
-    selection: str
-    kind: Literal["cone", "cylinder", "plane"]
-    axial_domain: tuple[float, float] = (-2.0, 5.0)
+class SurfaceFit(Node):
+    """An independently evaluated fit action; joints never overwrite its result."""
 
-
-class SeedFit(Node):
-    operation: Literal["seed_fit"]
-    selection: str
+    operation: Literal["fit"]
+    selections: list[str] = Field(min_length=1, max_length=99)
     kind: Literal["cone", "cylinder", "plane"]
     axial_domain: tuple[float, float] = (-2.0, 5.0)
 
@@ -78,6 +72,15 @@ class Coaxial(Node):
     operation: Literal["coaxial"]
     surface: str
     reference: str
+
+
+class RotationalSymmetry(Node):
+    operation: Literal["rotational_symmetry"]
+    axis: str
+    # Existing serialized name retained; inputs are same-type surface fits.
+    # Ordered positive rotations about normalize(a,b,1), in degrees 0/120/240.
+    planes: list[str] = Field(min_length=3, max_length=3)
+    symmetric_extents: bool = True
 
 
 class JointFit(Node):
@@ -104,20 +107,59 @@ class JointFit(Node):
 Feature = Annotated[
     Source
     | Selection
-    | Surface
-    | SeedFit
+    | SurfaceFit
     | Growth
     | Perpendicular
     | Coaxial
+    | RotationalSymmetry
     | JointFit,
     Field(discriminator="operation"),
 ]
 
 
 class Recipe(Record):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     nodes: list[Feature] = Field(min_length=1, max_length=100)
     output: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_unordered_recipe(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        payload = deepcopy(cast(dict[str, Any], value))
+        if payload.get("schema_version", 1) != 1:
+            return value
+        for raw_node in cast(list[object], payload.get("nodes", [])):
+            if not isinstance(raw_node, dict):
+                raise ValueError("legacy action must be an object")
+            node = cast(dict[str, Any], raw_node)
+            if node.get("operation") in ("surface", "seed_fit"):
+                node["operation"] = "fit"
+            if node.get("operation") == "fit" and "selection" in node:
+                node["selections"] = [node.pop("selection")]
+        # Legacy graphs allowed forward references. Migrate once to a stable
+        # dependency order; version 2 rejects forward references rather than
+        # silently rearranging the user's actions.
+        remaining: list[Feature] = [
+            TypeAdapter(Feature).validate_python(n) for n in payload.get("nodes", [])
+        ]
+        ordered: list[Feature] = []
+        seen: set[str] = set()
+        while remaining:
+            next_node = next(
+                (n for n in remaining if set(dependencies(n)) <= seen), None
+            )
+            if next_node is None:
+                raise ValueError(
+                    "legacy graph contains a cycle or missing feature input"
+                )
+            remaining.remove(next_node)
+            ordered.append(next_node)
+            seen.add(next_node.id)
+        payload["nodes"] = [n.model_dump() for n in ordered]
+        payload["schema_version"] = 2
+        return payload
 
 
 class GraphRequest(Record):
@@ -129,39 +171,42 @@ class GraphRequest(Record):
 def dependencies(node: Feature) -> list[str]:
     if isinstance(node, Selection):
         return [node.source]
-    if isinstance(node, (Surface, SeedFit)):
-        return [node.selection]
+    if isinstance(node, SurfaceFit):
+        return node.selections
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
         return [node.surface, node.reference]
+    if isinstance(node, RotationalSymmetry):
+        return [node.axis, *node.planes]
     if isinstance(node, JointFit):
         return node.constraints
     return []
 
 
-def seed_selection(node: Feature, nodes: dict[str, Feature]) -> Selection:
+def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, Selection):
-        return node
+        return node.source
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
-        if isinstance(fitted, SeedFit) and isinstance(
-            nodes[fitted.selection], Selection
-        ):
-            return cast(Selection, nodes[fitted.selection])
-    raise ValueError("expected an explicit selection or growth selection")
+        if isinstance(fitted, SurfaceFit):
+            sources = {selection_source(nodes[key], nodes) for key in fitted.selections}
+            if len(sources) == 1:
+                return next(iter(sources))
+    raise ValueError("expected selections from one source")
 
 
 def joint_surfaces(
     node: JointFit, nodes: dict[str, Feature]
-) -> tuple[list[Surface], Surface]:
-    """Compile a connected constraint group; one perpendicular plane for now."""
+) -> tuple[list[SurfaceFit], list[SurfaceFit]]:
+    """Compile a connected constraint group; independently offset perpendicular planes."""
     if len(set(node.constraints)) != len(node.constraints):
         raise ValueError("duplicate joint constraint")
-    sides: dict[str, Surface] = {}
-    planes: dict[str, Surface] = {}
+    sides: dict[str, SurfaceFit] = {}
+    planes: dict[str, SurfaceFit] = {}
+    rotational_planes: dict[str, SurfaceFit] = {}
     edges: list[tuple[str, str]] = []
     anchors: set[str] = set()
     for key in node.constraints:
@@ -169,9 +214,9 @@ def joint_surfaces(
         if isinstance(constraint, Perpendicular):
             side, plane = nodes[constraint.lateral], nodes[constraint.plane]
             if (
-                not isinstance(side, Surface)
+                not isinstance(side, SurfaceFit)
                 or side.kind not in ("cone", "cylinder")
-                or not isinstance(plane, Surface)
+                or not isinstance(plane, SurfaceFit)
                 or plane.kind != "plane"
             ):
                 raise ValueError(
@@ -179,10 +224,33 @@ def joint_surfaces(
                 )
             sides[side.id], planes[plane.id] = side, plane
             anchors.add(side.id)
+        elif isinstance(constraint, RotationalSymmetry):
+            axis = nodes[constraint.axis]
+            if not isinstance(axis, SurfaceFit) or axis.kind not in (
+                "cone",
+                "cylinder",
+            ):
+                raise ValueError(
+                    "rotational symmetry requires a cone/cylinder axis fit"
+                )
+            sides[axis.id] = axis
+            if len(set(constraint.planes)) != 3:
+                raise ValueError(
+                    "rotational symmetry requires three distinct same-type surface fits"
+                )
+            for ref in constraint.planes:
+                plane = nodes[ref]
+                if not isinstance(plane, SurfaceFit):
+                    raise ValueError("rotational symmetry inputs must be surface fits")
+                if ref in rotational_planes:
+                    raise ValueError(
+                        "a surface cannot belong to multiple rotational groups"
+                    )
+                rotational_planes[ref] = plane
         elif isinstance(constraint, Coaxial):
             for ref in (constraint.surface, constraint.reference):
                 surface = nodes[ref]
-                if not isinstance(surface, Surface) or surface.kind not in (
+                if not isinstance(surface, SurfaceFit) or surface.kind not in (
                     "cone",
                     "cylinder",
                 ):
@@ -195,9 +263,13 @@ def joint_surfaces(
             edges.append((constraint.surface, constraint.reference))
         else:
             raise ValueError("joint fit input must be a supported relationship")
-    if len(planes) != 1:
+    if (set(planes) | set(sides)).intersection(rotational_planes):
         raise ValueError(
-            "joint solve currently requires exactly one perpendicular plane"
+            "a rotational plane cannot also be perpendicular to the axis; rotational surfaces cannot also be coaxial members"
+        )
+    if not planes:
+        raise ValueError(
+            "joint solve currently requires at least one perpendicular plane"
         )
     # All sides must share the same axis line, not only parallel directions from
     # sharing a plane. Coaxial edges must connect every side to one anchor.
@@ -221,7 +293,19 @@ def joint_surfaces(
         if isinstance(c, Perpendicular)
     )
     ordered = [sides[primary], *(side for key, side in sides.items() if key != primary)]
-    return ordered, next(iter(planes.values()))
+    return ordered, [*planes.values(), *rotational_planes.values()]
+
+
+class SelectionOverlap(ValueError):
+    def __init__(self, conflicts: list[dict[str, Any]]) -> None:
+        self.diagnostic: dict[str, Any] = {
+            "kind": "selection_overlap",
+            "ids": sorted({vertex for pair in conflicts for vertex in pair["ids"]}),
+            "conflicts": conflicts,
+        }
+        super().__init__(
+            f"Fit selections overlap at {len(self.diagnostic['ids'])} vertices; inspect the highlighted overlaps and adjust fit inputs, growth barriers or seeds"
+        )
 
 
 class StaleGraph(ValueError):
@@ -250,21 +334,25 @@ class FeatureGraph:
         self._results: dict[str, SessionFit] = {}
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
+        self._diagnostics: dict[str, dict[str, Any]] = {}
         self._epoch = 0  # In-flight invalidation only; no retained previous states.
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
-        if not isinstance(nodes.get(recipe.output), JointFit):
-            raise ValueError("output must reference a joint-fit node")
-        refs = {key: dependencies(node) for key, node in nodes.items()}
-        if any(dep not in nodes for deps in refs.values() for dep in deps):
-            raise ValueError("missing feature input")
-        try:
-            _ = tuple(TopologicalSorter(refs).static_order())
-        except CycleError as error:
-            raise ValueError("feature graph contains a cycle") from error
+        if recipe.output not in nodes:
+            raise ValueError("output must reference an action")
+        seen: set[str] = set()
+        for node in recipe.nodes:
+            for ref in dependencies(node):
+                if ref not in nodes:
+                    raise ValueError(f"missing feature input {ref!r}")
+                if ref not in seen:
+                    raise ValueError(
+                        f"action {node.label!r} references {nodes[ref].label!r}, which must appear earlier (forward reference or cycle)"
+                    )
+            seen.add(node.id)
         for node in nodes.values():
             if isinstance(node, Source):
                 if (
@@ -283,75 +371,73 @@ class FeatureGraph:
                     )
                 if node.ids and np.any(self.workspace.data.weights[node.ids] <= 0):
                     raise ValueError("selection requires positive incident area")
-            elif isinstance(node, (Surface, SeedFit)):
-                selection = nodes[node.selection]
-                if isinstance(node, SeedFit) and not isinstance(selection, Selection):
-                    raise ValueError(
-                        "seed fit input must be an explicit seed selection"
-                    )
-                _ = seed_selection(selection, nodes)
+            elif isinstance(node, SurfaceFit):
+                if len(set(node.selections)) != len(node.selections):
+                    raise ValueError("fit selection references must be unique")
+                sources = {
+                    selection_source(nodes[ref], nodes) for ref in node.selections
+                }
+                if len(sources) != 1:
+                    raise ValueError("fit selections must share a source")
                 lo, hi = node.axial_domain
                 if not np.isfinite([lo, hi]).all() or lo >= hi:
                     raise ValueError("invalid axial domain")
             elif isinstance(node, Growth):
                 fitted = nodes[node.seed_fit]
-                if not isinstance(fitted, SeedFit):
-                    raise ValueError("growth input must be a seed fit")
-                seed = seed_selection(node, nodes)
+                if not isinstance(fitted, SurfaceFit):
+                    raise ValueError("growth input must be an earlier fit")
+                source = selection_source(node, nodes)
                 for barrier in node.barriers:
-                    other = seed_selection(nodes[barrier], nodes)
-                    if other.source != seed.source:
+                    if selection_source(nodes[barrier], nodes) != source:
                         raise ValueError("growth barrier belongs to another source")
             elif isinstance(node, Perpendicular):
                 lateral, plane = nodes[node.lateral], nodes[node.plane]
                 if (
-                    not isinstance(lateral, Surface)
+                    not isinstance(lateral, SurfaceFit)
                     or lateral.kind not in ("cone", "cylinder")
-                    or not isinstance(plane, Surface)
+                    or not isinstance(plane, SurfaceFit)
                     or plane.kind != "plane"
                 ):
                     raise ValueError(
                         "supported relationship needs a cone/cylinder and plane"
                     )
-                left, right = (
-                    seed_selection(nodes[lateral.selection], nodes),
-                    seed_selection(nodes[plane.selection], nodes),
-                )
-                if left.source != right.source or set(left.ids).intersection(right.ids):
+            elif isinstance(node, RotationalSymmetry):
+                axis = nodes[node.axis]
+                if not isinstance(axis, SurfaceFit) or axis.kind not in (
+                    "cone",
+                    "cylinder",
+                ):
                     raise ValueError(
-                        "joint fit needs disjoint selections on the same source"
+                        "rotational symmetry requires a cone/cylinder axis fit"
+                    )
+                if len(set(node.planes)) != 3 or any(
+                    not isinstance(nodes[ref], SurfaceFit) for ref in node.planes
+                ):
+                    raise ValueError(
+                        "rotational symmetry requires three distinct same-type surface fits"
+                    )
+                if len({cast(SurfaceFit, nodes[ref]).kind for ref in node.planes}) != 1:
+                    raise ValueError(
+                        "rotational symmetry requires matching fit types; existing fits are not converted"
                     )
             elif isinstance(node, Coaxial):
                 pair = [nodes[node.surface], nodes[node.reference]]
                 if node.surface == node.reference or any(
-                    not isinstance(n, Surface) or n.kind not in ("cone", "cylinder")
+                    not isinstance(n, SurfaceFit) or n.kind not in ("cone", "cylinder")
                     for n in pair
                 ):
                     raise ValueError(
                         "coaxial relationship requires two distinct cone/cylinder surfaces"
                     )
             else:
-                sides, plane = joint_surfaces(node, nodes)
-                used: set[int] = set()
-                selections: set[str] = set()
-                sources: set[str] = set()
-                for surface in [*sides, plane]:
-                    selection = seed_selection(nodes[surface.selection], nodes)
-                    sources.add(selection.source)
-                    if selection.id in selections:
-                        raise ValueError(
-                            "joint surfaces require distinct selection nodes"
-                        )
-                    selections.add(selection.id)
-                    if used.intersection(selection.ids):
-                        raise ValueError(
-                            "joint fit needs disjoint selections on the same source"
-                        )
-                    used.update(selection.ids)
+                sides, planes = joint_surfaces(node, nodes)
+                sources = {
+                    selection_source(nodes[ref], nodes)
+                    for surface in [*sides, *planes]
+                    for ref in surface.selections
+                }
                 if len(sources) != 1:
-                    raise ValueError(
-                        "joint fit needs disjoint selections on the same source"
-                    )
+                    raise ValueError("joint fit needs selections on the same source")
         return recipe.model_copy(deep=True)
 
     def _token(self) -> str:
@@ -365,8 +451,10 @@ class FeatureGraph:
                 "token": self._token(),
                 "states": self._states.copy(),
                 "errors": self._errors.copy(),
+                "diagnostics": deepcopy(self._diagnostics),
                 "result": deepcopy(self._results.get(self._recipe.output)),
                 "derived": deepcopy(self._derived),
+                "results": deepcopy({**self._derived, **self._results}),
                 "memberships": {
                     n.id: n.ids.copy()
                     if isinstance(n, Selection)
@@ -413,6 +501,11 @@ class FeatureGraph:
                 for key, value in self._errors.items()
                 if key not in affected and any(n.id == key for n in recipe.nodes)
             }
+            self._diagnostics = {
+                key: value
+                for key, value in self._diagnostics.items()
+                if key not in affected and key in self._states
+            }
             # Running work is invalidated even if content changes back later.
             self._states = {
                 key: "stale" if value == "running" else value
@@ -430,9 +523,11 @@ class FeatureGraph:
             nodes = {n.id: n for n in recipe.nodes}
             target = recipe.output if target is None else target
             if target not in nodes or not isinstance(
-                nodes[target], (JointFit, SeedFit, Growth)
+                nodes[target], (JointFit, SurfaceFit, Growth, Selection, Source)
             ):
-                raise ValueError("evaluation target must be a fit or growth node")
+                raise ValueError(
+                    "evaluation target must be a source, selection, fit or growth action"
+                )
             needed = {target}
             while True:
                 expanded = needed | {
@@ -441,11 +536,7 @@ class FeatureGraph:
                 if expanded == needed:
                     break
                 needed = expanded
-            order = tuple(
-                TopologicalSorter(
-                    {key: dependencies(nodes[key]) for key in needed}
-                ).static_order()
-            )
+            order = tuple(n.id for n in recipe.nodes if n.id in needed)
 
         def membership(selection_id: str) -> list[int]:
             selection = nodes[selection_id]
@@ -455,6 +546,9 @@ class FeatureGraph:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during evaluation")
                 return cast(list[int], self._derived[selection_id]["ids"])
+
+        def fitted_ids(surface: SurfaceFit) -> list[int]:
+            return sorted({i for ref in surface.selections for i in membership(ref)})
 
         for key in order:
             node = nodes[key]
@@ -469,8 +563,8 @@ class FeatureGraph:
             try:
                 result = None
                 derived = None
-                if isinstance(node, SeedFit):
-                    ids = membership(node.selection)
+                if isinstance(node, SurfaceFit):
+                    ids = fitted_ids(node)
                     derived = fit_seed(
                         self.workspace.local[ids],
                         self.workspace.data.weights[ids],
@@ -479,9 +573,10 @@ class FeatureGraph:
                         np.array(self.workspace.data.selection["initial_parameters"]),
                         node.axial_domain,
                     )
+                    derived["ids"] = ids
                 elif isinstance(node, Growth):
                     fitted = nodes[node.seed_fit]
-                    assert isinstance(fitted, SeedFit)
+                    assert isinstance(fitted, SurfaceFit)
                     with self.lock:
                         if epoch != self._epoch:
                             raise StaleGraph("graph changed during evaluation")
@@ -494,17 +589,25 @@ class FeatureGraph:
                         self.workspace.data.normals @ self.workspace.frame,
                         self.workspace.data.triangles,
                         self.workspace.data.weights,
-                        membership(fitted.selection),
+                        fitted_ids(fitted),
                         barriers,
                         seed_result,
                         node.distance,
                         node.angle_degrees,
                     )
                 elif isinstance(node, JointFit):
-                    sides, plane = joint_surfaces(node, nodes)
+                    sides, planes = joint_surfaces(node, nodes)
+                    rotations = [
+                        cast(RotationalSymmetry, nodes[ref])
+                        for ref in node.constraints
+                        if isinstance(nodes[ref], RotationalSymmetry)
+                    ]
+                    rotational_ids = {
+                        ref for rotation in rotations for ref in rotation.planes
+                    }
 
-                    def selected(surface: Surface) -> FitSelection:
-                        selected_ids = membership(surface.selection)
+                    def selected(surface: SurfaceFit) -> FitSelection:
+                        selected_ids = fitted_ids(surface)
                         return FitSelection(
                             surface.id,
                             selected_ids,
@@ -512,22 +615,39 @@ class FeatureGraph:
                             surface.axial_domain,
                         )
 
-                    occupied: set[int] = set()
-                    for surface in [*sides, plane]:
-                        selected_ids = membership(surface.selection)
-                        if occupied.intersection(selected_ids):
-                            raise ValueError(
-                                "derived selections overlap; adjust growth barriers or seeds"
-                            )
-                        occupied.update(selected_ids)
-                    if len(sides) > 1:
+                    memberships = [
+                        (surface.id, set(fitted_ids(surface)))
+                        for surface in [*sides, *planes]
+                    ]
+                    conflicts: list[dict[str, Any]] = []
+                    for index, (left, left_ids) in enumerate(memberships):
+                        for right, right_ids in memberships[index + 1 :]:
+                            overlap = sorted(left_ids & right_ids)
+                            if overlap:
+                                conflicts.append(
+                                    {"fits": [left, right], "ids": overlap}
+                                )
+                    if conflicts:
+                        raise SelectionOverlap(conflicts)
+                    if len(sides) > 1 or len(planes) > 1 or rotations:
                         result = fit_group(
                             self.workspace,
                             [selected(side) for side in sides],
-                            selected(plane),
+                            [
+                                selected(plane)
+                                for plane in planes
+                                if plane.id not in rotational_ids
+                            ],
+                            tuple(
+                                tuple(
+                                    selected(cast(SurfaceFit, nodes[ref]))
+                                    for ref in rotation.planes
+                                )
+                                for rotation in rotations
+                            ),
                         )
                     else:
-                        lateral = sides[0]
+                        lateral, plane = sides[0], planes[0]
                         left, right = selected(lateral), selected(plane)
                         session = NozzleSession(
                             source_sha256=self.workspace.default.source_sha256,
@@ -561,6 +681,10 @@ class FeatureGraph:
                     if epoch == self._epoch:
                         self._states[key] = "failed"
                         self._errors[key] = str(error)
+                        if isinstance(error, SelectionOverlap):
+                            self._diagnostics[key] = error.diagnostic
+                        else:
+                            _ = self._diagnostics.pop(key, None)
                 raise
             with self.lock:
                 if epoch != self._epoch:
@@ -569,6 +693,7 @@ class FeatureGraph:
                     )
                 self._states[key] = "ready"
                 _ = self._errors.pop(key, None)
+                _ = self._diagnostics.pop(key, None)
                 if result is not None:
                     self._results[key] = result
                 if derived is not None:
@@ -584,7 +709,7 @@ def main() -> None:
     _ = parser.add_argument("--recipe", type=Path, required=True)
     _ = parser.add_argument("--output", type=Path, required=True)
     _ = parser.add_argument(
-        "--target", help="Evaluate a seed-fit or growth node instead of the final fit"
+        "--target", help="Evaluate a specific action instead of the recipe output"
     )
     args = parser.parse_args()
     graph = FeatureGraph(

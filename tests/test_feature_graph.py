@@ -73,9 +73,11 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
         "token",
         "states",
         "errors",
+        "diagnostics",
         "result",
         "derived",
         "memberships",
+        "results",
     }
     assert set(recipe.model_dump()) == {"schema_version", "nodes", "output"}
     loaded = FeatureGraph(
@@ -97,7 +99,7 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
     ("node_id", "changes", "message"),
     [
         ("outer_band", {"source": "outer_band"}, "cycle"),
-        ("side", {"selection": "absent"}, "missing"),
+        ("side", {"selections": ["absent"]}, "missing"),
         ("scan", {"source_sha256": "wrong"}, "binding"),
         ("scan", {"reference_sha256": "wrong"}, "binding"),
         ("outer_band", {"ids": [1, 1]}, "unique"),
@@ -115,9 +117,9 @@ def test_rejects_bad_graph_without_changing_current_state(
 
 def test_failure_status_is_authoritative(graph: FeatureGraph) -> None:
     _ = graph.replace(changed(graph, "top_face", ids=[]), token(graph))
-    with pytest.raises(ValueError, match="select at least"):
+    with pytest.raises(ValueError, match="at least"):
         _ = graph.evaluate(token(graph))
-    assert cast(dict[str, str], graph.snapshot()["states"])["fit"] == "failed"
+    assert cast(dict[str, str], graph.snapshot()["states"])["end"] == "failed"
     assert graph.snapshot()["result"] is None
 
 
@@ -182,6 +184,7 @@ def coaxial_recipe(graph: FeatureGraph) -> Recipe:
         ]
     )
     nodes["fit"]["constraints"].append("axis")
+    payload["schema_version"] = 1
     return Recipe.model_validate(payload)
 
 
@@ -225,9 +228,9 @@ def test_coaxial_invalid_graphs_and_empty_fit(
     else:
         nodes["extra_selection"]["ids"] = []
     recipe = Recipe.model_validate(payload)
-    if mutation == "empty":
+    if mutation in {"empty", "overlap"}:
         _ = graph.replace(recipe, token(graph))
-        with pytest.raises(ValueError, match="seven"):
+        with pytest.raises(ValueError, match=r"at least|overlap"):
             _ = graph.evaluate(token(graph))
         assert graph.snapshot()["result"] is None
     else:
@@ -284,6 +287,7 @@ def proposal_recipe(graph: FeatureGraph) -> Recipe:
             },
         ]
     )
+    payload["schema_version"] = 1
     return Recipe.model_validate(payload)
 
 
@@ -298,7 +302,35 @@ def test_proposal_apply_replay_and_seed_invalidation(graph: FeatureGraph) -> Non
         graph.workspace.default.plane_ids
     )
     assert state["result"] is None
-    _ = graph.replace(changed(graph, "side", selection="growth"), token(graph))
+    # Reusing a later proposal requires later fit/constraint/joint actions.
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["nodes"].extend(
+        [
+            {
+                "id": "grown_fit",
+                "label": "Grown cone",
+                "operation": "fit",
+                "selections": ["growth"],
+                "kind": "cone",
+                "axial_domain": [-2, 5],
+            },
+            {
+                "id": "grown_constraint",
+                "label": "Grown perpendicular",
+                "operation": "perpendicular",
+                "lateral": "grown_fit",
+                "plane": "end",
+            },
+            {
+                "id": "grown_joint",
+                "label": "Grown joint",
+                "operation": "joint_fit",
+                "constraints": ["grown_constraint"],
+            },
+        ]
+    )
+    payload["output"] = "grown_joint"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
     state = graph.evaluate(token(graph))
     assert state["result"] is not None
     replay = FeatureGraph(graph.workspace, Recipe.model_validate(state["recipe"]))
@@ -355,3 +387,298 @@ def test_late_seed_fit_cannot_publish_after_edit(
         with pytest.raises(StaleGraph):
             _ = pending.result(timeout=5)
     assert graph.snapshot()["derived"] == {}
+
+
+def test_ordered_references_and_reorder_preserves_results(graph: FeatureGraph) -> None:
+    before = graph.evaluate(token(graph))
+    payload = cast(dict[str, Any], before["recipe"])
+    assert payload["schema_version"] == 2
+    # Independent selections can trade places without changing their identities.
+    payload["nodes"][1:3] = reversed(payload["nodes"][1:3])
+    after = graph.replace(Recipe.model_validate(payload), token(graph))
+    assert after["results"] == before["results"]
+    assert after["states"] == before["states"]
+    payload["nodes"][0:2] = reversed(payload["nodes"][0:2])
+    with pytest.raises(ValueError, match="earlier"):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    assert graph.snapshot() == after
+
+
+def test_multi_selection_union_and_independent_plane(graph: FeatureGraph) -> None:
+    baseline = cast(dict[str, Any], graph.evaluate(token(graph), "end")["results"])[
+        "end"
+    ]
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    ids = graph.workspace.default.plane_ids
+    payload["nodes"].extend(
+        [
+            {
+                "id": "patch_a",
+                "label": "Plane patch A",
+                "operation": "selection",
+                "source": "scan",
+                "ids": ids[::2],
+            },
+            {
+                "id": "patch_b",
+                "label": "Plane patch B",
+                "operation": "selection",
+                "source": "scan",
+                "ids": ids,
+            },
+            {
+                "id": "other_plane",
+                "label": "Another plane",
+                "operation": "fit",
+                "selections": ["patch_a", "patch_b"],
+                "kind": "plane",
+            },
+        ]
+    )
+    payload["output"] = "other_plane"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["results"])["other_plane"]
+    assert result["ids"] == ids
+    np.testing.assert_allclose(result["parameters"], baseline["parameters"])
+    assert result["weighted_rms"] == baseline["weighted_rms"]
+    assert state["result"] is None  # No joint solve was requested.
+
+
+def test_joint_keeps_standalone_results(graph: FeatureGraph) -> None:
+    standalone = cast(dict[str, Any], graph.evaluate(token(graph), "side")["results"])[
+        "side"
+    ]
+    state = graph.evaluate(token(graph))
+    results = cast(dict[str, Any], state["results"])
+    assert results["side"] == standalone
+    assert not np.allclose(
+        results["fit"]["surfaces"]["side"]["parameters"],
+        standalone["parameters"],
+        atol=1e-8,
+        rtol=0,
+    )
+
+
+def test_migrates_unordered_legacy_recipe(graph: FeatureGraph) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["schema_version"] = 1
+    for node in payload["nodes"]:
+        if node["operation"] == "fit":
+            node["operation"] = "surface"
+            node["selection"] = node.pop("selections")[0]
+    payload["nodes"].reverse()
+    migrated = Recipe.model_validate(payload)
+    restored = FeatureGraph(graph.workspace, migrated)
+    assert migrated.schema_version == 2
+    assert (
+        restored.evaluate(token(restored))["result"]
+        == graph.evaluate(token(graph))["result"]
+    )
+
+
+def test_additional_joint_plane_replay_and_invalidation(graph: FeatureGraph) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    ids = nodes["top_face"]["ids"]
+    nodes["top_face"]["ids"] = ids[::2]
+    joint = nodes["fit"]
+    payload["nodes"].remove(joint)
+    payload["nodes"].extend(
+        [
+            {
+                "id": "other_patch",
+                "label": "Other plane patch",
+                "operation": "selection",
+                "source": "scan",
+                "ids": ids[1::2],
+            },
+            {
+                "id": "other_plane",
+                "label": "Other plane",
+                "operation": "fit",
+                "selections": ["other_patch"],
+                "kind": "plane",
+            },
+            {
+                "id": "other_perpendicular",
+                "label": "Other perpendicular",
+                "operation": "perpendicular",
+                "lateral": "side",
+                "plane": "other_plane",
+            },
+            joint,
+        ]
+    )
+    joint["constraints"].append("other_perpendicular")
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    assert set(result["surfaces"]) == {"side", "end", "other_plane"}
+    np.testing.assert_array_equal(
+        result["surfaces"]["end"]["parameters"][:4],
+        result["surfaces"]["other_plane"]["parameters"][:4],
+    )
+    replay = FeatureGraph(graph.workspace, Recipe.model_validate(state["recipe"]))
+    assert replay.evaluate(token(replay))["result"] == result
+    state = graph.replace(changed(graph, "other_patch", ids=ids[1::4]), token(graph))
+    assert state["result"] is None
+    assert cast(dict[str, str], state["states"])["end"] == "ready"
+    assert graph.evaluate(token(graph))["result"] is not None
+
+
+def test_overlap_diagnostics_exact_vertices_and_invalidation(
+    graph: FeatureGraph,
+) -> None:
+    payload = coaxial_recipe(graph).model_dump()
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    shared = nodes["outer_band"]["ids"][::5]
+    nodes["extra_selection"]["ids"] = sorted(
+        set(nodes["extra_selection"]["ids"]) | set(shared)
+    )
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    with pytest.raises(ValueError, match="overlap"):
+        _ = graph.evaluate(token(graph))
+    state = graph.snapshot()
+    diagnostics = cast(dict[str, Any], state["diagnostics"])
+    assert diagnostics["fit"] == {
+        "kind": "selection_overlap",
+        "ids": shared,
+        "conflicts": [{"fits": ["side", "extra"], "ids": shared}],
+    }
+    diagnostics["fit"]["ids"].clear()
+    assert cast(dict[str, Any], graph.snapshot()["diagnostics"])["fit"]["ids"] == shared
+    ids = sorted(set(nodes["extra_selection"]["ids"]) - set(shared))
+    state = graph.replace(changed(graph, "extra_selection", ids=ids), token(graph))
+    assert state["diagnostics"] == {}
+    assert graph.evaluate(token(graph))["result"] is not None
+
+
+def rotational_recipe(graph: FeatureGraph, kind: str = "plane") -> Recipe:
+    # Replace only in-memory test observations with known generated geometry.
+    # The source file and the user's viewer are never touched.
+    from tests.test_mesh_rotational_planes import rotational_geometry
+
+    sides, plane, _, _, group = rotational_geometry()
+    if kind != "plane":
+        from experiments.mesh_rotational_planes import RotationalPlanes, rotation_matrix
+
+        # Same-type surfaces with complete angular coverage, transformed exactly.
+        _, _, _, truth, _ = rotational_geometry()
+        origin = np.array([truth[0], truth[1], 0.0])
+        points = sides[0].points if kind == "cone" else sides[1].points
+        repeated = tuple(
+            origin + (points - origin) @ rotation_matrix(truth, i).T for i in range(3)
+        )
+        group = RotationalPlanes(repeated, tuple(np.ones(len(p)) for p in repeated))
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    graph.workspace.local = graph.workspace.local.copy()
+    offset = 0
+    selections: list[list[int]] = []
+    for points in [sides[0].points, plane, *group.points]:
+        ids = list(range(offset, offset + len(points)))
+        graph.workspace.local[ids] = points
+        selections.append(ids)
+        offset += len(points)
+    nodes["outer_band"]["ids"], nodes["top_face"]["ids"] = selections[:2]
+    joint = nodes["fit"]
+    payload["nodes"].remove(joint)
+    for i in range(3):
+        payload["nodes"].extend(
+            [
+                {
+                    "id": f"rot_selection_{i}",
+                    "label": f"Slope {i}",
+                    "operation": "selection",
+                    "source": "scan",
+                    "ids": selections[i + 2],
+                },
+                {
+                    "id": f"rot_plane_{i}",
+                    "label": f"Slope plane {i}",
+                    "operation": "fit",
+                    "selections": [f"rot_selection_{i}"],
+                    "kind": kind,
+                    "axial_domain": [-4, 5],
+                },
+            ]
+        )
+    payload["nodes"].extend(
+        [
+            {
+                "id": "rotation",
+                "label": "Threefold",
+                "operation": "rotational_symmetry",
+                "axis": "side",
+                "planes": [f"rot_plane_{i}" for i in range(3)],
+            },
+            joint,
+        ]
+    )
+    joint["constraints"].append("rotation")
+    return Recipe.model_validate(payload)
+
+
+def test_rotational_graph_replay_and_input_invalidation(graph: FeatureGraph) -> None:
+    _ = graph.replace(rotational_recipe(graph), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    assert result["fit"]["weighted_rms"] < 1e-8
+    assert len(result["surfaces"]) == 5
+    for i in range(3):
+        assert len(result["surfaces"][f"rot_plane_{i}"]["plane_equation"]) == 4
+    replay = FeatureGraph(graph.workspace, Recipe.model_validate(state["recipe"]))
+    assert replay.evaluate(token(replay))["result"] == result
+    ids = cast(dict[str, Any], state["memberships"])["rot_selection_0"]
+    state = graph.replace(changed(graph, "rot_selection_0", ids=ids[::2]), token(graph))
+    assert state["result"] is None
+    assert cast(dict[str, str], state["states"])["rotation"] == "stale"
+    assert "side" in cast(dict[str, Any], state["results"])
+    assert graph.evaluate(token(graph))["result"] is not None
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "axis", "perpendicular", "forward"])
+def test_invalid_rotational_constraints_rejected(
+    graph: FeatureGraph, mutation: str
+) -> None:
+    payload = rotational_recipe(graph).model_dump()
+    nodes = {n["id"]: n for n in payload["nodes"]}
+    if mutation == "duplicate":
+        nodes["rotation"]["planes"][1] = "rot_plane_0"
+    elif mutation == "axis":
+        nodes["rotation"]["axis"] = "end"
+    elif mutation == "perpendicular":
+        nodes["perpendicular"]["plane"] = "rot_plane_0"
+        payload["nodes"].remove(nodes["perpendicular"])
+        payload["nodes"].insert(-1, nodes["perpendicular"])
+    else:
+        payload["nodes"].remove(nodes["rotation"])
+        payload["nodes"].insert(1, nodes["rotation"])
+    with pytest.raises(ValueError):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
+def test_rotational_lateral_graph_preserves_types_and_replays(
+    graph: FeatureGraph, kind: str
+) -> None:
+    recipe = rotational_recipe(graph, kind)
+    _ = graph.replace(recipe, token(graph))
+    before = graph.snapshot()["memberships"]
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    assert result["fit"]["weighted_rms"] < 1e-8
+    for i in range(3):
+        fitted = result["surfaces"][f"rot_plane_{i}"]
+        assert fitted["kind"] == kind
+        assert "plane_equation" not in fitted
+        assert len(fitted["parameters"]) == 7
+    assert state["memberships"] == before
+    replay = FeatureGraph(graph.workspace, Recipe.model_validate(state["recipe"]))
+    assert replay.evaluate(token(replay))["result"] == result
+    payload = recipe.model_dump()
+    next(n for n in payload["nodes"] if n["id"] == "rot_plane_1")["kind"] = "plane"
+    with pytest.raises(ValueError, match="matching fit types"):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    assert graph.snapshot()["recipe"] == state["recipe"]

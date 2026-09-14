@@ -100,3 +100,49 @@ def test_empty_and_unobservable_groups_fail() -> None:
         _ = fit_coaxial(
             [ring], plane, area, np.array([0.3, -0.4, 0.12, -0.08, 2.1, 3.2, 0.08])
         )
+
+
+def test_multiple_planes_recovery_and_derivatives() -> None:
+    sides, plane, area = geometry()
+    axis = np.array([0.12, -0.08, 1.0])
+    axis /= np.linalg.norm(axis)
+    other = plane - 4.3 * axis
+    initial = np.array([0.0, 0, 0, 0, 2, 3, 0, 2.5, 3.8, 0, -2])
+    result = fit_coaxial(sides, plane, area, initial, ((other, area * 2),))
+    assert result.weighted_rms < 1e-9
+    np.testing.assert_allclose(result.plane_offsets, [2.1, -2.2], atol=1e-8)
+    assert np.max(np.abs(result.extra_plane_residuals[0])) < 1e-8
+    np.testing.assert_allclose(
+        result.parameters[0][:4], [0.3, -0.4, 0.12, -0.08], atol=1e-8
+    )
+    _, actual = residual_jacobian(sides, plane, initial, (other,))
+    expected = np.empty_like(actual)
+    for i in range(len(initial)):
+        delta = np.zeros_like(initial)
+        delta[i] = 1e-6
+        plus, _ = residual_jacobian(sides, plane, initial + delta, (other,))
+        minus, _ = residual_jacobian(sides, plane, initial - delta, (other,))
+        expected[:, i] = (plus - minus) / 2e-6
+    np.testing.assert_allclose(actual, expected, atol=1e-8, rtol=1e-7)
+
+
+def test_additional_plane_influences_shared_axis() -> None:
+    sides, plane, area = geometry()
+    initial = np.array([0.0, 0, 0, 0, 2, 3, 0])
+    original = fit_coaxial(sides[:1], plane, area, initial)
+    other = plane.copy()
+    other[:, 2] += 0.04 * other[:, 0] - 4
+    result = fit_coaxial(
+        sides[:1], plane, area, np.append(initial, -2), ((other, area),)
+    )
+    assert abs(result.parameters[0][2] - original.parameters[0][2]) > 1e-4
+    assert result.weighted_rms > 0
+    assert np.all(np.diff(result.objective_history) <= 0)
+    with pytest.raises(ValueError, match="three XYZ"):
+        _ = fit_coaxial(
+            sides[:1],
+            plane,
+            area,
+            np.append(initial, -2),
+            ((np.empty((0, 3)), np.empty(0)),),
+        )

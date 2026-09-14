@@ -24,3 +24,13 @@ export function viewPlaneAnchor(ray, camera, target) {
   const plane = new Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new Vector3()), target);
   return ray.intersectPlane(plane, new Vector3());
 }
+
+// Perspective pan measured in CSS pixels at the picked surface's view depth.
+export function panByPixels(camera, target, dx, dy, viewportHeight, depth) {
+  if (viewportHeight <= 0 || depth <= 0) return;
+  const scale = 2 * depth * Math.tan(camera.fov * Math.PI / 360) / camera.zoom / viewportHeight;
+  const movement = new Vector3(-dx * scale, dy * scale, 0).applyQuaternion(camera.quaternion);
+  camera.position.add(movement);
+  target.add(movement);
+  camera.updateMatrixWorld();
+}

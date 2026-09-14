@@ -13,6 +13,7 @@ dependencies = [
   "psutil>=7.2.2",
   "pyarrow>=25.0.1",
   "pydantic>=2.11",
+  "rhino3dm>=8.17,<9",
   "structlog>=25.4",
 ]
 

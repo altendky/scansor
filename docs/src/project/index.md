@@ -17,7 +17,7 @@ outside the intended boundary.
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Future requirements and provisional next step:** independent selection shape
     and depth mode, painted seeds and assisted growth/inset, backend DAG and
-    frontend feature tree, and a bounded implemented nozzle recipe; change history
+    ordered frontend actions, and a bounded implemented nozzle recipe; change history
     is deferred
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)

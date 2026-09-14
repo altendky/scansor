@@ -5,13 +5,13 @@
 **Current prototype and future requirements, 2026-09-13.** These
 requirements follow the initial
 [nozzle browser experiment](../../../../experiments/browser_viewer/README.md).
-The first backend DAG slice now evaluates source, selection, surface,
-perpendicular, coaxial and joint-fit records for the captured nozzle. A browser
-feature tree and a script use that same backend. Cone/cylinder choice is recipe
-data. Current-graph save/load and dependent-result invalidation are implemented;
-change history is not. Painting and shared first-surface/through-all selection
-are now implemented in the browser prototype. Additional shapes and surface
-discovery below remain future requirements.
+The backend DAG now stores an ordered action sequence: sources, selections,
+standalone fits, constraints and joint solves. Fits consume one or more earlier
+selections; joints produce separate adjusted results. The browser and script use
+the same backend. Valid reordering, current-recipe save/load and dependent-result
+invalidation are implemented; change history is not. Painting, shared depth
+modes and connected growth are implemented. Additional shapes and inset remain
+future requirements.
 
 Browser-first remains an experiment sequence, not a browser-only product choice.
 Selection records, operation evaluation, model declarations and fit results must
@@ -63,7 +63,8 @@ The intended workflow is user-directed identification, not unrestricted automati
 scan interpretation. For example, the user paints three patches around the nozzle
 and declares that they belong to a cone side. Retain the following operations:
 
-1. **Seed selection:** retain the current seed definition and resolved source vertex IDs.
+1. **Seed selection:** retain the current seed definition and resolved source vertex
+IDs.
 2. **Preliminary surface fit:** fit the user-declared type to the seed observations,
    retaining parameters, weighting and diagnostics.
 3. **Expand selection:** use that fitted surface to identify additional mesh area
@@ -101,12 +102,14 @@ operation. Disconnected but geometrically identical surfaces remain excluded.
 The seed-only fit is separate from the final constrained solve. Do not use the
 end plane or another surface's observations to silently stabilize the seed fit.
 Insufficient seed coverage or an ill-conditioned fit should stop the proposal
-with a diagnostic. The adapter now fits cone/cylinder seeds directly and plane seeds through
+with a diagnostic. The adapter now fits cone/cylinder seeds directly and plane seeds
+through
 area-weighted covariance, independently of final-fit observations.
 
 Preview additions separately from the seed before applying them. Keep seed,
 preliminary fit and growth as distinct current graph nodes; accepting the result
-changes the final fit's selection reference. These are recipe dependencies, not
+creates a later fit referencing the grown selection. Earlier fits and joints
+remain unchanged. These are recipe dependencies, not
 an edit-history log. Editing the seed or thresholds invalidates descendants.
 
 Boundary inset remains a subsequent operation. It can disconnect a grown region,
@@ -175,29 +178,63 @@ inset; that does not require retaining earlier versions of each step. Editing a
 node replaces its current settings and invalidates dependents without keeping an
 edit log or previous graph snapshots.
 
-The frontend presents a **feature tree** for now. The backend uses a
-**directed acyclic graph (DAG)**, because one selection or source may feed
-multiple operations. Grouping, display order and dependency order need not match.
-A joint fit of constrained surfaces is one evaluation node with multiple outputs;
-mutual geometric constraints must not be represented as circular execution
-references between independently evaluated surface fits.
+The frontend presents an **ordered action list**, replacing the initial feature
+tree presentation. The backend remains a **directed acyclic graph (DAG)**, because
+one input can feed several actions, with an additional ordering rule: every
+reference must point to an earlier action. Reordering is allowed only while that
+rule holds. Stable IDs identify actions independently of list position.
 
-Cone, cylinder and plane are types of individual surface-fit features, not global
-workflow settings. Selecting a surface fit in the tree exposes its name, geometry
-type and input selection. The prototype stores these as `surface` declarations;
-the joint-fit node solves their parameters together under the constraint. Changing
-one declaration invalidates the dependent joint solve. The current adapter supports
-one perpendicular plane and any connected group of coaxial cone/cylinder sides,
-within the bounded recipe limits. A joint-fit node references a list of constraints.
-Adding a side creates a selection, a surface fit and a coaxial constraint referencing
-an existing side. All surfaces inform the shared axis; holding it fixed is not
-implemented. Broader constraint combinations require additional solver support
-rather than silently changing the meaning of a constraint.
+Cone, cylinder and plane are types of standalone fit actions. Each fit references
+one or more earlier selections and evaluates their deduplicated union. Selections
+may overlap; painting one does not silently change another. Independent plane
+fits may have arbitrary orientations.
+
+Constraint actions reference earlier fits. A later joint action solves their
+observations together under those constraints and produces separate adjusted
+results. It preserves each standalone fit and its result. Mutual geometric
+constraints do not create circular execution dependencies. The current joint
+adapter supports independently offset perpendicular planes and connected coaxial
+cone/cylinder sides with disjoint observations. All planes share the axis normal. All
+surfaces inform the shared
+axis; a fixed-axis mode and broader constraint networks remain future work.
+
+Growth references an earlier fit. Using its result means adding a later fit,
+possibly followed by a later joint; it cannot rewire an earlier fit to a later
+selection. This preserves the seed → fit → growth → fit processing sequence.
+Version 1 recipes migrate once to version 2 and a stable dependency order. Version
+2 loading rejects invalid order rather than changing it behind the user's back.
 
 Persistence must include the operations and bindings needed for replay, not only
-a screenshot or flattened final IDs. Cache policy, schema migration, branching,
-suppression and deletion details remain open. A browser UI
+a screenshot or flattened final IDs. Broader cache, migration, branching and suppression
+policy remains open.
+The prototype permits deletion only when no action references the deleted one. A browser
+UI
 must not become the owner of authoritative operation evaluation.
+
+## Threefold rotational surface relationship
+
+The symmetry action defaults to **Match exported extents across symmetry copies**.
+For Rhino export, observations from all three selections are rotated into the
+first copy’s frame to bound one patch; that same patch is then rotated to each
+copy. This gives matching rectangular plane patches and matching cylinder/cone
+spans. Disable the option in the symmetry action’s properties for independent
+bounds. It changes exported extents, not selection membership or the fitting
+objective; viewport guides still use their existing bounds.
+
+The bounded prototype supports three same-type fits (planes, cylinders, or cones)
+related by exact 0°/120°/240° rotations around the shared cone/cylinder axis.
+The relationship references existing fits and preserves their types and selection
+memberships. Mixed types are rejected; raw selections need explicit fit actions
+first. The legacy serialized `planes` reference list remains readable and now
+accepts any of these homogeneous fit groups.
+
+All observations participate in the containing joint's simultaneous solve.
+Input correspondence is explicit, with no segmentation or permutation search.
+For cylinder/cone copies, the first fit's axial support is transformed with the
+surface. The current solver still requires a connected coaxial group and at least
+one perpendicular plane, and retains the local Z-axis parameter-chart limitation.
+Independent joint actions do not share mutable fitted results. Fixed-axis mode,
+other repetition counts and broader symmetry families remain future work.
 
 ## Deferred change history
 
@@ -214,7 +251,9 @@ cost, retention, replay and recovery are deliberately unresolved.
 
 ## Initial implementation slice
 
-The implemented bounded slice follows this sequence. Further generalization,
+The initial implementation followed this sequence; the ordered-action update
+above supersedes its declaration-only fit and feature-tree presentation. Further
+generalization,
 new selection mechanisms and discovery algorithms remain deferred.
 
 1. Define a small set of explicit records: source reference, selection creation
