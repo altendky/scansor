@@ -108,9 +108,9 @@ outside the intended boundary.
 - [Retained experiment type diagnostics](experiments/retained-source-type-diagnostics.md)
   - **Bounded cleanup:** all 250 original exceptions inventoried, 146 corrected
   through an approved regeneration chain, and 104 retained with documented reasons
-- [Tool landscape](tool-landscape.md) - **Research finding:** adjacent products
-  and the unfilled complete-contract gap, without claims beyond current public
-  verification
+- [Tool landscape](tool-landscape.md) - **Research finding:** user-facing joint
+  fitting alternatives, pricing, JUniForm's technical GUI, and the unverified
+  accessibility gap; no exclusive Scansor capability established
 - [Ceres Python and Rust bindings](ceres-python-rust-bindings.md) - **Research
   finding:** binding capabilities, gaps, and risks that inform the separate
   provisional Python/SciPy prototype decision
