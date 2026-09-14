@@ -284,21 +284,41 @@ runner configuration materially change.
 
 ## Dependency Updating
 
-**Provisional Scansor adaptation.** Use Renovate as a future repository direction
-following the observed onshape-mcp/Hamster shape:
+The root `renovate.json5` and `.github/workflows/renovate.yml` follow the
+openapi-mcp/Hamster App workflow: every six hours, plus manual dispatch with an
+optional debug log. Recommended defaults, GitHub Actions digest pinning,
+conflict-only rebasing, and pre-commit updates are enabled.
 
-- root `renovate.json5` extending `config:recommended`
-- GitHub Actions digest pinning
-- rebasing only when conflicted
-- the pre-commit manager enabled
-- a GitHub Actions workflow that runs self-hosted Renovate every six hours on a
-  GitHub-hosted runner, plus manual dispatch with a debug option
-- minimal workflow permissions and GitHub App authentication
-- synchronization rules only for version coupling demonstrated by the repository
+Discovery covers the root Python project and uv lock, root mise tools and lock,
+GitHub workflows, pre-commit hooks, and the browser experiment's npm package and
+lock. PEP 723 scripts and other retained experiment environments are excluded;
+their exact versions are evidence that must be updated deliberately.
 
-No automerge policy is inferred or selected. Post-upgrade commands and grouped
-updates must remain narrowly scoped and auditable; merely finding the same tool
-name in two files does not prove that their versions must move together.
+Python support constraints in `requires-python` do not update automatically.
+Two separately grouped patch streams maintain Python 3.12 and 3.13 in both
+`mise.toml` and the workflow matrices/commands. Native mise extraction updates
+only its primary Python entry, so a custom regex manager owns both versions.
+Adding another supported minor requires changing that manager and its rules.
+Historical documentation snapshots are not rewritten by these updates.
+
+Native managers maintain uv/npm locks. Mise and Python-tool updates run two
+explicitly allowlisted commands: install the declared Node/Python tools and
+regenerate `mise.lock` for its seven existing platforms. These commands disable
+mise's locked mode only for regeneration. No unrestricted post-upgrade command
+allowlist is granted. The runner permits Renovate's built-in mise execution.
+
+The GitHub App installation must include Scansor. Configure repository variable
+`RENOVATE_CLIENT_ID` and secret `RENOVATE_APP_PRIVATE_KEY`; credentials are never
+stored in this repository. Tokens request only this repository and the contents,
+issues, pull requests, statuses and workflows permissions needed by the bot.
+
+`.mergify.yml` retains your explicit `enqueue` merge policy. Mergify approves
+Renovate PRs and release-App-authored `post-release/` PRs when a review is required.
+It queues non-draft main-targeting PRs with `enqueue`, using merge commits and
+the existing branch protections/required checks. Dependency PRs are not labelled
+or merged automatically. Mergify must also be installed for Scansor, and the
+repository must have an `enqueue` label. Neither bot receives a branch-protection
+bypass from this configuration.
 
 ## Packaging, Documentation, and Release Deferrals
 
