@@ -1,4 +1,4 @@
-"""Bounded joint solve: coaxial cone/cylinder sides and one perpendicular plane."""
+"""Bounded joint solve: coaxial cone/cylinder sides and perpendicular planes."""
 
 from __future__ import annotations
 
@@ -11,6 +11,11 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
 )
 from experiments.mesh_cylinder_fit import Array
+from experiments.mesh_rotational_planes import (
+    RotationalPlanes,
+    rotated_lateral,
+    rotation_residual_jacobian,
+)
 
 
 @dataclass(frozen=True)
@@ -24,10 +29,16 @@ class SideObservations:
 @dataclass(frozen=True)
 class CoaxialResult:
     # Each side uses the existing [cx,cy,a,b,R,h,k] convention. The first four
-    # parameters and plane offset are exactly shared, never fitted independently.
+    # parameters are exactly shared. h denotes the first plane; all planes have
+    # separate offsets and the same normal.
     parameters: list[Array]
     residuals: list[Array]
     plane_residuals: Array
+    plane_offsets: list[float]
+    extra_plane_residuals: list[Array]
+    rotational_equations: list[list[Array]]
+    rotational_domains: list[list[tuple[float, float]]]
+    rotational_residuals: list[list[Array]]
     objective_history: list[float]
     weighted_rms: float
     condition: float
@@ -54,9 +65,15 @@ def unpack(parameters: Array, mapping: list[int], kind: str) -> Array:
 
 
 def residual_jacobian(
-    sides: list[SideObservations], plane: Array, parameters: Array
+    sides: list[SideObservations],
+    plane: Array,
+    parameters: Array,
+    extra_planes: tuple[Array, ...] = (),
+    rotations: tuple[RotationalPlanes, ...] = (),
 ) -> tuple[Array, Array]:
-    maps, size = parameter_maps(sides)
+    maps, base_size = parameter_maps(sides)
+    plane_size = base_size + len(extra_planes)
+    size = plane_size + sum(group.size for group in rotations)
     if parameters.shape != (size,):
         raise ValueError("incorrect joint parameter count")
     residuals: list[Array] = []
@@ -74,23 +91,54 @@ def residual_jacobian(
     raw = np.array([parameters[2], parameters[3], 1.0])
     length = float(np.linalg.norm(raw))
     axis = raw / length
-    jac = np.zeros((len(plane), size))
-    jac[:, 2] = plane @ ((np.array([1.0, 0, 0]) - axis * axis[0]) / length)
-    jac[:, 3] = plane @ ((np.array([0.0, 1, 0]) - axis * axis[1]) / length)
-    jac[:, 4] = -1
-    residuals.append(plane @ axis - parameters[4])
-    jacobians.append(jac)
+    for points, offset in zip(
+        (plane, *extra_planes), (4, *range(base_size, plane_size)), strict=True
+    ):
+        jac = np.zeros((len(points), size))
+        jac[:, 2] = points @ ((np.array([1.0, 0, 0]) - axis * axis[0]) / length)
+        jac[:, 3] = points @ ((np.array([0.0, 1, 0]) - axis * axis[1]) / length)
+        jac[:, offset] = -1
+        residuals.append(points @ axis - parameters[offset])
+        jacobians.append(jac)
+    for i, group in enumerate(rotations):
+        r, j, _ = rotation_residual_jacobian(
+            group, parameters, plane_size + sum(g.size for g in rotations[:i])
+        )
+        residuals.extend(r)
+        jacobians.extend(j)
     return np.concatenate(residuals), np.vstack(jacobians)
 
 
 def fit_coaxial(
-    sides: list[SideObservations], plane: Array, plane_area: Array, initial: Array
+    sides: list[SideObservations],
+    plane: Array,
+    plane_area: Array,
+    initial: Array,
+    extra_planes: tuple[tuple[Array, Array], ...] = (),
+    rotations: tuple[RotationalPlanes, ...] = (),
 ) -> CoaxialResult:
     """Area-weighted simultaneous solve, exact axis sharing, fixed memberships."""
     if not sides:
         raise ValueError("at least one lateral surface is required")
-    maps, size = parameter_maps(sides)
-    for points, area in [*((s.points, s.area) for s in sides), (plane, plane_area)]:
+    maps, base_size = parameter_maps(sides)
+    plane_size = base_size + len(extra_planes)
+    size = plane_size + sum(group.size for group in rotations)
+    extra_points = tuple(points for points, _ in extra_planes)
+    for group in rotations:
+        if len(group.points) != 3 or len(group.areas) != 3:
+            raise ValueError(
+                "rotational symmetry requires exactly three planes or same-type lateral surfaces"
+            )
+    for points, area in [
+        *((s.points, s.area) for s in sides),
+        (plane, plane_area),
+        *extra_planes,
+        *(
+            pair
+            for group in rotations
+            for pair in zip(group.points, group.areas, strict=True)
+        ),
+    ]:
         if points.ndim != 2 or points.shape[1] != 3 or len(points) < 3:
             raise ValueError("each surface needs at least three XYZ observations")
         if area.shape != (len(points),) or not np.isfinite(points).all():
@@ -99,7 +147,14 @@ def fit_coaxial(
             raise ValueError("areas must be finite and positive")
     if initial.shape != (size,) or not np.isfinite(initial).all():
         raise ValueError("invalid initial parameters")
-    weights = np.concatenate([*(s.area for s in sides), plane_area])
+    weights = np.concatenate(
+        [
+            *(s.area for s in sides),
+            plane_area,
+            *(area for _, area in extra_planes),
+            *(area for group in rotations for area in group.areas),
+        ]
+    )
     total = float(weights.sum())
     if not np.isfinite(total):
         raise ValueError("nonfinite total area")
@@ -107,7 +162,9 @@ def fit_coaxial(
     parameters = initial.copy()
     history: list[float] = []
     for _ in range(80):
-        residual, jac = residual_jacobian(sides, plane, parameters)
+        residual, jac = residual_jacobian(
+            sides, plane, parameters, extra_points, rotations
+        )
         objective = float(weights @ residual**2)
         history.append(objective)
         normal = jac.T @ (weights[:, None] * jac)
@@ -121,25 +178,83 @@ def fit_coaxial(
         for power in range(25):
             candidate = parameters + step * 2.0**-power
             try:
-                r, _ = residual_jacobian(sides, plane, candidate)
+                r, _ = residual_jacobian(
+                    sides, plane, candidate, extra_points, rotations
+                )
             except InvalidConeDomain:
                 continue
             if float(weights @ r**2) < objective:
                 parameters = candidate
                 break
         else:
+            # Accept only roundoff-limited stagnation, not a material failed step.
+            all_points = np.vstack(
+                [
+                    *(s.points for s in sides),
+                    plane,
+                    *extra_points,
+                    *(points for group in rotations for points in group.points),
+                ]
+            )
+            scale = float(weights @ np.sum(all_points**2, axis=1))
+            resolution = 32 * np.finfo(float).eps * float(np.sqrt(objective * scale))
+            if float(step @ normal @ step) <= resolution:
+                break
             raise ValueError("joint fit failed to decrease objective")
     else:
         raise ValueError("joint fit did not converge")
-    residual, jac = residual_jacobian(sides, plane, parameters)
-    boundaries = np.cumsum([len(s.points) for s in sides])
+    residual, jac = residual_jacobian(sides, plane, parameters, extra_points, rotations)
+    boundaries = np.cumsum(
+        [
+            *(len(s.points) for s in sides),
+            len(plane),
+            *(len(points) for points in extra_points),
+            *(len(points) for group in rotations for points in group.points),
+        ]
+    )[:-1]
     blocks = np.split(residual, boundaries)
     return CoaxialResult(
         parameters=[
             unpack(parameters, m, s.kind) for m, s in zip(maps, sides, strict=True)
         ],
-        residuals=blocks[:-1],
-        plane_residuals=blocks[-1],
+        residuals=blocks[: len(sides)],
+        plane_residuals=blocks[len(sides)],
+        plane_offsets=[
+            float(parameters[i]) for i in (4, *range(base_size, plane_size))
+        ],
+        extra_plane_residuals=blocks[
+            len(sides) + 1 : len(sides) + 1 + len(extra_planes)
+        ],
+        rotational_equations=[
+            rotation_residual_jacobian(
+                group, parameters, plane_size + sum(g.size for g in rotations[:i])
+            )[2]
+            for i, group in enumerate(rotations)
+        ],
+        rotational_domains=[
+            [
+                rotated_lateral(
+                    group,
+                    parameters,
+                    plane_size + sum(g.size for g in rotations[:i]),
+                    slot,
+                )[1]
+                if group.kind != "plane"
+                else group.domain
+                for slot in range(3)
+            ]
+            for i, group in enumerate(rotations)
+        ],
+        rotational_residuals=[
+            blocks[
+                len(sides) + 1 + len(extra_planes) + 3 * i : len(sides)
+                + 1
+                + len(extra_planes)
+                + 3 * i
+                + 3
+            ]
+            for i in range(len(rotations))
+        ],
         objective_history=history,
         weighted_rms=float(np.sqrt(weights @ residual**2)),
         condition=float(np.linalg.cond(jac.T @ (weights[:, None] * jac))),

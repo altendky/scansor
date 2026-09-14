@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PerspectiveCamera, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
-import { anchorRotation, anchorZoom, viewPlaneAnchor } from './navigation-math.js';
+import { anchorRotation, anchorZoom, viewPlaneAnchor, panByPixels } from './navigation-math.js';
 
 function setup() {
   const camera = new PerspectiveCamera(45, 1.5, .01, 1000);
@@ -49,3 +49,18 @@ test('empty-space zoom anchor uses the cursor ray at the current view depth', ()
   sameScreen(new Vector3(.8, -.7), anchor.clone().project(camera));
   assert.ok(Math.abs(anchor.clone().sub(target).dot(camera.getWorldDirection(new Vector3()))) < 1e-10);
 });
+
+for (const [width,height,fov,zoom,depth] of [[1200,600,45,1,8],[500,900,70,2,3],[1600,800,30,.5,50]]) {
+  test(`pan tracks CSS pixels at ${width}x${height}, fov ${fov}, zoom ${zoom}`, () => {
+    const {camera,target} = setup();
+    camera.aspect=width/height;camera.fov=fov;camera.zoom=zoom;
+    camera.rotateZ(.4);camera.updateProjectionMatrix();camera.updateMatrixWorld();
+    const anchor = new Vector3(.5,.2,-depth).applyMatrix4(camera.matrixWorld);
+    const before = anchor.clone().project(camera), rotation=camera.quaternion.clone();
+    panByPixels(camera,target,137,-61,height,depth);
+    const after=anchor.clone().project(camera);
+    assert.ok(Math.abs((after.x-before.x)*width/2-137)<1e-9);
+    assert.ok(Math.abs(-(after.y-before.y)*height/2+61)<1e-9);
+    assert.ok(camera.quaternion.equals(rotation));
+  });
+}

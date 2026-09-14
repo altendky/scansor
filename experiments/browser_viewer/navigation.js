@@ -1,5 +1,5 @@
-import { MOUSE } from 'three';
-import { anchorRotation, anchorZoom } from './navigation-math.js';
+import { MOUSE, Vector3 } from 'three';
+import { anchorRotation, anchorZoom, panByPixels } from './navigation-math.js';
 import { TrackballControls } from '/vendor/TrackballControls.js';
 import { OrbitControls } from '/vendor/OrbitControls.js';
 
@@ -10,13 +10,14 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   const constrained = new OrbitControls(camera, canvas);
   free.staticMoving = true;
   free.rotateSpeed = 2;
+  free.noPan = true; // Use projection-correct pixel panning below.
   free.mouseButtons = {LEFT: -1, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.ROTATE};
   free.keys = [];
   constrained.mouseButtons = {LEFT: -1, MIDDLE: MOUSE.PAN, RIGHT: MOUSE.ROTATE};
   constrained.enabled = false;
   constrained.target = free.target;
   let active = free, dragging = false, rotationAnchor = null;
-  let gesture = null, transitioning = false;
+  let gesture = null, transitioning = false, panDepth = 0;
   const mode = event => event.button === 1 || event.ctrlKey ? 'pan' : event.altKey ? 'upright' : 'rotate';
   const options = {zoomAtCursor: true, rotateAtCursor: true};
   const update = () => {
@@ -26,6 +27,10 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   };
   const configure = (event, preserveAnchor = false) => {
     const nextMode = mode(event);
+    if (nextMode === 'pan') {
+      const anchor = cursorAnchor(event, true) || free.target;
+      panDepth = anchor.clone().sub(camera.position).dot(camera.getWorldDirection(new Vector3()));
+    }
     rotationAnchor = nextMode !== 'pan' && options.rotateAtCursor
       ? (preserveAnchor ? rotationAnchor : cursorAnchor(event, false)) : null;
     active = nextMode === 'upright' ? constrained : free;
@@ -74,6 +79,10 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   canvas.ownerDocument.addEventListener('pointermove', event => {
     if (!gesture || transitioning || event.pointerId !== gesture.pointerId) return;
     rebase(event);
+    if (mode(gesture) === 'pan') {
+      panByPixels(camera, free.target, event.clientX - gesture.clientX,
+        event.clientY - gesture.clientY, canvas.getBoundingClientRect().height, panDepth);
+    }
     gesture = {...gesture, clientX: event.clientX, clientY: event.clientY};
   }, {capture: true});
   canvas.ownerDocument.addEventListener('pointermove', () => { if (dragging) redraw(); });

@@ -38,6 +38,7 @@ class NozzleSession(BaseModel):
 
 
 class SurfaceResult(TypedDict):
+    plane_equation: NotRequired[list[float]]
     kind: str
     ids: list[int]
     parameters: list[float]

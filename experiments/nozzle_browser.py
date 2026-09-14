@@ -10,11 +10,12 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import ClassVar, override
+from typing import Any, ClassVar, cast, override
 
 from pydantic import ValidationError
 
 from experiments.feature_graph import FeatureGraph, GraphRequest, Recipe, StaleGraph
+from experiments.nozzle_rhino import RhinoExportRequest, export_rhino
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
 ASSETS = Path(__file__).with_name("browser_viewer")
@@ -69,6 +70,7 @@ class Handler(BaseHTTPRequestHandler):
         ),
         "/": ("index.html", "text/html"),
         "/app.js": ("app.js", "text/javascript"),
+        "/action-tree.js": ("action-tree.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
@@ -177,6 +179,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/fit",
             "/api/graph",
             "/api/graph/evaluate",
+            "/api/export/rhino",
         ):
             self.json_reply(404, {"error": "not found"})
             return
@@ -192,6 +195,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected a session under 1 MB")
             self.connection.settimeout(5)
             body = self.rfile.read(length)
+            if self.path == "/api/export/rhino":
+                export_request = RhinoExportRequest.model_validate_json(body)
+                snapshot = cast(dict[str, Any], self.app.graph.snapshot())
+                exported = export_rhino(self.app.workspace, snapshot, export_request)
+                self.reply(200, exported, "application/octet-stream")
+                return
             if self.path.startswith("/api/graph"):
                 payload = GraphRequest.model_validate_json(body)
                 if self.path == "/api/graph":

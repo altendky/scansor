@@ -42,6 +42,11 @@ Mouse bindings follow the user's Onshape configuration:
 | Wheel | Zoom |
 | Left-drag | Chosen rectangle-selection operation |
 
+Ctrl+right-drag and middle-drag pan in CSS pixels at the surface depth picked at
+pan start, so that point follows the cursor. Over empty space they use the view
+target's depth. Scaling accounts for field of view, camera zoom and viewport
+height; it does not use TrackballControls' default pan sensitivity.
+
 Ctrl and Alt take effect immediately during a held drag, including key release.
 Ctrl switches right-drag to pan; releasing it resumes rotation. Alt switches to
 upright rotation unless Ctrl is held. Mode transitions restart movement deltas at
@@ -61,13 +66,17 @@ roll. Side and Top explicitly change orientation. The Alt behavior follows
 identical sensitivity, pivot picking, or all Onshape shortcuts. Other navigation
 configurations remain future work. Navigation is isolated in `navigation.js`.
 
-Choose an active surface, **Paint** or **Rectangle**, and Add, Remove or Replace.
+Select a selection in the feature tree, then choose **Paint** or **Rectangle**,
+and Add, Remove or Replace in its properties pane. Painting always edits the
+highlighted selection; inspecting a fit, constraint, source or joint disables
+painting and hides the selection tools. There is no separate active selection.
 The shared **Depth** selector offers **First surface** (default) and **Through all**
 for both tools. Paint uses a circular brush with an adjustable diameter in CSS
 pixels and a visible footprint. Click to dab, or drag to sweep a continuous strip;
 separate Add strokes create multiple patches. Replace replaces the selection with
-the whole stroke, not only the latest dab. Added vertices move out of all other
-participating selections to maintain the current solver's disjoint memberships.
+the whole stroke, not only the latest dab. Selections are independent and may
+overlap. Fits count their input union once; joints require disjoint observations
+between participating fits.
 
 Painting previews membership during the stroke. Release commits one current-graph
 update and invalidates dependent fits. Escape, pointer cancellation, focus loss,
@@ -91,181 +100,165 @@ select nothing; the tool selects existing vertices, not new surface samples.
 The backend retains resolved source vertex IDs and the active selection's most
 recently applied depth mode. Mixed strokes do not retain a stroke log or camera
 snapshots, and their gesture sequence cannot be replayed. Saved IDs reproduce the
-current membership. Gesture provenance and assisted seed fit/grow/inset operations
-remain future work; no undo stack, revision chain or change log is retained.
+current membership. Gesture provenance and boundary inset remain future work; no undo
+stack, revision chain or change log is retained.
 Restore example graph reloads the checked-in example recipe from disk.
 
-The feature tree displays backend nodes, dependencies and evaluation status.
-Select a surface-fit feature to edit its name, fit type, input selection and
-axial domain, then apply its properties. Selecting a participating fit also
-activates its selection for editing. Each fit owns its type; the joint
-solve evaluates them together. This adapter supports one perpendicular plane and
-a connected group of coaxial cones/cylinders. Incompatible type choices are
-disabled with an explanation.
-Shared inputs are referenced rather than copied into separate backend nodes.
-Use **Add surface fit** to choose a cone/cylinder type and an existing surface
-whose axis it should share. This creates a surface declaration, an empty selection
-and an explicit coaxial constraint, then adds the constraint to the joint solve.
-The new selection becomes active; use painting or rectangle selection to supply observations.
-Select the coaxial constraint in the tree to edit its reference surface. The
-backend rejects references that disconnect the group. Initial axial support spans
-the mesh's display-Z extent with a small margin; adjust it in fit properties to
-bound the intended side. This is an initial guess, not detected segmentation.
+## Ordered actions
 
-Selection references and all relationships come from the recipe.
-Changing a node invalidates its dependent results. Evaluate runs the declared
-joint fit; all participating surfaces inform the shared axis, using whole-mesh incident-area
-weights and fixed memberships. Unsupported combinations and poor geometry fail
-visibly. A result from a graph edited during evaluation is discarded by the
-backend, not merely hidden by the browser.
+Creation buttons stay in the top toolbar; fit and joint creation open dialogs.
+The left column has two independently scrollable areas: features above, selected
+feature information/properties and results below. Selection editing appears only
+for a selected selection. Save actions, Load actions and Restore example are in
+the project header. Display settings sit beside Navigation over the viewport;
+general status and errors appear in the footer.
+Drag the divider between the tree and attributes to resize them. With the divider
+focused, Up/Down adjusts the split (Shift for larger steps); Home/End selects its
+limits. Escape cancels an unfinished drag. The split is remembered in browser
+storage when available, and both panes retain their own scrollbars.
 
-Side guides match their selection colors; pink guides show the perpendicular plane.
-They show through the mesh for inspection; their display extents are not inferred
+The action list is a dependency-valid sequence owned by the Python backend.
+Each unnumbered row has a locally drawn line icon for its operation (including
+plane, cone and cylinder fits), its name, and a status symbol: green check for
+ready, gray ring for unevaluated, amber refresh for stale, blue spinner for
+running, and red warning for failed. Tooltips and accessible names explain the
+icons; the properties panel shows the full status and any error.
+Select an action to inspect its settings and result. Drag its grip to insert it
+before or after another row; the insertion line turns red for invalid dependency
+orders. Focus a grip and use the Up/Down keys to reorder with the keyboard.
+Reordering requires every input to still
+appear earlier and waits until evaluation or selection editing finishes.
+Stable IDs preserve references when positions change.
+A valid reorder preserves cached results. This is recipe order, not edit history.
+
+1. **New selection** creates an empty selection independently of any fit. Paint
+   it, rename it, and add more selections as needed.
+2. **New fit** chooses cone, cylinder or plane and one or more earlier
+   selections. Overlapping input memberships count each source vertex once.
+   Evaluate the fit to inspect its own parameters, guide and residuals. Plane
+   fits can have independent orientations and do not require a joint solve.
+3. **New joint** chooses earlier fits and creates constraint actions followed by
+   a joint solve. The current solver supports independently offset perpendicular planes
+   and a
+   connected group of coaxial cone/cylinder fits. It refits their observations
+   together and produces separate adjusted results; standalone results remain
+   available by selecting their actions. The shared axis is free to move.
+
+To extend an existing joint, select it, choose standalone fits under **Add fitted
+surfaces**, then click **Add fits to this joint**. Each additional plane gets a
+perpendicular constraint to the shared axis; each cone/cylinder gets a coaxial
+constraint. The joint moves after the new inputs/constraints while preserving its
+ID and existing constraints. Evaluate it to update its adjusted results. Planes
+have independent offsets but share the exact axis normal; additional planes can
+change the fitted axis. Joint observations must remain disjoint.
+
+If a joint fails because its fits share observations, the backend reports every
+conflicting fit pair and the exact shared source IDs. The viewer shows magenta
+vertices with white outlines through the mesh, independently of the normal
+selection-point and guide toggles. An always-visible banner gives the total and
+opens the conflicting-fit list; its buttons inspect the fits involved. Highlights
+remain while inspecting other features, then clear when an affected input changes.
+Re-evaluate the joint after editing to check the new memberships.
+
+Fit properties expose type, earlier selection inputs and finite axial support.
+Constraint properties expose earlier fit references; joint properties expose
+constraint inputs. Deleting an action is allowed only when nothing references it.
+Editing settings invalidates dependent results. In-flight results from an older
+recipe are discarded by the backend. Empty/ill-conditioned fits fail visibly.
+
+Ordinary markers use a lighter version of their region color to stay distinct
+from the lit surface tint. Selecting a feature further brightens its vertex colors
+and increases markers
+from 3 to 5 CSS pixels. Selections highlight their memberships; fits highlight the
+union of their inputs; constraints and joints highlight participating fits.
+Growth highlights its resolved output, excluding barriers. The camera stays put.
+Normal point markers retain depth testing: a small slope-aware polygon offset on
+the rendered mesh prevents its own surface from cutting through the markers,
+without moving geometry or changing selection picking. Genuinely intervening
+surfaces still occlude normal markers. The selected-vertices toggle controls both
+normal and emphasized markers; overlap diagnostics remain separate. Selected fit
+and joint guides are brighter, and constraints show available standalone guides.
+
+Guides show through the mesh; their extents are display support, not inferred
 physical boundaries or uncertainty. Residual colors use independent symmetric
-blue/white/red scales for each region, with limits shown in the UI. Units remain
-unconfirmed, and lower training residual is not physical validation.
+blue/white/red scales per surface. Units remain unconfirmed and lower training
+residual is not physical validation. Cone/cylinder initialization and local frame
+remain specific to this example, including the default axial support `[-2, 5]`.
 
-## Seed fit and connected proposals
+## Rotational surface symmetry
 
-For the active surface, **Fit seed and propose** fits only its painted seed,
-then proposes a single connected expansion. Set the maximum orthogonal distance
-in source units and maximum normal angle in degrees. Defaults (`0.05`, `20°`)
-are exploratory starting values, not calibrated accuracy limits. Cones and
-cylinders use the example's local frame and initialization; planes use an
-area-weighted covariance fit. Insufficient coverage or poor conditioning fails
-visibly. Inspect the preliminary fit node for its parameters and diagnostics.
+**Rotational symmetry** adds a relationship to an existing joint. Choose three
+existing fits of the same type (plane, cylinder, or cone), in 0°/120°/240° order.
+Create fits for raw selections first. Creation references the original fit IDs;
+it does not create replacement fits, convert their types, or edit memberships.
+Mixed types are rejected in both the UI and backend. Edit the relationship's
+references to change correspondence. The serialized `planes` field is retained
+for existing recipes, but now references same-type surface fits.
 
-Candidates must meet both thresholds and lie inside the declared finite side
-support (for cones/cylinders). Every addition must have an eligible mesh-edge path
-to an eligible seed vertex. Degenerate triangles provide no traversal edges.
-Other referenced selections are barriers. Matching but disconnected components
-are excluded; multiple seed patches can grow independently and merge. Growth
-can wrap around the hidden side, independently of the painting depth setting.
-Normals are oriented consistently with the seed's average agreement. Seed
-outliers are retained but reported and cannot bridge rejected areas.
+The surfaces are exact rotated copies about the common axis. Their observations
+participate in the same area-weighted joint solve and can move that axis.
+Standalone fit results remain separate. Cylinders share a radius and rotated
+axis lines; cones also share taper. The first fit initializes the common side;
+its axial support is rigidly transformed for the other two copies. As with the
+existing lateral solver, axes must stay within the local Z parameter chart.
+Plane derivatives are analytic. Lateral shape derivatives are analytic, with
+central differences for the four moving symmetry-axis parameters.
 
-Bright green previews the additions relative to the seed; the existing final-fit
-guides still describe the final solve. **Apply proposal** changes the surface's
-input to the growth node and invalidates its final fit. Evaluating the final fit
-then consumes that membership. Seed → preliminary fit → growth remain distinct
-recipe nodes. A new proposal leaves an applied result unchanged until Apply;
-unreferenced superseded proposal nodes are removed rather than kept as history.
-**Hide preview** hides the overlay while leaving the current proposal inspectable.
+The joint still requires a connected coaxial group and at least one perpendicular
+plane. A symmetry member cannot also be a coaxial/perpendicular member or belong
+to another rotational group in the same joint. Other repetition counts, automatic
+correspondence, and fixed-axis mode remain future work. Overlapping observations
+fail with the existing highlighted diagnostics.
 
-Use **Edit seed** to paint the retained seed of an applied growth selection;
-this invalidates its descendants. Derived memberships cannot be painted directly.
-Manual edits that would modify another derived selection are rejected. Growth
-barriers are explicit selection references: cyclic proposal dependencies are
-rejected, and final solves check disjoint resolved memberships again. This is not
-a simultaneous competitive region-growing algorithm.
-
-Save/load preserves the recipe; derived memberships and seed-fit diagnostics are
-recomputed on evaluation. The script accepts `--target NODE_ID` to evaluate a
-proposal without executing the final joint fit. No iterative refitting, boundary
-inset, gesture history or automatic physical-feature identification is implemented.
-
-## Backend graph and current-recipe persistence
-
-The backend DAG is implemented in `experiments/feature_graph.py`; the tree is a
-frontend presentation. Supported nodes are source, selection, surface declaration,
-preliminary seed fit, connected growth, perpendicular relationship, coaxial
-relationship and joint fit. Joint-fit records
-reference a list of constraint IDs; older single-constraint recipes can still be
-loaded. One joint-fit node evaluates the coupled
-surfaces together; geometric constraints do not create execution cycles.
-
-The multi-side solver in `experiments/mesh_coaxial_fit.py` shares four axis
-parameters across all sides and the plane normal, with independent radius and
-optional taper for each side and one plane offset. It minimizes the combined
-area-weighted orthogonal residuals with analytic derivatives. The existing axis
-is free to move; there is no fixed-axis mode. Arbitrary constraint networks,
-multiple planes and arbitrary model families remain future work. The example's
-local parameter frame and positive-radius finite-side support limits still apply.
-Synthetic checks cover exact recovery, finite-difference derivatives, and an
-added surface moving the original axis. A browser check uses a split of the saved
-band selection to exercise multiple fits; that split is not a newly identified
-physical feature or a claim of improved reconstruction.
-
-Save graph downloads the **current recipe only**: schema version, nodes and output
-reference. Source/reference hashes bind it to the captured mesh and adapter frame.
-Load validates bindings, input types, dependencies and memberships before replacing
-the current graph. It does not restore historical versions or cached fits.
-Previous settings/results, event history, undo and persistent change logs are
-explicitly out of scope. In-flight invalidation counters retain no previous state.
-
-The example includes `recipes/cone-plane.json` and `recipes/cylinder-plane.json`.
-The same backend used by the UI can execute either recipe without a browser:
-
-```sh
-OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
-  python -m experiments.feature_graph \
-  --recipe examples/nozzle-bayonette-simplified/recipes/cone-plane.json \
-  --output local-inputs/nozzle-graph-fit.json
-```
-
-The output path must not already exist. This writes the current evaluated graph
-and current result; it is an explicit export, not automatic historical storage.
-The earlier fixed runners remain comparative experiment reproducers. New graph
-workflows use declaration-driven evaluation instead. The captured-example adapter
-still fixes geometry loading, local frame and initialization conventions; it is
-not a general mesh/model solver or part of canonical synthetic-only admission.
-
-The browser server accepts `--recipe PATH` to choose its initial graph. Its HTTP
-adapter binds to loopback and serves a fixed route list, not arbitrary files:
-
-| Route | Payload / response |
-| --- | --- |
-| GET `/api/meta` | Source counts, display frame and binary layouts |
-| GET `/mesh/positions` | Little-endian float32 XYZ in the saved fit frame |
-| GET `/mesh/indices` | Little-endian uint32 triangle triples, source order |
-| GET `/api/graph` | Current recipe, token, statuses, errors and current output |
-| POST `/api/graph` | Current token and replacement recipe; validate and invalidate |
-| POST `/api/graph/evaluate` | Current token; start evaluation in one worker |
-| GET `/api/graph/example` | Reload the checked-in cone example recipe |
-
-POST requests require `Content-Type: application/json` and
-`X-Scansor-Request: 1`; bodies are limited to 1 MB. Stale edit tokens are rejected
-with 409. Old stateless `/api/session` and `/api/fit` endpoints remain available
-for the original experiment checks; the graph UI does not use them. The local
-server is not a hardened deployment service or stable public API.
-
-Geometry stays resident; camera movement does not refetch it. Frames are requested
-on changes rather than an idle animation loop. Submission time is CPU time, not
-GPU completion or interactive FPS. This remains a small in-memory experiment,
-without bounded-memory or large-model claims.
-
-## Initial local observation
-
-On Linux with Intel UHD 630 and Brave Chromium 153.0.8010.37, one isolated
-1440×1000 browser instance measured approximately 269 MiB summed proportional
-memory (PSS) with a blank tab and 347 MiB after loading/fitting this example.
-Private memory (USS) was about 128/194 MiB respectively. Summed process RSS was
-994/1113 MiB and counts some shared pages repeatedly. These are point-in-time
-observations across nine browser processes, not peak usage or a native comparison;
-they exclude the Python server and test driver. Browser launch selected
-ANGLE/OpenGL on the Intel GPU. The UI stopped requesting frames while idle.
-
-## Checks and follow-up
-
-```sh
-npm run check --prefix experiments/browser_viewer
-OPENBLAS_NUM_THREADS=2 uv run --locked pytest \
-  tests/test_feature_graph.py tests/test_nozzle_session.py tests/test_mesh_cone_plane_fit.py
-```
-
-Tests cover source/model binding, invalid IDs, disjoint selection edits, fitting
-an edited membership, saved fit replay, binary geometry, origin/path boundaries,
-and a fit worker that does not block reads or queue concurrent fits. The JavaScript
-checks run in CI alongside the Python checks. Actual navigation, selection,
-graph save/load and residual display were also exercised locally in Brave.
-
-Before choosing a product frontend, assess visible-surface selection, larger
-meshes/LOD, memory across browser processes, keyboard/touch accessibility,
-multiple platform/GPU configurations, and a comparable native frontend. Preserve
-canonical source IDs if future rendering paths reorder or simplify geometry.
-
-When updating Three.js, check its changelog and migration notes, and repeat
-navigation, selection-ID, visual and performance checks. The public controls
-APIs and GPU behavior can change between revisions.
+Generated checks cover plane/cylinder/cone recovery, derivatives, graph replay,
+type preservation, and rejection without mutation. These verify implementation,
+not physical accuracy or the user's chosen correspondence.
 
 [onshape]: https://www.onshape.com/en/resource-center/tech-tips/tech-tip-rotation-with-an-upright-vertical-axis
+
+The symmetry action defaults to **Match exported extents across symmetry copies**.
+For Rhino export, observations from all three selections are rotated into the
+first copy’s frame to bound one patch; that same patch is then rotated to each
+copy. This gives matching rectangular plane patches and matching cylinder/cone
+spans. Disable the option in the symmetry action’s properties for independent
+bounds. It changes exported extents, not selection membership or the fitting
+objective; viewport guides still use their existing bounds.
+
+## Experimental Rhino export
+
+**Export Rhino…** evaluates a chosen standalone fit or joint and downloads one
+Rhino 8 `.3dm` containing named analytic surface bodies and, optionally, the
+loaded original reference mesh on a separate layer. It uses `rhino3dm` (MIT,
+including the underlying openNURBS library); Rhino is not required locally.
+This is a provisional export path, not a general CAD integration commitment.
+When updating rhino3dm, review its changelog and repeat geometry/file round-trip
+and Onshape import checks; its bundled type stubs currently omit runtime APIs.
+
+Choose units explicitly: this captured example's source units are unconfirmed.
+The option assigns units without rescaling numerical coordinates. Axis-up maps
+the fitted joint axis (or standalone lateral axis / plane normal) onto +Z and
+applies the same rotation to every surface and mesh vertex. With axis-up off,
+geometry is restored to the original scan coordinate frame. The export embeds
+the current recipe and coordinate transform as file metadata; it does not modify
+the session or introduce change history.
+
+Plane patches use projected rectangular selection bounds with 5% padding.
+Cone/cylinder patches use full 360-degree sides over the selected axial span,
+with 5% padding clipped to the declared support. These are independent open
+surfaces, not reconstructed trim boundaries or a sewn solid. The reference mesh
+retains its vertices and triangle connectivity, using double-precision storage;
+no decimation or conversion of mesh triangles into CAD faces is performed.
+
+Local checks reopen the exported file and verify analytic surface recognition,
+mesh coordinates and topology, unit metadata, common orientation, and rejection
+of stale results. Onshape documentation lists Rhino surface and mesh import, but
+this experiment's combined-file import still needs an actual Onshape check.
+
+Axis-up export also translates the fitted axis onto the Z axis. It preserves
+rotated axial heights and applies the same rigid transform to the reference mesh
+and every surface. Turning axis-up off retains original scan coordinates.
+
+**Origin along axis** optionally chooses a plane from the exported fit or joint.
+Its intersection with the axis becomes the export origin; joint planes use their
+constrained geometry. A parallel plane is rejected because there is no unique
+intersection. This option requires axis-up export.

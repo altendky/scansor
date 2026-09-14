@@ -81,6 +81,15 @@ def fit_seed(
                     p = candidate
                     break
             else:
+                # Squared distances lose resolution near the minimum on noisy
+                # data. Accept stagnation only if the predicted decrease is
+                # below roundoff; exact synthetic data still takes full steps.
+                scale = float(w @ np.sum(points**2, axis=1))
+                resolution = (
+                    32 * np.finfo(float).eps * float(np.sqrt(objective * scale))
+                )
+                if float(step @ normal @ step) <= resolution:
+                    break
                 raise ValueError("seed fit failed to decrease its objective")
         else:
             raise ValueError("seed fit did not converge")
@@ -94,6 +103,7 @@ def fit_seed(
         "axial_domain": domain,
         "weighted_rms": float(np.sqrt(w @ residual**2)),
         "condition": condition,
+        "residuals": residual.tolist(),
     }
     _, expected, _ = surface_distance(points, fitted)
     fitted["normal_sign"] = (

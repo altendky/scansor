@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "nodes": [
     {
       "id": "scan",
@@ -1932,8 +1932,10 @@
     {
       "id": "side",
       "label": "Outer surface",
-      "operation": "surface",
-      "selection": "outer_band",
+      "operation": "fit",
+      "selections": [
+        "outer_band"
+      ],
       "kind": "cylinder",
       "axial_domain": [
         -2.0,
@@ -1943,8 +1945,10 @@
     {
       "id": "end",
       "label": "End surface",
-      "operation": "surface",
-      "selection": "top_face",
+      "operation": "fit",
+      "selections": [
+        "top_face"
+      ],
       "kind": "plane",
       "axial_domain": [
         -2.0,
@@ -1962,7 +1966,9 @@
       "id": "fit",
       "label": "Joint fit",
       "operation": "joint_fit",
-      "constraints": ["perpendicular"]
+      "constraints": [
+        "perpendicular"
+      ]
     }
   ],
   "output": "fit"

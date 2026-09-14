@@ -1,11 +1,13 @@
-"""Captured-nozzle adapter for a connected coaxial group and end plane."""
+"""Captured-nozzle adapter for a connected coaxial group and perpendicular planes."""
 
 from dataclasses import dataclass
 
 import numpy as np
 
 from experiments.mesh_coaxial_fit import SideObservations, fit_coaxial
+from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
 from experiments.nozzle_session import NozzleWorkspace, SessionFit, SurfaceResult
+from experiments.selection_growth import fit_seed
 
 
 @dataclass(frozen=True)
@@ -17,8 +19,14 @@ class FitSelection:
 
 
 def fit_group(
-    workspace: NozzleWorkspace, sides: list[FitSelection], plane: FitSelection
+    workspace: NozzleWorkspace,
+    sides: list[FitSelection],
+    planes: list[FitSelection],
+    rotational_groups: tuple[tuple[FitSelection, ...], ...] = (),
 ) -> SessionFit:
+    if not planes:
+        raise ValueError("at least one plane is required")
+    plane = planes[0]
     observations = [
         SideObservations(
             workspace.local[s.ids], workspace.data.weights[s.ids], s.kind, s.domain
@@ -28,8 +36,11 @@ def fit_group(
     for s in sides:
         if len(s.ids) < 7:
             raise ValueError(f"{s.id}: select at least seven lateral vertices")
-    if len(plane.ids) < 3:
-        raise ValueError(f"{plane.id}: select at least three plane vertices")
+    for selected_plane in planes:
+        if len(selected_plane.ids) < 3:
+            raise ValueError(
+                f"{selected_plane.id}: select at least three plane vertices"
+            )
     pp = workspace.local[plane.ids]
     pw = workspace.data.weights[plane.ids]
     seed = np.array(workspace.data.selection["initial_parameters"], dtype=float)
@@ -43,7 +54,38 @@ def fit_group(
         initial.append(float(side.area @ rho / side.area.sum()))
         if side.kind == "cone":
             initial.append(0.0)
-    fitted = fit_coaxial(observations, pp, pw, np.array(initial))
+    extra_planes = tuple(
+        (workspace.local[s.ids], workspace.data.weights[s.ids]) for s in planes[1:]
+    )
+    initial.extend(float(w @ (points @ axis) / w.sum()) for points, w in extra_planes)
+    rotations = tuple(
+        RotationalPlanes(
+            tuple(workspace.local[s.ids] for s in group),
+            tuple(workspace.data.weights[s.ids] for s in group),
+            kind=group[0].kind,
+            seed=tuple(
+                fit_seed(
+                    workspace.local[group[0].ids],
+                    workspace.data.weights[group[0].ids],
+                    workspace.data.normals[group[0].ids] @ workspace.frame,
+                    group[0].kind,
+                    seed,
+                    group[0].domain,
+                )["parameters"]
+            )
+            if group[0].kind != "plane"
+            else (),
+            domain=group[0].domain,
+        )
+        for group in rotational_groups
+    )
+    for group in rotations:
+        if any(len(points) < 3 for points in group.points):
+            raise ValueError("each rotational surface needs at least three vertices")
+        initial.extend(initial_rotation(group, np.array(initial)).tolist())
+    fitted = fit_coaxial(
+        observations, pp, pw, np.array(initial), extra_planes, rotations
+    )
     p = fitted.parameters[0]
     axis = np.array([p[2], p[3], 1.0])
     axis /= np.linalg.norm(axis)
@@ -62,14 +104,44 @@ def fit_group(
             "weighted_rms": float(np.sqrt(obs.area @ residual**2 / obs.area.sum())),
         }
     plane_rms = float(np.sqrt(pw @ fitted.plane_residuals**2 / pw.sum()))
-    surfaces[plane.id] = {
-        "kind": "plane",
-        "ids": plane.ids,
-        "parameters": p.tolist(),
-        "axial_domain": plane.domain,
-        "residuals": fitted.plane_residuals.tolist(),
-        "weighted_rms": plane_rms,
-    }
+    for selected_plane, offset, residual in zip(
+        planes,
+        fitted.plane_offsets,
+        [fitted.plane_residuals, *fitted.extra_plane_residuals],
+        strict=True,
+    ):
+        parameters = p.copy()
+        parameters[5] = offset
+        weights = workspace.data.weights[selected_plane.ids]
+        surfaces[selected_plane.id] = {
+            "kind": "plane",
+            "ids": selected_plane.ids,
+            "parameters": parameters.tolist(),
+            "axial_domain": selected_plane.domain,
+            "residuals": residual.tolist(),
+            "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
+        }
+    for group, equations, residuals, domains in zip(
+        rotational_groups,
+        fitted.rotational_equations,
+        fitted.rotational_residuals,
+        fitted.rotational_domains,
+        strict=True,
+    ):
+        for surface, equation, residual, domain in zip(
+            group, equations, residuals, domains, strict=True
+        ):
+            weights = workspace.data.weights[surface.ids]
+            surfaces[surface.id] = {
+                "kind": surface.kind,
+                "ids": surface.ids,
+                "parameters": equation.tolist(),
+                "axial_domain": domain,
+                "residuals": residual.tolist(),
+                "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
+            }
+            if surface.kind == "plane":
+                surfaces[surface.id]["plane_equation"] = equation.tolist()
     return {
         "session": {
             "lateral_ids": sides[0].ids,
@@ -100,7 +172,10 @@ def fit_group(
                 s.id: float(o.area.sum())
                 for s, o in zip(sides, observations, strict=True)
             },
-            plane.id: float(pw.sum()),
+            **{
+                s.id: float(workspace.data.weights[s.ids].sum())
+                for s in [*planes, *(s for group in rotational_groups for s in group)]
+            },
         },
         "surfaces": surfaces,
     }
