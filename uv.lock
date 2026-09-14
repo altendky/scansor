@@ -443,7 +443,7 @@ wheels = [
 
 [[package]]
 name = "scansor"
-version = "0.0.0"
+version = "0.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "cyclopts" },

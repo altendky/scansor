@@ -14,6 +14,7 @@ import structlog
 from cyclopts import App, Parameter
 from pydantic import ValidationError
 
+from scansor import __version__
 from scansor.cli_models import (
     CompareTruthJob,
     DemoFixedPoseJob,
@@ -78,7 +79,7 @@ app = App(
         "Internal, provisional, non-public, synthetic-only, fixed-topology "
         "Scansor CLI fixture."
     ),
-    version="0.0.0",
+    version=__version__,
 )
 _defaults = Settings()
 _context = ResolutionContext()

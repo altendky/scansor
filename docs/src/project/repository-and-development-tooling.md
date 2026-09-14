@@ -305,7 +305,8 @@ name in two files does not prove that their versions must move together.
 The internal CLI fixture uses `uv_build` only to expose its source package and
 console entry point in the uv-managed development environment. This is not a
 production build-backend preference or distributable package-shape decision.
-Native component strategy, executable bundling, installer, release/deployment
+GitHub source releases now have an explicit [release workflow](releases.md).
+Native component strategy, executable bundling, installer, package deployment
 tooling, documentation generator, tox or Nox orchestration, production dependency
 policy, supported Python versions, and platform support remain deferred until
 concrete prototype or distribution requirements exist.

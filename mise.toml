@@ -7,3 +7,7 @@ python = ["3.12.13", "3.13.15"]
 uv = "0.11.2"
 "pipx:pre-commit" = "4.6.1"
 "cargo:lychee" = "0.24.2"
+
+[tasks.release]
+description = "Prepare a signed release version PR: mise run release X.Y.Z"
+run = "uv run scripts/release-version.py prepare"
