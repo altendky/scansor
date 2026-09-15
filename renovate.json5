@@ -1,0 +1,50 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "rebaseWhen": "conflicted",
+  "enabledManagers": ["github-actions", "mise", "pep621", "npm", "pre-commit", "custom.regex"],
+  // Historical PEP 723 experiment environments are retained evidence, not a
+  // maintained dependency surface. Keep discovery scoped to the active project.
+  "pep621": { "managerFilePatterns": ["/^pyproject\\.toml$/"] },
+  "mise": { "managerFilePatterns": ["/^mise\\.toml$/"] },
+  "npm": { "managerFilePatterns": ["/^experiments/browser_viewer/package\\.json$/"] },
+  "pre-commit": { "enabled": true },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^mise\\.toml$/", "/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["(?<currentValue>3\\.(?:12|13)\\.\\d+)"],
+      "depNameTemplate": "python/cpython",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "pep440",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    }
+  ],
+  "packageRules": [
+    // Native mise extraction updates only the primary Python entry. The custom
+    // manager instead maintains both tested minors and their exact CI pins.
+    { "matchManagers": ["mise"], "matchPackageNames": ["python", "python/cpython"], "enabled": false },
+    { "matchManagers": ["pep621"], "matchDepTypes": ["requires-python"], "enabled": false },
+    {
+      "matchManagers": ["custom.regex"], "matchPackageNames": ["python/cpython"],
+      "matchCurrentVersion": "/^3\\.12\\./", "allowedVersions": "/^3\\.12\\./",
+      "groupName": "Python 3.12"
+    },
+    {
+      "matchManagers": ["custom.regex"], "matchPackageNames": ["python/cpython"],
+      "matchCurrentVersion": "/^3\\.13\\./", "allowedVersions": "/^3\\.13\\./",
+      "groupName": "Python 3.13"
+    },
+    {
+      "matchManagers": ["mise", "custom.regex"],
+      "postUpgradeTasks": {
+        "commands": [
+          "env MISE_LOCKED=0 mise install --yes node python",
+          "env MISE_LOCKED=0 mise lock --yes --platform linux-x64,linux-x64-musl,linux-arm64,linux-arm64-musl,macos-x64,macos-arm64,windows-x64"
+        ],
+        "fileFilters": ["mise.lock"],
+        "executionMode": "branch"
+      }
+    }
+  ]
+}
