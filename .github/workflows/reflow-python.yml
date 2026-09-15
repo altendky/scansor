@@ -26,6 +26,9 @@ jobs:
       - name: Check formatting
         run: uv run --locked --python 3.12.13 ruff format --check .
 
+      - name: Check synchronized release versions
+        run: uv run scripts/release-version.py check
+
       - name: Lint
         run: uv run --locked --python 3.12.13 ruff check .
 

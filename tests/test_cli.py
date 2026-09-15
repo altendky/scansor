@@ -9,6 +9,7 @@ from typing import TypedDict, cast
 
 import pytest
 
+from scansor import __version__
 from tests.conftest import write_ply
 from tests.test_runs import (
     malformed_unicode_field_npy,
@@ -60,6 +61,12 @@ def run_cli(
         timeout=30,
         check=False,
     )
+
+
+def test_cli_reports_package_version(tmp_path: Path) -> None:
+    completed = run_cli(tmp_path, "--version")
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == __version__
 
 
 def report(path: Path) -> _RunReport:

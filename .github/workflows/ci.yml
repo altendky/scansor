@@ -3,6 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -39,3 +40,17 @@ jobs:
       - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # release/v1
         with:
           jobs: ${{ toJSON(needs) }}
+
+  tag-release:
+    needs: all
+    if: github.repository == 'altendky/scansor' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
+    uses: ./.github/workflows/reflow-tag-release.yml
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  release:
+    needs: all
+    if: github.repository == 'altendky/scansor' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
+    uses: ./.github/workflows/reflow-release.yml
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
