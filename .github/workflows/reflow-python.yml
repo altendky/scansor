@@ -18,16 +18,16 @@ jobs:
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
 
       - name: Install dependencies
-        run: uv sync --locked --python 3.12.13
+        run: uv sync --locked --python 3.12.14
 
       - name: Check formatting
-        run: uv run --locked --python 3.12.13 ruff format --check .
+        run: uv run --locked --python 3.12.14 ruff format --check .
 
       - name: Check synchronized release versions
         run: uv run scripts/release-version.py check
 
       - name: Lint
-        run: uv run --locked --python 3.12.13 ruff check .
+        run: uv run --locked --python 3.12.14 ruff check .
 
       - name: Browser experiment checks
         run: |
@@ -35,7 +35,7 @@ jobs:
           npm run check --prefix experiments/browser_viewer
 
       - name: Type check
-        run: uv run --locked --python 3.12.13 basedpyright
+        run: uv run --locked --python 3.12.14 basedpyright
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -44,7 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - python-version: 3.12.13
+          - python-version: 3.12.14
             coverage: true
           - python-version: 3.13.15
             coverage: false
