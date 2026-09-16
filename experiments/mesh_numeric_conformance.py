@@ -136,7 +136,7 @@ def compare_matrix(root: Path) -> None:
         ("Windows", "AMD64"),
         ("Darwin", "arm64"),
     ):
-        for version in ("3.12.13", "3.13.15"):
+        for version in ("3.12.14", "3.13.15"):
             directory = root / f"mesh-conformance-{system}-{version}"
             for mode in ("default", "baseline"):
                 report: dict[str, Any] = json.loads(
