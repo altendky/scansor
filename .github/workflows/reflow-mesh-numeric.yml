@@ -19,15 +19,12 @@ jobs:
           - os: Linux
             runner: ubuntu-24.04
             arch: x86_64
-            mise-sha: 9a6c2a8b6fe77c98f1d210b4b3cbd2a0cf31886ad1baf10698757a3234c678c1
           - os: Windows
             runner: windows-2025
             arch: x86_64
-            mise-sha: f1d183d107991250829292543ea1de966b9e7bf2aa57ec730533d306f44978f9
           - os: Darwin
             runner: macos-15
             arch: arm64
-            mise-sha: c36958065f7f4286d6edf7077247302cff1da77c81ada4fa9a3566c0ea87e200
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -35,8 +32,6 @@ jobs:
 
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
         with:
-          version: 2026.8.2
-          sha256: ${{ matrix.mise-sha }}
           install_args: python uv
 
       - name: Install locked dependencies
@@ -73,8 +68,6 @@ jobs:
 
       - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
         with:
-          version: 2026.8.2
-          sha256: 9a6c2a8b6fe77c98f1d210b4b3cbd2a0cf31886ad1baf10698757a3234c678c1
           install_args: python
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
