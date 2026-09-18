@@ -1,0 +1,6 @@
+# Temporary allowance for a GitHub-hosted runner missing from actionlint.
+# Remove once the pinned actionlint release supports ubuntu-26.04:
+# https://github.com/rhysd/actionlint/issues/682
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
