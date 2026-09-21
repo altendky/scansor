@@ -136,7 +136,10 @@ def tangent_plane_group() -> tuple[SideObservations, MirrorSurfaces, np.ndarray]
     )
     group = MirrorSurfaces(
         plane_points,
-        tuple(np.linspace(0.4, 1.2, len(points)) for points in plane_points),
+        (
+            np.linspace(0.4, 1.2, len(plane_points[0])),
+            np.linspace(0.4, 1.2, len(plane_points[1])),
+        ),
         "plane",
         (*normal, normal @ center + truth[4]),
         radius_side_index=0,
