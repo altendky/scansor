@@ -20,7 +20,7 @@ manual initial value or derive one from a standalone cone or cylinder, fit a con
 cylinder, or perpendicular plane against that fixed axis, or connect side and
 plane factors in a shared-axis joint that frees the axis. It can also define a
 clocked reference plane through an axis and constrain two standalone same-type
-fits as exact mirror copies across that plane in a solve group. Plane parallelism
+fits as exact mirror copies across that plane in a joint. Plane parallelism
 and typed cylinder-radius/plane-distance equality can additionally make a
 mirrored plane pair exactly parallel and tangent to the cylinder without a
 workflow-specific arch feature.

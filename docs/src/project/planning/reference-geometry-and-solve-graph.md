@@ -217,7 +217,7 @@ per reference plane in a solve. These are prototype rank and parameterization
 limits, not a settled general contract.
 
 Mirror, parallel, and equality actions define reusable geometry; they are not
-solves. A separate solve-group action explicitly activates fits and relationships
+joints. A separate joint action explicitly activates fits and relationships
 and owns the adjusted result. The current compatibility-free contract below does
 not yet encode axial-plane clocking or relative parallel-offset planes; extending
 that normalized contract coherently remains separate from this browser numerical

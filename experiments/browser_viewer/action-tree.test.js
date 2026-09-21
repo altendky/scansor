@@ -46,6 +46,7 @@ const solve = {
   factors: ['fit', 'plane'],
 };
 const axisNodes = [...nodes, axis, boundPlane, solve];
+assert.equal(actionDescription(solve, 'unevaluated'), 'Joint · Not evaluated');
 assert.match(actionMove(axisNodes, 'axis', 3).error, /Axis needs Cylinder earlier/);
 assert.match(actionMove(axisNodes, 'plane', 4).error, /Plane factor needs Axis earlier/);
 assert.match(actionMove(axisNodes, 'solve', 5).error, /Shared solve needs Plane factor earlier/);

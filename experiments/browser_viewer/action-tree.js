@@ -29,7 +29,7 @@ const operations = {
   fit: 'Surface fit',
   axis: 'Reference axis',
   reference_plane: 'Reference plane',
-  axis_solve: 'Solve group',
+  axis_solve: 'Joint',
   growth: 'Selection growth',
   coaxial: 'Coaxial constraint',
   perpendicular: 'Perpendicular constraint',

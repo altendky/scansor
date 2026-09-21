@@ -1280,7 +1280,7 @@ async function start() {
   $('new-axis-solve').onclick = () => {
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
     if (!axes.length) {
-      status('Create an explicit axis before creating a solve group.', true);
+      status('Create an explicit axis before creating a joint.', true);
       return;
     }
     choices(

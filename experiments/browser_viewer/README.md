@@ -143,7 +143,7 @@ is previewed immediately because its value is already known. **Evaluate action**
 evaluates the selected action and only the earlier inputs it requires;
 **Evaluate all** explicitly evaluates every stale or unevaluated action. The
 top action toolbar groups primitive actions under **Create**, **Relate**,
-**Solve**, and **Run**. **Evaluate all** and the opt-in **Auto** checkbox live
+**Combine**, and **Run**. **Evaluate all** and the opt-in **Auto** checkbox live
 under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps
@@ -166,14 +166,14 @@ properties pane.
    Its clocking angle initializes rotation about the axis; the plane is previewed
    immediately and remains a separately selectable feature.
 5. **Mirror** relates two distinct, same-type standalone fits across an
-   explicit reference plane. It defines geometry; it is not itself a solve. Add
-   the relationship to a solve group on that plane's axis. The solve may refine
-   both the shared axis and the plane's
+   explicit reference plane. It defines geometry; it is not itself a joint. Add
+   the relationship to a joint on that plane's axis. Evaluating the joint may
+   refine both the shared axis and the plane's
    clocking while keeping the two adjusted surfaces exact reflected copies.
    Axis-bound fits are not mirror members because coaxial sides and perpendicular
    planes are already invariant under reflection in any plane through their axis.
    The current bounded adapter permits one mirrored pair per reference plane in a
-   solve; create another reference-plane action for another independently clocked
+   joint; create another reference-plane action for another independently clocked
    pair.
 6. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
    currently supports typed equality between an axis-bound cylinder radius and
@@ -185,8 +185,8 @@ properties pane.
    under **Reference axis**. Evaluating the bound fit adjusts only its radius and
    taper, radius, or plane offset respectively; its observations cannot move the
    explicit axis.
-8. To let observations refine the axis together, choose **Solve group**. Select
-   the explicit axis and the active bound fits and relationships. The solve
+8. To let observations refine the axis together, choose **Joint**. Select
+   the explicit axis and the active bound fits and relationships. Evaluation
    returns a separate result: bound factor sets influence axis direction,
    while a perpendicular plane does not locate the axis transversely. Mirror
    member observations refine their symmetry plane and shared axis. Standalone
@@ -216,9 +216,10 @@ and finite axial support. Axis properties expose either their manual initial
 value or the standalone cone/cylinder used as their initializer. Reference-plane
 properties expose their axis and initial clocking. Mirror properties expose the
 plane, two same-type standalone members, and the export-extents choice.
-Solve-group properties expose the axis and exact active fit/relationship list.
-Constraint properties expose earlier fit references; joint properties expose
-constraint inputs. Deleting an action is allowed only when nothing references it.
+Joint properties expose the axis and exact active fit/relationship list.
+Legacy constraint properties expose earlier fit references; legacy joint-fit
+properties expose constraint inputs. Deleting an action is allowed only when
+nothing references it.
 Editing settings invalidates dependent results. In-flight results from an older
 recipe are discarded by the backend. Empty/ill-conditioned fits fail visibly.
 
