@@ -143,8 +143,8 @@ is previewed immediately because its value is already known. **Evaluate action**
 evaluates the selected action and only the earlier inputs it requires;
 **Evaluate all** explicitly evaluates every stale or unevaluated action. The
 top action toolbar groups primitive actions under **Create**, **Relate**,
-**Solve**, and **Run**. **Evaluate all** and the opt-in **Auto-evaluate changes**
-checkbox live under Run. Enabling automatic evaluation immediately evaluates the
+**Solve**, and **Run**. **Evaluate all** and the opt-in **Auto** checkbox live
+under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps
 available guides visible together; disabling it restores selected-action-only
