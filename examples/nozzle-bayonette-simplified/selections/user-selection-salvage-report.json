@@ -1,0 +1,158 @@
+{
+  "bundle_sha256": "4a424b869b7e58217b019098f6f42dbc2759386dad891ec4a8deb3a2430df2a7",
+  "format": "scansor-selection-salvage-report-v1",
+  "format_status": "internal/provisional/one-time/non-public-evidence",
+  "recipes": [
+    {
+      "discarded_node_ids": [
+        "fit_f8cd508ae1074528875fb135cb1576a3",
+        "fit_d6fef399bb0046669de54b4b07fc8cad",
+        "fit_e61afa8a605d4e78bae9e36ad47f5a9d",
+        "fit_114f6f1a367d4f2f839457ad67db3dfc",
+        "perpendicular_45f4ef03bd994f4cb6af915c1b3de636",
+        "perpendicular_b1c393340a804dd495fc6d86176a67d7",
+        "coaxial_e9d9e36158714115b1d5b7afd639ae3b",
+        "fit_38455464a66a40f1a0923e5abd1cd772",
+        "perpendicular_c581a685ff524dc096b274c8a901703f",
+        "fit_4f196e938def4229bb25e76a7be039bc",
+        "fit_10da544b17cf4392a3b05c7a6922f002",
+        "fit_c1a4418b79a0498294d2707fa71bf6cc",
+        "rotation_aa53aee84e9e4659ba636c9057465b1b",
+        "fit_5f26f607d4894f0fb860169dcfaf8391",
+        "fit_35b4be8c7a4349aa8cb42bdf468773c9",
+        "fit_1f82387a23f44b8da3f7d3cb9ce5053a",
+        "rotation_a529352f9804416dac2b58b878e825fc",
+        "joint_c1b8a7c568b64db68161c9c8462ab669"
+      ],
+      "discarded_output": "fit_1f82387a23f44b8da3f7d3cb9ce5053a",
+      "legacy_source_bindings": [
+        {
+          "legacy_reference_sha256": "3f9c48e04a1ad9f31a202ef1cca6a5afce4fbba810aaf9d02e90326cf9d9d676",
+          "source_id": "scan"
+        }
+      ],
+      "materialized_growth_ids": [],
+      "preserved_node_ids": [
+        "scan",
+        "selection_0350f17f14784ce2b686fafc6e709dfb",
+        "selection_2df7d374a3234b18b2d5d96d66844bd0",
+        "selection_0bcf6d9c18b84ed59026a3c906600409",
+        "selection_c2eea31a8e5140eca1a9274c23b244e3",
+        "selection_c70b7cf64d6348a5b0ee9e9dd8b6ebb2",
+        "selection_f1a351baca5946d4978db72fb86a3547",
+        "selection_ee2660f02f9348f28ec1511d55d3199d",
+        "selection_fd74c02433ae431daf73ac2836b0ce85",
+        "selection_3cfc10578fe04f2291074d0182f330cb",
+        "selection_58c41f91f2564984a3290e9ec2971806",
+        "selection_65d425a566a04734b45703c6c845cc2c"
+      ],
+      "recipe_path": "local-inputs/nozzle-actions.json",
+      "recipe_schema_version": 2,
+      "recipe_sha256": "206d9947ac3c899171af11b8fe598ec83e23055e0595abd863b5196cc290f2c4"
+    },
+    {
+      "discarded_node_ids": [
+        "fit_f8cd508ae1074528875fb135cb1576a3",
+        "fit_d6fef399bb0046669de54b4b07fc8cad",
+        "fit_e61afa8a605d4e78bae9e36ad47f5a9d",
+        "fit_114f6f1a367d4f2f839457ad67db3dfc",
+        "perpendicular_45f4ef03bd994f4cb6af915c1b3de636",
+        "perpendicular_b1c393340a804dd495fc6d86176a67d7",
+        "coaxial_e9d9e36158714115b1d5b7afd639ae3b",
+        "fit_38455464a66a40f1a0923e5abd1cd772",
+        "perpendicular_c581a685ff524dc096b274c8a901703f",
+        "fit_4f196e938def4229bb25e76a7be039bc",
+        "fit_10da544b17cf4392a3b05c7a6922f002",
+        "fit_c1a4418b79a0498294d2707fa71bf6cc",
+        "rotation_aa53aee84e9e4659ba636c9057465b1b",
+        "fit_5f26f607d4894f0fb860169dcfaf8391",
+        "fit_35b4be8c7a4349aa8cb42bdf468773c9",
+        "fit_1f82387a23f44b8da3f7d3cb9ce5053a",
+        "rotation_a529352f9804416dac2b58b878e825fc",
+        "joint_c1b8a7c568b64db68161c9c8462ab669"
+      ],
+      "discarded_output": "fit_1f82387a23f44b8da3f7d3cb9ce5053a",
+      "legacy_source_bindings": [
+        {
+          "legacy_reference_sha256": "3f9c48e04a1ad9f31a202ef1cca6a5afce4fbba810aaf9d02e90326cf9d9d676",
+          "source_id": "scan"
+        }
+      ],
+      "materialized_growth_ids": [],
+      "preserved_node_ids": [
+        "scan",
+        "selection_0350f17f14784ce2b686fafc6e709dfb",
+        "selection_2df7d374a3234b18b2d5d96d66844bd0",
+        "selection_0bcf6d9c18b84ed59026a3c906600409",
+        "selection_c2eea31a8e5140eca1a9274c23b244e3",
+        "selection_c70b7cf64d6348a5b0ee9e9dd8b6ebb2",
+        "selection_f1a351baca5946d4978db72fb86a3547",
+        "selection_ee2660f02f9348f28ec1511d55d3199d",
+        "selection_fd74c02433ae431daf73ac2836b0ce85",
+        "selection_3cfc10578fe04f2291074d0182f330cb",
+        "selection_58c41f91f2564984a3290e9ec2971806",
+        "selection_65d425a566a04734b45703c6c845cc2c"
+      ],
+      "recipe_path": "local-inputs/actions-recovery-2026-09-13.json",
+      "recipe_schema_version": 2,
+      "recipe_sha256": "b74cf39ca18b0efe52c88706203c1237564a80924301df3ef2ba770cee0e1891"
+    }
+  ],
+  "selections": [
+    {
+      "selection_id": "selection_0350f17f14784ce2b686fafc6e709dfb",
+      "vertex_count": 490,
+      "vertex_ids_sha256": "dc519876d45d3a7a68cbac42b98c3673f9dc2a3fbb2bcfd622cf3037105867dd"
+    },
+    {
+      "selection_id": "selection_2df7d374a3234b18b2d5d96d66844bd0",
+      "vertex_count": 314,
+      "vertex_ids_sha256": "9200b30c205c7b81648faa66e95069ccdc313b0e18b26b9caf556d2de4863fcf"
+    },
+    {
+      "selection_id": "selection_0bcf6d9c18b84ed59026a3c906600409",
+      "vertex_count": 240,
+      "vertex_ids_sha256": "7cc32c5be045c1e709209998283d18173b8e936e50cfa837b55d9cd19d776811"
+    },
+    {
+      "selection_id": "selection_c2eea31a8e5140eca1a9274c23b244e3",
+      "vertex_count": 151,
+      "vertex_ids_sha256": "dc74ac688f137ea04554a7a7c05f3eaab6bacba51e96bdea23135b207c2ccb22"
+    },
+    {
+      "selection_id": "selection_c70b7cf64d6348a5b0ee9e9dd8b6ebb2",
+      "vertex_count": 21,
+      "vertex_ids_sha256": "74dc93cecd7527d4718f35999023f1d0c45b9ea540752bf4390dfe309d9a0303"
+    },
+    {
+      "selection_id": "selection_f1a351baca5946d4978db72fb86a3547",
+      "vertex_count": 22,
+      "vertex_ids_sha256": "5623ee648e7880b71dad15737b3a7ed35631fcbb4b05cfe1a65aeb0f9c6fb840"
+    },
+    {
+      "selection_id": "selection_ee2660f02f9348f28ec1511d55d3199d",
+      "vertex_count": 25,
+      "vertex_ids_sha256": "7cf9f82faae26ab9eecc34dafb1d9865fd13b831abf0cb46728d55d565763c89"
+    },
+    {
+      "selection_id": "selection_fd74c02433ae431daf73ac2836b0ce85",
+      "vertex_count": 23,
+      "vertex_ids_sha256": "4d4f72b57d8dd6be3b6bd881b8ad30ea00f2697376e216c744bd7c9c9327e63f"
+    },
+    {
+      "selection_id": "selection_3cfc10578fe04f2291074d0182f330cb",
+      "vertex_count": 20,
+      "vertex_ids_sha256": "7f16961d6909fbff8b2621e4ef5863d058eef2d6cf983ce08fbbd436ed06a910"
+    },
+    {
+      "selection_id": "selection_58c41f91f2564984a3290e9ec2971806",
+      "vertex_count": 22,
+      "vertex_ids_sha256": "ef9d901e55248a9b34df885bacfe3dc937b6532771344091098c0204bee679dd"
+    },
+    {
+      "selection_id": "selection_65d425a566a04734b45703c6c845cc2c",
+      "vertex_count": 36,
+      "vertex_ids_sha256": "73387d4dec2d76f222584723cc1a0df0538cf49c1b08570561f766e08cd56b7e"
+    }
+  ]
+}

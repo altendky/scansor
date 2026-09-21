@@ -5,10 +5,14 @@ const paths = {
   plane: 'm3 15 6-9 12 3-6 9Z',
   cylinder: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6',
   cone: 'M12 3 3 18c0 4 18 4 18 0L12 3M3 18c0-4 18-4 18 0',
+  axis: 'M3 12h18m-4-4 4 4-4 4M7 8l-4 4 4 4',
+  reference_plane: 'm3 15 6-9 12 3-6 9ZM12 3v18',
+  axis_solve: 'M3 12h18M7 7l-4 5 4 5m10-10 4 5-4 5M12 3v18',
   growth: 'M12 3v18M3 12h18m-12-6 3-3 3 3m-9 3-3 3 3 3m3 3 3 3 3-3m3-9 3 3-3 3',
   coaxial: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
   perpendicular: 'M6 3v15h15M6 13h5v5',
   rotational_symmetry: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5M12 8v4l3 2',
+  mirror_symmetry: 'M12 2v20M4 7l6 5-6 5m16-10-6 5 6 5',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -21,10 +25,14 @@ const operations = {
   source: 'Source mesh',
   selection: 'Selection',
   fit: 'Surface fit',
+  axis: 'Reference axis',
+  reference_plane: 'Reference plane',
+  axis_solve: 'Shared-axis joint',
   growth: 'Selection growth',
   coaxial: 'Coaxial constraint',
   perpendicular: 'Perpendicular constraint',
   rotational_symmetry: 'Rotational symmetry',
+  mirror_symmetry: 'Mirror symmetry',
   joint_fit: 'Joint fit',
 };
 const states = {
@@ -40,11 +48,16 @@ export function actionDescription(node, state, error) {
 }
 export function nodeReferences(node) {
   if (node.operation === 'selection') return [node.source];
-  if (node.operation === 'fit') return node.selections;
+  if (node.operation === 'fit')
+    return [...node.selections, ...(node.axis ? [node.axis] : [])];
+  if (node.operation === 'axis') return node.source_fit ? [node.source_fit] : [];
+  if (node.operation === 'reference_plane') return [node.axis];
+  if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];
+  if (node.operation === 'mirror_symmetry') return [node.plane, ...node.surfaces];
   return node.constraints || [];
 }
 // Slot is a boundary in the original list: 0 before the first, length after the last.

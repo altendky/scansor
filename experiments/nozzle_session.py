@@ -49,6 +49,7 @@ class SurfaceResult(TypedDict):
 
 class SessionFit(TypedDict):
     surfaces: NotRequired[dict[str, SurfaceResult]]
+    mirror_planes: NotRequired[list[dict[str, object]]]
     session: dict[str, object]
     fit: ConePlaneFitResult
     axis_display: list[float]

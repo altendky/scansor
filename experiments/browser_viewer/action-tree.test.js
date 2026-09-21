@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { actionMove } from './action-tree.js';
+import { actionMove, nodeReferences } from './action-tree.js';
 
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const a = { id: 'a', label: 'Side', operation: 'selection', source: 'source' };
@@ -21,3 +21,48 @@ assert.ok(actionMove(nodes, 'a', -1).error);
 assert.ok(actionMove(nodes, 'a', 5).error);
 assert.deepEqual(nodes, [source, a, b, fit]);
 assert.equal(actionMove(nodes, 'b', 4).nodes[3], b);
+
+const axis = { id: 'axis', label: 'Axis', operation: 'axis', source_fit: 'fit' };
+const manualAxis = {
+  id: 'manual-axis',
+  label: 'Manual axis',
+  operation: 'axis',
+  initial_parameters: [0, 0, 0, 0],
+};
+assert.deepEqual(nodeReferences(axis), ['fit']);
+assert.deepEqual(nodeReferences(manualAxis), []);
+const boundPlane = {
+  id: 'plane',
+  label: 'Plane factor',
+  operation: 'fit',
+  selections: ['b'],
+  axis: 'axis',
+};
+const solve = {
+  id: 'solve',
+  label: 'Shared solve',
+  operation: 'axis_solve',
+  axis: 'axis',
+  factors: ['fit', 'plane'],
+};
+const axisNodes = [...nodes, axis, boundPlane, solve];
+assert.match(actionMove(axisNodes, 'axis', 3).error, /Axis needs Cylinder earlier/);
+assert.match(actionMove(axisNodes, 'plane', 4).error, /Plane factor needs Axis earlier/);
+assert.match(actionMove(axisNodes, 'solve', 5).error, /Shared solve needs Plane factor earlier/);
+
+const referencePlane = {
+  id: 'mirror-plane',
+  label: 'Mirror plane',
+  operation: 'reference_plane',
+  axis: 'axis',
+  initial_angle_degrees: 0,
+};
+const mirror = {
+  id: 'mirror',
+  label: 'Mirrored pair',
+  operation: 'mirror_symmetry',
+  plane: 'mirror-plane',
+  surfaces: ['fit', 'other-fit'],
+};
+assert.deepEqual(nodeReferences(referencePlane), ['axis']);
+assert.deepEqual(nodeReferences(mirror), ['mirror-plane', 'fit', 'other-fit']);

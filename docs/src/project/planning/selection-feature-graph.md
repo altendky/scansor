@@ -192,11 +192,48 @@ fits may have arbitrary orientations.
 Constraint actions reference earlier fits. A later joint action solves their
 observations together under those constraints and produces separate adjusted
 results. It preserves each standalone fit and its result. Mutual geometric
-constraints do not create circular execution dependencies. The current joint
+constraints do not create circular execution dependencies. The legacy joint
 adapter supports independently offset perpendicular planes and connected coaxial
-cone/cylinder sides with disjoint observations. All planes share the axis normal. All
-surfaces inform the shared
-axis; a fixed-axis mode and broader constraint networks remain future work.
+cone/cylinder sides with disjoint observations. All planes share the axis normal
+and all surfaces inform the shared axis. The newer bounded browser slice instead
+creates an explicit axis from a manual initial value or a standalone cone or
+cylinder. Axis-bound cone, cylinder, and plane fits can evaluate with that axis
+fixed, or an explicit shared-axis joint can activate a side and plane factor set
+and free the axis in a separate result. Broader
+constraint networks remain future work.
+
+**Provisional successor direction with a first internal contract, 2026-09-20:**
+generalized model semantics make reference geometry and solve participation
+explicit rather than connect fitted surfaces through a joint-owned hidden axis.
+The compatibility-free contract now lets cylinders reference an identified axis
+line, lets a plane derive its normal from an explicitly oriented direction
+parallel to that axis, and makes each solve declare fixed/free quantities and
+active observation factors. It validates exact salvaged-selection bindings and
+compiles factor influence separately for axis position and direction. The
+operation DAG continues to own
+ordering, provenance, and invalidation, while a separate factor-graph view owns
+simultaneous influence. See the
+[reference-geometry design](reference-geometry-and-solve-graph.md). A bounded
+numerical/browser slice now exercises cone/cylinder-and-plane behavior, without
+reinterpreting the legacy joint adapter or making either internal recipe format a
+public compatibility contract.
+
+Before that successor replaces the prototype format, preserve retained
+user-authored selections through one exact-version offline conversion. Copy
+source bindings, labels, depth settings, and resolved source IDs; materialize any
+evaluated growth result as a static imported selection. Do not migrate fit,
+constraint, symmetry, joint, cached-result, or output semantics. The new runtime
+need not read the old recipe after the selected samples are converted. See
+[one-time selection salvage](reference-geometry-and-solve-graph.md#one-time-selection-salvage-not-backward-compatibility).
+
+**Implemented for discovered saved recipes, 2026-09-20:** the exact-v2 offline
+converter preserves the two checked-in memberships and the `11` selections in
+the user-saved `nozzle-actions.json`. Two older snapshots with conflicting reused
+selection IDs are retained as separate bundles rather than merged by an inferred
+precedence. One of those snapshots materializes its evaluated growth result as a
+static selection. Reports list every discarded fit/constraint/symmetry/joint
+node. The new bundle parser has no legacy recipe path; visual overlay remains a
+manual check.
 
 Growth references an earlier fit. Using its result means adding a later fit,
 possibly followed by a later joint; it cannot rewire an earlier fit to a later

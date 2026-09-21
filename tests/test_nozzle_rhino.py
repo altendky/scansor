@@ -107,6 +107,89 @@ def test_export_options_and_rejects_stale_results(
         _ = export_rhino(workspace, {**snapshot, "states": {"fit": "stale"}}, request)
 
 
+@pytest.mark.parametrize("side_kind", ["cone", "cylinder"])
+def test_shared_axis_solve_exports_all_active_surfaces(side_kind: str) -> None:
+    example = Path("examples/nozzle-bayonette-simplified")
+    workspace = NozzleWorkspace(example)
+    payload = Recipe.model_validate_json(
+        (example / "recipes/cone-plane.json").read_text()
+    ).model_dump()
+    base = {node["id"]: node for node in payload["nodes"]}
+    base["side"]["kind"] = side_kind
+    payload["nodes"] = [base[key] for key in ("scan", "outer_band", "top_face", "side")]
+    payload["nodes"].extend(
+        [
+            {
+                "id": "axis",
+                "label": "Axis",
+                "operation": "axis",
+                "source_fit": "side",
+            },
+            {
+                "id": "side_factor",
+                "label": f"{side_kind.title()} factor",
+                "operation": "fit",
+                "selections": ["outer_band"],
+                "kind": side_kind,
+                "axial_domain": [-2, 5],
+                "axis": "axis",
+            },
+            {
+                "id": "plane_factor",
+                "label": "Plane factor",
+                "operation": "fit",
+                "selections": ["top_face"],
+                "kind": "plane",
+                "axial_domain": [-2, 5],
+                "axis": "axis",
+            },
+            {
+                "id": "solve",
+                "label": "Shared solve",
+                "operation": "axis_solve",
+                "axis": "axis",
+                "factors": ["side_factor", "plane_factor"],
+            },
+        ]
+    )
+    payload["output"] = "solve"
+    graph = FeatureGraph(workspace, Recipe.model_validate(payload))
+    snapshot = cast(dict[str, Any], graph.evaluate(str(graph.snapshot()["token"])))
+    request = RhinoExportRequest(
+        token=snapshot["token"], target="solve", units="Millimeters"
+    )
+    model = rhino.File3dm.FromByteArray(export_rhino(workspace, snapshot, request))
+    fitted = [
+        obj for obj in model.Objects if obj.Attributes.GetUserString("scansor_fit_id")
+    ]
+    assert {obj.Attributes.GetUserString("scansor_fit_id") for obj in fitted} == {
+        "side_factor",
+        "plane_factor",
+    }
+    side = next(
+        obj.Geometry.Surfaces[0]
+        for obj in fitted
+        if obj.Attributes.GetUserString("scansor_fit_id") == "side_factor"
+    )
+    assert side.IsCone() if side_kind == "cone" else side.IsCylinder()
+
+    plane_request = request.model_copy(update={"target": "plane_factor"})
+    plane_model = rhino.File3dm.FromByteArray(
+        export_rhino(workspace, snapshot, plane_request)
+    )
+    plane = next(
+        obj.Geometry.Surfaces[0]
+        for obj in plane_model.Objects
+        if obj.Attributes.GetUserString("scansor_fit_id") == "plane_factor"
+    )
+    u, v = plane.Domain(0), plane.Domain(1)
+    heights = [
+        plane.PointAt(u.T0 + a * (u.T1 - u.T0), v.T0 + b * (v.T1 - v.T0)).Z
+        for a, b in ((0, 0), (0.3, 0.7), (1, 1))
+    ]
+    np.testing.assert_allclose(heights, heights[0], atol=1e-11)
+
+
 @pytest.mark.parametrize("kind,taper", [("cylinder", 0.0), ("cone", 0.2)])
 def test_exact_revolved_side(kind: str, taper: float) -> None:
     positions = np.array([[2, 0, 0], [2 + taper, 0, 1], [0, 2, 0]])
@@ -216,6 +299,161 @@ def test_symmetry_exports_identical_rotated_bounds_and_can_disable(kind: str) ->
         left = independent["0"].Surfaces[0].Domain(0)
         right = independent["1"].Surfaces[0].Domain(0)
         assert pytest.approx(right.T1 - right.T0) != left.T1 - left.T0
+
+
+@pytest.mark.parametrize("kind", ["plane", "cylinder", "cone"])
+def test_mirror_symmetry_exports_reflected_matching_bounds_and_can_disable(
+    kind: str,
+) -> None:
+    from experiments.nozzle_rhino import joint_breps
+
+    positions: list[Any] = []
+    surfaces = {}
+    for slot in range(2):
+        # Deliberately give the second member wider rectangular/axial support.
+        a, z = np.meshgrid(
+            np.linspace(-0.35, 0.45 + 0.25 * slot, 7),
+            np.linspace(0.1 - 0.3 * slot, 0.7 + 0.7 * slot, 6),
+        )
+        if kind == "plane":
+            canonical = np.column_stack(
+                [3 + a.ravel(), z.ravel(), np.full(a.size, 2.0)]
+            )
+            parameters = [0, 0, 1, 2]
+        else:
+            taper = 0.15 if kind == "cone" else 0.0
+            angle = a.ravel()
+            axial = z.ravel()
+            canonical = np.column_stack(
+                [
+                    3 + (1 + taper * axial) * np.cos(angle),
+                    (1 + taper * axial) * np.sin(angle),
+                    axial,
+                ]
+            )
+            parameters = [3 if slot == 0 else -1, 0, 0, 0, 1, 0, taper]
+        observed = canonical.copy()
+        if slot == 1:
+            observed[:, 0] = 2 - observed[:, 0]
+        ids = list(range(len(positions), len(positions) + len(observed)))
+        positions.extend(observed)
+        surfaces[str(slot)] = {
+            "kind": kind,
+            "parameters": parameters,
+            "ids": ids,
+            "axial_domain": (-2, 5),
+        }
+    result = {
+        "surfaces": surfaces,
+        "axis_display": [0, 0, 1],
+        "point_display": [0, 0, 0],
+        "mirror_planes": {"mirror_plane": {"plane_equation": [1, 0, 0, 1]}},
+    }
+    constraint = {
+        "operation": "mirror_symmetry",
+        "plane": "mirror_plane",
+        "surfaces": ["0", "1"],
+    }
+    patches = joint_breps(result, [constraint], np.array(positions))
+    model = rhino.File3dm()
+    for patch in patches.values():
+        _ = model.Objects.AddBrep(patch)
+    import base64
+
+    reread = rhino.File3dm.FromByteArray(base64.b64decode(model.Encode()))
+
+    def canonical_bounds(index: int) -> tuple[np.ndarray, np.ndarray]:
+        bounds = reread.Objects[index].Geometry.GetBoundingBox()
+        corners = np.array(
+            [
+                [x, y, z]
+                for x in (bounds.Min.X, bounds.Max.X)
+                for y in (bounds.Min.Y, bounds.Max.Y)
+                for z in (bounds.Min.Z, bounds.Max.Z)
+            ]
+        )
+        if index == 1:
+            corners[:, 0] = 2 - corners[:, 0]
+        return corners.min(axis=0), corners.max(axis=0)
+
+    first, second = canonical_bounds(0), canonical_bounds(1)
+    np.testing.assert_allclose(first, second, atol=1e-11)
+
+    independent = joint_breps(
+        result, [{**constraint, "symmetric_extents": False}], np.array(positions)
+    )
+    if kind == "plane":
+        left = independent["0"].GetBoundingBox()
+        right = independent["1"].GetBoundingBox()
+        assert right.Max.X - right.Min.X > left.Max.X - left.Min.X
+    else:
+        heights = [
+            independent[str(slot)].GetBoundingBox().Max.Z
+            - independent[str(slot)].GetBoundingBox().Min.Z
+            for slot in range(2)
+        ]
+        assert heights[1] > heights[0] * 1.5
+
+
+def test_axis_solve_export_passes_mirror_factors_to_symmetric_bounding(
+    evaluated: tuple[NozzleWorkspace, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from copy import deepcopy
+
+    import experiments.nozzle_rhino as nozzle_rhino
+
+    workspace, source = evaluated
+    snapshot = deepcopy(source)
+    snapshot["recipe"]["nodes"].extend(
+        [
+            {
+                "id": "reference_plane",
+                "label": "Mirror plane",
+                "operation": "reference_plane",
+                "axis": "side",
+                "initial_angle_degrees": 0,
+            },
+            {
+                "id": "mirror",
+                "label": "Mirror relationship",
+                "operation": "mirror_symmetry",
+                "plane": "reference_plane",
+                "surfaces": ["side", "end"],
+                "symmetric_extents": True,
+            },
+            {
+                "id": "solve",
+                "label": "Mirror solve",
+                "operation": "axis_solve",
+                "axis": "side",
+                "factors": ["side", "end", "mirror"],
+            },
+        ]
+    )
+    snapshot["recipe"]["output"] = "solve"
+    snapshot["states"]["solve"] = "ready"
+    snapshot["results"]["solve"] = deepcopy(snapshot["result"])
+    captured: list[dict[str, Any]] = []
+
+    def capture_relationships(
+        result: dict[str, Any], relationships: list[dict[str, Any]], positions: Any
+    ) -> dict[str, Any]:
+        captured.extend(relationships)
+        return {
+            id: surface_brep(surface, positions)
+            for id, surface in result["surfaces"].items()
+        }
+
+    monkeypatch.setattr(nozzle_rhino, "joint_breps", capture_relationships)
+    request = RhinoExportRequest(
+        token=snapshot["token"],
+        target="solve",
+        units="Millimeters",
+        include_mesh=False,
+    )
+    model = rhino.File3dm.FromByteArray(export_rhino(workspace, snapshot, request))
+    assert len(model.Objects) == 2
+    assert [relationship["id"] for relationship in captured] == ["mirror"]
 
 
 def test_origin_plane_places_constrained_plane_at_zero(

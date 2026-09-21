@@ -62,7 +62,10 @@ aside input:not([type="checkbox"]):not([type="range"]) { display: block; width: 
 aside select[multiple] { min-height: 80px; }
 details { margin: 12px 0; }
 
-#creation-toolbar { display: flex; flex-shrink: 0; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #344351; }
+#creation-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #344351; }
+#creation-toolbar .toolbar-separator { align-self: stretch; border-left: 1px solid #4b6175; }
+#creation-toolbar .toolbar-check { display: flex; align-items: center; gap: 6px; margin: 0; white-space: nowrap; font-size: 12px; }
+#creation-toolbar .toolbar-check input { accent-color: #77d3ea; }
 aside { display: grid; grid-template-rows: minmax(0, var(--tree-height, 40%)) 8px minmax(0, 1fr); overflow: hidden; padding: 0; }
 #features-panel, #feature-properties-panel { overflow: auto; min-height: 0; padding: 16px; overscroll-behavior: contain; }
 #features-panel { padding-top: 8px; padding-bottom: 8px; }

@@ -165,6 +165,14 @@ export function featureVertexIds(nodes, memberships, featureId) {
     const inputs =
       node.operation === 'fit'
         ? node.selections
+        : node.operation === 'axis'
+          ? node.source_fit
+            ? [node.source_fit]
+            : []
+          : node.operation === 'axis_solve'
+            ? node.factors
+          : node.operation === 'reference_plane'
+            ? [node.axis]
         : node.operation === 'joint_fit'
           ? node.constraints
           : node.operation === 'coaxial'
@@ -173,6 +181,8 @@ export function featureVertexIds(nodes, memberships, featureId) {
               ? [node.lateral, node.plane]
               : node.operation === 'rotational_symmetry'
                 ? [node.axis, ...node.planes]
+                : node.operation === 'mirror_symmetry'
+                  ? node.surfaces
                 : [];
     inputs.forEach(visit);
   }
@@ -189,5 +199,16 @@ export function rotationalFitInputs(nodes, ids) {
     throw new Error(
       'Rotational symmetry requires three fits of the same type. Fit types are not changed.',
     );
+  return [...ids];
+}
+
+export function mirrorFitInputs(nodes, ids) {
+  const fits = ids.map((id) => nodes.find((node) => node.id === id));
+  if (ids.length !== 2 || new Set(ids).size !== 2 || fits.some((fit) => fit?.operation !== 'fit'))
+    throw new Error('Choose two distinct existing fits. Create fits for selections first.');
+  if (fits.some((fit) => fit.axis))
+    throw new Error('Mirror symmetry requires standalone fits; axis-bound fits are already symmetric.');
+  if (new Set(fits.map((fit) => fit.kind)).size !== 1)
+    throw new Error('Mirror symmetry requires two fits of the same type. Fit types are not changed.');
   return [...ids];
 }

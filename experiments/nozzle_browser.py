@@ -14,11 +14,63 @@ from typing import Any, ClassVar, cast, override
 
 from pydantic import ValidationError
 
-from experiments.feature_graph import FeatureGraph, GraphRequest, Recipe, StaleGraph
+from experiments.feature_graph import (
+    FeatureGraph,
+    GraphRequest,
+    Recipe,
+    Selection,
+    Source,
+    StaleGraph,
+    workspace_reference_sha256,
+)
 from experiments.nozzle_rhino import RhinoExportRequest, export_rhino
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from scansor.selection_bundle import SelectionBundle
 
 ASSETS = Path(__file__).with_name("browser_viewer")
+
+
+def selection_bundle_recipe(workspace: NozzleWorkspace, bundle_path: Path) -> Recipe:
+    """Start a fresh action graph from compatibility-free retained selections."""
+    bundle = SelectionBundle.model_validate_json(bundle_path.read_bytes())
+    if len(bundle.sources) != 1:
+        raise ValueError("the nozzle viewer requires exactly one selection source")
+    source = bundle.sources[0]
+    if (
+        source.source_sha256 != workspace.default.source_sha256
+        or source.vertex_count != len(workspace.local)
+    ):
+        raise ValueError("selection bundle belongs to another source mesh")
+    selections: list[Selection] = []
+    for item in bundle.selections:
+        if item.source_id != source.source_id or item.depth_mode is None:
+            raise ValueError(
+                "the interactive viewer requires source-bound selections with depth"
+            )
+        selections.append(
+            Selection(
+                id=item.selection_id,
+                label=item.label,
+                operation="selection",
+                source=source.source_id,
+                ids=list(item.vertex_ids),
+                depth=item.depth_mode,
+            )
+        )
+    return Recipe(
+        schema_version=2,
+        nodes=[
+            Source(
+                id=source.source_id,
+                label=source.label,
+                operation="source",
+                source_sha256=source.source_sha256,
+                reference_sha256=workspace_reference_sha256(workspace),
+            ),
+            *selections,
+        ],
+        output=selections[-1].id,
+    )
 
 
 class NozzleServer(ThreadingHTTPServer):
@@ -32,15 +84,13 @@ class NozzleServer(ThreadingHTTPServer):
         self.lock: threading.Lock = threading.Lock()
         self.job: Future[SessionFit] | None = None
         self.graph_job: Future[dict[str, object]] | None = None
-        self.graph: FeatureGraph = FeatureGraph(
-            workspace,
-            recipe
-            or Recipe.model_validate_json(
-                Path(
-                    "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
-                ).read_text()
-            ),
+        initial_recipe = recipe or Recipe.model_validate_json(
+            Path(
+                "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
+            ).read_text()
         )
+        self.example_recipe: Recipe = initial_recipe.model_copy(deep=True)
+        self.graph: FeatureGraph = FeatureGraph(workspace, initial_recipe)
         self.graph_job_token: str = ""
         self.job_id: str = ""
         self.buffers: dict[str, bytes] = {
@@ -124,14 +174,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/meta":
             self.json_reply(200, self.app.workspace.metadata())
         elif self.path == "/api/graph/example":
-            self.json_reply(
-                200,
-                Recipe.model_validate_json(
-                    Path(
-                        "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
-                    ).read_text()
-                ).model_dump(),
-            )
+            self.json_reply(200, self.app.example_recipe.model_dump())
         elif self.path == "/api/graph":
             state = self.app.graph.snapshot()
             with self.app.lock:
@@ -222,7 +265,10 @@ class Handler(BaseHTTPRequestHandler):
                             raise StaleGraph("graph changed before evaluation")
                         self.app.graph_job_token = payload.token
                         self.app.graph_job = self.app.worker.submit(
-                            self.app.graph.evaluate, payload.token, payload.target
+                            self.app.graph.evaluate,
+                            payload.token,
+                            payload.target,
+                            payload.all_actions,
                         )
                     self.json_reply(202, {"status": "running"})
                 return
@@ -254,7 +300,7 @@ def main() -> None:
     _ = parser.add_argument(
         "--recipe",
         type=Path,
-        default=Path("examples/nozzle-bayonette-simplified/recipes/cone-plane.json"),
+        help="Start from an action recipe instead of the retained selection bundle",
     )
     _ = parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
@@ -262,11 +308,15 @@ def main() -> None:
         parser.error(
             "run npm ci --ignore-scripts --prefix experiments/browser_viewer first"
         )
-    with NozzleServer(
-        NozzleWorkspace(args.example),
-        args.port,
-        Recipe.model_validate_json(args.recipe.read_text()),
-    ) as server:
+    workspace = NozzleWorkspace(args.example)
+    recipe = (
+        Recipe.model_validate_json(args.recipe.read_text())
+        if args.recipe is not None
+        else selection_bundle_recipe(
+            workspace, args.example / "selections/user-selection-bundle.json"
+        )
+    )
+    with NozzleServer(workspace, args.port, recipe) as server:
         print(
             f"Nozzle selection experiment: http://127.0.0.1:{server.server_port}/",
             flush=True,

@@ -7,6 +7,7 @@ import {
   selectionProjection,
   brushHits,
   featureVertexIds,
+  mirrorFitInputs,
   rotationalFitInputs,
 } from './selection.js';
 
@@ -67,6 +68,11 @@ function clearGuides() {
 function graphNode(id) {
   return graphState.recipe.nodes.find((n) => n.id === id);
 }
+function factorAxis(node) {
+  if (node?.operation === 'fit') return node.axis;
+  if (node?.operation === 'mirror_symmetry') return graphNode(node.plane)?.axis;
+  return null;
+}
 function activeSelection() {
   return graphState?.recipe.nodes.find(
     (node) => node.id === selectedFeatureId && node.operation === 'selection',
@@ -76,6 +82,20 @@ function choices(id, nodes, selected = []) {
   $(id).replaceChildren(
     ...nodes.map((n) => new Option(n.label, n.id, false, selected.includes(n.id))),
   );
+}
+function axisChoices(id, nodes, selected = [], standalone = false) {
+  choices(id, nodes, selected);
+  if (standalone)
+    $(id).prepend(new Option('No reference axis (standalone)', '', false, !selected.length));
+}
+function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId) {
+  const manual = $(modeId).value === 'free';
+  $(sourceFieldsId).hidden = manual;
+  $(manualFieldsId).hidden = !manual;
+  for (const control of $(sourceFieldsId).querySelectorAll('input, select'))
+    control.disabled = manual;
+  for (const control of $(manualFieldsId).querySelectorAll('input, select'))
+    control.disabled = !manual;
 }
 const chosen = (id) => [...$(id).selectedOptions].map((o) => o.value);
 const uid = (prefix) => prefix + '_' + crypto.randomUUID().replaceAll('-', '');
@@ -92,10 +112,11 @@ async function change(next, region, depth) {
   node.depth = depth;
   await replaceRecipe(recipe);
 }
-async function replaceRecipe(recipe) {
+async function replaceRecipe(recipe, autoEvaluate = true) {
   try {
     acceptGraph(await request('/api/graph', { token: graphState.token, recipe }));
     status('Actions updated. Evaluate to refresh dependent results.');
+    if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void evaluateAll(), 0);
     return true;
   } catch (error) {
     acceptGraph(await request('/api/graph'));
@@ -103,12 +124,17 @@ async function replaceRecipe(recipe) {
     return false;
   }
 }
-async function appendActions(nodes) {
+async function appendActions(nodes, autoEvaluate = true) {
   const recipe = structuredClone(graphState.recipe);
   recipe.nodes.push(...nodes);
   recipe.output = nodes.at(-1).id;
   selectedFeatureId = recipe.output;
-  return replaceRecipe(recipe);
+  const saved = await replaceRecipe(recipe, autoEvaluate);
+  if (saved)
+    $('action-list')
+      .querySelector(`[data-action-id="${CSS.escape(selectedFeatureId)}"].action-select`)
+      ?.scrollIntoView({ block: 'nearest' });
+  return saved;
 }
 function acceptGraph(state) {
   graphState = state;
@@ -122,17 +148,29 @@ function acceptGraph(state) {
     [selectedFeatureId],
   );
   const fits = state.recipe.nodes.filter((n) => n.operation === 'fit');
+  const axes = state.recipe.nodes.filter((n) => n.operation === 'axis');
+  axisChoices('new-fit-axis', axes, [], true);
+  choices('new-reference-plane-axis', axes);
+  choices(
+    'new-mirror-plane',
+    state.recipe.nodes.filter((n) => n.operation === 'reference_plane'),
+  );
+  choices(
+    'new-axis-source',
+    fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && !n.axis),
+  );
+  choices('new-axis-solve-axis', axes);
   choices(
     'new-joint-side',
-    fits.filter((n) => n.kind !== 'plane'),
+    fits.filter((n) => n.kind !== 'plane' && !n.axis),
   );
   choices(
     'new-joint-plane',
-    fits.filter((n) => n.kind === 'plane'),
+    fits.filter((n) => n.kind === 'plane' && !n.axis),
   );
   choices(
     'new-joint-extra',
-    fits.filter((n) => n.kind !== 'plane'),
+    fits.filter((n) => n.kind !== 'plane' && !n.axis),
   );
   renderActions();
   showProperties();
@@ -178,13 +216,19 @@ function showProperties() {
       refs(node)
         .map((id) => graphNode(id).label)
         .join(', ')
-    : 'Captured source mesh.';
+    : node.operation === 'source'
+      ? 'Captured source mesh.'
+      : 'No earlier action inputs.';
   for (const [id, enabled] of [
     ['fit-properties', node.operation === 'fit'],
+    ['axis-properties', node.operation === 'axis'],
+    ['reference-plane-properties', node.operation === 'reference_plane'],
+    ['axis-solve-properties', node.operation === 'axis_solve'],
     ['growth-properties', node.operation === 'growth'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
+    ['mirror-properties', node.operation === 'mirror_symmetry'],
   ])
     $(id).hidden = !enabled;
   if (node.operation === 'fit') {
@@ -194,12 +238,54 @@ function showProperties() {
       earlier.filter((n) => ['selection', 'growth'].includes(n.operation)),
       node.selections,
     );
+    axisChoices(
+      'fit-axis',
+      earlier.filter((n) => n.operation === 'axis'),
+      node.axis ? [node.axis] : [],
+      true,
+    );
     $('axial-start').value = node.axial_domain[0];
     $('axial-end').value = node.axial_domain[1];
+  } else if (node.operation === 'axis') {
+    $('axis-init-mode').value = node.source_fit ? 'fit' : 'free';
+    choices(
+      'axis-source-fit',
+      earlier.filter(
+        (n) => n.operation === 'fit' && ['cone', 'cylinder'].includes(n.kind) && !n.axis,
+      ),
+      node.source_fit ? [node.source_fit] : [],
+    );
+    const initial = node.initial_parameters || [0, 0, 0, 0];
+    ['axis-point-x', 'axis-point-y', 'axis-direction-x', 'axis-direction-y'].forEach(
+      (id, index) => ($(id).value = initial[index]),
+    );
+    showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
+  } else if (node.operation === 'reference_plane') {
+    choices(
+      'reference-plane-axis',
+      earlier.filter((n) => n.operation === 'axis'),
+      [node.axis],
+    );
+    $('reference-plane-angle').value = node.initial_angle_degrees;
+  } else if (node.operation === 'axis_solve') {
+    choices(
+      'axis-solve-axis',
+      earlier.filter((n) => n.operation === 'axis'),
+      [node.axis],
+    );
+    choices(
+      'axis-solve-factors',
+      earlier.filter(
+        (n) =>
+          (n.operation === 'fit' || n.operation === 'mirror_symmetry') &&
+          factorAxis(n) === node.axis,
+      ),
+      node.factors,
+    );
   } else if (node.operation === 'growth') {
     choices(
       'growth-fit',
-      earlier.filter((n) => n.operation === 'fit'),
+      earlier.filter((n) => n.operation === 'fit' && !n.axis),
       [node.seed_fit],
     );
     choices(
@@ -212,7 +298,7 @@ function showProperties() {
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
       'constraint-a',
-      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane'),
+      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane' && !n.axis),
       [node.surface || node.lateral],
     );
     choices(
@@ -220,6 +306,7 @@ function showProperties() {
       earlier.filter(
         (n) =>
           n.operation === 'fit' &&
+          !n.axis &&
           (node.operation === 'coaxial' ? n.kind !== 'plane' : n.kind === 'plane'),
       ),
       [node.reference || node.plane],
@@ -228,16 +315,30 @@ function showProperties() {
     $('rotation-extents').checked = node.symmetric_extents !== false;
     choices(
       'rotation-axis',
-      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane'),
+      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane' && !n.axis),
       [node.axis],
     );
     node.planes.forEach((id, i) =>
       choices(
         'rotation-input-' + i,
-        earlier.filter((n) => n.operation === 'fit'),
+        earlier.filter((n) => n.operation === 'fit' && !n.axis),
         [id],
       ),
     );
+  } else if (node.operation === 'mirror_symmetry') {
+    choices(
+      'mirror-plane',
+      earlier.filter((n) => n.operation === 'reference_plane'),
+      [node.plane],
+    );
+    node.surfaces.forEach((id, i) =>
+      choices(
+        'mirror-input-' + i,
+        earlier.filter((n) => n.operation === 'fit' && !n.axis),
+        [id],
+      ),
+    );
+    $('mirror-extents').checked = node.symmetric_extents !== false;
   } else if (node.operation === 'joint_fit')
     choices(
       'joint-inputs',
@@ -250,7 +351,9 @@ function showProperties() {
     const used = new Set(node.constraints.flatMap((id) => refs(graphNode(id))));
     choices(
       'joint-add-fits',
-      graphState.recipe.nodes.filter((n) => n.operation === 'fit' && !used.has(n.id)),
+      graphState.recipe.nodes.filter(
+        (n) => n.operation === 'fit' && !n.axis && !used.has(n.id),
+      ),
     );
   }
   const dependents = graphState.recipe.nodes.filter((n) => refs(n).includes(node.id));
@@ -259,8 +362,80 @@ function showProperties() {
     ? 'Referenced by ' + dependents.map((n) => n.label).join(', ')
     : 'Delete this unused action';
   $('fit').textContent = 'Evaluate ' + node.label;
-  $('propose-growth').hidden = node.operation !== 'fit';
+  $('propose-growth').hidden = node.operation !== 'fit' || !!node.axis;
   $('use-growth').hidden = node.operation !== 'growth';
+}
+function axisGuide(axisValues, color = '#ffd166') {
+  const axis = new THREE.Vector3(...axisValues.axis_display).normalize();
+  const point = new THREE.Vector3(...axisValues.point_display);
+  const domain = metadata?.axial_domain || [-2, 5];
+  const endpoints = domain.map((distance) => point.clone().addScaledVector(axis, distance));
+  overlays.add(
+    new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(endpoints),
+      new THREE.LineBasicMaterial({
+        color,
+        depthTest: false,
+        transparent: true,
+        opacity: 1,
+      }),
+    ),
+  );
+  overlays.add(
+    new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints([endpoints[0], point, endpoints[1]]),
+      new THREE.PointsMaterial({ color, depthTest: false, size: 7, sizeAttenuation: false }),
+    ),
+  );
+}
+function axisPreview(node) {
+  let parameters = node.initial_parameters;
+  if (!parameters && node.source_fit) parameters = graphState.results[node.source_fit]?.parameters;
+  if (!parameters) return null;
+  const axis = new THREE.Vector3(parameters[2], parameters[3], 1).normalize();
+  return {
+    axis_display: axis.toArray(),
+    point_display: [parameters[0], parameters[1], 0],
+  };
+}
+function referencePlanePreview(node) {
+  const axisNode = graphNode(node.axis);
+  const values = graphState.results[node.axis] || axisPreview(axisNode);
+  if (!values) return null;
+  const axis = new THREE.Vector3(...values.axis_display).normalize();
+  const basis = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+  const reference = basis.sort((a, b) => Math.abs(axis.dot(a)) - Math.abs(axis.dot(b)))[0];
+  const u = new THREE.Vector3().crossVectors(axis, reference).normalize();
+  const v = new THREE.Vector3().crossVectors(axis, u);
+  const angle = (node.initial_angle_degrees * Math.PI) / 180;
+  const radial = u.multiplyScalar(Math.cos(angle)).addScaledVector(v, Math.sin(angle));
+  return {
+    axis_display: axis.toArray(),
+    point_display: values.point_display,
+    radial_display: radial.toArray(),
+    normal_display: new THREE.Vector3().crossVectors(axis, radial).toArray(),
+    angle_degrees: node.initial_angle_degrees,
+  };
+}
+function referencePlaneGuide(values, color = '#ff8fe5') {
+  const axis = new THREE.Vector3(...values.axis_display).normalize();
+  const radial = new THREE.Vector3(...values.radial_display).normalize();
+  const point = new THREE.Vector3(...values.point_display);
+  const domain = metadata?.axial_domain || [-2, 5];
+  const halfWidth = Math.max(1, (domain[1] - domain[0]) * 0.35);
+  const corners = [
+    point.clone().addScaledVector(axis, domain[0]).addScaledVector(radial, -halfWidth),
+    point.clone().addScaledVector(axis, domain[0]).addScaledVector(radial, halfWidth),
+    point.clone().addScaledVector(axis, domain[1]).addScaledVector(radial, halfWidth),
+    point.clone().addScaledVector(axis, domain[1]).addScaledVector(radial, -halfWidth),
+  ];
+  corners.push(corners[0]);
+  overlays.add(
+    new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(corners),
+      new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.9 }),
+    ),
+  );
 }
 function surfaceGuide(kind, p, domain, color, ids = []) {
   let axis, point;
@@ -329,6 +504,44 @@ function surfaceGuide(kind, p, domain, color, ids = []) {
     }
   }
 }
+function fitGuide(node, fitted, color) {
+  let parameters = fitted.plane_equation || fitted.parameters;
+  if (node.kind === 'plane' && !fitted.plane_equation && parameters.length > 4) {
+    const normal = new THREE.Vector3(parameters[2], parameters[3], 1).normalize();
+    parameters = [...normal.toArray(), parameters[5]];
+  }
+  surfaceGuide(
+    node.kind,
+    parameters,
+    fitted.axial_domain || node.axial_domain,
+    color,
+    fitted.ids,
+  );
+}
+function showAvailableGuides() {
+  if (!$('all-guides').checked) return;
+  const selected = graphNode(selectedFeatureId);
+  const selectedResult = graphState.results[selectedFeatureId];
+  const renderedBySelected = new Set([
+    ...Object.keys(selectedResult?.surfaces || {}),
+    ...Object.keys(selectedResult?.mirror_planes || {}),
+    ...(['axis_solve'].includes(selected?.operation) ? [selected.axis] : []),
+  ]);
+  let colorIndex = 0;
+  for (const node of graphState.recipe.nodes) {
+    if (node.id === selectedFeatureId || renderedBySelected.has(node.id)) continue;
+    const fitted = graphState.results[node.id];
+    if (node.operation === 'axis') {
+      const values = fitted || axisPreview(node);
+      if (values) axisGuide(values, '#f4cf72');
+    } else if (node.operation === 'reference_plane') {
+      const values = fitted || referencePlanePreview(node);
+      if (values) referencePlaneGuide(values);
+    } else if (node.operation === 'fit' && fitted) {
+      fitGuide(node, fitted, palette[colorIndex++ % palette.length]);
+    }
+  }
+}
 function overlapDiagnostic() {
   const diagnostics = graphState.diagnostics || {};
   if (diagnostics[selectedFeatureId]?.kind === 'selection_overlap')
@@ -377,21 +590,28 @@ function showOverlap() {
 function showResult() {
   result = graphState.results[selectedFeatureId] || null;
   clearGuides();
+  showAvailableGuides();
   $('metrics').replaceChildren();
   if (!result) {
     const node = graphNode(selectedFeatureId);
-    if (['coaxial', 'perpendicular', 'rotational_symmetry'].includes(node.operation)) {
+    if (node.operation === 'axis') {
+      const preview = axisPreview(node);
+      if (preview) axisGuide(preview);
+    } else if (node.operation === 'reference_plane') {
+      const preview = referencePlanePreview(node);
+      if (preview) referencePlaneGuide(preview);
+    } else if (
+      ['coaxial', 'perpendicular', 'rotational_symmetry', 'mirror_symmetry'].includes(
+        node.operation,
+      )
+    ) {
       refs(node).forEach((id, i) => {
         const fit = graphState.results[id],
           surface = graphNode(id);
-        if (fit)
-          surfaceGuide(
-            surface.kind,
-            fit.parameters,
-            surface.axial_domain,
-            palette[i % palette.length],
-            fit.ids,
-          );
+        if (!fit) return;
+        if (surface.operation === 'reference_plane') referencePlaneGuide(fit);
+        else if (surface.operation === 'axis') axisGuide(fit);
+        else fitGuide(surface, fit, palette[i % palette.length]);
       });
     }
     return;
@@ -399,11 +619,11 @@ function showResult() {
   const node = graphNode(selectedFeatureId),
     values = {};
   if (node.operation === 'fit') {
-    surfaceGuide(node.kind, result.parameters, node.axial_domain, '#66dbe9', result.ids);
+    fitGuide(node, result, '#66dbe9');
     values['Weighted RMS'] = result.weighted_rms.toFixed(5);
     values['Condition'] = result.condition.toExponential(3);
     if (node.kind === 'plane')
-      values['Plane normal'] = result.parameters
+      values['Plane normal'] = (result.plane_equation || result.parameters)
         .slice(0, 3)
         .map((v) => v.toFixed(4))
         .join(', ');
@@ -411,16 +631,21 @@ function showResult() {
       values['Diameter'] = (2 * result.parameters[4]).toFixed(5);
       values['Half-angle'] = ((Math.atan(result.parameters[6]) * 180) / Math.PI).toFixed(4) + '°';
     }
-  } else if (node.operation === 'joint_fit') {
+  } else if (node.operation === 'axis') {
+    axisGuide(result);
+    values['Initialized by'] = node.source_fit ? graphNode(node.source_fit).label : 'Manual value';
+    values['Direction'] = result.axis_display.map((v) => v.toFixed(5)).join(', ');
+  } else if (node.operation === 'reference_plane') {
+    referencePlaneGuide(result);
+    values['Initial clocking'] = `${result.angle_degrees.toFixed(4)}°`;
+    values['Normal'] = result.normal_display.map((v) => v.toFixed(5)).join(', ');
+  } else if (['joint_fit', 'axis_solve'].includes(node.operation)) {
+    axisGuide(result, '#ffd166');
+    for (const plane of Object.values(result.mirror_planes || {}))
+      referencePlaneGuide(plane, '#ff8fe5');
     values['Combined RMS'] = result.fit.weighted_rms.toFixed(5);
     Object.entries(result.surfaces).forEach(([id, s], i) => {
-      let p = s.parameters;
-      if (s.plane_equation) p = s.plane_equation;
-      else if (s.kind === 'plane') {
-        const n = new THREE.Vector3(p[2], p[3], 1).normalize();
-        p = [...n.toArray(), p[5]];
-      }
-      surfaceGuide(s.kind, p, s.axial_domain, palette[i % palette.length], s.ids);
+      fitGuide(graphNode(id), s, palette[i % palette.length]);
       values[graphNode(id).label + ' adjusted RMS'] = s.weighted_rms.toFixed(5);
     });
   } else if (node.operation === 'growth') {
@@ -514,20 +739,33 @@ function paint() {
     busy ||
     selectionDrawing ||
     selectionPending ||
-    ['coaxial', 'perpendicular', 'rotational_symmetry'].includes(
+    ['coaxial', 'perpendicular', 'rotational_symmetry', 'mirror_symmetry'].includes(
       graphNode(selectedFeatureId).operation,
     );
+  $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
   $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
   $('use-growth').disabled = busy || !graphState.results[selectedFeatureId];
   draw();
 }
 async function fit() {
+  return evaluateGraph(false, selectedFeatureId);
+}
+async function evaluateAll() {
+  return evaluateGraph(true);
+}
+async function evaluateGraph(allActions, target = null) {
   if (busy) return;
   busy = true;
+  document.querySelector('aside').inert = true;
+  $('creation-toolbar').inert = true;
+  $('project-toolbar').inert = true;
   paint();
-  status('Evaluating action and earlier inputs…');
+  status(allActions ? 'Evaluating all actions…' : 'Evaluating action and earlier inputs…');
   try {
-    await request('/api/graph/evaluate', { token: graphState.token, target: selectedFeatureId });
+    await request('/api/graph/evaluate', {
+      token: graphState.token,
+      ...(allActions ? { all_actions: true } : { target }),
+    });
     let state;
     do {
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -535,11 +773,18 @@ async function fit() {
       acceptGraph(state);
     } while (state.evaluation_running);
     if (state.evaluation_error) throw new Error(state.evaluation_error);
-    status('Evaluation complete. Select another action to compare its retained result.');
+    status(
+      allActions
+        ? 'All actions evaluated. Available fits and references are shown together.'
+        : 'Evaluation complete. Select another action to inspect its retained result.',
+    );
   } catch (error) {
     status(error.message, true);
   } finally {
     busy = false;
+    document.querySelector('aside').inert = false;
+    $('creation-toolbar').inert = false;
+    $('project-toolbar').inert = false;
     paint();
   }
 }
@@ -777,6 +1022,10 @@ async function start() {
   $('save').disabled = false;
   $('tool').onchange = paint;
   $('fit').onclick = fit;
+  $('evaluate-all').onclick = evaluateAll;
+  $('auto-evaluate').onchange = () => {
+    if ($('auto-evaluate').checked) void evaluateAll();
+  };
   $('inspect-overlap').onclick = () => {
     selectedFeatureId = activeOverlap;
     renderActions();
@@ -789,6 +1038,12 @@ async function start() {
     const nodes = graphState.recipe.nodes;
     const target = nodes.find((n) => n.id === $('export-target').value);
     const ids = new Set([target?.id]);
+    for (const id of target?.factors || []) {
+      ids.add(id);
+      const factor = nodes.find((n) => n.id === id);
+      if (factor?.operation === 'mirror_symmetry')
+        for (const surface of factor.surfaces) ids.add(surface);
+    }
     for (const id of target?.constraints || []) {
       const constraint = nodes.find((n) => n.id === id);
       for (const ref of [constraint?.plane, ...(constraint?.planes || [])]) ids.add(ref);
@@ -808,11 +1063,11 @@ async function start() {
   $('export-axis-up').onchange = updateExportPlanes;
   $('export-rhino').onclick = () => {
     const targets = graphState.recipe.nodes.filter((n) =>
-      ['fit', 'joint_fit'].includes(n.operation),
+      ['fit', 'joint_fit', 'axis_solve'].includes(n.operation),
     );
     choices('export-target', targets, [
       targets.find((n) => n.id === selectedFeatureId)?.id ||
-        targets.find((n) => n.operation === 'joint_fit')?.id,
+        targets.find((n) => ['axis_solve', 'joint_fit'].includes(n.operation))?.id,
     ]);
     updateExportPlanes();
     $('export-error').textContent = '';
@@ -870,13 +1125,216 @@ async function start() {
       graphState.recipe.nodes.filter((node) => ['selection', 'growth'].includes(node.operation)),
       [selectedFeatureId],
     );
+    axisChoices(
+      'new-fit-axis',
+      graphState.recipe.nodes.filter((node) => node.operation === 'axis'),
+      [],
+      true,
+    );
     $('fit-dialog').showModal();
+  };
+  const updateAxisSolveFactors = () => {
+    const axis = $('new-axis-solve-axis').value;
+    choices(
+      'new-axis-solve-factors',
+      graphState.recipe.nodes.filter(
+        (node) =>
+          (node.operation === 'fit' || node.operation === 'mirror_symmetry') &&
+          factorAxis(node) === axis,
+      ),
+    );
+  };
+  $('new-axis').onclick = () => {
+    const sources = graphState.recipe.nodes.filter(
+      (node) =>
+        node.operation === 'fit' && ['cone', 'cylinder'].includes(node.kind) && !node.axis,
+    );
+    choices(
+      'new-axis-source',
+      sources,
+      [selectedFeatureId],
+    );
+    $('new-axis-mode').value = 'free';
+    showAxisInitializer(
+      'new-axis-mode',
+      'new-axis-source-fields',
+      'new-axis-manual-fields',
+    );
+    $('axis-dialog').showModal();
+  };
+  $('new-reference-plane').onclick = () => {
+    const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
+    if (!axes.length) {
+      status('Create an explicit axis before creating a reference plane.', true);
+      return;
+    }
+    choices('new-reference-plane-axis', axes, [graphNode(selectedFeatureId)?.axis || selectedFeatureId]);
+    $('reference-plane-dialog').showModal();
+  };
+  const updateMirrorChoices = () => {
+    const fits = graphState.recipe.nodes.filter((node) => node.operation === 'fit' && !node.axis);
+    const first = fits.find((fit) => fit.id === selectedFeatureId) || fits[0];
+    const second = fits.find((fit) => fit.id !== first?.id);
+    choices('new-mirror-input-0', fits, [first?.id]);
+    choices('new-mirror-input-1', fits, [second?.id]);
+  };
+  $('new-mirror').onclick = () => {
+    const planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
+    if (!planes.length) {
+      status('Create a reference plane through an axis before adding mirror symmetry.', true);
+      return;
+    }
+    if (graphState.recipe.nodes.filter((node) => node.operation === 'fit' && !node.axis).length < 2) {
+      status('Create two standalone fits before adding mirror symmetry.', true);
+      return;
+    }
+    choices('new-mirror-plane', planes, [graphNode(selectedFeatureId)?.plane || selectedFeatureId]);
+    updateMirrorChoices();
+    $('mirror-error').textContent = '';
+    $('mirror-dialog').showModal();
+  };
+  $('new-axis-solve').onclick = () => {
+    const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
+    if (!axes.length) {
+      status('Create an explicit axis before creating a shared-axis joint.', true);
+      return;
+    }
+    choices(
+      'new-axis-solve-axis',
+      axes,
+      [graphNode(selectedFeatureId)?.axis || selectedFeatureId],
+    );
+    updateAxisSolveFactors();
+    $('axis-solve-error').textContent = '';
+    $('axis-solve-dialog').showModal();
+  };
+  $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
+  $('new-axis-mode').onchange = () =>
+    showAxisInitializer(
+      'new-axis-mode',
+      'new-axis-source-fields',
+      'new-axis-manual-fields',
+    );
+  $('axis-init-mode').onchange = () =>
+    showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
+  $('axis-solve-axis').onchange = () => {
+    const axis = $('axis-solve-axis').value;
+    choices(
+      'axis-solve-factors',
+      graphState.recipe.nodes.filter(
+        (node) =>
+          (node.operation === 'fit' || node.operation === 'mirror_symmetry') &&
+          factorAxis(node) === axis,
+      ),
+    );
+  };
+  $('add-axis-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const fromFit = $('new-axis-mode').value === 'fit',
+      sourceId = $('new-axis-source').value,
+      source = graphNode(sourceId);
+    if (fromFit && !source) {
+      status('Create a standalone cone or cylinder fit first.', true);
+      return;
+    }
+    const axis = {
+      id: uid('axis'),
+      label: $('new-axis-label').value,
+      operation: 'axis',
+      ...(fromFit
+        ? { source_fit: sourceId }
+        : {
+            initial_parameters: [
+              Number($('new-axis-point-x').value),
+              Number($('new-axis-point-y').value),
+              Number($('new-axis-direction-x').value),
+              Number($('new-axis-direction-y').value),
+            ],
+          }),
+    };
+    const nodes = [axis];
+    if (fromFit && $('new-axis-clone').checked)
+      nodes.push({
+        id: uid('fit'),
+        label: (source.label + ' axis factor').slice(0, 120),
+        operation: 'fit',
+        selections: [...source.selections],
+        kind: source.kind,
+        axial_domain: [...source.axial_domain],
+        axis: axis.id,
+      });
+    if (await appendActions(nodes)) $('axis-dialog').close();
+  };
+  $('add-reference-plane-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const saved = await appendActions([
+      {
+        id: uid('reference_plane'),
+        label: $('new-reference-plane-label').value,
+        operation: 'reference_plane',
+        axis: $('new-reference-plane-axis').value,
+        initial_angle_degrees: Number($('new-reference-plane-angle').value),
+      },
+    ]);
+    if (saved) $('reference-plane-dialog').close();
+  };
+  $('add-mirror-form').onsubmit = async (event) => {
+    event.preventDefault();
+    let surfaces;
+    try {
+      surfaces = mirrorFitInputs(graphState.recipe.nodes, [
+        $('new-mirror-input-0').value,
+        $('new-mirror-input-1').value,
+      ]);
+    } catch (error) {
+      $('mirror-error').textContent = error.message;
+      return;
+    }
+    const saved = await appendActions([
+      {
+        id: uid('mirror'),
+        label: $('new-mirror-label').value,
+        operation: 'mirror_symmetry',
+        plane: $('new-mirror-plane').value,
+        surfaces,
+        symmetric_extents: $('new-mirror-extents').checked,
+      },
+    ]);
+    if (saved) $('mirror-dialog').close();
+    else $('mirror-error').textContent = $('status').textContent;
+  };
+  $('add-axis-solve-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const axis = $('new-axis-solve-axis').value,
+      factors = chosen('new-axis-solve-factors'),
+      kinds = new Set(
+        factors.filter((id) => graphNode(id).operation === 'fit').map((id) => graphNode(id).kind),
+      ),
+      hasSide = kinds.has('cone') || kinds.has('cylinder');
+    if (!axis || !hasSide || !kinds.has('plane')) {
+      $('axis-solve-error').textContent =
+        'Choose one axis, at least one bound cone or cylinder, and at least one bound plane.';
+      return;
+    }
+    const saved = await appendActions([
+      {
+        id: uid('axis_solve'),
+        label: $('new-axis-solve-label').value,
+        operation: 'axis_solve',
+        axis,
+        factors,
+      },
+    ]);
+    if (saved) $('axis-solve-dialog').close();
+    else $('axis-solve-error').textContent = $('status').textContent;
   };
   $('new-joint').onclick = () => $('joint-dialog').showModal();
   const rotationChoices = () => {
     const joint = graphNode($('rotation-joint').value);
     const used = new Set(joint ? joint.constraints.flatMap((id) => refs(graphNode(id))) : []);
-    const planes = graphState.recipe.nodes.filter((n) => n.operation === 'fit' && !used.has(n.id));
+    const planes = graphState.recipe.nodes.filter(
+      (n) => n.operation === 'fit' && !n.axis && !used.has(n.id),
+    );
     for (let i = 0; i < 3; i++) choices('rotation-plane-' + i, planes, [planes[i]?.id]);
   };
   $('new-rotation').onclick = () => {
@@ -970,6 +1428,29 @@ async function start() {
       node.kind = $('surface-kind').value;
       node.selections = chosen('fit-inputs');
       node.axial_domain = [Number($('axial-start').value), Number($('axial-end').value)];
+      node.axis = $('fit-axis').value || null;
+    }
+    if (node.operation === 'axis') {
+      if ($('axis-init-mode').value === 'fit') {
+        node.source_fit = $('axis-source-fit').value;
+        node.initial_parameters = null;
+      } else {
+        node.source_fit = null;
+        node.initial_parameters = [
+          Number($('axis-point-x').value),
+          Number($('axis-point-y').value),
+          Number($('axis-direction-x').value),
+          Number($('axis-direction-y').value),
+        ];
+      }
+    }
+    if (node.operation === 'reference_plane') {
+      node.axis = $('reference-plane-axis').value;
+      node.initial_angle_degrees = Number($('reference-plane-angle').value);
+    }
+    if (node.operation === 'axis_solve') {
+      node.axis = $('axis-solve-axis').value;
+      node.factors = chosen('axis-solve-factors');
     }
     if (node.operation === 'growth') {
       node.seed_fit = $('growth-fit').value;
@@ -990,6 +1471,19 @@ async function start() {
       node.axis = $('rotation-axis').value;
       node.symmetric_extents = $('rotation-extents').checked;
       node.planes = [0, 1, 2].map((i) => $('rotation-input-' + i).value);
+    }
+    if (node.operation === 'mirror_symmetry') {
+      node.plane = $('mirror-plane').value;
+      try {
+        node.surfaces = mirrorFitInputs(
+          recipe.nodes,
+          [0, 1].map((i) => $('mirror-input-' + i).value),
+        );
+      } catch (error) {
+        status(error.message, true);
+        return;
+      }
+      node.symmetric_extents = $('mirror-extents').checked;
     }
     await replaceRecipe(recipe);
   };
@@ -1025,6 +1519,7 @@ async function start() {
         selections: chosen('new-fit-inputs'),
         kind: $('new-fit-kind').value,
         axial_domain: [-2, 5],
+        axis: $('new-fit-axis').value || null,
       },
     ]);
     if (saved) $('fit-dialog').close();
@@ -1090,7 +1585,7 @@ async function start() {
           distance: 0.05,
           angle_degrees: 20,
         },
-      ])
+      ], false)
     )
       await fit();
   };
@@ -1112,6 +1607,10 @@ async function start() {
   $('side').onclick = () => home('side');
   $('top').onclick = () => home('top');
   for (const name of ['colors', 'guides', 'points']) $(name).onchange = paint;
+  $('all-guides').onchange = () => {
+    showResult();
+    paint();
+  };
   $('save').onclick = async () => {
     try {
       const recipe = (await request('/api/graph')).recipe;

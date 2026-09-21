@@ -185,6 +185,29 @@ evidence](repository-and-development-tooling.md#required-validation-evidence).
 
 ## Product and Technical Questions
 
+**Reference geometry and solve semantics.** The provisional
+[reference-geometry design](planning/reference-geometry-and-solve-graph.md)
+selects first-class geometric definitions, solve-local roles, explicit factor
+activation, and separate operation-DAG and factor-graph semantics. The following
+details remain open beyond the implemented axis/cylinder/perpendicular-plane
+contract and dependency compiler:
+
+- Which first-class point, placed-frame, transform, incidence, and other typed
+  construction operations should extend the bounded first contract?
+- Which oriented and unoriented identities are distinct, and how should sign or
+  direction equivalences affect semantic identity?
+- Which frame-binding and typed-transform operations permit geometry to be
+  referenced across coordinate spaces without inferring relationships from
+  current placement?
+- What user-facing role granularity exposes meaningful geometric freedom without
+  exposing solver-coordinate charts?
+- Is an explicit copy or immutable pin operation needed in the first slice, or is
+  a live forward dependency with invalidation sufficient?
+- Which initialization sources may seed free geometry, and which uncertainty
+  representation is required before an upstream result can become a prior factor?
+- Which rank and gauge diagnostics best explain that a perpendicular plane can
+  inform axis direction without locating the line transversely?
+
 - What registry and versioning model should identify project-owned generated
   fixtures and bind their declarations to exact sampling definitions?
 - Which sampling vocabulary can cover arbitrary declared bounded domains while

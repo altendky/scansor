@@ -22,6 +22,12 @@ browser. An explicit `--port 8765` is optional. Stop the local server with Ctrl+
 Only the captured simplified example is supported by this adapter; this is not
 an arbitrary mesh loader or a full-resolution GUI.
 
+The default graph starts from the checked-in compatibility-free bundle containing
+the 11 retained user selections. It deliberately does not reconstruct old fits,
+constraints, joints, or results. `--recipe PATH` remains available only for
+opening an explicit experimental action recipe; it is not a compatibility
+promise for a successor format.
+
 The browser loads the full 24,999-vertex, 49,994-triangle simplified mesh. No mesh
 is uploaded externally. Assets are served locally after installation. Three.js
 0.186.0 is the sole npm dependency, has an MIT license, and is pinned with npm
@@ -68,8 +74,9 @@ configurations remain future work. Navigation is isolated in `navigation.js`.
 
 Select a selection in the feature tree, then choose **Paint** or **Rectangle**,
 and Add, Remove or Replace in its properties pane. Painting always edits the
-highlighted selection; inspecting a fit, constraint, source or joint disables
-painting and hides the selection tools. There is no separate active selection.
+highlighted selection; inspecting a fit, axis, solve, constraint, source or joint
+disables painting and hides the selection tools. There is no separate active
+selection.
 The shared **Depth** selector offers **First surface** (default) and **Through all**
 for both tools. Paint uses a circular brush with an adjustable diameter in CSS
 pixels and a visible footprint. Click to dab, or drag to sweep a continuous strip;
@@ -102,7 +109,7 @@ recently applied depth mode. Mixed strokes do not retain a stroke log or camera
 snapshots, and their gesture sequence cannot be replayed. Saved IDs reproduce the
 current membership. Gesture provenance and boundary inset remain future work; no undo
 stack, revision chain or change log is retained.
-Restore example graph reloads the checked-in example recipe from disk.
+Restore example graph reloads the retained-selection starting graph from disk.
 
 ## Ordered actions
 
@@ -131,18 +138,55 @@ appear earlier and waits until evaluation or selection editing finishes.
 Stable IDs preserve references when positions change.
 A valid reorder preserves cached results. This is recipe order, not edit history.
 
+Creating an action does not evaluate it by default. A manually initialized axis
+is previewed immediately because its value is already known. **Evaluate action**
+evaluates the selected action and only the earlier inputs it requires;
+**Evaluate all** explicitly evaluates every stale or unevaluated action. The
+top action toolbar contains both **Evaluate all** and the opt-in **Auto-evaluate
+all changes** checkbox. Enabling automatic evaluation immediately evaluates the
+graph and repeats **Evaluate all** after creation, property, selection, reorder,
+delete, load, or reset changes. **Show all available fits and references** keeps
+available guides visible together; disabling it restores selected-action-only
+display. The selected action's evaluation and proposal controls remain in its
+properties pane.
+
 1. **New selection** creates an empty selection independently of any fit. Paint
    it, rename it, and add more selections as needed.
 2. **New fit** chooses cone, cylinder or plane and one or more earlier
    selections. Overlapping input memberships count each source vertex once.
    Evaluate the fit to inspect its own parameters, guide and residuals. Plane
    fits can have independent orientations and do not require a joint solve.
-3. **New joint** chooses earlier fits and creates constraint actions followed by
-   a joint solve. The current solver supports independently offset perpendicular planes
-   and a
-   connected group of coaxial cone/cylinder fits. It refits their observations
-   together and produces separate adjusted results; standalone results remain
-   available by selecting their actions. The shared axis is free to move.
+3. **New axis** defaults to a free-axis initial value entered directly as a point
+   at local Z=0 and two direction slopes. The zero defaults describe the local Z
+   axis. Alternatively, initialize the separate axis action from an earlier
+   standalone cone or cylinder fit; in that mode the dialog can also create an
+   axis-bound factor of the same type from the same observations.
+4. **New plane** creates an explicit reference plane through an earlier axis.
+   Its clocking angle initializes rotation about the axis; the plane is previewed
+   immediately and remains a separately selectable feature.
+5. **Mirror symmetry** relates two distinct, same-type standalone fits across an
+   explicit reference plane. Add the relationship as an active factor in a joint
+   on that plane's axis. The joint may refine both the shared axis and the plane's
+   clocking while keeping the two adjusted surfaces exact reflected copies.
+   Axis-bound fits are not mirror members because coaxial sides and perpendicular
+   planes are already invariant under reflection in any plane through their axis.
+   The current bounded adapter permits one mirrored pair per reference plane in a
+   joint; create another reference-plane action for another independently clocked
+   pair.
+6. To keep an axis fixed, create a cone, cylinder, or plane fit and choose it
+   under **Reference axis**. Evaluating the bound fit adjusts only its radius and
+   taper, radius, or plane offset respectively; its observations cannot move the
+   explicit axis.
+7. To let observations refine the axis together, create an axis-bound cone or
+   cylinder and an axis-bound plane, then choose **New joint**. Select the
+   explicit axis and the active bound fits and mirror relationships. The joint
+   solve returns a separate result: bound factor sets influence axis direction,
+   while a perpendicular plane does not locate the axis transversely. Mirror
+   member observations refine their symmetry plane and shared axis. Standalone
+   fits, reference definitions, and the axis initializer remain unchanged.
+
+The older constraint/joint implementation remains readable as bounded experiment
+evidence, but its creation controls are no longer part of the default workflow.
 
 To extend an existing joint, select it, choose standalone fits under **Add fitted
 surfaces**, then click **Add fits to this joint**. Each additional plane gets a
@@ -160,7 +204,12 @@ opens the conflicting-fit list; its buttons inspect the fits involved. Highlight
 remain while inspecting other features, then clear when an affected input changes.
 Re-evaluate the joint after editing to check the new memberships.
 
-Fit properties expose type, earlier selection inputs and finite axial support.
+Fit properties expose type, earlier selection inputs, optional reference axis,
+and finite axial support. Axis properties expose either their manual initial
+value or the standalone cone/cylinder used as their initializer. Reference-plane
+properties expose their axis and initial clocking. Mirror properties expose the
+plane, two same-type standalone members, and the export-extents choice.
+Shared-axis joint properties expose the axis and exact active factor list.
 Constraint properties expose earlier fit references; joint properties expose
 constraint inputs. Deleting an action is allowed only when nothing references it.
 Editing settings invalidates dependent results. In-flight results from an older
@@ -226,9 +275,10 @@ objective; viewport guides still use their existing bounds.
 
 ## Experimental Rhino export
 
-**Export Rhino…** evaluates a chosen standalone fit or joint and downloads one
-Rhino 8 `.3dm` containing named analytic surface bodies and, optionally, the
-loaded original reference mesh on a separate layer. It uses `rhino3dm` (MIT,
+**Export Rhino…** evaluates a chosen standalone fit, shared-axis joint, or legacy
+joint and downloads one Rhino 8 `.3dm` containing named analytic surface bodies
+and, optionally, the loaded original reference mesh on a separate layer. It uses
+`rhino3dm` (MIT,
 including the underlying openNURBS library); Rhino is not required locally.
 This is a provisional export path, not a general CAD integration commitment.
 When updating rhino3dm, review its changelog and repeat geometry/file round-trip

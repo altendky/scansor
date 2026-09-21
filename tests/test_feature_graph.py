@@ -1,6 +1,7 @@
 """Current-graph replay, dependency invalidation and no retained edit history."""
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from pathlib import Path
 from threading import Event
 from typing import Any, cast
@@ -9,6 +10,7 @@ import numpy as np
 import pytest
 
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
+from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
 EXAMPLE = Path("examples/nozzle-bayonette-simplified")
@@ -33,6 +35,378 @@ def changed(graph: FeatureGraph, node_id: str, **changes: object) -> Recipe:
         if node["id"] == node_id:
             node.update(changes)
     return Recipe.model_validate(payload)
+
+
+def explicit_axis_recipe(
+    graph: FeatureGraph, *, free: bool, side_kind: str = "cylinder"
+) -> Recipe:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    nodes = [base[key] for key in ("scan", "outer_band", "top_face")]
+    if free:
+        initial_parameters = graph.workspace.data.selection["initial_parameters"][:4]
+        nodes.append(
+            {
+                "id": "reference_axis",
+                "label": "Reference axis",
+                "operation": "axis",
+                "initial_parameters": initial_parameters,
+            }
+        )
+    else:
+        base["side"].update(kind=side_kind, axis=None)
+        nodes.append(base["side"])
+        nodes.append(
+            {
+                "id": "reference_axis",
+                "label": "Reference axis",
+                "operation": "axis",
+                "source_fit": "side",
+            }
+        )
+    if free:
+        nodes.append(
+            {
+                "id": "side_factor",
+                "label": "Cylinder axis factor",
+                "operation": "fit",
+                "selections": ["outer_band"],
+                "kind": side_kind,
+                "axial_domain": [-2, 5],
+                "axis": "reference_axis",
+            }
+        )
+    nodes.append(
+        {
+            "id": "plane_factor",
+            "label": "Fixed-axis plane",
+            "operation": "fit",
+            "selections": ["top_face"],
+            "kind": "plane",
+            "axial_domain": [-2, 5],
+            "axis": "reference_axis",
+        }
+    )
+    if free:
+        nodes.append(
+            {
+                "id": "shared_axis",
+                "label": "Shared-axis joint",
+                "operation": "axis_solve",
+                "axis": "reference_axis",
+                "factors": ["side_factor", "plane_factor"],
+            }
+        )
+    payload["nodes"] = nodes
+    payload["output"] = "shared_axis" if free else "plane_factor"
+    return Recipe.model_validate(payload)
+
+
+@pytest.mark.parametrize("source_kind", ["cone", "cylinder"])
+def test_explicit_axis_can_lock_a_downstream_plane(
+    graph: FeatureGraph, source_kind: str
+) -> None:
+    _ = graph.replace(
+        explicit_axis_recipe(graph, free=False, side_kind=source_kind), token(graph)
+    )
+    state = graph.evaluate(token(graph))
+    derived = cast(dict[str, dict[str, Any]], state["derived"])
+    np.testing.assert_allclose(
+        derived["reference_axis"]["parameters"][:4],
+        derived["side"]["parameters"][:4],
+    )
+    np.testing.assert_allclose(
+        derived["plane_factor"]["plane_equation"][:3],
+        derived["reference_axis"]["axis_display"],
+    )
+    before = derived["reference_axis"]
+    edited = changed(graph, "top_face", ids=graph.workspace.default.plane_ids[::2])
+    state = graph.replace(edited, token(graph))
+    states = cast(dict[str, str], state["states"])
+    assert states["side"] == states["reference_axis"] == "ready"
+    assert states["plane_factor"] == "stale"
+    assert cast(dict[str, Any], state["derived"])["reference_axis"] == before
+
+
+@pytest.mark.parametrize("side_kind", ["cone", "cylinder"])
+def test_explicit_axis_can_be_free_in_a_joint_side_plane_solve(
+    graph: FeatureGraph, side_kind: str
+) -> None:
+    _ = graph.replace(
+        explicit_axis_recipe(graph, free=True, side_kind=side_kind), token(graph)
+    )
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    derived = cast(dict[str, dict[str, Any]], state["derived"])
+    assert set(result["surfaces"]) == {"side_factor", "plane_factor"}
+    np.testing.assert_allclose(
+        result["surfaces"]["side_factor"]["parameters"][:4],
+        result["surfaces"]["plane_factor"]["parameters"][:4],
+    )
+    assert derived["reference_axis"]["source_fit"] is None
+    assert derived["reference_axis"]["parameters"][:4] == pytest.approx(
+        graph.workspace.data.selection["initial_parameters"][:4]
+    )
+    assert derived["side_factor"]["kind"] == side_kind
+    assert result["fit"]["parameters"] != derived["reference_axis"]["parameters"]
+    if side_kind == "cone":
+        assert abs(derived["side_factor"]["parameters"][6]) > 0
+        assert abs(result["surfaces"]["side_factor"]["parameters"][6]) > 0
+
+
+def test_reference_plane_is_explicit_and_contains_its_axis(graph: FeatureGraph) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    solve = payload["nodes"].pop()
+    payload["nodes"].append(
+        {
+            "id": "mirror_plane",
+            "label": "Mirror plane",
+            "operation": "reference_plane",
+            "axis": "reference_axis",
+            "initial_angle_degrees": 27.0,
+        }
+    )
+    payload["nodes"].append(solve)
+    payload["output"] = "mirror_plane"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, dict[str, Any]], state["derived"])["mirror_plane"]
+    axis = np.asarray(result["axis_display"])
+    normal = np.asarray(result["normal_display"])
+    point = np.asarray(result["point_display"])
+    assert axis @ normal == pytest.approx(0.0, abs=1e-12)
+    assert np.asarray(result["plane_equation"][:3]) @ point == pytest.approx(
+        result["plane_equation"][3]
+    )
+    assert result["angle_degrees"] == 27.0
+
+
+def test_mirror_symmetry_references_two_same_type_standalone_fits(
+    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    solve = payload["nodes"].pop()
+    used = {
+        vertex
+        for node in payload["nodes"]
+        if node["operation"] == "selection"
+        for vertex in node["ids"]
+    }
+    available = [
+        index
+        for index, weight in enumerate(graph.workspace.data.weights)
+        if weight > 0 and index not in used
+    ][:20]
+    payload["nodes"].extend(
+        [
+            {
+                "id": "mirror_selection_a",
+                "label": "Mirror selection A",
+                "operation": "selection",
+                "source": "scan",
+                "ids": available[:10],
+            },
+            {
+                "id": "mirror_selection_b",
+                "label": "Mirror selection B",
+                "operation": "selection",
+                "source": "scan",
+                "ids": available[10:],
+            },
+            {
+                "id": "mirror_plane",
+                "label": "Mirror plane",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "initial_angle_degrees": 0.0,
+            },
+            {
+                "id": "mirror_a",
+                "label": "Mirror A",
+                "operation": "fit",
+                "selections": ["mirror_selection_a"],
+                "kind": "plane",
+            },
+            {
+                "id": "mirror_b",
+                "label": "Mirror B",
+                "operation": "fit",
+                "selections": ["mirror_selection_b"],
+                "kind": "plane",
+            },
+            {
+                "id": "mirror_pair",
+                "label": "Mirrored pair",
+                "operation": "mirror_symmetry",
+                "plane": "mirror_plane",
+                "surfaces": ["mirror_a", "mirror_b"],
+            },
+        ]
+    )
+    solve["factors"].append("mirror_pair")
+    payload["nodes"].append(solve)
+    payload["output"] = "shared_axis"
+    recipe = Recipe.model_validate(payload)
+    _ = graph.replace(recipe, token(graph))
+
+    monkeypatch.setattr(
+        "experiments.feature_graph.fit_seed",
+        lambda *args, **kwargs: {
+            "kind": "plane",
+            "parameters": [0.0, 0.0, 1.0, 0.0],
+            "plane_equation": [0.0, 0.0, 1.0, 0.0],
+            "residuals": [0.0] * len(cast(np.ndarray, args[0])),
+            "weighted_rms": 0.0,
+            "condition": 1.0,
+        },
+    )
+
+    def fake_group(*args: object, **kwargs: object) -> SessionFit:
+        groups = cast(
+            tuple[tuple[FitSelection, FitSelection], ...], kwargs["mirror_groups"]
+        )
+        phases = cast(tuple[float, ...], kwargs["mirror_phases_radians"])
+        assert [[surface.id for surface in group] for group in groups] == [
+            ["mirror_a", "mirror_b"]
+        ]
+        assert phases == pytest.approx((0.0,))
+        return cast(
+            SessionFit,
+            {
+                "axis_display": [0.0, 0.0, 1.0],
+                "point_display": [0.0, 0.0, 0.0],
+                "mirror_planes": [
+                    {
+                        "phase_radians": 0.0,
+                        "equation": [1.0, 0.0, 0.0, 0.0],
+                        "direction": [0.0, 1.0, 0.0],
+                    }
+                ],
+                "surfaces": {},
+            },
+        )
+
+    monkeypatch.setattr("experiments.feature_graph.fit_group", fake_group)
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    assert result["mirror_planes"]["mirror_plane"]["plane_equation"] == [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert cast(dict[str, str], state["states"])["mirror_pair"] == "ready"
+
+    invalid = recipe.model_dump()
+    by_id = {node["id"]: node for node in invalid["nodes"]}
+    by_id["mirror_pair"]["surfaces"] = ["mirror_a", "side_factor"]
+    with pytest.raises(ValueError, match="standalone"):
+        _ = graph.replace(Recipe.model_validate(invalid), token(graph))
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            (
+                "reference_axis",
+                {"source_fit": "plane_factor", "initial_parameters": None},
+            ),
+            "earlier",
+        ),
+        (("side_factor", {"kind": "plane"}), "requires a cone or cylinder"),
+        (("shared_axis", {"factors": ["side_factor", "side_factor"]}), "unique"),
+        (
+            (
+                "shared_axis",
+                {
+                    "factors": ["side_factor", "plane_factor"],
+                    "axis": "side_factor",
+                },
+            ),
+            "explicit axis",
+        ),
+    ],
+)
+def test_rejects_invalid_explicit_axis_graphs(
+    graph: FeatureGraph, mutation: tuple[str, dict[str, object]], message: str
+) -> None:
+    recipe = explicit_axis_recipe(graph, free=True).model_dump()
+    node_id, changes = mutation
+    next(node for node in recipe["nodes"] if node["id"] == node_id).update(changes)
+    with pytest.raises(ValueError, match=message):
+        _ = FeatureGraph(graph.workspace, Recipe.model_validate(recipe))
+
+
+@pytest.mark.parametrize(
+    "initializer",
+    [
+        {"source_fit": None, "initial_parameters": None},
+        {"source_fit": "side_factor", "initial_parameters": [0, 0, 0, 0]},
+    ],
+)
+def test_axis_requires_exactly_one_initializer(
+    graph: FeatureGraph, initializer: dict[str, object]
+) -> None:
+    recipe = explicit_axis_recipe(graph, free=True).model_dump()
+    axis = next(node for node in recipe["nodes"] if node["id"] == "reference_axis")
+    axis.update(initializer)
+    with pytest.raises(ValueError, match="exactly one"):
+        _ = Recipe.model_validate(recipe)
+
+
+def test_manual_axis_initializer_must_be_finite(graph: FeatureGraph) -> None:
+    recipe = explicit_axis_recipe(graph, free=True).model_dump()
+    axis = next(node for node in recipe["nodes"] if node["id"] == "reference_axis")
+    axis["initial_parameters"] = [0, 0, float("nan"), 0]
+    with pytest.raises(ValueError, match="must be finite"):
+        _ = FeatureGraph(graph.workspace, Recipe.model_validate(recipe))
+
+
+@pytest.mark.parametrize("operation", ["growth", "perpendicular"])
+def test_axis_bound_fits_cannot_enter_legacy_evaluation_paths(
+    graph: FeatureGraph, operation: str
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    if operation == "growth":
+        payload["nodes"].append(
+            {
+                "id": "legacy_growth",
+                "label": "Legacy growth",
+                "operation": "growth",
+                "seed_fit": "side_factor",
+                "barriers": [],
+                "distance": 0.05,
+                "angle_degrees": 20,
+            }
+        )
+    else:
+        payload["nodes"].insert(
+            -1,
+            {
+                "id": "legacy_perpendicular",
+                "label": "Legacy perpendicular",
+                "operation": "perpendicular",
+                "lateral": "side_factor",
+                "plane": "plane_factor",
+            },
+        )
+    with pytest.raises(ValueError, match="standalone"):
+        _ = FeatureGraph(graph.workspace, Recipe.model_validate(payload))
+
+
+def test_fixed_axis_rejects_a_zero_radius_cylinder(graph: FeatureGraph) -> None:
+    workspace = copy(graph.workspace)
+    workspace.local = np.column_stack(
+        [np.zeros(7), np.zeros(7), np.arange(7, dtype=float)]
+    )
+    with pytest.raises(ValueError, match="radius must be positive"):
+        _ = fit_fixed_axis_group(
+            workspace,
+            [FitSelection("line", list(range(7)), "cylinder", (-2, 7))],
+            [],
+            np.array([0, 0, 0, 0, 1, 0, 0], dtype=float),
+        )
 
 
 def test_recipe_replays_and_surface_kind_is_declared(graph: FeatureGraph) -> None:
@@ -443,6 +817,27 @@ def test_multi_selection_union_and_independent_plane(graph: FeatureGraph) -> Non
     np.testing.assert_allclose(result["parameters"], baseline["parameters"])
     assert result["weighted_rms"] == baseline["weighted_rms"]
     assert state["result"] is None  # No joint solve was requested.
+
+
+def test_evaluate_all_includes_independent_actions_after_the_output(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["nodes"].append(
+        {
+            "id": "independent_plane",
+            "label": "Independent plane",
+            "operation": "fit",
+            "selections": ["top_face"],
+            "kind": "plane",
+        }
+    )
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph), all_actions=True)
+    assert cast(dict[str, str], state["states"])["independent_plane"] == "ready"
+    assert "independent_plane" in cast(dict[str, Any], state["results"])
+    with pytest.raises(ValueError, match="cannot also specify a target"):
+        _ = graph.evaluate(token(graph), "side", all_actions=True)
 
 
 def test_joint_keeps_standalone_results(graph: FeatureGraph) -> None:

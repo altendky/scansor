@@ -15,12 +15,33 @@ uneven-coverage weighting is tracked in [#47](https://github.com/altendky/scanso
 ## Interactive selection experiment
 
 The [local browser prototype](../../experiments/browser_viewer/README.md) loads this
-example, edits cone/plane vertex memberships, reruns their joint fit, and displays
-guides and residual colors. The backend feature graph drives both the UI and
-script. Current recipes save as
-source-bound JSON; undo and change history are deferred. The checked-in
+example with the 11 retained user selections. It can create a free axis from a
+manual initial value or derive one from a standalone cone or cylinder, fit a cone,
+cylinder, or perpendicular plane against that fixed axis, or connect side and
+plane factors in a shared-axis joint that frees the axis. It can also define a
+clocked reference plane through an axis and constrain two standalone same-type
+fits as exact mirror copies across that plane in the joint.
+It displays guides and residual colors. The backend feature graph drives both the
+UI and script. Current recipes save as source-bound JSON; undo and change history
+are deferred. The checked-in
 `recipes/cone-plane.json` and `recipes/cylinder-plane.json` declare alternative
 fits using the same selections. This remains an exploratory frontend, not a product UI commitment.
+These checked-in recipes were inputs to the completed one-time data salvage for
+the reference-geometry successor. Any richer browser-edited graph must be saved
+with **Save actions** before the old browser is removed. Only source-bound
+selection identities, labels, properties, and resolved vertex IDs will migrate;
+fits, relationships, joints, and cached results will be rebuilt rather than kept
+as a backward-compatibility contract.
+
+Data conversion is complete for every discovered saved version-2 selection
+graph. The current user-edited `nozzle-actions.json` and its recovery copy
+yielded `11` selections with `1,364` total memberships. Two older snapshots
+reuse selection IDs for different memberships, so they are retained as separate
+bundles instead of receiving inferred precedence. The bundles retain no fit,
+relationship, joint, result, or output-pointer semantics. Automated source,
+per-selection count, ID-hash and strict-replay checks pass; deterministic
+regeneration also passes for checked-in recipe inputs. Visual acceptance remains
+pending because the manual overlay check has not been performed.
 
 ## Stored inputs
 
@@ -32,6 +53,20 @@ fits using the same selections. This remains an exploratory frontend, not a prod
   frame, initial guess, and binding to this exact mesh and ID list.
 - `selections/outer-band-vertex-ids.txt`: 1,261 zero-based source vertex row IDs,
   one per line, in ascending order.
+- `selections/selection-bundle.json`: compatibility-free source and selection
+  records salvaged from the two exact version-2 browser recipes.
+- `selections/selection-salvage-report.json`: one-time provenance, input recipe
+  hashes, preserved selection evidence, and discarded legacy action IDs.
+- `selections/user-selection-bundle.json` and
+  `selections/user-selection-salvage-report.json`: the `11` current
+  user-authored selections recovered independently from both the saved action
+  graph and its recovery copy.
+- `selections/legacy-actions-saved-selection-bundle.json` and its matching
+  `-salvage-report.json`: an older conflicting snapshot with three direct
+  selections and one materialized growth selection.
+- `selections/legacy-rotation-selection-bundle.json` and its matching
+  `-salvage-report.json`: an older conflicting five-selection rotational
+  snapshot.
 
 The selection uses the same pre-fit geometric/normal gates approved for the
 full-resolution scan. Simplification changes vertices and connectivity, so these

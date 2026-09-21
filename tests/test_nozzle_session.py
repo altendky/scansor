@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from experiments.nozzle_browser import NozzleServer
+from experiments.nozzle_browser import NozzleServer, selection_bundle_recipe
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
 
@@ -33,6 +33,21 @@ def test_saved_session_replays_fit_without_browser(workspace: NozzleWorkspace) -
     point = np.array(result["plane_point_display"])
     expected = (workspace.local[session.plane_ids] - point) @ axis
     np.testing.assert_allclose(expected, result["plane_residuals"], atol=1e-12)
+
+
+def test_current_selection_bundle_starts_the_browser_with_retained_selections(
+    workspace: NozzleWorkspace,
+) -> None:
+    recipe = selection_bundle_recipe(
+        workspace,
+        Path(
+            "examples/nozzle-bayonette-simplified/selections/user-selection-bundle.json"
+        ),
+    )
+    selections = [node for node in recipe.nodes if node.operation == "selection"]
+    assert len(selections) == 11
+    assert sum(len(selection.ids) for selection in selections) == 1364
+    assert recipe.output == selections[-1].id
 
 
 @pytest.mark.parametrize(
@@ -196,5 +211,42 @@ def test_graph_http_edits_and_evaluation(server: NozzleServer) -> None:
         result = json.loads(connection.getresponse().read())
         assert result["states"]["fit"] == "ready"
         assert result["result"]["signed_half_angle_degrees"] == 0
+
+        result["recipe"]["nodes"].append(
+            {
+                "id": "independent_plane",
+                "label": "Independent plane",
+                "operation": "fit",
+                "selections": ["top_face"],
+                "kind": "plane",
+                "axial_domain": [-2, 5],
+                "axis": None,
+            }
+        )
+        connection.request(
+            "POST",
+            "/api/graph",
+            body=json.dumps({"token": result["token"], "recipe": result["recipe"]}),
+            headers=headers,
+        )
+        response = connection.getresponse()
+        assert response.status == 200
+        with_independent = json.loads(response.read())
+        assert with_independent["states"]["independent_plane"] == "unevaluated"
+        connection.request(
+            "POST",
+            "/api/graph/evaluate",
+            body=json.dumps({"token": with_independent["token"], "all_actions": True}),
+            headers=headers,
+        )
+        response = connection.getresponse()
+        assert response.status == 202
+        _ = response.read()
+        assert server.graph_job is not None
+        _ = server.graph_job.result(timeout=5)
+        connection.request("GET", "/api/graph")
+        all_result = json.loads(connection.getresponse().read())
+        assert all_result["states"]["independent_plane"] == "ready"
+        assert "independent_plane" in all_result["results"]
     finally:
         connection.close()
