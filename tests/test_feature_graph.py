@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
+from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
@@ -249,19 +250,26 @@ def test_mirror_symmetry_references_two_same_type_standalone_fits(
     recipe = Recipe.model_validate(payload)
     _ = graph.replace(recipe, token(graph))
 
-    monkeypatch.setattr(
-        "experiments.feature_graph.fit_seed",
-        lambda *args, **kwargs: {
+    def fake_seed(
+        points: Array,
+        _weights: Array,
+        _normals: Array,
+        _kind: str,
+        _initial: Array,
+        _domain: tuple[float, float],
+    ) -> dict[str, Any]:
+        return {
             "kind": "plane",
             "parameters": [0.0, 0.0, 1.0, 0.0],
             "plane_equation": [0.0, 0.0, 1.0, 0.0],
-            "residuals": [0.0] * len(cast(np.ndarray, args[0])),
+            "residuals": [0.0] * len(points),
             "weighted_rms": 0.0,
             "condition": 1.0,
-        },
-    )
+        }
 
-    def fake_group(*args: object, **kwargs: object) -> SessionFit:
+    monkeypatch.setattr("experiments.feature_graph.fit_seed", fake_seed)
+
+    def fake_group(*_args: object, **kwargs: object) -> SessionFit:
         groups = cast(
             tuple[tuple[FitSelection, FitSelection], ...], kwargs["mirror_groups"]
         )
@@ -410,17 +418,25 @@ def test_arch_primitives_compile_to_one_exact_radius_tied_mirror_group(
 ) -> None:
     recipe = arch_relationship_recipe(graph)
     _ = graph.replace(recipe, token(graph))
-    monkeypatch.setattr(
-        "experiments.feature_graph.fit_seed",
-        lambda *args, **kwargs: {
+
+    def fake_seed(
+        points: Array,
+        _weights: Array,
+        _normals: Array,
+        _kind: str,
+        _initial: Array,
+        _domain: tuple[float, float],
+    ) -> dict[str, Any]:
+        return {
             "kind": "plane",
             "parameters": [1.0, 0.0, 0.0, 0.0],
             "plane_equation": [1.0, 0.0, 0.0, 0.0],
-            "residuals": [0.0] * len(cast(np.ndarray, args[0])),
+            "residuals": [0.0] * len(points),
             "weighted_rms": 0.0,
             "condition": 1.0,
-        },
-    )
+        }
+
+    monkeypatch.setattr("experiments.feature_graph.fit_seed", fake_seed)
 
     def fake_group(*args: object, **kwargs: object) -> SessionFit:
         assert cast(list[FitSelection], args[2]) == []
