@@ -39,6 +39,7 @@ footer #status { margin: 0 0 6px; }
 #action-list .action-select { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; min-height: 36px; border-color: transparent; background: transparent; }
 #action-list .action-select:hover { background: #253342; }
 #action-list .action-select[aria-pressed="true"] { border-color: #77d3ea; background: #164b5a; }
+#action-list .action-select:focus-visible { outline-offset: -3px; }
 .action-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .feature-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .action-type { color: #b7cfe1; }
@@ -53,7 +54,7 @@ footer #status { margin: 0 0 6px; }
 #action-list .action-grip { cursor: grab; color: #91a7b9; border: 0; background: transparent; padding: 5px 0; }
 .action-grip .feature-icon { width: 14px; stroke-width: 3.5; }
 #action-list .action-grip:active { cursor: grabbing; }
-#action-list .dragging > * { opacity: .33; }
+#action-list .dragging > * { opacity: .5; }
 .drop-before::before, .drop-after::after { content: ''; position: absolute; left: 17px; right: 0; height: 2px; background: #77d3ea; pointer-events: none; }
 .drop-before::before { top: -3px; } .drop-after::after { bottom: -3px; }
 .drop-invalid::before, .drop-invalid::after { background: #ffab94; }

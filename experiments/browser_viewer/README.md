@@ -132,7 +132,8 @@ running, and red warning for failed. Tooltips and accessible names explain the
 icons; the properties panel shows the full status and any error.
 Select an action to inspect its settings and result. Drag its grip to insert it
 before or after another row; the insertion line turns red for invalid dependency
-orders. Focus a grip and use the Up/Down keys to reorder with the keyboard.
+orders. Focus a feature and use the Up/Down keys to change selection without
+scrolling the panel; focus its grip to use the same keys to reorder it.
 Reordering requires every input to still
 appear earlier and waits until evaluation or selection editing finishes.
 Stable IDs preserve references when positions change.

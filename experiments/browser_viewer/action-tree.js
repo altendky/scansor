@@ -150,6 +150,7 @@ export function renderActionTree(
       grip.draggable = true;
       grip.title = `Drag to reorder ${node.label}; or focus here and use the arrow keys.`;
       grip.setAttribute('aria-label', `Reorder ${node.label}. Use Up or Down arrow keys.`);
+      grip.onpointerdown = () => grip.focus();
       grip.onkeydown = (event) => {
         if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
         event.preventDefault();
@@ -183,6 +184,16 @@ export function renderActionTree(
       const description = actionDescription(node, states[node.id], errors[node.id]);
       button.title = `${node.label} · ${description}`;
       button.setAttribute('aria-label', button.title);
+      button.onkeydown = (event) => {
+        if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        event.preventDefault();
+        const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
+        if (!adjacent) return;
+        select(adjacent.id);
+        [...list.querySelectorAll('.action-select')]
+          .find((item) => item.dataset.actionId === adjacent.id)
+          ?.focus();
+      };
       const label = document.createElement('span');
       label.className = 'action-name';
       label.textContent = node.label;
