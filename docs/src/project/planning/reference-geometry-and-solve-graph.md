@@ -208,10 +208,20 @@ The reference plane owns the symmetry geometry; the relationship identifies the
 two members; the solve owns freedom. The standalone fits and reference-plane
 declaration remain immutable inputs. The bounded browser implementation supports
 plane, cylinder, and cone pairs and refines the plane clocking and shared axis.
-It conservatively requires a bound lateral factor and perpendicular-plane factor
-to anchor the axis, and currently permits one mirrored pair per reference plane
-in a joint. These are prototype rank and parameterization limits, not a settled
-general contract.
+It also supports exact plane parallelism and typed equality between a cylinder
+radius and plane-to-reference-plane distance. When a mirrored plane pair uses
+both relationships, the solver lowers the cluster to two planes at opposite
+signed radius offsets. A cylinder and that pair can solve without an unrelated
+perpendicular end-plane factor. The browser currently permits one mirrored pair
+per reference plane in a solve. These are prototype rank and parameterization
+limits, not a settled general contract.
+
+Mirror, parallel, and equality actions define reusable geometry; they are not
+solves. A separate solve-group action explicitly activates fits and relationships
+and owns the adjusted result. The current compatibility-free contract below does
+not yet encode axial-plane clocking or relative parallel-offset planes; extending
+that normalized contract coherently remains separate from this browser numerical
+slice.
 
 ## Implemented compatibility-free contract
 

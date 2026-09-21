@@ -21,6 +21,7 @@ class MirrorSurfaces:
     seed: tuple[float, ...]
     domain: tuple[float, float] = (-2.0, 5.0)
     other_domain: tuple[float, float] | None = None
+    radius_side_index: int | None = None
 
     @property
     def surface_size(self) -> int:
@@ -29,6 +30,10 @@ class MirrorSurfaces:
     @property
     def size(self) -> int:
         # One mirror-plane phase followed by one canonical surface.
+        if self.radius_side_index is not None:
+            if self.kind != "plane":
+                raise ValueError("a shared-radius mirror group requires plane surfaces")
+            return 1
         return 1 + self.surface_size
 
     def domain_for(self, slot: int) -> tuple[float, float]:
@@ -54,7 +59,11 @@ def mirror_transform(parameters: Array, phase: float) -> tuple[Array, Array, Arr
     radial = np.cos(phase) * u + np.sin(phase) * v
     normal = np.cross(axis, radial)
     matrix = np.eye(3) - 2 * np.outer(normal, normal)
-    return matrix, radial, normal
+    return (
+        np.asarray(matrix, dtype=np.float64),
+        np.asarray(radial, dtype=np.float64),
+        np.asarray(normal, dtype=np.float64),
+    )
 
 
 def mirror_plane(parameters: Array, offset: int) -> tuple[Array, Array]:
@@ -93,8 +102,25 @@ def _local_points(points: Array, parameters: Array, offset: int, slot: int) -> A
     return center + (points - center) @ matrix
 
 
-def _residuals(group: MirrorSurfaces, parameters: Array, offset: int) -> list[Array]:
+def _residuals(
+    group: MirrorSurfaces,
+    parameters: Array,
+    offset: int,
+    radius_parameter_index: int | None = None,
+) -> list[Array]:
     residuals: list[Array] = []
+    if group.radius_side_index is not None:
+        if group.kind != "plane" or radius_parameter_index is None:
+            raise ValueError(
+                "a shared-radius mirror group requires a cylinder radius parameter"
+            )
+        center = np.array([parameters[0], parameters[1], 0.0])
+        normal = mirror_transform(parameters, float(parameters[offset]))[2]
+        radius = float(parameters[radius_parameter_index])
+        for slot, points in enumerate(group.points):
+            sign = 1.0 if slot == 0 else -1.0
+            residuals.append(sign * ((points - center) @ normal) - radius)
+        return residuals
     if group.kind == "plane":
         normal, _, _, distance = _plane_parameters(parameters, offset)
         center = np.array([parameters[0], parameters[1], 0.0])
@@ -151,8 +177,23 @@ def mirrored_lateral(
 
 
 def mirror_surface_equations(
-    group: MirrorSurfaces, parameters: Array, offset: int
+    group: MirrorSurfaces,
+    parameters: Array,
+    offset: int,
+    radius_parameter_index: int | None = None,
 ) -> list[Array]:
+    if group.radius_side_index is not None:
+        if group.kind != "plane" or radius_parameter_index is None:
+            raise ValueError(
+                "a shared-radius mirror group requires a cylinder radius parameter"
+            )
+        center = np.array([parameters[0], parameters[1], 0.0])
+        normal = mirror_transform(parameters, float(parameters[offset]))[2]
+        radius = float(parameters[radius_parameter_index])
+        return [
+            np.array([*(sign * normal), radius + sign * normal @ center])
+            for sign in (1.0, -1.0)
+        ]
     if group.kind != "plane":
         return [
             mirrored_lateral(group, parameters, offset, slot)[0] for slot in range(2)
@@ -165,12 +206,24 @@ def mirror_surface_equations(
 
 
 def mirror_residual_jacobian(
-    group: MirrorSurfaces, parameters: Array, offset: int
+    group: MirrorSurfaces,
+    parameters: Array,
+    offset: int,
+    radius_parameter_index: int | None = None,
 ) -> tuple[list[Array], list[Array], list[Array]]:
     """Exact tied-surface residuals with numerical symmetry-transform derivatives."""
-    residuals = _residuals(group, parameters, offset)
+    residuals = _residuals(group, parameters, offset, radius_parameter_index)
     jacobians: list[Array] = []
-    if group.kind == "plane":
+    if group.radius_side_index is not None:
+        if radius_parameter_index is None:
+            raise ValueError(
+                "a shared-radius mirror group requires a cylinder radius parameter"
+            )
+        for points in group.points:
+            jac = np.zeros((len(points), len(parameters)))
+            jac[:, radius_parameter_index] = -1.0
+            jacobians.append(jac)
+    elif group.kind == "plane":
         _, dtilt, dphase, _ = _plane_parameters(parameters, offset)
         center = np.array([parameters[0], parameters[1], 0.0])
         for slot, points in enumerate(group.points):
@@ -202,10 +255,14 @@ def mirror_residual_jacobian(
         for direction in (1.0, -1.0):
             candidate = parameters.copy()
             candidate[col] += direction * step
-            values.append(_residuals(group, candidate, offset))
+            values.append(_residuals(group, candidate, offset, radius_parameter_index))
         for slot in range(2):
             jacobians[slot][:, col] = (values[0][slot] - values[1][slot]) / (2 * step)
-    return residuals, jacobians, mirror_surface_equations(group, parameters, offset)
+    return (
+        residuals,
+        jacobians,
+        mirror_surface_equations(group, parameters, offset, radius_parameter_index),
+    )
 
 
 def initial_mirror(
@@ -215,6 +272,27 @@ def initial_mirror(
 ) -> Array:
     """Initialize one group; explicit and inferred phases are expressed in radians."""
     seed = np.asarray(group.seed, dtype=float)
+    if group.radius_side_index is not None:
+        if group.kind != "plane" or seed.shape != (4,) or not np.isfinite(seed).all():
+            raise ValueError(
+                "a shared-radius mirror group requires a fitted plane seed"
+            )
+        if phase_radians is not None:
+            if not np.isfinite(phase_radians):
+                raise ValueError("mirror phase must be finite")
+            return np.array([phase_radians])
+        axis, u, v = axis_frame(parameters)
+        normal = seed[:3].copy()
+        normal /= np.linalg.norm(normal)
+        normal -= (normal @ axis) * axis
+        length = float(np.linalg.norm(normal))
+        if length <= 1e-10:
+            raise ValueError(
+                "parallel mirror planes require a seed normal transverse to the axis"
+            )
+        normal /= length
+        # mirror_transform defines the plane normal as cos(phase)*v - sin(phase)*u.
+        return np.array([np.arctan2(-(normal @ u), normal @ v)])
     if group.kind == "plane":
         if seed.shape != (4,) or not np.isfinite(seed).all():
             raise ValueError("mirror planes require a fitted plane seed")
@@ -251,6 +329,7 @@ def initial_mirror(
             group.seed,
             group.domain,
             group.other_domain,
+            group.radius_side_index,
         )
         try:
             residual = _residuals(temporary, trial, 4)[1]

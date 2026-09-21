@@ -272,18 +272,21 @@ def test_mirror_symmetry_references_two_same_type_standalone_fits(
         assert phases == pytest.approx((0.0,))
         return cast(
             SessionFit,
-            {
-                "axis_display": [0.0, 0.0, 1.0],
-                "point_display": [0.0, 0.0, 0.0],
-                "mirror_planes": [
-                    {
-                        "phase_radians": 0.0,
-                        "equation": [1.0, 0.0, 0.0, 0.0],
-                        "direction": [0.0, 1.0, 0.0],
-                    }
-                ],
-                "surfaces": {},
-            },
+            cast(
+                object,
+                {
+                    "axis_display": [0.0, 0.0, 1.0],
+                    "point_display": [0.0, 0.0, 0.0],
+                    "mirror_planes": [
+                        {
+                            "phase_radians": 0.0,
+                            "equation": [1.0, 0.0, 0.0, 0.0],
+                            "direction": [0.0, 1.0, 0.0],
+                        }
+                    ],
+                    "surfaces": {},
+                },
+            ),
         )
 
     monkeypatch.setattr("experiments.feature_graph.fit_group", fake_group)
@@ -302,6 +305,158 @@ def test_mirror_symmetry_references_two_same_type_standalone_fits(
     by_id["mirror_pair"]["surfaces"] = ["mirror_a", "side_factor"]
     with pytest.raises(ValueError, match="standalone"):
         _ = graph.replace(Recipe.model_validate(invalid), token(graph))
+
+
+def arch_relationship_recipe(graph: FeatureGraph) -> Recipe:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    payload["nodes"] = [
+        node
+        for node in payload["nodes"]
+        if node["id"] not in {"plane_factor", "shared_axis"}
+    ]
+    used = {
+        vertex
+        for node in payload["nodes"]
+        if node["operation"] == "selection"
+        for vertex in node["ids"]
+    }
+    available = [
+        index
+        for index, weight in enumerate(graph.workspace.data.weights)
+        if weight > 0 and index not in used
+    ][:20]
+    payload["nodes"].extend(
+        [
+            {
+                "id": "left_selection",
+                "label": "Left wall observations",
+                "operation": "selection",
+                "source": "scan",
+                "ids": available[:10],
+            },
+            {
+                "id": "right_selection",
+                "label": "Right wall observations",
+                "operation": "selection",
+                "source": "scan",
+                "ids": available[10:],
+            },
+            {
+                "id": "arch_midplane",
+                "label": "Arch midplane",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "initial_angle_degrees": 0.0,
+            },
+            {
+                "id": "left_wall",
+                "label": "Left wall",
+                "operation": "fit",
+                "selections": ["left_selection"],
+                "kind": "plane",
+            },
+            {
+                "id": "right_wall",
+                "label": "Right wall",
+                "operation": "fit",
+                "selections": ["right_selection"],
+                "kind": "plane",
+            },
+            {
+                "id": "wall_mirror",
+                "label": "Mirrored walls",
+                "operation": "mirror_symmetry",
+                "plane": "arch_midplane",
+                "surfaces": ["left_wall", "right_wall"],
+            },
+            {
+                "id": "wall_parallel",
+                "label": "Wall parallel to midplane",
+                "operation": "parallel",
+                "surface": "left_wall",
+                "reference_plane": "arch_midplane",
+            },
+            {
+                "id": "radius_equals_wall_offset",
+                "label": "Radius equals wall offset",
+                "operation": "equal",
+                "left": {"measurement": "radius", "surface": "side_factor"},
+                "right": {
+                    "measurement": "plane_distance",
+                    "surface": "left_wall",
+                    "reference_plane": "arch_midplane",
+                },
+            },
+            {
+                "id": "arch_solve",
+                "label": "Arch solve",
+                "operation": "axis_solve",
+                "axis": "reference_axis",
+                "factors": [
+                    "side_factor",
+                    "wall_mirror",
+                    "wall_parallel",
+                    "radius_equals_wall_offset",
+                ],
+            },
+        ]
+    )
+    payload["output"] = "arch_solve"
+    return Recipe.model_validate(payload)
+
+
+def test_arch_primitives_compile_to_one_exact_radius_tied_mirror_group(
+    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipe = arch_relationship_recipe(graph)
+    _ = graph.replace(recipe, token(graph))
+    monkeypatch.setattr(
+        "experiments.feature_graph.fit_seed",
+        lambda *args, **kwargs: {
+            "kind": "plane",
+            "parameters": [1.0, 0.0, 0.0, 0.0],
+            "plane_equation": [1.0, 0.0, 0.0, 0.0],
+            "residuals": [0.0] * len(cast(np.ndarray, args[0])),
+            "weighted_rms": 0.0,
+            "condition": 1.0,
+        },
+    )
+
+    def fake_group(*args: object, **kwargs: object) -> SessionFit:
+        assert cast(list[FitSelection], args[2]) == []
+        assert kwargs["mirror_radius_surface_ids"] == ("side_factor",)
+        return cast(
+            SessionFit,
+            cast(
+                object,
+                {
+                    "axis_display": [0.0, 0.0, 1.0],
+                    "point_display": [0.0, 0.0, 0.0],
+                    "mirror_planes": [
+                        {
+                            "phase_radians": 0.0,
+                            "equation": [1.0, 0.0, 0.0, 0.0],
+                            "direction": [0.0, 1.0, 0.0],
+                        }
+                    ],
+                    "surfaces": {},
+                },
+            ),
+        )
+
+    monkeypatch.setattr("experiments.feature_graph.fit_group", fake_group)
+    state = graph.evaluate(token(graph))
+    assert cast(dict[str, str], state["states"])["wall_parallel"] == "ready"
+    assert cast(dict[str, str], state["states"])["radius_equals_wall_offset"] == "ready"
+    assert cast(dict[str, Any], state["result"])["mirror_planes"]["arch_midplane"]
+
+
+def test_arch_relationship_cluster_must_be_complete(graph: FeatureGraph) -> None:
+    payload = arch_relationship_recipe(graph).model_dump()
+    solve = next(node for node in payload["nodes"] if node["id"] == "arch_solve")
+    solve["factors"].remove("radius_equals_wall_offset")
+    with pytest.raises(ValueError, match="requires exactly one parallel"):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
 
 
 @pytest.mark.parametrize(

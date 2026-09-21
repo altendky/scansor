@@ -27,11 +27,9 @@ def fit_group(
     axis_initial: np.ndarray | None = None,
     mirror_groups: tuple[tuple[FitSelection, FitSelection], ...] = (),
     mirror_phases_radians: tuple[float, ...] | None = None,
+    mirror_radius_surface_ids: tuple[str | None, ...] | None = None,
 ) -> SessionFit:
-    """Joint fit; explicit mirror-plane phases use radians, with phase zero at u."""
-    if not planes:
-        raise ValueError("at least one plane is required")
-    plane = planes[0]
+    """Joint fit; a mirror's optional radius source makes its planes tangent."""
     observations = [
         SideObservations(
             workspace.local[s.ids], workspace.data.weights[s.ids], s.kind, s.domain
@@ -46,8 +44,9 @@ def fit_group(
             raise ValueError(
                 f"{selected_plane.id}: select at least three plane vertices"
             )
-    pp = workspace.local[plane.ids]
-    pw = workspace.data.weights[plane.ids]
+    plane = planes[0] if planes else None
+    pp = workspace.local[plane.ids] if plane is not None else None
+    pw = workspace.data.weights[plane.ids] if plane is not None else None
     seed = np.array(workspace.data.selection["initial_parameters"], dtype=float)
     if axis_initial is not None:
         if axis_initial.shape != (7,) or not np.isfinite(axis_initial).all():
@@ -55,7 +54,9 @@ def fit_group(
         seed[:4] = axis_initial[:4]
     axis = np.array([seed[2], seed[3], 1.0])
     axis /= np.linalg.norm(axis)
-    initial = [*seed[:4], float(pw @ (pp @ axis) / pw.sum())]
+    initial = [*seed[:4]]
+    if pp is not None and pw is not None:
+        initial.append(float(pw @ (pp @ axis) / pw.sum()))
     for side in observations:
         q = side.points - np.array([seed[0], seed[1], 0.0])
         z = q @ axis
@@ -92,8 +93,15 @@ def fit_group(
         if any(len(points) < 3 for points in group.points):
             raise ValueError("each rotational surface needs at least three vertices")
         initial.extend(initial_rotation(group, np.array(initial)).tolist())
+    if mirror_radius_surface_ids is not None and len(mirror_radius_surface_ids) != len(
+        mirror_groups
+    ):
+        raise ValueError(
+            "provide exactly one optional radius source for each mirror group"
+        )
+    side_indices = {side.id: index for index, side in enumerate(sides)}
     mirrors: list[MirrorSurfaces] = []
-    for group in mirror_groups:
+    for group_index, group in enumerate(mirror_groups):
         if len(group) != 2 or group[0].id == group[1].id:
             raise ValueError("mirror symmetry requires two distinct surface fits")
         if group[0].kind != group[1].kind:
@@ -113,6 +121,22 @@ def fit_group(
             seed,
             group[0].domain,
         )
+        radius_source = (
+            None
+            if mirror_radius_surface_ids is None
+            else mirror_radius_surface_ids[group_index]
+        )
+        radius_side_index = None
+        if radius_source is not None:
+            radius_side_index = side_indices.get(radius_source)
+            if radius_side_index is None or sides[radius_side_index].kind != "cylinder":
+                raise ValueError(
+                    "a mirror radius source must name a cylinder in this joint"
+                )
+            if group[0].kind != "plane":
+                raise ValueError(
+                    "a mirror radius source can constrain only a pair of planes"
+                )
         mirrors.append(
             MirrorSurfaces(
                 (workspace.local[group[0].ids], workspace.local[group[1].ids]),
@@ -124,6 +148,7 @@ def fit_group(
                 tuple(seed_result["parameters"]),
                 group[0].domain,
                 group[1].domain,
+                radius_side_index,
             )
         )
     if mirror_phases_radians is not None and len(mirror_phases_radians) != len(mirrors):
@@ -144,7 +169,7 @@ def fit_group(
     axis = np.array([p[2], p[3], 1.0])
     axis /= np.linalg.norm(axis)
     point = np.array([p[0], p[1], 0.0])
-    plane_point = point + (p[5] - axis @ point) * axis
+    plane_point = point + (p[5] - axis @ point) * axis if plane is not None else point
     surfaces: dict[str, SurfaceResult] = {}
     for side, obs, parameters, residual in zip(
         sides, observations, fitted.parameters, fitted.residuals, strict=True
@@ -157,11 +182,18 @@ def fit_group(
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(obs.area @ residual**2 / obs.area.sum())),
         }
-    plane_rms = float(np.sqrt(pw @ fitted.plane_residuals**2 / pw.sum()))
+    plane_rms = (
+        float(np.sqrt(pw @ fitted.plane_residuals**2 / pw.sum()))
+        if pw is not None
+        else 0.0
+    )
     for selected_plane, offset, residual in zip(
         planes,
         fitted.plane_offsets,
-        [fitted.plane_residuals, *fitted.extra_plane_residuals],
+        [
+            *((fitted.plane_residuals,) if plane is not None else ()),
+            *fitted.extra_plane_residuals,
+        ],
         strict=True,
     ):
         parameters = p.copy()
@@ -220,7 +252,7 @@ def fit_group(
     return {
         "session": {
             "lateral_ids": sides[0].ids,
-            "plane_ids": plane.ids,
+            "plane_ids": plane.ids if plane is not None else [],
             "source_sha256": workspace.default.source_sha256,
             "model_sha256": workspace.model_sha256,
             "schema_version": 1,

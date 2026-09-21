@@ -13,6 +13,8 @@ const paths = {
   perpendicular: 'M6 3v15h15M6 13h5v5',
   rotational_symmetry: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5M12 8v4l3 2',
   mirror_symmetry: 'M12 2v20M4 7l6 5-6 5m16-10-6 5 6 5',
+  parallel: 'M4 8h16M4 16h16',
+  equal: 'M5 9h14M5 15h14',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -27,13 +29,15 @@ const operations = {
   fit: 'Surface fit',
   axis: 'Reference axis',
   reference_plane: 'Reference plane',
-  axis_solve: 'Shared-axis joint',
+  axis_solve: 'Solve group',
   growth: 'Selection growth',
   coaxial: 'Coaxial constraint',
   perpendicular: 'Perpendicular constraint',
   rotational_symmetry: 'Rotational symmetry',
-  mirror_symmetry: 'Mirror symmetry',
-  joint_fit: 'Joint fit',
+  mirror_symmetry: 'Mirror relationship',
+  parallel: 'Parallel relationship',
+  equal: 'Numeric equality',
+  joint_fit: 'Legacy joint fit',
 };
 const states = {
   ready: 'Ready',
@@ -44,6 +48,8 @@ const states = {
 };
 export function actionDescription(node, state, error) {
   const kind = node.operation === 'fit' ? `${node.kind} fit` : operations[node.operation];
+  if (['mirror_symmetry', 'parallel', 'equal'].includes(node.operation))
+    return `${kind || node.operation} · Defined${error ? ` · ${error}` : ''}`;
   return `${kind || node.operation} · ${states[state] || state}${error ? ` · ${error}` : ''}`;
 }
 export function nodeReferences(node) {
@@ -58,6 +64,13 @@ export function nodeReferences(node) {
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];
   if (node.operation === 'mirror_symmetry') return [node.plane, ...node.surfaces];
+  if (node.operation === 'parallel') return [node.surface, node.reference_plane];
+  if (node.operation === 'equal') {
+    const refs = [node.left.surface, node.right.surface];
+    if (node.left.reference_plane) refs.push(node.left.reference_plane);
+    if (node.right.reference_plane) refs.push(node.right.reference_plane);
+    return [...new Set(refs)];
+  }
   return node.constraints || [];
 }
 // Slot is a boundary in the original list: 0 before the first, length after the last.
@@ -166,6 +179,7 @@ export function renderActionTree(
       button.className = 'action-select';
       button.dataset.actionId = node.id;
       button.setAttribute('aria-pressed', String(selected === node.id));
+      const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation);
       const description = actionDescription(node, states[node.id], errors[node.id]);
       button.title = `${node.label} · ${description}`;
       button.setAttribute('aria-label', button.title);
@@ -175,7 +189,7 @@ export function renderActionTree(
       button.append(
         icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'),
         label,
-        icon(states[node.id], `action-state state-${states[node.id]}`),
+        icon(relationship ? 'ready' : states[node.id], `action-state state-${relationship ? 'ready' : states[node.id]}`),
       );
       button.onclick = () => {
         select(node.id);

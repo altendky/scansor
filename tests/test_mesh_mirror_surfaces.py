@@ -6,7 +6,11 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from experiments.mesh_coaxial_fit import fit_coaxial, residual_jacobian
+from experiments.mesh_coaxial_fit import (
+    SideObservations,
+    fit_coaxial,
+    residual_jacobian,
+)
 from experiments.mesh_cone_plane_fit import cone_plane_residual_jacobian
 from experiments.mesh_mirror_surfaces import (
     MirrorSurfaces,
@@ -50,7 +54,10 @@ def plane_group() -> tuple[MirrorSurfaces, np.ndarray]:
     return (
         MirrorSurfaces(
             (point_sets[0], point_sets[1]),
-            tuple(np.linspace(0.4, 1.2, len(p)) for p in point_sets),
+            (
+                np.linspace(0.4, 1.2, len(point_sets[0])),
+                np.linspace(0.4, 1.2, len(point_sets[1])),
+            ),
             "plane",
             seed,
             (-4.0, 5.0),
@@ -96,6 +103,87 @@ def lateral_group(kind: str) -> tuple[MirrorSurfaces, np.ndarray]:
         ),
         parameters,
     )
+
+
+def tangent_plane_group() -> tuple[SideObservations, MirrorSurfaces, np.ndarray]:
+    truth = np.array([0.3, -0.4, 0.12, -0.08, 2.4, 0.43])
+    center = np.array([truth[0], truth[1], 0.0])
+    axis, u, v = axis_frame(truth)
+    angle, z = np.meshgrid(
+        np.linspace(0.0, 2 * np.pi, 25, endpoint=False),
+        np.linspace(-1.2, 1.4, 9),
+    )
+    cylinder_points = (
+        center
+        + z.ravel()[:, None] * axis
+        + truth[4]
+        * (np.cos(angle.ravel())[:, None] * u + np.sin(angle.ravel())[:, None] * v)
+    )
+    cylinder = SideObservations(
+        cylinder_points,
+        np.linspace(0.6, 1.4, len(cylinder_points)),
+        "cylinder",
+        (-2.0, 2.0),
+    )
+    _, radial, normal = mirror_transform(truth, truth[5])
+    along, across = np.meshgrid(np.linspace(-1.1, 1.3, 8), np.linspace(-0.7, 0.9, 7))
+    plane_points = tuple(
+        center
+        + sign * truth[4] * normal
+        + along.ravel()[:, None] * axis
+        + across.ravel()[:, None] * radial
+        for sign in (1.0, -1.0)
+    )
+    group = MirrorSurfaces(
+        plane_points,
+        tuple(np.linspace(0.4, 1.2, len(points)) for points in plane_points),
+        "plane",
+        (*normal, normal @ center + truth[4]),
+        radius_side_index=0,
+    )
+    return cylinder, group, truth
+
+
+def test_parallel_mirror_planes_share_cylinder_radius_without_anchor_plane() -> None:
+    cylinder, group, truth = tangent_plane_group()
+    initial = truth + np.array([-0.02, 0.015, -0.01, 0.008, 0.04, -0.03])
+    result = fit_coaxial([cylinder], None, None, initial, mirrors=(group,))
+    assert result.weighted_rms < 1e-9
+    assert result.plane_offsets == []
+    assert result.plane_residuals.size == 0
+    np.testing.assert_allclose(result.parameters[0][:5], truth[:5], atol=1e-8)
+    equations = result.mirror_equations[0]
+    mirror_normal = result.mirror_plane_equations[0][:3]
+    for equation in equations:
+        assert abs(abs(equation[:3] @ mirror_normal) - 1.0) < 1e-10
+        point = np.array([result.parameters[0][0], result.parameters[0][1], 0.0])
+        distance = abs(equation[3] - equation[:3] @ point)
+        assert distance == pytest.approx(result.parameters[0][4], abs=1e-9)
+
+
+def test_parallel_mirror_plane_complete_jacobian() -> None:
+    cylinder, group, truth = tangent_plane_group()
+    parameters = truth + np.array([0.01, -0.015, 0.006, -0.008, 0.03, 0.02])
+    _, actual = residual_jacobian([cylinder], None, parameters, mirrors=(group,))
+    expected = np.empty_like(actual)
+    for column in range(len(parameters)):
+        step = np.zeros_like(parameters)
+        step[column] = 2e-6
+        plus = residual_jacobian([cylinder], None, parameters + step, mirrors=(group,))[
+            0
+        ]
+        minus = residual_jacobian(
+            [cylinder], None, parameters - step, mirrors=(group,)
+        )[0]
+        expected[:, column] = (plus - minus) / 4e-6
+    np.testing.assert_allclose(actual, expected, atol=8e-8, rtol=3e-6)
+
+
+def test_shared_radius_mirror_rejects_non_cylinder_source() -> None:
+    cylinder, group, truth = tangent_plane_group()
+    cone = SideObservations(cylinder.points, cylinder.area, "cone", cylinder.domain)
+    with pytest.raises(ValueError, match="reference a cylinder"):
+        _ = fit_coaxial([cone], None, None, np.insert(truth, 5, 0.0), mirrors=(group,))
 
 
 def test_plane_pair_recovery_and_reported_mirror_plane() -> None:
@@ -220,16 +308,19 @@ def test_nozzle_adapter_reports_members_and_fitted_plane() -> None:
     normals[ids[3]] = equations[1][:3]
     workspace = cast(
         NozzleWorkspace,
-        SimpleNamespace(
-            local=local,
-            frame=np.eye(3),
-            data=SimpleNamespace(
-                weights=weights,
-                normals=normals,
-                selection={"initial_parameters": [0.3, -0.4, 0.12, -0.08, 3.2]},
+        cast(
+            object,
+            SimpleNamespace(
+                local=local,
+                frame=np.eye(3),
+                data=SimpleNamespace(
+                    weights=weights,
+                    normals=normals,
+                    selection={"initial_parameters": [0.3, -0.4, 0.12, -0.08, 3.2]},
+                ),
+                default=SimpleNamespace(source_sha256="source"),
+                model_sha256="model",
             ),
-            default=SimpleNamespace(source_sha256="source"),
-            model_sha256="model",
         ),
     )
     fitted = fit_group(
@@ -255,3 +346,50 @@ def test_nozzle_adapter_reports_members_and_fitted_plane() -> None:
     }
     assert len(mirror_planes) == 1
     assert len(mirror_planes[0]["equation"]) == 4
+
+
+def test_nozzle_adapter_accepts_radius_source_without_anchor_plane() -> None:
+    cylinder, mirror, truth = tangent_plane_group()
+    point_sets = [cylinder.points, *mirror.points]
+    starts = np.cumsum([0, *(len(points) for points in point_sets)])
+    ids = [list(range(starts[i], starts[i + 1])) for i in range(len(point_sets))]
+    local = np.vstack(point_sets)
+    weights = np.concatenate([cylinder.area, *mirror.areas])
+    normals = np.zeros_like(local)
+    normal = mirror_transform(truth, truth[5])[2]
+    normals[ids[1]] = normal
+    normals[ids[2]] = -normal
+    workspace = cast(
+        NozzleWorkspace,
+        cast(
+            object,
+            SimpleNamespace(
+                local=local,
+                frame=np.eye(3),
+                data=SimpleNamespace(
+                    weights=weights,
+                    normals=normals,
+                    selection={"initial_parameters": [*truth[:4], truth[4]]},
+                ),
+                default=SimpleNamespace(source_sha256="source"),
+                model_sha256="model",
+            ),
+        ),
+    )
+    fitted = fit_group(
+        workspace,
+        [FitSelection("crown", ids[0], "cylinder", (-2.0, 2.0))],
+        [],
+        mirror_groups=(
+            (
+                FitSelection("left", ids[1], "plane", (-2.0, 2.0)),
+                FitSelection("right", ids[2], "plane", (-2.0, 2.0)),
+            ),
+        ),
+        mirror_phases_radians=(truth[5],),
+        mirror_radius_surface_ids=("crown",),
+    )
+    assert fitted["fit"]["weighted_rms"] < 1e-9
+    assert fitted["session"]["plane_ids"] == []
+    surfaces = cast(dict[str, Any], fitted.get("surfaces"))
+    assert set(surfaces) == {"crown", "left", "right"}

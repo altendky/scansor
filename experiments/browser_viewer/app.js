@@ -71,8 +71,20 @@ function graphNode(id) {
 function factorAxis(node) {
   if (node?.operation === 'fit') return node.axis;
   if (node?.operation === 'mirror_symmetry') return graphNode(node.plane)?.axis;
+  if (node?.operation === 'parallel') return graphNode(node.reference_plane)?.axis;
+  if (node?.operation === 'equal') {
+    const distance = [node.left, node.right].find((value) => value.measurement === 'plane_distance');
+    return graphNode(distance?.reference_plane)?.axis;
+  }
   return null;
 }
+const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
+const solveInputs = (axis) =>
+  graphState.recipe.nodes.filter(
+    (node) =>
+      (node.operation === 'fit' || relationshipOperations.includes(node.operation)) &&
+      factorAxis(node) === axis,
+  );
 function activeSelection() {
   return graphState?.recipe.nodes.find(
     (node) => node.id === selectedFeatureId && node.operation === 'selection',
@@ -204,7 +216,11 @@ function showProperties() {
   const node = graphNode(selectedFeatureId),
     earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node));
   $('selection-tools').hidden = node.operation !== 'selection';
-  $('feature-inspection').hidden = ['source', 'selection'].includes(node.operation);
+  $('feature-inspection').hidden = [
+    'source',
+    'selection',
+    ...relationshipOperations,
+  ].includes(node.operation);
   if (node.operation === 'selection') $('selection-depth').value = node.depth;
   $('properties-title').textContent = node.label;
   $('feature-state').textContent = actionDescription(
@@ -229,6 +245,8 @@ function showProperties() {
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
     ['mirror-properties', node.operation === 'mirror_symmetry'],
+    ['parallel-properties', node.operation === 'parallel'],
+    ['equal-properties', node.operation === 'equal'],
   ])
     $(id).hidden = !enabled;
   if (node.operation === 'fit') {
@@ -277,7 +295,7 @@ function showProperties() {
       'axis-solve-factors',
       earlier.filter(
         (n) =>
-          (n.operation === 'fit' || n.operation === 'mirror_symmetry') &&
+          (n.operation === 'fit' || relationshipOperations.includes(n.operation)) &&
           factorAxis(n) === node.axis,
       ),
       node.factors,
@@ -339,6 +357,37 @@ function showProperties() {
       ),
     );
     $('mirror-extents').checked = node.symmetric_extents !== false;
+  } else if (node.operation === 'parallel') {
+    choices(
+      'parallel-surface',
+      earlier.filter((n) => n.operation === 'fit' && n.kind === 'plane' && !n.axis),
+      [node.surface],
+    );
+    choices(
+      'parallel-reference',
+      earlier.filter((n) => n.operation === 'reference_plane'),
+      [node.reference_plane],
+    );
+  } else if (node.operation === 'equal') {
+    const radius = [node.left, node.right].find((value) => value.measurement === 'radius'),
+      distance = [node.left, node.right].find(
+        (value) => value.measurement === 'plane_distance',
+      );
+    choices(
+      'equal-radius-surface',
+      earlier.filter((n) => n.operation === 'fit' && n.kind === 'cylinder' && n.axis),
+      [radius.surface],
+    );
+    choices(
+      'equal-distance-surface',
+      earlier.filter((n) => n.operation === 'fit' && n.kind === 'plane' && !n.axis),
+      [distance.surface],
+    );
+    choices(
+      'equal-distance-reference',
+      earlier.filter((n) => n.operation === 'reference_plane'),
+      [distance.reference_plane],
+    );
   } else if (node.operation === 'joint_fit')
     choices(
       'joint-inputs',
@@ -601,7 +650,12 @@ function showResult() {
       const preview = referencePlanePreview(node);
       if (preview) referencePlaneGuide(preview);
     } else if (
-      ['coaxial', 'perpendicular', 'rotational_symmetry', 'mirror_symmetry'].includes(
+      [
+        'coaxial',
+        'perpendicular',
+        'rotational_symmetry',
+        ...relationshipOperations,
+      ].includes(
         node.operation,
       )
     ) {
@@ -739,7 +793,12 @@ function paint() {
     busy ||
     selectionDrawing ||
     selectionPending ||
-    ['coaxial', 'perpendicular', 'rotational_symmetry', 'mirror_symmetry'].includes(
+    [
+      'coaxial',
+      'perpendicular',
+      'rotational_symmetry',
+      ...relationshipOperations,
+    ].includes(
       graphNode(selectedFeatureId).operation,
     );
   $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
@@ -1135,14 +1194,7 @@ async function start() {
   };
   const updateAxisSolveFactors = () => {
     const axis = $('new-axis-solve-axis').value;
-    choices(
-      'new-axis-solve-factors',
-      graphState.recipe.nodes.filter(
-        (node) =>
-          (node.operation === 'fit' || node.operation === 'mirror_symmetry') &&
-          factorAxis(node) === axis,
-      ),
-    );
+    choices('new-axis-solve-factors', solveInputs(axis));
   };
   $('new-axis').onclick = () => {
     const sources = graphState.recipe.nodes.filter(
@@ -1193,10 +1245,42 @@ async function start() {
     $('mirror-error').textContent = '';
     $('mirror-dialog').showModal();
   };
+  $('new-parallel').onclick = () => {
+    const fits = graphState.recipe.nodes.filter(
+        (node) => node.operation === 'fit' && node.kind === 'plane' && !node.axis,
+      ),
+      planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
+    if (!fits.length || !planes.length) {
+      status('Create a standalone plane fit and a reference plane first.', true);
+      return;
+    }
+    choices('new-parallel-surface', fits, [selectedFeatureId]);
+    choices('new-parallel-reference', planes, [graphNode(selectedFeatureId)?.plane]);
+    $('parallel-error').textContent = '';
+    $('parallel-dialog').showModal();
+  };
+  $('new-equal').onclick = () => {
+    const cylinders = graphState.recipe.nodes.filter(
+        (node) => node.operation === 'fit' && node.kind === 'cylinder' && node.axis,
+      ),
+      fits = graphState.recipe.nodes.filter(
+        (node) => node.operation === 'fit' && node.kind === 'plane' && !node.axis,
+      ),
+      planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
+    if (!cylinders.length || !fits.length || !planes.length) {
+      status('Create an axis-bound cylinder, standalone plane fit, and reference plane first.', true);
+      return;
+    }
+    choices('new-equal-radius-surface', cylinders, [selectedFeatureId]);
+    choices('new-equal-distance-surface', fits);
+    choices('new-equal-distance-reference', planes);
+    $('equal-error').textContent = '';
+    $('equal-dialog').showModal();
+  };
   $('new-axis-solve').onclick = () => {
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
     if (!axes.length) {
-      status('Create an explicit axis before creating a shared-axis joint.', true);
+      status('Create an explicit axis before creating a solve group.', true);
       return;
     }
     choices(
@@ -1219,14 +1303,7 @@ async function start() {
     showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
   $('axis-solve-axis').onchange = () => {
     const axis = $('axis-solve-axis').value;
-    choices(
-      'axis-solve-factors',
-      graphState.recipe.nodes.filter(
-        (node) =>
-          (node.operation === 'fit' || node.operation === 'mirror_symmetry') &&
-          factorAxis(node) === axis,
-      ),
-    );
+    choices('axis-solve-factors', solveInputs(axis));
   };
   $('add-axis-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -1303,6 +1380,41 @@ async function start() {
     if (saved) $('mirror-dialog').close();
     else $('mirror-error').textContent = $('status').textContent;
   };
+  $('add-parallel-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const saved = await appendActions([
+      {
+        id: uid('parallel'),
+        label: $('new-parallel-label').value,
+        operation: 'parallel',
+        surface: $('new-parallel-surface').value,
+        reference_plane: $('new-parallel-reference').value,
+      },
+    ]);
+    if (saved) $('parallel-dialog').close();
+    else $('parallel-error').textContent = $('status').textContent;
+  };
+  $('add-equal-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const saved = await appendActions([
+      {
+        id: uid('equal'),
+        label: $('new-equal-label').value,
+        operation: 'equal',
+        left: {
+          measurement: 'radius',
+          surface: $('new-equal-radius-surface').value,
+        },
+        right: {
+          measurement: 'plane_distance',
+          surface: $('new-equal-distance-surface').value,
+          reference_plane: $('new-equal-distance-reference').value,
+        },
+      },
+    ]);
+    if (saved) $('equal-dialog').close();
+    else $('equal-error').textContent = $('status').textContent;
+  };
   $('add-axis-solve-form').onsubmit = async (event) => {
     event.preventDefault();
     const axis = $('new-axis-solve-axis').value,
@@ -1310,10 +1422,11 @@ async function start() {
       kinds = new Set(
         factors.filter((id) => graphNode(id).operation === 'fit').map((id) => graphNode(id).kind),
       ),
-      hasSide = kinds.has('cone') || kinds.has('cylinder');
-    if (!axis || !hasSide || !kinds.has('plane')) {
+      hasSide = kinds.has('cone') || kinds.has('cylinder'),
+      hasPlaneEvidence = kinds.has('plane') || factors.some((id) => graphNode(id).operation === 'mirror_symmetry');
+    if (!axis || !hasSide || !hasPlaneEvidence) {
       $('axis-solve-error').textContent =
-        'Choose one axis, at least one bound cone or cylinder, and at least one bound plane.';
+        'Choose one axis, an axis-bound cone or cylinder, and either a bound plane or mirror relationship.';
       return;
     }
     const saved = await appendActions([
@@ -1484,6 +1597,21 @@ async function start() {
         return;
       }
       node.symmetric_extents = $('mirror-extents').checked;
+    }
+    if (node.operation === 'parallel') {
+      node.surface = $('parallel-surface').value;
+      node.reference_plane = $('parallel-reference').value;
+    }
+    if (node.operation === 'equal') {
+      node.left = {
+        measurement: 'radius',
+        surface: $('equal-radius-surface').value,
+      };
+      node.right = {
+        measurement: 'plane_distance',
+        surface: $('equal-distance-surface').value,
+        reference_plane: $('equal-distance-reference').value,
+      };
     }
     await replaceRecipe(recipe);
   };

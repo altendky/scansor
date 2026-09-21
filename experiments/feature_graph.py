@@ -138,6 +138,38 @@ class MirrorSymmetry(Node):
     symmetric_extents: bool = True
 
 
+class ParallelToPlane(Node):
+    """A fitted plane exactly parallel to an explicit reference plane."""
+
+    operation: Literal["parallel"]
+    surface: str
+    reference_plane: str
+
+
+class SurfaceRadius(Record):
+    measurement: Literal["radius"]
+    surface: str
+
+
+class PlaneDistance(Record):
+    measurement: Literal["plane_distance"]
+    surface: str
+    reference_plane: str
+
+
+QuantityMeasurement = Annotated[
+    SurfaceRadius | PlaneDistance, Field(discriminator="measurement")
+]
+
+
+class EqualQuantities(Node):
+    """Exact equality between two typed geometric measurements."""
+
+    operation: Literal["equal"]
+    left: QuantityMeasurement
+    right: QuantityMeasurement
+
+
 class AxisSolve(Node):
     """Explicit active factors that jointly refine one shared free axis."""
 
@@ -158,6 +190,8 @@ Feature = Annotated[
     | AxisDefinition
     | PlaneDefinition
     | MirrorSymmetry
+    | ParallelToPlane
+    | EqualQuantities
     | AxisSolve,
     Field(discriminator="operation"),
 ]
@@ -236,6 +270,15 @@ def dependencies(node: Feature) -> list[str]:
         return [node.axis]
     if isinstance(node, MirrorSymmetry):
         return [node.plane, *node.surfaces]
+    if isinstance(node, ParallelToPlane):
+        return [node.surface, node.reference_plane]
+    if isinstance(node, EqualQuantities):
+        refs: list[str] = []
+        for measurement in (node.left, node.right):
+            refs.append(measurement.surface)
+            if isinstance(measurement, PlaneDistance):
+                refs.append(measurement.reference_plane)
+        return list(dict.fromkeys(refs))
     if isinstance(node, AxisSolve):
         return [node.axis, *node.factors]
     return []
@@ -400,6 +443,76 @@ def axial_plane_result(
         "plane_equation": [*normal.tolist(), float(normal @ point)],
         "angle_degrees": angle_degrees,
     }
+
+
+def equality_measurements(
+    relationship: EqualQuantities,
+) -> tuple[SurfaceRadius, PlaneDistance]:
+    measurements = (relationship.left, relationship.right)
+    radii = [value for value in measurements if isinstance(value, SurfaceRadius)]
+    distances = [value for value in measurements if isinstance(value, PlaneDistance)]
+    if len(radii) != 1 or len(distances) != 1:
+        raise ValueError(
+            "the bounded equality relationship requires one surface radius and one plane distance"
+        )
+    return radii[0], distances[0]
+
+
+def constrained_mirror_radii(
+    factors: list[Feature], nodes: dict[str, Feature]
+) -> tuple[str | None, ...]:
+    """Lower complete mirror/parallel/equality clusters to shared radii."""
+    mirrors = [factor for factor in factors if isinstance(factor, MirrorSymmetry)]
+    parallels = [factor for factor in factors if isinstance(factor, ParallelToPlane)]
+    equalities = [factor for factor in factors if isinstance(factor, EqualQuantities)]
+    used_parallel: set[str] = set()
+    used_equal: set[str] = set()
+    radius_sources: list[str | None] = []
+    for mirror in mirrors:
+        matching_parallel = [
+            relationship
+            for relationship in parallels
+            if relationship.reference_plane == mirror.plane
+            and relationship.surface in mirror.surfaces
+        ]
+        matching_equal: list[tuple[EqualQuantities, SurfaceRadius]] = []
+        for relationship in equalities:
+            radius, distance = equality_measurements(relationship)
+            if (
+                distance.reference_plane == mirror.plane
+                and distance.surface in mirror.surfaces
+                and any(
+                    parallel.surface == distance.surface
+                    for parallel in matching_parallel
+                )
+            ):
+                matching_equal.append((relationship, radius))
+        if not matching_parallel and not matching_equal:
+            radius_sources.append(None)
+            continue
+        if len(matching_parallel) != 1 or len(matching_equal) != 1:
+            raise ValueError(
+                "a constrained mirror pair requires exactly one parallel relationship and one radius-to-plane-distance equality"
+            )
+        parallel = matching_parallel[0]
+        equality, radius = matching_equal[0]
+        if parallel.surface != equality_measurements(equality)[1].surface:
+            raise ValueError(
+                "parallel and equality relationships must reference the same mirror member"
+            )
+        cylinder = nodes[radius.surface]
+        if not isinstance(cylinder, SurfaceFit) or cylinder.kind != "cylinder":
+            raise ValueError("radius equality currently requires a cylinder fit")
+        used_parallel.add(parallel.id)
+        used_equal.add(equality.id)
+        radius_sources.append(radius.surface)
+    if used_parallel != {
+        relationship.id for relationship in parallels
+    } or used_equal != {relationship.id for relationship in equalities}:
+        raise ValueError(
+            "parallel and equality relationships must form a complete active mirror cluster"
+        )
+    return tuple(radius_sources)
 
 
 @final
@@ -568,6 +681,50 @@ class FeatureGraph:
                     raise ValueError(
                         "mirror symmetry requires matching fit types; existing fits are not converted"
                     )
+            elif isinstance(node, ParallelToPlane):
+                surface = nodes[node.surface]
+                reference = nodes[node.reference_plane]
+                if (
+                    not isinstance(surface, SurfaceFit)
+                    or surface.kind != "plane"
+                    or surface.axis is not None
+                ):
+                    raise ValueError(
+                        "parallel relationship requires a standalone plane fit"
+                    )
+                if not isinstance(reference, PlaneDefinition):
+                    raise ValueError(
+                        "parallel relationship requires an explicit reference plane"
+                    )
+            elif isinstance(node, EqualQuantities):
+                radius, distance = equality_measurements(node)
+                cylinder = nodes[radius.surface]
+                surface = nodes[distance.surface]
+                reference = nodes[distance.reference_plane]
+                if (
+                    not isinstance(cylinder, SurfaceFit)
+                    or cylinder.kind != "cylinder"
+                    or cylinder.axis is None
+                ):
+                    raise ValueError(
+                        "radius measurement requires an axis-bound cylinder fit"
+                    )
+                if (
+                    not isinstance(surface, SurfaceFit)
+                    or surface.kind != "plane"
+                    or surface.axis is not None
+                ):
+                    raise ValueError(
+                        "plane-distance measurement requires a standalone plane fit"
+                    )
+                if not isinstance(reference, PlaneDefinition):
+                    raise ValueError(
+                        "plane-distance measurement requires an explicit reference plane"
+                    )
+                if cylinder.axis != reference.axis:
+                    raise ValueError(
+                        "radius and plane-distance measurements must use the same axis"
+                    )
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -586,20 +743,35 @@ class FeatureGraph:
                         and isinstance(nodes[factor.plane], PlaneDefinition)
                         and cast(PlaneDefinition, nodes[factor.plane]).axis == node.axis
                     )
+                    and not (
+                        isinstance(factor, ParallelToPlane)
+                        and isinstance(nodes[factor.reference_plane], PlaneDefinition)
+                        and cast(PlaneDefinition, nodes[factor.reference_plane]).axis
+                        == node.axis
+                    )
+                    and not (
+                        isinstance(factor, EqualQuantities)
+                        and cast(
+                            SurfaceFit,
+                            nodes[equality_measurements(factor)[0].surface],
+                        ).axis
+                        == node.axis
+                        and cast(
+                            PlaneDefinition,
+                            nodes[equality_measurements(factor)[1].reference_plane],
+                        ).axis
+                        == node.axis
+                    )
                     for factor in factors
                 ):
                     raise ValueError(
-                        "axis solve factors must be bound surface fits or mirror relationships on its axis"
+                        "axis solve inputs must be bound fits or relationships on its axis"
                     )
                 typed_factors = [
-                    cast(SurfaceFit, factor)
-                    for factor in factors
-                    if isinstance(factor, SurfaceFit)
+                    factor for factor in factors if isinstance(factor, SurfaceFit)
                 ]
                 mirror_factors = [
-                    cast(MirrorSymmetry, factor)
-                    for factor in factors
-                    if isinstance(factor, MirrorSymmetry)
+                    factor for factor in factors if isinstance(factor, MirrorSymmetry)
                 ]
                 if len({factor.plane for factor in mirror_factors}) != len(
                     mirror_factors
@@ -613,8 +785,19 @@ class FeatureGraph:
                     raise ValueError(
                         "free axis solve requires a cone or cylinder factor"
                     )
-                if not any(factor.kind == "plane" for factor in typed_factors):
-                    raise ValueError("free axis solve requires a plane factor")
+                mirror_radii = constrained_mirror_radii(factors, nodes)
+                if (
+                    not any(factor.kind == "plane" for factor in typed_factors)
+                    and not mirror_factors
+                ):
+                    raise ValueError(
+                        "free axis solve requires a plane factor or mirror relationship"
+                    )
+                for radius_surface in (value for value in mirror_radii if value):
+                    if radius_surface not in node.factors:
+                        raise ValueError(
+                            "a radius equality requires its cylinder fit active in the solve"
+                        )
                 sources = {
                     selection_source(nodes[ref], nodes)
                     for factor in typed_factors
@@ -881,15 +1064,14 @@ class FeatureGraph:
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]
                     fitted_factors = [
-                        cast(SurfaceFit, factor)
-                        for factor in factors
-                        if isinstance(factor, SurfaceFit)
+                        factor for factor in factors if isinstance(factor, SurfaceFit)
                     ]
                     mirrors = [
-                        cast(MirrorSymmetry, factor)
+                        factor
                         for factor in factors
                         if isinstance(factor, MirrorSymmetry)
                     ]
+                    mirror_radius_sources = constrained_mirror_radii(factors, nodes)
                     if len({mirror.plane for mirror in mirrors}) != len(mirrors):
                         raise ValueError(
                             "each mirror plane may drive only one pair in a joint"
@@ -913,12 +1095,13 @@ class FeatureGraph:
                         [selected(plane) for plane in planes],
                         axis_initial=np.asarray(axis_result["parameters"], dtype=float),
                         mirror_groups=tuple(
-                            tuple(
-                                selected(cast(SurfaceFit, nodes[ref]))
-                                for ref in mirror.surfaces
+                            (
+                                selected(cast(SurfaceFit, nodes[mirror.surfaces[0]])),
+                                selected(cast(SurfaceFit, nodes[mirror.surfaces[1]])),
                             )
                             for mirror in mirrors
                         ),
+                        mirror_radius_surface_ids=mirror_radius_sources,
                         mirror_phases_radians=tuple(
                             np.radians(
                                 cast(
@@ -931,7 +1114,8 @@ class FeatureGraph:
                     fitted_mirror_planes = cast(
                         list[dict[str, Any]], result.get("mirror_planes", [])
                     )
-                    cast(dict[str, Any], result)["mirror_planes"] = {
+                    result_data = cast(dict[str, Any], cast(object, result))
+                    result_data["mirror_planes"] = {
                         mirror.plane: {
                             "axis_display": result["axis_display"],
                             "point_display": result["point_display"],

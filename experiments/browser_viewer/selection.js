@@ -183,6 +183,10 @@ export function featureVertexIds(nodes, memberships, featureId) {
                 ? [node.axis, ...node.planes]
                 : node.operation === 'mirror_symmetry'
                   ? node.surfaces
+                  : node.operation === 'parallel'
+                    ? [node.surface]
+                    : node.operation === 'equal'
+                      ? [node.left.surface, node.right.surface]
                 : [];
     inputs.forEach(visit);
   }

@@ -58,34 +58,54 @@ class CoaxialResult:
     gradient: float
 
 
-def parameter_maps(sides: list[SideObservations]) -> tuple[list[list[int]], int]:
-    offset = 5  # shared cx, cy, a, b, h
+def parameter_maps(
+    sides: list[SideObservations], *, has_primary_plane: bool = True
+) -> tuple[list[list[int]], int]:
+    offset = 5 if has_primary_plane else 4  # shared cx, cy, a, b[, h]
+    plane_offset = 4 if has_primary_plane else -1
     maps: list[list[int]] = []
     for side in sides:
         if side.kind not in ("cone", "cylinder"):
             raise ValueError("coaxial sides must be cones or cylinders")
-        maps.append([0, 1, 2, 3, offset, 4, offset + 1])
+        maps.append([0, 1, 2, 3, offset, plane_offset, offset + 1])
         offset += 2 if side.kind == "cone" else 1
     return maps, offset
 
 
 def unpack(parameters: Array, mapping: list[int], kind: str) -> Array:
     p = np.zeros(7)
-    p[:6] = parameters[mapping[:6]]
+    p[:5] = parameters[mapping[:5]]
+    if mapping[5] >= 0:
+        p[5] = parameters[mapping[5]]
     if kind == "cone":
         p[6] = parameters[mapping[6]]
     return p
 
 
+def mirror_radius_parameter(
+    group: MirrorSurfaces,
+    sides: list[SideObservations],
+    maps: list[list[int]],
+) -> int | None:
+    index = group.radius_side_index
+    if index is None:
+        return None
+    if index < 0 or index >= len(sides) or sides[index].kind != "cylinder":
+        raise ValueError("a shared-radius mirror group must reference a cylinder side")
+    if group.kind != "plane":
+        raise ValueError("a shared-radius mirror group requires plane surfaces")
+    return maps[index][4]
+
+
 def residual_jacobian(
     sides: list[SideObservations],
-    plane: Array,
+    plane: Array | None,
     parameters: Array,
     extra_planes: tuple[Array, ...] = (),
     rotations: tuple[RotationalPlanes, ...] = (),
     mirrors: tuple[MirrorSurfaces, ...] = (),
 ) -> tuple[Array, Array]:
-    maps, base_size = parameter_maps(sides)
+    maps, base_size = parameter_maps(sides, has_primary_plane=plane is not None)
     plane_size = base_size + len(extra_planes)
     rotation_size = sum(group.size for group in rotations)
     size = plane_size + rotation_size + sum(group.size for group in mirrors)
@@ -99,16 +119,19 @@ def residual_jacobian(
             side.points, np.empty((0, 3)), p, side.domain
         )
         jac = np.zeros((len(residual), size))
-        count = 7 if side.kind == "cone" else 6
-        jac[:, mapping[:count]] = local[:, :count]
+        local_columns = [0, 1, 2, 3, 4, *([6] if side.kind == "cone" else [])]
+        jac[:, [mapping[column] for column in local_columns]] = local[:, local_columns]
         residuals.append(residual)
         jacobians.append(jac)
     raw = np.array([parameters[2], parameters[3], 1.0])
     length = float(np.linalg.norm(raw))
     axis = raw / length
-    for points, offset in zip(
-        (plane, *extra_planes), (4, *range(base_size, plane_size)), strict=True
-    ):
+    plane_points = (*((plane,) if plane is not None else ()), *extra_planes)
+    plane_offsets = (
+        *((4,) if plane is not None else ()),
+        *range(base_size, plane_size),
+    )
+    for points, offset in zip(plane_points, plane_offsets, strict=True):
         jac = np.zeros((len(points), size))
         jac[:, 2] = points @ ((np.array([1.0, 0, 0]) - axis * axis[0]) / length)
         jac[:, 3] = points @ ((np.array([0.0, 1, 0]) - axis * axis[1]) / length)
@@ -124,7 +147,10 @@ def residual_jacobian(
     mirror_offset = plane_size + rotation_size
     for i, group in enumerate(mirrors):
         r, j, _ = mirror_residual_jacobian(
-            group, parameters, mirror_offset + sum(g.size for g in mirrors[:i])
+            group,
+            parameters,
+            mirror_offset + sum(g.size for g in mirrors[:i]),
+            mirror_radius_parameter(group, sides, maps),
         )
         residuals.extend(r)
         jacobians.extend(j)
@@ -133,8 +159,8 @@ def residual_jacobian(
 
 def fit_coaxial(
     sides: list[SideObservations],
-    plane: Array,
-    plane_area: Array,
+    plane: Array | None,
+    plane_area: Array | None,
     initial: Array,
     extra_planes: tuple[tuple[Array, Array], ...] = (),
     rotations: tuple[RotationalPlanes, ...] = (),
@@ -143,7 +169,9 @@ def fit_coaxial(
     """Area-weighted simultaneous solve, exact axis sharing, fixed memberships."""
     if not sides:
         raise ValueError("at least one lateral surface is required")
-    maps, base_size = parameter_maps(sides)
+    if (plane is None) != (plane_area is None):
+        raise ValueError("primary plane points and areas must be supplied together")
+    maps, base_size = parameter_maps(sides, has_primary_plane=plane is not None)
     plane_size = base_size + len(extra_planes)
     rotation_size = sum(group.size for group in rotations)
     mirror_offset = plane_size + rotation_size
@@ -157,9 +185,14 @@ def fit_coaxial(
     for group in mirrors:
         if len(group.points) != 2 or len(group.areas) != 2:
             raise ValueError("mirror symmetry requires exactly two same-type surfaces")
+        _ = mirror_radius_parameter(group, sides, maps)
     for points, area in [
         *((s.points, s.area) for s in sides),
-        (plane, plane_area),
+        *(
+            ((plane, plane_area),)
+            if plane is not None and plane_area is not None
+            else ()
+        ),
         *extra_planes,
         *(
             pair
@@ -183,7 +216,7 @@ def fit_coaxial(
     weights = np.concatenate(
         [
             *(s.area for s in sides),
-            plane_area,
+            *((plane_area,) if plane_area is not None else ()),
             *(area for _, area in extra_planes),
             *(area for group in rotations for area in group.areas),
             *(area for group in mirrors for area in group.areas),
@@ -225,7 +258,7 @@ def fit_coaxial(
             all_points = np.vstack(
                 [
                     *(s.points for s in sides),
-                    plane,
+                    *((plane,) if plane is not None else ()),
                     *extra_points,
                     *(points for group in rotations for points in group.points),
                     *(points for group in mirrors for points in group.points),
@@ -244,24 +277,34 @@ def fit_coaxial(
     boundaries = np.cumsum(
         [
             *(len(s.points) for s in sides),
-            len(plane),
+            *((len(plane),) if plane is not None else ()),
             *(len(points) for points in extra_points),
             *(len(points) for group in rotations for points in group.points),
             *(len(points) for group in mirrors for points in group.points),
         ]
     )[:-1]
     blocks = np.split(residual, boundaries)
+    plane_block_offset = len(sides)
+    primary_plane_residual = (
+        blocks[plane_block_offset] if plane is not None else np.empty(0)
+    )
+    extra_plane_block_offset = plane_block_offset + (1 if plane is not None else 0)
+    relationship_block_offset = extra_plane_block_offset + len(extra_planes)
     return CoaxialResult(
         parameters=[
             unpack(parameters, m, s.kind) for m, s in zip(maps, sides, strict=True)
         ],
         residuals=blocks[: len(sides)],
-        plane_residuals=blocks[len(sides)],
+        plane_residuals=primary_plane_residual,
         plane_offsets=[
-            float(parameters[i]) for i in (4, *range(base_size, plane_size))
+            float(parameters[i])
+            for i in (
+                *((4,) if plane is not None else ()),
+                *range(base_size, plane_size),
+            )
         ],
         extra_plane_residuals=blocks[
-            len(sides) + 1 : len(sides) + 1 + len(extra_planes)
+            extra_plane_block_offset : extra_plane_block_offset + len(extra_planes)
         ],
         rotational_equations=[
             rotation_residual_jacobian(
@@ -285,9 +328,7 @@ def fit_coaxial(
         ],
         rotational_residuals=[
             blocks[
-                len(sides) + 1 + len(extra_planes) + 3 * i : len(sides)
-                + 1
-                + len(extra_planes)
+                relationship_block_offset + 3 * i : relationship_block_offset
                 + 3 * i
                 + 3
             ]
@@ -298,6 +339,7 @@ def fit_coaxial(
                 group,
                 parameters,
                 mirror_offset + sum(g.size for g in mirrors[:i]),
+                mirror_radius_parameter(group, sides, maps),
             )
             for i, group in enumerate(mirrors)
         ],
@@ -317,14 +359,9 @@ def fit_coaxial(
         ],
         mirror_residuals=[
             blocks[
-                len(sides) + 1 + len(extra_planes) + 3 * len(rotations) + 2 * i : len(
-                    sides
-                )
-                + 1
-                + len(extra_planes)
+                relationship_block_offset
                 + 3 * len(rotations)
-                + 2 * i
-                + 2
+                + 2 * i : relationship_block_offset + 3 * len(rotations) + 2 * i + 2
             ]
             for i in range(len(mirrors))
         ],

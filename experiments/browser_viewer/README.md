@@ -142,45 +142,52 @@ Creating an action does not evaluate it by default. A manually initialized axis
 is previewed immediately because its value is already known. **Evaluate action**
 evaluates the selected action and only the earlier inputs it requires;
 **Evaluate all** explicitly evaluates every stale or unevaluated action. The
-top action toolbar contains both **Evaluate all** and the opt-in **Auto-evaluate
-all changes** checkbox. Enabling automatic evaluation immediately evaluates the
+top action toolbar groups primitive actions under **Create**, **Relate**,
+**Solve**, and **Run**. **Evaluate all** and the opt-in **Auto-evaluate changes**
+checkbox live under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps
 available guides visible together; disabling it restores selected-action-only
 display. The selected action's evaluation and proposal controls remain in its
 properties pane.
 
-1. **New selection** creates an empty selection independently of any fit. Paint
+1. **Selection** creates an empty selection independently of any fit. Paint
    it, rename it, and add more selections as needed.
-2. **New fit** chooses cone, cylinder or plane and one or more earlier
+2. **Surface fit** chooses cone, cylinder or plane and one or more earlier
    selections. Overlapping input memberships count each source vertex once.
    Evaluate the fit to inspect its own parameters, guide and residuals. Plane
    fits can have independent orientations and do not require a joint solve.
-3. **New axis** defaults to a free-axis initial value entered directly as a point
+3. **Axis** defaults to a free-axis initial value entered directly as a point
    at local Z=0 and two direction slopes. The zero defaults describe the local Z
    axis. Alternatively, initialize the separate axis action from an earlier
    standalone cone or cylinder fit; in that mode the dialog can also create an
    axis-bound factor of the same type from the same observations.
-4. **New plane** creates an explicit reference plane through an earlier axis.
+4. **Plane** creates an explicit reference plane through an earlier axis.
    Its clocking angle initializes rotation about the axis; the plane is previewed
    immediately and remains a separately selectable feature.
-5. **Mirror symmetry** relates two distinct, same-type standalone fits across an
-   explicit reference plane. Add the relationship as an active factor in a joint
-   on that plane's axis. The joint may refine both the shared axis and the plane's
+5. **Mirror** relates two distinct, same-type standalone fits across an
+   explicit reference plane. It defines geometry; it is not itself a solve. Add
+   the relationship to a solve group on that plane's axis. The solve may refine
+   both the shared axis and the plane's
    clocking while keeping the two adjusted surfaces exact reflected copies.
    Axis-bound fits are not mirror members because coaxial sides and perpendicular
    planes are already invariant under reflection in any plane through their axis.
    The current bounded adapter permits one mirrored pair per reference plane in a
-   joint; create another reference-plane action for another independently clocked
+   solve; create another reference-plane action for another independently clocked
    pair.
-6. To keep an axis fixed, create a cone, cylinder, or plane fit and choose it
+6. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
+   currently supports typed equality between an axis-bound cylinder radius and
+   the absolute distance from a standalone plane fit to a reference plane. With
+   a mirrored plane pair, these independent primitives compile to exact parallel
+   planes at opposite signed cylinder-radius offsets; no penalty weights or
+   arch-specific action are introduced.
+7. To keep an axis fixed, create a cone, cylinder, or plane fit and choose it
    under **Reference axis**. Evaluating the bound fit adjusts only its radius and
    taper, radius, or plane offset respectively; its observations cannot move the
    explicit axis.
-7. To let observations refine the axis together, create an axis-bound cone or
-   cylinder and an axis-bound plane, then choose **New joint**. Select the
-   explicit axis and the active bound fits and mirror relationships. The joint
-   solve returns a separate result: bound factor sets influence axis direction,
+8. To let observations refine the axis together, choose **Solve group**. Select
+   the explicit axis and the active bound fits and relationships. The solve
+   returns a separate result: bound factor sets influence axis direction,
    while a perpendicular plane does not locate the axis transversely. Mirror
    member observations refine their symmetry plane and shared axis. Standalone
    fits, reference definitions, and the axis initializer remain unchanged.
@@ -209,7 +216,7 @@ and finite axial support. Axis properties expose either their manual initial
 value or the standalone cone/cylinder used as their initializer. Reference-plane
 properties expose their axis and initial clocking. Mirror properties expose the
 plane, two same-type standalone members, and the export-extents choice.
-Shared-axis joint properties expose the axis and exact active factor list.
+Solve-group properties expose the axis and exact active fit/relationship list.
 Constraint properties expose earlier fit references; joint properties expose
 constraint inputs. Deleting an action is allowed only when nothing references it.
 Editing settings invalidates dependent results. In-flight results from an older

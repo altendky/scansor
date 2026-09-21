@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { actionMove, nodeReferences } from './action-tree.js';
+import { actionDescription, actionMove, nodeReferences } from './action-tree.js';
 
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const a = { id: 'a', label: 'Side', operation: 'selection', source: 'source' };
@@ -66,3 +66,26 @@ const mirror = {
 };
 assert.deepEqual(nodeReferences(referencePlane), ['axis']);
 assert.deepEqual(nodeReferences(mirror), ['mirror-plane', 'fit', 'other-fit']);
+const parallel = {
+  id: 'parallel',
+  label: 'Parallel',
+  operation: 'parallel',
+  surface: 'other-fit',
+  reference_plane: 'mirror-plane',
+};
+const equal = {
+  id: 'equal',
+  label: 'Equal',
+  operation: 'equal',
+  left: { measurement: 'radius', surface: 'fit' },
+  right: {
+    measurement: 'plane_distance',
+    surface: 'other-fit',
+    reference_plane: 'mirror-plane',
+  },
+};
+assert.deepEqual(nodeReferences(parallel), ['other-fit', 'mirror-plane']);
+assert.deepEqual(nodeReferences(equal), ['fit', 'other-fit', 'mirror-plane']);
+assert.equal(actionDescription(mirror, 'unevaluated'), 'Mirror relationship · Defined');
+assert.equal(actionDescription(parallel, 'stale'), 'Parallel relationship · Defined');
+assert.equal(actionDescription(equal, 'ready'), 'Numeric equality · Defined');

@@ -110,6 +110,22 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
       surfaces: ['seed', 'mirror-member'],
     },
     {
+      id: 'parallel',
+      operation: 'parallel',
+      surface: 'mirror-member',
+      reference_plane: 'mirror-plane',
+    },
+    {
+      id: 'equal',
+      operation: 'equal',
+      left: { measurement: 'radius', surface: 'side-factor' },
+      right: {
+        measurement: 'plane_distance',
+        surface: 'mirror-member',
+        reference_plane: 'mirror-plane',
+      },
+    },
+    {
       id: 'axis-solve',
       operation: 'axis_solve',
       axis: 'axis',
@@ -129,6 +145,8 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, memberships, 'axis-solve'), [1, 2, 8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'mirror-plane'), [1, 2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'mirror'), [1, 2, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'parallel'), [8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'equal'), [1, 2, 8]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 
