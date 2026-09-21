@@ -167,8 +167,8 @@ export function renderActionTree(
         dragged = node.id;
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', node.id);
-        event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
         row.classList.add('dragging');
+        event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
       };
       grip.ondragend = () => {
         dragged = null;
