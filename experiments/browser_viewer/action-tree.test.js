@@ -9,6 +9,7 @@ import {
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const a = { id: 'a', label: 'Side', operation: 'selection', source: 'source' };
 const b = { id: 'b', label: 'End', operation: 'selection', source: 'source' };
+const c = { id: 'c', label: 'Other end', operation: 'selection', source: 'source' };
 const fit = { id: 'fit', label: 'Cylinder', operation: 'fit', selections: ['a'] };
 const nodes = [source, a, b, fit];
 const ids = (result) => result.nodes.map((node) => node.id);
@@ -144,7 +145,7 @@ const reuse = {
   fits: ['fit'],
   lineage: ['source', 'a', 'fit'],
   reference_selection: 'a',
-  target_selection: 'b',
+  target_selections: ['b', 'c'],
 };
 const reusedSelection = {
   id: 'reused-selection',
@@ -153,9 +154,10 @@ const reusedSelection = {
   reuse: 'reuse',
   fit: 'fit',
   source_selection: 'a',
+  target_selection: 'b',
 };
-assert.deepEqual(nodeReferences(reuse), ['fit', 'source', 'a', 'b']);
-assert.deepEqual(nodeReferences(reusedSelection), ['reuse', 'fit', 'a']);
+assert.deepEqual(nodeReferences(reuse), ['fit', 'source', 'a', 'b', 'c']);
+assert.deepEqual(nodeReferences(reusedSelection), ['reuse', 'fit', 'a', 'b']);
 assert.deepEqual(discoverReuseLineage([source, a, b, fit], ['fit']), [
   'source',
   'a',

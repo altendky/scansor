@@ -440,7 +440,7 @@ def test_fitted_selection_region_replays_in_an_explicit_datum_frame(
         _ = graph.replace(Recipe.model_validate(invalid), token(graph))
 
 
-def test_feature_reuse_discovers_lineage_and_generates_a_target_selection(
+def test_feature_reuse_discovers_lineage_and_generates_target_selections(
     graph: FeatureGraph,
 ) -> None:
     payload = explicit_axis_recipe(graph, free=True).model_dump()
@@ -453,13 +453,29 @@ def test_feature_reuse_discovers_lineage_and_generates_a_target_selection(
     payload["nodes"].extend(
         [
             {
+                "id": "outer_target_a",
+                "label": "Outer target A",
+                "operation": "selection",
+                "source": "scan",
+                "ids": graph.workspace.default.lateral_ids,
+                "depth": "first_surface",
+            },
+            {
+                "id": "outer_target_b",
+                "label": "Outer target B",
+                "operation": "selection",
+                "source": "scan",
+                "ids": graph.workspace.default.lateral_ids,
+                "depth": "first_surface",
+            },
+            {
                 "id": "reuse_outer",
                 "label": "Reuse outer feature",
                 "operation": "feature_reuse",
                 "fits": ["side_factor"],
                 "lineage": lineage,
                 "reference_selection": "outer_band",
-                "target_selection": "outer_band",
+                "target_selections": ["outer_target_a", "outer_target_b"],
                 "tangent_margin": 0.0,
                 "normal_margin": 0.25,
                 "normal_angle_degrees": 35.0,
@@ -471,12 +487,30 @@ def test_feature_reuse_discovers_lineage_and_generates_a_target_selection(
                 "reuse": "reuse_outer",
                 "fit": "side_factor",
                 "source_selection": "outer_band",
+                "target_selection": "outer_target_a",
             },
             {
                 "id": "reused_outer_fit",
                 "label": "Reused outer fit",
                 "operation": "fit",
                 "selections": ["reused_outer"],
+                "kind": "cylinder",
+                "axial_domain": [-2.0, 5.0],
+            },
+            {
+                "id": "reused_outer_b",
+                "label": "Reused outer selection B",
+                "operation": "reuse_selection",
+                "reuse": "reuse_outer",
+                "fit": "side_factor",
+                "source_selection": "outer_band",
+                "target_selection": "outer_target_b",
+            },
+            {
+                "id": "reused_outer_fit_b",
+                "label": "Reused outer fit B",
+                "operation": "fit",
+                "selections": ["reused_outer_b"],
                 "kind": "cylinder",
                 "axial_domain": [-2.0, 5.0],
             },
@@ -487,15 +521,24 @@ def test_feature_reuse_discovers_lineage_and_generates_a_target_selection(
     state = graph.evaluate(token(graph), all_actions=True)
     memberships = cast(dict[str, list[int]], state["memberships"])
     results = cast(dict[str, Any], state["results"])
-    match = results["reuse_outer"]
-    result = results["reused_outer_fit"]
+    reuse_result = results["reuse_outer"]
+    matches = reuse_result["matches"]
+    result_a = results["reused_outer_fit"]
+    result_b = results["reused_outer_fit_b"]
 
     assert set(graph.workspace.default.lateral_ids) <= set(memberships["reused_outer"])
-    assert match["format"] == "scansor-rigid-occurrence-match-v1"
-    np.testing.assert_allclose(match["rotation"], np.eye(3), atol=1e-8)
-    np.testing.assert_allclose(match["translation"], np.zeros(3), atol=1e-8)
-    assert result["kind"] == "cylinder"
-    assert result["weighted_rms"] < 0.03
+    assert set(graph.workspace.default.lateral_ids) <= set(
+        memberships["reused_outer_b"]
+    )
+    assert reuse_result["format"] == "scansor-feature-reuse-v1"
+    assert set(matches) == {"outer_target_a", "outer_target_b"}
+    for match in matches.values():
+        assert match["format"] == "scansor-rigid-occurrence-match-v1"
+        np.testing.assert_allclose(match["rotation"], np.eye(3), atol=1e-8)
+        np.testing.assert_allclose(match["translation"], np.zeros(3), atol=1e-8)
+    for result in (result_a, result_b):
+        assert result["kind"] == "cylinder"
+        assert result["weighted_rms"] < 0.03
 
 
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(

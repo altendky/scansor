@@ -179,7 +179,7 @@ export function featureVertexIds(nodes, memberships, featureId) {
           : node.operation === 'selection_region'
             ? [node.selection]
           : node.operation === 'feature_reuse'
-            ? [node.reference_selection, node.target_selection, ...node.fits]
+            ? [node.reference_selection, ...node.target_selections, ...node.fits]
           : node.operation === 'reference_plane'
             ? [node.axis]
         : node.operation === 'joint_fit'

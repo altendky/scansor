@@ -355,15 +355,16 @@ perpendicular axial plane, and axis-parallel clock plane. **Apply** places that
 region in another such frame and resolves a new source-vertex membership usable
 by later fits.
 
-The higher-level **Feature** reuse action takes one or more fitted surfaces plus
-two user-painted correspondence selections. It estimates one approximate rigid
-transform from the reference occurrence to the target occurrence without using
-fixture labels or vertex correspondence. For every source fit selection it
-constructs a surface-relative region, applies that region through the estimated
-transform, and exposes the resulting membership to a new standalone fit of the
-same type. The action records the selected fits' complete upstream lineage and
-any relationships enclosed wholly by the selected fit set, so provenance is not
-lost while compound-feature semantics remain under design.
+The higher-level **Feature** reuse action takes one or more fitted surfaces, one
+user-painted reference correspondence selection, and one or more independently
+painted target selections. It estimates a separate approximate rigid transform
+from the reference occurrence to each target occurrence without using fixture
+labels or vertex correspondence. For every target and source fit selection it
+constructs a surface-relative region, applies that region through the target's
+estimated transform, and exposes the resulting membership to a new standalone
+fit of the same type. The action records the selected fits' complete upstream
+lineage and any relationships enclosed wholly by the selected fit set, so
+provenance is not lost while compound-feature semantics remain under design.
 
 This is deliberately an approximate placement stage followed by fresh target
 fits. It does not yet clone datums or instantiate target relationships, jointly

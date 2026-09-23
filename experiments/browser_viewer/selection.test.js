@@ -93,6 +93,7 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   const nodes = [
     { id: 'a', operation: 'selection' },
     { id: 'b', operation: 'selection' },
+    { id: 'c', operation: 'selection' },
     { id: 'grown', operation: 'growth', seed_fit: 'seed', barriers: ['b'] },
     { id: 'seed', operation: 'fit', selections: ['a'] },
     { id: 'side', operation: 'fit', selections: ['a', 'grown'] },
@@ -154,7 +155,7 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
       operation: 'feature_reuse',
       fits: ['side'],
       reference_selection: 'a',
-      target_selection: 'b',
+      target_selections: ['b', 'c'],
     },
     {
       id: 'reused',
@@ -162,11 +163,13 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
       reuse: 'reuse',
       fit: 'side',
       source_selection: 'a',
+      target_selection: 'b',
     },
   ];
   const memberships = {
     a: [1, 2],
     b: [8],
+    c: [9, 10],
     grown: [2, 3],
     applied: [20, 21],
     reused: [30, 31],
@@ -185,7 +188,7 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, memberships, 'equal'), [1, 2, 8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'region'), [1, 2]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'applied'), [20, 21]);
-  assert.deepEqual(featureVertexIds(nodes, memberships, 'reuse'), [1, 2, 3, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'reuse'), [1, 2, 3, 8, 9, 10]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'reused'), [30, 31]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });

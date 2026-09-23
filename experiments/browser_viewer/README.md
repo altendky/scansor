@@ -175,13 +175,14 @@ properties pane.
    separately selectable feature. That axis point is a bounded prototype
    convention; the generalized model should use an explicit point or frame.
 5. **Feature** is the high-level reuse workflow. Choose one or more existing
-   cylinder/plane fits, a painted reference selection on that occurrence, and a
-   painted target selection on a similar occurrence. It estimates an
-   approximate rigid transform, captures the source fits' datum/relationship
-   lineage, and generates a target selection plus a fresh standalone fit for
-   every source fit input selection. Paint an asymmetric cue when possible;
-   rings or cylinders alone cannot determine clocking. This first slice stays on
-   one mesh and does not yet recreate target datums or relationships.
+   cylinder/plane fits, a painted reference selection on that occurrence, and
+   one or more painted target selections on similar occurrences. It estimates
+   an independent approximate rigid transform for each target, captures the
+   source fits' datum/relationship lineage, and generates a separate target
+   selection plus fresh standalone fit for every target and source fit input
+   selection. Paint an asymmetric cue when possible; rings or cylinders alone
+   cannot determine clocking. This first slice stays on one mesh and does not
+   yet recreate target datums or relationships.
 6. **Region** lifts an earlier selection and its cylinder or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,

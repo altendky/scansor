@@ -81,10 +81,10 @@ export function nodeReferences(node) {
       ...node.fits,
       ...node.lineage,
       node.reference_selection,
-      node.target_selection,
+      ...node.target_selections,
     ])];
   if (node.operation === 'reuse_selection')
-    return [node.reuse, node.fit, node.source_selection];
+    return [node.reuse, node.fit, node.source_selection, node.target_selection];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];

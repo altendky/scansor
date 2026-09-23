@@ -117,7 +117,7 @@ class FeatureReuse(Node):
     fits: list[str] = Field(min_length=1, max_length=32)
     lineage: list[str] = Field(min_length=1, max_length=99)
     reference_selection: str
-    target_selection: str
+    target_selections: list[str] = Field(min_length=1, max_length=32)
     tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
     normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
     normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
@@ -130,6 +130,7 @@ class ReuseSelection(Node):
     reuse: str
     fit: str
     source_selection: str
+    target_selection: str
 
 
 class Perpendicular(Node):
@@ -368,12 +369,12 @@ def dependencies(node: Feature) -> list[str]:
                     *node.fits,
                     *node.lineage,
                     node.reference_selection,
-                    node.target_selection,
+                    *node.target_selections,
                 ]
             )
         )
     if isinstance(node, ReuseSelection):
-        return [node.reuse, node.fit, node.source_selection]
+        return [node.reuse, node.fit, node.source_selection, node.target_selection]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
@@ -466,9 +467,7 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, RegionSelection):
         return node.source
     if isinstance(node, ReuseSelection):
-        reuse = nodes[node.reuse]
-        if isinstance(reuse, FeatureReuse):
-            return selection_source(nodes[reuse.target_selection], nodes)
+        return selection_source(nodes[node.target_selection], nodes)
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
         if isinstance(fitted, SurfaceFit):
@@ -939,6 +938,12 @@ class FeatureGraph:
             elif isinstance(node, FeatureReuse):
                 if len(set(node.fits)) != len(node.fits):
                     raise ValueError("a reuse feature cannot contain duplicate fits")
+                if len(set(node.target_selections)) != len(node.target_selections):
+                    raise ValueError("a reuse feature cannot contain duplicate targets")
+                if node.reference_selection in node.target_selections:
+                    raise ValueError(
+                        "reuse reference and target selections must be different"
+                    )
                 fits = [nodes[key] for key in node.fits]
                 if any(
                     not isinstance(fit, SurfaceFit)
@@ -948,7 +953,7 @@ class FeatureGraph:
                     raise ValueError("reuse currently supports cylinder and plane fits")
                 for selection_id in (
                     node.reference_selection,
-                    node.target_selection,
+                    *node.target_selections,
                 ):
                     if not isinstance(
                         nodes[selection_id],
@@ -957,7 +962,10 @@ class FeatureGraph:
                         raise ValueError("reuse matching inputs must be selections")
                 sources = {
                     selection_source(nodes[node.reference_selection], nodes),
-                    selection_source(nodes[node.target_selection], nodes),
+                    *(
+                        selection_source(nodes[selection_id], nodes)
+                        for selection_id in node.target_selections
+                    ),
                     *(
                         selection_source(nodes[selection_id], nodes)
                         for fit in fits
@@ -986,6 +994,10 @@ class FeatureGraph:
                     raise ValueError("a reused selection requires a reuse feature")
                 if node.fit not in reuse.fits or not isinstance(fitted, SurfaceFit):
                     raise ValueError("a reused selection must belong to a reused fit")
+                if node.target_selection not in reuse.target_selections:
+                    raise ValueError(
+                        "a reused selection must name one target of its reuse feature"
+                    )
                 if node.source_selection not in fitted.selections:
                     raise ValueError(
                         "a reused selection must reference one input of its source fit"
@@ -1753,28 +1765,31 @@ class FeatureGraph:
                     }
                 elif isinstance(node, FeatureReuse):
                     reference_ids = membership(node.reference_selection)
-                    target_ids = membership(node.target_selection)
                     normals = self.workspace.data.normals @ self.workspace.frame
-                    derived = estimate_rigid_match(
-                        self.workspace.local[reference_ids],
-                        normals[reference_ids],
-                        self.workspace.local[target_ids],
-                        normals[target_ids],
-                    )
-                    derived.update(
-                        {
-                            "fits": node.fits,
-                            "lineage": node.lineage,
-                            "reference_selection": node.reference_selection,
-                            "target_selection": node.target_selection,
-                        }
-                    )
+                    matches = {}
+                    for target_selection in node.target_selections:
+                        target_ids = membership(target_selection)
+                        matches[target_selection] = estimate_rigid_match(
+                            self.workspace.local[reference_ids],
+                            normals[reference_ids],
+                            self.workspace.local[target_ids],
+                            normals[target_ids],
+                        )
+                    derived = {
+                        "format": "scansor-feature-reuse-v1",
+                        "fits": node.fits,
+                        "lineage": node.lineage,
+                        "reference_selection": node.reference_selection,
+                        "target_selections": node.target_selections,
+                        "matches": matches,
+                    }
                 elif isinstance(node, ReuseSelection):
                     reuse = nodes[node.reuse]
                     fitted = nodes[node.fit]
                     assert isinstance(reuse, FeatureReuse)
                     assert isinstance(fitted, SurfaceFit)
-                    match = derived_result(node.reuse)
+                    reuse_result = derived_result(node.reuse)
+                    match = reuse_result["matches"][node.target_selection]
                     rotation = np.asarray(match["rotation"], dtype=float)
                     translation = np.asarray(match["translation"], dtype=float)
                     source_ids = membership(node.source_selection)
@@ -1813,6 +1828,7 @@ class FeatureGraph:
                         "reuse": node.reuse,
                         "fit": node.fit,
                         "source_selection": node.source_selection,
+                        "target_selection": node.target_selection,
                         "vertex_count": len(ids),
                         "region": region,
                         "target_origin": target_origin.tolist(),

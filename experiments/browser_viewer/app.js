@@ -508,7 +508,7 @@ function showProperties() {
     choices(
       'feature-reuse-target',
       earlier.filter((candidate) => selectionOperations.includes(candidate.operation)),
-      [node.target_selection],
+      node.target_selections,
     );
     $('feature-reuse-tangent-margin').value = node.tangent_margin;
     $('feature-reuse-normal-margin').value = node.normal_margin;
@@ -976,10 +976,13 @@ function showResult() {
   } else if (node.operation === 'region_selection') {
     values['Resolved vertices'] = result.vertex_count;
   } else if (node.operation === 'feature_reuse') {
-    values['Match RMS'] = result.rms.toFixed(4);
-    values['Rotation ambiguity ratio'] = result.ambiguity_ratio.toFixed(2);
-    values['Reference vertices'] = result.source_count;
-    values['Target vertices'] = result.target_count;
+    const matches = Object.values(result.matches);
+    values['Targets'] = matches.length;
+    values['Worst match RMS'] = Math.max(...matches.map((match) => match.rms)).toFixed(4);
+    values['Lowest rotation ambiguity ratio'] = Math.min(
+      ...matches.map((match) => match.ambiguity_ratio),
+    ).toFixed(2);
+    values['Reference vertices'] = matches[0].source_count;
     values['Captured lineage actions'] = result.lineage.length;
   } else if (node.operation === 'reuse_selection') {
     values['Resolved vertices'] = result.vertex_count;
@@ -1777,15 +1780,15 @@ async function start() {
     event.preventDefault();
     const fitIds = chosen('new-feature-reuse-fits'),
       referenceSelection = $('new-feature-reuse-reference').value,
-      targetSelection = $('new-feature-reuse-target').value;
-    if (!fitIds.length || !referenceSelection || !targetSelection) {
+      targetSelections = chosen('new-feature-reuse-target');
+    if (!fitIds.length || !referenceSelection || !targetSelections.length) {
       $('feature-reuse-error').textContent =
-        'Choose at least one fit and both painted matching selections.';
+        'Choose at least one fit, a painted reference, and one or more painted targets.';
       return;
     }
-    if (referenceSelection === targetSelection) {
+    if (targetSelections.includes(referenceSelection)) {
       $('feature-reuse-error').textContent =
-        'The reference and target matching selections must be different.';
+        'The reference selection cannot also be a target.';
       return;
     }
     const label = submittedFeatureLabel('new-feature-reuse-label'),
@@ -1797,36 +1800,43 @@ async function start() {
         fits: fitIds,
         lineage: discoverReuseLineage(graphState.recipe.nodes, fitIds),
         reference_selection: referenceSelection,
-        target_selection: targetSelection,
+        target_selections: targetSelections,
         tangent_margin: Number($('new-feature-reuse-tangent-margin').value),
         normal_margin: Number($('new-feature-reuse-normal-margin').value),
         normal_angle_degrees: Number($('new-feature-reuse-normal-angle').value),
       },
       generated = [reuse];
-    for (const fitId of fitIds) {
-      const sourceFit = graphNode(fitId),
-        targetSelections = [];
-      for (const sourceSelection of sourceFit.selections) {
-        const selection = graphNode(sourceSelection),
-          target = {
-            id: uid('reuse_selection'),
-            label: reserveFeatureLabel(`${selection.label} reused`, reserved),
-            operation: 'reuse_selection',
-            reuse: reuse.id,
-            fit: fitId,
-            source_selection: sourceSelection,
-          };
-        generated.push(target);
-        targetSelections.push(target.id);
+    for (const targetSelection of targetSelections) {
+      const targetLabel = graphNode(targetSelection).label;
+      for (const fitId of fitIds) {
+        const sourceFit = graphNode(fitId),
+          generatedSelections = [];
+        for (const sourceSelection of sourceFit.selections) {
+          const selection = graphNode(sourceSelection),
+            target = {
+              id: uid('reuse_selection'),
+              label: reserveFeatureLabel(
+                `${selection.label} at ${targetLabel}`,
+                reserved,
+              ),
+              operation: 'reuse_selection',
+              reuse: reuse.id,
+              fit: fitId,
+              source_selection: sourceSelection,
+              target_selection: targetSelection,
+            };
+          generated.push(target);
+          generatedSelections.push(target.id);
+        }
+        generated.push({
+          id: uid('fit'),
+          label: reserveFeatureLabel(`${sourceFit.label} at ${targetLabel}`, reserved),
+          operation: 'fit',
+          selections: generatedSelections,
+          kind: sourceFit.kind,
+          axial_domain: [...sourceFit.axial_domain],
+        });
       }
-      generated.push({
-        id: uid('fit'),
-        label: reserveFeatureLabel(`${sourceFit.label} reused`, reserved),
-        operation: 'fit',
-        selections: targetSelections,
-        kind: sourceFit.kind,
-        axial_domain: [...sourceFit.axial_domain],
-      });
     }
     const saved = await appendActions(generated);
     if (saved) $('feature-reuse-dialog').close();

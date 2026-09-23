@@ -64,8 +64,9 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
 
 The adapter retains its historical module name but reads the generated example's
 manifest, source, model, and initial selection bundle. The browser's provisional
-**Reuse → Feature** action can use painted reference and target patches to place
-the source boss's fitted selection regions on another occurrence. The fixture's
+**Reuse → Feature** action can use one painted reference patch and multiple
+target patches to place the source boss's fitted selection regions independently
+on several occurrences. The fixture's
 oracle labels remain verification truth rather than matcher inputs.
 
 The browser and fitting workspace use the plate's part frame: the displayed
