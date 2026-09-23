@@ -63,8 +63,10 @@ footer #status { margin: 0 0 6px; }
 .tree-group > summary .action-state { margin-left: auto; }
 .tree-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .managed-group { border-color: #3d5969; background: #17242e; }
-.managed-outputs { margin: 3px 0 7px 22px; color: #a6b6c5; }
-.managed-summary-icon, .group-icon { width: 15px; height: 15px; }
+.managed-owner { margin: 7px 0; }
+.managed-owner-group { color: #a6b6c5; }
+.managed-owner-summary { width: 100%; }
+.group-icon { width: 15px; height: 15px; }
 .managed-target { margin: 5px 0 5px 12px; background: #1a2934; }
 .managed-target > summary { font-size: 11px; }
 .managed-badge { flex: none; padding: 2px 5px; border: 1px solid #6690a7; border-radius: 999px; color: #9fc8dc; font-size: 9px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }

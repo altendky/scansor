@@ -526,22 +526,28 @@ export function renderActionTree(
         .find((candidate) => candidate.dataset.actionId === node.id)
         ?.focus();
     };
-    row.append(grip, button);
-    item.append(row);
-    if (owned.length) {
+    if (!owned.length) {
+      row.append(grip, button);
+      item.append(row);
+    } else {
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
-        badge = document.createElement('span'),
-        fitCount = owned.filter((child) => child.operation === 'fit').length,
-        summaryState = stateFor(owned);
-      details.className = 'tree-group managed-group managed-outputs';
+        summaryState = relationship ? 'ready' : states[node.id];
+      item.classList.add('managed-owner');
+      details.className = 'tree-group managed-owner-group';
       details.open = expandedManaged.has(node.id);
-      badge.className = 'managed-badge';
-      badge.textContent = 'Generated';
+      summary.className = 'action-select managed-owner-summary';
+      summary.dataset.actionId = node.id;
+      summary.dataset.actionIndex = index;
+      summary.setAttribute('aria-pressed', String(selected === node.id));
+      summary.title = `${node.label} · ${description}`;
+      summary.setAttribute('aria-label', summary.title);
+      summary.onkeydown = button.onkeydown;
+      summary.onclick = button.onclick;
+      label.classList.add('tree-group-name');
       summary.append(
-        icon('feature_reuse', 'managed-summary-icon'),
-        document.createTextNode(`Generated outputs · ${owned.length} items · ${fitCount} fits`),
-        badge,
+        icon('group', 'group-icon'),
+        label,
         icon(summaryState, `action-state state-${summaryState}`),
       );
       details.ontoggle = () => {
@@ -573,7 +579,7 @@ export function renderActionTree(
         targetBadge.className = 'managed-badge';
         targetBadge.textContent = 'Generated';
         targetSummary.append(
-          icon('feature_reuse', 'managed-summary-icon'),
+          icon('group', 'group-icon'),
           targetLabel,
           targetBadge,
           icon(targetState, `action-state state-${targetState}`),

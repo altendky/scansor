@@ -150,10 +150,10 @@ evaluates the selected action and only the earlier inputs it requires;
 top action toolbar groups primitive actions under **Create**, **Organize**,
 **Reuse**, **Relate**, **Combine**, and **Run**. **Group** creates or edits
 presentation-only feature-tree groups without changing graph dependencies or
-evaluation. Generator-owned actions appear under a collapsed **Generated
-outputs** subtree. Generated-output and per-target groups use the same nested,
-collapsible presentation as user groups, with a **Generated** marker at every
-managed layer. Generated actions carry the same marker and remain inspectable
+evaluation. A generator action is itself a collapsed group, with its generated
+target groups directly beneath it. Generator and target groups use the same
+folder-based, collapsible presentation as user groups; generated target groups
+and actions carry a **Generated** marker. Generated actions remain inspectable
 and usable as inputs, but their properties, deletion, and reordering are managed
 by their owner. **Evaluate all** and the opt-in **Auto**
 checkbox live under Run. Enabling automatic evaluation immediately evaluates the
