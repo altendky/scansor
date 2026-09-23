@@ -234,6 +234,74 @@ def test_reference_plane_supports_offset_parallel_and_perpendicular_construction
         assert result["angle_degrees"] is None
 
 
+def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    payload["nodes"].pop()
+    payload["nodes"].extend(
+        [
+            {
+                "id": "top_datum",
+                "label": "Top datum",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "construction": "perpendicular_to_axis",
+                "initial_angle_degrees": None,
+                "offset": -3.0,
+            },
+            {
+                "id": "datum_plane_fit",
+                "label": "Datum-oriented plane fit",
+                "operation": "fit",
+                "selections": ["top_face"],
+                "kind": "plane",
+                "axial_domain": [-2, 5],
+                "reference_plane": "top_datum",
+            },
+        ]
+    )
+    payload["output"] = "datum_plane_fit"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    derived = cast(dict[str, dict[str, Any]], state["derived"])
+    datum = derived["top_datum"]
+    fitted = derived["datum_plane_fit"]
+    normal = np.asarray(datum["normal_display"])
+    ids = graph.workspace.default.plane_ids
+    points = graph.workspace.local[ids]
+    weights = graph.workspace.data.weights[ids]
+    expected_offset = float(weights @ (points @ normal) / weights.sum())
+    np.testing.assert_allclose(fitted["plane_equation"][:3], normal)
+    assert fitted["plane_equation"][3] == pytest.approx(expected_offset)
+    assert fitted["signed_relative_offset"] == pytest.approx(
+        expected_offset - datum["plane_equation"][3]
+    )
+    assert fitted["ids"] == ids
+
+
+def test_fit_rejects_incompatible_or_multiple_reference_geometry(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    plane_factor = next(
+        node for node in payload["nodes"] if node["id"] == "plane_factor"
+    )
+    plane_factor["reference_plane"] = "reference_axis"
+    with pytest.raises(ValueError, match="only one datum"):
+        _ = Recipe.model_validate(payload)
+
+    plane_factor["axis"] = None
+    plane_factor["kind"] = "cylinder"
+    with pytest.raises(ValueError, match="only a plane fit"):
+        _ = Recipe.model_validate(payload)
+
+    plane_factor["kind"] = "plane"
+    recipe = Recipe.model_validate(payload)
+    with pytest.raises(ValueError, match="explicit reference plane"):
+        _ = graph.replace(recipe, token(graph))
+
+
 def test_mirror_symmetry_requires_a_plane_containing_its_axis(
     graph: FeatureGraph,
 ) -> None:

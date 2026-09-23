@@ -95,10 +95,37 @@ function choices(id, nodes, selected = []) {
     ...nodes.map((n) => new Option(n.label, n.id, false, selected.includes(n.id))),
   );
 }
-function axisChoices(id, nodes, selected = [], standalone = false) {
-  choices(id, nodes, selected);
-  if (standalone)
-    $(id).prepend(new Option('No reference axis (standalone)', '', false, !selected.length));
+function isStandaloneFit(node) {
+  return !node.axis && !node.reference_plane;
+}
+function fitReferenceChoices(id, kind, nodes, selected = '') {
+  const compatible = nodes.filter(
+    (node) =>
+      node.operation === 'axis' || (kind === 'plane' && node.operation === 'reference_plane'),
+  );
+  $(id).replaceChildren(
+    new Option('None (standalone)', '', false, !selected),
+    ...compatible.map(
+      (node) =>
+        new Option(
+          `${node.operation === 'axis' ? 'Axis' : 'Plane'} — ${node.label}`,
+          node.id,
+          false,
+          node.id === selected,
+        ),
+    ),
+  );
+  const hint = $(`${id}-hint`);
+  if (hint)
+    hint.textContent =
+      kind === 'plane'
+        ? 'An axis makes the fitted plane perpendicular to it. A plane datum locks the fitted plane parallel to it. Observations fit only the offset.'
+        : 'An axis datum fixes the fitted surface axis. Observations fit its radius and, for a cone, taper.';
+}
+function setFitReference(node, referenceId) {
+  const reference = graphNode(referenceId);
+  node.axis = reference?.operation === 'axis' ? reference.id : null;
+  node.reference_plane = reference?.operation === 'reference_plane' ? reference.id : null;
 }
 function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId) {
   const manual = $(modeId).value === 'free';
@@ -197,7 +224,7 @@ function acceptGraph(state) {
   );
   const fits = state.recipe.nodes.filter((n) => n.operation === 'fit');
   const axes = state.recipe.nodes.filter((n) => n.operation === 'axis');
-  axisChoices('new-fit-axis', axes, [], true);
+  fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, state.recipe.nodes);
   choices('new-reference-plane-axis', axes);
   choices(
     'new-mirror-plane',
@@ -205,20 +232,20 @@ function acceptGraph(state) {
   );
   choices(
     'new-axis-source',
-    fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && !n.axis),
+    fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && isStandaloneFit(n)),
   );
   choices('new-axis-solve-axis', axes);
   choices(
     'new-joint-side',
-    fits.filter((n) => n.kind !== 'plane' && !n.axis),
+    fits.filter((n) => n.kind !== 'plane' && isStandaloneFit(n)),
   );
   choices(
     'new-joint-plane',
-    fits.filter((n) => n.kind === 'plane' && !n.axis),
+    fits.filter((n) => n.kind === 'plane' && isStandaloneFit(n)),
   );
   choices(
     'new-joint-extra',
-    fits.filter((n) => n.kind !== 'plane' && !n.axis),
+    fits.filter((n) => n.kind !== 'plane' && isStandaloneFit(n)),
   );
   renderActions();
   showProperties();
@@ -292,11 +319,11 @@ function showProperties() {
       earlier.filter((n) => ['selection', 'growth'].includes(n.operation)),
       node.selections,
     );
-    axisChoices(
-      'fit-axis',
-      earlier.filter((n) => n.operation === 'axis'),
-      node.axis ? [node.axis] : [],
-      true,
+    fitReferenceChoices(
+      'fit-reference',
+      node.kind,
+      earlier,
+      node.axis || node.reference_plane || '',
     );
     $('axial-start').value = node.axial_domain[0];
     $('axial-end').value = node.axial_domain[1];
@@ -305,7 +332,10 @@ function showProperties() {
     choices(
       'axis-source-fit',
       earlier.filter(
-        (n) => n.operation === 'fit' && ['cone', 'cylinder'].includes(n.kind) && !n.axis,
+        (n) =>
+          n.operation === 'fit' &&
+          ['cone', 'cylinder'].includes(n.kind) &&
+          isStandaloneFit(n),
       ),
       node.source_fit ? [node.source_fit] : [],
     );
@@ -342,7 +372,7 @@ function showProperties() {
   } else if (node.operation === 'growth') {
     choices(
       'growth-fit',
-      earlier.filter((n) => n.operation === 'fit' && !n.axis),
+      earlier.filter((n) => n.operation === 'fit' && isStandaloneFit(n)),
       [node.seed_fit],
     );
     choices(
@@ -355,7 +385,9 @@ function showProperties() {
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
       'constraint-a',
-      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane' && !n.axis),
+      earlier.filter(
+        (n) => n.operation === 'fit' && n.kind !== 'plane' && isStandaloneFit(n),
+      ),
       [node.surface || node.lateral],
     );
     choices(
@@ -363,7 +395,7 @@ function showProperties() {
       earlier.filter(
         (n) =>
           n.operation === 'fit' &&
-          !n.axis &&
+          isStandaloneFit(n) &&
           (node.operation === 'coaxial' ? n.kind !== 'plane' : n.kind === 'plane'),
       ),
       [node.reference || node.plane],
@@ -372,13 +404,15 @@ function showProperties() {
     $('rotation-extents').checked = node.symmetric_extents !== false;
     choices(
       'rotation-axis',
-      earlier.filter((n) => n.operation === 'fit' && n.kind !== 'plane' && !n.axis),
+      earlier.filter(
+        (n) => n.operation === 'fit' && n.kind !== 'plane' && isStandaloneFit(n),
+      ),
       [node.axis],
     );
     node.planes.forEach((id, i) =>
       choices(
         'rotation-input-' + i,
-        earlier.filter((n) => n.operation === 'fit' && !n.axis),
+        earlier.filter((n) => n.operation === 'fit' && isStandaloneFit(n)),
         [id],
       ),
     );
@@ -391,7 +425,7 @@ function showProperties() {
     node.surfaces.forEach((id, i) =>
       choices(
         'mirror-input-' + i,
-        earlier.filter((n) => n.operation === 'fit' && !n.axis),
+        earlier.filter((n) => n.operation === 'fit' && isStandaloneFit(n)),
         [id],
       ),
     );
@@ -399,7 +433,9 @@ function showProperties() {
   } else if (node.operation === 'parallel') {
     choices(
       'parallel-surface',
-      earlier.filter((n) => n.operation === 'fit' && n.kind === 'plane' && !n.axis),
+      earlier.filter(
+        (n) => n.operation === 'fit' && n.kind === 'plane' && isStandaloneFit(n),
+      ),
       [node.surface],
     );
     choices(
@@ -419,7 +455,9 @@ function showProperties() {
     );
     choices(
       'equal-distance-surface',
-      earlier.filter((n) => n.operation === 'fit' && n.kind === 'plane' && !n.axis),
+      earlier.filter(
+        (n) => n.operation === 'fit' && n.kind === 'plane' && isStandaloneFit(n),
+      ),
       [distance.surface],
     );
     choices(
@@ -440,7 +478,7 @@ function showProperties() {
     choices(
       'joint-add-fits',
       graphState.recipe.nodes.filter(
-        (n) => n.operation === 'fit' && !n.axis && !used.has(n.id),
+        (n) => n.operation === 'fit' && isStandaloneFit(n) && !used.has(n.id),
       ),
     );
   }
@@ -450,7 +488,7 @@ function showProperties() {
     ? 'Referenced by ' + dependents.map((n) => n.label).join(', ')
     : 'Delete this unused action';
   $('fit').textContent = 'Evaluate ' + node.label;
-  $('propose-growth').hidden = node.operation !== 'fit' || !!node.axis;
+  $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
 }
 function axisGuide(axisValues, color = '#ffd166') {
@@ -1258,11 +1296,10 @@ async function start() {
       graphState.recipe.nodes.filter((node) => ['selection', 'growth'].includes(node.operation)),
       [selectedFeatureId],
     );
-    axisChoices(
-      'new-fit-axis',
-      graphState.recipe.nodes.filter((node) => node.operation === 'axis'),
-      [],
-      true,
+    fitReferenceChoices(
+      'new-fit-reference',
+      $('new-fit-kind').value,
+      graphState.recipe.nodes,
     );
     $('fit-dialog').showModal();
   };
@@ -1273,7 +1310,9 @@ async function start() {
   $('new-axis').onclick = () => {
     const sources = graphState.recipe.nodes.filter(
       (node) =>
-        node.operation === 'fit' && ['cone', 'cylinder'].includes(node.kind) && !node.axis,
+        node.operation === 'fit' &&
+        ['cone', 'cylinder'].includes(node.kind) &&
+        isStandaloneFit(node),
     );
     choices(
       'new-axis-source',
@@ -1302,7 +1341,9 @@ async function start() {
     $('reference-plane-dialog').showModal();
   };
   const updateMirrorChoices = () => {
-    const fits = graphState.recipe.nodes.filter((node) => node.operation === 'fit' && !node.axis);
+    const fits = graphState.recipe.nodes.filter(
+      (node) => node.operation === 'fit' && isStandaloneFit(node),
+    );
     const first = fits.find((fit) => fit.id === selectedFeatureId) || fits[0];
     const second = fits.find((fit) => fit.id !== first?.id);
     choices('new-mirror-input-0', fits, [first?.id]);
@@ -1314,7 +1355,11 @@ async function start() {
       status('Create a reference plane through an axis before adding mirror symmetry.', true);
       return;
     }
-    if (graphState.recipe.nodes.filter((node) => node.operation === 'fit' && !node.axis).length < 2) {
+    if (
+      graphState.recipe.nodes.filter(
+        (node) => node.operation === 'fit' && isStandaloneFit(node),
+      ).length < 2
+    ) {
       status('Create two standalone fits before adding mirror symmetry.', true);
       return;
     }
@@ -1325,7 +1370,8 @@ async function start() {
   };
   $('new-parallel').onclick = () => {
     const fits = graphState.recipe.nodes.filter(
-        (node) => node.operation === 'fit' && node.kind === 'plane' && !node.axis,
+        (node) =>
+          node.operation === 'fit' && node.kind === 'plane' && isStandaloneFit(node),
       ),
       planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
     if (!fits.length || !planes.length) {
@@ -1342,7 +1388,8 @@ async function start() {
         (node) => node.operation === 'fit' && node.kind === 'cylinder' && node.axis,
       ),
       fits = graphState.recipe.nodes.filter(
-        (node) => node.operation === 'fit' && node.kind === 'plane' && !node.axis,
+        (node) =>
+          node.operation === 'fit' && node.kind === 'plane' && isStandaloneFit(node),
       ),
       planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
     if (!cylinders.length || !fits.length || !planes.length) {
@@ -1371,6 +1418,22 @@ async function start() {
     $('axis-solve-dialog').showModal();
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
+  $('new-fit-kind').onchange = () =>
+    fitReferenceChoices(
+      'new-fit-reference',
+      $('new-fit-kind').value,
+      graphState.recipe.nodes,
+      $('new-fit-reference').value,
+    );
+  $('surface-kind').onchange = () => {
+    const node = graphNode(selectedFeatureId);
+    fitReferenceChoices(
+      'fit-reference',
+      $('surface-kind').value,
+      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
+      $('fit-reference').value,
+    );
+  };
   $('new-axis-mode').onchange = () =>
     showAxisInitializer(
       'new-axis-mode',
@@ -1535,7 +1598,7 @@ async function start() {
     const joint = graphNode($('rotation-joint').value);
     const used = new Set(joint ? joint.constraints.flatMap((id) => refs(graphNode(id))) : []);
     const planes = graphState.recipe.nodes.filter(
-      (n) => n.operation === 'fit' && !n.axis && !used.has(n.id),
+      (n) => n.operation === 'fit' && isStandaloneFit(n) && !used.has(n.id),
     );
     for (let i = 0; i < 3; i++) choices('rotation-plane-' + i, planes, [planes[i]?.id]);
   };
@@ -1630,7 +1693,7 @@ async function start() {
       node.kind = $('surface-kind').value;
       node.selections = chosen('fit-inputs');
       node.axial_domain = [Number($('axial-start').value), Number($('axial-end').value)];
-      node.axis = $('fit-axis').value || null;
+      setFitReference(node, $('fit-reference').value);
     }
     if (node.operation === 'axis') {
       if ($('axis-init-mode').value === 'fit') {
@@ -1736,17 +1799,16 @@ async function start() {
   };
   $('add-fit-form').onsubmit = async (event) => {
     event.preventDefault();
-    const saved = await appendActions([
-      {
-        id: uid('fit'),
-        label: $('new-fit-label').value,
-        operation: 'fit',
-        selections: chosen('new-fit-inputs'),
-        kind: $('new-fit-kind').value,
-        axial_domain: [-2, 5],
-        axis: $('new-fit-axis').value || null,
-      },
-    ]);
+    const node = {
+      id: uid('fit'),
+      label: $('new-fit-label').value,
+      operation: 'fit',
+      selections: chosen('new-fit-inputs'),
+      kind: $('new-fit-kind').value,
+      axial_domain: [-2, 5],
+    };
+    setFitReference(node, $('new-fit-reference').value);
+    const saved = await appendActions([node]);
     if (saved) $('fit-dialog').close();
   };
   $('add-joint-form').onsubmit = async (event) => {

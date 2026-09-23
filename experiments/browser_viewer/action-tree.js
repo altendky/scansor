@@ -55,7 +55,11 @@ export function actionDescription(node, state, error) {
 export function nodeReferences(node) {
   if (node.operation === 'selection') return [node.source];
   if (node.operation === 'fit')
-    return [...node.selections, ...(node.axis ? [node.axis] : [])];
+    return [
+      ...node.selections,
+      ...(node.axis ? [node.axis] : []),
+      ...(node.reference_plane ? [node.reference_plane] : []),
+    ];
   if (node.operation === 'axis') return node.source_fit ? [node.source_fit] : [];
   if (node.operation === 'reference_plane') return [node.axis];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];

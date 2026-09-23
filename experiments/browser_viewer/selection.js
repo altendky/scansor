@@ -210,8 +210,8 @@ export function mirrorFitInputs(nodes, ids) {
   const fits = ids.map((id) => nodes.find((node) => node.id === id));
   if (ids.length !== 2 || new Set(ids).size !== 2 || fits.some((fit) => fit?.operation !== 'fit'))
     throw new Error('Choose two distinct existing fits. Create fits for selections first.');
-  if (fits.some((fit) => fit.axis))
-    throw new Error('Mirror symmetry requires standalone fits; axis-bound fits are already symmetric.');
+  if (fits.some((fit) => fit.axis || fit.reference_plane))
+    throw new Error('Mirror symmetry requires standalone fits; datum-bound fits are already constrained.');
   if (new Set(fits.map((fit) => fit.kind)).size !== 1)
     throw new Error('Mirror symmetry requires two fits of the same type. Fit types are not changed.');
   return [...ids];

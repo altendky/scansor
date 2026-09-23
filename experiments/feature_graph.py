@@ -53,6 +53,15 @@ class SurfaceFit(Node):
     kind: Literal["cone", "cylinder", "plane"]
     axial_domain: tuple[float, float] = (-2.0, 5.0)
     axis: str | None = None
+    reference_plane: str | None = None
+
+    @model_validator(mode="after")
+    def compatible_reference_geometry(self) -> SurfaceFit:
+        if self.axis is not None and self.reference_plane is not None:
+            raise ValueError("a fit can reference only one datum")
+        if self.reference_plane is not None and self.kind != "plane":
+            raise ValueError("only a plane fit can reference a plane datum")
+        return self
 
 
 class Growth(Node):
@@ -273,7 +282,8 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, Selection):
         return [node.source]
     if isinstance(node, SurfaceFit):
-        return [*node.selections, *((node.axis,) if node.axis is not None else ())]
+        reference = node.axis or node.reference_plane
+        return [*node.selections, *((reference,) if reference is not None else ())]
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
     if isinstance(node, Perpendicular):
@@ -302,6 +312,10 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, AxisSolve):
         return [node.axis, *node.factors]
     return []
+
+
+def is_standalone_fit(node: SurfaceFit) -> bool:
+    return node.axis is None and node.reference_plane is None
 
 
 def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
@@ -478,6 +492,37 @@ def reference_plane_result(
     }
 
 
+def fit_plane_to_reference(
+    workspace: NozzleWorkspace,
+    surface: SurfaceFit,
+    ids: list[VertexId],
+    reference: dict[str, Any],
+) -> dict[str, Any]:
+    """Fit only a plane offset while preserving a reference plane's orientation."""
+    if len(ids) < 3:
+        raise ValueError(f"{surface.id}: select at least three plane vertices")
+    points = workspace.local[ids]
+    weights = workspace.data.weights[ids]
+    normal = np.asarray(reference["normal_display"], dtype=float)
+    normal /= np.linalg.norm(normal)
+    offset = float(weights @ (points @ normal) / weights.sum())
+    residuals = points @ normal - offset
+    reference_offset = float(reference["plane_equation"][3])
+    return {
+        "kind": "plane",
+        "ids": ids,
+        "parameters": [*normal.tolist(), offset],
+        "plane_equation": [*normal.tolist(), offset],
+        "axial_domain": surface.axial_domain,
+        "residuals": residuals.tolist(),
+        "weighted_rms": float(np.sqrt(weights @ residuals**2 / float(weights.sum()))),
+        "condition": 1.0,
+        "reference_plane": surface.reference_plane,
+        "reference_offset": reference_offset,
+        "signed_relative_offset": offset - reference_offset,
+    }
+
+
 def equality_measurements(
     relationship: EqualQuantities,
 ) -> tuple[SurfaceRadius, PlaneDistance]:
@@ -614,13 +659,15 @@ class FeatureGraph:
                     axis = nodes[node.axis]
                     if not isinstance(axis, AxisDefinition):
                         raise ValueError("axis-bound fit requires an explicit axis")
-                    if node.kind not in ("cone", "cylinder", "plane"):
-                        raise ValueError(
-                            "explicit-axis fits support cones, cylinders, and planes"
-                        )
+                if node.reference_plane is not None and not isinstance(
+                    nodes[node.reference_plane], PlaneDefinition
+                ):
+                    raise ValueError(
+                        "plane-bound fit requires an explicit reference plane"
+                    )
             elif isinstance(node, Growth):
                 fitted = nodes[node.seed_fit]
-                if not isinstance(fitted, SurfaceFit) or fitted.axis is not None:
+                if not isinstance(fitted, SurfaceFit) or not is_standalone_fit(fitted):
                     raise ValueError("growth input must be an earlier standalone fit")
                 source = selection_source(node, nodes)
                 for barrier in node.barriers:
@@ -631,10 +678,10 @@ class FeatureGraph:
                 if (
                     not isinstance(lateral, SurfaceFit)
                     or lateral.kind not in ("cone", "cylinder")
-                    or lateral.axis is not None
+                    or not is_standalone_fit(lateral)
                     or not isinstance(plane, SurfaceFit)
                     or plane.kind != "plane"
-                    or plane.axis is not None
+                    or not is_standalone_fit(plane)
                 ):
                     raise ValueError(
                         "legacy relationship needs standalone cone/cylinder and plane fits"
@@ -648,14 +695,14 @@ class FeatureGraph:
                         "cone",
                         "cylinder",
                     )
-                    or axis.axis is not None
+                    or not is_standalone_fit(axis)
                 ):
                     raise ValueError(
                         "rotational symmetry requires a cone/cylinder axis fit"
                     )
                 if len(set(node.planes)) != 3 or any(
                     not isinstance(nodes[ref], SurfaceFit)
-                    or cast(SurfaceFit, nodes[ref]).axis is not None
+                    or not is_standalone_fit(cast(SurfaceFit, nodes[ref]))
                     for ref in node.planes
                 ):
                     raise ValueError(
@@ -670,7 +717,7 @@ class FeatureGraph:
                 if node.surface == node.reference or any(
                     not isinstance(n, SurfaceFit)
                     or n.kind not in ("cone", "cylinder")
-                    or n.axis is not None
+                    or not is_standalone_fit(n)
                     for n in pair
                 ):
                     raise ValueError(
@@ -682,7 +729,7 @@ class FeatureGraph:
                     if (
                         not isinstance(source_fit, SurfaceFit)
                         or source_fit.kind not in ("cone", "cylinder")
-                        or source_fit.axis is not None
+                        or not is_standalone_fit(source_fit)
                     ):
                         raise ValueError(
                             "an axis fit initializer must be an earlier standalone cone or cylinder"
@@ -708,7 +755,8 @@ class FeatureGraph:
                     )
                 surfaces = [nodes[ref] for ref in node.surfaces]
                 if any(
-                    not isinstance(surface, SurfaceFit) or surface.axis is not None
+                    not isinstance(surface, SurfaceFit)
+                    or not is_standalone_fit(surface)
                     for surface in surfaces
                 ):
                     raise ValueError(
@@ -724,7 +772,7 @@ class FeatureGraph:
                 if (
                     not isinstance(surface, SurfaceFit)
                     or surface.kind != "plane"
-                    or surface.axis is not None
+                    or not is_standalone_fit(surface)
                 ):
                     raise ValueError(
                         "parallel relationship requires a standalone plane fit"
@@ -749,7 +797,7 @@ class FeatureGraph:
                 if (
                     not isinstance(surface, SurfaceFit)
                     or surface.kind != "plane"
-                    or surface.axis is not None
+                    or not is_standalone_fit(surface)
                 ):
                     raise ValueError(
                         "plane-distance measurement requires a standalone plane fit"
@@ -1029,7 +1077,14 @@ class FeatureGraph:
                 derived = None
                 if isinstance(node, SurfaceFit):
                     ids = fitted_ids(node)
-                    if node.axis is None:
+                    if node.reference_plane is not None:
+                        derived = fit_plane_to_reference(
+                            self.workspace,
+                            node,
+                            ids,
+                            derived_result(node.reference_plane),
+                        )
+                    elif node.axis is None:
                         derived = fit_seed(
                             self.workspace.local[ids],
                             self.workspace.data.weights[ids],

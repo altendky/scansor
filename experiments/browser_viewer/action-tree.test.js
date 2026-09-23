@@ -66,6 +66,15 @@ const mirror = {
   surfaces: ['fit', 'other-fit'],
 };
 assert.deepEqual(nodeReferences(referencePlane), ['axis']);
+assert.deepEqual(
+  nodeReferences({
+    id: 'datum-fit',
+    operation: 'fit',
+    selections: ['b'],
+    reference_plane: 'mirror-plane',
+  }),
+  ['b', 'mirror-plane'],
+);
 assert.deepEqual(nodeReferences(mirror), ['mirror-plane', 'fit', 'other-fit']);
 const parallel = {
   id: 'parallel',

@@ -61,6 +61,15 @@ from the adapter's existing axis point at local Z=0, and clocking uses its
 deterministic display basis. Those are prototype coordinate conventions, not a
 claim that a geometric axis intrinsically owns an origin or clocking frame.
 
+Surface-fit actions in the bounded adapter expose these definitions through one
+**Reference geometry** choice. Cone and cylinder fits accept an axis. Plane fits
+accept either an axis, which fixes their normal parallel to that axis, or a
+reference plane, which fixes their normal parallel to the datum normal. In both
+plane cases the observations fit only an independent offset. This is a forward,
+fixed dependency: the fitted observations do not move the upstream axis or
+plane. Plane-datum-bound fits are not yet factors in the adapter's axis-specific
+joint solver.
+
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an
 explicit typed transform with declared direction and provenance; current

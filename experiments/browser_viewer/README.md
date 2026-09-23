@@ -191,10 +191,12 @@ properties pane.
    a mirrored plane pair, these independent primitives compile to exact parallel
    planes at opposite signed cylinder-radius offsets; no penalty weights or
    arch-specific action are introduced.
-7. To keep an axis fixed, create a cone, cylinder, or plane fit and choose it
-   under **Reference axis**. Evaluating the bound fit adjusts only its radius and
-   taper, radius, or plane offset respectively; its observations cannot move the
-   explicit axis.
+7. Choose fixed upstream geometry under **Reference geometry**. A cone or
+   cylinder can reference an axis; a plane can reference an axis (making the
+   fitted plane perpendicular) or a reference plane (locking the fitted plane's
+   orientation parallel). Evaluating the bound fit adjusts only its radius and
+   taper, radius, or plane offset respectively. Its observations cannot move the
+   referenced geometry.
 8. To let observations refine the axis together, choose **Joint**. Select
    the explicit axis and the active bound fits and relationships. Evaluation
    returns a separate result: bound factor sets influence axis direction,
