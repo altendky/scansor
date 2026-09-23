@@ -193,9 +193,9 @@ properties pane.
    arch-specific action are introduced.
 7. Choose fixed upstream geometry under **Reference geometry**. A cone or
    cylinder can reference an axis; a plane can reference an axis (making the
-   fitted plane perpendicular while fitting its offset) or an exact reference
-   plane. An exact-plane fit measures its selected observations without changing
-   the plane. In every case, observations cannot move fixed upstream geometry.
+   fitted plane perpendicular while fitting its offset) or a reference plane
+   (fixing its orientation while fitting a new offset). In every case,
+   observations cannot move fixed upstream geometry.
 8. To let observations refine the axis together, choose **Joint**. Select
    the explicit axis and the active bound fits and relationships. Evaluation
    returns a separate result: bound factor sets influence axis direction,

@@ -64,12 +64,10 @@ claim that a geometric axis intrinsically owns an origin or clocking frame.
 Surface-fit actions in the bounded adapter expose these definitions through one
 **Reference geometry** choice. Cone and cylinder fits accept an axis. Plane fits
 accept either an axis, which fixes their normal parallel to that axis, or a
-reference plane, which supplies the exact plane geometry. An axis-bound plane
-fits an independent offset. A reference-plane-bound fit instead measures its
-observations against that fixed plane without any free geometric quantity. This
-is a forward dependency: fitted observations do not move the upstream axis or
-plane. Plane-datum-bound fits are not yet factors in the adapter's axis-specific
-joint solver.
+reference plane, which fixes their normal parallel to the datum normal. In both
+cases the observations fit an independent offset. This is a forward dependency:
+fitted observations do not move the upstream axis or plane. Plane-datum-bound
+fits are not yet factors in the adapter's axis-specific joint solver.
 
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an

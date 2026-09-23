@@ -156,8 +156,8 @@ function fitReferenceChoices(id, kind, nodes, selected = '') {
   if (hint)
     hint.textContent =
       kind === 'plane'
-        ? 'An axis makes the fitted plane perpendicular to it and leaves its offset free. A plane datum uses that exact plane; observations only measure residuals.'
-        : 'An axis fixes the fitted surface axis. Choosing a plane datum switches the fit type to Plane and uses that exact plane.';
+        ? 'An axis makes the fitted plane perpendicular to it. A plane datum fixes its orientation. In either case, observations fit the plane offset.'
+        : 'An axis fixes the fitted surface axis. Choosing a plane datum switches the fit type to Plane and fits an offset with that orientation.';
 }
 function updateFitKindForReference(kindId, referenceId, nodes = graphState.recipe.nodes) {
   if (graphNode($(referenceId).value)?.operation === 'reference_plane')

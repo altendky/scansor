@@ -241,7 +241,7 @@ def test_reference_plane_supports_offset_parallel_and_perpendicular_construction
         assert result["angle_degrees"] is None
 
 
-def test_plane_fit_can_measure_against_an_exact_explicit_plane(
+def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
     graph: FeatureGraph,
 ) -> None:
     payload = explicit_axis_recipe(graph, free=True).model_dump()
@@ -278,13 +278,12 @@ def test_plane_fit_can_measure_against_an_exact_explicit_plane(
     ids = graph.workspace.default.plane_ids
     points = graph.workspace.local[ids]
     weights = graph.workspace.data.weights[ids]
-    expected_residuals = points @ normal - datum["plane_equation"][3]
-    np.testing.assert_allclose(fitted["plane_equation"], datum["plane_equation"])
-    np.testing.assert_allclose(fitted["residuals"], expected_residuals)
-    assert fitted["weighted_rms"] == pytest.approx(
-        np.sqrt(weights @ expected_residuals**2 / weights.sum())
+    expected_offset = float(weights @ (points @ normal) / weights.sum())
+    np.testing.assert_allclose(fitted["plane_equation"][:3], normal)
+    assert fitted["plane_equation"][3] == pytest.approx(expected_offset)
+    assert fitted["signed_relative_offset"] == pytest.approx(
+        expected_offset - datum["plane_equation"][3]
     )
-    assert fitted["signed_relative_offset"] == 0.0
     assert fitted["ids"] == ids
 
 
