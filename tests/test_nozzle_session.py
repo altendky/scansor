@@ -20,6 +20,13 @@ def workspace() -> NozzleWorkspace:
 
 
 def test_saved_session_replays_fit_without_browser(workspace: NozzleWorkspace) -> None:
+    assert "azimuth_frame" not in workspace.data.selection
+    np.testing.assert_array_equal(
+        workspace.origin, workspace.data.selection["fit_frame"]["origin"]
+    )
+    np.testing.assert_array_equal(
+        workspace.frame, workspace.data.selection["fit_frame"]["columns"]
+    )
     session = NozzleSession.model_validate_json(workspace.default.model_dump_json())
     result = workspace.fit(session)
     assert result["session"] == workspace.default.model_dump()

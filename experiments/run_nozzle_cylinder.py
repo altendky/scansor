@@ -41,11 +41,11 @@ def selection_azimuth_mask(
         or not 0.0 <= float(bounds[0]) <= float(bounds[1]) <= 360.0
     ):
         raise ValueError("invalid selection azimuth range")
-    fit_frame = selection.get("fit_frame")
-    if not isinstance(fit_frame, dict):
+    azimuth_frame = selection.get("azimuth_frame", selection.get("fit_frame"))
+    if not isinstance(azimuth_frame, dict):
         raise ValueError("an azimuth-gated selection requires a fit frame")
-    local = (xyz - np.asarray(fit_frame["origin"], dtype=float)) @ np.asarray(
-        fit_frame["columns"], dtype=float
+    local = (xyz - np.asarray(azimuth_frame["origin"], dtype=float)) @ np.asarray(
+        azimuth_frame["columns"], dtype=float
     )
     angle = np.mod(np.degrees(np.arctan2(local[:, 1], local[:, 0])), 360.0)
     return (angle >= float(bounds[0])) & (angle <= float(bounds[1]))

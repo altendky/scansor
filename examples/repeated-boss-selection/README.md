@@ -67,6 +67,12 @@ manifest, source, model, and initial selection bundle. The current UI does not
 yet create or transfer volumetric selection regions; this fixture supplies the
 geometry and truth needed to develop that behavior.
 
+The browser and fitting workspace use the plate's part frame: the displayed
+origin is the plate center at `(0, 0, 0)`, away from every boss. The rescan's
+declared capture pose is inverted for display and fitting. Seed-selection
+azimuth gates retain a separate boss-relative frame, so moving the workspace
+origin does not change the saved `boss-a` memberships.
+
 ## Truth boundary
 
 PLY files contain only positions, normals, and triangles. Occurrence identities,

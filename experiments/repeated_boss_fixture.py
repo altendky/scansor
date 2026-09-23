@@ -966,9 +966,9 @@ def _write_legacy_selections(
     selections.mkdir()
     occurrence = spec.occurrences[0]
     occurrence_height = _occurrence_height(spec, occurrence)
-    origin, frame = _frame_for_occurrence(realization, occurrence)
-    local = (mesh.positions_scan - origin) @ frame
-    axis = frame[:, 2]
+    occurrence_origin, occurrence_frame = _frame_for_occurrence(realization, occurrence)
+    local = (mesh.positions_scan - occurrence_origin) @ occurrence_frame
+    axis = occurrence_frame[:, 2]
     radial = local.copy()
     radial[:, 2] = 0.0
     rho = np.linalg.norm(radial, axis=1)
@@ -978,7 +978,7 @@ def _write_legacy_selections(
         out=np.zeros_like(radial),
         where=rho[:, None] > 0.0,
     )
-    normals_local = mesh.normals_scan @ frame
+    normals_local = mesh.normals_scan @ occurrence_frame
     outer_angles = (65.0, 295.0)
     outer_mask = (
         (local[:, 2] >= 2.5)
@@ -1011,14 +1011,34 @@ def _write_legacy_selections(
 
     outer_file, outer_sha = ids_file("outer-band", outer_ids)
     plane_file, plane_sha = ids_file("top-face", plane_ids)
-    axis_seed = {"axis": axis.tolist(), "center": origin.tolist()}
-    fit_frame = {"columns": frame.tolist(), "origin": origin.tolist()}
+    scan_rotation = _rotation_xyz(realization.pose.rotation_xyz_degrees)
+    part_origin_scan = np.asarray(realization.pose.translation_mm)
+    occurrence_rotation = _occurrence_rotation(occurrence)
+    axis_part = occurrence_rotation[:, 2]
+    center_part = np.asarray((*occurrence.center_mm, 0.0))
+    axis_point_at_zero = center_part - axis_part * center_part[2] / axis_part[2]
+    axis_seed = {"axis": axis.tolist(), "center": occurrence_origin.tolist()}
+    azimuth_frame = {
+        "columns": occurrence_frame.tolist(),
+        "origin": occurrence_origin.tolist(),
+    }
+    fit_frame = {
+        "columns": scan_rotation.tolist(),
+        "origin": part_origin_scan.tolist(),
+    }
     outer = {
         "axis_seed": axis_seed,
         "axial_range": [2.5, 11.5],
+        "azimuth_frame": azimuth_frame,
         "azimuth_range_degrees": list(outer_angles),
         "fit_frame": fit_frame,
-        "initial_parameters": [0.0, 0.0, 0.0, 0.0, spec.boss.outer_radius_mm],
+        "initial_parameters": [
+            axis_point_at_zero[0],
+            axis_point_at_zero[1],
+            axis_part[0] / axis_part[2],
+            axis_part[1] / axis_part[2],
+            spec.boss.outer_radius_mm,
+        ],
         "maximum_abs_axial_normal_dot": 0.35,
         "minimum_outward_normal_dot": 0.82,
         "radius_range": [
@@ -1036,6 +1056,7 @@ def _write_legacy_selections(
             occurrence_height - 0.6,
             occurrence_height + 0.6,
         ],
+        "azimuth_frame": azimuth_frame,
         "azimuth_range_degrees": list(plane_angles),
         "fit_frame": fit_frame,
         "minimum_axial_normal_dot": 0.82,

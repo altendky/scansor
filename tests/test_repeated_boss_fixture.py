@@ -53,6 +53,23 @@ def test_generated_repeated_boss_fixture_is_deterministic_and_browser_readable(
         example = load_example(root)
         workspace = NozzleWorkspace(root)
         manifest = json.loads((root / "manifest.json").read_text())
+        pose_rotation = np.asarray(manifest["pose"]["part_to_scan_rotation"])
+        pose_translation = np.asarray(manifest["pose"]["part_to_scan_translation_mm"])
+        np.testing.assert_allclose(workspace.origin, pose_translation)
+        np.testing.assert_allclose(workspace.frame, pose_rotation)
+        measured_part = np.load(root / "truth/measured-part.npy", allow_pickle=False)
+        np.testing.assert_allclose(workspace.local, measured_part, atol=8e-6)
+        assert workspace.data.selection["initial_parameters"] == [
+            -34.0,
+            -20.0,
+            0.0,
+            0.0,
+            11.0,
+        ]
+        assert (
+            workspace.data.selection["azimuth_frame"]["origin"]
+            == (workspace.data.selection["axis_seed"]["center"])
+        )
         source_hashes.add(manifest["files"][manifest["source_file"]]["sha256"])
         assert len(example.xyz) == manifest["vertices"]
         assert len(example.triangles) == manifest["triangles"]
