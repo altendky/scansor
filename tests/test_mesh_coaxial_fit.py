@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from experiments.mesh_coaxial_fit import (
+    AxisPlaneObservations,
     SideObservations,
+    axis_plane_frame,
     fit_coaxial,
     residual_jacobian,
 )
@@ -146,3 +148,61 @@ def test_additional_plane_influences_shared_axis() -> None:
             np.append(initial, -2),
             ((np.empty((0, 3)), np.empty(0)),),
         )
+
+
+def test_axis_derived_plane_factors_move_the_shared_axis() -> None:
+    sides, perpendicular_points, perpendicular_area = geometry()
+    cylinder = sides[1]
+    truth = np.array([0.3, -0.4, 0.12, -0.08, 2.4, 2.1, -1.7])
+    perpendicular = AxisPlaneObservations(
+        perpendicular_points,
+        perpendicular_area,
+        "perpendicular_to_axis",
+        None,
+        0,
+    )
+    empty_parallel = AxisPlaneObservations(
+        np.empty((0, 3)), np.empty(0), "parallel_to_axis", np.radians(31), 0
+    )
+    axis, radial, normal = axis_plane_frame(empty_parallel, truth)
+    along_axis, across = np.meshgrid(np.linspace(-3, 3, 7), np.linspace(-2, 2, 6))
+    parallel_points = (
+        -1.7 * normal
+        + along_axis.ravel()[:, None] * axis
+        + across.ravel()[:, None] * radial
+    )
+    parallel = AxisPlaneObservations(
+        parallel_points,
+        np.linspace(0.4, 1.1, len(parallel_points)),
+        "parallel_to_axis",
+        np.radians(31),
+        0,
+    )
+    initial = np.array([0.0, 0.0, 0.02, 0.01, 2.2, 1.8, -1.4])
+    result = fit_coaxial(
+        [cylinder], None, None, initial, axis_planes=(perpendicular, parallel)
+    )
+    np.testing.assert_allclose(result.parameters[0][:5], truth[:5], atol=1e-8)
+    np.testing.assert_allclose(
+        result.axis_plane_equations[0], [*axis, 2.1], atol=1e-8
+    )
+    np.testing.assert_allclose(
+        result.axis_plane_equations[1], [*normal, -1.7], atol=1e-8
+    )
+    assert result.weighted_rms < 1e-9
+
+    _, actual = residual_jacobian(
+        [cylinder], None, truth, axis_planes=(perpendicular, parallel)
+    )
+    expected = np.empty_like(actual)
+    for i in range(len(truth)):
+        delta = np.zeros_like(truth)
+        delta[i] = 1e-6
+        plus = residual_jacobian(
+            [cylinder], None, truth + delta, axis_planes=(perpendicular, parallel)
+        )[0]
+        minus = residual_jacobian(
+            [cylinder], None, truth - delta, axis_planes=(perpendicular, parallel)
+        )[0]
+        expected[:, i] = (plus - minus) / 2e-6
+    np.testing.assert_allclose(actual, expected, atol=2e-7, rtol=2e-6)

@@ -4,7 +4,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from experiments.mesh_coaxial_fit import SideObservations, fit_coaxial
+from experiments.mesh_coaxial_fit import (
+    AxisPlaneObservations,
+    SideObservations,
+    axis_plane_frame,
+    fit_coaxial,
+)
 from experiments.mesh_mirror_surfaces import MirrorSurfaces, initial_mirror
 from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
 from experiments.nozzle_session import NozzleWorkspace, SessionFit, SurfaceResult
@@ -19,6 +24,14 @@ class FitSelection:
     domain: tuple[float, float]
 
 
+@dataclass(frozen=True)
+class ReferencePlaneGroup:
+    id: str
+    surfaces: tuple[FitSelection, ...]
+    construction: str
+    angle_degrees: float | None
+
+
 def fit_group(
     workspace: NozzleWorkspace,
     sides: list[FitSelection],
@@ -28,6 +41,7 @@ def fit_group(
     mirror_groups: tuple[tuple[FitSelection, FitSelection], ...] = (),
     mirror_phases_radians: tuple[float, ...] | None = None,
     mirror_radius_surface_ids: tuple[str | None, ...] | None = None,
+    reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
 ) -> SessionFit:
     """Joint fit; a mirror's optional radius source makes its planes tangent."""
     observations = [
@@ -68,6 +82,39 @@ def fit_group(
         (workspace.local[s.ids], workspace.data.weights[s.ids]) for s in planes[1:]
     )
     initial.extend(float(w @ (points @ axis) / w.sum()) for points, w in extra_planes)
+    basis_index = int(np.argmin(np.abs(axis)))
+    axis_plane_observations = tuple(
+        AxisPlaneObservations(
+            np.concatenate([workspace.local[s.ids] for s in group.surfaces]),
+            np.concatenate([workspace.data.weights[s.ids] for s in group.surfaces]),
+            group.construction,
+            (
+                None
+                if group.angle_degrees is None
+                else float(np.radians(group.angle_degrees))
+            ),
+            basis_index,
+        )
+        for group in reference_plane_groups
+    )
+    for group, observations_for_plane in zip(
+        reference_plane_groups, axis_plane_observations, strict=True
+    ):
+        if not group.surfaces:
+            raise ValueError("a reference plane requires at least one fitted surface")
+        if any(surface.kind != "plane" for surface in group.surfaces):
+            raise ValueError("reference-plane factors must be plane fits")
+        if any(len(surface.ids) < 3 for surface in group.surfaces):
+            raise ValueError("each reference-plane fit needs at least three vertices")
+        if observations_for_plane.size:
+            normal = axis_plane_frame(observations_for_plane, seed)[2]
+            initial.append(
+                float(
+                    observations_for_plane.area
+                    @ (observations_for_plane.points @ normal)
+                    / observations_for_plane.area.sum()
+                )
+            )
     rotations = tuple(
         RotationalPlanes(
             tuple(workspace.local[s.ids] for s in group),
@@ -164,6 +211,7 @@ def fit_group(
         extra_planes,
         rotations,
         tuple(mirrors),
+        axis_plane_observations,
     )
     p = fitted.parameters[0]
     axis = np.array([p[2], p[3], 1.0])
@@ -206,6 +254,48 @@ def fit_group(
             "axial_domain": selected_plane.domain,
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
+        }
+    reference_planes: dict[str, dict[str, object]] = {}
+    for group, equation, basis_u, basis_v, residual in zip(
+        reference_plane_groups,
+        fitted.axis_plane_equations,
+        fitted.axis_plane_basis_u,
+        fitted.axis_plane_basis_v,
+        fitted.axis_plane_residuals,
+        strict=True,
+    ):
+        start = 0
+        for selected_plane in group.surfaces:
+            stop = start + len(selected_plane.ids)
+            selected_residual = residual[start:stop]
+            weights = workspace.data.weights[selected_plane.ids]
+            parameters = p.copy()
+            parameters[5] = equation[3]
+            surfaces[selected_plane.id] = {
+                "kind": "plane",
+                "ids": selected_plane.ids,
+                "parameters": parameters.tolist(),
+                "plane_equation": equation.tolist(),
+                "axial_domain": selected_plane.domain,
+                "residuals": selected_residual.tolist(),
+                "weighted_rms": float(
+                    np.sqrt(weights @ selected_residual**2 / weights.sum())
+                ),
+            }
+            start = stop
+        normal = equation[:3]
+        resolved_point = point + (equation[3] - normal @ point) * normal
+        reference_planes[group.id] = {
+            "axis_display": axis.tolist(),
+            "basis_u_display": basis_u.tolist(),
+            "basis_v_display": basis_v.tolist(),
+            "point_display": resolved_point.tolist(),
+            "radial_display": basis_v.tolist(),
+            "normal_display": normal.tolist(),
+            "plane_equation": equation.tolist(),
+            "angle_degrees": group.angle_degrees,
+            "offset": float(equation[3] - normal @ point),
+            "construction": group.construction,
         }
     for group, equations, residuals, domains in zip(
         rotational_groups,
@@ -283,12 +373,18 @@ def fit_group(
                 s.id: float(workspace.data.weights[s.ids].sum())
                 for s in [
                     *planes,
+                    *(
+                        surface
+                        for group in reference_plane_groups
+                        for surface in group.surfaces
+                    ),
                     *(s for group in rotational_groups for s in group),
                     *(s for group in mirror_groups for s in group),
                 ]
             },
         },
         "surfaces": surfaces,
+        "reference_planes": reference_planes,
         "mirror_planes": [
             {
                 "phase_radians": phase,

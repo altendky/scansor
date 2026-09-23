@@ -287,6 +287,47 @@ def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
     assert fitted["ids"] == ids
 
 
+def test_plane_bound_fit_can_drive_its_free_axis_and_plane_in_a_joint(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    by_id = {node["id"]: node for node in payload["nodes"]}
+    plane_factor = by_id["plane_factor"]
+    plane_factor["axis"] = None
+    plane_factor["reference_plane"] = "top_datum"
+    solve = by_id["shared_axis"]
+    plane_index = payload["nodes"].index(plane_factor)
+    payload["nodes"].insert(
+        plane_index,
+        {
+            "id": "top_datum",
+            "label": "Top datum",
+            "operation": "reference_plane",
+            "axis": "reference_axis",
+            "construction": "perpendicular_to_axis",
+            "initial_angle_degrees": None,
+            "offset": -3.0,
+        },
+    )
+    payload["output"] = solve["id"]
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, Any], state["result"])
+    derived = cast(dict[str, dict[str, Any]], state["derived"])
+    resolved_plane = result["reference_planes"]["top_datum"]
+    fitted_plane = result["surfaces"]["plane_factor"]
+
+    np.testing.assert_allclose(
+        fitted_plane["plane_equation"], resolved_plane["plane_equation"]
+    )
+    np.testing.assert_allclose(
+        resolved_plane["normal_display"], result["axis_display"]
+    )
+    assert resolved_plane["offset"] != pytest.approx(-3.0)
+    assert result["fit"]["parameters"] != derived["reference_axis"]["parameters"]
+    assert derived["top_datum"]["offset"] == -3.0
+
+
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(
     graph: FeatureGraph,
 ) -> None:

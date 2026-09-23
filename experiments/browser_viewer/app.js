@@ -107,7 +107,8 @@ function showCreateDialog(dialogId, labelId, defaultLabel) {
   input.select();
 }
 function factorAxis(node) {
-  if (node?.operation === 'fit') return node.axis;
+  if (node?.operation === 'fit')
+    return node.axis || graphNode(node.reference_plane)?.axis;
   if (node?.operation === 'mirror_symmetry') return graphNode(node.plane)?.axis;
   if (node?.operation === 'parallel') return graphNode(node.reference_plane)?.axis;
   if (node?.operation === 'equal') {
@@ -729,6 +730,7 @@ function showAvailableGuides() {
   const renderedBySelected = new Set([
     ...Object.keys(selectedResult?.surfaces || {}),
     ...Object.keys(selectedResult?.mirror_planes || {}),
+    ...Object.keys(selectedResult?.reference_planes || {}),
     ...(['axis_solve'].includes(selected?.operation) ? [selected.axis] : []),
   ]);
   let colorIndex = 0;
@@ -855,6 +857,8 @@ function showResult() {
   } else if (['joint_fit', 'axis_solve'].includes(node.operation)) {
     axisGuide(result, '#ffd166');
     for (const plane of Object.values(result.mirror_planes || {}))
+      referencePlaneGuide(plane, '#ff8fe5');
+    for (const plane of Object.values(result.reference_planes || {}))
       referencePlaneGuide(plane, '#ff8fe5');
     values['Combined RMS'] = result.fit.weighted_rms.toFixed(5);
     Object.entries(result.surfaces).forEach(([id, s], i) => {
@@ -1351,7 +1355,8 @@ async function start() {
   };
   const updateAxisSolveFactors = () => {
     const axis = $('new-axis-solve-axis').value;
-    choices('new-axis-solve-factors', solveInputs(axis));
+    const inputs = solveInputs(axis);
+    choices('new-axis-solve-factors', inputs, inputs.map((node) => node.id));
   };
   $('new-axis').onclick = () => {
     const sources = graphState.recipe.nodes.filter(
@@ -1654,7 +1659,7 @@ async function start() {
       hasPlaneEvidence = kinds.has('plane') || factors.some((id) => graphNode(id).operation === 'mirror_symmetry');
     if (!axis || !hasSide || !hasPlaneEvidence) {
       $('axis-solve-error').textContent =
-        'Choose one axis, an axis-bound cone or cylinder, and either a bound plane or mirror relationship.';
+        'Choose one free axis, a cone or cylinder on it, and either a plane fit on that axis or one of its planes.';
       return;
     }
     const saved = await appendActions([

@@ -13,7 +13,12 @@ from typing import Annotated, Any, ClassVar, Literal, cast, final
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group, fit_group
+from experiments.nozzle_coaxial import (
+    FitSelection,
+    ReferencePlaneGroup,
+    fit_fixed_axis_group,
+    fit_group,
+)
 from experiments.nozzle_session import (
     NozzleSession,
     NozzleWorkspace,
@@ -323,6 +328,16 @@ def dependencies(node: Feature) -> list[str]:
 
 def is_standalone_fit(node: SurfaceFit) -> bool:
     return node.axis is None and node.reference_plane is None
+
+
+def fit_axis(node: SurfaceFit, nodes: dict[str, Feature]) -> str | None:
+    if node.axis is not None:
+        return node.axis
+    if node.reference_plane is not None:
+        reference = nodes[node.reference_plane]
+        if isinstance(reference, PlaneDefinition):
+            return reference.axis
+    return None
 
 
 def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
@@ -827,7 +842,7 @@ class FeatureGraph:
                 if any(
                     not (
                         isinstance(factor, SurfaceFit)
-                        and factor.axis == node.axis
+                        and fit_axis(factor, nodes) == node.axis
                         and factor.kind in ("cone", "cylinder", "plane")
                     )
                     and not (
@@ -1183,8 +1198,29 @@ class FeatureGraph:
                         factor for factor in fitted_factors if factor.kind != "plane"
                     ]
                     planes = [
-                        factor for factor in fitted_factors if factor.kind == "plane"
+                        factor
+                        for factor in fitted_factors
+                        if factor.kind == "plane" and factor.axis is not None
                     ]
+                    referenced_plane_factors: dict[str, list[SurfaceFit]] = {}
+                    for factor in fitted_factors:
+                        if factor.reference_plane is not None:
+                            referenced_plane_factors.setdefault(
+                                factor.reference_plane, []
+                            ).append(factor)
+                    reference_plane_groups = tuple(
+                        ReferencePlaneGroup(
+                            reference_id,
+                            tuple(selected(factor) for factor in group),
+                            cast(
+                                PlaneDefinition, nodes[reference_id]
+                            ).construction,
+                            cast(
+                                PlaneDefinition, nodes[reference_id]
+                            ).initial_angle_degrees,
+                        )
+                        for reference_id, group in referenced_plane_factors.items()
+                    )
                     axis_result = derived_result(node.axis)
                     result = fit_group(
                         self.workspace,
@@ -1210,6 +1246,7 @@ class FeatureGraph:
                             )
                             for mirror in mirrors
                         ),
+                        reference_plane_groups=reference_plane_groups,
                     )
                     fitted_mirror_planes = cast(
                         list[dict[str, Any]], result.get("mirror_planes", [])
