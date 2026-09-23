@@ -1,4 +1,5 @@
 import { actionDescription, nodeReferences as refs, renderActionTree } from './action-tree.js';
+import { uniqueFeatureLabel } from './feature-names.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
 import { viewPlaneAnchor } from './navigation-math.js';
@@ -80,6 +81,16 @@ function clearGuides() {
 }
 function graphNode(id) {
   return graphState.recipe.nodes.find((n) => n.id === id);
+}
+function nextFeatureLabel(base) {
+  return uniqueFeatureLabel(base, graphState?.recipe.nodes || []);
+}
+function showCreateDialog(dialogId, labelId, defaultLabel) {
+  const input = $(labelId);
+  input.value = nextFeatureLabel(defaultLabel);
+  $(dialogId).showModal();
+  input.focus();
+  input.select();
 }
 function factorAxis(node) {
   if (node?.operation === 'fit') return node.axis;
@@ -1313,7 +1324,7 @@ async function start() {
       $('new-fit-kind').value,
       graphState.recipe.nodes,
     );
-    $('fit-dialog').showModal();
+    showCreateDialog('fit-dialog', 'new-fit-label', 'Surface fit');
   };
   const updateAxisSolveFactors = () => {
     const axis = $('new-axis-solve-axis').value;
@@ -1337,7 +1348,7 @@ async function start() {
       'new-axis-source-fields',
       'new-axis-manual-fields',
     );
-    $('axis-dialog').showModal();
+    showCreateDialog('axis-dialog', 'new-axis-label', 'Reference axis');
   };
   $('new-reference-plane').onclick = () => {
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
@@ -1350,7 +1361,11 @@ async function start() {
     $('new-reference-plane-angle').value = 0;
     $('new-reference-plane-offset').value = 0;
     showReferencePlaneFields('new-');
-    $('reference-plane-dialog').showModal();
+    showCreateDialog(
+      'reference-plane-dialog',
+      'new-reference-plane-label',
+      'Reference plane',
+    );
   };
   const updateMirrorChoices = () => {
     const fits = graphState.recipe.nodes.filter(
@@ -1378,7 +1393,7 @@ async function start() {
     choices('new-mirror-plane', planes, [graphNode(selectedFeatureId)?.plane || selectedFeatureId]);
     updateMirrorChoices();
     $('mirror-error').textContent = '';
-    $('mirror-dialog').showModal();
+    showCreateDialog('mirror-dialog', 'new-mirror-label', 'Mirrored pair');
   };
   $('new-parallel').onclick = () => {
     const fits = graphState.recipe.nodes.filter(
@@ -1393,7 +1408,7 @@ async function start() {
     choices('new-parallel-surface', fits, [selectedFeatureId]);
     choices('new-parallel-reference', planes, [graphNode(selectedFeatureId)?.plane]);
     $('parallel-error').textContent = '';
-    $('parallel-dialog').showModal();
+    showCreateDialog('parallel-dialog', 'new-parallel-label', 'Parallel to plane');
   };
   $('new-equal').onclick = () => {
     const cylinders = graphState.recipe.nodes.filter(
@@ -1412,7 +1427,11 @@ async function start() {
     choices('new-equal-distance-surface', fits);
     choices('new-equal-distance-reference', planes);
     $('equal-error').textContent = '';
-    $('equal-dialog').showModal();
+    showCreateDialog(
+      'equal-dialog',
+      'new-equal-label',
+      'Radius equals plane distance',
+    );
   };
   $('new-axis-solve').onclick = () => {
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
@@ -1427,7 +1446,7 @@ async function start() {
     );
     updateAxisSolveFactors();
     $('axis-solve-error').textContent = '';
-    $('axis-solve-dialog').showModal();
+    showCreateDialog('axis-solve-dialog', 'new-axis-solve-label', 'Shared-axis joint');
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
   $('new-fit-kind').onchange = () =>
@@ -1488,7 +1507,7 @@ async function start() {
     if (fromFit && $('new-axis-clone').checked)
       nodes.push({
         id: uid('fit'),
-        label: (source.label + ' axis factor').slice(0, 120),
+        label: nextFeatureLabel(source.label + ' axis factor'),
         operation: 'fit',
         selections: [...source.selections],
         kind: source.kind,
@@ -1605,7 +1624,8 @@ async function start() {
     if (saved) $('axis-solve-dialog').close();
     else $('axis-solve-error').textContent = $('status').textContent;
   };
-  $('new-joint').onclick = () => $('joint-dialog').showModal();
+  $('new-joint').onclick = () =>
+    showCreateDialog('joint-dialog', 'new-joint-label', 'Joint fit');
   const rotationChoices = () => {
     const joint = graphNode($('rotation-joint').value);
     const used = new Set(joint ? joint.constraints.flatMap((id) => refs(graphNode(id))) : []);
@@ -1622,7 +1642,11 @@ async function start() {
     );
     rotationChoices();
     $('rotation-error').textContent = '';
-    $('rotation-dialog').showModal();
+    showCreateDialog(
+      'rotation-dialog',
+      'rotation-label',
+      'Threefold surface symmetry',
+    );
   };
   $('rotation-joint').onchange = rotationChoices;
   $('rotation-form').onsubmit = async (event) => {
@@ -1678,14 +1702,14 @@ async function start() {
       graphNode(id).kind === 'plane'
         ? {
             id: uid('perpendicular'),
-            label: (graphNode(id).label + ' perpendicular').slice(0, 120),
+            label: nextFeatureLabel(graphNode(id).label + ' perpendicular'),
             operation: 'perpendicular',
             lateral: side,
             plane: id,
           }
         : {
             id: uid('coaxial'),
-            label: (graphNode(id).label + ' coaxial').slice(0, 120),
+            label: nextFeatureLabel(graphNode(id).label + ' coaxial'),
             operation: 'coaxial',
             surface: id,
             reference: side,
@@ -1797,7 +1821,7 @@ async function start() {
   $('add-selection').onclick = async () => {
     const node = {
       id: uid('selection'),
-      label: 'Selection ' + (Object.keys(session).length + 1),
+      label: nextFeatureLabel('Selection'),
       operation: 'selection',
       source: graphState.recipe.nodes.find((n) => n.operation === 'source').id,
       ids: [],
@@ -1834,7 +1858,7 @@ async function start() {
     const label = $('new-joint-label').value;
     const relations = planes.map((plane) => ({
       id: uid('perpendicular'),
-      label: (graphNode(plane).label + ' perpendicular').slice(0, 120),
+      label: nextFeatureLabel(graphNode(plane).label + ' perpendicular'),
       operation: 'perpendicular',
       lateral: side,
       plane,
@@ -1843,7 +1867,7 @@ async function start() {
       if (ref !== side)
         relations.push({
           id: uid('coaxial'),
-          label: (graphNode(ref).label + ' coaxial').slice(0, 120),
+          label: nextFeatureLabel(graphNode(ref).label + ' coaxial'),
           operation: 'coaxial',
           surface: ref,
           reference: side,
@@ -1877,7 +1901,7 @@ async function start() {
       await appendActions([
         {
           id: uid('growth'),
-          label: (node.label + ' growth').slice(0, 120),
+          label: nextFeatureLabel(node.label + ' growth'),
           operation: 'growth',
           seed_fit: node.id,
           barriers,
@@ -1894,7 +1918,7 @@ async function start() {
     await appendActions([
       {
         id: uid('fit'),
-        label: (seed.label + ' grown fit').slice(0, 120),
+        label: nextFeatureLabel(seed.label + ' grown fit'),
         operation: 'fit',
         selections: [growth.id],
         kind: seed.kind,

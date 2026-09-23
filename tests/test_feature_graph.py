@@ -38,6 +38,13 @@ def changed(graph: FeatureGraph, node_id: str, **changes: object) -> Recipe:
     return Recipe.model_validate(payload)
 
 
+def test_recipe_requires_unique_feature_names(graph: FeatureGraph) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["nodes"][1]["label"] = f"  {payload['nodes'][0]['label'].upper()}  "
+    with pytest.raises(ValueError, match="feature names must be unique"):
+        _ = Recipe.model_validate(payload)
+
+
 def explicit_axis_recipe(
     graph: FeatureGraph, *, free: bool, side_kind: str = "cylinder"
 ) -> Recipe:

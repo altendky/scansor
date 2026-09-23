@@ -121,6 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         "/": ("index.html", "text/html"),
         "/app.js": ("app.js", "text/javascript"),
         "/action-tree.js": ("action-tree.js", "text/javascript"),
+        "/feature-names.js": ("feature-names.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (

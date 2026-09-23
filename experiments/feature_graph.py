@@ -270,6 +270,13 @@ class Recipe(Record):
         payload["schema_version"] = 2
         return payload
 
+    @model_validator(mode="after")
+    def unique_feature_names(self) -> Recipe:
+        names = [node.label.strip().casefold() for node in self.nodes]
+        if len(names) != len(set(names)):
+            raise ValueError("feature names must be unique")
+        return self
+
 
 class GraphRequest(Record):
     token: str
