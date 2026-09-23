@@ -58,7 +58,8 @@ After installing the browser assets, open the coarse realization with:
 ```sh
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   python -m experiments.nozzle_browser \
-  --example local-inputs/repeated-boss-selection-v2/scan-coarse
+  --example local-inputs/repeated-boss-selection-v2/scan-coarse \
+  --port 8765
 ```
 
 The adapter retains its historical module name but reads the generated example's
