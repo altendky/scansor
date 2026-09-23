@@ -223,6 +223,64 @@ not yet encode axial-plane clocking or relative parallel-offset planes; extendin
 that normalized contract coherently remains separate from this browser numerical
 slice.
 
+## Provisional compound-feature direction
+
+Repeated compound features require more than pairwise equality between individual
+fit parameters. Consider several observed bosses, each described by an axis, a
+base plane, an inner cylinder, and an outer cylinder or cone. The bosses may have
+unrelated positions and orientations while remaining exact copies of one
+canonical internal geometry. This is exact compound congruence modulo an
+independent placement for each observed copy; approximate similarity would be a
+diagnostic check rather than this relationship.
+
+A provisional authoring model distinguishes three concepts:
+
+1. A **compound definition** gives the feature a name, typed member roles,
+   internal exact relationships, and the canonical shape quantities shared by
+   every occurrence.
+2. An **occurrence** binds each role to observed fits and reference geometry and
+   owns an independent placement of the canonical geometry.
+3. A user-facing **joint** selects the observation factors and free quantities
+   that are evaluated together. Grouping and role correspondence do not by
+   themselves activate a solve.
+
+For an axisymmetric boss, a first definition might contain `axis`, `base`,
+`inner`, and `outer` roles. Its exact internal relationships can make the inner
+and outer surfaces coaxial and the base plane perpendicular to the axis. Shared
+canonical quantities can include the inner radius, outer radius or cone angle,
+and declared axial offsets. Each occurrence retains its own axis location and
+direction and its own base-plane placement. An axis and perpendicular base plane
+leave roll about the axis unobservable, which is appropriate for an axisymmetric
+feature. A non-axisymmetric compound needs additional clocking geometry rather
+than an implicit frame convention.
+
+The member type for each role should initially be consistent within one compound
+definition. A cylindrical outer member and a conical outer member therefore
+describe different definitions, not variants silently mixed in one family.
+Finite observation support and display/export extents are not automatically part
+of compound congruence; matching them requires an explicit declared quantity or
+option.
+
+The likely browser workflow is:
+
+1. Create or select the primitive fits and reference geometry for one occurrence.
+2. Create a compound definition and assign stable names to its member roles.
+3. Add another occurrence, binding existing or newly created observations to the
+   same roles.
+4. Create or extend a joint that allows all selected occurrences to drive the
+   shared canonical geometry and their independent placements.
+
+The feature tree can present this as a hierarchy even if the operation DAG stays
+flat: selecting the definition highlights all occurrences, selecting an
+occurrence highlights one copy, and selecting a role reaches the underlying fit
+or datum. The UI should not use *pattern* for this concept because pattern commonly
+implies a relationship between placements. Creating an occurrence may provide
+convenient scaffolding, but it must not hide the role mapping, internal
+relationships, shared quantities, or solve activation.
+
+This direction is exploratory. It does not add a compound-feature contract to the
+implemented reference-geometry model or select final user-facing terminology.
+
 ## Implemented compatibility-free contract
 
 The first bounded contract in `scansor.reference_geometry` provides:

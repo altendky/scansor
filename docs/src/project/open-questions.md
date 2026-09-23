@@ -207,6 +207,11 @@ contract and dependency compiler:
   representation is required before an upstream result can become a prior factor?
 - Which rank and gauge diagnostics best explain that a perpendicular plane can
   inform axis direction without locating the line transversely?
+- How should an exact compound-feature definition declare typed member roles,
+  internal relationships, shared canonical quantities, and independently placed
+  occurrences without hiding constraints or solve activation?
+- Which bounded-support or export-extents properties, if any, participate in
+  compound congruence, and which remain occurrence-specific presentation data?
 
 - What registry and versioning model should identify project-owned generated
   fixtures and bind their declarations to exact sampling definitions?

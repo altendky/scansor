@@ -25,7 +25,9 @@ outside the intended boundary.
     solve-local fixed/free roles, exact selection bindings, explicit factor
     activation, and component-level influence compilation; a bounded browser
     numerical slice now exercises fixed and free shared-axis workflows, while
-    broader reference geometry remains an implementation gate
+    broader reference geometry remains an implementation gate; exact compound
+    definitions with independently placed occurrences are recorded only as an
+    exploratory later direction
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit axes,
