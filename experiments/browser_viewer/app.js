@@ -30,6 +30,19 @@ const status = (message, error = false) => {
   $('status').textContent = message;
   $('status').classList.toggle('error', error);
 };
+function downloadJson(filename, value) {
+  const url = URL.createObjectURL(
+      new Blob([JSON.stringify(value, null, 2) + '\n'], { type: 'application/json' }),
+    ),
+    link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 async function request(path, value) {
   const response = await fetch(
     path,
@@ -1190,7 +1203,6 @@ async function start() {
   home('oblique');
   $('mesh-info').textContent =
     `${metadata.vertices.toLocaleString()} vertices · ${metadata.triangles.toLocaleString()} triangles`;
-  $('save').disabled = false;
   $('tool').onchange = paint;
   $('fit').onclick = fit;
   $('evaluate-all').onclick = evaluateAll;
@@ -1900,15 +1912,9 @@ async function start() {
   };
   $('save').onclick = async () => {
     try {
-      const recipe = (await request('/api/graph')).recipe;
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(recipe, null, 2) + '\n'], { type: 'application/json' }),
-      );
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'nozzle-actions.json';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (!graphState?.recipe) throw new Error('Actions have not finished loading yet.');
+      downloadJson('nozzle-actions.json', graphState.recipe);
+      status('Actions downloaded as nozzle-actions.json.');
     } catch (error) {
       status(error.message, true);
     }
@@ -2121,6 +2127,7 @@ async function start() {
   };
   const state = await request('/api/graph');
   acceptGraph(state);
+  $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');
 }
 await start();

@@ -22,7 +22,10 @@ document.getElementById('recover-actions').onclick = async () => {
     const link = document.createElement('a');
     link.href = url;
     link.download = 'nozzle-actions-recovery.json';
+    link.hidden = true;
+    document.body.append(link);
     link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     message.textContent = 'Actions downloaded. After restarting the server, reload and use Load actions.';
   } catch (error) { message.textContent = error.message; }
