@@ -505,16 +505,15 @@ def fit_plane_to_reference(
     ids: list[VertexId],
     reference: dict[str, Any],
 ) -> dict[str, Any]:
-    """Fit only a plane offset while preserving a reference plane's orientation."""
+    """Measure observations against one exact upstream reference plane."""
     if len(ids) < 3:
         raise ValueError(f"{surface.id}: select at least three plane vertices")
     points = workspace.local[ids]
     weights = workspace.data.weights[ids]
     normal = np.asarray(reference["normal_display"], dtype=float)
     normal /= np.linalg.norm(normal)
-    offset = float(weights @ (points @ normal) / weights.sum())
+    offset = float(reference["plane_equation"][3])
     residuals = points @ normal - offset
-    reference_offset = float(reference["plane_equation"][3])
     return {
         "kind": "plane",
         "ids": ids,
@@ -525,8 +524,8 @@ def fit_plane_to_reference(
         "weighted_rms": float(np.sqrt(weights @ residuals**2 / float(weights.sum()))),
         "condition": 1.0,
         "reference_plane": surface.reference_plane,
-        "reference_offset": reference_offset,
-        "signed_relative_offset": offset - reference_offset,
+        "reference_offset": offset,
+        "signed_relative_offset": 0.0,
     }
 
 

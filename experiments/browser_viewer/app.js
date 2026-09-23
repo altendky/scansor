@@ -123,13 +123,12 @@ function isStandaloneFit(node) {
   return !node.axis && !node.reference_plane;
 }
 function fitReferenceChoices(id, kind, nodes, selected = '') {
-  const compatible = nodes.filter(
-    (node) =>
-      node.operation === 'axis' || (kind === 'plane' && node.operation === 'reference_plane'),
+  const references = nodes.filter((node) =>
+    ['axis', 'reference_plane'].includes(node.operation),
   );
   $(id).replaceChildren(
     new Option('None (standalone)', '', false, !selected),
-    ...compatible.map(
+    ...references.map(
       (node) =>
         new Option(
           `${node.operation === 'axis' ? 'Axis' : 'Plane'} — ${node.label}`,
@@ -143,8 +142,18 @@ function fitReferenceChoices(id, kind, nodes, selected = '') {
   if (hint)
     hint.textContent =
       kind === 'plane'
-        ? 'An axis makes the fitted plane perpendicular to it. A plane datum locks the fitted plane parallel to it. Observations fit only the offset.'
-        : 'An axis datum fixes the fitted surface axis. Observations fit its radius and, for a cone, taper.';
+        ? 'An axis makes the fitted plane perpendicular to it and leaves its offset free. A plane datum uses that exact plane; observations only measure residuals.'
+        : 'An axis fixes the fitted surface axis. Choosing a plane datum switches the fit type to Plane and uses that exact plane.';
+}
+function updateFitKindForReference(kindId, referenceId, nodes = graphState.recipe.nodes) {
+  if (graphNode($(referenceId).value)?.operation === 'reference_plane')
+    $(kindId).value = 'plane';
+  fitReferenceChoices(
+    referenceId,
+    $(kindId).value,
+    nodes,
+    $(referenceId).value,
+  );
 }
 function setFitReference(node, referenceId) {
   const reference = graphNode(referenceId);
@@ -1449,20 +1458,41 @@ async function start() {
     showCreateDialog('axis-solve-dialog', 'new-axis-solve-label', 'Shared-axis joint');
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
-  $('new-fit-kind').onchange = () =>
+  $('new-fit-kind').onchange = () => {
+    if (
+      $('new-fit-kind').value !== 'plane' &&
+      graphNode($('new-fit-reference').value)?.operation === 'reference_plane'
+    )
+      $('new-fit-reference').value = '';
     fitReferenceChoices(
       'new-fit-reference',
       $('new-fit-kind').value,
       graphState.recipe.nodes,
       $('new-fit-reference').value,
     );
+  };
+  $('new-fit-reference').onchange = () =>
+    updateFitKindForReference('new-fit-kind', 'new-fit-reference');
   $('surface-kind').onchange = () => {
     const node = graphNode(selectedFeatureId);
+    if (
+      $('surface-kind').value !== 'plane' &&
+      graphNode($('fit-reference').value)?.operation === 'reference_plane'
+    )
+      $('fit-reference').value = '';
     fitReferenceChoices(
       'fit-reference',
       $('surface-kind').value,
       graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
       $('fit-reference').value,
+    );
+  };
+  $('fit-reference').onchange = () => {
+    const node = graphNode(selectedFeatureId);
+    updateFitKindForReference(
+      'surface-kind',
+      'fit-reference',
+      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
     );
   };
   $('new-axis-mode').onchange = () =>
