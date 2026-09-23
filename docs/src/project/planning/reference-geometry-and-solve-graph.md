@@ -9,7 +9,7 @@ geometry, observation factors, and solve requests. The strict internal
 `scansor-reference-geometry-model-v1` and solve-request records now implement the
 axis/cylinder/perpendicular-plane subset and compile explicit factor-to-quantity
 influence. A bounded nozzle-browser adapter now exercises cone/cylinder-and-plane
-fits with explicit `axis`, axial `reference_plane`, `mirror_symmetry`, and
+fits with explicit `axis`, axis-relative `reference_plane`, `mirror_symmetry`, and
 `axis_solve` actions, but does not directly consume this contract or yet extend
 its declared analytic-element vocabulary beyond a cylinder. It does not establish
 a public schema or promise compatibility with the old browser format.
@@ -53,6 +53,13 @@ normal or signed axial coordinate from it requires a separate explicit direction
 choice. A use case requiring an axial zero, a clocking direction, or both must
 declare additional geometry such as a point on the axis or a frame. This avoids
 hiding unobservable degrees of freedom in the word `axis`.
+
+The bounded browser adapter now exposes three axis-relative plane constructions:
+a plane containing an axis, a parallel plane at a signed normal offset, and a
+perpendicular plane at an axial offset. For now, that axial offset is measured
+from the adapter's existing axis point at local Z=0, and clocking uses its
+deterministic display basis. Those are prototype coordinate conventions, not a
+claim that a geometric axis intrinsically owns an origin or clocking frame.
 
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an

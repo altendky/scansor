@@ -122,11 +122,31 @@ class AxisDefinition(Node):
 
 
 class PlaneDefinition(Node):
-    """An axial reference plane, initialized by clocking around an explicit axis."""
+    """A reference plane constructed parallel or perpendicular to an explicit axis."""
 
     operation: Literal["reference_plane"]
     axis: str
-    initial_angle_degrees: float = Field(allow_inf_nan=False)
+    construction: Literal[
+        "contains_axis", "parallel_to_axis", "perpendicular_to_axis"
+    ] = "contains_axis"
+    initial_angle_degrees: float | None = Field(default=0.0, allow_inf_nan=False)
+    offset: float = Field(default=0.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def construction_parameters(self) -> PlaneDefinition:
+        if (
+            self.construction in ("contains_axis", "parallel_to_axis")
+            and self.initial_angle_degrees is None
+        ):
+            raise ValueError("a plane parallel to an axis requires a clocking angle")
+        if self.construction == "contains_axis" and self.offset != 0.0:
+            raise ValueError("a plane containing an axis cannot have an offset")
+        if (
+            self.construction == "perpendicular_to_axis"
+            and self.initial_angle_degrees is not None
+        ):
+            raise ValueError("a plane perpendicular to an axis has no clocking angle")
+        return self
 
 
 class MirrorSymmetry(Node):
@@ -422,8 +442,8 @@ def workspace_reference_sha256(workspace: NozzleWorkspace) -> str:
     ).hexdigest()
 
 
-def axial_plane_result(
-    axis_result: dict[str, Any], angle_degrees: float
+def reference_plane_result(
+    axis_result: dict[str, Any], plane: PlaneDefinition
 ) -> dict[str, Any]:
     axis = np.asarray(axis_result["axis_display"], dtype=float)
     axis /= np.linalg.norm(axis)
@@ -431,17 +451,30 @@ def axial_plane_result(
     u = np.cross(axis, basis)
     u /= np.linalg.norm(u)
     v = np.cross(axis, u)
-    angle = np.radians(angle_degrees)
-    radial = np.cos(angle) * u + np.sin(angle) * v
-    normal = np.cross(axis, radial)
-    point = np.asarray(axis_result["point_display"], dtype=float)
+    anchor = np.asarray(axis_result["point_display"], dtype=float)
+    if plane.construction in ("contains_axis", "parallel_to_axis"):
+        assert plane.initial_angle_degrees is not None
+        angle = np.radians(plane.initial_angle_degrees)
+        basis_u = axis
+        basis_v = np.cos(angle) * u + np.sin(angle) * v
+        normal = np.cross(basis_u, basis_v)
+        point = anchor + plane.offset * normal
+    else:
+        basis_u = u
+        basis_v = v
+        normal = axis
+        point = anchor + plane.offset * axis
     return {
         "axis_display": axis.tolist(),
+        "basis_u_display": basis_u.tolist(),
+        "basis_v_display": basis_v.tolist(),
         "point_display": point.tolist(),
-        "radial_display": radial.tolist(),
+        "radial_display": basis_v.tolist(),
         "normal_display": normal.tolist(),
         "plane_equation": [*normal.tolist(), float(normal @ point)],
-        "angle_degrees": angle_degrees,
+        "angle_degrees": plane.initial_angle_degrees,
+        "offset": plane.offset,
+        "construction": plane.construction,
     }
 
 
@@ -665,6 +698,10 @@ class FeatureGraph:
                 plane = nodes[node.plane]
                 if not isinstance(plane, PlaneDefinition):
                     raise ValueError("mirror symmetry requires a reference plane")
+                if plane.construction != "contains_axis":
+                    raise ValueError(
+                        "mirror symmetry on a shared axis requires a reference plane containing that axis"
+                    )
                 if len(set(node.surfaces)) != 2:
                     raise ValueError(
                         "mirror symmetry requires two distinct same-type surface fits"
@@ -1040,9 +1077,7 @@ class FeatureGraph:
                         "point_display": point.tolist(),
                     }
                 elif isinstance(node, PlaneDefinition):
-                    derived = axial_plane_result(
-                        derived_result(node.axis), node.initial_angle_degrees
-                    )
+                    derived = reference_plane_result(derived_result(node.axis), node)
                 elif isinstance(node, Growth):
                     fitted = nodes[node.seed_fit]
                     assert isinstance(fitted, SurfaceFit)
@@ -1105,8 +1140,11 @@ class FeatureGraph:
                         mirror_phases_radians=tuple(
                             np.radians(
                                 cast(
-                                    PlaneDefinition, nodes[mirror.plane]
-                                ).initial_angle_degrees
+                                    float,
+                                    cast(
+                                        PlaneDefinition, nodes[mirror.plane]
+                                    ).initial_angle_degrees,
+                                )
                             )
                             for mirror in mirrors
                         ),
@@ -1118,11 +1156,15 @@ class FeatureGraph:
                     result_data["mirror_planes"] = {
                         mirror.plane: {
                             "axis_display": result["axis_display"],
+                            "basis_u_display": result["axis_display"],
+                            "basis_v_display": values["direction"],
                             "point_display": result["point_display"],
                             "radial_display": values["direction"],
                             "normal_display": values["equation"][:3],
                             "plane_equation": values["equation"],
                             "angle_degrees": float(np.degrees(values["phase_radians"])),
+                            "offset": 0.0,
+                            "construction": "contains_axis",
                         }
                         for mirror, values in zip(
                             mirrors, fitted_mirror_planes, strict=True

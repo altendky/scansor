@@ -109,6 +109,42 @@ function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId) {
   for (const control of $(manualFieldsId).querySelectorAll('input, select'))
     control.disabled = !manual;
 }
+function axisContainingPlanes(nodes) {
+  return nodes.filter(
+    (node) =>
+      node.operation === 'reference_plane' &&
+      (node.construction || 'contains_axis') === 'contains_axis',
+  );
+}
+function planeConstructionLabel(construction) {
+  return {
+    contains_axis: 'Contains axis',
+    parallel_to_axis: 'Parallel to axis',
+    perpendicular_to_axis: 'Perpendicular to axis',
+  }[construction || 'contains_axis'];
+}
+function showReferencePlaneFields(prefix = '') {
+  const construction = $(`${prefix}reference-plane-construction`).value,
+    angleRow = $(`${prefix}reference-plane-angle-row`),
+    angle = $(`${prefix}reference-plane-angle`),
+    offsetRow = $(`${prefix}reference-plane-offset-row`),
+    offsetLabel = $(`${prefix}reference-plane-offset-label`),
+    hint = $(`${prefix}reference-plane-hint`),
+    perpendicular = construction === 'perpendicular_to_axis',
+    contains = construction === 'contains_axis';
+  angleRow.hidden = perpendicular;
+  angle.disabled = perpendicular;
+  offsetRow.hidden = contains;
+  $(`${prefix}reference-plane-offset`).disabled = contains;
+  offsetLabel.textContent = perpendicular
+    ? 'Axial offset from axis origin'
+    : 'Signed normal offset from axis';
+  hint.textContent = contains
+    ? 'Contains the entire axis. Clocking sets its orientation around the axis; mirror symmetry may refine it in a joint.'
+    : perpendicular
+      ? 'Normal to the axis. Offset moves it along the axis from the axis point at local Z=0.'
+      : 'Parallel to, but not necessarily containing, the axis. Clocking sets orientation and offset sets signed separation.';
+}
 const chosen = (id) => [...$(id).selectedOptions].map((o) => o.value);
 const uid = (prefix) => prefix + '_' + crypto.randomUUID().replaceAll('-', '');
 function editMembership(groups, region, hits, operation) {
@@ -165,7 +201,7 @@ function acceptGraph(state) {
   choices('new-reference-plane-axis', axes);
   choices(
     'new-mirror-plane',
-    state.recipe.nodes.filter((n) => n.operation === 'reference_plane'),
+    axisContainingPlanes(state.recipe.nodes),
   );
   choices(
     'new-axis-source',
@@ -284,7 +320,10 @@ function showProperties() {
       earlier.filter((n) => n.operation === 'axis'),
       [node.axis],
     );
-    $('reference-plane-angle').value = node.initial_angle_degrees;
+    $('reference-plane-construction').value = node.construction || 'contains_axis';
+    $('reference-plane-angle').value = node.initial_angle_degrees ?? 0;
+    $('reference-plane-offset').value = node.offset ?? 0;
+    showReferencePlaneFields();
   } else if (node.operation === 'axis_solve') {
     choices(
       'axis-solve-axis',
@@ -346,7 +385,7 @@ function showProperties() {
   } else if (node.operation === 'mirror_symmetry') {
     choices(
       'mirror-plane',
-      earlier.filter((n) => n.operation === 'reference_plane'),
+      axisContainingPlanes(earlier),
       [node.plane],
     );
     node.surfaces.forEach((id, i) =>
@@ -456,28 +495,59 @@ function referencePlanePreview(node) {
   const reference = basis.sort((a, b) => Math.abs(axis.dot(a)) - Math.abs(axis.dot(b)))[0];
   const u = new THREE.Vector3().crossVectors(axis, reference).normalize();
   const v = new THREE.Vector3().crossVectors(axis, u);
-  const angle = (node.initial_angle_degrees * Math.PI) / 180;
-  const radial = u.multiplyScalar(Math.cos(angle)).addScaledVector(v, Math.sin(angle));
+  const construction = node.construction || 'contains_axis',
+    offset = node.offset ?? 0,
+    anchor = new THREE.Vector3(...values.point_display);
+  let basisU, basisV, normal, point;
+  if (construction === 'perpendicular_to_axis') {
+    basisU = u;
+    basisV = v;
+    normal = axis;
+    point = anchor.clone().addScaledVector(axis, offset);
+  } else {
+    const angle = ((node.initial_angle_degrees ?? 0) * Math.PI) / 180;
+    basisU = axis;
+    basisV = u.multiplyScalar(Math.cos(angle)).addScaledVector(v, Math.sin(angle));
+    normal = new THREE.Vector3().crossVectors(basisU, basisV);
+    point = anchor.clone().addScaledVector(normal, offset);
+  }
   return {
     axis_display: axis.toArray(),
-    point_display: values.point_display,
-    radial_display: radial.toArray(),
-    normal_display: new THREE.Vector3().crossVectors(axis, radial).toArray(),
-    angle_degrees: node.initial_angle_degrees,
+    basis_u_display: basisU.toArray(),
+    basis_v_display: basisV.toArray(),
+    point_display: point.toArray(),
+    radial_display: basisV.toArray(),
+    normal_display: normal.toArray(),
+    angle_degrees: node.initial_angle_degrees ?? null,
+    offset,
+    construction,
   };
 }
 function referencePlaneGuide(values, color = '#ff8fe5') {
-  const axis = new THREE.Vector3(...values.axis_display).normalize();
-  const radial = new THREE.Vector3(...values.radial_display).normalize();
-  const point = new THREE.Vector3(...values.point_display);
-  const domain = metadata?.axial_domain || [-2, 5];
-  const halfWidth = Math.max(1, (domain[1] - domain[0]) * 0.35);
-  const corners = [
-    point.clone().addScaledVector(axis, domain[0]).addScaledVector(radial, -halfWidth),
-    point.clone().addScaledVector(axis, domain[0]).addScaledVector(radial, halfWidth),
-    point.clone().addScaledVector(axis, domain[1]).addScaledVector(radial, halfWidth),
-    point.clone().addScaledVector(axis, domain[1]).addScaledVector(radial, -halfWidth),
-  ];
+  const basisU = new THREE.Vector3(
+      ...(values.basis_u_display || values.axis_display),
+    ).normalize(),
+    basisV = new THREE.Vector3(
+      ...(values.basis_v_display || values.radial_display),
+    ).normalize(),
+    point = new THREE.Vector3(...values.point_display),
+    domain = metadata?.axial_domain || [-2, 5],
+    halfWidth = Math.max(1, (domain[1] - domain[0]) * 0.35);
+  let corners;
+  if (values.construction === 'perpendicular_to_axis')
+    corners = [
+      point.clone().addScaledVector(basisU, -halfWidth).addScaledVector(basisV, -halfWidth),
+      point.clone().addScaledVector(basisU, -halfWidth).addScaledVector(basisV, halfWidth),
+      point.clone().addScaledVector(basisU, halfWidth).addScaledVector(basisV, halfWidth),
+      point.clone().addScaledVector(basisU, halfWidth).addScaledVector(basisV, -halfWidth),
+    ];
+  else
+    corners = [
+      point.clone().addScaledVector(basisU, domain[0]).addScaledVector(basisV, -halfWidth),
+      point.clone().addScaledVector(basisU, domain[0]).addScaledVector(basisV, halfWidth),
+      point.clone().addScaledVector(basisU, domain[1]).addScaledVector(basisV, halfWidth),
+      point.clone().addScaledVector(basisU, domain[1]).addScaledVector(basisV, -halfWidth),
+    ];
   corners.push(corners[0]);
   overlays.add(
     new THREE.Line(
@@ -691,7 +761,11 @@ function showResult() {
     values['Direction'] = result.axis_display.map((v) => v.toFixed(5)).join(', ');
   } else if (node.operation === 'reference_plane') {
     referencePlaneGuide(result);
-    values['Initial clocking'] = `${result.angle_degrees.toFixed(4)}°`;
+    values['Construction'] = planeConstructionLabel(result.construction);
+    if (result.angle_degrees != null)
+      values['Clocking'] = `${result.angle_degrees.toFixed(4)}°`;
+    if (result.construction !== 'contains_axis')
+      values['Offset'] = result.offset.toFixed(5);
     values['Normal'] = result.normal_display.map((v) => v.toFixed(5)).join(', ');
   } else if (['joint_fit', 'axis_solve'].includes(node.operation)) {
     axisGuide(result, '#ffd166');
@@ -1221,6 +1295,10 @@ async function start() {
       return;
     }
     choices('new-reference-plane-axis', axes, [graphNode(selectedFeatureId)?.axis || selectedFeatureId]);
+    $('new-reference-plane-construction').value = 'contains_axis';
+    $('new-reference-plane-angle').value = 0;
+    $('new-reference-plane-offset').value = 0;
+    showReferencePlaneFields('new-');
     $('reference-plane-dialog').showModal();
   };
   const updateMirrorChoices = () => {
@@ -1231,7 +1309,7 @@ async function start() {
     choices('new-mirror-input-1', fits, [second?.id]);
   };
   $('new-mirror').onclick = () => {
-    const planes = graphState.recipe.nodes.filter((node) => node.operation === 'reference_plane');
+    const planes = axisContainingPlanes(graphState.recipe.nodes);
     if (!planes.length) {
       status('Create a reference plane through an axis before adding mirror symmetry.', true);
       return;
@@ -1301,6 +1379,8 @@ async function start() {
     );
   $('axis-init-mode').onchange = () =>
     showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
+  $('new-reference-plane-construction').onchange = () => showReferencePlaneFields('new-');
+  $('reference-plane-construction').onchange = () => showReferencePlaneFields();
   $('axis-solve-axis').onchange = () => {
     const axis = $('axis-solve-axis').value;
     choices('axis-solve-factors', solveInputs(axis));
@@ -1344,13 +1424,22 @@ async function start() {
   };
   $('add-reference-plane-form').onsubmit = async (event) => {
     event.preventDefault();
+    const construction = $('new-reference-plane-construction').value;
     const saved = await appendActions([
       {
         id: uid('reference_plane'),
         label: $('new-reference-plane-label').value,
         operation: 'reference_plane',
         axis: $('new-reference-plane-axis').value,
-        initial_angle_degrees: Number($('new-reference-plane-angle').value),
+        construction,
+        initial_angle_degrees:
+          construction === 'perpendicular_to_axis'
+            ? null
+            : Number($('new-reference-plane-angle').value),
+        offset:
+          construction === 'contains_axis'
+            ? 0
+            : Number($('new-reference-plane-offset').value),
       },
     ]);
     if (saved) $('reference-plane-dialog').close();
@@ -1559,7 +1648,15 @@ async function start() {
     }
     if (node.operation === 'reference_plane') {
       node.axis = $('reference-plane-axis').value;
-      node.initial_angle_degrees = Number($('reference-plane-angle').value);
+      node.construction = $('reference-plane-construction').value;
+      node.initial_angle_degrees =
+        node.construction === 'perpendicular_to_axis'
+          ? null
+          : Number($('reference-plane-angle').value);
+      node.offset =
+        node.construction === 'contains_axis'
+          ? 0
+          : Number($('reference-plane-offset').value);
     }
     if (node.operation === 'axis_solve') {
       node.axis = $('axis-solve-axis').value;

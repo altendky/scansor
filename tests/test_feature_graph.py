@@ -164,7 +164,9 @@ def test_reference_plane_is_explicit_and_contains_its_axis(graph: FeatureGraph) 
             "label": "Mirror plane",
             "operation": "reference_plane",
             "axis": "reference_axis",
+            "construction": "contains_axis",
             "initial_angle_degrees": 27.0,
+            "offset": 0.0,
         }
     )
     payload["nodes"].append(solve)
@@ -180,6 +182,90 @@ def test_reference_plane_is_explicit_and_contains_its_axis(graph: FeatureGraph) 
         result["plane_equation"][3]
     )
     assert result["angle_degrees"] == 27.0
+
+
+@pytest.mark.parametrize(
+    ("construction", "angle", "offset"),
+    [
+        ("parallel_to_axis", 27.0, 1.75),
+        ("perpendicular_to_axis", None, -2.5),
+    ],
+)
+def test_reference_plane_supports_offset_parallel_and_perpendicular_constructions(
+    graph: FeatureGraph, construction: str, angle: float | None, offset: float
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    solve = payload["nodes"].pop()
+    payload["nodes"].append(
+        {
+            "id": "reference_plane",
+            "label": "Reference plane",
+            "operation": "reference_plane",
+            "axis": "reference_axis",
+            "construction": construction,
+            "initial_angle_degrees": angle,
+            "offset": offset,
+        }
+    )
+    payload["nodes"].append(solve)
+    payload["output"] = "reference_plane"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    derived = cast(dict[str, dict[str, Any]], state["derived"])
+    result = derived["reference_plane"]
+    axis_result = derived["reference_axis"]
+    axis = np.asarray(result["axis_display"])
+    normal = np.asarray(result["normal_display"])
+    point = np.asarray(result["point_display"])
+    anchor = np.asarray(axis_result["point_display"])
+    basis_u = np.asarray(result["basis_u_display"])
+    basis_v = np.asarray(result["basis_v_display"])
+    assert result["construction"] == construction
+    assert result["offset"] == offset
+    assert normal @ basis_u == pytest.approx(0.0, abs=1e-12)
+    assert normal @ basis_v == pytest.approx(0.0, abs=1e-12)
+    if construction == "parallel_to_axis":
+        assert normal @ axis == pytest.approx(0.0, abs=1e-12)
+        np.testing.assert_allclose(point - anchor, offset * normal)
+        assert normal @ anchor != pytest.approx(normal @ point)
+    else:
+        np.testing.assert_allclose(normal, axis)
+        np.testing.assert_allclose(point - anchor, offset * axis)
+        assert result["angle_degrees"] is None
+
+
+def test_mirror_symmetry_requires_a_plane_containing_its_axis(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    solve = payload["nodes"].pop()
+    payload["nodes"].extend(
+        [
+            {
+                "id": "offset_plane",
+                "label": "Offset plane",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "construction": "parallel_to_axis",
+                "initial_angle_degrees": 0.0,
+                "offset": 1.0,
+            },
+            {
+                "id": "mirror_pair",
+                "label": "Mirror pair",
+                "operation": "mirror_symmetry",
+                "plane": "offset_plane",
+                "surfaces": ["side_factor", "plane_factor"],
+            },
+            solve,
+        ]
+    )
+    payload["output"] = solve["id"]
+    with pytest.raises(
+        ValueError,
+        match="mirror symmetry on a shared axis requires a reference plane containing that axis",
+    ):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
 
 
 def test_mirror_symmetry_references_two_same_type_standalone_fits(

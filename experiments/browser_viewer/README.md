@@ -167,11 +167,16 @@ properties pane.
    axis. Alternatively, initialize the separate axis action from an earlier
    standalone cone or cylinder fit; in that mode the dialog can also create an
    axis-bound factor of the same type from the same observations.
-4. **Plane** creates an explicit reference plane through an earlier axis.
-   Its clocking angle initializes rotation about the axis; the plane is previewed
-   immediately and remains a separately selectable feature.
+4. **Plane** creates an explicit reference plane from an earlier axis. Choose
+   **Contains axis**, **Parallel to axis**, or **Perpendicular to axis**. The
+   first two use a clocking angle; a parallel plane also has a signed normal
+   offset. A perpendicular plane has an axial offset from the axis initializer's
+   point at local Z=0. The plane is previewed immediately and remains a
+   separately selectable feature. That axis point is a bounded prototype
+   convention; the generalized model should use an explicit point or frame.
 5. **Mirror** relates two distinct, same-type standalone fits across an
-   explicit reference plane. It defines geometry; it is not itself a joint. Add
+   explicit reference plane that contains their axis. It defines geometry; it
+   is not itself a joint. Add
    the relationship to a joint on that plane's axis. Evaluating the joint may
    refine both the shared axis and the plane's
    clocking while keeping the two adjusted surfaces exact reflected copies.
