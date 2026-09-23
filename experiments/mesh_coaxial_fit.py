@@ -456,9 +456,7 @@ def fit_coaxial(
                     ),
                 ]
             )
-            for group, offset in zip(
-                axis_planes, axis_plane_offsets, strict=True
-            )
+            for group, offset in zip(axis_planes, axis_plane_offsets, strict=True)
         ],
         axis_plane_basis_u=[
             axis_plane_frame(group, parameters)[0] for group in axis_planes

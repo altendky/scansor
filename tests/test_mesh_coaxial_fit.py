@@ -183,9 +183,7 @@ def test_axis_derived_plane_factors_move_the_shared_axis() -> None:
         [cylinder], None, None, initial, axis_planes=(perpendicular, parallel)
     )
     np.testing.assert_allclose(result.parameters[0][:5], truth[:5], atol=1e-8)
-    np.testing.assert_allclose(
-        result.axis_plane_equations[0], [*axis, 2.1], atol=1e-8
-    )
+    np.testing.assert_allclose(result.axis_plane_equations[0], [*axis, 2.1], atol=1e-8)
     np.testing.assert_allclose(
         result.axis_plane_equations[1], [*normal, -1.7], atol=1e-8
     )
