@@ -50,6 +50,49 @@ def test_recipe_requires_unique_feature_names(graph: FeatureGraph) -> None:
         _ = Recipe.model_validate(payload)
 
 
+def test_recipe_retains_organizational_groups_and_managed_ownership(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    payload["groups"] = [{"id": "inspection", "label": "Inspection"}]
+    nodes = {node["id"]: node for node in payload["nodes"]}
+    nodes["outer_band"]["group_id"] = "inspection"
+    nodes["top_face"]["managed_by"] = "outer_band"
+    nodes["top_face"]["managed_key"] = "generated/top"
+
+    recipe = Recipe.model_validate(payload)
+
+    assert recipe.groups[0].label == "Inspection"
+    assert (
+        next(node for node in recipe.nodes if node.id == "outer_band").group_id
+        == "inspection"
+    )
+    assert (
+        next(node for node in recipe.nodes if node.id == "top_face").managed_by
+        == "outer_band"
+    )
+
+    nodes["outer_band"]["group_id"] = "missing"
+    with pytest.raises(ValueError, match="unknown organizational group"):
+        _ = Recipe.model_validate(payload)
+
+
+def test_recipe_rejects_incomplete_or_forward_managed_ownership(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    nodes = {node["id"]: node for node in payload["nodes"]}
+    nodes["top_face"]["managed_by"] = "outer_band"
+    with pytest.raises(ValueError, match="both an owner and stable key"):
+        _ = Recipe.model_validate(payload)
+
+    nodes["top_face"]["managed_key"] = "generated/top"
+    nodes["outer_band"]["managed_by"] = "top_face"
+    nodes["outer_band"]["managed_key"] = "generated/outer"
+    with pytest.raises(ValueError, match="owners must be earlier"):
+        _ = Recipe.model_validate(payload)
+
+
 def explicit_axis_recipe(
     graph: FeatureGraph, *, free: bool, side_kind: str = "cylinder"
 ) -> Recipe:
@@ -1039,7 +1082,7 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
         "memberships",
         "results",
     }
-    assert set(recipe.model_dump()) == {"schema_version", "nodes", "output"}
+    assert set(recipe.model_dump()) == {"schema_version", "nodes", "groups", "output"}
     loaded = FeatureGraph(
         graph.workspace, Recipe.model_validate_json(recipe.model_dump_json())
     )

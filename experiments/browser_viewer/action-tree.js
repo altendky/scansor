@@ -14,6 +14,7 @@ const paths = {
   selection_region: 'M4 6c0-3 16-3 16 0v12c0 3-16 3-16 0Zm0 0c0 3 16 3 16 0m-8-3v18',
   region_selection: 'M4 7h10M9 3l5 4-5 4m11 2v7H4v-7',
   feature_reuse: 'M5 7h11M12 3l4 4-4 4m7 6H8m4-4-4 4 4 4',
+  group: 'M3 6h7l2 2h9v11H3Z',
   reuse_selection: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-3-3 3 3-3 3',
   coaxial: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
   perpendicular: 'M6 3v15h15M6 13h5v5',
@@ -101,6 +102,45 @@ export function nodeReferences(node) {
   return node.constraints || [];
 }
 
+export function managedOwnerId(node, nodes) {
+  if (node.managed_by) return node.managed_by;
+  if (node.operation === 'reuse_selection') return node.reuse;
+  if (node.operation !== 'fit' || !node.selections?.length) return null;
+  const byId = new Map(nodes.map((candidate) => [candidate.id, candidate])),
+    nodeIndex = nodes.indexOf(node),
+    selectionIndices = node.selections.map((id) => nodes.findIndex((candidate) => candidate.id === id)),
+    owners = new Set(
+      node.selections.map((id) => {
+        const selected = byId.get(id);
+        return (
+          selected?.managed_by ||
+          (selected?.operation === 'reuse_selection' ? selected.reuse : null)
+        );
+      }),
+    ),
+    contiguousGeneratedInputs =
+      selectionIndices.every((index) => index >= 0) &&
+      Math.max(...selectionIndices) === nodeIndex - 1 &&
+      Math.max(...selectionIndices) - Math.min(...selectionIndices) + 1 === selectionIndices.length;
+  return owners.size === 1 && !owners.has(null) && contiguousGeneratedInputs
+    ? [...owners][0]
+    : null;
+}
+
+export function managedSubtreeIds(ownerId, nodes) {
+  const result = new Set([ownerId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (result.has(node.id) || !result.has(managedOwnerId(node, nodes))) continue;
+      result.add(node.id);
+      changed = true;
+    }
+  }
+  return result;
+}
+
 export function discoverReuseLineage(nodes, fitIds) {
   const byId = new Map(nodes.map((node) => [node.id, node])),
     selected = new Set(fitIds),
@@ -175,6 +215,9 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
     ),
     groups = new Map();
   for (const child of children) {
+    child.group_id = null;
+    child.managed_by = reuseId;
+    child.managed_key = `selection/${child.target_selection}/${child.fit}/${child.source_selection}`;
     const key = `${child.target_selection}\0${child.fit}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(child);
@@ -199,7 +242,12 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
           node.selections.every((id) => childIds.has(id)),
       ),
       copiedFit = copiedFits[0];
-    if (copiedFit) ownedIds.add(copiedFit.id);
+    if (copiedFit) {
+      copiedFit.group_id = null;
+      copiedFit.managed_by = reuseId;
+      copiedFit.managed_key = `fit/${group[0].target_selection}/${fitId}`;
+      ownedIds.add(copiedFit.id);
+    }
     if (desired.has(key) && complete && copiedFit) {
       retained.add(key);
       continue;
@@ -242,6 +290,8 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
             fit: fitId,
             source_selection: sourceSelectionId,
             target_selection: targetId,
+            managed_by: reuse.id,
+            managed_key: `selection/${targetId}/${fitId}/${sourceSelectionId}`,
           };
         generated.push(selection);
         generatedSelections.push(selection.id);
@@ -256,6 +306,8 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
         selections: generatedSelections,
         kind: sourceFit.kind,
         axial_domain: [...sourceFit.axial_domain],
+        managed_by: reuse.id,
+        managed_key: `fit/${targetId}/${fitId}`,
       });
     }
   }
@@ -318,14 +370,38 @@ function icon(name, className = '') {
 }
 export function renderActionTree(
   list,
-  { nodes, selected, states, errors, locked, select, move, announce },
+  {
+    nodes,
+    groups = [],
+    selected,
+    states,
+    errors,
+    locked,
+    select,
+    move,
+    announce,
+    editGroup = () => {},
+    removeGroup = () => {},
+  },
 ) {
   let dragged = null,
     dropSlot = null;
+  const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
+    expandedTargets = renderActionTree.expandedTargets ||= new Set(),
+    collapsedGroups = renderActionTree.collapsedGroups ||= new Set(),
+    byId = new Map(nodes.map((node) => [node.id, node])),
+    ownerById = new Map(nodes.map((node) => [node.id, managedOwnerId(node, nodes)])),
+    managed = new Map();
+  for (const node of nodes) {
+    const owner = ownerById.get(node.id);
+    if (!owner) continue;
+    if (!managed.has(owner)) managed.set(owner, []);
+    managed.get(owner).push(node);
+  }
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
   function clearDrop() {
     dropSlot = null;
-    for (const row of list.children)
+    for (const row of list.querySelectorAll('.action-row'))
       row.classList.remove('drop-before', 'drop-after', 'drop-invalid');
   }
   async function commit(id, slot, focusHandle = false) {
@@ -353,10 +429,30 @@ export function renderActionTree(
       list.removeAttribute('aria-busy');
     }
   }
-  list.replaceChildren(
-    ...nodes.map((node, index) => {
-      const row = document.createElement('li');
-      const grip = document.createElement('button');
+  function stateFor(items) {
+    for (const state of ['failed', 'running', 'stale', 'unevaluated'])
+      if (items.some((item) => states[item.id] === state)) return state;
+    return 'ready';
+  }
+  function actionItem(node, generated = false) {
+    const index = nodes.indexOf(node),
+      item = document.createElement('li'),
+      row = document.createElement('div'),
+      owned = managed.get(node.id) || [],
+      grip = document.createElement('button');
+    item.className = 'action-entry';
+    row.className = 'action-row';
+    row.dataset.actionIndex = index;
+    if (generated) row.dataset.managed = 'true';
+    if (generated || owned.length) {
+      grip.className = 'action-grip action-grip-placeholder';
+      grip.disabled = true;
+      grip.tabIndex = -1;
+      grip.title = generated
+        ? `Managed by ${byId.get(ownerById.get(node.id))?.label || ownerById.get(node.id)}`
+        : 'This feature moves with its managed outputs.';
+      grip.append(icon(generated ? 'feature_reuse' : 'grip'));
+    } else {
       grip.className = 'action-grip';
       grip.dataset.actionId = node.id;
       grip.append(icon('grip'));
@@ -389,51 +485,162 @@ export function renderActionTree(
         clearDrop();
         row.classList.remove('dragging');
       };
-      const button = document.createElement('button');
-      button.className = 'action-select';
-      button.dataset.actionId = node.id;
-      button.setAttribute('aria-pressed', String(selected === node.id));
-      const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation);
-      const description = actionDescription(node, states[node.id], errors[node.id]);
-      button.title = `${node.label} · ${description}`;
-      button.setAttribute('aria-label', button.title);
-      button.onkeydown = (event) => {
-        if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-        event.preventDefault();
-        const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
-        if (!adjacent) return;
-        select(adjacent.id);
-        [...list.querySelectorAll('.action-select')]
-          .find((item) => item.dataset.actionId === adjacent.id)
-          ?.focus();
-      };
-      const label = document.createElement('span');
-      label.className = 'action-name';
-      label.textContent = node.label;
-      button.append(
-        icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'),
-        label,
-        icon(relationship ? 'ready' : states[node.id], `action-state state-${relationship ? 'ready' : states[node.id]}`),
+    }
+    const button = document.createElement('button');
+    button.className = 'action-select';
+    button.dataset.actionId = node.id;
+    button.setAttribute('aria-pressed', String(selected === node.id));
+    const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation),
+      description = actionDescription(node, states[node.id], errors[node.id]);
+    button.title = `${node.label} · ${description}`;
+    button.setAttribute('aria-label', button.title);
+    button.onkeydown = (event) => {
+      if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
+      if (!adjacent) return;
+      select(adjacent.id);
+      [...list.querySelectorAll('.action-select')]
+        .find((candidate) => candidate.dataset.actionId === adjacent.id)
+        ?.focus();
+    };
+    const label = document.createElement('span');
+    label.className = 'action-name';
+    label.textContent = node.label;
+    button.append(icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'), label);
+    if (generated) {
+      const badge = document.createElement('span');
+      badge.className = 'generated-badge';
+      badge.textContent = 'Generated';
+      button.append(badge);
+    }
+    button.append(
+      icon(
+        relationship ? 'ready' : states[node.id],
+        `action-state state-${relationship ? 'ready' : states[node.id]}`,
+      ),
+    );
+    button.onclick = () => {
+      select(node.id);
+      [...list.querySelectorAll('.action-select')]
+        .find((candidate) => candidate.dataset.actionId === node.id)
+        ?.focus();
+    };
+    row.append(grip, button);
+    item.append(row);
+    if (owned.length) {
+      const details = document.createElement('details'),
+        summary = document.createElement('summary'),
+        fitCount = owned.filter((child) => child.operation === 'fit').length,
+        summaryState = stateFor(owned);
+      details.className = 'managed-outputs';
+      details.open = expandedManaged.has(node.id);
+      summary.append(
+        icon('feature_reuse', 'managed-summary-icon'),
+        document.createTextNode(`Generated outputs · ${owned.length} items · ${fitCount} fits`),
+        icon(summaryState, `action-state state-${summaryState}`),
       );
-      button.onclick = () => {
-        select(node.id);
-        [...list.querySelectorAll('.action-select')]
-          .find((item) => item.dataset.actionId === node.id)
-          ?.focus();
+      details.ontoggle = () => {
+        if (details.open) expandedManaged.add(node.id);
+        else expandedManaged.delete(node.id);
       };
-      row.append(grip, button);
-      return row;
-    }),
-  );
+      details.append(summary);
+      const targets = new Map();
+      for (const child of owned) {
+        const target =
+          child.target_selection || byId.get(child.selections?.[0])?.target_selection || '';
+        if (!targets.has(target)) targets.set(target, []);
+        targets.get(target).push(child);
+      }
+      for (const [target, children] of targets) {
+        const targetDetails = document.createElement('details'),
+          targetSummary = document.createElement('summary'),
+          targetKey = `${node.id}/${target}`,
+          childList = document.createElement('ul');
+        targetDetails.className = 'managed-target';
+        targetDetails.open = expandedTargets.has(targetKey);
+        targetSummary.textContent = target
+          ? `${byId.get(target)?.label || target} · ${children.filter((child) => child.operation === 'fit').length} fits`
+          : `Other outputs · ${children.length}`;
+        targetDetails.ontoggle = () => {
+          if (targetDetails.open) expandedTargets.add(targetKey);
+          else expandedTargets.delete(targetKey);
+        };
+        childList.className = 'nested-actions';
+        childList.append(...children.map((child) => actionItem(child, true)));
+        targetDetails.append(targetSummary, childList);
+        details.append(targetDetails);
+      }
+      item.append(details);
+    }
+    return item;
+  }
+  function groupItem(group, members) {
+    const item = document.createElement('li'),
+      details = document.createElement('details'),
+      summary = document.createElement('summary'),
+      label = document.createElement('span'),
+      edit = document.createElement('button'),
+      remove = document.createElement('button'),
+      children = document.createElement('ul');
+    item.className = 'feature-group';
+    details.open = !collapsedGroups.has(group.id);
+    label.className = 'group-name';
+    label.textContent = `${group.label} · ${members.length}`;
+    edit.type = remove.type = 'button';
+    edit.className = remove.className = 'group-action';
+    edit.textContent = 'Edit';
+    edit.onclick = (event) => {
+      event.preventDefault();
+      editGroup(group.id);
+    };
+    remove.textContent = '×';
+    remove.title = `Remove ${group.label} without deleting its features`;
+    remove.setAttribute('aria-label', remove.title);
+    remove.onclick = (event) => {
+      event.preventDefault();
+      removeGroup(group.id);
+    };
+    summary.append(icon('group', 'group-icon'), label, edit, remove);
+    details.ontoggle = () => {
+      if (details.open) collapsedGroups.delete(group.id);
+      else collapsedGroups.add(group.id);
+    };
+    children.className = 'nested-actions group-actions';
+    children.append(...members.map((node) => actionItem(node)));
+    details.append(summary, children);
+    item.append(details);
+    return item;
+  }
+  const ordinary = nodes.filter((node) => !ownerById.get(node.id)),
+    grouped = new Map(groups.map((group) => [group.id, []]));
+  for (const node of ordinary)
+    if (node.group_id && grouped.has(node.group_id)) grouped.get(node.group_id).push(node);
+  const renderedGroups = new Set(),
+    items = [];
+  for (const node of ordinary) {
+    if (!node.group_id) {
+      items.push(actionItem(node));
+      continue;
+    }
+    if (renderedGroups.has(node.group_id)) continue;
+    renderedGroups.add(node.group_id);
+    items.push(
+      groupItem(groups.find((group) => group.id === node.group_id), grouped.get(node.group_id)),
+    );
+  }
+  for (const group of groups)
+    if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
+  list.replaceChildren(...items);
   list.ondragover = (event) => {
     if (!dragged || unavailable()) return;
-    const row = event.target.closest('li');
-    if (!row || row.parentElement !== list) return;
+    const row = event.target.closest('.action-row');
+    if (!row || row.dataset.managed === 'true') return;
     event.preventDefault();
     clearDrop();
-    const after = event.clientY > row.getBoundingClientRect().top + row.clientHeight / 2;
-    const slot = [...list.children].indexOf(row) + Number(after);
-    const candidate = actionMove(nodes, dragged, slot);
+    const after = event.clientY > row.getBoundingClientRect().top + row.clientHeight / 2,
+      slot = Number(row.dataset.actionIndex) + Number(after),
+      candidate = actionMove(nodes, dragged, slot);
     dropSlot = slot;
     row.classList.add(after ? 'drop-after' : 'drop-before');
     row.classList.toggle('drop-invalid', !!candidate.error);

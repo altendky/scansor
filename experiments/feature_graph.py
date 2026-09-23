@@ -45,6 +45,16 @@ class Record(BaseModel):
 class Node(Record):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     label: str = Field(min_length=1, max_length=120)
+    group_id: str | None = None
+    managed_by: str | None = None
+    managed_key: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class FeatureGroup(Record):
+    """Presentation-only organization for actions in the feature tree."""
+
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    label: str = Field(min_length=1, max_length=120)
 
 
 class Source(Node):
@@ -294,6 +304,7 @@ Feature = Annotated[
 class Recipe(Record):
     schema_version: Literal[2] = 2
     nodes: list[Feature] = Field(min_length=1, max_length=100)
+    groups: list[FeatureGroup] = Field(default_factory=list, max_length=100)
     output: str
 
     @model_validator(mode="before")
@@ -340,6 +351,39 @@ class Recipe(Record):
         names = [node.label.strip().casefold() for node in self.nodes]
         if len(names) != len(set(names)):
             raise ValueError("feature names must be unique")
+        group_ids = [group.id for group in self.groups]
+        if len(group_ids) != len(set(group_ids)):
+            raise ValueError("feature group IDs must be unique")
+        if set(group_ids) & {node.id for node in self.nodes}:
+            raise ValueError("feature group IDs must not match feature IDs")
+        group_names = [group.label.strip().casefold() for group in self.groups]
+        if len(group_names) != len(set(group_names)):
+            raise ValueError("feature group names must be unique")
+        groups = set(group_ids)
+        positions = {node.id: index for index, node in enumerate(self.nodes)}
+        managed_keys: set[tuple[str, str]] = set()
+        for node in self.nodes:
+            if node.group_id is not None and node.group_id not in groups:
+                raise ValueError("feature references an unknown organizational group")
+            if (node.managed_by is None) != (node.managed_key is None):
+                raise ValueError(
+                    "managed features require both an owner and stable key"
+                )
+            if node.managed_by is None:
+                continue
+            if node.group_id is not None:
+                raise ValueError("managed features inherit their owner's group")
+            if (
+                node.managed_by not in positions
+                or positions[node.managed_by] >= positions[node.id]
+            ):
+                raise ValueError("managed feature owners must be earlier actions")
+            key = (node.managed_by, cast(str, node.managed_key))
+            if key in managed_keys:
+                raise ValueError(
+                    "managed feature keys must be unique within their owner"
+                )
+            managed_keys.add(key)
         return self
 
 

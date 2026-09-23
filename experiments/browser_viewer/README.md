@@ -147,8 +147,13 @@ Creating an action does not evaluate it by default. A manually initialized axis
 is previewed immediately because its value is already known. **Evaluate action**
 evaluates the selected action and only the earlier inputs it requires;
 **Evaluate all** explicitly evaluates every stale or unevaluated action. The
-top action toolbar groups primitive actions under **Create**, **Reuse**,
-**Relate**, **Combine**, and **Run**. **Evaluate all** and the opt-in **Auto**
+top action toolbar groups primitive actions under **Create**, **Organize**,
+**Reuse**, **Relate**, **Combine**, and **Run**. **Group** creates or edits
+presentation-only feature-tree groups without changing graph dependencies or
+evaluation. Generator-owned actions appear under a collapsed **Generated
+outputs** subtree. They carry a **Generated** badge and remain inspectable and
+usable as inputs, but their properties, deletion, and reordering are managed by
+their owner. **Evaluate all** and the opt-in **Auto**
 checkbox live under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps

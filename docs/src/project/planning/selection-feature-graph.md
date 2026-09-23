@@ -178,11 +178,23 @@ inset; that does not require retaining earlier versions of each step. Editing a
 node replaces its current settings and invalidates dependents without keeping an
 edit log or previous graph snapshots.
 
-The frontend presents an **ordered action list**, replacing the initial feature
-tree presentation. The backend remains a **directed acyclic graph (DAG)**, because
-one input can feed several actions, with an additional ordering rule: every
-reference must point to an earlier action. Reordering is allowed only while that
-rule holds. Stable IDs identify actions independently of list position.
+The frontend presents an ordered **feature tree** over the action graph. User
+groups are presentation-only organization: they can be created, renamed,
+collapsed, and assigned members without adding dependencies or solve semantics.
+Generated actions instead carry an owning action and a stable owner-relative key.
+They appear in a read-only **Generated outputs** subtree beneath that owner, are
+collapsed by default, and cannot be independently renamed, reordered, deleted,
+or moved into a user group. They remain selectable for inspection and usable as
+inputs to later actions. Editing the owner synchronizes its managed subtree and
+must refuse removal of an output referenced elsewhere. Deleting an owner deletes
+its managed subtree as one unit, unless an action outside that subtree depends on
+one of those outputs.
+
+The backend remains a **directed acyclic graph (DAG)**, because one input can feed
+several actions, with an additional ordering rule: every reference must point to
+an earlier action. Organizational grouping does not alter that flat evaluation
+order. Reordering is allowed only while the dependency rule holds. Stable IDs
+identify actions independently of list position.
 
 Cone, cylinder and plane are types of standalone fit actions. Each fit references
 one or more earlier selections and evaluates their deduplicated union. Selections

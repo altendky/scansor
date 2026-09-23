@@ -1,6 +1,8 @@
 import {
   actionDescription,
   discoverReuseLineage,
+  managedOwnerId,
+  managedSubtreeIds,
   nodeReferences as refs,
   reconcileFeatureReuse,
   renderActionTree,
@@ -28,7 +30,7 @@ let metadata,
   busy = false;
 let pending = false,
   frames = 0;
-let graphState, selectedFeatureId;
+let graphState, selectedFeatureId, editingGroupId = null;
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -104,6 +106,39 @@ function reserveFeatureLabel(base, reserved) {
   const label = nextFeatureLabel(base, reserved);
   reserved.push(label);
   return label;
+}
+function nextGroupLabel(base) {
+  return uniqueFeatureLabel(base, graphState?.recipe.groups || []);
+}
+function openFeatureGroup(groupId = null) {
+  editingGroupId = groupId;
+  const group = (graphState.recipe.groups || []).find((candidate) => candidate.id === groupId),
+    members = graphState.recipe.nodes.filter(
+      (node) => !managedOwnerId(node, graphState.recipe.nodes),
+    );
+  $('feature-group-dialog-title').textContent = group
+    ? 'Edit organizational group'
+    : 'New organizational group';
+  $('save-feature-group').textContent = group ? 'Apply group' : 'Create group';
+  $('feature-group-label').value = group?.label || nextGroupLabel('Group');
+  choices(
+    'feature-group-members',
+    members,
+    group
+      ? members.filter((node) => node.group_id === group.id).map((node) => node.id)
+      : [selectedFeatureId],
+  );
+  $('feature-group-error').textContent = '';
+  $('feature-group-dialog').showModal();
+  $('feature-group-label').focus();
+  $('feature-group-label').select();
+}
+async function removeFeatureGroup(groupId) {
+  const recipe = structuredClone(graphState.recipe);
+  recipe.groups = (recipe.groups || []).filter((group) => group.id !== groupId);
+  for (const node of recipe.nodes)
+    if (node.group_id === groupId) node.group_id = null;
+  await replaceRecipe(recipe, false);
 }
 function showCreateDialog(dialogId, labelId, defaultLabel) {
   const input = $(labelId);
@@ -325,6 +360,7 @@ function acceptGraph(state) {
 function renderActions() {
   renderActionTree($('action-list'), {
     nodes: graphState.recipe.nodes,
+    groups: graphState.recipe.groups || [],
     selected: selectedFeatureId,
     states: graphState.states,
     errors: graphState.errors,
@@ -343,6 +379,8 @@ function renderActions() {
       $('action-announcement').textContent = message;
       status(message, error);
     },
+    editGroup: openFeatureGroup,
+    removeGroup: (groupId) => void removeFeatureGroup(groupId),
   });
 }
 function showProperties() {
@@ -360,6 +398,11 @@ function showProperties() {
     node, graphState.states[node.id], graphState.errors[node.id],
   );
   $('action-label').value = node.label;
+  choices(
+    'action-group',
+    [{ id: '', label: 'No group' }, ...(graphState.recipe.groups || [])],
+    [node.group_id || ''],
+  );
   $('feature-description').textContent = refs(node).length
     ? 'Inputs: ' +
       refs(node)
@@ -655,11 +698,46 @@ function showProperties() {
       ),
     );
   }
-  const dependents = graphState.recipe.nodes.filter((n) => refs(n).includes(node.id));
-  $('delete-action').disabled = !!dependents.length || graphState.recipe.nodes.length === 1;
-  $('delete-action').title = dependents.length
-    ? 'Referenced by ' + dependents.map((n) => n.label).join(', ')
-    : 'Delete this unused action';
+  const removalIds = managedSubtreeIds(node.id, graphState.recipe.nodes),
+    dependents = graphState.recipe.nodes.filter(
+      (candidate) =>
+        !removalIds.has(candidate.id) &&
+        refs(candidate).some((reference) => removalIds.has(reference)),
+    );
+  const ownerId = managedOwnerId(node, graphState.recipe.nodes),
+    managed = !!ownerId,
+    owner = graphNode(ownerId);
+  $('managed-feature-note').hidden = !managed;
+  $('action-group-row').hidden = managed;
+  if (managed) {
+    $('managed-owner-name').textContent = owner?.label || ownerId;
+    $('select-managed-owner').onclick = () => {
+      selectedFeatureId = ownerId;
+      renderActions();
+      showProperties();
+      showResult();
+      paint();
+    };
+  }
+  for (const control of $('action-properties').querySelectorAll('input, select, button')) {
+    if (control.id === 'select-managed-owner') continue;
+    if (managed && !control.disabled) {
+      control.disabled = true;
+      control.dataset.managedDisabled = 'true';
+    } else if (!managed && control.dataset.managedDisabled === 'true') {
+      control.disabled = false;
+      delete control.dataset.managedDisabled;
+    }
+  }
+  $('delete-action').disabled =
+    managed || !!dependents.length || graphState.recipe.nodes.length === 1;
+  $('delete-action').title = managed
+    ? `Managed by ${owner?.label || ownerId}`
+    : dependents.length
+      ? 'Referenced by ' + dependents.map((n) => n.label).join(', ')
+      : removalIds.size > 1
+        ? `Delete this action and ${removalIds.size - 1} managed outputs`
+        : 'Delete this unused action';
   $('fit').textContent = 'Evaluate ' + node.label;
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
@@ -1497,6 +1575,31 @@ async function start() {
     );
     showCreateDialog('fit-dialog', 'new-fit-label', 'Surface fit');
   };
+  $('new-feature-group').onclick = () => openFeatureGroup();
+  $('feature-group-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const memberIds = new Set(chosen('feature-group-members')),
+      recipe = structuredClone(graphState.recipe),
+      label = $('feature-group-label').value.trim();
+    if (!label) {
+      $('feature-group-error').textContent = 'Enter a group name.';
+      return;
+    }
+    recipe.groups ||= [];
+    let groupId = editingGroupId;
+    if (groupId) recipe.groups.find((group) => group.id === groupId).label = label;
+    else {
+      groupId = uid('group');
+      recipe.groups.push({ id: groupId, label });
+    }
+    for (const node of recipe.nodes) {
+      if (managedOwnerId(node, recipe.nodes)) continue;
+      if (memberIds.has(node.id)) node.group_id = groupId;
+      else if (node.group_id === groupId) node.group_id = null;
+    }
+    if (await replaceRecipe(recipe, false)) $('feature-group-dialog').close();
+    else $('feature-group-error').textContent = $('status').textContent;
+  };
   $('new-feature-reuse').onclick = () => {
     const fits = graphState.recipe.nodes.filter(
         (node) => node.operation === 'fit' && ['cylinder', 'plane'].includes(node.kind),
@@ -1850,6 +1953,8 @@ async function start() {
               fit: fitId,
               source_selection: sourceSelection,
               target_selection: targetSelection,
+              managed_by: reuse.id,
+              managed_key: `selection/${targetSelection}/${fitId}/${sourceSelection}`,
             };
           generated.push(target);
           generatedSelections.push(target.id);
@@ -1861,6 +1966,8 @@ async function start() {
           selections: generatedSelections,
           kind: sourceFit.kind,
           axial_domain: [...sourceFit.axial_domain],
+          managed_by: reuse.id,
+          managed_key: `fit/${targetSelection}/${fitId}`,
         });
       }
     }
@@ -2170,7 +2277,13 @@ async function start() {
     event.preventDefault();
     const recipe = structuredClone(graphState.recipe),
       node = recipe.nodes.find((n) => n.id === selectedFeatureId);
+    const ownerId = managedOwnerId(node, recipe.nodes);
+    if (ownerId) {
+      status(`Edit ${graphNode(ownerId)?.label || 'the generating feature'} instead.`, true);
+      return;
+    }
     node.label = $('action-label').value;
+    node.group_id = $('action-group').value || null;
     if (node.operation === 'fit') {
       node.kind = $('surface-kind').value;
       node.selections = chosen('fit-inputs');
@@ -2297,8 +2410,9 @@ async function start() {
   };
   $('delete-action').onclick = async () => {
     const recipe = structuredClone(graphState.recipe);
-    recipe.nodes = recipe.nodes.filter((n) => n.id !== selectedFeatureId);
-    if (recipe.output === selectedFeatureId) recipe.output = recipe.nodes.at(-1).id;
+    const removalIds = managedSubtreeIds(selectedFeatureId, recipe.nodes);
+    recipe.nodes = recipe.nodes.filter((node) => !removalIds.has(node.id));
+    if (removalIds.has(recipe.output)) recipe.output = recipe.nodes.at(-1).id;
     selectedFeatureId = recipe.output;
     await replaceRecipe(recipe);
   };

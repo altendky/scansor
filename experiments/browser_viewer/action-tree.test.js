@@ -3,6 +3,8 @@ import {
   actionDescription,
   actionMove,
   discoverReuseLineage,
+  managedOwnerId,
+  managedSubtreeIds,
   nodeReferences,
   reconcileFeatureReuse,
 } from './action-tree.js';
@@ -166,6 +168,25 @@ const reusedSelection = {
 };
 assert.deepEqual(nodeReferences(reuse), ['fit', 'source', 'a', 'b', 'c']);
 assert.deepEqual(nodeReferences(reusedSelection), ['reuse', 'fit', 'a', 'b']);
+assert.equal(managedOwnerId(reusedSelection, [reuse, reusedSelection]), 'reuse');
+const inferredFit = {
+  id: 'reused-fit',
+  operation: 'fit',
+  selections: ['reused-selection'],
+};
+assert.equal(
+  managedOwnerId(inferredFit, [reuse, reusedSelection, inferredFit]),
+  'reuse',
+);
+const manualFit = { id: 'manual-fit', operation: 'fit', selections: ['reused-selection'] };
+assert.equal(
+  managedOwnerId(manualFit, [reuse, reusedSelection, c, manualFit]),
+  null,
+);
+assert.deepEqual(
+  managedSubtreeIds('reuse', [reuse, reusedSelection, inferredFit, manualFit]),
+  new Set(['reuse', 'reused-selection', 'reused-fit']),
+);
 assert.deepEqual(discoverReuseLineage([source, a, b, fit], ['fit']), [
   'source',
   'a',
@@ -207,6 +228,11 @@ assert.deepEqual(
     .filter((node) => node.operation === 'reuse_selection')
     .map((node) => node.target_selection),
   ['b', 'c'],
+);
+assert.ok(
+  reconciled.nodes
+    .filter((node) => ['reuse_selection', 'fit'].includes(node.operation) && node.id !== 'fit')
+    .every((node) => node.managed_by === 'reuse' && node.managed_key),
 );
 assert.equal(
   reconciled.nodes.find((node) => node.id === 'reuse').lineage.join(','),
