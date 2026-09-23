@@ -1288,7 +1288,7 @@ class FeatureGraph:
                 if isinstance(node, SurfaceFit):
                     surface = solve.get("surfaces", {}).get(node_id)
                     if surface is not None:
-                        return deepcopy(surface)
+                        return deepcopy(dict(surface))
                 return deepcopy(self._derived[node_id])
 
         def fitted_ids(surface: SurfaceFit) -> list[int]:

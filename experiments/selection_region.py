@@ -66,7 +66,10 @@ def _plane_basis(normal: FloatArray) -> tuple[FloatArray, FloatArray]:
     first /= np.linalg.norm(first)
     second = np.cross(normal, first)
     second /= np.linalg.norm(second)
-    return first, second
+    return (
+        np.asarray(first, dtype=np.float64),
+        np.asarray(second, dtype=np.float64),
+    )
 
 
 def build_selection_region(
