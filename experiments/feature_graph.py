@@ -340,6 +340,34 @@ def fit_axis(node: SurfaceFit, nodes: dict[str, Feature]) -> str | None:
     return None
 
 
+def automatic_axis_components(
+    nodes: dict[str, Feature],
+) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
+    """Connected fit evidence for manually initialized (free) axes."""
+    components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
+    for axis in nodes.values():
+        if not isinstance(axis, AxisDefinition) or axis.source_fit is not None:
+            continue
+        factors = [
+            node
+            for node in nodes.values()
+            if isinstance(node, SurfaceFit) and fit_axis(node, nodes) == axis.id
+        ]
+        if not any(factor.kind in ("cone", "cylinder") for factor in factors):
+            continue
+        members = {
+            axis.id,
+            *(
+                node.id
+                for node in nodes.values()
+                if isinstance(node, PlaneDefinition) and node.axis == axis.id
+            ),
+            *(factor.id for factor in factors),
+        }
+        components[axis.id] = (factors, members)
+    return components
+
+
 def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, Selection):
         return node.source
@@ -627,6 +655,7 @@ class FeatureGraph:
             (n.id for n in recipe.nodes), "unevaluated"
         )
         self._results: dict[str, SessionFit] = {}
+        self._connected_solves: dict[str, SessionFit] = {}
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self._diagnostics: dict[str, dict[str, Any]] = {}
@@ -936,6 +965,23 @@ class FeatureGraph:
 
     def snapshot(self) -> dict[str, object]:
         with self.lock:
+            resolved = deepcopy({**self._derived, **self._results})
+            for axis_id, solve in self._connected_solves.items():
+                axis = deepcopy(self._derived.get(axis_id, {}))
+                axis.update(
+                    {
+                        "parameters": solve["fit"]["parameters"],
+                        "axis_display": solve["axis_display"],
+                        "point_display": solve["point_display"],
+                        "resolved_by": "connected_fits",
+                    }
+                )
+                resolved[axis_id] = axis
+                condition = solve["fit"]["normal_matrix_condition"]
+                for fit_id, surface in solve.get("surfaces", {}).items():
+                    resolved[fit_id] = {**deepcopy(surface), "condition": condition}
+                for plane_id, plane in solve.get("reference_planes", {}).items():
+                    resolved[plane_id] = deepcopy(plane)
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -944,7 +990,7 @@ class FeatureGraph:
                 "diagnostics": deepcopy(self._diagnostics),
                 "result": deepcopy(self._results.get(self._recipe.output)),
                 "derived": deepcopy(self._derived),
-                "results": deepcopy({**self._derived, **self._results}),
+                "results": resolved,
                 "memberships": {
                     n.id: n.ids.copy()
                     if isinstance(n, Selection)
@@ -970,6 +1016,16 @@ class FeatureGraph:
                 if expanded == affected:
                     break
                 affected = expanded
+            before_components = automatic_axis_components(before)
+            after_nodes = {n.id: n for n in recipe.nodes}
+            after_components = automatic_axis_components(after_nodes)
+            for axis_id in before_components.keys() | after_components.keys():
+                before_members = before_components.get(axis_id, ([], set()))[1]
+                after_members = after_components.get(axis_id, ([], set()))[1]
+                if before_members != after_members or affected.intersection(
+                    before_members | after_members
+                ):
+                    affected.update(after_members)
             self._states = {
                 n.id: ("stale" if n.id in before else "unevaluated")
                 if n.id in affected
@@ -980,6 +1036,12 @@ class FeatureGraph:
                 key: value
                 for key, value in self._results.items()
                 if key not in affected and any(n.id == key for n in recipe.nodes)
+            }
+            self._connected_solves = {
+                key: value
+                for key, value in self._connected_solves.items()
+                if key in after_components
+                and not affected.intersection(after_components[key][1])
             }
             self._derived = {
                 key: value
@@ -1013,6 +1075,7 @@ class FeatureGraph:
                 raise StaleGraph("graph changed before evaluation")
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
+            connected_components = automatic_axis_components(nodes)
             if all_actions:
                 if target is not None:
                     raise ValueError("evaluate all cannot also specify a target")
@@ -1036,6 +1099,9 @@ class FeatureGraph:
                         "evaluation target must be a source, selection, fit, axis, plane, solve, or growth action"
                     )
                 needed = {target}
+                for _, members in connected_components.values():
+                    if target in members:
+                        needed.update(members)
                 while True:
                     expanded = needed | {
                         dep for key in needed for dep in dependencies(nodes[key])
@@ -1083,6 +1149,47 @@ class FeatureGraph:
                         conflicts.append({"fits": [left, right], "ids": overlap})
             if conflicts:
                 raise SelectionOverlap(conflicts)
+
+        def solve_connected_axis(
+            axis_id: str, fitted_factors: list[SurfaceFit]
+        ) -> SessionFit:
+            reject_overlaps(fitted_factors)
+            sources = {
+                selection_source(nodes[ref], nodes)
+                for factor in fitted_factors
+                for ref in factor.selections
+            }
+            if len(sources) != 1:
+                raise ValueError("connected fits on a free axis must share one source")
+            sides = [factor for factor in fitted_factors if factor.kind != "plane"]
+            planes = [
+                factor
+                for factor in fitted_factors
+                if factor.kind == "plane" and factor.axis is not None
+            ]
+            referenced_plane_factors: dict[str, list[SurfaceFit]] = {}
+            for factor in fitted_factors:
+                if factor.reference_plane is not None:
+                    referenced_plane_factors.setdefault(
+                        factor.reference_plane, []
+                    ).append(factor)
+            reference_plane_groups = tuple(
+                ReferencePlaneGroup(
+                    reference_id,
+                    tuple(selected(factor) for factor in group),
+                    cast(PlaneDefinition, nodes[reference_id]).construction,
+                    cast(PlaneDefinition, nodes[reference_id]).initial_angle_degrees,
+                )
+                for reference_id, group in referenced_plane_factors.items()
+            )
+            axis_result = derived_result(axis_id)
+            return fit_group(
+                self.workspace,
+                [selected(side) for side in sides],
+                [selected(plane) for plane in planes],
+                axis_initial=np.asarray(axis_result["parameters"], dtype=float),
+                reference_plane_groups=reference_plane_groups,
+            )
 
         for key in order:
             node = nodes[key]
@@ -1212,9 +1319,7 @@ class FeatureGraph:
                         ReferencePlaneGroup(
                             reference_id,
                             tuple(selected(factor) for factor in group),
-                            cast(
-                                PlaneDefinition, nodes[reference_id]
-                            ).construction,
+                            cast(PlaneDefinition, nodes[reference_id]).construction,
                             cast(
                                 PlaneDefinition, nodes[reference_id]
                             ).initial_angle_degrees,
@@ -1350,6 +1455,44 @@ class FeatureGraph:
                     self._results[key] = result
                 if derived is not None:
                     self._derived[key] = derived
+        evaluated = set(order)
+        explicit_solve_axes = {
+            cast(AxisSolve, nodes[key]).axis
+            for key in evaluated
+            if isinstance(nodes[key], AxisSolve)
+        }
+        with self.lock:
+            if epoch != self._epoch:
+                raise StaleGraph("graph changed during evaluation")
+            for axis_id in explicit_solve_axes:
+                _ = self._connected_solves.pop(axis_id, None)
+        for axis_id, (factors, members) in connected_components.items():
+            if axis_id in explicit_solve_axes or not members <= evaluated:
+                continue
+            try:
+                connected = solve_connected_axis(axis_id, factors)
+            except Exception as error:
+                with self.lock:
+                    if epoch == self._epoch:
+                        for member in members:
+                            self._states[member] = "failed"
+                            self._errors[member] = str(error)
+                        if isinstance(error, SelectionOverlap):
+                            self._diagnostics[axis_id] = error.diagnostic
+                        else:
+                            _ = self._diagnostics.pop(axis_id, None)
+                        _ = self._connected_solves.pop(axis_id, None)
+                raise
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph(
+                        "graph changed during connected solve; result discarded"
+                    )
+                self._connected_solves[axis_id] = connected
+                for member in members:
+                    self._states[member] = "ready"
+                    _ = self._errors.pop(member, None)
+                _ = self._diagnostics.pop(axis_id, None)
         return self.snapshot()
 
 

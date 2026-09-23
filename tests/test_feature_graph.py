@@ -123,6 +123,7 @@ def test_explicit_axis_can_lock_a_downstream_plane(
         derived["reference_axis"]["parameters"][:4],
         derived["side"]["parameters"][:4],
     )
+    assert "resolved_by" not in cast(dict[str, Any], state["results"])["reference_axis"]
     np.testing.assert_allclose(
         derived["plane_factor"]["plane_equation"][:3],
         derived["reference_axis"]["axis_display"],
@@ -143,6 +144,13 @@ def test_explicit_axis_can_be_free_in_a_joint_side_plane_solve(
     _ = graph.replace(
         explicit_axis_recipe(graph, free=True, side_kind=side_kind), token(graph)
     )
+    connected_state = graph.evaluate(token(graph), target="side_factor")
+    assert (
+        cast(dict[str, Any], connected_state["results"])["reference_axis"][
+            "resolved_by"
+        ]
+        == "connected_fits"
+    )
     state = graph.evaluate(token(graph))
     result = cast(dict[str, Any], state["result"])
     derived = cast(dict[str, dict[str, Any]], state["derived"])
@@ -157,6 +165,7 @@ def test_explicit_axis_can_be_free_in_a_joint_side_plane_solve(
     )
     assert derived["side_factor"]["kind"] == side_kind
     assert result["fit"]["parameters"] != derived["reference_axis"]["parameters"]
+    assert "resolved_by" not in cast(dict[str, Any], state["results"])["reference_axis"]
     if side_kind == "cone":
         assert abs(derived["side_factor"]["parameters"][6]) > 0
         assert abs(result["surfaces"]["side_factor"]["parameters"][6]) > 0
@@ -244,7 +253,7 @@ def test_reference_plane_supports_offset_parallel_and_perpendicular_construction
 def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
     graph: FeatureGraph,
 ) -> None:
-    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    payload = explicit_axis_recipe(graph, free=False).model_dump()
     payload["nodes"].pop()
     payload["nodes"].extend(
         [
@@ -287,7 +296,7 @@ def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
     assert fitted["ids"] == ids
 
 
-def test_plane_bound_fit_can_drive_its_free_axis_and_plane_in_a_joint(
+def test_connected_fits_drive_their_free_axis_and_plane_without_a_joint(
     graph: FeatureGraph,
 ) -> None:
     payload = explicit_axis_recipe(graph, free=True).model_dump()
@@ -295,7 +304,9 @@ def test_plane_bound_fit_can_drive_its_free_axis_and_plane_in_a_joint(
     plane_factor = by_id["plane_factor"]
     plane_factor["axis"] = None
     plane_factor["reference_plane"] = "top_datum"
-    solve = by_id["shared_axis"]
+    payload["nodes"] = [
+        node for node in payload["nodes"] if node["id"] != "shared_axis"
+    ]
     plane_index = payload["nodes"].index(plane_factor)
     payload["nodes"].insert(
         plane_index,
@@ -309,23 +320,38 @@ def test_plane_bound_fit_can_drive_its_free_axis_and_plane_in_a_joint(
             "offset": -3.0,
         },
     )
-    payload["output"] = solve["id"]
+    payload["output"] = plane_factor["id"]
     _ = graph.replace(Recipe.model_validate(payload), token(graph))
     state = graph.evaluate(token(graph))
-    result = cast(dict[str, Any], state["result"])
+    results = cast(dict[str, dict[str, Any]], state["results"])
     derived = cast(dict[str, dict[str, Any]], state["derived"])
-    resolved_plane = result["reference_planes"]["top_datum"]
-    fitted_plane = result["surfaces"]["plane_factor"]
+    resolved_axis = results["reference_axis"]
+    resolved_plane = results["top_datum"]
+    fitted_plane = results["plane_factor"]
 
     np.testing.assert_allclose(
         fitted_plane["plane_equation"], resolved_plane["plane_equation"]
     )
     np.testing.assert_allclose(
-        resolved_plane["normal_display"], result["axis_display"]
+        resolved_plane["normal_display"], resolved_axis["axis_display"]
     )
     assert resolved_plane["offset"] != pytest.approx(-3.0)
-    assert result["fit"]["parameters"] != derived["reference_axis"]["parameters"]
+    assert resolved_axis["parameters"] != derived["reference_axis"]["parameters"]
+    assert resolved_axis["resolved_by"] == "connected_fits"
     assert derived["top_datum"]["offset"] == -3.0
+    assert state["result"] is None
+
+    edited = changed(
+        graph,
+        "outer_band",
+        ids=graph.workspace.default.lateral_ids[::2],
+    )
+    stale = graph.replace(edited, token(graph))
+    states = cast(dict[str, str], stale["states"])
+    assert states["reference_axis"] == "stale"
+    assert states["top_datum"] == "stale"
+    assert states["side_factor"] == "stale"
+    assert states["plane_factor"] == "stale"
 
 
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(

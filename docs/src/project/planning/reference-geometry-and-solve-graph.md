@@ -14,11 +14,12 @@ fits with explicit `axis`, axis-relative `reference_plane`, `mirror_symmetry`, a
 its declared analytic-element vocabulary beyond a cylinder. It does not establish
 a public schema or promise compatibility with the old browser format.
 
-The current browser prototype remains valid bounded evidence: constraint actions
-reference earlier fits, and a later joint action refits their observations around
-one shared movable axis. The direction here removes that joint container from the
-eventual semantic core. A UI may continue to call a simultaneous solve a joint,
-but the joint does not own otherwise hidden geometry or relationships.
+The current browser prototype remains valid bounded evidence: fit actions can
+reference shared free geometry, and evaluating that connected component refits
+their observations around the shared movable geometry. A joint action is
+optional: it can explicitly select a factor subset and add relationships, but it
+does not own otherwise hidden geometry or relationships. A UI may continue to
+call that explicitly grouped simultaneous solve a joint.
 
 ## Separation of concerns
 
@@ -65,9 +66,12 @@ Surface-fit actions in the bounded adapter expose these definitions through one
 **Reference geometry** choice. Cone and cylinder fits accept an axis. Plane fits
 accept either an axis, which fixes their normal parallel to that axis, or a
 reference plane, which fixes their normal parallel to the datum normal. In both
-cases the observations fit an independent offset. This is a forward dependency:
-fitted observations do not move the upstream axis or plane. Plane-datum-bound
-fits are not yet factors in the adapter's axis-specific joint solver.
+cases the observations fit an independent offset. When the referenced axis is
+manually initialized and therefore free, its connected cone/cylinder and plane
+fits jointly resolve the axis and its derived planes without requiring a joint
+action. An axis sourced from an earlier fit is fixed, so downstream observations
+do not move it. An explicit joint remains available to choose active factors or
+add relationships and takes precedence for its solve.
 
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an

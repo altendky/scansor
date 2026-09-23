@@ -197,9 +197,11 @@ adapter supports independently offset perpendicular planes and connected coaxial
 cone/cylinder sides with disjoint observations. All planes share the axis normal
 and all surfaces inform the shared axis. The newer bounded browser slice instead
 creates an explicit axis from a manual initial value or a standalone cone or
-cylinder. Axis-bound cone, cylinder, and plane fits can evaluate with that axis
-fixed, or an explicit shared-axis joint can activate a side and plane factor set
-and free the axis in a separate result. Broader
+cylinder. Fits connected to a manually initialized axis jointly resolve that
+free axis and its derived planes without a separate joint action. Fits connected
+to an axis sourced from an earlier fit treat it as fixed. An explicit shared-axis
+joint remains available to select a factor set and add relationships, producing
+a separate result. Broader
 constraint networks remain future work.
 
 **Provisional successor direction with a first internal contract, 2026-09-20:**

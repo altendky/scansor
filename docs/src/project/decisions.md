@@ -274,10 +274,12 @@ actually depend. Initialization does not imply fixing or prior evidence.
 
 Keep the ordered backend operation DAG distinct from each solve's factor graph,
 and emit immutable per-solve assignments rather than mutating declarations or
-standalone results. Explicit factor activation remains required. An axis line has
-no implicit axial zero or roll; use additional points or a frame when those
-degrees of freedom are intended. This is a provisional successor direction, not
-a migration or reinterpretation of implemented browser recipes or the current
+standalone results. A fit's reference to shared free geometry activates that
+observation factor for the connected solve; an optional joint can instead select
+an explicit factor subset and add relationships. An axis line has no implicit
+axial zero or roll; use additional points or a frame when those degrees of
+freedom are intended. This is a provisional successor direction, not a migration
+or reinterpretation of implemented browser recipes or the current
 fixed-pose declared analytic model. See the
 [reference-geometry design](planning/reference-geometry-and-solve-graph.md).
 
