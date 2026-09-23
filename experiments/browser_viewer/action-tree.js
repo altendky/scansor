@@ -500,7 +500,7 @@ export function renderActionTree(
       const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
       if (!adjacent) return;
       select(adjacent.id);
-      [...list.querySelectorAll('.action-select')]
+      [...list.querySelectorAll('.action-select, .managed-owner-summary')]
         .find((candidate) => candidate.dataset.actionId === adjacent.id)
         ?.focus();
     };
@@ -532,22 +532,30 @@ export function renderActionTree(
     } else {
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
+        edit = document.createElement('button'),
         summaryState = relationship ? 'ready' : states[node.id];
       item.classList.add('managed-owner');
       details.className = 'tree-group managed-owner-group';
       details.open = expandedManaged.has(node.id);
-      summary.className = 'action-select managed-owner-summary';
+      summary.className = 'managed-owner-summary';
       summary.dataset.actionId = node.id;
       summary.dataset.actionIndex = index;
-      summary.setAttribute('aria-pressed', String(selected === node.id));
       summary.title = `${node.label} · ${description}`;
       summary.setAttribute('aria-label', summary.title);
       summary.onkeydown = button.onkeydown;
-      summary.onclick = button.onclick;
       label.classList.add('tree-group-name');
+      edit.type = 'button';
+      edit.className = 'group-action';
+      edit.textContent = 'Edit';
+      edit.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        select(node.id);
+      };
       summary.append(
         icon('group', 'group-icon'),
         label,
+        edit,
         icon(summaryState, `action-state state-${summaryState}`),
       );
       details.ontoggle = () => {

@@ -65,7 +65,6 @@ footer #status { margin: 0 0 6px; }
 .managed-group { border-color: #3d5969; background: #17242e; }
 .managed-owner { margin: 7px 0; }
 .managed-owner-group { color: #a6b6c5; }
-.managed-owner-summary { width: 100%; }
 .group-icon { width: 15px; height: 15px; }
 .managed-target { margin: 5px 0 5px 12px; background: #1a2934; }
 .managed-target > summary { font-size: 11px; }
