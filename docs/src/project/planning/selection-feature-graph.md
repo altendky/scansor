@@ -347,7 +347,8 @@ and how transferred boundaries behave near missing data remain open.
 
 The exploratory
 [repeated-boss fixture](../../../../examples/repeated-boss-selection/README.md)
-provides three congruent boss occurrences with a clocking flat, independent mesh
+provides four boss occurrences with a shared cross-section, a clocking flat,
+deliberate height and axis-pose variation, independent irregular mesh
 topologies, deterministic deviations/noise/occlusions, and a separately posed
 rescan. Its oracle role selections and coordinate layers are test truth, not
 inputs to a future transfer algorithm. The current browser still consumes only

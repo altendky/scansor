@@ -5,7 +5,7 @@
     "height_mm": 14.0,
     "outer_radius_mm": 11.0
   },
-  "format": "scansor-repeated-boss-selection-fixture-v1",
+  "format": "scansor-repeated-boss-selection-fixture-v2",
   "imperfections": {
     "bore_ovality_mm": 0.025,
     "outer_dent_depth_mm": 0.09,
@@ -23,12 +23,20 @@
     {
       "center_mm": [0.0, 21.0],
       "clock_degrees": 115.0,
+      "height_mm": 22.0,
       "occurrence_id": "boss-b"
     },
     {
       "center_mm": [35.0, -17.0],
       "clock_degrees": 235.0,
       "occurrence_id": "boss-c"
+    },
+    {
+      "center_mm": [-35.0, 20.0],
+      "clock_degrees": 305.0,
+      "occurrence_id": "boss-d",
+      "tilt_azimuth_degrees": 330.0,
+      "tilt_degrees": 12.0
     }
   ],
   "plate": {
@@ -46,6 +54,7 @@
       "realization_id": "reference",
       "seed": 101,
       "sensor_sigma_mm": 0.0,
+      "surface_jitter_fraction": 0.18,
       "tessellation": {
         "axial_segments": 16,
         "angular_segments": 96,
@@ -65,6 +74,7 @@
       "realization_id": "scan-coarse",
       "seed": 2026092201,
       "sensor_sigma_mm": 0.12,
+      "surface_jitter_fraction": 0.18,
       "tessellation": {
         "axial_segments": 8,
         "angular_segments": 44,
@@ -84,6 +94,7 @@
       "realization_id": "scan-fine",
       "seed": 2026092201,
       "sensor_sigma_mm": 0.04,
+      "surface_jitter_fraction": 0.18,
       "tessellation": {
         "axial_segments": 15,
         "angular_segments": 88,
@@ -103,6 +114,7 @@
       "realization_id": "scan-rescan",
       "seed": 2026092203,
       "sensor_sigma_mm": 0.09,
+      "surface_jitter_fraction": 0.18,
       "tessellation": {
         "axial_segments": 11,
         "angular_segments": 68,

@@ -5,11 +5,14 @@ selection-region transfer, repeated compound-feature, and rescan experiments. It
 is not physical evidence, a metrology reference, a supported model family, or a
 public artifact format.
 
-The exact nominal part is a `120 x 80 x 6 mm` plate with three congruent bosses.
-Each boss has an axis, an outer cylindrical wall, a cylindrical blind bore, an
-annular shoulder plane, and a clocking flat. The occurrences have different
-positions and clock angles. The flat removes the otherwise unobservable rotation
-about a boss axis when transferring a partial surface footprint.
+The exact nominal part is a `120 x 80 x 6 mm` plate with four bosses sharing a
+common cross-section. Each boss has an axis, an outer cylindrical wall, a
+cylindrical blind bore, an annular shoulder plane, and a clocking flat. The
+occurrences have different positions and clock angles; `boss-b` is deliberately
+taller (`22 mm` rather than `14 mm`), and `boss-d` is tilted `12°` toward the
+plate center. These variations exercise transfer without assuming equal finite
+extent or parallel feature axes. The flat removes the otherwise unobservable
+rotation about a boss axis when transferring a partial surface footprint.
 
 The checked-in [fixture recipe](fixture.json) defines four realizations:
 
@@ -26,7 +29,13 @@ As-built deviations and sensor corruption are recorded separately. The former
 include plate bow, small outer- and bore-wall ovality, slight outer-wall taper,
 shoulder-height variation, and one localized outer-wall dent. They deliberately
 make the observed copies slightly imperfect while the nominal compound
-definition remains exact.
+cross-section remains exact.
+
+Every realization also applies deterministic, bounded parameter-space jitter to
+interior mesh vertices. Patch boundaries remain fixed, vertices stay exactly on
+their analytic nominal surfaces before the declared imperfections and sensor
+offsets, and the resulting triangulation does not present a uniform synthetic
+grid. The jitter is part of tessellation, not a geometric imperfection.
 
 ## Generate
 
@@ -34,13 +43,13 @@ From the repository root:
 
 ```sh
 PYTHONPATH=src:. uv run --locked python -m experiments.repeated_boss_fixture \
-  --output local-inputs/repeated-boss-selection-v1
+  --output local-inputs/repeated-boss-selection-v2
 ```
 
 The generator refuses to overwrite an existing output directory. Each
 realization is a browser-compatible example directory containing a triangulated
 PLY, source-bound seed selections on `boss-a`, oracle role selections for all
-three occurrences, and separate numeric truth arrays. A root manifest binds all
+four occurrences, and separate numeric truth arrays. A root manifest binds all
 generated files and their SHA-256 digests. Generated outputs remain under the
 ignored `local-inputs/` tree rather than adding large binary fixtures to Git.
 
@@ -49,7 +58,7 @@ After installing the browser assets, open the coarse realization with:
 ```sh
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   python -m experiments.nozzle_browser \
-  --example local-inputs/repeated-boss-selection-v1/scan-coarse
+  --example local-inputs/repeated-boss-selection-v2/scan-coarse
 ```
 
 The adapter retains its historical module name but reads the generated example's
@@ -64,6 +73,12 @@ surface roles, nominal coordinates, as-built coordinates, measured part-frame
 coordinates, local surface coordinates, transforms, and oracle memberships stay
 in separate truth artifacts. They are test oracles and must not be treated as
 information discovered from a scan.
+
+`truth/occurrences.json` records each boss's resolved local-to-part rotation,
+base center, axis, and height. Axial oracle footprints retain the seed boss's
+physical millimetre span when applied to the taller boss; they do not stretch in
+proportion to its height. Radial shoulder bounds remain normalized because they
+describe the same shared cross-section.
 
 The saved `normal-part` and `normal-scan` arrays are the nominal analytic normal
 directions used to apply sensor displacement, transformed into their named

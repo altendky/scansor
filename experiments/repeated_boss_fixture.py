@@ -27,10 +27,11 @@ from scansor.selection_bundle import (
 )
 from scansor.serialization import canonical_json, sha256
 
-FIXTURE_FORMAT = "scansor-repeated-boss-selection-fixture-v1"
-GENERATOR_REVISION = "repeated-boss-selection-generator-v1"
+FIXTURE_FORMAT = "scansor-repeated-boss-selection-fixture-v2"
+GENERATOR_REVISION = "repeated-boss-selection-generator-v2"
 ROLE_NAMES = ("plate", "outer", "bore", "shoulder", "clock")
 ROLE_CODES = {name: index for index, name in enumerate(ROLE_NAMES)}
+AXIAL_REGION_ROLES = frozenset(("outer", "bore", "clock"))
 REGION_BOUNDS = {
     "outer": ((0.30, 0.68), (0.20, 0.82)),
     "bore": ((0.10, 0.36), (0.20, 0.82)),
@@ -68,7 +69,10 @@ class BossSpec(FixtureRecord):
 class OccurrenceSpec(FixtureRecord):
     center_mm: tuple[float, float]
     clock_degrees: float
+    height_mm: float | None = Field(default=None, gt=0.0)
     occurrence_id: str = Field(pattern=r"^boss-[a-z]$")
+    tilt_azimuth_degrees: float = 0.0
+    tilt_degrees: float = Field(default=0.0, ge=0.0, le=30.0)
 
 
 class ImperfectionSpec(FixtureRecord):
@@ -101,12 +105,13 @@ class RealizationSpec(FixtureRecord):
     realization_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     seed: int = Field(ge=0)
     sensor_sigma_mm: float = Field(ge=0.0, le=1.0)
+    surface_jitter_fraction: float = Field(default=0.0, ge=0.0, le=0.35)
     tessellation: TessellationSpec
 
 
 class FixtureSpec(FixtureRecord):
     boss: BossSpec
-    format: Literal["scansor-repeated-boss-selection-fixture-v1"] = FIXTURE_FORMAT
+    format: Literal["scansor-repeated-boss-selection-fixture-v2"] = FIXTURE_FORMAT
     imperfections: ImperfectionSpec
     occurrences: tuple[OccurrenceSpec, ...] = Field(min_length=2, max_length=12)
     plate: PlateSpec
@@ -217,6 +222,16 @@ def _clock_rotation(degrees: float) -> FloatArray:
     return np.array(((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0)))
 
 
+def _occurrence_rotation(occurrence: OccurrenceSpec) -> FloatArray:
+    azimuth = _clock_rotation(occurrence.tilt_azimuth_degrees)
+    tilt = _rotation_xyz((0.0, occurrence.tilt_degrees, 0.0))
+    return azimuth @ tilt @ azimuth.T @ _clock_rotation(occurrence.clock_degrees)
+
+
+def _occurrence_height(spec: FixtureSpec, occurrence: OccurrenceSpec) -> float:
+    return occurrence.height_mm or spec.boss.height_mm
+
+
 def _bounded_normal(seed: int, key: str) -> float:
     for attempt in range(128):
         digest = hashlib.sha256(
@@ -228,6 +243,50 @@ def _bounded_normal(seed: int, key: str) -> float:
         if abs(value) <= 4.0:
             return value
     raise RuntimeError("bounded deterministic normal sampler exhausted")
+
+
+def _uniform_jitter(seed: int, key: str) -> float:
+    digest = hashlib.sha256(
+        f"{GENERATOR_REVISION}\0{seed}\0{key}".encode("ascii")
+    ).digest()
+    return 2.0 * ((int.from_bytes(digest[:8], "big") + 0.5) / 2**64) - 1.0
+
+
+def _jitter_surface_uv(
+    realization: RealizationSpec,
+    occurrence_id: str,
+    surface_key: str,
+    uv: FloatArray,
+    *,
+    periodic_u: bool,
+) -> FloatArray:
+    fraction = realization.surface_jitter_fraction
+    if fraction == 0.0:
+        return uv
+    rows, columns, _ = uv.shape
+    jittered = uv.copy()
+    u_step = 1.0 / (rows if periodic_u else rows - 1)
+    v_step = 1.0 / (columns - 1)
+    for row in range(rows):
+        for column in range(columns):
+            base_u, base_v = uv[row, column]
+            key = ":".join(
+                (
+                    occurrence_id,
+                    surface_key,
+                    float(base_u).hex(),
+                    float(base_v).hex(),
+                )
+            )
+            if row != 0 and (periodic_u or row != rows - 1):
+                jittered[row, column, 0] += (
+                    fraction * u_step * _uniform_jitter(realization.seed, key + ":u")
+                )
+            if column not in (0, columns - 1):
+                jittered[row, column, 1] += (
+                    fraction * v_step * _uniform_jitter(realization.seed, key + ":v")
+                )
+    return jittered
 
 
 def sensor_offsets(
@@ -265,10 +324,32 @@ def _cell_mask(
     realization: RealizationSpec,
     occurrence_id: str,
     role: str,
-    u_mid: FloatArray,
-    v_mid: FloatArray,
+    uv: FloatArray,
+    *,
+    periodic_u: bool,
 ) -> NDArray[np.bool_]:
-    keep = np.ones(np.broadcast_shapes(u_mid.shape, v_mid.shape), dtype=np.bool_)
+    following = np.roll(uv, -1, axis=0) if periodic_u else uv[1:]
+    current = uv if periodic_u else uv[:-1]
+    following = following.copy()
+    if periodic_u:
+        following[-1, :, 0] += 1.0
+    u_mid = np.mod(
+        (
+            current[:, :-1, 0]
+            + current[:, 1:, 0]
+            + following[:, :-1, 0]
+            + following[:, 1:, 0]
+        )
+        / 4.0,
+        1.0,
+    )
+    v_mid = (
+        current[:, :-1, 1]
+        + current[:, 1:, 1]
+        + following[:, :-1, 1]
+        + following[:, 1:, 1]
+    ) / 4.0
+    keep = np.ones(u_mid.shape, dtype=np.bool_)
     if realization.occlusion_profile == "capture-a":
         if occurrence_id == "boss-b" and role == "outer":
             keep &= ~((u_mid > 0.47) & (u_mid < 0.60) & (v_mid > 0.28))
@@ -331,7 +412,7 @@ def _make_patch(
         occurrence_translation = np.zeros(3)
     else:
         occurrence_id = occurrence.occurrence_id
-        occurrence_rotation = _clock_rotation(occurrence.clock_degrees)
+        occurrence_rotation = _occurrence_rotation(occurrence)
         occurrence_translation = np.array((*occurrence.center_mm, 0.0))
     nominal_part = nominal_local @ occurrence_rotation.T + occurrence_translation
     as_built_part = as_built_local @ occurrence_rotation.T + occurrence_translation
@@ -342,16 +423,7 @@ def _make_patch(
     scan_translation = np.asarray(realization.pose.translation_mm)
     positions_scan = measured_part @ scan_rotation.T + scan_translation
     normals_scan = normal_part @ scan_rotation.T
-    u = uv[:, 0, 0]
-    if periodic_rows:
-        u_following = np.roll(u, -1)
-        u_mid = ((u + u_following) / 2.0)[:, None]
-        u_mid[-1] = (u[-1] + 1.0) / 2.0
-    else:
-        u_mid = ((u[:-1] + u[1:]) / 2.0)[:, None]
-    v = uv[0, :, 1]
-    v_mid = ((v[:-1] + v[1:]) / 2.0)[None, :]
-    keep = _cell_mask(realization, occurrence_id, role, u_mid, v_mid)
+    keep = _cell_mask(realization, occurrence_id, role, uv, periodic_u=periodic_rows)
     faces = _grid_faces(rows, columns, periodic_rows=periodic_rows, keep=keep)
     count = rows * columns
     winding_positions = positions_scan.reshape(count, 3)
@@ -389,17 +461,23 @@ def _boss_patches(
     boss = spec.boss
     tessellation = realization.tessellation
     imperfections = spec.imperfections
+    height = _occurrence_height(spec, occurrence)
     alpha = math.acos(boss.flat_offset_mm / boss.outer_radius_mm)
-    theta = np.linspace(
-        alpha,
-        2.0 * math.pi - alpha,
-        tessellation.angular_segments + 1,
+    outer_u, outer_v = np.meshgrid(
+        np.linspace(0.0, 1.0, tessellation.angular_segments + 1),
+        np.linspace(0.0, 1.0, tessellation.axial_segments + 1),
+        indexing="ij",
     )
-    z = np.linspace(0.0, boss.height_mm, tessellation.axial_segments + 1)
-    theta_grid, z_grid = np.meshgrid(theta, z, indexing="ij")
-    outer_u = (theta_grid - alpha) / (2.0 * (math.pi - alpha))
-    outer_v = z_grid / boss.height_mm
-    uv = np.stack((outer_u, outer_v), axis=-1)
+    uv = _jitter_surface_uv(
+        realization,
+        occurrence.occurrence_id,
+        "outer",
+        np.stack((outer_u, outer_v), axis=-1),
+        periodic_u=False,
+    )
+    theta_grid = alpha + uv[..., 0] * 2.0 * (math.pi - alpha)
+    z_grid = uv[..., 1] * height
+    outer_v = uv[..., 1]
     phase = math.radians(37.0 * occurrence_code)
     radius_delta = np.zeros_like(theta_grid)
     if realization.as_built:
@@ -445,18 +523,20 @@ def _boss_patches(
         role="outer",
     )
 
-    bore_theta = np.linspace(
-        0.0, 2.0 * math.pi, tessellation.angular_segments, endpoint=False
+    bore_u, bore_v = np.meshgrid(
+        np.arange(tessellation.angular_segments) / tessellation.angular_segments,
+        np.linspace(0.0, 1.0, tessellation.axial_segments + 1),
+        indexing="ij",
     )
-    bore_z = np.linspace(0.0, boss.height_mm, tessellation.axial_segments + 1)
-    bore_theta_grid, bore_z_grid = np.meshgrid(bore_theta, bore_z, indexing="ij")
-    bore_u = np.broadcast_to(
-        np.arange(tessellation.angular_segments)[:, None]
-        / tessellation.angular_segments,
-        bore_theta_grid.shape,
+    bore_uv = _jitter_surface_uv(
+        realization,
+        occurrence.occurrence_id,
+        "bore",
+        np.stack((bore_u, bore_v), axis=-1),
+        periodic_u=True,
     )
-    bore_v = bore_z_grid / boss.height_mm
-    bore_uv = np.stack((bore_u, bore_v), axis=-1)
+    bore_theta_grid = 2.0 * math.pi * bore_uv[..., 0]
+    bore_z_grid = height * bore_uv[..., 1]
     bore_delta = np.zeros_like(bore_theta_grid)
     if realization.as_built:
         bore_delta += imperfections.bore_ovality_mm * np.cos(
@@ -498,11 +578,20 @@ def _boss_patches(
         periodic_rows=True,
     )
 
-    shoulder_theta = bore_theta
-    radial_fraction = np.linspace(0.0, 1.0, tessellation.radial_segments + 1)
-    shoulder_theta_grid, radial_grid = np.meshgrid(
-        shoulder_theta, radial_fraction, indexing="ij"
+    shoulder_u, radial_fraction = np.meshgrid(
+        np.arange(tessellation.angular_segments) / tessellation.angular_segments,
+        np.linspace(0.0, 1.0, tessellation.radial_segments + 1),
+        indexing="ij",
     )
+    shoulder_uv = _jitter_surface_uv(
+        realization,
+        occurrence.occurrence_id,
+        "shoulder",
+        np.stack((shoulder_u, radial_fraction), axis=-1),
+        periodic_u=True,
+    )
+    shoulder_theta_grid = 2.0 * math.pi * shoulder_uv[..., 0]
+    radial_grid = shoulder_uv[..., 1]
     cosine = np.cos(shoulder_theta_grid)
     outer_limit = np.where(
         cosine > boss.flat_offset_mm / boss.outer_radius_mm,
@@ -512,29 +601,18 @@ def _boss_patches(
     shoulder_radius = boss.bore_radius_mm + radial_grid * (
         outer_limit - boss.bore_radius_mm
     )
-    shoulder_z = np.full_like(shoulder_radius, boss.height_mm)
+    shoulder_z = np.full_like(shoulder_radius, height)
     if realization.as_built:
         shoulder_z += imperfections.shoulder_height_mm * (
             0.55 * math.sin(phase) + 0.45 * np.cos(shoulder_theta_grid + phase)
         )
-    shoulder_uv = np.stack(
-        (
-            np.broadcast_to(
-                np.arange(tessellation.angular_segments)[:, None]
-                / tessellation.angular_segments,
-                shoulder_theta_grid.shape,
-            ),
-            radial_grid,
-        ),
-        axis=-1,
-    )
     shoulder_normal = np.zeros((*shoulder_radius.shape, 3))
     shoulder_normal[..., 2] = 1.0
     shoulder_nominal = np.stack(
         (
             shoulder_radius * np.cos(shoulder_theta_grid),
             shoulder_radius * np.sin(shoulder_theta_grid),
-            np.full_like(shoulder_radius, boss.height_mm),
+            np.full_like(shoulder_radius, height),
         ),
         axis=-1,
     )
@@ -558,12 +636,20 @@ def _boss_patches(
     )
 
     half_flat = math.sqrt(boss.outer_radius_mm**2 - boss.flat_offset_mm**2)
-    flat_y = np.linspace(-half_flat, half_flat, tessellation.radial_segments * 2 + 1)
-    flat_z = z
-    flat_y_grid, flat_z_grid = np.meshgrid(flat_y, flat_z, indexing="ij")
-    flat_u = (flat_y_grid + half_flat) / (2.0 * half_flat)
-    flat_v = flat_z_grid / boss.height_mm
-    flat_uv = np.stack((flat_u, flat_v), axis=-1)
+    flat_u, flat_v = np.meshgrid(
+        np.linspace(0.0, 1.0, tessellation.radial_segments * 2 + 1),
+        np.linspace(0.0, 1.0, tessellation.axial_segments + 1),
+        indexing="ij",
+    )
+    flat_uv = _jitter_surface_uv(
+        realization,
+        occurrence.occurrence_id,
+        "clock",
+        np.stack((flat_u, flat_v), axis=-1),
+        periodic_u=False,
+    )
+    flat_y_grid = -half_flat + 2.0 * half_flat * flat_uv[..., 0]
+    flat_z_grid = height * flat_uv[..., 1]
     flat_nominal = np.stack(
         (
             np.full_like(flat_y_grid, boss.flat_offset_mm),
@@ -601,6 +687,7 @@ def _plate_patches(spec: FixtureSpec, realization: RealizationSpec) -> list[Patc
         normal: tuple[float, float, float],
         *,
         bow: bool = False,
+        surface_key: str,
     ) -> Patch:
         first_grid, second_grid = np.meshgrid(first, second, indexing="ij")
         if nominal.shape != (3,):
@@ -612,6 +699,21 @@ def _plate_patches(spec: FixtureSpec, realization: RealizationSpec) -> list[Patc
         free_axes = [axis for axis in range(3) if axis != fixed_axis]
         axis_first[free_axes[0]] = 1.0
         axis_second[free_axes[1]] = 1.0
+        uv = _jitter_surface_uv(
+            realization,
+            "plate",
+            surface_key,
+            np.stack(
+                (
+                    (first_grid - first.min()) / (first.max() - first.min()),
+                    (second_grid - second.min()) / (second.max() - second.min()),
+                ),
+                axis=-1,
+            ),
+            periodic_u=False,
+        )
+        first_grid = first.min() + uv[..., 0] * (first.max() - first.min())
+        second_grid = second.min() + uv[..., 1] * (second.max() - second.min())
         points = (
             nominal
             + first_grid[..., None] * axis_first
@@ -625,13 +727,11 @@ def _plate_patches(spec: FixtureSpec, realization: RealizationSpec) -> list[Patc
                 * np.sin(math.pi * second_grid / size_y)
             )
         normals = np.broadcast_to(np.asarray(normal), points.shape).copy()
-        u = (first_grid - first.min()) / (first.max() - first.min())
-        v = (second_grid - second.min()) / (second.max() - second.min())
         return _make_patch(
             points,
             as_built,
             normals,
-            np.stack((u, v), axis=-1),
+            uv,
             occurrence=None,
             occurrence_code=0,
             realization=realization,
@@ -642,12 +742,49 @@ def _plate_patches(spec: FixtureSpec, realization: RealizationSpec) -> list[Patc
     y = np.linspace(-size_y / 2.0, size_y / 2.0, tessellation.plate_y_segments + 1)
     z = np.linspace(-thickness, 0.0, max(3, tessellation.axial_segments // 2) + 1)
     return [
-        plane_patch(x, y, np.array((0.0, 0.0, 0.0)), (0.0, 0.0, 1.0), bow=True),
-        plane_patch(x, y, np.array((0.0, 0.0, -thickness)), (0.0, 0.0, -1.0)),
-        plane_patch(y, z, np.array((-size_x / 2.0, 0.0, 0.0)), (-1.0, 0.0, 0.0)),
-        plane_patch(y, z, np.array((size_x / 2.0, 0.0, 0.0)), (1.0, 0.0, 0.0)),
-        plane_patch(x, z, np.array((0.0, -size_y / 2.0, 0.0)), (0.0, -1.0, 0.0)),
-        plane_patch(x, z, np.array((0.0, size_y / 2.0, 0.0)), (0.0, 1.0, 0.0)),
+        plane_patch(
+            x,
+            y,
+            np.array((0.0, 0.0, 0.0)),
+            (0.0, 0.0, 1.0),
+            bow=True,
+            surface_key="plate-top",
+        ),
+        plane_patch(
+            x,
+            y,
+            np.array((0.0, 0.0, -thickness)),
+            (0.0, 0.0, -1.0),
+            surface_key="plate-bottom",
+        ),
+        plane_patch(
+            y,
+            z,
+            np.array((-size_x / 2.0, 0.0, 0.0)),
+            (-1.0, 0.0, 0.0),
+            surface_key="plate-left",
+        ),
+        plane_patch(
+            y,
+            z,
+            np.array((size_x / 2.0, 0.0, 0.0)),
+            (1.0, 0.0, 0.0),
+            surface_key="plate-right",
+        ),
+        plane_patch(
+            x,
+            z,
+            np.array((0.0, -size_y / 2.0, 0.0)),
+            (0.0, -1.0, 0.0),
+            surface_key="plate-front",
+        ),
+        plane_patch(
+            x,
+            z,
+            np.array((0.0, size_y / 2.0, 0.0)),
+            (0.0, 1.0, 0.0),
+            surface_key="plate-back",
+        ),
     ]
 
 
@@ -715,18 +852,27 @@ def _write_ply(path: Path, mesh: MeshData) -> None:
 
 def _region_ids(
     mesh: MeshData,
+    spec: FixtureSpec,
     occurrence_code: int,
+    occurrence: OccurrenceSpec,
     role: str,
 ) -> tuple[int, ...]:
     (u_min, u_max), (v_min, v_max) = REGION_BOUNDS[role]
     uv = mesh.surface_uv
+    if role in AXIAL_REGION_ROLES:
+        reference_height = _occurrence_height(spec, spec.occurrences[0])
+        local_v = uv[:, 1] * _occurrence_height(spec, occurrence)
+        v_mask = (local_v >= v_min * reference_height) & (
+            local_v <= v_max * reference_height
+        )
+    else:
+        v_mask = (uv[:, 1] >= v_min) & (uv[:, 1] <= v_max)
     mask = (
         (mesh.occurrence_codes == occurrence_code)
         & (mesh.role_codes == ROLE_CODES[role])
         & (uv[:, 0] >= u_min)
         & (uv[:, 0] <= u_max)
-        & (uv[:, 1] >= v_min)
-        & (uv[:, 1] <= v_max)
+        & v_mask
     )
     return tuple(int(value) for value in np.flatnonzero(mask))
 
@@ -763,7 +909,7 @@ def _write_bundle(
     )
     for occurrence_code, occurrence in occurrences:
         for role in REGION_BOUNDS:
-            ids = _region_ids(mesh, occurrence_code, role)
+            ids = _region_ids(mesh, spec, occurrence_code, occurrence, role)
             if len(ids) < 3:
                 raise ValueError(
                     f"{occurrence.occurrence_id} {role} region has insufficient support"
@@ -796,7 +942,7 @@ def _frame_for_occurrence(
     realization: RealizationSpec, occurrence: OccurrenceSpec
 ) -> tuple[FloatArray, FloatArray]:
     scan_rotation = _rotation_xyz(realization.pose.rotation_xyz_degrees)
-    occurrence_rotation = _clock_rotation(occurrence.clock_degrees)
+    occurrence_rotation = _occurrence_rotation(occurrence)
     center_part = np.array((*occurrence.center_mm, 0.0))
     origin_scan = scan_rotation @ center_part + np.asarray(
         realization.pose.translation_mm
@@ -819,6 +965,7 @@ def _write_legacy_selections(
     selections = root / "selections"
     selections.mkdir()
     occurrence = spec.occurrences[0]
+    occurrence_height = _occurrence_height(spec, occurrence)
     origin, frame = _frame_for_occurrence(realization, occurrence)
     local = (mesh.positions_scan - origin) @ frame
     axis = frame[:, 2]
@@ -844,8 +991,8 @@ def _write_legacy_selections(
     )
     plane_angles = (65.0, 295.0)
     plane_mask = (
-        (local[:, 2] >= spec.boss.height_mm - 0.6)
-        & (local[:, 2] <= spec.boss.height_mm + 0.6)
+        (local[:, 2] >= occurrence_height - 0.6)
+        & (local[:, 2] <= occurrence_height + 0.6)
         & (rho >= spec.boss.bore_radius_mm + 0.7)
         & (rho <= spec.boss.flat_offset_mm - 0.4)
         & (normals_local[:, 2] >= 0.82)
@@ -886,8 +1033,8 @@ def _write_legacy_selections(
     plane = {
         "axis_seed": axis_seed,
         "axial_range": [
-            spec.boss.height_mm - 0.6,
-            spec.boss.height_mm + 0.6,
+            occurrence_height - 0.6,
+            occurrence_height + 0.6,
         ],
         "azimuth_range_degrees": list(plane_angles),
         "fit_frame": fit_frame,
@@ -934,6 +1081,26 @@ def _write_truth(root: Path, mesh: MeshData, spec: FixtureSpec) -> None:
                     },
                 },
                 "role_codes": {str(code): name for name, code in ROLE_CODES.items()},
+            }
+        )
+    )
+    _ = (truth / "occurrences.json").write_bytes(
+        canonical_json(
+            {
+                "coordinate_frame": "part",
+                "occurrences": [
+                    {
+                        "axis_part": _occurrence_rotation(occurrence)[:, 2].tolist(),
+                        "center_part_mm": [*occurrence.center_mm, 0.0],
+                        "height_mm": _occurrence_height(spec, occurrence),
+                        "local_to_part_rotation": _occurrence_rotation(
+                            occurrence
+                        ).tolist(),
+                        "occurrence_id": occurrence.occurrence_id,
+                    }
+                    for occurrence in spec.occurrences
+                ],
+                "transform_convention": "point_part = local_to_part_rotation @ point_local + center_part_mm",
             }
         )
     )
@@ -1058,7 +1225,7 @@ def publish_fixture(output: Path, definition_path: Path) -> GenerationManifest:
         manifest: GenerationManifest = {
             "artifacts": artifacts,
             "definition_sha256": definition_sha,
-            "format": "scansor-repeated-boss-selection-generation-v1",
+            "format": "scansor-repeated-boss-selection-generation-v2",
             "generator_revision": GENERATOR_REVISION,
             "realizations": summaries,
             "status": "internal/provisional/generated/exploratory/non-public-contract",
