@@ -82,8 +82,22 @@ function clearGuides() {
 function graphNode(id) {
   return graphState.recipe.nodes.find((n) => n.id === id);
 }
-function nextFeatureLabel(base) {
-  return uniqueFeatureLabel(base, graphState?.recipe.nodes || []);
+function nextFeatureLabel(base, reserved = []) {
+  return uniqueFeatureLabel(base, [
+    ...(graphState?.recipe.nodes || []),
+    ...reserved.map((label) => ({ label })),
+  ]);
+}
+function submittedFeatureLabel(inputId) {
+  const input = $(inputId),
+    label = nextFeatureLabel(input.value);
+  input.value = label;
+  return label;
+}
+function reserveFeatureLabel(base, reserved) {
+  const label = nextFeatureLabel(base, reserved);
+  reserved.push(label);
+  return label;
 }
 function showCreateDialog(dialogId, labelId, defaultLabel) {
   const input = $(labelId);
@@ -1513,14 +1527,15 @@ async function start() {
     event.preventDefault();
     const fromFit = $('new-axis-mode').value === 'fit',
       sourceId = $('new-axis-source').value,
-      source = graphNode(sourceId);
+      source = graphNode(sourceId),
+      axisLabel = submittedFeatureLabel('new-axis-label');
     if (fromFit && !source) {
       status('Create a standalone cone or cylinder fit first.', true);
       return;
     }
     const axis = {
       id: uid('axis'),
-      label: $('new-axis-label').value,
+      label: axisLabel,
       operation: 'axis',
       ...(fromFit
         ? { source_fit: sourceId }
@@ -1537,7 +1552,7 @@ async function start() {
     if (fromFit && $('new-axis-clone').checked)
       nodes.push({
         id: uid('fit'),
-        label: nextFeatureLabel(source.label + ' axis factor'),
+        label: nextFeatureLabel(source.label + ' axis factor', [axisLabel]),
         operation: 'fit',
         selections: [...source.selections],
         kind: source.kind,
@@ -1552,7 +1567,7 @@ async function start() {
     const saved = await appendActions([
       {
         id: uid('reference_plane'),
-        label: $('new-reference-plane-label').value,
+        label: submittedFeatureLabel('new-reference-plane-label'),
         operation: 'reference_plane',
         axis: $('new-reference-plane-axis').value,
         construction,
@@ -1583,7 +1598,7 @@ async function start() {
     const saved = await appendActions([
       {
         id: uid('mirror'),
-        label: $('new-mirror-label').value,
+        label: submittedFeatureLabel('new-mirror-label'),
         operation: 'mirror_symmetry',
         plane: $('new-mirror-plane').value,
         surfaces,
@@ -1598,7 +1613,7 @@ async function start() {
     const saved = await appendActions([
       {
         id: uid('parallel'),
-        label: $('new-parallel-label').value,
+        label: submittedFeatureLabel('new-parallel-label'),
         operation: 'parallel',
         surface: $('new-parallel-surface').value,
         reference_plane: $('new-parallel-reference').value,
@@ -1612,7 +1627,7 @@ async function start() {
     const saved = await appendActions([
       {
         id: uid('equal'),
-        label: $('new-equal-label').value,
+        label: submittedFeatureLabel('new-equal-label'),
         operation: 'equal',
         left: {
           measurement: 'radius',
@@ -1645,7 +1660,7 @@ async function start() {
     const saved = await appendActions([
       {
         id: uid('axis_solve'),
-        label: $('new-axis-solve-label').value,
+        label: submittedFeatureLabel('new-axis-solve-label'),
         operation: 'axis_solve',
         axis,
         factors,
@@ -1702,7 +1717,7 @@ async function start() {
     }
     const constraint = {
       id: uid('rotation'),
-      label: $('rotation-label').value,
+      label: submittedFeatureLabel('rotation-label'),
       operation: 'rotational_symmetry',
       axis,
       planes: fittedPlanes,
@@ -1728,23 +1743,27 @@ async function start() {
     const side = graphNode(
       joint.constraints.find((id) => graphNode(id).operation === 'perpendicular'),
     ).lateral;
-    const relations = selected.map((id) =>
-      graphNode(id).kind === 'plane'
-        ? {
-            id: uid('perpendicular'),
-            label: nextFeatureLabel(graphNode(id).label + ' perpendicular'),
-            operation: 'perpendicular',
-            lateral: side,
-            plane: id,
-          }
-        : {
-            id: uid('coaxial'),
-            label: nextFeatureLabel(graphNode(id).label + ' coaxial'),
-            operation: 'coaxial',
-            surface: id,
-            reference: side,
-          },
-    );
+    const reserved = [],
+      relations = selected.map((id) =>
+        graphNode(id).kind === 'plane'
+          ? {
+              id: uid('perpendicular'),
+              label: reserveFeatureLabel(
+                graphNode(id).label + ' perpendicular',
+                reserved,
+              ),
+              operation: 'perpendicular',
+              lateral: side,
+              plane: id,
+            }
+          : {
+              id: uid('coaxial'),
+              label: reserveFeatureLabel(graphNode(id).label + ' coaxial', reserved),
+              operation: 'coaxial',
+              surface: id,
+              reference: side,
+            },
+      );
     joint.constraints.push(...relations.map((n) => n.id));
     recipe.nodes = [...recipe.nodes.filter((n) => n.id !== joint.id), ...relations, joint];
     await replaceRecipe(recipe);
@@ -1867,7 +1886,7 @@ async function start() {
     event.preventDefault();
     const node = {
       id: uid('fit'),
-      label: $('new-fit-label').value,
+      label: submittedFeatureLabel('new-fit-label'),
       operation: 'fit',
       selections: chosen('new-fit-inputs'),
       kind: $('new-fit-kind').value,
@@ -1885,19 +1904,23 @@ async function start() {
       status('Choose an axis fit and at least one plane.', true);
       return;
     }
-    const label = $('new-joint-label').value;
-    const relations = planes.map((plane) => ({
-      id: uid('perpendicular'),
-      label: nextFeatureLabel(graphNode(plane).label + ' perpendicular'),
-      operation: 'perpendicular',
-      lateral: side,
-      plane,
-    }));
+    const label = submittedFeatureLabel('new-joint-label'),
+      reserved = [label],
+      relations = planes.map((plane) => ({
+        id: uid('perpendicular'),
+        label: reserveFeatureLabel(
+          graphNode(plane).label + ' perpendicular',
+          reserved,
+        ),
+        operation: 'perpendicular',
+        lateral: side,
+        plane,
+      }));
     for (const ref of chosen('new-joint-extra'))
       if (ref !== side)
         relations.push({
           id: uid('coaxial'),
-          label: nextFeatureLabel(graphNode(ref).label + ' coaxial'),
+          label: reserveFeatureLabel(graphNode(ref).label + ' coaxial', reserved),
           operation: 'coaxial',
           surface: ref,
           reference: side,

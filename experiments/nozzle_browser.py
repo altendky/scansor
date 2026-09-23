@@ -289,7 +289,13 @@ class Handler(BaseHTTPRequestHandler):
             self.json_reply(202, {"job_id": job_id})
         except StaleGraph as error:
             self.json_reply(409, {"error": str(error)})
-        except (ValueError, ValidationError, TimeoutError) as error:
+        except ValidationError as error:
+            messages = [
+                str(item["msg"]).removeprefix("Value error, ")
+                for item in error.errors()
+            ]
+            self.json_reply(422, {"error": "; ".join(dict.fromkeys(messages))})
+        except (ValueError, TimeoutError) as error:
             self.json_reply(422, {"error": str(error)})
 
 
