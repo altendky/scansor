@@ -147,9 +147,9 @@ Creating an action does not evaluate it by default. A manually initialized axis
 is previewed immediately because its value is already known. **Evaluate action**
 evaluates the selected action and only the earlier inputs it requires;
 **Evaluate all** explicitly evaluates every stale or unevaluated action. The
-top action toolbar groups primitive actions under **Create**, **Relate**,
-**Combine**, and **Run**. **Evaluate all** and the opt-in **Auto** checkbox live
-under Run. Enabling automatic evaluation immediately evaluates the
+top action toolbar groups primitive actions under **Create**, **Reuse**,
+**Relate**, **Combine**, and **Run**. **Evaluate all** and the opt-in **Auto**
+checkbox live under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps
 available guides visible together; disabling it restores selected-action-only
@@ -174,7 +174,17 @@ properties pane.
    point at local Z=0. The plane is previewed immediately and remains a
    separately selectable feature. That axis point is a bounded prototype
    convention; the generalized model should use an explicit point or frame.
-5. **Mirror** relates two distinct, same-type standalone fits across an
+5. **Region** lifts an earlier selection and its cylinder or plane fit into a
+   reusable surface-following volume. Choose a perpendicular axial plane for
+   the frame origin and an axis-parallel plane for clocking, plus footprint,
+   surface-normal, and normal-angle margins. **Apply** places that region in
+   another datum frame on the same source mesh and resolves a new selection.
+   The applied selection is a normal input to later surface fits. Fit it
+   standalone before using that fit to initialize a refined target axis; making
+   the applied selection directly drive the same free frame would be circular.
+   This first slice does not yet support cones, target-pose discovery, or another
+   scan.
+6. **Mirror** relates two distinct, same-type standalone fits across an
    explicit reference plane that contains their axis. It defines geometry; it
    is not itself a joint. Add
    the relationship to a joint on that plane's axis. Evaluating the joint may
@@ -185,18 +195,20 @@ properties pane.
    The current bounded adapter permits one mirrored pair per reference plane in a
    joint; create another reference-plane action for another independently clocked
    pair.
-6. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
+7. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
    currently supports typed equality between an axis-bound cylinder radius and
    the absolute distance from a standalone plane fit to a reference plane. With
    a mirrored plane pair, these independent primitives compile to exact parallel
    planes at opposite signed cylinder-radius offsets; no penalty weights or
    arch-specific action are introduced.
-7. Choose fixed upstream geometry under **Reference geometry**. A cone or
+8. Choose shared upstream geometry under **Reference geometry**. A cone or
    cylinder can reference an axis; a plane can reference an axis (making the
    fitted plane perpendicular while fitting its offset) or a reference plane
    (fixing its orientation while fitting a new offset). In every case,
-   observations cannot move fixed upstream geometry.
-8. To let observations refine the axis together, choose **Joint**. Select
+   fits connected to a manually initialized axis refine that free axis together;
+   an axis initialized from an earlier fit remains fixed.
+9. To explicitly choose the observations and relationships participating in one
+   solve, choose **Joint**. Select
    the explicit axis and the active bound fits and relationships. Evaluation
    returns a separate result: bound factor sets influence axis direction,
    while a perpendicular plane does not locate the axis transversely. Mirror

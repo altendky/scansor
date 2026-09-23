@@ -354,6 +354,87 @@ def test_connected_fits_drive_their_free_axis_and_plane_without_a_joint(
     assert states["plane_factor"] == "stale"
 
 
+def test_fitted_selection_region_replays_in_an_explicit_datum_frame(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    payload["nodes"] = [
+        node for node in payload["nodes"] if node["id"] != "shared_axis"
+    ]
+    payload["nodes"].extend(
+        [
+            {
+                "id": "region_axial",
+                "label": "Region axial datum",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "construction": "perpendicular_to_axis",
+                "initial_angle_degrees": None,
+                "offset": 0.0,
+            },
+            {
+                "id": "region_clock",
+                "label": "Region clock datum",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "construction": "contains_axis",
+                "initial_angle_degrees": 0.0,
+                "offset": 0.0,
+            },
+            {
+                "id": "outer_region",
+                "label": "Outer reusable region",
+                "operation": "selection_region",
+                "selection": "outer_band",
+                "fit": "side_factor",
+                "axial_plane": "region_axial",
+                "clock_plane": "region_clock",
+                "tangent_margin": 0.0,
+                "normal_margin": 0.25,
+                "normal_angle_degrees": 45.0,
+            },
+            {
+                "id": "replayed_outer",
+                "label": "Replayed outer selection",
+                "operation": "region_selection",
+                "region": "outer_region",
+                "source": "scan",
+                "axial_plane": "region_axial",
+                "clock_plane": "region_clock",
+            },
+        ]
+    )
+    payload["output"] = "replayed_outer"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    memberships = cast(dict[str, list[int]], state["memberships"])
+    results = cast(dict[str, dict[str, Any]], state["results"])
+
+    assert set(graph.workspace.default.lateral_ids) <= set(
+        memberships["replayed_outer"]
+    )
+    assert results["outer_region"]["format"] == ("scansor-fitted-selection-region-v1")
+    assert results["replayed_outer"]["vertex_count"] == len(
+        memberships["replayed_outer"]
+    )
+
+    invalid = cast(dict[str, Any], graph.snapshot()["recipe"])
+    invalid["nodes"].append(
+        {
+            "id": "self_driving_fit",
+            "label": "Self-driving fit",
+            "operation": "fit",
+            "selections": ["replayed_outer"],
+            "kind": "cylinder",
+            "axial_domain": [-2.0, 5.0],
+            "axis": "reference_axis",
+        }
+    )
+    invalid["output"] = "self_driving_fit"
+    with pytest.raises(ValueError, match="fit an applied region standalone"):
+        _ = graph.replace(Recipe.model_validate(invalid), token(graph))
+
+
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(
     graph: FeatureGraph,
 ) -> None:

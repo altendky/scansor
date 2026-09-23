@@ -158,7 +158,11 @@ export function featureVertexIds(nodes, memberships, featureId) {
     seen.add(id);
     const node = byId.get(id);
     if (!node) return;
-    if (node.operation === 'selection' || node.operation === 'growth') {
+    if (
+      node.operation === 'selection' ||
+      node.operation === 'growth' ||
+      node.operation === 'region_selection'
+    ) {
       for (const vertex of memberships[id] || []) vertices.add(vertex);
       return;
     }
@@ -171,6 +175,8 @@ export function featureVertexIds(nodes, memberships, featureId) {
             : []
           : node.operation === 'axis_solve'
             ? node.factors
+          : node.operation === 'selection_region'
+            ? [node.selection]
           : node.operation === 'reference_plane'
             ? [node.axis]
         : node.operation === 'joint_fit'

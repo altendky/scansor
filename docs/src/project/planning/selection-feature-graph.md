@@ -330,7 +330,8 @@ edit-history policy.
 
 ## Reusable fitted selection regions
 
-**Provisional experiment direction, 2026-09-22.** A source-vertex selection can
+**Provisional experiment with a bounded browser slice, 2026-09-23.** A
+source-vertex selection can
 be lifted into a transferable region by combining its fitted analytic surface,
 its bounded surface footprint, and explicit inward/outward offsets. The result is
 a volumetric selection region rather than another source-specific vertex list.
@@ -347,12 +348,21 @@ can supply that frame by owning reference geometry and fitted members while each
 occurrence owns its pose. Whether groups become first-class feature-graph nodes
 and how transferred boundaries behave near missing data remain open.
 
+The browser now implements the first same-source cylinder/plane slice. A
+**Region** action stores a fitted surface footprint, tangential and
+surface-normal margins, source-normal tolerance, and a frame defined by an axis,
+perpendicular axial plane, and axis-parallel clock plane. **Apply** places that
+region in another such frame and resolves a new source-vertex membership usable
+by later fits. Cone regions, automatic target-pose discovery, compound-role
+templates, and application to a different source mesh remain unimplemented.
+
 The exploratory
 [repeated-boss fixture](../../../../examples/repeated-boss-selection/README.md)
 provides four boss occurrences with a shared cross-section, a clocking flat,
 deliberate height and axis-pose variation, independent irregular mesh
 topologies, deterministic deviations/noise/occlusions, and a separately posed
-rescan. Its oracle role selections and coordinate layers are test truth, not
-inputs to a future transfer algorithm. The current browser still consumes only
-its source-bound seed selections; volumetric-region creation and application are
-not yet implemented.
+rescan. Its oracle role selections and coordinate layers remain test truth, not
+algorithm inputs. A transfer test builds the region only from boss A's observed
+outer-cylinder patch and its explicit source/target frames, then uses the hidden
+labels afterward to verify that the resolved boss B vertices belong exclusively
+to the intended outer surface and cover at least 80% of its oracle footprint.

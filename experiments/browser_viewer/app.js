@@ -118,6 +118,7 @@ function factorAxis(node) {
   return null;
 }
 const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
+const selectionOperations = ['selection', 'growth', 'region_selection'];
 const solveInputs = (axis) =>
   graphState.recipe.nodes.filter(
     (node) =>
@@ -136,6 +137,21 @@ function choices(id, nodes, selected = []) {
 }
 function isStandaloneFit(node) {
   return !node.axis && !node.reference_plane;
+}
+function axialDatumPlanes(nodes) {
+  return nodes.filter(
+    (node) =>
+      node.operation === 'reference_plane' &&
+      node.construction === 'perpendicular_to_axis',
+  );
+}
+function clockDatumPlanes(nodes, axis = null) {
+  return nodes.filter(
+    (node) =>
+      node.operation === 'reference_plane' &&
+      ['contains_axis', 'parallel_to_axis'].includes(node.construction) &&
+      (!axis || node.axis === axis),
+  );
 }
 function fitReferenceChoices(id, kind, nodes, selected = '') {
   const references = nodes.filter((node) =>
@@ -158,7 +174,7 @@ function fitReferenceChoices(id, kind, nodes, selected = '') {
     hint.textContent =
       kind === 'plane'
         ? 'An axis makes the fitted plane perpendicular to it. A plane datum fixes its orientation. In either case, observations fit the plane offset.'
-        : 'An axis fixes the fitted surface axis. Choosing a plane datum switches the fit type to Plane and fits an offset with that orientation.';
+        : 'An axis is shared by the fitted surface. Connected fits refine a manually initialized free axis; a fit-initialized axis stays fixed. Choosing a plane datum switches the fit type to Plane.';
 }
 function updateFitKindForReference(kindId, referenceId, nodes = graphState.recipe.nodes) {
   if (graphNode($(referenceId).value)?.operation === 'reference_plane')
@@ -267,7 +283,7 @@ function acceptGraph(state) {
   );
   choices(
     'new-fit-inputs',
-    state.recipe.nodes.filter((n) => ['selection', 'growth'].includes(n.operation)),
+    state.recipe.nodes.filter((n) => selectionOperations.includes(n.operation)),
     [selectedFeatureId],
   );
   const fits = state.recipe.nodes.filter((n) => n.operation === 'fit');
@@ -352,6 +368,8 @@ function showProperties() {
     ['reference-plane-properties', node.operation === 'reference_plane'],
     ['axis-solve-properties', node.operation === 'axis_solve'],
     ['growth-properties', node.operation === 'growth'],
+    ['selection-region-properties', node.operation === 'selection_region'],
+    ['region-selection-properties', node.operation === 'region_selection'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
@@ -364,7 +382,7 @@ function showProperties() {
     $('surface-kind').value = node.kind;
     choices(
       'fit-inputs',
-      earlier.filter((n) => ['selection', 'growth'].includes(n.operation)),
+      earlier.filter((n) => selectionOperations.includes(n.operation)),
       node.selections,
     );
     fitReferenceChoices(
@@ -425,11 +443,50 @@ function showProperties() {
     );
     choices(
       'growth-barriers',
-      earlier.filter((n) => ['selection', 'growth'].includes(n.operation)),
+      earlier.filter((n) => selectionOperations.includes(n.operation)),
       node.barriers,
     );
     $('growth-distance').value = node.distance;
     $('growth-angle').value = node.angle_degrees;
+  } else if (node.operation === 'selection_region') {
+    choices(
+      'selection-region-selection',
+      earlier.filter((n) => selectionOperations.includes(n.operation)),
+      [node.selection],
+    );
+    choices(
+      'selection-region-fit',
+      earlier.filter(
+        (n) =>
+          n.operation === 'fit' &&
+          ['cylinder', 'plane'].includes(n.kind) &&
+          n.selections.includes(node.selection),
+      ),
+      [node.fit],
+    );
+    choices('selection-region-axial', axialDatumPlanes(earlier), [node.axial_plane]);
+    const sourceAxis = graphNode(node.axial_plane)?.axis;
+    choices(
+      'selection-region-clock',
+      clockDatumPlanes(earlier, sourceAxis),
+      [node.clock_plane],
+    );
+    $('selection-region-tangent-margin').value = node.tangent_margin;
+    $('selection-region-normal-margin').value = node.normal_margin;
+    $('selection-region-normal-angle').value = node.normal_angle_degrees;
+  } else if (node.operation === 'region_selection') {
+    choices(
+      'region-selection-region',
+      earlier.filter((n) => n.operation === 'selection_region'),
+      [node.region],
+    );
+    choices('region-selection-axial', axialDatumPlanes(earlier), [node.axial_plane]);
+    const targetAxis = graphNode(node.axial_plane)?.axis;
+    choices(
+      'region-selection-clock',
+      clockDatumPlanes(earlier, targetAxis),
+      [node.clock_plane],
+    );
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
       'constraint-a',
@@ -869,6 +926,13 @@ function showResult() {
     values['Proposed additions'] = result.added_ids.length;
     values['Seed outliers'] = result.rejected_seed_ids.length;
     values['Total vertices'] = result.ids.length;
+  } else if (node.operation === 'selection_region') {
+    values['Surface type'] = result.kind;
+    values['Source vertices'] = result.selected_count;
+    values['Footprint margin'] = result.tangent_margin.toFixed(3);
+    values['Surface-normal margin'] = result.normal_margin.toFixed(3);
+  } else if (node.operation === 'region_selection') {
+    values['Resolved vertices'] = result.vertex_count;
   }
   for (const [label, value] of Object.entries(values)) {
     const dt = document.createElement('dt'),
@@ -1343,7 +1407,7 @@ async function start() {
   $('new-fit').onclick = () => {
     choices(
       'new-fit-inputs',
-      graphState.recipe.nodes.filter((node) => ['selection', 'growth'].includes(node.operation)),
+      graphState.recipe.nodes.filter((node) => selectionOperations.includes(node.operation)),
       [selectedFeatureId],
     );
     fitReferenceChoices(
@@ -1353,6 +1417,81 @@ async function start() {
     );
     showCreateDialog('fit-dialog', 'new-fit-label', 'Surface fit');
   };
+  const regionFits = (selectionId, nodes = graphState.recipe.nodes) =>
+    nodes.filter(
+      (node) =>
+        node.operation === 'fit' &&
+        ['cylinder', 'plane'].includes(node.kind) &&
+        node.selections.includes(selectionId),
+    );
+  const updateNewRegionFitChoices = () =>
+    choices(
+      'new-selection-region-fit',
+      regionFits($('new-selection-region-selection').value),
+    );
+  const updateNewRegionClockChoices = () => {
+    const axis = graphNode($('new-selection-region-axial').value)?.axis;
+    choices('new-selection-region-clock', clockDatumPlanes(graphState.recipe.nodes, axis));
+  };
+  $('new-selection-region').onclick = () => {
+    const selections = graphState.recipe.nodes.filter(
+        (node) => selectionOperations.includes(node.operation),
+      ),
+      fits = graphState.recipe.nodes.filter(
+        (node) => node.operation === 'fit' && ['cylinder', 'plane'].includes(node.kind),
+      ),
+      axial = axialDatumPlanes(graphState.recipe.nodes),
+      clock = clockDatumPlanes(graphState.recipe.nodes);
+    if (!selections.length || !fits.length || !axial.length || !clock.length) {
+      status(
+        'A reusable region needs a fitted selection, a perpendicular axial plane, and an axis-parallel clock plane.',
+        true,
+      );
+      return;
+    }
+    const selectedNode = graphNode(selectedFeatureId),
+      selectedSelection = selectionOperations.includes(selectedNode?.operation)
+        ? selectedNode.id
+        : selectedNode?.operation === 'fit'
+          ? selectedNode.selections[0]
+          : selections[0].id;
+    choices('new-selection-region-selection', selections, [selectedSelection]);
+    updateNewRegionFitChoices();
+    choices('new-selection-region-axial', axial);
+    updateNewRegionClockChoices();
+    $('selection-region-error').textContent = '';
+    showCreateDialog(
+      'selection-region-dialog',
+      'new-selection-region-label',
+      'Selection region',
+    );
+  };
+  $('new-selection-region-selection').onchange = updateNewRegionFitChoices;
+  $('new-selection-region-axial').onchange = updateNewRegionClockChoices;
+  const updateNewAppliedRegionClockChoices = () => {
+    const axis = graphNode($('new-region-selection-axial').value)?.axis;
+    choices('new-region-selection-clock', clockDatumPlanes(graphState.recipe.nodes, axis));
+  };
+  $('new-region-selection').onclick = () => {
+    const regions = graphState.recipe.nodes.filter(
+        (node) => node.operation === 'selection_region',
+      ),
+      axial = axialDatumPlanes(graphState.recipe.nodes);
+    if (!regions.length || !axial.length) {
+      status('Create a reusable region and target datum frame first.', true);
+      return;
+    }
+    choices('new-region-selection-region', regions, [selectedFeatureId]);
+    choices('new-region-selection-axial', axial);
+    updateNewAppliedRegionClockChoices();
+    $('region-selection-error').textContent = '';
+    showCreateDialog(
+      'region-selection-dialog',
+      'new-region-selection-label',
+      'Applied selection',
+    );
+  };
+  $('new-region-selection-axial').onchange = updateNewAppliedRegionClockChoices;
   const updateAxisSolveFactors = () => {
     const axis = $('new-axis-solve-axis').value;
     const inputs = solveInputs(axis);
@@ -1527,6 +1666,85 @@ async function start() {
   $('axis-solve-axis').onchange = () => {
     const axis = $('axis-solve-axis').value;
     choices('axis-solve-factors', solveInputs(axis));
+  };
+  $('selection-region-selection').onchange = () =>
+    choices(
+      'selection-region-fit',
+      regionFits(
+        $('selection-region-selection').value,
+        graphState.recipe.nodes.slice(
+          0,
+          graphState.recipe.nodes.indexOf(graphNode(selectedFeatureId)),
+        ),
+      ),
+    );
+  $('selection-region-axial').onchange = () =>
+    choices(
+      'selection-region-clock',
+      clockDatumPlanes(
+        graphState.recipe.nodes,
+        graphNode($('selection-region-axial').value)?.axis,
+      ),
+    );
+  $('region-selection-axial').onchange = () =>
+    choices(
+      'region-selection-clock',
+      clockDatumPlanes(
+        graphState.recipe.nodes,
+        graphNode($('region-selection-axial').value)?.axis,
+      ),
+    );
+  $('add-selection-region-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const fit = $('new-selection-region-fit').value,
+      axial = $('new-selection-region-axial').value,
+      clock = $('new-selection-region-clock').value;
+    if (!fit || !axial || !clock) {
+      $('selection-region-error').textContent =
+        'Choose a compatible fit and both planes of the source datum frame.';
+      return;
+    }
+    const saved = await appendActions([
+      {
+        id: uid('selection_region'),
+        label: submittedFeatureLabel('new-selection-region-label'),
+        operation: 'selection_region',
+        selection: $('new-selection-region-selection').value,
+        fit,
+        axial_plane: axial,
+        clock_plane: clock,
+        tangent_margin: Number($('new-selection-region-tangent-margin').value),
+        normal_margin: Number($('new-selection-region-normal-margin').value),
+        normal_angle_degrees: Number($('new-selection-region-normal-angle').value),
+      },
+    ]);
+    if (saved) $('selection-region-dialog').close();
+    else $('selection-region-error').textContent = $('status').textContent;
+  };
+  $('add-region-selection-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const region = $('new-region-selection-region').value,
+      axial = $('new-region-selection-axial').value,
+      clock = $('new-region-selection-clock').value;
+    if (!region || !axial || !clock) {
+      $('region-selection-error').textContent =
+        'Choose a reusable region and both planes of the target datum frame.';
+      return;
+    }
+    const source = graphState.recipe.nodes.find((node) => node.operation === 'source');
+    const saved = await appendActions([
+      {
+        id: uid('region_selection'),
+        label: submittedFeatureLabel('new-region-selection-label'),
+        operation: 'region_selection',
+        region,
+        source: source.id,
+        axial_plane: axial,
+        clock_plane: clock,
+      },
+    ]);
+    if (saved) $('region-selection-dialog').close();
+    else $('region-selection-error').textContent = $('status').textContent;
   };
   $('add-axis-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -1820,6 +2038,20 @@ async function start() {
       node.barriers = chosen('growth-barriers');
       node.distance = Number($('growth-distance').value);
       node.angle_degrees = Number($('growth-angle').value);
+    }
+    if (node.operation === 'selection_region') {
+      node.selection = $('selection-region-selection').value;
+      node.fit = $('selection-region-fit').value;
+      node.axial_plane = $('selection-region-axial').value;
+      node.clock_plane = $('selection-region-clock').value;
+      node.tangent_margin = Number($('selection-region-tangent-margin').value);
+      node.normal_margin = Number($('selection-region-normal-margin').value);
+      node.normal_angle_degrees = Number($('selection-region-normal-angle').value);
+    }
+    if (node.operation === 'region_selection') {
+      node.region = $('region-selection-region').value;
+      node.axial_plane = $('region-selection-axial').value;
+      node.clock_plane = $('region-selection-clock').value;
     }
     if (node.operation === 'coaxial') {
       node.surface = $('constraint-a').value;

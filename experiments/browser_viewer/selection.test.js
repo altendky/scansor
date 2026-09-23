@@ -133,8 +133,24 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
     },
     { id: 'constraint', operation: 'perpendicular', lateral: 'side', plane: 'plane' },
     { id: 'joint', operation: 'joint_fit', constraints: ['constraint'] },
+    {
+      id: 'region',
+      operation: 'selection_region',
+      selection: 'a',
+      fit: 'side-factor',
+      axial_plane: 'mirror-plane',
+      clock_plane: 'mirror-plane',
+    },
+    {
+      id: 'applied',
+      operation: 'region_selection',
+      region: 'region',
+      source: 'source',
+      axial_plane: 'mirror-plane',
+      clock_plane: 'mirror-plane',
+    },
   ];
-  const memberships = { a: [1, 2], b: [8], grown: [2, 3] };
+  const memberships = { a: [1, 2], b: [8], grown: [2, 3], applied: [20, 21] };
   assert.deepEqual(featureVertexIds(nodes, memberships, 'grown'), [2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'side'), [1, 2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'constraint'), [1, 2, 3, 8]);
@@ -147,6 +163,8 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, memberships, 'mirror'), [1, 2, 8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'parallel'), [8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'equal'), [1, 2, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'region'), [1, 2]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'applied'), [20, 21]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 

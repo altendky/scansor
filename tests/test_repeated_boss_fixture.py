@@ -18,6 +18,7 @@ from experiments.repeated_boss_fixture import (
     sensor_offsets,
 )
 from experiments.run_nozzle_cylinder import load_example
+from experiments.selection_region import apply_selection_region, build_selection_region
 from scansor.selection_bundle import SelectionBundle
 
 DEFINITION = Path("examples/repeated-boss-selection/fixture.json")
@@ -210,6 +211,74 @@ def test_role_regions_transfer_across_occurrences_and_topologies(
                 )
         first_ids[realization] = oracle.selections[0].vertex_ids
     assert len(set(first_ids.values())) == 3
+
+
+def test_fitted_outer_region_selects_the_same_role_on_another_boss(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fixture"
+    _ = publish_fixture(root, DEFINITION)
+    example = root / "scan-coarse"
+    workspace = NozzleWorkspace(example)
+    selections = SelectionBundle.model_validate_json(
+        (example / "selections/user-selection-bundle.json").read_bytes()
+    )
+    oracle = SelectionBundle.model_validate_json(
+        (example / "selections/oracle-selection-bundle.json").read_bytes()
+    )
+    source_ids = np.asarray(
+        next(
+            item.vertex_ids
+            for item in selections.selections
+            if item.label == "boss-a outer"
+        )
+    )
+    truth = json.loads((example / "truth/occurrences.json").read_text())["occurrences"]
+    source_rotation = np.asarray(truth[0]["local_to_part_rotation"], dtype=float)
+    source_origin = np.asarray(truth[0]["center_part_mm"], dtype=float)
+    source_local = (workspace.local[source_ids] - source_origin) @ source_rotation
+    fitted_radius = float(np.median(np.linalg.norm(source_local[:, :2], axis=1)))
+    region = build_selection_region(
+        workspace.local[source_ids],
+        (workspace.data.normals @ workspace.frame)[source_ids],
+        {
+            "kind": "cylinder",
+            "parameters": [0.0, 0.0, 0.0, 0.0, fitted_radius, 0.0, 0.0],
+        },
+        source_origin,
+        source_rotation,
+        tangent_margin=0.55,
+        normal_margin=0.35,
+        normal_angle_degrees=25.0,
+    )
+    target_rotation = np.asarray(truth[1]["local_to_part_rotation"], dtype=float)
+    target_origin = np.asarray(truth[1]["center_part_mm"], dtype=float)
+    transferred = set(
+        apply_selection_region(
+            workspace.local,
+            workspace.data.normals @ workspace.frame,
+            workspace.data.weights,
+            region,
+            target_origin,
+            target_rotation,
+        )
+    )
+    expected = set(
+        next(
+            item.vertex_ids
+            for item in oracle.selections
+            if item.label == "boss-b outer"
+        )
+    )
+    occurrence_codes = np.load(
+        example / "truth/occurrence-code.npy", allow_pickle=False
+    )
+    role_codes = np.load(example / "truth/role-code.npy", allow_pickle=False)
+
+    assert transferred
+    assert all(occurrence_codes[index] == 2 for index in transferred)
+    assert all(role_codes[index] == ROLE_CODES["outer"] for index in transferred)
+    assert len(transferred & expected) / len(expected) >= 0.8
 
 
 def test_coarse_and_fine_reuse_noise_at_shared_surface_coordinates() -> None:

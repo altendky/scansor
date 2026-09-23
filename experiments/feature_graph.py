@@ -26,6 +26,11 @@ from experiments.nozzle_session import (
     VertexId,
 )
 from experiments.selection_growth import connected_growth, fit_seed
+from experiments.selection_region import (
+    apply_selection_region,
+    build_selection_region,
+    datum_frame,
+)
 
 
 class Record(BaseModel):
@@ -75,6 +80,29 @@ class Growth(Node):
     barriers: list[str] = Field(default_factory=list, max_length=99)
     distance: float = Field(gt=0, allow_inf_nan=False)
     angle_degrees: float = Field(gt=0, le=90, allow_inf_nan=False)
+
+
+class SelectionRegion(Node):
+    """A fitted selection lifted into a reusable surface-following volume."""
+
+    operation: Literal["selection_region"]
+    selection: str
+    fit: str
+    axial_plane: str
+    clock_plane: str
+    tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
+    normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+    normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
+
+
+class RegionSelection(Node):
+    """Source membership resolved by placing an earlier reusable region."""
+
+    operation: Literal["region_selection"]
+    region: str
+    source: str
+    axial_plane: str
+    clock_plane: str
 
 
 class Perpendicular(Node):
@@ -217,6 +245,8 @@ Feature = Annotated[
     | Selection
     | SurfaceFit
     | Growth
+    | SelectionRegion
+    | RegionSelection
     | Perpendicular
     | Coaxial
     | RotationalSymmetry
@@ -298,6 +328,10 @@ def dependencies(node: Feature) -> list[str]:
         return [*node.selections, *((reference,) if reference is not None else ())]
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
+    if isinstance(node, SelectionRegion):
+        return [node.selection, node.fit, node.axial_plane, node.clock_plane]
+    if isinstance(node, RegionSelection):
+        return [node.region, node.source, node.axial_plane, node.clock_plane]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
@@ -357,19 +391,37 @@ def automatic_axis_components(
             continue
         members = {
             axis.id,
-            *(
-                node.id
-                for node in nodes.values()
-                if isinstance(node, PlaneDefinition) and node.axis == axis.id
-            ),
+            *(factor.reference_plane for factor in factors if factor.reference_plane),
             *(factor.id for factor in factors),
         }
         components[axis.id] = (factors, members)
     return components
 
 
+def selection_frame_axis(
+    axial_plane_id: str, clock_plane_id: str, nodes: dict[str, Feature]
+) -> str:
+    axial_plane = nodes[axial_plane_id]
+    clock_plane = nodes[clock_plane_id]
+    if (
+        not isinstance(axial_plane, PlaneDefinition)
+        or axial_plane.construction != "perpendicular_to_axis"
+    ):
+        raise ValueError("a selection frame requires a perpendicular axial plane")
+    if not isinstance(clock_plane, PlaneDefinition) or clock_plane.construction not in (
+        "contains_axis",
+        "parallel_to_axis",
+    ):
+        raise ValueError("a selection frame requires an axis-parallel clock plane")
+    if axial_plane.axis != clock_plane.axis:
+        raise ValueError("selection-frame planes must reference the same axis")
+    return axial_plane.axis
+
+
 def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, Selection):
+        return node.source
+    if isinstance(node, RegionSelection):
         return node.source
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
@@ -716,6 +768,22 @@ class FeatureGraph:
                     raise ValueError(
                         "plane-bound fit requires an explicit reference plane"
                     )
+                for selection_id in node.selections:
+                    applied = nodes[selection_id]
+                    if not isinstance(applied, RegionSelection):
+                        continue
+                    target_axis = selection_frame_axis(
+                        applied.axial_plane, applied.clock_plane, nodes
+                    )
+                    axis = nodes[target_axis]
+                    if (
+                        fit_axis(node, nodes) == target_axis
+                        and isinstance(axis, AxisDefinition)
+                        and axis.source_fit is None
+                    ):
+                        raise ValueError(
+                            "fit an applied region standalone before using it to initialize its target axis"
+                        )
             elif isinstance(node, Growth):
                 fitted = nodes[node.seed_fit]
                 if not isinstance(fitted, SurfaceFit) or not is_standalone_fit(fitted):
@@ -724,6 +792,43 @@ class FeatureGraph:
                 for barrier in node.barriers:
                     if selection_source(nodes[barrier], nodes) != source:
                         raise ValueError("growth barrier belongs to another source")
+            elif isinstance(node, SelectionRegion):
+                selected = nodes[node.selection]
+                fitted = nodes[node.fit]
+                if not isinstance(selected, (Selection, Growth, RegionSelection)):
+                    raise ValueError("a reusable region requires an earlier selection")
+                if (
+                    not isinstance(fitted, SurfaceFit)
+                    or fitted.kind not in ("cylinder", "plane")
+                    or node.selection not in fitted.selections
+                ):
+                    raise ValueError(
+                        "a reusable region requires a cylinder or plane fit using its selection"
+                    )
+                axis_id = selection_frame_axis(
+                    node.axial_plane, node.clock_plane, nodes
+                )
+                if fitted.kind == "cylinder" and fit_axis(fitted, nodes) != axis_id:
+                    raise ValueError(
+                        "a cylinder selection region must use its datum-frame axis"
+                    )
+                if selection_source(selected, nodes) != selection_source(
+                    nodes[fitted.selections[0]], nodes
+                ):
+                    raise ValueError("selection region inputs must share one source")
+            elif isinstance(node, RegionSelection):
+                region = nodes[node.region]
+                source = nodes[node.source]
+                if not isinstance(region, SelectionRegion):
+                    raise ValueError("region application requires a reusable region")
+                if not isinstance(source, Source):
+                    raise ValueError("region application requires a source mesh")
+                _ = selection_frame_axis(node.axial_plane, node.clock_plane, nodes)
+                region_source = selection_source(nodes[region.selection], nodes)
+                if node.source != region_source:
+                    raise ValueError(
+                        "region application currently requires the region's source mesh"
+                    )
             elif isinstance(node, Perpendicular):
                 lateral, plane = nodes[node.lateral], nodes[node.plane]
                 if (
@@ -980,8 +1085,13 @@ class FeatureGraph:
                 condition = solve["fit"]["normal_matrix_condition"]
                 for fit_id, surface in solve.get("surfaces", {}).items():
                     resolved[fit_id] = {**deepcopy(surface), "condition": condition}
-                for plane_id, plane in solve.get("reference_planes", {}).items():
-                    resolved[plane_id] = deepcopy(plane)
+                solved_planes = solve.get("reference_planes", {})
+                for node in self._recipe.nodes:
+                    if isinstance(node, PlaneDefinition) and node.axis == axis_id:
+                        resolved[node.id] = deepcopy(
+                            solved_planes.get(node.id)
+                            or reference_plane_result(axis, node)
+                        )
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -996,7 +1106,7 @@ class FeatureGraph:
                     if isinstance(n, Selection)
                     else deepcopy(self._derived.get(n.id, {}).get("ids"))
                     for n in self._recipe.nodes
-                    if isinstance(n, (Selection, Growth))
+                    if isinstance(n, (Selection, Growth, RegionSelection))
                 },
             }
 
@@ -1088,6 +1198,8 @@ class FeatureGraph:
                         JointFit,
                         SurfaceFit,
                         Growth,
+                        SelectionRegion,
+                        RegionSelection,
                         Selection,
                         Source,
                         AxisDefinition,
@@ -1096,20 +1208,26 @@ class FeatureGraph:
                     ),
                 ):
                     raise ValueError(
-                        "evaluation target must be a source, selection, fit, axis, plane, solve, or growth action"
+                        "evaluation target must be a source, selection, region, fit, axis, plane, solve, or growth action"
                     )
                 needed = {target}
-                for _, members in connected_components.values():
-                    if target in members:
-                        needed.update(members)
                 while True:
                     expanded = needed | {
                         dep for key in needed for dep in dependencies(nodes[key])
                     }
+                    for _, members in connected_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
                     if expanded == needed:
                         break
                     needed = expanded
                 order = tuple(n.id for n in recipe.nodes if n.id in needed)
+
+        requested_explicit_solve_axes = {
+            cast(AxisSolve, nodes[key]).axis
+            for key in order
+            if isinstance(nodes[key], AxisSolve)
+        }
 
         def membership(selection_id: str) -> list[int]:
             selection = nodes[selection_id]
@@ -1124,6 +1242,53 @@ class FeatureGraph:
             with self.lock:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during evaluation")
+                return deepcopy(self._derived[node_id])
+
+        def resolved_result(node_id: str) -> dict[str, Any]:
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                node = nodes[node_id]
+                axis_id = (
+                    node.id
+                    if isinstance(node, AxisDefinition)
+                    else node.axis
+                    if isinstance(node, PlaneDefinition)
+                    else fit_axis(node, nodes)
+                    if isinstance(node, SurfaceFit)
+                    else None
+                )
+                solve = self._connected_solves.get(axis_id or "")
+                if solve is None:
+                    return deepcopy(self._derived[node_id])
+                if isinstance(node, AxisDefinition):
+                    value = deepcopy(self._derived[node_id])
+                    value.update(
+                        {
+                            "parameters": solve["fit"]["parameters"],
+                            "axis_display": solve["axis_display"],
+                            "point_display": solve["point_display"],
+                            "resolved_by": "connected_fits",
+                        }
+                    )
+                    return value
+                if isinstance(node, PlaneDefinition):
+                    solved_plane = solve.get("reference_planes", {}).get(node_id)
+                    if solved_plane is not None:
+                        return deepcopy(solved_plane)
+                    axis_value = deepcopy(self._derived[node.axis])
+                    axis_value.update(
+                        {
+                            "parameters": solve["fit"]["parameters"],
+                            "axis_display": solve["axis_display"],
+                            "point_display": solve["point_display"],
+                        }
+                    )
+                    return reference_plane_result(axis_value, node)
+                if isinstance(node, SurfaceFit):
+                    surface = solve.get("surfaces", {}).get(node_id)
+                    if surface is not None:
+                        return deepcopy(surface)
                 return deepcopy(self._derived[node_id])
 
         def fitted_ids(surface: SurfaceFit) -> list[int]:
@@ -1191,6 +1356,51 @@ class FeatureGraph:
                 reference_plane_groups=reference_plane_groups,
             )
 
+        def resolve_completed_components(completed: set[str]) -> None:
+            explicit_solve_axes = {
+                cast(AxisSolve, nodes[key]).axis
+                for key in completed
+                if isinstance(nodes[key], AxisSolve)
+            }
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                for axis_id in explicit_solve_axes:
+                    _ = self._connected_solves.pop(axis_id, None)
+            for axis_id, (factors, members) in connected_components.items():
+                if axis_id in requested_explicit_solve_axes or not members <= completed:
+                    continue
+                with self.lock:
+                    if axis_id in self._connected_solves:
+                        continue
+                try:
+                    connected = solve_connected_axis(axis_id, factors)
+                except Exception as error:
+                    with self.lock:
+                        if epoch == self._epoch:
+                            for member in members:
+                                self._states[member] = "failed"
+                                self._errors[member] = str(error)
+                            if isinstance(error, SelectionOverlap):
+                                self._diagnostics[axis_id] = error.diagnostic
+                            else:
+                                _ = self._diagnostics.pop(axis_id, None)
+                            _ = self._connected_solves.pop(axis_id, None)
+                    raise
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during connected solve; result discarded"
+                        )
+                    self._connected_solves[axis_id] = connected
+                    for member in members:
+                        self._states[member] = "ready"
+                        _ = self._errors.pop(member, None)
+                    _ = self._diagnostics.pop(axis_id, None)
+
+        with self.lock:
+            completed = {key for key, state in self._states.items() if state == "ready"}
+        resolve_completed_components(completed)
         for key in order:
             node = nodes[key]
             with self.lock:
@@ -1280,6 +1490,57 @@ class FeatureGraph:
                         node.distance,
                         node.angle_degrees,
                     )
+                elif isinstance(node, SelectionRegion):
+                    axis_id = selection_frame_axis(
+                        node.axial_plane, node.clock_plane, nodes
+                    )
+                    origin, rotation = datum_frame(
+                        resolved_result(axis_id),
+                        resolved_result(node.axial_plane),
+                        resolved_result(node.clock_plane),
+                    )
+                    ids = membership(node.selection)
+                    derived = build_selection_region(
+                        self.workspace.local[ids],
+                        self.workspace.data.normals[ids] @ self.workspace.frame,
+                        resolved_result(node.fit),
+                        origin,
+                        rotation,
+                        tangent_margin=node.tangent_margin,
+                        normal_margin=node.normal_margin,
+                        normal_angle_degrees=node.normal_angle_degrees,
+                    )
+                    derived.update(
+                        {
+                            "selection": node.selection,
+                            "fit": node.fit,
+                            "source": selection_source(nodes[node.selection], nodes),
+                        }
+                    )
+                elif isinstance(node, RegionSelection):
+                    axis_id = selection_frame_axis(
+                        node.axial_plane, node.clock_plane, nodes
+                    )
+                    origin, rotation = datum_frame(
+                        resolved_result(axis_id),
+                        resolved_result(node.axial_plane),
+                        resolved_result(node.clock_plane),
+                    )
+                    region = derived_result(node.region)
+                    ids = apply_selection_region(
+                        self.workspace.local,
+                        self.workspace.data.normals @ self.workspace.frame,
+                        self.workspace.data.weights,
+                        region,
+                        origin,
+                        rotation,
+                    )
+                    derived = {
+                        "ids": ids,
+                        "region": node.region,
+                        "source": node.source,
+                        "vertex_count": len(ids),
+                    }
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]
                     fitted_factors = [
@@ -1455,44 +1716,9 @@ class FeatureGraph:
                     self._results[key] = result
                 if derived is not None:
                     self._derived[key] = derived
-        evaluated = set(order)
-        explicit_solve_axes = {
-            cast(AxisSolve, nodes[key]).axis
-            for key in evaluated
-            if isinstance(nodes[key], AxisSolve)
-        }
-        with self.lock:
-            if epoch != self._epoch:
-                raise StaleGraph("graph changed during evaluation")
-            for axis_id in explicit_solve_axes:
-                _ = self._connected_solves.pop(axis_id, None)
-        for axis_id, (factors, members) in connected_components.items():
-            if axis_id in explicit_solve_axes or not members <= evaluated:
-                continue
-            try:
-                connected = solve_connected_axis(axis_id, factors)
-            except Exception as error:
-                with self.lock:
-                    if epoch == self._epoch:
-                        for member in members:
-                            self._states[member] = "failed"
-                            self._errors[member] = str(error)
-                        if isinstance(error, SelectionOverlap):
-                            self._diagnostics[axis_id] = error.diagnostic
-                        else:
-                            _ = self._diagnostics.pop(axis_id, None)
-                        _ = self._connected_solves.pop(axis_id, None)
-                raise
-            with self.lock:
-                if epoch != self._epoch:
-                    raise StaleGraph(
-                        "graph changed during connected solve; result discarded"
-                    )
-                self._connected_solves[axis_id] = connected
-                for member in members:
-                    self._states[member] = "ready"
-                    _ = self._errors.pop(member, None)
-                _ = self._diagnostics.pop(axis_id, None)
+            completed.add(key)
+            resolve_completed_components(completed)
+        resolve_completed_components(completed)
         return self.snapshot()
 
 

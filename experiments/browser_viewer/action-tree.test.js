@@ -99,3 +99,33 @@ assert.deepEqual(nodeReferences(equal), ['fit', 'other-fit', 'mirror-plane']);
 assert.equal(actionDescription(mirror, 'unevaluated'), 'Mirror relationship · Defined');
 assert.equal(actionDescription(parallel, 'stale'), 'Parallel relationship · Defined');
 assert.equal(actionDescription(equal, 'ready'), 'Numeric equality · Defined');
+
+const region = {
+  id: 'region',
+  label: 'Reusable region',
+  operation: 'selection_region',
+  selection: 'a',
+  fit: 'fit',
+  axial_plane: 'axial',
+  clock_plane: 'clock',
+};
+const applied = {
+  id: 'applied',
+  label: 'Applied selection',
+  operation: 'region_selection',
+  region: 'region',
+  source: 'source',
+  axial_plane: 'target-axial',
+  clock_plane: 'target-clock',
+};
+assert.deepEqual(nodeReferences(region), ['a', 'fit', 'axial', 'clock']);
+assert.deepEqual(nodeReferences(applied), [
+  'region',
+  'source',
+  'target-axial',
+  'target-clock',
+]);
+assert.equal(
+  actionDescription(region, 'ready'),
+  'Reusable selection region · Ready',
+);

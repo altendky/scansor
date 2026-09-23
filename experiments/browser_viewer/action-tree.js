@@ -9,6 +9,8 @@ const paths = {
   reference_plane: 'm3 15 6-9 12 3-6 9ZM12 3v18',
   axis_solve: 'M3 12h18M7 7l-4 5 4 5m10-10 4 5-4 5M12 3v18',
   growth: 'M12 3v18M3 12h18m-12-6 3-3 3 3m-9 3-3 3 3 3m3 3 3 3 3-3m3-9 3 3-3 3',
+  selection_region: 'M4 6c0-3 16-3 16 0v12c0 3-16 3-16 0Zm0 0c0 3 16 3 16 0m-8-3v18',
+  region_selection: 'M4 7h10M9 3l5 4-5 4m11 2v7H4v-7',
   coaxial: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
   perpendicular: 'M6 3v15h15M6 13h5v5',
   rotational_symmetry: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5M12 8v4l3 2',
@@ -31,6 +33,8 @@ const operations = {
   reference_plane: 'Reference plane',
   axis_solve: 'Joint',
   growth: 'Selection growth',
+  selection_region: 'Reusable selection region',
+  region_selection: 'Applied region selection',
   coaxial: 'Coaxial constraint',
   perpendicular: 'Perpendicular constraint',
   rotational_symmetry: 'Rotational symmetry',
@@ -64,6 +68,10 @@ export function nodeReferences(node) {
   if (node.operation === 'reference_plane') return [node.axis];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];
+  if (node.operation === 'selection_region')
+    return [node.selection, node.fit, node.axial_plane, node.clock_plane];
+  if (node.operation === 'region_selection')
+    return [node.region, node.source, node.axial_plane, node.clock_plane];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];
