@@ -4,13 +4,21 @@ import {
   actionMove,
   discoverReuseLineage,
   nodeReferences,
+  reconcileFeatureReuse,
 } from './action-tree.js';
 
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const a = { id: 'a', label: 'Side', operation: 'selection', source: 'source' };
 const b = { id: 'b', label: 'End', operation: 'selection', source: 'source' };
 const c = { id: 'c', label: 'Other end', operation: 'selection', source: 'source' };
-const fit = { id: 'fit', label: 'Cylinder', operation: 'fit', selections: ['a'] };
+const fit = {
+  id: 'fit',
+  label: 'Cylinder',
+  operation: 'fit',
+  selections: ['a'],
+  kind: 'cylinder',
+  axial_domain: [-2, 5],
+};
 const nodes = [source, a, b, fit];
 const ids = (result) => result.nodes.map((node) => node.id);
 
@@ -164,3 +172,75 @@ assert.deepEqual(discoverReuseLineage([source, a, b, fit], ['fit']), [
   'fit',
 ]);
 assert.equal(actionDescription(reuse, 'ready'), 'Feature reuse · Ready');
+
+const editableReuseNodes = [
+  source,
+  a,
+  b,
+  fit,
+  reuse,
+  reusedSelection,
+  {
+    id: 'reused-fit',
+    label: 'Cylinder at End',
+    operation: 'fit',
+    selections: ['reused-selection'],
+    kind: 'cylinder',
+    axial_domain: [-2, 5],
+  },
+  c,
+];
+let sequence = 0;
+const reconciled = reconcileFeatureReuse(
+  editableReuseNodes,
+  'reuse',
+  { target_selections: ['b', 'c'] },
+  (prefix) => `${prefix}-new-${++sequence}`,
+);
+assert.equal(reconciled.error, undefined);
+assert.equal(
+  reconciled.nodes.filter((node) => node.operation === 'reuse_selection').length,
+  2,
+);
+assert.deepEqual(
+  reconciled.nodes
+    .filter((node) => node.operation === 'reuse_selection')
+    .map((node) => node.target_selection),
+  ['b', 'c'],
+);
+assert.equal(
+  reconciled.nodes.find((node) => node.id === 'reuse').lineage.join(','),
+  'source,a,fit',
+);
+assert.ok(
+  reconciled.nodes.findIndex((node) => node.id === 'c') <
+    reconciled.nodes.findIndex((node) => node.id === 'reuse'),
+);
+const reduced = reconcileFeatureReuse(
+  reconciled.nodes,
+  'reuse',
+  { target_selections: ['c'] },
+  (prefix) => `${prefix}-unused`,
+);
+assert.equal(reduced.error, undefined);
+assert.deepEqual(
+  reduced.nodes
+    .filter((node) => node.operation === 'reuse_selection')
+    .map((node) => node.target_selection),
+  ['c'],
+);
+const blocked = reconcileFeatureReuse(
+  [
+    ...editableReuseNodes,
+    {
+      id: 'dependent-axis',
+      label: 'Dependent axis',
+      operation: 'axis',
+      source_fit: 'reused-fit',
+    },
+  ],
+  'reuse',
+  { target_selections: ['c'] },
+  (prefix) => `${prefix}-blocked`,
+);
+assert.match(blocked.error, /Dependent axis/);

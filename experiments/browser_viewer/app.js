@@ -2,6 +2,7 @@ import {
   actionDescription,
   discoverReuseLineage,
   nodeReferences as refs,
+  reconcileFeatureReuse,
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
@@ -495,24 +496,49 @@ function showProperties() {
       [node.clock_plane],
     );
   } else if (node.operation === 'feature_reuse') {
+    const ownedSelections = new Set(
+        graphState.recipe.nodes
+          .filter(
+            (candidate) =>
+              candidate.operation === 'reuse_selection' && candidate.reuse === node.id,
+          )
+          .map((candidate) => candidate.id),
+      ),
+      owned = new Set([
+        ...ownedSelections,
+        ...graphState.recipe.nodes
+          .filter(
+            (candidate) =>
+              candidate.operation === 'fit' &&
+              candidate.selections.length > 0 &&
+              candidate.selections.every((id) => ownedSelections.has(id)),
+          )
+          .map((candidate) => candidate.id),
+      ]),
+      available = graphState.recipe.nodes.filter(
+        (candidate) => candidate.id !== node.id && !owned.has(candidate.id),
+      );
     choices(
       'feature-reuse-fits',
-      earlier.filter((candidate) => candidate.operation === 'fit'),
+      available.filter(
+        (candidate) =>
+          candidate.operation === 'fit' && ['cylinder', 'plane'].includes(candidate.kind),
+      ),
       node.fits,
     );
     choices(
       'feature-reuse-reference',
-      earlier.filter((candidate) => selectionOperations.includes(candidate.operation)),
+      available.filter((candidate) => selectionOperations.includes(candidate.operation)),
       [node.reference_selection],
     );
     choices(
       'feature-reuse-target',
-      earlier.filter((candidate) => selectionOperations.includes(candidate.operation)),
+      available.filter((candidate) => selectionOperations.includes(candidate.operation)),
       node.target_selections,
     );
     $('feature-reuse-tangent-margin').value = node.tangent_margin;
     $('feature-reuse-normal-margin').value = node.normal_margin;
-    $('feature-reuse-normal-angle').value = `${node.normal_angle_degrees}°`;
+    $('feature-reuse-normal-angle').value = node.normal_angle_degrees;
   } else if (node.operation === 'reuse_selection') {
     choices(
       'reuse-selection-reuse',
@@ -2200,6 +2226,30 @@ async function start() {
       node.region = $('region-selection-region').value;
       node.axial_plane = $('region-selection-axial').value;
       node.clock_plane = $('region-selection-clock').value;
+    }
+    if (node.operation === 'feature_reuse') {
+      const reconciled = reconcileFeatureReuse(
+        recipe.nodes,
+        node.id,
+        {
+          label: node.label,
+          fits: chosen('feature-reuse-fits'),
+          reference_selection: $('feature-reuse-reference').value,
+          target_selections: chosen('feature-reuse-target'),
+          tangent_margin: Number($('feature-reuse-tangent-margin').value),
+          normal_margin: Number($('feature-reuse-normal-margin').value),
+          normal_angle_degrees: Number($('feature-reuse-normal-angle').value),
+        },
+        uid,
+      );
+      if (reconciled.error) {
+        status(reconciled.error, true);
+        return;
+      }
+      recipe.nodes = reconciled.nodes;
+      if (reconciled.removedIds.includes(recipe.output)) recipe.output = node.id;
+      await replaceRecipe(recipe);
+      return;
     }
     if (node.operation === 'coaxial') {
       node.surface = $('constraint-a').value;

@@ -1,3 +1,5 @@
+import { uniqueFeatureLabel } from './feature-names.js';
+
 // Small, locally drawn SVG symbols; no icon font or network assets required.
 const paths = {
   source: 'M12 2 3 7v10l9 5 9-5V7Zm0 10L3 7m9 5 9-5m-9 5v10',
@@ -151,6 +153,138 @@ export function discoverReuseLineage(nodes, fitIds) {
     while (addUpstream()) changed = true;
   }
   return nodes.filter((node) => closure.has(node.id)).map((node) => node.id);
+}
+
+export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
+  const next = structuredClone(nodes),
+    reuse = next.find((node) => node.id === reuseId);
+  if (reuse?.operation !== 'feature_reuse')
+    return { error: 'This feature reuse action is no longer available.' };
+  Object.assign(reuse, patch);
+  if (!reuse.fits.length || !reuse.target_selections.length)
+    return { error: 'Choose at least one fit and one target selection.' };
+  if (reuse.target_selections.includes(reuse.reference_selection))
+    return { error: 'The reference selection cannot also be a target.' };
+  reuse.lineage = discoverReuseLineage(next, reuse.fits);
+
+  const desired = new Set(
+      reuse.target_selections.flatMap((target) => reuse.fits.map((fit) => `${target}\0${fit}`)),
+    ),
+    children = next.filter(
+      (node) => node.operation === 'reuse_selection' && node.reuse === reuseId,
+    ),
+    groups = new Map();
+  for (const child of children) {
+    const key = `${child.target_selection}\0${child.fit}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(child);
+  }
+
+  const removeIds = new Set(),
+    ownedIds = new Set(children.map((node) => node.id)),
+    retained = new Set();
+  for (const [key, group] of groups) {
+    const [, fitId] = key.split('\0'),
+      sourceFit = next.find((node) => node.id === fitId),
+      expectedSelections = new Set(sourceFit?.selections || []),
+      actualSelections = new Set(group.map((node) => node.source_selection)),
+      complete =
+        expectedSelections.size === actualSelections.size &&
+        [...expectedSelections].every((id) => actualSelections.has(id)),
+      childIds = new Set(group.map((node) => node.id)),
+      copiedFits = next.filter(
+        (node) =>
+          node.operation === 'fit' &&
+          node.selections.length === childIds.size &&
+          node.selections.every((id) => childIds.has(id)),
+      ),
+      copiedFit = copiedFits[0];
+    if (copiedFit) ownedIds.add(copiedFit.id);
+    if (desired.has(key) && complete && copiedFit) {
+      retained.add(key);
+      continue;
+    }
+    if (!copiedFit)
+      return {
+        error: 'The generated outputs were edited, so this reuse action cannot be restructured safely.',
+      };
+    group.forEach((node) => removeIds.add(node.id));
+    removeIds.add(copiedFit.id);
+  }
+  const blocking = next.find(
+    (node) =>
+      !removeIds.has(node.id) &&
+      node.id !== reuseId &&
+      nodeReferences(node).some((id) => removeIds.has(id)),
+  );
+  if (blocking)
+    return { error: `Cannot remove generated outputs used by ${blocking.label}.` };
+
+  let working = next.filter((node) => !removeIds.has(node.id));
+  const generated = [];
+  for (const targetId of reuse.target_selections) {
+    const target = working.find((node) => node.id === targetId);
+    for (const fitId of reuse.fits) {
+      const key = `${targetId}\0${fitId}`;
+      if (retained.has(key)) continue;
+      const sourceFit = working.find((node) => node.id === fitId),
+        generatedSelections = [];
+      for (const sourceSelectionId of sourceFit.selections) {
+        const sourceSelection = working.find((node) => node.id === sourceSelectionId),
+          selection = {
+            id: makeId('reuse_selection'),
+            label: uniqueFeatureLabel(
+              `${sourceSelection.label} at ${target.label}`,
+              [...working, ...generated],
+            ),
+            operation: 'reuse_selection',
+            reuse: reuse.id,
+            fit: fitId,
+            source_selection: sourceSelectionId,
+            target_selection: targetId,
+          };
+        generated.push(selection);
+        generatedSelections.push(selection.id);
+      }
+      generated.push({
+        id: makeId('fit'),
+        label: uniqueFeatureLabel(
+          `${sourceFit.label} at ${target.label}`,
+          [...working, ...generated],
+        ),
+        operation: 'fit',
+        selections: generatedSelections,
+        kind: sourceFit.kind,
+        axial_domain: [...sourceFit.axial_domain],
+      });
+    }
+  }
+  const blockIds = new Set([reuseId, ...ownedIds]),
+    block = working.filter((node) => blockIds.has(node.id)),
+    outside = working.filter((node) => !blockIds.has(node.id)),
+    dependencies = new Set(nodeReferences(reuse));
+  if ([...dependencies].some((id) => blockIds.has(id)))
+    return { error: 'A reuse action cannot use one of its own generated outputs.' };
+  const insertionIndex = Math.max(
+      -1,
+      ...outside.map((node, index) => (dependencies.has(node.id) ? index : -1)),
+    ),
+    result = [
+      ...outside.slice(0, insertionIndex + 1),
+      ...block,
+      ...generated,
+      ...outside.slice(insertionIndex + 1),
+    ],
+    seen = new Set();
+  for (const node of result) {
+    const missing = nodeReferences(node).find((id) => !seen.has(id));
+    if (missing)
+      return {
+        error: `${node.label} would need to move after ${result.find((item) => item.id === missing)?.label || missing}.`,
+      };
+    seen.add(node.id);
+  }
+  return { nodes: result, removedIds: [...removeIds], generatedIds: generated.map((n) => n.id) };
 }
 // Slot is a boundary in the original list: 0 before the first, length after the last.
 export function actionMove(nodes, id, slot) {
