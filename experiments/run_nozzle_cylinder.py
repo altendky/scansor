@@ -28,6 +28,29 @@ class NozzleExample:
     zero_area_faces: int
 
 
+def selection_azimuth_mask(
+    xyz: NDArray[np.float64], selection: dict[str, Any]
+) -> NDArray[np.bool_]:
+    """Apply an optional non-wrapping fit-frame azimuth gate."""
+    bounds = selection.get("azimuth_range_degrees")
+    if bounds is None:
+        return np.ones(len(xyz), dtype=np.bool_)
+    if (
+        not isinstance(bounds, list)
+        or len(bounds) != 2
+        or not 0.0 <= float(bounds[0]) <= float(bounds[1]) <= 360.0
+    ):
+        raise ValueError("invalid selection azimuth range")
+    fit_frame = selection.get("fit_frame")
+    if not isinstance(fit_frame, dict):
+        raise ValueError("an azimuth-gated selection requires a fit frame")
+    local = (xyz - np.asarray(fit_frame["origin"], dtype=float)) @ np.asarray(
+        fit_frame["columns"], dtype=float
+    )
+    angle = np.mod(np.degrees(np.arctan2(local[:, 1], local[:, 0])), 360.0)
+    return (angle >= float(bounds[0])) & (angle <= float(bounds[1]))
+
+
 def load_example(example: Path) -> NozzleExample:
     """Verify source and cylinder selection, returning full-mesh geometry/areas."""
     manifest = json.loads((example / "manifest.json").read_text())
@@ -38,7 +61,7 @@ def load_example(example: Path) -> NozzleExample:
             raise ValueError(f"example source hash mismatch: {name}")
     selection_path = example / manifest["selection"]
     selection = json.loads(selection_path.read_text())
-    source = example / "nozzle-bayonette-simplified.ply"
+    source = example / manifest.get("source_file", "nozzle-bayonette-simplified.ply")
     if selection["source_sha256"] != manifest["files"][source.name]["sha256"]:
         raise ValueError("selection refers to another source")
     ids_path = selection_path.parent / selection["vertex_ids_file"]
@@ -97,6 +120,7 @@ def load_example(example: Path) -> NozzleExample:
         & (rho <= selection["radius_range"][1])
         & (outward >= selection["minimum_outward_normal_dot"])
         & (np.abs(normals @ axis) <= selection["maximum_abs_axial_normal_dot"])
+        & selection_azimuth_mask(xyz, selection)
         & (weights > 0)
     )
     if not np.array_equal(np.flatnonzero(selected), ids):

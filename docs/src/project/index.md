@@ -34,6 +34,10 @@ outside the intended boundary.
     fixed-axis fits, shared-axis cone/cylinder-and-plane solving, and residual display;
     frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
+- [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
+  - **Exploratory generated fixture:** three congruent compound bosses with
+    clocking flats, deterministic as-built deviations, scan corruption, distinct
+    tessellations, and a separately posed rescan for selection-region transfer
 
 - [Terminology and scope](terminology-and-scope.md) - **Current direction:**
   canonical terminology, the user-to-product contract, initial model families,

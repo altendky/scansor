@@ -12,3 +12,6 @@ provenance, limitations, and how to reproduce an experiment.
 - [nozzle-bayonette-simplified](nozzle-bayonette-simplified/README.md): reduced
   handheld fan nozzle mesh with saved outer-wall and top-face selections for
   joint cone/plane fitting and cylinder comparisons.
+- [repeated-boss-selection](repeated-boss-selection/README.md): deterministic
+  analytic plate-and-boss fixture recipe with exact, coarse, fine, and separately
+  posed rescan realizations for repeated-feature and selection-transfer work.

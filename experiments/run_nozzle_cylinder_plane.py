@@ -16,11 +16,19 @@ from experiments.mesh_cylinder_plane_fit import (
     joint_residual_jacobian,
 )
 from experiments.nozzle_joint_view import export_view
-from experiments.run_nozzle_cylinder import NozzleExample, load_example
+from experiments.run_nozzle_cylinder import (
+    NozzleExample,
+    load_example,
+    selection_azimuth_mask,
+)
 
 
 def load_plane_ids(example: Path, data: NozzleExample) -> NDArray[np.int64]:
-    selection = json.loads((example / "selections/top-face.json").read_text())
+    manifest = json.loads((example / "manifest.json").read_text())
+    selection_path = example / manifest.get(
+        "plane_selection", "selections/top-face.json"
+    )
+    selection = json.loads(selection_path.read_text())
     if selection["source_sha256"] != data.selection["source_sha256"]:
         raise ValueError("plane selection refers to another mesh")
     path = example / "selections" / selection["vertex_ids_file"]
@@ -43,6 +51,7 @@ def load_plane_ids(example: Path, data: NozzleExample) -> NDArray[np.int64]:
         & (rho >= selection["radius_range"][0])
         & (rho <= selection["radius_range"][1])
         & (data.normals @ axis >= selection["minimum_axial_normal_dot"])
+        & selection_azimuth_mask(data.xyz, selection)
         & (data.weights > 0)
     )
     if not np.array_equal(np.flatnonzero(mask), ids):

@@ -325,3 +325,31 @@ as independently
 inspectable operation types. This order gives those tools an operation graph and
 current-recipe replay model from their first implementation, without deciding
 edit-history policy.
+
+## Reusable fitted selection regions
+
+**Provisional experiment direction, 2026-09-22.** A source-vertex selection can
+be lifted into a transferable region by combining its fitted analytic surface,
+its bounded surface footprint, and explicit inward/outward offsets. The result is
+a volumetric selection region rather than another source-specific vertex list.
+Applying it to another occurrence or scan requires an explicit rigid transform,
+then resolves a new source-bound membership while retaining both the region
+definition and the resolved IDs. This is intended to reuse selection effort; it
+must not imply vertex correspondence, identical tessellation, or physical
+accuracy.
+
+Rotationally symmetric fits do not determine clocking about their axis. A partial
+footprint therefore needs another orientation cue, such as a plane, key, or
+clocking flat, before it can be transferred without ambiguity. Compound groups
+can supply that frame by owning reference geometry and fitted members while each
+occurrence owns its pose. Whether groups become first-class feature-graph nodes
+and how transferred boundaries behave near missing data remain open.
+
+The exploratory
+[repeated-boss fixture](../../../../examples/repeated-boss-selection/README.md)
+provides three congruent boss occurrences with a clocking flat, independent mesh
+topologies, deterministic deviations/noise/occlusions, and a separately posed
+rescan. Its oracle role selections and coordinate layers are test truth, not
+inputs to a future transfer algorithm. The current browser still consumes only
+its source-bound seed selections; volumetric-region creation and application are
+not yet implemented.

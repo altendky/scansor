@@ -309,11 +309,14 @@ def main() -> None:
             "run npm ci --ignore-scripts --prefix experiments/browser_viewer first"
         )
     workspace = NozzleWorkspace(args.example)
+    manifest = json.loads((args.example / "manifest.json").read_text())
     recipe = (
         Recipe.model_validate_json(args.recipe.read_text())
         if args.recipe is not None
         else selection_bundle_recipe(
-            workspace, args.example / "selections/user-selection-bundle.json"
+            workspace,
+            args.example
+            / manifest.get("selection_bundle", "selections/user-selection-bundle.json"),
         )
     )
     with NozzleServer(workspace, args.port, recipe) as server:

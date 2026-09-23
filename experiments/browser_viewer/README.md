@@ -1,6 +1,7 @@
 # Nozzle browser selection experiment
 
-**Provisional.** A local browser frontend for the captured simplified nozzle.
+**Provisional.** A local browser frontend for the captured simplified nozzle and
+bounded generated fixture examples.
 This is an experiment in selection and fitting interaction, not a browser-only
 product decision. Python owns source validation, selections and fitting. A native
 frontend can reuse the session records and Python adapter without browser code.
@@ -19,8 +20,11 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
 
 Open the printed `http://127.0.0.1:PORT/` address in Brave or another WebGL2-capable
 browser. An explicit `--port 8765` is optional. Stop the local server with Ctrl+C.
-Only the captured simplified example is supported by this adapter; this is not
-an arbitrary mesh loader or a full-resolution GUI.
+The adapter supports the captured simplified example plus generated directories
+that implement its bounded manifest/selection contract; this is not an arbitrary
+mesh loader or a full-resolution GUI. The repeated-boss fixture documents its
+generation and `--example` command in
+[its example README](../../examples/repeated-boss-selection/README.md).
 
 The default graph starts from the checked-in compatibility-free bundle containing
 the 11 retained user selections. It deliberately does not reconstruct old fits,
