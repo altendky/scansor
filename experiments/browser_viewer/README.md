@@ -151,9 +151,11 @@ top action toolbar groups primitive actions under **Create**, **Organize**,
 **Reuse**, **Relate**, **Combine**, and **Run**. **Group** creates or edits
 presentation-only feature-tree groups without changing graph dependencies or
 evaluation. Generator-owned actions appear under a collapsed **Generated
-outputs** subtree. They carry a **Generated** badge and remain inspectable and
-usable as inputs, but their properties, deletion, and reordering are managed by
-their owner. **Evaluate all** and the opt-in **Auto**
+outputs** subtree. Generated-output and per-target groups use the same nested,
+collapsible presentation as user groups, with a **Generated** marker at every
+managed layer. Generated actions carry the same marker and remain inspectable
+and usable as inputs, but their properties, deletion, and reordering are managed
+by their owner. **Evaluate all** and the opt-in **Auto**
 checkbox live under Run. Enabling automatic evaluation immediately evaluates the
 graph and repeats **Evaluate all** after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps

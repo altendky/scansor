@@ -58,17 +58,19 @@ footer #status { margin: 0 0 6px; }
 #action-list .action-grip-placeholder { opacity: .45; cursor: default; }
 #action-list .dragging .action-select[aria-pressed="true"] { border-color: transparent; background: transparent; }
 .nested-actions { list-style: none; margin: 2px 0 4px 18px; padding: 0 0 0 7px; border-left: 1px solid #344351; }
-.managed-outputs { margin: 1px 0 6px 22px; color: #a6b6c5; }
-.managed-outputs > summary, .managed-target > summary, .feature-group > details > summary { cursor: pointer; display: flex; align-items: center; gap: 7px; min-height: 30px; }
-.managed-outputs > summary .action-state { margin-left: auto; }
+.tree-group { padding: 2px 5px; border: 1px solid #344351; border-radius: 6px; background: #151f28; }
+.tree-group > summary { cursor: pointer; display: flex; align-items: center; gap: 7px; min-height: 30px; color: #c4d3df; font-size: 12px; font-weight: 600; }
+.tree-group > summary .action-state { margin-left: auto; }
+.tree-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.managed-group { border-color: #3d5969; background: #17242e; }
+.managed-outputs { margin: 3px 0 7px 22px; color: #a6b6c5; }
 .managed-summary-icon, .group-icon { width: 15px; height: 15px; }
-.managed-target { margin: 3px 0 3px 12px; }
+.managed-target { margin: 5px 0 5px 12px; background: #1a2934; }
 .managed-target > summary { font-size: 11px; }
+.managed-badge { flex: none; padding: 2px 5px; border: 1px solid #6690a7; border-radius: 999px; color: #9fc8dc; font-size: 9px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
 .generated-badge { flex: none; padding: 2px 5px; border: 1px solid #526a7e; border-radius: 999px; color: #9fb5c6; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
-.feature-group { margin: 7px 0; padding: 2px 5px; border: 1px solid #344351; background: #151f28; }
+.feature-group { margin: 7px 0; }
 .feature-group > details { margin: 0; }
-.feature-group > details > summary { color: #c4d3df; font-size: 12px; font-weight: 600; }
-.feature-group .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #action-list .group-action { border: 0; padding: 3px 5px; background: transparent; color: #91a7b9; }
 #action-list .group-action:hover { color: #e4eaf1; background: #253342; }
 .group-actions { margin-left: 8px; }

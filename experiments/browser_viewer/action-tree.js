@@ -531,13 +531,17 @@ export function renderActionTree(
     if (owned.length) {
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
+        badge = document.createElement('span'),
         fitCount = owned.filter((child) => child.operation === 'fit').length,
         summaryState = stateFor(owned);
-      details.className = 'managed-outputs';
+      details.className = 'tree-group managed-group managed-outputs';
       details.open = expandedManaged.has(node.id);
+      badge.className = 'managed-badge';
+      badge.textContent = 'Generated';
       summary.append(
         icon('feature_reuse', 'managed-summary-icon'),
         document.createTextNode(`Generated outputs · ${owned.length} items · ${fitCount} fits`),
+        badge,
         icon(summaryState, `action-state state-${summaryState}`),
       );
       details.ontoggle = () => {
@@ -555,13 +559,25 @@ export function renderActionTree(
       for (const [target, children] of targets) {
         const targetDetails = document.createElement('details'),
           targetSummary = document.createElement('summary'),
+          targetLabel = document.createElement('span'),
+          targetBadge = document.createElement('span'),
           targetKey = `${node.id}/${target}`,
-          childList = document.createElement('ul');
-        targetDetails.className = 'managed-target';
+          childList = document.createElement('ul'),
+          targetState = stateFor(children);
+        targetDetails.className = 'tree-group managed-group managed-target';
         targetDetails.open = expandedTargets.has(targetKey);
-        targetSummary.textContent = target
+        targetLabel.className = 'tree-group-name';
+        targetLabel.textContent = target
           ? `${byId.get(target)?.label || target} · ${children.filter((child) => child.operation === 'fit').length} fits`
           : `Other outputs · ${children.length}`;
+        targetBadge.className = 'managed-badge';
+        targetBadge.textContent = 'Generated';
+        targetSummary.append(
+          icon('feature_reuse', 'managed-summary-icon'),
+          targetLabel,
+          targetBadge,
+          icon(targetState, `action-state state-${targetState}`),
+        );
         targetDetails.ontoggle = () => {
           if (targetDetails.open) expandedTargets.add(targetKey);
           else expandedTargets.delete(targetKey);
@@ -584,8 +600,9 @@ export function renderActionTree(
       remove = document.createElement('button'),
       children = document.createElement('ul');
     item.className = 'feature-group';
+    details.className = 'tree-group';
     details.open = !collapsedGroups.has(group.id);
-    label.className = 'group-name';
+    label.className = 'tree-group-name';
     label.textContent = `${group.label} · ${members.length}`;
     edit.type = remove.type = 'button';
     edit.className = remove.className = 'group-action';
