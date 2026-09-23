@@ -13,6 +13,11 @@ from typing import Annotated, Any, ClassVar, Literal, cast, final
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
+from experiments.feature_reuse import (
+    estimate_rigid_match,
+    surface_region_frame,
+    transformed_fit_seed,
+)
 from experiments.nozzle_coaxial import (
     FitSelection,
     ReferencePlaneGroup,
@@ -103,6 +108,28 @@ class RegionSelection(Node):
     source: str
     axial_plane: str
     clock_plane: str
+
+
+class FeatureReuse(Node):
+    """Reusable fit lineage placed by corresponding painted selections."""
+
+    operation: Literal["feature_reuse"]
+    fits: list[str] = Field(min_length=1, max_length=32)
+    lineage: list[str] = Field(min_length=1, max_length=99)
+    reference_selection: str
+    target_selection: str
+    tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
+    normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+    normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
+
+
+class ReuseSelection(Node):
+    """Target membership generated for one source selection in a reuse instance."""
+
+    operation: Literal["reuse_selection"]
+    reuse: str
+    fit: str
+    source_selection: str
 
 
 class Perpendicular(Node):
@@ -247,6 +274,8 @@ Feature = Annotated[
     | Growth
     | SelectionRegion
     | RegionSelection
+    | FeatureReuse
+    | ReuseSelection
     | Perpendicular
     | Coaxial
     | RotationalSymmetry
@@ -332,6 +361,19 @@ def dependencies(node: Feature) -> list[str]:
         return [node.selection, node.fit, node.axial_plane, node.clock_plane]
     if isinstance(node, RegionSelection):
         return [node.region, node.source, node.axial_plane, node.clock_plane]
+    if isinstance(node, FeatureReuse):
+        return list(
+            dict.fromkeys(
+                [
+                    *node.fits,
+                    *node.lineage,
+                    node.reference_selection,
+                    node.target_selection,
+                ]
+            )
+        )
+    if isinstance(node, ReuseSelection):
+        return [node.reuse, node.fit, node.source_selection]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
@@ -423,6 +465,10 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
         return node.source
     if isinstance(node, RegionSelection):
         return node.source
+    if isinstance(node, ReuseSelection):
+        reuse = nodes[node.reuse]
+        if isinstance(reuse, FeatureReuse):
+            return selection_source(nodes[reuse.target_selection], nodes)
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
         if isinstance(fitted, SurfaceFit):
@@ -430,6 +476,64 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
             if len(sources) == 1:
                 return next(iter(sources))
     raise ValueError("expected selections from one source")
+
+
+def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> list[str]:
+    """Return selected fits, their upstream inputs, and enclosed relationships."""
+    selected = set(fit_ids)
+    closure = set(fit_ids)
+
+    def add_upstream() -> bool:
+        before = len(closure)
+        for key in tuple(closure):
+            closure.update(dependencies(nodes[key]))
+        return len(closure) != before
+
+    while add_upstream():
+        pass
+    relationship_types = (
+        Perpendicular,
+        Coaxial,
+        RotationalSymmetry,
+        JointFit,
+        MirrorSymmetry,
+        ParallelToPlane,
+        EqualQuantities,
+        AxisSolve,
+    )
+
+    def referenced_fits(candidate: Feature) -> set[str]:
+        found: set[str] = set()
+        pending = list(dependencies(candidate))
+        visited: set[str] = set()
+        while pending:
+            ref = pending.pop()
+            if ref in visited:
+                continue
+            visited.add(ref)
+            referenced = nodes[ref]
+            if isinstance(referenced, SurfaceFit):
+                found.add(ref)
+            elif isinstance(referenced, relationship_types):
+                pending.extend(dependencies(referenced))
+        return found
+
+    changed = True
+    while changed:
+        changed = False
+        for candidate in nodes.values():
+            if candidate.id in closure or not isinstance(candidate, relationship_types):
+                continue
+            refs = dependencies(candidate)
+            fitted_refs = referenced_fits(candidate)
+            enclosed = bool(fitted_refs) and fitted_refs <= selected
+            if enclosed:
+                closure.add(candidate.id)
+                closure.update(refs)
+                changed = True
+        while add_upstream():
+            changed = True
+    return [key for key in nodes if key in closure]
 
 
 def joint_surfaces(
@@ -715,6 +819,7 @@ class FeatureGraph:
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
+        positions = {node.id: index for index, node in enumerate(recipe.nodes)}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
         if recipe.output not in nodes:
@@ -795,7 +900,9 @@ class FeatureGraph:
             elif isinstance(node, SelectionRegion):
                 selected = nodes[node.selection]
                 fitted = nodes[node.fit]
-                if not isinstance(selected, (Selection, Growth, RegionSelection)):
+                if not isinstance(
+                    selected, (Selection, Growth, RegionSelection, ReuseSelection)
+                ):
                     raise ValueError("a reusable region requires an earlier selection")
                 if (
                     not isinstance(fitted, SurfaceFit)
@@ -828,6 +935,60 @@ class FeatureGraph:
                 if node.source != region_source:
                     raise ValueError(
                         "region application currently requires the region's source mesh"
+                    )
+            elif isinstance(node, FeatureReuse):
+                if len(set(node.fits)) != len(node.fits):
+                    raise ValueError("a reuse feature cannot contain duplicate fits")
+                fits = [nodes[key] for key in node.fits]
+                if any(
+                    not isinstance(fit, SurfaceFit)
+                    or fit.kind not in ("cylinder", "plane")
+                    for fit in fits
+                ):
+                    raise ValueError("reuse currently supports cylinder and plane fits")
+                for selection_id in (
+                    node.reference_selection,
+                    node.target_selection,
+                ):
+                    if not isinstance(
+                        nodes[selection_id],
+                        (Selection, Growth, RegionSelection, ReuseSelection),
+                    ):
+                        raise ValueError("reuse matching inputs must be selections")
+                sources = {
+                    selection_source(nodes[node.reference_selection], nodes),
+                    selection_source(nodes[node.target_selection], nodes),
+                    *(
+                        selection_source(nodes[selection_id], nodes)
+                        for fit in fits
+                        if isinstance(fit, SurfaceFit)
+                        for selection_id in fit.selections
+                    ),
+                }
+                if len(sources) != 1:
+                    raise ValueError(
+                        "reuse currently requires one source mesh for fits and matching selections"
+                    )
+                available = {
+                    key: value
+                    for key, value in nodes.items()
+                    if positions[key] < positions[node.id]
+                }
+                expected = discover_reuse_lineage(node.fits, available)
+                if node.lineage != expected:
+                    raise ValueError(
+                        "reuse lineage must contain the selected fits, their inputs, and enclosed relationships in action order"
+                    )
+            elif isinstance(node, ReuseSelection):
+                reuse = nodes[node.reuse]
+                fitted = nodes[node.fit]
+                if not isinstance(reuse, FeatureReuse):
+                    raise ValueError("a reused selection requires a reuse feature")
+                if node.fit not in reuse.fits or not isinstance(fitted, SurfaceFit):
+                    raise ValueError("a reused selection must belong to a reused fit")
+                if node.source_selection not in fitted.selections:
+                    raise ValueError(
+                        "a reused selection must reference one input of its source fit"
                     )
             elif isinstance(node, Perpendicular):
                 lateral, plane = nodes[node.lateral], nodes[node.plane]
@@ -1106,7 +1267,9 @@ class FeatureGraph:
                     if isinstance(n, Selection)
                     else deepcopy(self._derived.get(n.id, {}).get("ids"))
                     for n in self._recipe.nodes
-                    if isinstance(n, (Selection, Growth, RegionSelection))
+                    if isinstance(
+                        n, (Selection, Growth, RegionSelection, ReuseSelection)
+                    )
                 },
             }
 
@@ -1200,6 +1363,8 @@ class FeatureGraph:
                         Growth,
                         SelectionRegion,
                         RegionSelection,
+                        FeatureReuse,
+                        ReuseSelection,
                         Selection,
                         Source,
                         AxisDefinition,
@@ -1208,7 +1373,7 @@ class FeatureGraph:
                     ),
                 ):
                     raise ValueError(
-                        "evaluation target must be a source, selection, region, fit, axis, plane, solve, or growth action"
+                        "evaluation target must be a source, selection, reuse, region, fit, axis, plane, solve, or growth action"
                     )
                 needed = {target}
                 while True:
@@ -1424,15 +1589,60 @@ class FeatureGraph:
                             derived_result(node.reference_plane),
                         )
                     elif node.axis is None:
+                        fit_points = self.workspace.local[ids]
+                        reuse_inputs = [
+                            derived_result(ref)
+                            for ref in node.selections
+                            if isinstance(nodes[ref], ReuseSelection)
+                        ]
+                        initial = np.array(
+                            self.workspace.data.selection["initial_parameters"]
+                        )
+                        domain = node.axial_domain
+                        if reuse_inputs:
+                            if len(reuse_inputs) != len(node.selections):
+                                raise ValueError(
+                                    "a fit cannot mix reused and ordinary selections"
+                                )
+                            initials = [
+                                value.get("fit_initial") for value in reuse_inputs
+                            ]
+                            domains = [
+                                tuple(value["target_axial_domain"])
+                                for value in reuse_inputs
+                            ]
+                            if any(
+                                value != initials[0] for value in initials[1:]
+                            ) or any(value != domains[0] for value in domains[1:]):
+                                raise ValueError(
+                                    "reused fit selections must share one transformed source fit"
+                                )
+                            if initials[0] is not None:
+                                initial = np.asarray(initials[0], dtype=float)
+                            domain = cast(tuple[float, float], domains[0])
+                            if initials[0] is not None:
+                                point = np.asarray([initial[0], initial[1], 0.0])
+                                direction = np.asarray([initial[2], initial[3], 1.0])
+                                axial = (
+                                    (fit_points - point)
+                                    @ direction
+                                    / float(direction @ direction)
+                                )
+                                padding = max(
+                                    float(np.ptp(axial)) * 0.05,
+                                    1e-3,
+                                )
+                                domain = (
+                                    min(domain[0], float(np.min(axial)) - padding),
+                                    max(domain[1], float(np.max(axial)) + padding),
+                                )
                         derived = fit_seed(
-                            self.workspace.local[ids],
+                            fit_points,
                             self.workspace.data.weights[ids],
                             self.workspace.data.normals[ids] @ self.workspace.frame,
                             node.kind,
-                            np.array(
-                                self.workspace.data.selection["initial_parameters"]
-                            ),
-                            node.axial_domain,
+                            initial,
+                            domain,
                         )
                         derived["ids"] = ids
                     else:
@@ -1540,6 +1750,75 @@ class FeatureGraph:
                         "region": node.region,
                         "source": node.source,
                         "vertex_count": len(ids),
+                    }
+                elif isinstance(node, FeatureReuse):
+                    reference_ids = membership(node.reference_selection)
+                    target_ids = membership(node.target_selection)
+                    normals = self.workspace.data.normals @ self.workspace.frame
+                    derived = estimate_rigid_match(
+                        self.workspace.local[reference_ids],
+                        normals[reference_ids],
+                        self.workspace.local[target_ids],
+                        normals[target_ids],
+                    )
+                    derived.update(
+                        {
+                            "fits": node.fits,
+                            "lineage": node.lineage,
+                            "reference_selection": node.reference_selection,
+                            "target_selection": node.target_selection,
+                        }
+                    )
+                elif isinstance(node, ReuseSelection):
+                    reuse = nodes[node.reuse]
+                    fitted = nodes[node.fit]
+                    assert isinstance(reuse, FeatureReuse)
+                    assert isinstance(fitted, SurfaceFit)
+                    match = derived_result(node.reuse)
+                    rotation = np.asarray(match["rotation"], dtype=float)
+                    translation = np.asarray(match["translation"], dtype=float)
+                    source_ids = membership(node.source_selection)
+                    source_points = self.workspace.local[source_ids]
+                    fit_result = resolved_result(node.fit)
+                    fit_result.setdefault("kind", fitted.kind)
+                    fit_result.setdefault("axial_domain", fitted.axial_domain)
+                    fit_initial, target_domain = transformed_fit_seed(
+                        fit_result, rotation, translation
+                    )
+                    source_origin, source_frame = surface_region_frame(
+                        source_points, fit_result
+                    )
+                    region = build_selection_region(
+                        source_points,
+                        self.workspace.data.normals[source_ids] @ self.workspace.frame,
+                        fit_result,
+                        source_origin,
+                        source_frame,
+                        tangent_margin=reuse.tangent_margin,
+                        normal_margin=reuse.normal_margin,
+                        normal_angle_degrees=reuse.normal_angle_degrees,
+                    )
+                    target_origin = source_origin @ rotation + translation
+                    target_frame = rotation.T @ source_frame
+                    ids = apply_selection_region(
+                        self.workspace.local,
+                        self.workspace.data.normals @ self.workspace.frame,
+                        self.workspace.data.weights,
+                        region,
+                        target_origin,
+                        target_frame,
+                    )
+                    derived = {
+                        "ids": ids,
+                        "reuse": node.reuse,
+                        "fit": node.fit,
+                        "source_selection": node.source_selection,
+                        "vertex_count": len(ids),
+                        "region": region,
+                        "target_origin": target_origin.tolist(),
+                        "target_rotation": target_frame.tolist(),
+                        "fit_initial": fit_initial,
+                        "target_axial_domain": target_domain,
                     }
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]

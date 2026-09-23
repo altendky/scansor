@@ -174,7 +174,15 @@ properties pane.
    point at local Z=0. The plane is previewed immediately and remains a
    separately selectable feature. That axis point is a bounded prototype
    convention; the generalized model should use an explicit point or frame.
-5. **Region** lifts an earlier selection and its cylinder or plane fit into a
+5. **Feature** is the high-level reuse workflow. Choose one or more existing
+   cylinder/plane fits, a painted reference selection on that occurrence, and a
+   painted target selection on a similar occurrence. It estimates an
+   approximate rigid transform, captures the source fits' datum/relationship
+   lineage, and generates a target selection plus a fresh standalone fit for
+   every source fit input selection. Paint an asymmetric cue when possible;
+   rings or cylinders alone cannot determine clocking. This first slice stays on
+   one mesh and does not yet recreate target datums or relationships.
+6. **Region** lifts an earlier selection and its cylinder or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,
    surface-normal, and normal-angle margins. **Apply** places that region in
@@ -184,7 +192,7 @@ properties pane.
    the applied selection directly drive the same free frame would be circular.
    This first slice does not yet support cones, target-pose discovery, or another
    scan.
-6. **Mirror** relates two distinct, same-type standalone fits across an
+7. **Mirror** relates two distinct, same-type standalone fits across an
    explicit reference plane that contains their axis. It defines geometry; it
    is not itself a joint. Add
    the relationship to a joint on that plane's axis. Evaluating the joint may
@@ -195,19 +203,19 @@ properties pane.
    The current bounded adapter permits one mirrored pair per reference plane in a
    joint; create another reference-plane action for another independently clocked
    pair.
-7. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
+8. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
    currently supports typed equality between an axis-bound cylinder radius and
    the absolute distance from a standalone plane fit to a reference plane. With
    a mirrored plane pair, these independent primitives compile to exact parallel
    planes at opposite signed cylinder-radius offsets; no penalty weights or
    arch-specific action are introduced.
-8. Choose shared upstream geometry under **Reference geometry**. A cone or
+9. Choose shared upstream geometry under **Reference geometry**. A cone or
    cylinder can reference an axis; a plane can reference an axis (making the
    fitted plane perpendicular while fitting its offset) or a reference plane
    (fixing its orientation while fitting a new offset). In every case,
    fits connected to a manually initialized axis refine that free axis together;
    an axis initialized from an earlier fit remains fixed.
-9. To explicitly choose the observations and relationships participating in one
+10. To explicitly choose the observations and relationships participating in one
    solve, choose **Joint**. Select
    the explicit axis and the active bound fits and relationships. Evaluation
    returns a separate result: bound factor sets influence axis direction,

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from experiments.feature_reuse import estimate_rigid_match
 from experiments.nozzle_browser import selection_bundle_recipe
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.repeated_boss_fixture import (
@@ -22,6 +23,75 @@ from experiments.selection_region import apply_selection_region, build_selection
 from scansor.selection_bundle import SelectionBundle
 
 DEFINITION = Path("examples/repeated-boss-selection/fixture.json")
+
+PAINTED_MATCH_IDS = {
+    "reference": [
+        1388,
+        1389,
+        1390,
+        1391,
+        1392,
+        1393,
+        1394,
+        1724,
+        1733,
+        1795,
+        1799,
+        1800,
+        1994,
+        1995,
+        1999,
+        2000,
+        2004,
+        2005,
+        2009,
+        2010,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2028,
+        2037,
+        2046,
+        2055,
+        2064,
+    ],
+    "target": [
+        4649,
+        4650,
+        4651,
+        4662,
+        4663,
+        4664,
+        5065,
+        5070,
+        5074,
+        5075,
+        5265,
+        5269,
+        5270,
+        5274,
+        5275,
+        5280,
+        5283,
+        5284,
+        5285,
+        5286,
+        5287,
+        5288,
+        5289,
+        5298,
+        5316,
+        5325,
+        5334,
+        5343,
+        5352,
+    ],
+}
 
 
 def test_generated_repeated_boss_fixture_is_deterministic_and_browser_readable(
@@ -279,6 +349,52 @@ def test_fitted_outer_region_selects_the_same_role_on_another_boss(
     assert all(occurrence_codes[index] == 2 for index in transferred)
     assert all(role_codes[index] == ROLE_CODES["outer"] for index in transferred)
     assert len(transferred & expected) / len(expected) >= 0.8
+
+
+def test_painted_correspondence_selections_recover_the_tilted_boss_pose(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "fixture"
+    _ = publish_fixture(root, DEFINITION)
+    example = root / "scan-coarse"
+    workspace = NozzleWorkspace(example)
+    normals = workspace.data.normals @ workspace.frame
+    reference_ids = np.asarray(PAINTED_MATCH_IDS["reference"])
+    target_ids = np.asarray(PAINTED_MATCH_IDS["target"])
+
+    match = estimate_rigid_match(
+        workspace.local[reference_ids],
+        normals[reference_ids],
+        workspace.local[target_ids],
+        normals[target_ids],
+    )
+    occurrences = json.loads((example / "truth/occurrences.json").read_text())[
+        "occurrences"
+    ]
+    reference = occurrences[0]
+    target = occurrences[3]
+    reference_rotation = np.asarray(reference["local_to_part_rotation"])
+    target_rotation = np.asarray(target["local_to_part_rotation"])
+    expected_rotation = reference_rotation @ target_rotation.T
+    reference_origin = np.asarray(reference["center_part_mm"])
+    target_origin = np.asarray(target["center_part_mm"])
+    expected_translation = target_origin - reference_origin @ expected_rotation
+    actual_rotation = np.asarray(match["rotation"])
+    actual_translation = np.asarray(match["translation"])
+    angle_error = np.degrees(
+        np.arccos(
+            np.clip(
+                (np.trace(actual_rotation @ expected_rotation.T) - 1.0) / 2.0,
+                -1.0,
+                1.0,
+            )
+        )
+    )
+
+    assert angle_error < 1.0
+    assert np.linalg.norm(actual_translation - expected_translation) < 0.6
+    assert match["rms"] < 0.25
+    assert match["ambiguity_ratio"] > 1.5
 
 
 def test_coarse_and_fine_reuse_noise_at_shared_surface_coordinates() -> None:

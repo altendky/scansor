@@ -161,7 +161,8 @@ export function featureVertexIds(nodes, memberships, featureId) {
     if (
       node.operation === 'selection' ||
       node.operation === 'growth' ||
-      node.operation === 'region_selection'
+      node.operation === 'region_selection' ||
+      node.operation === 'reuse_selection'
     ) {
       for (const vertex of memberships[id] || []) vertices.add(vertex);
       return;
@@ -177,6 +178,8 @@ export function featureVertexIds(nodes, memberships, featureId) {
             ? node.factors
           : node.operation === 'selection_region'
             ? [node.selection]
+          : node.operation === 'feature_reuse'
+            ? [node.reference_selection, node.target_selection, ...node.fits]
           : node.operation === 'reference_plane'
             ? [node.axis]
         : node.operation === 'joint_fit'

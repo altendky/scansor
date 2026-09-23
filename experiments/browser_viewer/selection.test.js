@@ -149,8 +149,28 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
       axial_plane: 'mirror-plane',
       clock_plane: 'mirror-plane',
     },
+    {
+      id: 'reuse',
+      operation: 'feature_reuse',
+      fits: ['side'],
+      reference_selection: 'a',
+      target_selection: 'b',
+    },
+    {
+      id: 'reused',
+      operation: 'reuse_selection',
+      reuse: 'reuse',
+      fit: 'side',
+      source_selection: 'a',
+    },
   ];
-  const memberships = { a: [1, 2], b: [8], grown: [2, 3], applied: [20, 21] };
+  const memberships = {
+    a: [1, 2],
+    b: [8],
+    grown: [2, 3],
+    applied: [20, 21],
+    reused: [30, 31],
+  };
   assert.deepEqual(featureVertexIds(nodes, memberships, 'grown'), [2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'side'), [1, 2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'constraint'), [1, 2, 3, 8]);
@@ -165,6 +185,8 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, memberships, 'equal'), [1, 2, 8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'region'), [1, 2]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'applied'), [20, 21]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'reuse'), [1, 2, 3, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'reused'), [30, 31]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 

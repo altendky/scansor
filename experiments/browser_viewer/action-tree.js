@@ -11,6 +11,8 @@ const paths = {
   growth: 'M12 3v18M3 12h18m-12-6 3-3 3 3m-9 3-3 3 3 3m3 3 3 3 3-3m3-9 3 3-3 3',
   selection_region: 'M4 6c0-3 16-3 16 0v12c0 3-16 3-16 0Zm0 0c0 3 16 3 16 0m-8-3v18',
   region_selection: 'M4 7h10M9 3l5 4-5 4m11 2v7H4v-7',
+  feature_reuse: 'M5 7h11M12 3l4 4-4 4m7 6H8m4-4-4 4 4 4',
+  reuse_selection: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-3-3 3 3-3 3',
   coaxial: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
   perpendicular: 'M6 3v15h15M6 13h5v5',
   rotational_symmetry: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5M12 8v4l3 2',
@@ -35,6 +37,8 @@ const operations = {
   growth: 'Selection growth',
   selection_region: 'Reusable selection region',
   region_selection: 'Applied region selection',
+  feature_reuse: 'Feature reuse',
+  reuse_selection: 'Reused selection',
   coaxial: 'Coaxial constraint',
   perpendicular: 'Perpendicular constraint',
   rotational_symmetry: 'Rotational symmetry',
@@ -72,6 +76,15 @@ export function nodeReferences(node) {
     return [node.selection, node.fit, node.axial_plane, node.clock_plane];
   if (node.operation === 'region_selection')
     return [node.region, node.source, node.axial_plane, node.clock_plane];
+  if (node.operation === 'feature_reuse')
+    return [...new Set([
+      ...node.fits,
+      ...node.lineage,
+      node.reference_selection,
+      node.target_selection,
+    ])];
+  if (node.operation === 'reuse_selection')
+    return [node.reuse, node.fit, node.source_selection];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];
@@ -84,6 +97,60 @@ export function nodeReferences(node) {
     return [...new Set(refs)];
   }
   return node.constraints || [];
+}
+
+export function discoverReuseLineage(nodes, fitIds) {
+  const byId = new Map(nodes.map((node) => [node.id, node])),
+    selected = new Set(fitIds),
+    closure = new Set(fitIds),
+    relationshipOperations = new Set([
+      'perpendicular',
+      'coaxial',
+      'rotational_symmetry',
+      'joint_fit',
+      'mirror_symmetry',
+      'parallel',
+      'equal',
+      'axis_solve',
+    ]);
+  const addUpstream = () => {
+    const before = closure.size;
+    for (const id of [...closure])
+      for (const dependency of nodeReferences(byId.get(id) || {})) closure.add(dependency);
+    return closure.size !== before;
+  };
+  const referencedFits = (candidate) => {
+    const found = new Set(),
+      pending = [...nodeReferences(candidate)],
+      visited = new Set();
+    while (pending.length) {
+      const id = pending.pop();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const referenced = byId.get(id);
+      if (referenced?.operation === 'fit') found.add(id);
+      else if (relationshipOperations.has(referenced?.operation))
+        pending.push(...nodeReferences(referenced));
+    }
+    return found;
+  };
+  while (addUpstream()) { /* Find the full upstream closure. */ }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of nodes) {
+      if (closure.has(candidate.id) || !relationshipOperations.has(candidate.operation)) continue;
+      const references = nodeReferences(candidate),
+        fitted = referencedFits(candidate),
+        enclosed = fitted.size > 0 && [...fitted].every((id) => selected.has(id));
+      if (!enclosed) continue;
+      closure.add(candidate.id);
+      references.forEach((id) => closure.add(id));
+      changed = true;
+    }
+    while (addUpstream()) changed = true;
+  }
+  return nodes.filter((node) => closure.has(node.id)).map((node) => node.id);
 }
 // Slot is a boundary in the original list: 0 before the first, length after the last.
 export function actionMove(nodes, id, slot) {

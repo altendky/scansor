@@ -348,13 +348,29 @@ can supply that frame by owning reference geometry and fitted members while each
 occurrence owns its pose. Whether groups become first-class feature-graph nodes
 and how transferred boundaries behave near missing data remain open.
 
-The browser now implements the first same-source cylinder/plane slice. A
+The browser implements two same-source cylinder/plane slices. A low-level
 **Region** action stores a fitted surface footprint, tangential and
 surface-normal margins, source-normal tolerance, and a frame defined by an axis,
 perpendicular axial plane, and axis-parallel clock plane. **Apply** places that
 region in another such frame and resolves a new source-vertex membership usable
-by later fits. Cone regions, automatic target-pose discovery, compound-role
-templates, and application to a different source mesh remain unimplemented.
+by later fits.
+
+The higher-level **Feature** reuse action takes one or more fitted surfaces plus
+two user-painted correspondence selections. It estimates one approximate rigid
+transform from the reference occurrence to the target occurrence without using
+fixture labels or vertex correspondence. For every source fit selection it
+constructs a surface-relative region, applies that region through the estimated
+transform, and exposes the resulting membership to a new standalone fit of the
+same type. The action records the selected fits' complete upstream lineage and
+any relationships enclosed wholly by the selected fit set, so provenance is not
+lost while compound-feature semantics remain under design.
+
+This is deliberately an approximate placement stage followed by fresh target
+fits. It does not yet clone datums or instantiate target relationships, jointly
+solve the copied group, support cone regions, or transfer across a different
+source mesh. Ambiguous rotationally symmetric correspondence selections remain
+visible through a rotation-ambiguity metric; the user should paint a clocking
+cue such as a flat or asymmetric edge.
 
 The exploratory
 [repeated-boss fixture](../../../../examples/repeated-boss-selection/README.md)

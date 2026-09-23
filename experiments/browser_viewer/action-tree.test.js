@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { actionDescription, actionMove, nodeReferences } from './action-tree.js';
+import {
+  actionDescription,
+  actionMove,
+  discoverReuseLineage,
+  nodeReferences,
+} from './action-tree.js';
 
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const a = { id: 'a', label: 'Side', operation: 'selection', source: 'source' };
@@ -50,6 +55,8 @@ assert.equal(actionDescription(solve, 'unevaluated'), 'Joint · Not evaluated');
 assert.match(actionMove(axisNodes, 'axis', 3).error, /Axis needs Cylinder earlier/);
 assert.match(actionMove(axisNodes, 'plane', 4).error, /Plane factor needs Axis earlier/);
 assert.match(actionMove(axisNodes, 'solve', 5).error, /Shared solve needs Plane factor earlier/);
+assert.ok(!discoverReuseLineage(axisNodes, ['fit']).includes('solve'));
+assert.ok(discoverReuseLineage(axisNodes, ['fit', 'plane']).includes('solve'));
 
 const referencePlane = {
   id: 'mirror-plane',
@@ -129,3 +136,29 @@ assert.equal(
   actionDescription(region, 'ready'),
   'Reusable selection region · Ready',
 );
+
+const reuse = {
+  id: 'reuse',
+  label: 'Feature reuse',
+  operation: 'feature_reuse',
+  fits: ['fit'],
+  lineage: ['source', 'a', 'fit'],
+  reference_selection: 'a',
+  target_selection: 'b',
+};
+const reusedSelection = {
+  id: 'reused-selection',
+  label: 'Reused selection',
+  operation: 'reuse_selection',
+  reuse: 'reuse',
+  fit: 'fit',
+  source_selection: 'a',
+};
+assert.deepEqual(nodeReferences(reuse), ['fit', 'source', 'a', 'b']);
+assert.deepEqual(nodeReferences(reusedSelection), ['reuse', 'fit', 'a']);
+assert.deepEqual(discoverReuseLineage([source, a, b, fit], ['fit']), [
+  'source',
+  'a',
+  'fit',
+]);
+assert.equal(actionDescription(reuse, 'ready'), 'Feature reuse · Ready');

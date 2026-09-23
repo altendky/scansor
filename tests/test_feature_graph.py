@@ -9,7 +9,12 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
+from experiments.feature_graph import (
+    FeatureGraph,
+    Recipe,
+    StaleGraph,
+    discover_reuse_lineage,
+)
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
@@ -433,6 +438,64 @@ def test_fitted_selection_region_replays_in_an_explicit_datum_frame(
     invalid["output"] = "self_driving_fit"
     with pytest.raises(ValueError, match="fit an applied region standalone"):
         _ = graph.replace(Recipe.model_validate(invalid), token(graph))
+
+
+def test_feature_reuse_discovers_lineage_and_generates_a_target_selection(
+    graph: FeatureGraph,
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    typed = {node.id: node for node in Recipe.model_validate(payload).nodes}
+    lineage = discover_reuse_lineage(["side_factor"], typed)
+    assert "shared_axis" not in lineage
+    assert "shared_axis" in discover_reuse_lineage(
+        ["side_factor", "plane_factor"], typed
+    )
+    payload["nodes"].extend(
+        [
+            {
+                "id": "reuse_outer",
+                "label": "Reuse outer feature",
+                "operation": "feature_reuse",
+                "fits": ["side_factor"],
+                "lineage": lineage,
+                "reference_selection": "outer_band",
+                "target_selection": "outer_band",
+                "tangent_margin": 0.0,
+                "normal_margin": 0.25,
+                "normal_angle_degrees": 35.0,
+            },
+            {
+                "id": "reused_outer",
+                "label": "Reused outer selection",
+                "operation": "reuse_selection",
+                "reuse": "reuse_outer",
+                "fit": "side_factor",
+                "source_selection": "outer_band",
+            },
+            {
+                "id": "reused_outer_fit",
+                "label": "Reused outer fit",
+                "operation": "fit",
+                "selections": ["reused_outer"],
+                "kind": "cylinder",
+                "axial_domain": [-2.0, 5.0],
+            },
+        ]
+    )
+    payload["output"] = "reused_outer_fit"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph), all_actions=True)
+    memberships = cast(dict[str, list[int]], state["memberships"])
+    results = cast(dict[str, Any], state["results"])
+    match = results["reuse_outer"]
+    result = results["reused_outer_fit"]
+
+    assert set(graph.workspace.default.lateral_ids) <= set(memberships["reused_outer"])
+    assert match["format"] == "scansor-rigid-occurrence-match-v1"
+    np.testing.assert_allclose(match["rotation"], np.eye(3), atol=1e-8)
+    np.testing.assert_allclose(match["translation"], np.zeros(3), atol=1e-8)
+    assert result["kind"] == "cylinder"
+    assert result["weighted_rms"] < 0.03
 
 
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(
