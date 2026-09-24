@@ -21,6 +21,11 @@ button, select { color: inherit; background: #253342; border: 1px solid #4b6175;
 .display-options summary { cursor: pointer; padding: 3px 0; }
 .display-options label { margin: 8px 0; }
 .display-options select { font-size: 12px; }
+#residual-scale { margin: 8px 0 3px; color: #d6e2ec; font-variant-numeric: tabular-nums; }
+.residual-scale-bar { height: 10px; border: 1px solid #6d7f8f; border-radius: 3px; background: linear-gradient(90deg, #245bea, #fff 50%, #e23636); }
+.residual-scale-values { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; margin-top: 3px; }
+.residual-scale-values output:last-child { text-align: right; }
+.residual-peaks { margin-top: 5px; color: #a6b6c5; text-align: center; }
 footer #status { margin: 0 0 6px; }
 .navigation-options legend { padding: 0 4px; color: #a6b6c5; }
 .navigation-options label { display: flex; align-items: center; gap: 6px; margin: 4px 0; cursor: pointer; }

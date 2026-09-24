@@ -8,7 +8,7 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
-import { residualLimit, resultResidualSurfaces } from './residual-display.js';
+import { residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
@@ -1187,6 +1187,7 @@ function paint() {
     allResiduals = $('all-residuals').checked,
     residualSurfaces = [];
   $('all-residuals').disabled = !residualMode;
+  $('residual-scale').hidden = true;
   if (residualMode && allResiduals) {
     for (const node of graphState.recipe.nodes)
       if (node.operation === 'fit')
@@ -1218,7 +1219,8 @@ function paint() {
     const white = new THREE.Color('#ffffff'),
       blue = new THREE.Color('#245bea'),
       red = new THREE.Color('#e23636'),
-      limit = residualLimit(residualSurfaces);
+      range = residualRange(residualSurfaces),
+      limit = range.limit;
     for (const [, s] of residualSurfaces) {
       s.ids.forEach((id, i) => {
         const c = white
@@ -1228,8 +1230,22 @@ function paint() {
       });
     }
     $('legend').textContent =
-      `${allResiduals ? 'All residuals' : 'Residuals'} on ${residualSurfaces.length} fitted surface${residualSurfaces.length === 1 ? '' : 's'}: ` +
-      `blue negative, white zero, red positive; shared limit ±${limit.toPrecision(4)}.`;
+      `${allResiduals ? 'All' : 'Selected'} ${residualSurfaces.length} fitted surface${residualSurfaces.length === 1 ? '' : 's'} · ` +
+      'blue − / white 0 / red +.';
+    $('residual-scale-low').value = `−${limit.toPrecision(4)}`;
+    $('residual-scale-high').value = `+${limit.toPrecision(4)}`;
+    $('residual-peak-low').value = range.minimum < 0
+      ? `−${Math.abs(range.minimum).toPrecision(4)}`
+      : 'none';
+    $('residual-peak-high').value = range.maximum > 0
+      ? `+${range.maximum.toPrecision(4)}`
+      : 'none';
+    $('residual-scale').setAttribute(
+      'aria-label',
+      `Residual color scale from minus ${limit.toPrecision(4)} through zero to plus ${limit.toPrecision(4)}. ` +
+      `Observed peaks ${range.minimum.toPrecision(4)} and ${range.maximum.toPrecision(4)}.`,
+    );
+    $('residual-scale').hidden = false;
   } else if (residualMode) {
     $('legend').textContent = allResiduals
       ? 'No evaluated fit residuals are available.'

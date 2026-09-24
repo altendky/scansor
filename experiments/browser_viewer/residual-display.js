@@ -10,9 +10,13 @@ export function resultResidualSurfaces(result, fallbackId = 'standalone') {
   );
 }
 
-export function residualLimit(surfaces) {
-  return Math.max(
-    1e-12,
-    ...surfaces.flatMap(([, surface]) => surface.residuals.map(Math.abs)),
-  );
+export function residualRange(surfaces) {
+  const residuals = surfaces.flatMap(([, surface]) => surface.residuals);
+  const minimum = Math.min(0, ...residuals),
+    maximum = Math.max(0, ...residuals);
+  return {
+    minimum,
+    maximum,
+    limit: Math.max(1e-12, -minimum, maximum),
+  };
 }
