@@ -378,6 +378,30 @@ fit of the same type. The action records the selected fits' complete upstream
 lineage and any relationships enclosed wholly by the selected fit set, so
 provenance is not lost while compound-feature semantics remain under design.
 
+### Reuse-volume inspection
+
+**Provisional display plan, 2026-09-23.** Reuse regions should remain graph
+results rather than becoming additional feature nodes. The viewport should be
+able to display their spatial envelopes with translucent faces and stronger
+boundary lines. A global Display control governs the entire overlay; later tree
+controls may provide tri-state visibility for each reuse action, target group,
+and generated selection. Source envelopes should be distinguishable from their
+transformed target envelopes, and inspecting one generated selection should be
+able to emphasize its corresponding volume. Visibility is presentation state
+and must not affect graph identity, evaluation, or saved actions.
+
+The spatial envelope alone cannot represent the surface-normal tolerance. A
+complete inspection design should distinguish points which are spatially inside
+the envelope and pass the normal test from points which are inside but rejected
+by that test. Stale envelopes should be marked as stale or withheld rather than
+presented as current geometry.
+
+The first browser slice intentionally provides only an off-by-default **Show
+reuse volumes** checkbox under Display. It renders every ready target envelope
+from the same retained cylinder/plane region bounds and target placement used by
+selection evaluation. It does not yet show source envelopes, rejection points,
+per-reuse visibility, per-target visibility, or stale geometry.
+
 This is deliberately an approximate placement stage followed by fresh target
 fits. It does not yet clone datums or instantiate target relationships, jointly
 solve the copied group, support cone regions, or transfer across a different

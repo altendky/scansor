@@ -8,6 +8,7 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { selectionVolumePositions } from './reuse-volume.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
 import { viewPlaneAnchor } from './navigation-math.js';
@@ -22,7 +23,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const viewport = $('viewport');
-let renderer, scene, camera, controls, mesh, selectedPoints, overlays;
+let renderer, scene, camera, controls, mesh, selectedPoints, overlays, reuseVolumes;
 let metadata,
   positions,
   session,
@@ -85,6 +86,62 @@ function clearGuides() {
     overlays.remove(child);
     child.geometry.dispose();
     child.material.dispose();
+  }
+}
+function clearReuseVolumes() {
+  for (const child of [...reuseVolumes.children]) {
+    reuseVolumes.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  reuseVolumes.userData.volumeCount = 0;
+}
+function showReuseVolumes() {
+  clearReuseVolumes();
+  if (!$('reuse-volumes').checked || !graphState) return;
+  const targetColors = new Map();
+  for (const node of graphState.recipe.nodes) {
+    if (node.operation !== 'reuse_selection' || graphState.states[node.id] !== 'ready') continue;
+    const result = graphState.results[node.id];
+    if (!result?.region || !result.target_origin || !result.target_rotation) continue;
+    if (!targetColors.has(node.target_selection))
+      targetColors.set(
+        node.target_selection,
+        palette[targetColors.size % palette.length],
+      );
+    const volumePositions = selectionVolumePositions(
+      result.region,
+      result.target_origin,
+      result.target_rotation,
+    );
+    if (!volumePositions.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(volumePositions, 3));
+    geometry.computeVertexNormals();
+    const color = targetColors.get(node.target_selection),
+      volume = new THREE.Mesh(
+        geometry,
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.14,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      ),
+      outline = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry, 12),
+        new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.8,
+          depthTest: false,
+        }),
+      );
+    volume.renderOrder = 3;
+    outline.renderOrder = 4;
+    reuseVolumes.add(volume, outline);
+    reuseVolumes.userData.volumeCount++;
   }
 }
 function graphNode(id) {
@@ -355,6 +412,7 @@ function acceptGraph(state) {
   renderActions();
   showProperties();
   showResult();
+  showReuseVolumes();
   paint();
 }
 function renderActions() {
@@ -1115,6 +1173,10 @@ function paint() {
   $('legend').textContent = result?.added_ids
     ? 'Green: proposed additions. Seeds retain selection colors.'
     : 'Colors show raw selections. Inspect an action to see its own fit guides.';
+  if ($('reuse-volumes').checked)
+    $('legend').textContent += reuseVolumes.userData.volumeCount
+      ? ' Translucent overlays show evaluated reuse envelopes; normal-angle filtering still applies.'
+      : ' No evaluated reuse envelopes are available.';
   if ($('colors').value === 'residual' && (result?.surfaces || result?.residuals)) {
     const white = new THREE.Color('#ffffff'),
       blue = new THREE.Color('#245bea'),
@@ -1451,6 +1513,9 @@ async function start() {
   scene.add(light);
   overlays = new THREE.Group();
   scene.add(overlays);
+  reuseVolumes = new THREE.Group();
+  reuseVolumes.userData.volumeCount = 0;
+  scene.add(reuseVolumes);
   const resize = () => {
     renderer.setSize(viewport.clientWidth, viewport.clientHeight);
     camera.aspect = viewport.clientWidth / viewport.clientHeight;
@@ -2534,6 +2599,10 @@ async function start() {
   for (const name of ['colors', 'guides', 'points']) $(name).onchange = paint;
   $('all-guides').onchange = () => {
     showResult();
+    paint();
+  };
+  $('reuse-volumes').onchange = () => {
+    showReuseVolumes();
     paint();
   };
   $('save').onclick = async () => {

@@ -122,7 +122,11 @@ The left column has two independently scrollable areas: features above, selected
 feature information/properties and results below. Selection editing appears only
 for a selected selection. Save actions, Load actions and Restore example are in
 the project header. Display settings sit beside Navigation over the viewport;
-general status and errors appear in the footer.
+general status and errors appear in the footer. **Show reuse volumes** displays
+all currently evaluated generated reuse-selection envelopes as translucent
+target-colored overlays. It is off by default and is display state only; the
+surface-normal acceptance test still determines which vertices inside an
+envelope become selected.
 Drag the divider between the tree and attributes to resize them. With the divider
 focused, Up/Down adjusts the split (Shift for larger steps); Home/End selects its
 limits. Escape cancels an unfinished drag. The split is remembered in browser
