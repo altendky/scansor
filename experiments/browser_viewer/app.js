@@ -33,6 +33,7 @@ let metadata,
 let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
+let selectedFeatureIds = new Set();
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -148,6 +149,22 @@ function showReuseVolumes() {
 function graphNode(id) {
   return graphState.recipe.nodes.find((n) => n.id === id);
 }
+function selectOnly(id) {
+  selectedFeatureIds = new Set(id ? [id] : []);
+  selectedFeatureId = id || null;
+}
+function toggleFeatureSelection(id) {
+  if (selectedFeatureIds.has(id)) selectedFeatureIds.delete(id);
+  else selectedFeatureIds.add(id);
+  selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
+}
+function refreshFeatureSelection(scroll = false) {
+  if (scroll) $('feature-properties-panel').scrollTop = 0;
+  renderActions();
+  showProperties();
+  showResult();
+  paint();
+}
 function nextFeatureLabel(base, reserved = []) {
   return uniqueFeatureLabel(base, [
     ...(graphState?.recipe.nodes || []),
@@ -184,7 +201,7 @@ function openFeatureGroup(groupId = null) {
     members,
     group
       ? members.filter((node) => node.group_id === group.id).map((node) => node.id)
-      : [selectedFeatureId],
+      : [...selectedFeatureIds],
   );
   $('feature-group-error').textContent = '';
   $('feature-group-dialog').showModal();
@@ -236,6 +253,151 @@ function choices(id, nodes, selected = []) {
 }
 function isStandaloneFit(node) {
   return !node.axis && !node.reference_plane;
+}
+let relationshipParticipantIds = new Set(), selectedRelationshipKind = null;
+const relationshipDefinitions = [
+  {
+    id: 'coincident_planes',
+    label: 'Coincident planes',
+    baseName: 'Coincident planes',
+    summary: 'All selected plane fits share one exact plane: normal and offset.',
+  },
+  {
+    id: 'parallel_planes',
+    label: 'Parallel planes',
+    baseName: 'Parallel planes',
+    summary: 'All selected plane fits share one exact normal; their offsets remain independent.',
+  },
+  {
+    id: 'equal_radii',
+    label: 'Equal radii',
+    baseName: 'Equal radii',
+    summary: 'All selected cylinder fits share one exact radius; their axes remain independent.',
+  },
+  {
+    id: 'mirror',
+    label: 'Mirror symmetry',
+    baseName: 'Mirrored pair',
+    summary: 'Two same-type standalone fits mirror across the selected axis-containing plane.',
+  },
+  {
+    id: 'radius_plane_distance',
+    label: 'Radius equals plane distance',
+    baseName: 'Radius equals plane distance',
+    summary: 'The cylinder radius equals the absolute separation of the fit and reference planes.',
+  },
+];
+function relationshipValidity(kind, participants) {
+  const fits = participants.filter((node) => node.operation === 'fit'),
+    planes = fits.filter((node) => node.kind === 'plane'),
+    cylinders = fits.filter((node) => node.kind === 'cylinder'),
+    datums = participants.filter((node) => node.operation === 'reference_plane'),
+    only = (expected) => participants.length === expected;
+  if (kind === 'coincident_planes' || kind === 'parallel_planes')
+    return participants.length >= 2 && planes.length === participants.length
+      ? { valid: true }
+      : { valid: false, reason: 'Select two or more plane fits only.' };
+  if (kind === 'equal_radii')
+    return participants.length >= 2 && cylinders.length === participants.length
+      ? { valid: true }
+      : { valid: false, reason: 'Select two or more cylinder fits only.' };
+  if (kind === 'mirror') {
+    const valid =
+      only(3) &&
+      fits.length === 2 &&
+      datums.length === 1 &&
+      fits.every(isStandaloneFit) &&
+      fits[0]?.kind === fits[1]?.kind &&
+      datums[0]?.construction === 'contains_axis';
+    return valid
+      ? { valid: true }
+      : { valid: false, reason: 'Select two same-type standalone fits and one plane containing an axis.' };
+  }
+  const cylinder = cylinders[0],
+    plane = planes[0],
+    datum = datums[0],
+    valid =
+      only(3) &&
+      cylinders.length === 1 &&
+      planes.length === 1 &&
+      datums.length === 1 &&
+      cylinder.axis &&
+      isStandaloneFit(plane) &&
+      cylinder.axis === datum.axis;
+  return valid
+    ? { valid: true }
+    : { valid: false, reason: 'Select one axis-bound cylinder, one standalone plane fit, and one reference plane on that axis.' };
+}
+function participantType(node) {
+  if (node.operation === 'fit') return `${node.kind} fit`;
+  if (node.operation === 'reference_plane') return 'reference plane';
+  return node.operation.replaceAll('_', ' ');
+}
+function renderRelationshipBuilder() {
+  const participants = graphState.recipe.nodes.filter((node) =>
+      relationshipParticipantIds.has(node.id),
+    ),
+    valid = relationshipDefinitions.filter(
+      (definition) => relationshipValidity(definition.id, participants).valid,
+    );
+  if (!valid.some((definition) => definition.id === selectedRelationshipKind))
+    selectedRelationshipKind = valid.length === 1 ? valid[0].id : null;
+  $('relationship-participants').replaceChildren(
+    ...graphState.recipe.nodes.map((node) => {
+      const label = document.createElement('label'),
+        checkbox = document.createElement('input'),
+        name = document.createElement('span'),
+        type = document.createElement('span');
+      checkbox.type = 'checkbox';
+      checkbox.checked = relationshipParticipantIds.has(node.id);
+      checkbox.onchange = () => {
+        if (checkbox.checked) relationshipParticipantIds.add(node.id);
+        else relationshipParticipantIds.delete(node.id);
+        renderRelationshipBuilder();
+      };
+      name.textContent = node.label;
+      type.className = 'participant-type';
+      type.textContent = participantType(node);
+      label.append(checkbox, name, type);
+      return label;
+    }),
+  );
+  $('relationship-kinds').replaceChildren(
+    ...relationshipDefinitions.map((definition) => {
+      const validity = relationshipValidity(definition.id, participants),
+        label = document.createElement('label'),
+        radio = document.createElement('input'),
+        name = document.createElement('span'),
+        help = document.createElement('small');
+      label.className = 'relationship-kind';
+      radio.type = 'radio';
+      radio.name = 'relationship-kind';
+      radio.value = definition.id;
+      radio.disabled = !validity.valid;
+      radio.checked = selectedRelationshipKind === definition.id;
+      radio.onchange = () => {
+        selectedRelationshipKind = definition.id;
+        $('new-relationship-label').value = nextFeatureLabel(definition.baseName);
+        $('new-relationship-label').select();
+        renderRelationshipBuilder();
+      };
+      name.textContent = definition.label;
+      help.textContent = validity.valid ? definition.summary : validity.reason;
+      label.append(radio, name, help);
+      return label;
+    }),
+  );
+  const chosen = relationshipDefinitions.find(
+    (definition) => definition.id === selectedRelationshipKind,
+  );
+  $('relationship-summary').textContent = chosen
+    ? chosen.summary
+    : valid.length > 1
+      ? 'More than one relationship fits these participants. Choose the intended one.'
+      : valid.length === 1
+        ? valid[0].summary
+        : 'Choose participants to see compatible exact relationships.';
+  $('add-relationship').disabled = !chosen;
 }
 function axialDatumPlanes(nodes) {
   return nodes.filter(
@@ -366,7 +528,7 @@ async function appendActions(nodes, autoEvaluate = true) {
   const recipe = structuredClone(graphState.recipe);
   recipe.nodes.push(...nodes);
   recipe.output = nodes.at(-1).id;
-  selectedFeatureId = recipe.output;
+  selectOnly(recipe.output);
   const saved = await replaceRecipe(recipe, autoEvaluate);
   if (saved)
     $('action-list')
@@ -376,7 +538,11 @@ async function appendActions(nodes, autoEvaluate = true) {
 }
 function acceptGraph(state) {
   graphState = state;
-  if (!graphNode(selectedFeatureId)) selectedFeatureId = state.recipe.output;
+  selectedFeatureIds = new Set(
+    [...selectedFeatureIds].filter((id) => state.recipe.nodes.some((node) => node.id === id)),
+  );
+  if (!selectedFeatureIds.size) selectOnly(state.recipe.output);
+  else selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
   session = Object.fromEntries(
     state.recipe.nodes.filter((n) => n.operation === 'selection').map((n) => [n.id, n.ids]),
   );
@@ -417,21 +583,20 @@ function acceptGraph(state) {
   paint();
 }
 function renderActions() {
+  $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
+  $('clear-feature-selection').disabled = !selectedFeatureIds.size;
   renderActionTree($('action-list'), {
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
-    selected: selectedFeatureId,
+    selected: selectedFeatureIds,
     states: graphState.states,
     errors: graphState.errors,
     locked: () => busy || selectionDrawing || selectionPending || graphState.evaluation_running,
-    select: (id) => {
+    select: (id, { exclusive = false } = {}) => {
       if (selectionDrawing || selectionPending) return;
-      selectedFeatureId = id;
-      $('feature-properties-panel').scrollTop = 0;
-      renderActions();
-      showProperties();
-      showResult();
-      paint();
+      if (exclusive) selectOnly(id);
+      else toggleFeatureSelection(id);
+      refreshFeatureSelection(true);
     },
     move: (nodes) => replaceRecipe({ ...structuredClone(graphState.recipe), nodes }),
     announce: (message, error = false) => {
@@ -443,6 +608,21 @@ function renderActions() {
   });
 }
 function showProperties() {
+  const single = selectedFeatureIds.size === 1;
+  $('feature-selection-summary').hidden = single;
+  $('feature-single-selection').hidden = !single;
+  $('selection-tools').hidden = !single;
+  $('feature-inspection').hidden = !single;
+  if (!single) {
+    const selected = graphState.recipe.nodes.filter((node) => selectedFeatureIds.has(node.id));
+    $('feature-selection-summary-title').textContent = selected.length
+      ? `${selected.length} features selected`
+      : 'No features selected';
+    $('feature-selection-summary-names').textContent = selected.length
+      ? selected.map((node) => node.label).join(' · ')
+      : 'Click features to add them to the selection.';
+    return;
+  }
   const node = graphNode(selectedFeatureId),
     earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node));
   $('selection-tools').hidden = node.operation !== 'selection';
@@ -481,6 +661,7 @@ function showProperties() {
     ['feature-reuse-properties', node.operation === 'feature_reuse'],
     ['reuse-selection-properties', node.operation === 'reuse_selection'],
     ['equal-radii-properties', node.operation === 'equal_radii'],
+    ['plane-relationship-properties', node.operation === 'plane_relationship'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
@@ -666,6 +847,13 @@ function showProperties() {
       earlier.filter((candidate) => node.surfaces.includes(candidate.id)),
       node.surfaces,
     );
+  } else if (node.operation === 'plane_relationship') {
+    $('plane-relationship-kind').value = node.relation;
+    choices(
+      'plane-relationship-surfaces',
+      earlier.filter((candidate) => node.surfaces.includes(candidate.id)),
+      node.surfaces,
+    );
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
       'constraint-a',
@@ -780,7 +968,7 @@ function showProperties() {
   if (managed) {
     $('managed-owner-name').textContent = owner?.label || ownerId;
     $('select-managed-owner').onclick = () => {
-      selectedFeatureId = ownerId;
+      selectOnly(ownerId);
       renderActions();
       showProperties();
       showResult();
@@ -1052,7 +1240,7 @@ function showOverlap() {
       button.textContent = node.label;
       button.title = 'Selections: ' + node.selections.map((ref) => graphNode(ref).label).join(', ');
       button.onclick = () => {
-        selectedFeatureId = id;
+        selectOnly(id);
         renderActions();
         showProperties();
         showResult();
@@ -1065,6 +1253,13 @@ function showOverlap() {
   }
 }
 function showResult() {
+  if (selectedFeatureIds.size !== 1) {
+    result = null;
+    clearGuides();
+    showAvailableGuides();
+    $('metrics').replaceChildren();
+    return;
+  }
   result = graphState.results[selectedFeatureId] || null;
   clearGuides();
   showAvailableGuides();
@@ -1083,6 +1278,7 @@ function showResult() {
         'perpendicular',
         'rotational_symmetry',
         'equal_radii',
+        'plane_relationship',
         ...relationshipOperations,
       ].includes(
         node.operation,
@@ -1170,6 +1366,14 @@ function showResult() {
     Object.entries(result.surfaces).forEach(([id, surface], index) =>
       fitGuide(graphNode(id), surface, palette[index % palette.length]),
     );
+  } else if (node.operation === 'plane_relationship') {
+    values['Relationship'] = node.relation === 'coincident' ? 'Coincident' : 'Parallel';
+    values['Plane fits'] = node.surfaces.length;
+    if (Number.isFinite(result.weighted_rms))
+      values['Combined RMS'] = result.weighted_rms.toFixed(5);
+    Object.entries(result.surfaces).forEach(([id, surface], index) =>
+      fitGuide(graphNode(id), surface, palette[index % palette.length]),
+    );
   }
   for (const [label, value] of Object.entries(values)) {
     const dt = document.createElement('dt'),
@@ -1195,7 +1399,7 @@ function paint() {
   } else {
     residualSurfaces.push(...resultResidualSurfaces(result, selectedFeatureId));
   }
-  if (residualMode && !allResiduals && selectedNode.operation === 'feature_reuse') {
+  if (residualMode && !allResiduals && selectedNode?.operation === 'feature_reuse') {
     const subtree = managedSubtreeIds(selectedFeatureId, graphState.recipe.nodes);
     for (const node of graphState.recipe.nodes)
       if (subtree.has(node.id) && node.operation === 'fit')
@@ -1261,11 +1465,17 @@ function paint() {
     const color = new THREE.Color('#ff20db');
     for (const id of overlap.ids) colors.setXYZ(id, color.r, color.g, color.b);
   }
-  const emphasized = featureVertexIds(
-    graphState.recipe.nodes,
-    { ...graphState.memberships, ...session },
-    selectedFeatureId,
-  );
+  const emphasized = [
+    ...new Set(
+      [...selectedFeatureIds].flatMap((id) =>
+        featureVertexIds(
+          graphState.recipe.nodes,
+          { ...graphState.memberships, ...session },
+          id,
+        ),
+      ),
+    ),
+  ];
   const focusColors = focusedPoints.geometry.getAttribute('color');
   const white = new THREE.Color('#ffffff');
   // Unlit markers need their own colors: bright mesh lighting can otherwise
@@ -1308,13 +1518,14 @@ function paint() {
     busy ||
     selectionDrawing ||
     selectionPending ||
+    !selectedNode ||
     [
       'coaxial',
       'perpendicular',
       'rotational_symmetry',
       ...relationshipOperations,
     ].includes(
-      graphNode(selectedFeatureId).operation,
+      selectedNode?.operation,
     );
   $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
   $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
@@ -1602,8 +1813,32 @@ async function start() {
   $('auto-evaluate').onchange = () => {
     if ($('auto-evaluate').checked) void evaluateAll();
   };
+  $('clear-feature-selection').onclick = () => {
+    selectOnly(null);
+    refreshFeatureSelection();
+  };
+  $('action-list').onclick = (event) => {
+    if (event.target !== $('action-list')) return;
+    selectOnly(null);
+    refreshFeatureSelection();
+  };
+  $('features-panel').onclick = (event) => {
+    if (event.target !== $('features-panel')) return;
+    selectOnly(null);
+    refreshFeatureSelection();
+  };
+  $('new-relationship').onclick = () => {
+    relationshipParticipantIds = new Set(selectedFeatureIds);
+    selectedRelationshipKind = null;
+    $('new-relationship-label').value = nextFeatureLabel('Relationship');
+    $('relationship-error').textContent = '';
+    renderRelationshipBuilder();
+    $('relationship-dialog').showModal();
+    $('new-relationship-label').focus();
+    $('new-relationship-label').select();
+  };
   $('inspect-overlap').onclick = () => {
-    selectedFeatureId = activeOverlap;
+    selectOnly(activeOverlap);
     renderActions();
     showProperties();
     showResult();
@@ -2265,6 +2500,57 @@ async function start() {
     ]);
     if (saved) $('reference-plane-dialog').close();
   };
+  $('add-relationship-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const participants = graphState.recipe.nodes.filter((node) =>
+        relationshipParticipantIds.has(node.id),
+      ),
+      validity = relationshipValidity(selectedRelationshipKind, participants);
+    if (!selectedRelationshipKind || !validity.valid) {
+      $('relationship-error').textContent = validity.reason || 'Choose a compatible relationship.';
+      return;
+    }
+    const fits = participants.filter((node) => node.operation === 'fit'),
+      datum = participants.find((node) => node.operation === 'reference_plane');
+    let node;
+    if (selectedRelationshipKind === 'coincident_planes' || selectedRelationshipKind === 'parallel_planes')
+      node = {
+        id: uid('plane_relationship'),
+        label: submittedFeatureLabel('new-relationship-label'),
+        operation: 'plane_relationship',
+        relation: selectedRelationshipKind === 'coincident_planes' ? 'coincident' : 'parallel',
+        surfaces: fits.map((fit) => fit.id),
+      };
+    else if (selectedRelationshipKind === 'equal_radii')
+      node = {
+        id: uid('equal_radii'),
+        label: submittedFeatureLabel('new-relationship-label'),
+        operation: 'equal_radii',
+        surfaces: fits.map((fit) => fit.id),
+      };
+    else if (selectedRelationshipKind === 'mirror')
+      node = {
+        id: uid('mirror'),
+        label: submittedFeatureLabel('new-relationship-label'),
+        operation: 'mirror_symmetry',
+        plane: datum.id,
+        surfaces: fits.map((fit) => fit.id),
+        symmetric_extents: true,
+      };
+    else {
+      const cylinder = fits.find((fit) => fit.kind === 'cylinder'),
+        plane = fits.find((fit) => fit.kind === 'plane');
+      node = {
+        id: uid('equal'),
+        label: submittedFeatureLabel('new-relationship-label'),
+        operation: 'equal',
+        left: { measurement: 'radius', surface: cylinder.id },
+        right: { measurement: 'plane_distance', surface: plane.id, reference_plane: datum.id },
+      };
+    }
+    if (await appendActions([node])) $('relationship-dialog').close();
+    else $('relationship-error').textContent = $('status').textContent;
+  };
   $('add-mirror-form').onsubmit = async (event) => {
     event.preventDefault();
     let surfaces;
@@ -2406,7 +2692,7 @@ async function start() {
     };
     joint.constraints.push(constraint.id);
     recipe.nodes = [...recipe.nodes.filter((n) => n.id !== jointId), constraint, joint];
-    selectedFeatureId = jointId;
+    selectOnly(jointId);
     if (await replaceRecipe(recipe)) {
       $('rotation-dialog').close();
       $('feature-properties-panel').scrollTop = 0;
@@ -2593,7 +2879,7 @@ async function start() {
     const removalIds = managedSubtreeIds(selectedFeatureId, recipe.nodes);
     recipe.nodes = recipe.nodes.filter((node) => !removalIds.has(node.id));
     if (removalIds.has(recipe.output)) recipe.output = recipe.nodes.at(-1).id;
-    selectedFeatureId = recipe.output;
+    selectOnly(recipe.output);
     await replaceRecipe(recipe);
   };
   $('add-selection').onclick = async () => {
@@ -2923,7 +3209,14 @@ async function start() {
   window.addEventListener('blur', cancelStroke);
   window.addEventListener('resize', cancelStroke);
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') cancelStroke();
+    if (event.key !== 'Escape') return;
+    if (selectionDrawing || selectionPending) {
+      cancelStroke();
+      return;
+    }
+    if (document.querySelector('dialog[open]')) return;
+    selectOnly(null);
+    refreshFeatureSelection();
   });
   for (const id of ['selection-shape', 'selection-depth', 'tool', 'brush-size']) {
     $(id).addEventListener('input', cancelStroke);

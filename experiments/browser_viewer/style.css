@@ -39,6 +39,9 @@ footer #status { margin: 0 0 6px; }
 
 
 #action-list { padding: 3px 0; list-style: none; }
+#feature-selection-bar { position: sticky; top: -16px; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -8px -8px 8px; padding: 8px; background: #111a22ee; border-bottom: 1px solid #314354; }
+#feature-selection-bar button { padding: 4px 9px; font-size: 12px; }
+#feature-selection-summary-names { line-height: 1.55; }
 #action-list li { position: relative; margin: 4px 0; border-radius: 6px; }
 #action-list .action-row { position: relative; display: flex; align-items: center; gap: 3px; border-radius: 6px; }
 #action-list button { padding: 5px; font-size: 12px; }
@@ -111,6 +114,17 @@ body.resizing-features, body.resizing-features * { cursor: row-resize !important
 dialog { width: min(420px, 90vw); max-height: 85vh; overflow: auto; background: #17232e; color: inherit; border: 1px solid #4b6175; border-radius: 8px; }
 dialog::backdrop { background: #0008; }
 dialog input { width: 100%; padding: 8px; }
+.relationship-participants { display: grid; max-height: 240px; overflow: auto; border: 1px solid #4b6175; border-radius: 6px; }
+.relationship-participants label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; margin: 0; padding: 8px 10px; border-bottom: 1px solid #314354; }
+.relationship-participants label:last-child { border-bottom: 0; }
+.relationship-participants input { width: auto; }
+.participant-type { color: #91a7b9; font-size: 12px; }
+.relationship-kinds { display: grid; gap: 7px; }
+.relationship-kind { display: grid; grid-template-columns: auto 1fr; gap: 2px 9px; align-items: start; padding: 9px; border: 1px solid #4b6175; border-radius: 6px; }
+.relationship-kind input { width: auto; margin-top: 3px; }
+.relationship-kind small { grid-column: 2; color: #91a7b9; }
+.relationship-kind:has(input:checked) { border-color: #77d3ea; background: #164b5a; }
+.relationship-kind:has(input:disabled) { opacity: .55; }
 
 #overlap-banner { position: absolute; z-index: 2; left: 16px; bottom: 48px; max-width: calc(100% - 32px); padding: 10px 14px; background: #30132ff2; border: 2px solid #ff61df; border-radius: 6px; }
 #overlap-banner[hidden], #overlap-details[hidden] { display: none; }

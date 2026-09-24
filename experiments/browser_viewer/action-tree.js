@@ -23,6 +23,7 @@ const paths = {
   parallel: 'M4 8h16M4 16h16',
   equal: 'M5 9h14M5 15h14',
   equal_radii: 'M5 7h14M5 12h14M5 17h14',
+  plane_relationship: 'M4 8h16M4 16h16',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -50,6 +51,7 @@ const operations = {
   parallel: 'Parallel relationship',
   equal: 'Numeric equality',
   equal_radii: 'All equal radii',
+  plane_relationship: 'Plane relationship',
   joint_fit: 'Legacy joint fit',
 };
 const states = {
@@ -102,6 +104,7 @@ export function nodeReferences(node) {
     return [...new Set(refs)];
   }
   if (node.operation === 'equal_radii') return node.surfaces;
+  if (node.operation === 'plane_relationship') return node.surfaces;
   return node.constraints || [];
 }
 
@@ -157,6 +160,7 @@ export function discoverReuseLineage(nodes, fitIds) {
       'parallel',
       'equal',
       'equal_radii',
+      'plane_relationship',
       'axis_solve',
     ]);
   const addUpstream = () => {
@@ -449,7 +453,8 @@ export function renderActionTree(
     collapsedGroups = renderActionTree.collapsedGroups ||= new Set(),
     byId = new Map(nodes.map((node) => [node.id, node])),
     ownerById = new Map(nodes.map((node) => [node.id, managedOwnerId(node, nodes)])),
-    managed = new Map();
+    managed = new Map(),
+    selectedIds = selected instanceof Set ? selected : new Set(selected ? [selected] : []);
   for (const node of nodes) {
     const owner = ownerById.get(node.id);
     if (!owner) continue;
@@ -547,7 +552,7 @@ export function renderActionTree(
     const button = document.createElement('button');
     button.className = 'action-select';
     button.dataset.actionId = node.id;
-    button.setAttribute('aria-pressed', String(selected === node.id));
+    button.setAttribute('aria-pressed', String(selectedIds.has(node.id)));
     const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation),
       description = actionDescription(node, states[node.id], errors[node.id]);
     button.title = `${node.label} · ${description}`;
@@ -557,7 +562,7 @@ export function renderActionTree(
       event.preventDefault();
       const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
       if (!adjacent) return;
-      select(adjacent.id);
+      select(adjacent.id, { exclusive: true });
       [...list.querySelectorAll('.action-select, .managed-owner-summary')]
         .find((candidate) => candidate.dataset.actionId === adjacent.id)
         ?.focus();

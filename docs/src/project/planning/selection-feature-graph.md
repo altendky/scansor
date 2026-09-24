@@ -216,6 +216,18 @@ joint remains available to select a factor set and add relationships, producing
 a separate result. Broader
 constraint networks remain future work.
 
+The browser's relationship workflow treats feature selection as a persistent
+operand set. Clicking a feature toggles it without a modifier key; **Clear**, an
+empty-tree click, or Escape clears the set. **Relationship…** opens one builder
+prefilled from that set, but every participant can also be chosen inside the
+dialog. Applicable exact relationships are enabled and ambiguous valid choices
+remain explicit; incompatible choices stay visible with a reason instead of
+silently dropping operands. The first direct multi-fit plane relationships are
+**Coincident** (shared normal and offset) and **Parallel** (shared normal with
+independent offsets). Connected plane relationships solve as one component and
+do not require a joint action. A plane already governed by explicit reference
+geometry anchors that component to its resolved datum orientation.
+
 **Provisional successor direction with a first internal contract, 2026-09-20:**
 generalized model semantics make reference geometry and solve participation
 explicit rather than connect fitted surfaces through a joint-owned hidden axis.
@@ -407,9 +419,10 @@ fits. Those fits are independent by default. The first cross-occurrence
 relationship is an exact **All equal radii** action: a reuse feature's **Equal
 corresponding dimensions** option creates one visible managed relationship for
 each source-cylinder role and includes the source plus every generated copy.
-Selecting the whole reuse feature and invoking **Equal** enables the same
-relationships. The measurement solve retains each cylinder's independently
-resolved axis and fits one area-weighted shared radius from all observations.
+Selecting the corresponding cylinder fits and choosing **Equal radii** in the
+relationship builder creates the same relationship. The measurement solve
+retains each cylinder's independently resolved axis and fits one area-weighted
+shared radius from all observations.
 Disabling the option removes the managed equality actions without changing the
 generated selections or independent fits.
 

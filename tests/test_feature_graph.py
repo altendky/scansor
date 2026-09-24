@@ -344,6 +344,57 @@ def test_plane_fit_can_lock_to_an_explicit_plane_orientation(
     assert fitted["ids"] == ids
 
 
+@pytest.mark.parametrize("relation", ["coincident", "parallel"])
+def test_plane_relationships_share_exact_geometry(
+    graph: FeatureGraph, relation: str
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    ids = graph.workspace.default.plane_ids
+    nodes = [base["scan"]]
+    for suffix, selected_ids in (("a", ids[::2]), ("b", ids[1::2])):
+        nodes.extend(
+            [
+                {
+                    "id": f"plane_selection_{suffix}",
+                    "label": f"Plane selection {suffix}",
+                    "operation": "selection",
+                    "source": "scan",
+                    "ids": selected_ids,
+                },
+                {
+                    "id": f"plane_fit_{suffix}",
+                    "label": f"Plane fit {suffix}",
+                    "operation": "fit",
+                    "selections": [f"plane_selection_{suffix}"],
+                    "kind": "plane",
+                },
+            ]
+        )
+    nodes.append(
+        {
+            "id": "plane_relation",
+            "label": f"Plane {relation}",
+            "operation": "plane_relationship",
+            "relation": relation,
+            "surfaces": ["plane_fit_a", "plane_fit_b"],
+        }
+    )
+    payload.update(nodes=nodes, output="plane_relation")
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+
+    state = graph.evaluate(token(graph))
+    results = cast(dict[str, dict[str, Any]], state["results"])
+    first = np.asarray(results["plane_fit_a"]["plane_equation"])
+    second = np.asarray(results["plane_fit_b"]["plane_equation"])
+
+    np.testing.assert_allclose(first[:3], second[:3], atol=1e-12)
+    if relation == "coincident":
+        np.testing.assert_allclose(first, second, atol=1e-12)
+    assert results["plane_fit_a"]["resolved_by"] == "plane_relationship"
+    assert results["plane_fit_b"]["resolved_by"] == "plane_relationship"
+
+
 def test_connected_fits_drive_their_free_axis_and_plane_without_a_joint(
     graph: FeatureGraph,
 ) -> None:

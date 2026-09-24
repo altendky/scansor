@@ -278,6 +278,14 @@ class EqualRadii(Node):
     surfaces: list[str] = Field(min_length=2, max_length=33)
 
 
+class PlaneRelationship(Node):
+    """Exact orientation, and optionally offset, shared by plane fits."""
+
+    operation: Literal["plane_relationship"]
+    relation: Literal["coincident", "parallel"]
+    surfaces: list[str] = Field(min_length=2, max_length=33)
+
+
 class AxisSolve(Node):
     """Explicit active factors that jointly refine one shared free axis."""
 
@@ -305,6 +313,7 @@ Feature = Annotated[
     | ParallelToPlane
     | EqualQuantities
     | EqualRadii
+    | PlaneRelationship
     | AxisSolve,
     Field(discriminator="operation"),
 ]
@@ -453,6 +462,8 @@ def dependencies(node: Feature) -> list[str]:
         return list(dict.fromkeys(refs))
     if isinstance(node, EqualRadii):
         return node.surfaces
+    if isinstance(node, PlaneRelationship):
+        return node.surfaces
     if isinstance(node, AxisSolve):
         return [node.axis, *node.factors]
     return []
@@ -505,6 +516,63 @@ def automatic_equal_radius_components(
         for node in nodes.values()
         if isinstance(node, EqualRadii)
     }
+
+
+def automatic_plane_relationship_components(
+    nodes: dict[str, Feature],
+) -> dict[str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]]:
+    """Connected exact plane relationships evaluated as one constraint system."""
+    relationships = [
+        node for node in nodes.values() if isinstance(node, PlaneRelationship)
+    ]
+    pending = set(relationship.id for relationship in relationships)
+    by_id = {relationship.id: relationship for relationship in relationships}
+    components: dict[
+        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
+    ] = {}
+    while pending:
+        first = next(
+            relationship.id
+            for relationship in relationships
+            if relationship.id in pending
+        )
+        relation_ids = {first}
+        surface_ids = set(by_id[first].surfaces)
+        while True:
+            connected = {
+                relationship.id
+                for relationship in relationships
+                if relationship.id in pending
+                and surface_ids.intersection(relationship.surfaces)
+            }
+            expanded_surfaces = {
+                surface
+                for relationship_id in connected | relation_ids
+                for surface in by_id[relationship_id].surfaces
+            }
+            if connected <= relation_ids and expanded_surfaces == surface_ids:
+                break
+            relation_ids.update(connected)
+            surface_ids.update(expanded_surfaces)
+        pending.difference_update(relation_ids)
+        component_relationships = [
+            relationship
+            for relationship in relationships
+            if relationship.id in relation_ids
+        ]
+        component_surfaces = [
+            cast(SurfaceFit, nodes[node_id])
+            for node_id in nodes
+            if node_id in surface_ids
+        ]
+        members = {*relation_ids, *surface_ids}
+        for relationship_id in relation_ids:
+            components[relationship_id] = (
+                component_relationships,
+                component_surfaces,
+                members,
+            )
+    return components
 
 
 def selection_frame_axis(
@@ -857,6 +925,135 @@ def fit_equal_cylinder_radii(
         "measurement": "radius",
         "value": radius,
         "surfaces": adjusted,
+    }
+
+
+def fit_plane_relationships(
+    workspace: NozzleWorkspace,
+    relationships: list[PlaneRelationship],
+    surfaces: list[SurfaceFit],
+    results: list[dict[str, Any]],
+    ids: list[list[int]],
+) -> dict[str, Any]:
+    """Solve a connected set of exact coincident/parallel plane constraints."""
+    parent = {surface.id: surface.id for surface in surfaces}
+
+    def root(surface_id: str) -> str:
+        while parent[surface_id] != surface_id:
+            parent[surface_id] = parent[parent[surface_id]]
+            surface_id = parent[surface_id]
+        return surface_id
+
+    def union(left: str, right: str) -> None:
+        left_root, right_root = root(left), root(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for relationship in relationships:
+        if relationship.relation != "coincident":
+            continue
+        anchor = relationship.surfaces[0]
+        for surface_id in relationship.surfaces[1:]:
+            union(anchor, surface_id)
+
+    groups: dict[str, list[int]] = {}
+    for index, surface in enumerate(surfaces):
+        groups.setdefault(root(surface.id), []).append(index)
+
+    covariance = np.zeros((3, 3), dtype=float)
+    total_weight = 0.0
+    for indices in groups.values():
+        group_points = np.concatenate(
+            [workspace.local[ids[index]] for index in indices]
+        )
+        group_weights = np.concatenate(
+            [workspace.data.weights[ids[index]] for index in indices]
+        )
+        weight = float(group_weights.sum())
+        if not np.isfinite(weight) or weight <= 0:
+            raise ValueError("plane relationships need positive-area observations")
+        centroid = group_weights @ group_points / weight
+        centered = group_points - centroid
+        covariance += (centered * group_weights[:, None]).T @ centered
+        total_weight += weight
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    normal = eigenvectors[:, int(np.argmin(eigenvalues))]
+    reference_normals = [
+        np.asarray(result["plane_equation"][:3], dtype=float)
+        for result in results
+        if "plane_equation" in result
+    ]
+    bound_normals = [
+        np.asarray(result["plane_equation"][:3], dtype=float)
+        for surface, result in zip(surfaces, results, strict=True)
+        if (surface.axis is not None or surface.reference_plane is not None)
+        and "plane_equation" in result
+    ]
+    if bound_normals:
+        normal = sum(
+            candidate if candidate @ bound_normals[0] >= 0 else -candidate
+            for candidate in bound_normals
+        )
+        normal /= np.linalg.norm(normal)
+    elif reference_normals and normal @ sum(reference_normals) < 0:
+        normal = -normal
+
+    adjusted: dict[str, dict[str, Any]] = {}
+    group_offsets: dict[str, float] = {}
+    for group_id, indices in groups.items():
+        bound_offsets = [
+            float(results[index]["plane_equation"][3])
+            for index in indices
+            if (
+                surfaces[index].axis is not None
+                or surfaces[index].reference_plane is not None
+            )
+            and "plane_equation" in results[index]
+        ]
+        if bound_offsets:
+            group_offsets[group_id] = float(np.mean(bound_offsets))
+            continue
+        group_points = np.concatenate(
+            [workspace.local[ids[index]] for index in indices]
+        )
+        group_weights = np.concatenate(
+            [workspace.data.weights[ids[index]] for index in indices]
+        )
+        group_offsets[group_id] = float(
+            group_weights @ (group_points @ normal) / group_weights.sum()
+        )
+    for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
+        points = workspace.local[surface_ids]
+        weights = workspace.data.weights[surface_ids]
+        offset = group_offsets[root(surface.id)]
+        residuals = points @ normal - offset
+        adjusted[surface.id] = {
+            **deepcopy(result),
+            "kind": "plane",
+            "ids": surface_ids,
+            "parameters": [*normal.tolist(), offset],
+            "plane_equation": [*normal.tolist(), offset],
+            "residuals": residuals.tolist(),
+            "weighted_rms": float(
+                np.sqrt(weights @ residuals**2 / float(weights.sum()))
+            ),
+            "resolved_by": "plane_relationship",
+        }
+    return {
+        "format": "scansor-plane-relationships-v1",
+        "relationships": [relationship.id for relationship in relationships],
+        "normal_display": normal.tolist(),
+        "surfaces": adjusted,
+        "weighted_rms": float(
+            np.sqrt(
+                sum(
+                    workspace.data.weights[ids[index]]
+                    @ np.asarray(adjusted[surface.id]["residuals"]) ** 2
+                    for index, surface in enumerate(surfaces)
+                )
+                / total_weight
+            )
+        ),
     }
 
 
@@ -1291,6 +1488,15 @@ class FeatureGraph:
                     raise ValueError(
                         "a cylinder may belong to only one all-equal radius relationship"
                     )
+            elif isinstance(node, PlaneRelationship):
+                if len(set(node.surfaces)) != len(node.surfaces):
+                    raise ValueError("plane relationship inputs must be unique")
+                surfaces = [nodes[ref] for ref in node.surfaces]
+                if any(
+                    not isinstance(surface, SurfaceFit) or surface.kind != "plane"
+                    for surface in surfaces
+                ):
+                    raise ValueError("plane relationships require plane fits")
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -1426,6 +1632,15 @@ class FeatureGraph:
                 relationship = self._derived.get(node.id, {})
                 for fit_id, surface in relationship.get("surfaces", {}).items():
                     resolved[fit_id] = deepcopy(surface)
+            for node in self._recipe.nodes:
+                if (
+                    not isinstance(node, PlaneRelationship)
+                    or self._states.get(node.id) != "ready"
+                ):
+                    continue
+                relationship = self._derived.get(node.id, {})
+                for fit_id, surface in relationship.get("surfaces", {}).items():
+                    resolved[fit_id] = deepcopy(surface)
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -1468,6 +1683,23 @@ class FeatureGraph:
             for axis_id in before_components.keys() | after_components.keys():
                 before_members = before_components.get(axis_id, ([], set()))[1]
                 after_members = after_components.get(axis_id, ([], set()))[1]
+                if before_members != after_members or affected.intersection(
+                    before_members | after_members
+                ):
+                    affected.update(after_members)
+            before_plane_components = automatic_plane_relationship_components(before)
+            after_plane_components = automatic_plane_relationship_components(
+                after_nodes
+            )
+            for relationship_id in (
+                before_plane_components.keys() | after_plane_components.keys()
+            ):
+                before_members = before_plane_components.get(
+                    relationship_id, ([], [], set())
+                )[2]
+                after_members = after_plane_components.get(
+                    relationship_id, ([], [], set())
+                )[2]
                 if before_members != after_members or affected.intersection(
                     before_members | after_members
                 ):
@@ -1523,6 +1755,9 @@ class FeatureGraph:
             nodes = {n.id: n for n in recipe.nodes}
             connected_components = automatic_axis_components(nodes)
             equal_radius_components = automatic_equal_radius_components(nodes)
+            plane_relationship_components = automatic_plane_relationship_components(
+                nodes
+            )
             if all_actions:
                 if target is not None:
                     raise ValueError("evaluate all cannot also specify a target")
@@ -1545,6 +1780,7 @@ class FeatureGraph:
                         PlaneDefinition,
                         AxisSolve,
                         EqualRadii,
+                        PlaneRelationship,
                     ),
                 ):
                     raise ValueError(
@@ -1559,6 +1795,9 @@ class FeatureGraph:
                         if expanded.intersection(members):
                             expanded.update(members)
                     for members in equal_radius_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    for _, _, members in plane_relationship_components.values():
                         if expanded.intersection(members):
                             expanded.update(members)
                     if expanded == needed:
@@ -1634,6 +1873,16 @@ class FeatureGraph:
                     for relationship in recipe.nodes:
                         if (
                             isinstance(relationship, EqualRadii)
+                            and self._states.get(relationship.id) == "ready"
+                        ):
+                            adjusted = self._derived.get(relationship.id, {}).get(
+                                "surfaces", {}
+                            )
+                            if node_id in adjusted:
+                                value = deepcopy(adjusted[node_id])
+                    for relationship in recipe.nodes:
+                        if (
+                            isinstance(relationship, PlaneRelationship)
                             and self._states.get(relationship.id) == "ready"
                         ):
                             adjusted = self._derived.get(relationship.id, {}).get(
@@ -2019,6 +2268,16 @@ class FeatureGraph:
                         cylinders,
                         [resolved_result(surface.id) for surface in cylinders],
                         cylinder_ids,
+                    )
+                elif isinstance(node, PlaneRelationship):
+                    relationships, planes, _ = plane_relationship_components[node.id]
+                    plane_ids = [fitted_ids(surface) for surface in planes]
+                    derived = fit_plane_relationships(
+                        self.workspace,
+                        relationships,
+                        planes,
+                        [resolved_result(surface.id) for surface in planes],
+                        plane_ids,
                     )
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]

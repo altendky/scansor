@@ -114,6 +114,18 @@ const equal = {
 };
 assert.deepEqual(nodeReferences(parallel), ['other-fit', 'mirror-plane']);
 assert.deepEqual(nodeReferences(equal), ['fit', 'other-fit', 'mirror-plane']);
+const planeRelationship = {
+  id: 'plane-relation',
+  label: 'Coincident planes',
+  operation: 'plane_relationship',
+  relation: 'coincident',
+  surfaces: ['fit', 'other-fit'],
+};
+assert.deepEqual(nodeReferences(planeRelationship), ['fit', 'other-fit']);
+assert.equal(
+  actionDescription(planeRelationship, 'ready'),
+  'Plane relationship · Ready',
+);
 assert.equal(actionDescription(mirror, 'unevaluated'), 'Mirror relationship · Defined');
 assert.equal(actionDescription(parallel, 'stale'), 'Parallel relationship · Defined');
 assert.equal(actionDescription(equal, 'ready'), 'Numeric equality · Defined');
