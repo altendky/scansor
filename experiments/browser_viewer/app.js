@@ -479,6 +479,7 @@ function showProperties() {
     ['region-selection-properties', node.operation === 'region_selection'],
     ['feature-reuse-properties', node.operation === 'feature_reuse'],
     ['reuse-selection-properties', node.operation === 'reuse_selection'],
+    ['equal-radii-properties', node.operation === 'equal_radii'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
@@ -640,6 +641,8 @@ function showProperties() {
     $('feature-reuse-tangent-margin').value = node.tangent_margin;
     $('feature-reuse-normal-margin').value = node.normal_margin;
     $('feature-reuse-normal-angle').value = node.normal_angle_degrees;
+    $('feature-reuse-equal-dimensions').checked =
+      node.equal_corresponding_dimensions === true;
   } else if (node.operation === 'reuse_selection') {
     choices(
       'reuse-selection-reuse',
@@ -655,6 +658,12 @@ function showProperties() {
       'reuse-selection-source',
       earlier.filter((candidate) => selectionOperations.includes(candidate.operation)),
       [node.source_selection],
+    );
+  } else if (node.operation === 'equal_radii') {
+    choices(
+      'equal-radii-surfaces',
+      earlier.filter((candidate) => node.surfaces.includes(candidate.id)),
+      node.surfaces,
     );
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
@@ -1072,6 +1081,7 @@ function showResult() {
         'coaxial',
         'perpendicular',
         'rotational_symmetry',
+        'equal_radii',
         ...relationshipOperations,
       ].includes(
         node.operation,
@@ -1149,6 +1159,12 @@ function showResult() {
   } else if (node.operation === 'reuse_selection') {
     values['Resolved vertices'] = result.vertex_count;
     values['Source selection'] = graphNode(result.source_selection).label;
+  } else if (node.operation === 'equal_radii') {
+    values['Shared radius'] = result.value.toFixed(5);
+    values['Cylinders'] = node.surfaces.length;
+    Object.entries(result.surfaces).forEach(([id, surface], index) =>
+      fitGuide(graphNode(id), surface, palette[index % palette.length]),
+    );
   }
   for (const [label, value] of Object.entries(values)) {
     const dt = document.createElement('dt'),
@@ -1690,6 +1706,7 @@ async function start() {
     );
     choices('new-feature-reuse-reference', selections, [reference.id]);
     choices('new-feature-reuse-target', selections, [target.id]);
+    $('new-feature-reuse-equal-dimensions').checked = false;
     $('feature-reuse-error').textContent = '';
     showCreateDialog('feature-reuse-dialog', 'new-feature-reuse-label', 'Feature reuse');
   };
@@ -1853,7 +1870,33 @@ async function start() {
     $('parallel-error').textContent = '';
     showCreateDialog('parallel-dialog', 'new-parallel-label', 'Parallel to plane');
   };
-  $('new-equal').onclick = () => {
+  $('new-equal').onclick = async () => {
+    const selected = graphNode(selectedFeatureId);
+    if (selected?.operation === 'feature_reuse') {
+      if (selected.equal_corresponding_dimensions) {
+        status(`${selected.label} already has equal corresponding dimensions.`);
+        return;
+      }
+      if (!selected.fits.some((id) => graphNode(id)?.kind === 'cylinder')) {
+        status('This reuse feature has no compatible cylinder dimensions.', true);
+        return;
+      }
+      const recipe = structuredClone(graphState.recipe),
+        reconciled = reconcileFeatureReuse(
+          recipe.nodes,
+          selected.id,
+          { equal_corresponding_dimensions: true },
+          uid,
+        );
+      if (reconciled.error) {
+        status(reconciled.error, true);
+        return;
+      }
+      recipe.nodes = reconciled.nodes;
+      if (await replaceRecipe(recipe))
+        status(`Created all-equal radius relationships for ${selected.label}.`);
+      return;
+    }
     const cylinders = graphState.recipe.nodes.filter(
         (node) => node.operation === 'fit' && node.kind === 'cylinder' && node.axis,
       ),
@@ -1998,8 +2041,11 @@ async function start() {
         tangent_margin: Number($('new-feature-reuse-tangent-margin').value),
         normal_margin: Number($('new-feature-reuse-normal-margin').value),
         normal_angle_degrees: Number($('new-feature-reuse-normal-angle').value),
+        equal_corresponding_dimensions:
+          $('new-feature-reuse-equal-dimensions').checked,
       },
-      generated = [reuse];
+      generated = [reuse],
+      copiedFits = new Map(fitIds.map((fitId) => [fitId, []]));
     for (const targetSelection of targetSelections) {
       const targetLabel = graphNode(targetSelection).label;
       for (const fitId of fitIds) {
@@ -2024,7 +2070,7 @@ async function start() {
           generated.push(target);
           generatedSelections.push(target.id);
         }
-        generated.push({
+        const copiedFit = {
           id: uid('fit'),
           label: reserveFeatureLabel(`${sourceFit.label} at ${targetLabel}`, reserved),
           operation: 'fit',
@@ -2033,9 +2079,24 @@ async function start() {
           axial_domain: [...sourceFit.axial_domain],
           managed_by: reuse.id,
           managed_key: `fit/${targetSelection}/${fitId}`,
-        });
+        };
+        generated.push(copiedFit);
+        copiedFits.get(fitId).push(copiedFit.id);
       }
     }
+    if (reuse.equal_corresponding_dimensions)
+      for (const fitId of fitIds) {
+        const sourceFit = graphNode(fitId);
+        if (sourceFit.kind !== 'cylinder') continue;
+        generated.push({
+          id: uid('equal_radii'),
+          label: reserveFeatureLabel(`${sourceFit.label} radii all equal`, reserved),
+          operation: 'equal_radii',
+          surfaces: [fitId, ...copiedFits.get(fitId)],
+          managed_by: reuse.id,
+          managed_key: `equal-radius/${fitId}`,
+        });
+      }
     const saved = await appendActions(generated);
     if (saved) $('feature-reuse-dialog').close();
     else $('feature-reuse-error').textContent = $('status').textContent;
@@ -2414,6 +2475,8 @@ async function start() {
           fits: chosen('feature-reuse-fits'),
           reference_selection: $('feature-reuse-reference').value,
           target_selections: chosen('feature-reuse-target'),
+          equal_corresponding_dimensions:
+            $('feature-reuse-equal-dimensions').checked,
           tangent_margin: Number($('feature-reuse-tangent-margin').value),
           normal_margin: Number($('feature-reuse-normal-margin').value),
           normal_angle_degrees: Number($('feature-reuse-normal-angle').value),

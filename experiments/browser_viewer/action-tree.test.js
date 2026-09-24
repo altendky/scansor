@@ -242,8 +242,22 @@ assert.ok(
   reconciled.nodes.findIndex((node) => node.id === 'c') <
     reconciled.nodes.findIndex((node) => node.id === 'reuse'),
 );
-const reduced = reconcileFeatureReuse(
+const equalized = reconcileFeatureReuse(
   reconciled.nodes,
+  'reuse',
+  { equal_corresponding_dimensions: true },
+  (prefix) => `${prefix}-equalized`,
+);
+assert.equal(equalized.error, undefined);
+const allEqual = equalized.nodes.find((node) => node.operation === 'equal_radii');
+assert.ok(allEqual);
+assert.equal(allEqual.managed_by, 'reuse');
+assert.equal(allEqual.managed_key, 'equal-radius/fit');
+assert.deepEqual(nodeReferences(allEqual), allEqual.surfaces);
+assert.equal(allEqual.surfaces[0], 'fit');
+assert.equal(allEqual.surfaces.length, 3);
+const reduced = reconcileFeatureReuse(
+  equalized.nodes,
   'reuse',
   { target_selections: ['c'] },
   (prefix) => `${prefix}-unused`,
@@ -254,6 +268,20 @@ assert.deepEqual(
     .filter((node) => node.operation === 'reuse_selection')
     .map((node) => node.target_selection),
   ['c'],
+);
+const reducedEquality = reduced.nodes.find((node) => node.operation === 'equal_radii');
+assert.equal(reducedEquality.id, allEqual.id);
+assert.equal(reducedEquality.surfaces.length, 2);
+const independent = reconcileFeatureReuse(
+  reduced.nodes,
+  'reuse',
+  { equal_corresponding_dimensions: false },
+  (prefix) => `${prefix}-unused`,
+);
+assert.equal(independent.error, undefined);
+assert.equal(
+  independent.nodes.filter((node) => node.operation === 'equal_radii').length,
+  0,
 );
 const blocked = reconcileFeatureReuse(
   [

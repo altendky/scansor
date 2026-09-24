@@ -191,9 +191,15 @@ properties pane.
    an independent approximate rigid transform for each target, captures the
    source fits' datum/relationship lineage, and generates a separate target
    selection plus fresh standalone fit for every target and source fit input
-   selection. Paint an asymmetric cue when possible; rings or cylinders alone
-   cannot determine clocking. This first slice stays on one mesh and does not
-   yet recreate target datums or relationships.
+   selection. Generated fits remain independent by default. **Equal
+   corresponding dimensions** adds a visible managed **All equal radii**
+   relationship for each reused source cylinder, including the source fit and
+   every generated copy. You can enable the same option by selecting the reuse
+   feature and clicking **Equal**. The shared-radius result is exact while each
+   cylinder retains its independently fitted axis. Paint an asymmetric cue when
+   possible; rings or cylinders alone cannot determine clocking. This first
+   slice stays on one mesh and does not yet recreate target datums or arbitrary
+   relationships.
 6. **Region** lifts an earlier selection and its cylinder or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,

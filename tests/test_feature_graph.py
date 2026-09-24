@@ -522,6 +522,7 @@ def test_feature_reuse_discovers_lineage_and_generates_target_selections(
                 "tangent_margin": 0.0,
                 "normal_margin": 0.25,
                 "normal_angle_degrees": 35.0,
+                "equal_corresponding_dimensions": True,
             },
             {
                 "id": "reused_outer",
@@ -557,6 +558,18 @@ def test_feature_reuse_discovers_lineage_and_generates_target_selections(
                 "kind": "cylinder",
                 "axial_domain": [-2.0, 5.0],
             },
+            {
+                "id": "equal_outer_radii",
+                "label": "Outer radii all equal",
+                "operation": "equal_radii",
+                "surfaces": [
+                    "side_factor",
+                    "reused_outer_fit",
+                    "reused_outer_fit_b",
+                ],
+                "managed_by": "reuse_outer",
+                "managed_key": "equal-radius/side_factor",
+            },
         ]
     )
     payload["output"] = "reused_outer_fit"
@@ -568,6 +581,7 @@ def test_feature_reuse_discovers_lineage_and_generates_target_selections(
     matches = reuse_result["matches"]
     result_a = results["reused_outer_fit"]
     result_b = results["reused_outer_fit_b"]
+    equality = results["equal_outer_radii"]
 
     assert set(graph.workspace.default.lateral_ids) <= set(memberships["reused_outer"])
     assert set(graph.workspace.default.lateral_ids) <= set(
@@ -582,6 +596,15 @@ def test_feature_reuse_discovers_lineage_and_generates_target_selections(
     for result in (result_a, result_b):
         assert result["kind"] == "cylinder"
         assert result["weighted_rms"] < 0.03
+    radii = [
+        results[key]["parameters"][4]
+        for key in ("side_factor", "reused_outer_fit", "reused_outer_fit_b")
+    ]
+    assert radii == pytest.approx([equality["value"]] * 3)
+    assert all(
+        results[key]["resolved_by"] == "equal_radii"
+        for key in ("side_factor", "reused_outer_fit", "reused_outer_fit_b")
+    )
 
 
 def test_fit_rejects_incompatible_or_multiple_reference_geometry(

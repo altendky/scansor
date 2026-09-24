@@ -22,6 +22,7 @@ const paths = {
   mirror_symmetry: 'M12 2v20M4 7l6 5-6 5m16-10-6 5 6 5',
   parallel: 'M4 8h16M4 16h16',
   equal: 'M5 9h14M5 15h14',
+  equal_radii: 'M5 7h14M5 12h14M5 17h14',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -48,6 +49,7 @@ const operations = {
   mirror_symmetry: 'Mirror relationship',
   parallel: 'Parallel relationship',
   equal: 'Numeric equality',
+  equal_radii: 'All equal radii',
   joint_fit: 'Legacy joint fit',
 };
 const states = {
@@ -99,6 +101,7 @@ export function nodeReferences(node) {
     if (node.right.reference_plane) refs.push(node.right.reference_plane);
     return [...new Set(refs)];
   }
+  if (node.operation === 'equal_radii') return node.surfaces;
   return node.constraints || [];
 }
 
@@ -153,6 +156,7 @@ export function discoverReuseLineage(nodes, fitIds) {
       'mirror_symmetry',
       'parallel',
       'equal',
+      'equal_radii',
       'axis_solve',
     ]);
   const addUpstream = () => {
@@ -213,6 +217,9 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
     children = next.filter(
       (node) => node.operation === 'reuse_selection' && node.reuse === reuseId,
     ),
+    equalities = next.filter(
+      (node) => node.operation === 'equal_radii' && node.managed_by === reuseId,
+    ),
     groups = new Map();
   for (const child of children) {
     child.group_id = null;
@@ -224,7 +231,7 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
   }
 
   const removeIds = new Set(),
-    ownedIds = new Set(children.map((node) => node.id)),
+    ownedIds = new Set([...children, ...equalities].map((node) => node.id)),
     retained = new Set();
   for (const [key, group] of groups) {
     const [, fitId] = key.split('\0'),
@@ -259,10 +266,22 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
     group.forEach((node) => removeIds.add(node.id));
     removeIds.add(copiedFit.id);
   }
+  const desiredEqualityKeys = new Set(
+    reuse.equal_corresponding_dimensions
+      ? reuse.fits
+          .filter((fitId) => next.find((node) => node.id === fitId)?.kind === 'cylinder')
+          .map((fitId) => `equal-radius/${fitId}`)
+      : [],
+  );
+  for (const equality of equalities) {
+    equality.group_id = null;
+    if (!desiredEqualityKeys.has(equality.managed_key)) removeIds.add(equality.id);
+  }
   const blocking = next.find(
     (node) =>
       !removeIds.has(node.id) &&
       node.id !== reuseId &&
+      node.managed_by !== reuseId &&
       nodeReferences(node).some((id) => removeIds.has(id)),
   );
   if (blocking)
@@ -311,8 +330,46 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
       });
     }
   }
+  const availableOutputs = [...working, ...generated],
+    managedEqualities = [];
+  for (const fitId of reuse.fits) {
+    const sourceFit = availableOutputs.find((node) => node.id === fitId);
+    if (!reuse.equal_corresponding_dimensions || sourceFit?.kind !== 'cylinder') continue;
+    const managedKey = `equal-radius/${fitId}`,
+      surfaces = [
+        fitId,
+        ...reuse.target_selections.map(
+          (targetId) =>
+            availableOutputs.find(
+              (node) =>
+                node.operation === 'fit' &&
+                node.managed_by === reuseId &&
+                node.managed_key === `fit/${targetId}/${fitId}`,
+            )?.id,
+        ),
+      ];
+    if (surfaces.some((id) => !id))
+      return { error: `Generated fits for ${sourceFit.label} are incomplete.` };
+    let equality = equalities.find((node) => node.managed_key === managedKey);
+    if (equality) equality.surfaces = surfaces;
+    else {
+      equality = {
+        id: makeId('equal_radii'),
+        label: uniqueFeatureLabel(
+          `${sourceFit.label} radii all equal`,
+          [...availableOutputs, ...managedEqualities],
+        ),
+        operation: 'equal_radii',
+        surfaces,
+        managed_by: reuseId,
+        managed_key: managedKey,
+      };
+    }
+    managedEqualities.push(equality);
+  }
   const blockIds = new Set([reuseId, ...ownedIds]),
-    block = working.filter((node) => blockIds.has(node.id)),
+    equalityIds = new Set(equalities.map((node) => node.id)),
+    block = working.filter((node) => blockIds.has(node.id) && !equalityIds.has(node.id)),
     outside = working.filter((node) => !blockIds.has(node.id)),
     dependencies = new Set(nodeReferences(reuse));
   if ([...dependencies].some((id) => blockIds.has(id)))
@@ -325,6 +382,7 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
       ...outside.slice(0, insertionIndex + 1),
       ...block,
       ...generated,
+      ...managedEqualities,
       ...outside.slice(insertionIndex + 1),
     ],
     seen = new Set();
@@ -566,7 +624,9 @@ export function renderActionTree(
       const targets = new Map();
       for (const child of owned) {
         const target =
-          child.target_selection || byId.get(child.selections?.[0])?.target_selection || '';
+          child.operation === 'equal_radii'
+            ? '__relationships__'
+            : child.target_selection || byId.get(child.selections?.[0])?.target_selection || '';
         if (!targets.has(target)) targets.set(target, []);
         targets.get(target).push(child);
       }
@@ -581,7 +641,9 @@ export function renderActionTree(
         targetDetails.className = 'tree-group managed-group managed-target';
         targetDetails.open = expandedTargets.has(targetKey);
         targetLabel.className = 'tree-group-name';
-        targetLabel.textContent = target
+        targetLabel.textContent = target === '__relationships__'
+          ? `Relationships · ${children.length}`
+          : target
           ? `${byId.get(target)?.label || target} · ${children.filter((child) => child.operation === 'fit').length} fits`
           : `Other outputs · ${children.length}`;
         targetBadge.className = 'managed-badge';

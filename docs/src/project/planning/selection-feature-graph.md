@@ -403,8 +403,24 @@ selection evaluation. It does not yet show source envelopes, rejection points,
 per-reuse visibility, per-target visibility, or stale geometry.
 
 This is deliberately an approximate placement stage followed by fresh target
-fits. It does not yet clone datums or instantiate target relationships, jointly
-solve the copied group, support cone regions, or transfer across a different
+fits. Those fits are independent by default. The first cross-occurrence
+relationship is an exact **All equal radii** action: a reuse feature's **Equal
+corresponding dimensions** option creates one visible managed relationship for
+each source-cylinder role and includes the source plus every generated copy.
+Selecting the whole reuse feature and invoking **Equal** enables the same
+relationships. The measurement solve retains each cylinder's independently
+resolved axis and fits one area-weighted shared radius from all observations.
+Disabling the option removes the managed equality actions without changing the
+generated selections or independent fits.
+
+This is a bounded implementation of the more general design: managed outputs
+must remain valid operands for ordinary user relationships, and convenience
+controls on reuse must materialize the same visible relationships rather than
+hidden special behavior. Future quantity relationships should cover other
+intrinsic dimensions, while coincident, parallel, coaxial, and similar
+relationships govern pose separately. The current slice does not yet clone
+datums, recreate arbitrary source relationships, simultaneously refine axes in
+the shared-radius solve, support cone regions, or transfer across a different
 source mesh. Ambiguous rotationally symmetric correspondence selections remain
 visible through a rotation-ambiguity metric; the user should paint a clocking
 cue such as a flat or asymmetric edge.

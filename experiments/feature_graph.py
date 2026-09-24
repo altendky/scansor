@@ -131,6 +131,7 @@ class FeatureReuse(Node):
     tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
     normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
     normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
+    equal_corresponding_dimensions: bool = False
 
 
 class ReuseSelection(Node):
@@ -270,6 +271,13 @@ class EqualQuantities(Node):
     right: QuantityMeasurement
 
 
+class EqualRadii(Node):
+    """Exact shared radius for two or more cylinder observations."""
+
+    operation: Literal["equal_radii"]
+    surfaces: list[str] = Field(min_length=2, max_length=33)
+
+
 class AxisSolve(Node):
     """Explicit active factors that jointly refine one shared free axis."""
 
@@ -296,6 +304,7 @@ Feature = Annotated[
     | MirrorSymmetry
     | ParallelToPlane
     | EqualQuantities
+    | EqualRadii
     | AxisSolve,
     Field(discriminator="operation"),
 ]
@@ -442,6 +451,8 @@ def dependencies(node: Feature) -> list[str]:
             if isinstance(measurement, PlaneDistance):
                 refs.append(measurement.reference_plane)
         return list(dict.fromkeys(refs))
+    if isinstance(node, EqualRadii):
+        return node.surfaces
     if isinstance(node, AxisSolve):
         return [node.axis, *node.factors]
     return []
@@ -483,6 +494,17 @@ def automatic_axis_components(
         }
         components[axis.id] = (factors, members)
     return components
+
+
+def automatic_equal_radius_components(
+    nodes: dict[str, Feature],
+) -> dict[str, set[str]]:
+    """Radius relationships that participate whenever one member is evaluated."""
+    return {
+        node.id: {node.id, *node.surfaces}
+        for node in nodes.values()
+        if isinstance(node, EqualRadii)
+    }
 
 
 def selection_frame_axis(
@@ -542,6 +564,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
         MirrorSymmetry,
         ParallelToPlane,
         EqualQuantities,
+        EqualRadii,
         AxisSolve,
     )
 
@@ -769,6 +792,71 @@ def fit_plane_to_reference(
         "reference_plane": surface.reference_plane,
         "reference_offset": reference_offset,
         "signed_relative_offset": offset - reference_offset,
+    }
+
+
+def fit_equal_cylinder_radii(
+    workspace: NozzleWorkspace,
+    surfaces: list[SurfaceFit],
+    results: list[dict[str, Any]],
+    ids: list[list[int]],
+) -> dict[str, Any]:
+    """Fit one exact radius while retaining each cylinder's fitted axis."""
+    radial_observations: list[np.ndarray] = []
+    observation_weights: list[np.ndarray] = []
+    for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
+        if surface.kind != "cylinder":
+            raise ValueError("all-equal radii require cylinder fits")
+        parameters = np.asarray(result["parameters"], dtype=float)
+        if parameters.shape != (7,) or not np.isfinite(parameters).all():
+            raise ValueError(f"{surface.label}: cylinder result is unavailable")
+        direction = np.asarray([parameters[2], parameters[3], 1.0])
+        direction /= np.linalg.norm(direction)
+        point = np.asarray([parameters[0], parameters[1], 0.0])
+        offset = workspace.local[surface_ids] - point
+        axial = offset @ direction
+        radial = offset - axial[:, None] * direction
+        radial_observations.append(np.linalg.norm(radial, axis=1))
+        observation_weights.append(workspace.data.weights[surface_ids])
+    total_weight = sum(float(weights.sum()) for weights in observation_weights)
+    if not np.isfinite(total_weight) or total_weight <= 0:
+        raise ValueError("all-equal radii need positive-area observations")
+    radius = (
+        sum(
+            float(weights @ radial)
+            for weights, radial in zip(
+                observation_weights, radial_observations, strict=True
+            )
+        )
+        / total_weight
+    )
+    adjusted: dict[str, dict[str, Any]] = {}
+    for surface, result, surface_ids, radial, weights in zip(
+        surfaces,
+        results,
+        ids,
+        radial_observations,
+        observation_weights,
+        strict=True,
+    ):
+        parameters = list(result["parameters"])
+        parameters[4] = radius
+        residuals = radial - radius
+        adjusted[surface.id] = {
+            **deepcopy(result),
+            "ids": surface_ids,
+            "parameters": parameters,
+            "residuals": residuals.tolist(),
+            "weighted_rms": float(
+                np.sqrt(weights @ residuals**2 / float(weights.sum()))
+            ),
+            "resolved_by": "equal_radii",
+        }
+    return {
+        "format": "scansor-equal-radii-v1",
+        "measurement": "radius",
+        "value": radius,
+        "surfaces": adjusted,
     }
 
 
@@ -1183,6 +1271,26 @@ class FeatureGraph:
                     raise ValueError(
                         "radius and plane-distance measurements must use the same axis"
                     )
+            elif isinstance(node, EqualRadii):
+                if len(set(node.surfaces)) != len(node.surfaces):
+                    raise ValueError("all-equal radius inputs must be unique")
+                surfaces = [nodes[ref] for ref in node.surfaces]
+                if any(
+                    not isinstance(surface, SurfaceFit) or surface.kind != "cylinder"
+                    for surface in surfaces
+                ):
+                    raise ValueError("all-equal radii require cylinder fits")
+                overlapping = [
+                    candidate
+                    for candidate in nodes.values()
+                    if isinstance(candidate, EqualRadii)
+                    and positions[candidate.id] < positions[node.id]
+                    and set(candidate.surfaces).intersection(node.surfaces)
+                ]
+                if overlapping:
+                    raise ValueError(
+                        "a cylinder may belong to only one all-equal radius relationship"
+                    )
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -1309,6 +1417,15 @@ class FeatureGraph:
                             solved_planes.get(node.id)
                             or reference_plane_result(axis, node)
                         )
+            for node in self._recipe.nodes:
+                if (
+                    not isinstance(node, EqualRadii)
+                    or self._states.get(node.id) != "ready"
+                ):
+                    continue
+                relationship = self._derived.get(node.id, {})
+                for fit_id, surface in relationship.get("surfaces", {}).items():
+                    resolved[fit_id] = deepcopy(surface)
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -1405,6 +1522,7 @@ class FeatureGraph:
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
             connected_components = automatic_axis_components(nodes)
+            equal_radius_components = automatic_equal_radius_components(nodes)
             if all_actions:
                 if target is not None:
                     raise ValueError("evaluate all cannot also specify a target")
@@ -1426,6 +1544,7 @@ class FeatureGraph:
                         AxisDefinition,
                         PlaneDefinition,
                         AxisSolve,
+                        EqualRadii,
                     ),
                 ):
                     raise ValueError(
@@ -1437,6 +1556,9 @@ class FeatureGraph:
                         dep for key in needed for dep in dependencies(nodes[key])
                     }
                     for _, members in connected_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    for members in equal_radius_components.values():
                         if expanded.intersection(members):
                             expanded.update(members)
                     if expanded == needed:
@@ -1480,10 +1602,8 @@ class FeatureGraph:
                     else None
                 )
                 solve = self._connected_solves.get(axis_id or "")
-                if solve is None:
-                    return deepcopy(self._derived[node_id])
-                if isinstance(node, AxisDefinition):
-                    value = deepcopy(self._derived[node_id])
+                value = deepcopy(self._derived[node_id])
+                if solve is not None and isinstance(node, AxisDefinition):
                     value.update(
                         {
                             "parameters": solve["fit"]["parameters"],
@@ -1492,25 +1612,36 @@ class FeatureGraph:
                             "resolved_by": "connected_fits",
                         }
                     )
-                    return value
-                if isinstance(node, PlaneDefinition):
+                elif solve is not None and isinstance(node, PlaneDefinition):
                     solved_plane = solve.get("reference_planes", {}).get(node_id)
                     if solved_plane is not None:
-                        return deepcopy(solved_plane)
-                    axis_value = deepcopy(self._derived[node.axis])
-                    axis_value.update(
-                        {
-                            "parameters": solve["fit"]["parameters"],
-                            "axis_display": solve["axis_display"],
-                            "point_display": solve["point_display"],
-                        }
-                    )
-                    return reference_plane_result(axis_value, node)
-                if isinstance(node, SurfaceFit):
+                        value = deepcopy(solved_plane)
+                    else:
+                        axis_value = deepcopy(self._derived[node.axis])
+                        axis_value.update(
+                            {
+                                "parameters": solve["fit"]["parameters"],
+                                "axis_display": solve["axis_display"],
+                                "point_display": solve["point_display"],
+                            }
+                        )
+                        value = reference_plane_result(axis_value, node)
+                elif solve is not None and isinstance(node, SurfaceFit):
                     surface = solve.get("surfaces", {}).get(node_id)
                     if surface is not None:
-                        return deepcopy(dict(surface))
-                return deepcopy(self._derived[node_id])
+                        value = deepcopy(dict(surface))
+                if isinstance(node, SurfaceFit):
+                    for relationship in recipe.nodes:
+                        if (
+                            isinstance(relationship, EqualRadii)
+                            and self._states.get(relationship.id) == "ready"
+                        ):
+                            adjusted = self._derived.get(relationship.id, {}).get(
+                                "surfaces", {}
+                            )
+                            if node_id in adjusted:
+                                value = deepcopy(adjusted[node_id])
+                return value
 
         def fitted_ids(surface: SurfaceFit) -> list[int]:
             return sorted({i for ref in surface.selections for i in membership(ref)})
@@ -1880,6 +2011,15 @@ class FeatureGraph:
                         "fit_initial": fit_initial,
                         "target_axial_domain": target_domain,
                     }
+                elif isinstance(node, EqualRadii):
+                    cylinders = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
+                    cylinder_ids = [fitted_ids(surface) for surface in cylinders]
+                    derived = fit_equal_cylinder_radii(
+                        self.workspace,
+                        cylinders,
+                        [resolved_result(surface.id) for surface in cylinders],
+                        cylinder_ids,
+                    )
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]
                     fitted_factors = [
