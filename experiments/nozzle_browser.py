@@ -122,6 +122,7 @@ class Handler(BaseHTTPRequestHandler):
         "/app.js": ("app.js", "text/javascript"),
         "/action-tree.js": ("action-tree.js", "text/javascript"),
         "/feature-names.js": ("feature-names.js", "text/javascript"),
+        "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),

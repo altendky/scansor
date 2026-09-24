@@ -8,6 +8,7 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { residualLimit, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
@@ -1180,29 +1181,36 @@ function showResult() {
 }
 function paint() {
   const colors = mesh.geometry.getAttribute('color'),
-    gray = new THREE.Color('#8796a2');
+    gray = new THREE.Color('#8796a2'),
+    residualMode = $('colors').value === 'residual',
+    selectedNode = graphNode(selectedFeatureId),
+    residualSurfaces = resultResidualSurfaces(result, selectedFeatureId);
+  if (residualMode && selectedNode.operation === 'feature_reuse') {
+    const subtree = managedSubtreeIds(selectedFeatureId, graphState.recipe.nodes);
+    for (const node of graphState.recipe.nodes)
+      if (subtree.has(node.id) && node.operation === 'fit')
+        residualSurfaces.push(...resultResidualSurfaces(graphState.results[node.id], node.id));
+  }
   for (let i = 0; i < colors.count; i++) colors.setXYZ(i, gray.r, gray.g, gray.b);
-  Object.entries(session).forEach(([id, ids], i) => {
-    const c = new THREE.Color(palette[i % palette.length]);
-    for (const vertex of ids) colors.setXYZ(vertex, c.r, c.g, c.b);
-  });
-  if (result?.added_ids) {
-    const c = new THREE.Color('#4dff91');
-    for (const id of result.added_ids) colors.setXYZ(id, c.r, c.g, c.b);
+  if (!residualMode) {
+    Object.entries(session).forEach(([id, ids], i) => {
+      const c = new THREE.Color(palette[i % palette.length]);
+      for (const vertex of ids) colors.setXYZ(vertex, c.r, c.g, c.b);
+    });
+    if (result?.added_ids) {
+      const c = new THREE.Color('#4dff91');
+      for (const id of result.added_ids) colors.setXYZ(id, c.r, c.g, c.b);
+    }
   }
   $('legend').textContent = result?.added_ids
     ? 'Green: proposed additions. Seeds retain selection colors.'
     : 'Colors show raw selections. Inspect an action to see its own fit guides.';
-  if ($('reuse-volumes').checked)
-    $('legend').textContent += reuseVolumes.userData.volumeCount
-      ? ' Translucent overlays show evaluated reuse envelopes; normal-angle filtering still applies.'
-      : ' No evaluated reuse envelopes are available.';
-  if ($('colors').value === 'residual' && (result?.surfaces || result?.residuals)) {
+  if (residualMode && residualSurfaces.length) {
     const white = new THREE.Color('#ffffff'),
       blue = new THREE.Color('#245bea'),
-      red = new THREE.Color('#e23636');
-    for (const s of Object.values(result.surfaces || { standalone: result })) {
-      const limit = Math.max(1e-12, ...s.residuals.map(Math.abs));
+      red = new THREE.Color('#e23636'),
+      limit = residualLimit(residualSurfaces);
+    for (const [, s] of residualSurfaces) {
       s.ids.forEach((id, i) => {
         const c = white
           .clone()
@@ -1211,8 +1219,16 @@ function paint() {
       });
     }
     $('legend').textContent =
-      'Residuals: blue negative, red positive; each surface has its own scale.';
+      `Residuals on ${residualSurfaces.length} fitted surface${residualSurfaces.length === 1 ? '' : 's'}: ` +
+      `blue negative, white zero, red positive; shared limit ±${limit.toPrecision(4)}.`;
+  } else if (residualMode) {
+    $('legend').textContent =
+      'No residuals for this action. Select an evaluated fit, relationship, or reuse feature.';
   }
+  if ($('reuse-volumes').checked)
+    $('legend').textContent += reuseVolumes.userData.volumeCount
+      ? ' Translucent overlays show evaluated reuse envelopes; normal-angle filtering still applies.'
+      : ' No evaluated reuse envelopes are available.';
   showOverlap();
   const overlap = overlapDiagnostic();
   if (overlap) {
@@ -1230,24 +1246,30 @@ function paint() {
   // make them indistinguishable from the interpolated surface tint.
   const markerColors = selectedPoints.geometry.getAttribute('color');
   for (let id = 0; id < colors.count; id++) {
-    const c = new THREE.Color().fromBufferAttribute(colors, id).lerp(white, 0.3);
+    const c = new THREE.Color().fromBufferAttribute(colors, id);
+    if (!residualMode) c.lerp(white, 0.3);
     markerColors.setXYZ(id, c.r, c.g, c.b);
   }
   markerColors.needsUpdate = true;
+  selectedPoints.material.size = residualMode ? 5 : 3;
   for (const id of emphasized) {
     const c = new THREE.Color().fromBufferAttribute(colors, id).lerp(white, 0.6);
     focusColors.setXYZ(id, c.r, c.g, c.b);
   }
   focusColors.needsUpdate = true;
   focusedPoints.geometry.setIndex(emphasized);
-  focusedPoints.visible = $('points').checked;
+  focusedPoints.visible = $('points').checked && !residualMode;
   $('counts').dataset.emphasizedVertices = String(emphasized.length);
   colors.needsUpdate = true;
-  selectedPoints.geometry.setIndex([
-    ...Object.values(session).flat(),
-    ...(result?.added_ids || []),
-    ...emphasized,
-  ]);
+  selectedPoints.geometry.setIndex(
+    residualMode
+      ? [...new Set(residualSurfaces.flatMap(([, surface]) => surface.ids))]
+      : [
+          ...Object.values(session).flat(),
+          ...(result?.added_ids || []),
+          ...emphasized,
+        ],
+  );
   selectedPoints.visible = $('points').checked;
   overlays.visible = $('guides').checked;
   $('counts').textContent = activeSelection()

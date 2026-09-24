@@ -6,3 +6,10 @@ def test_reuse_volume_module_is_a_served_browser_asset() -> None:
         "reuse-volume.js",
         "text/javascript",
     )
+
+
+def test_residual_display_module_is_a_served_browser_asset() -> None:
+    assert Handler.files["/residual-display.js"] == (
+        "residual-display.js",
+        "text/javascript",
+    )
