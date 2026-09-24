@@ -1,0 +1,128 @@
+{
+  "boss": {
+    "bore_radius_mm": 5.0,
+    "flat_offset_mm": 9.5,
+    "height_mm": 14.0,
+    "outer_radius_mm": 11.0
+  },
+  "format": "scansor-repeated-boss-selection-fixture-v2",
+  "imperfections": {
+    "bore_ovality_mm": 0.025,
+    "outer_dent_depth_mm": 0.09,
+    "outer_ovality_mm": 0.06,
+    "outer_taper_mm": 0.04,
+    "plate_bow_mm": 0.12,
+    "shoulder_height_mm": 0.04
+  },
+  "occurrences": [
+    {
+      "center_mm": [-34.0, -20.0],
+      "clock_degrees": 0.0,
+      "occurrence_id": "boss-a"
+    },
+    {
+      "center_mm": [0.0, 21.0],
+      "clock_degrees": 115.0,
+      "height_mm": 22.0,
+      "occurrence_id": "boss-b"
+    },
+    {
+      "center_mm": [35.0, -17.0],
+      "clock_degrees": 235.0,
+      "occurrence_id": "boss-c"
+    },
+    {
+      "center_mm": [-35.0, 20.0],
+      "clock_degrees": 305.0,
+      "occurrence_id": "boss-d",
+      "tilt_azimuth_degrees": 330.0,
+      "tilt_degrees": 12.0
+    }
+  ],
+  "plate": {
+    "size_mm": [120.0, 80.0, 6.0]
+  },
+  "realizations": [
+    {
+      "as_built": false,
+      "bias_amplitude_mm": 0.0,
+      "occlusion_profile": "none",
+      "pose": {
+        "rotation_xyz_degrees": [0.0, 0.0, 0.0],
+        "translation_mm": [0.0, 0.0, 0.0]
+      },
+      "realization_id": "reference",
+      "seed": 101,
+      "sensor_sigma_mm": 0.0,
+      "surface_jitter_fraction": 0.18,
+      "tessellation": {
+        "axial_segments": 16,
+        "angular_segments": 96,
+        "plate_x_segments": 36,
+        "plate_y_segments": 24,
+        "radial_segments": 7
+      }
+    },
+    {
+      "as_built": true,
+      "bias_amplitude_mm": 0.055,
+      "occlusion_profile": "capture-a",
+      "pose": {
+        "rotation_xyz_degrees": [0.0, 0.0, 0.0],
+        "translation_mm": [0.0, 0.0, 0.0]
+      },
+      "realization_id": "scan-coarse",
+      "seed": 2026092201,
+      "sensor_sigma_mm": 0.12,
+      "surface_jitter_fraction": 0.18,
+      "tessellation": {
+        "axial_segments": 8,
+        "angular_segments": 44,
+        "plate_x_segments": 20,
+        "plate_y_segments": 14,
+        "radial_segments": 4
+      }
+    },
+    {
+      "as_built": true,
+      "bias_amplitude_mm": 0.02,
+      "occlusion_profile": "capture-a",
+      "pose": {
+        "rotation_xyz_degrees": [0.0, 0.0, 0.0],
+        "translation_mm": [0.0, 0.0, 0.0]
+      },
+      "realization_id": "scan-fine",
+      "seed": 2026092201,
+      "sensor_sigma_mm": 0.04,
+      "surface_jitter_fraction": 0.18,
+      "tessellation": {
+        "axial_segments": 15,
+        "angular_segments": 88,
+        "plate_x_segments": 38,
+        "plate_y_segments": 26,
+        "radial_segments": 7
+      }
+    },
+    {
+      "as_built": true,
+      "bias_amplitude_mm": 0.04,
+      "occlusion_profile": "capture-b",
+      "pose": {
+        "rotation_xyz_degrees": [4.0, -7.0, 18.0],
+        "translation_mm": [18.0, -12.0, 25.0]
+      },
+      "realization_id": "scan-rescan",
+      "seed": 2026092203,
+      "sensor_sigma_mm": 0.09,
+      "surface_jitter_fraction": 0.18,
+      "tessellation": {
+        "axial_segments": 11,
+        "angular_segments": 68,
+        "plate_x_segments": 30,
+        "plate_y_segments": 21,
+        "radial_segments": 6
+      }
+    }
+  ],
+  "units": "mm"
+}

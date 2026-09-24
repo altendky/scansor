@@ -13,7 +13,17 @@ from typing import Annotated, Any, ClassVar, Literal, cast, final
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from experiments.nozzle_coaxial import FitSelection, fit_group
+from experiments.feature_reuse import (
+    estimate_rigid_match,
+    surface_region_frame,
+    transformed_fit_seed,
+)
+from experiments.nozzle_coaxial import (
+    FitSelection,
+    ReferencePlaneGroup,
+    fit_fixed_axis_group,
+    fit_group,
+)
 from experiments.nozzle_session import (
     NozzleSession,
     NozzleWorkspace,
@@ -21,6 +31,11 @@ from experiments.nozzle_session import (
     VertexId,
 )
 from experiments.selection_growth import connected_growth, fit_seed
+from experiments.selection_region import (
+    apply_selection_region,
+    build_selection_region,
+    datum_frame,
+)
 
 
 class Record(BaseModel):
@@ -28,6 +43,16 @@ class Record(BaseModel):
 
 
 class Node(Record):
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    label: str = Field(min_length=1, max_length=120)
+    group_id: str | None = None
+    managed_by: str | None = None
+    managed_key: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class FeatureGroup(Record):
+    """Presentation-only organization for actions in the feature tree."""
+
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     label: str = Field(min_length=1, max_length=120)
 
@@ -52,6 +77,16 @@ class SurfaceFit(Node):
     selections: list[str] = Field(min_length=1, max_length=99)
     kind: Literal["cone", "cylinder", "plane"]
     axial_domain: tuple[float, float] = (-2.0, 5.0)
+    axis: str | None = None
+    reference_plane: str | None = None
+
+    @model_validator(mode="after")
+    def compatible_reference_geometry(self) -> SurfaceFit:
+        if self.axis is not None and self.reference_plane is not None:
+            raise ValueError("a fit can reference only one datum")
+        if self.reference_plane is not None and self.kind != "plane":
+            raise ValueError("only a plane fit can reference a plane datum")
+        return self
 
 
 class Growth(Node):
@@ -60,6 +95,53 @@ class Growth(Node):
     barriers: list[str] = Field(default_factory=list, max_length=99)
     distance: float = Field(gt=0, allow_inf_nan=False)
     angle_degrees: float = Field(gt=0, le=90, allow_inf_nan=False)
+
+
+class SelectionRegion(Node):
+    """A fitted selection lifted into a reusable surface-following volume."""
+
+    operation: Literal["selection_region"]
+    selection: str
+    fit: str
+    axial_plane: str
+    clock_plane: str
+    tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
+    normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+    normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
+
+
+class RegionSelection(Node):
+    """Source membership resolved by placing an earlier reusable region."""
+
+    operation: Literal["region_selection"]
+    region: str
+    source: str
+    axial_plane: str
+    clock_plane: str
+
+
+class FeatureReuse(Node):
+    """Reusable fit lineage placed by corresponding painted selections."""
+
+    operation: Literal["feature_reuse"]
+    fits: list[str] = Field(min_length=1, max_length=32)
+    lineage: list[str] = Field(min_length=1, max_length=99)
+    reference_selection: str
+    target_selections: list[str] = Field(min_length=1, max_length=32)
+    tangent_margin: float = Field(default=0.4, ge=0, allow_inf_nan=False)
+    normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
+    normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
+    equal_corresponding_dimensions: bool = False
+
+
+class ReuseSelection(Node):
+    """Target membership generated for one source selection in a reuse instance."""
+
+    operation: Literal["reuse_selection"]
+    reuse: str
+    fit: str
+    source_selection: str
+    target_selection: str
 
 
 class Perpendicular(Node):
@@ -104,15 +186,135 @@ class JointFit(Node):
         return value
 
 
+class AxisDefinition(Node):
+    """Explicit axis with either a manual value or an upstream fit initializer."""
+
+    operation: Literal["axis"]
+    source_fit: str | None = None
+    initial_parameters: tuple[float, float, float, float] | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_initializer(self) -> AxisDefinition:
+        if (self.source_fit is None) == (self.initial_parameters is None):
+            raise ValueError(
+                "axis requires exactly one of source_fit or initial_parameters"
+            )
+        return self
+
+
+class PlaneDefinition(Node):
+    """A reference plane constructed parallel or perpendicular to an explicit axis."""
+
+    operation: Literal["reference_plane"]
+    axis: str
+    construction: Literal[
+        "contains_axis", "parallel_to_axis", "perpendicular_to_axis"
+    ] = "contains_axis"
+    initial_angle_degrees: float | None = Field(default=0.0, allow_inf_nan=False)
+    offset: float = Field(default=0.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def construction_parameters(self) -> PlaneDefinition:
+        if (
+            self.construction in ("contains_axis", "parallel_to_axis")
+            and self.initial_angle_degrees is None
+        ):
+            raise ValueError("a plane parallel to an axis requires a clocking angle")
+        if self.construction == "contains_axis" and self.offset != 0.0:
+            raise ValueError("a plane containing an axis cannot have an offset")
+        if (
+            self.construction == "perpendicular_to_axis"
+            and self.initial_angle_degrees is not None
+        ):
+            raise ValueError("a plane perpendicular to an axis has no clocking angle")
+        return self
+
+
+class MirrorSymmetry(Node):
+    """Two same-type standalone fits reflected across an axial reference plane."""
+
+    operation: Literal["mirror_symmetry"]
+    plane: str
+    surfaces: list[str] = Field(min_length=2, max_length=2)
+    symmetric_extents: bool = True
+
+
+class ParallelToPlane(Node):
+    """A fitted plane exactly parallel to an explicit reference plane."""
+
+    operation: Literal["parallel"]
+    surface: str
+    reference_plane: str
+
+
+class SurfaceRadius(Record):
+    measurement: Literal["radius"]
+    surface: str
+
+
+class PlaneDistance(Record):
+    measurement: Literal["plane_distance"]
+    surface: str
+    reference_plane: str
+
+
+QuantityMeasurement = Annotated[
+    SurfaceRadius | PlaneDistance, Field(discriminator="measurement")
+]
+
+
+class EqualQuantities(Node):
+    """Exact equality between two typed geometric measurements."""
+
+    operation: Literal["equal"]
+    left: QuantityMeasurement
+    right: QuantityMeasurement
+
+
+class EqualRadii(Node):
+    """Exact shared radius for two or more cylinder observations."""
+
+    operation: Literal["equal_radii"]
+    surfaces: list[str] = Field(min_length=2, max_length=33)
+
+
+class PlaneRelationship(Node):
+    """Exact orientation, and optionally offset, shared by plane fits."""
+
+    operation: Literal["plane_relationship"]
+    relation: Literal["coincident", "parallel"]
+    surfaces: list[str] = Field(min_length=2, max_length=33)
+
+
+class AxisSolve(Node):
+    """Explicit active factors that jointly refine one shared free axis."""
+
+    operation: Literal["axis_solve"]
+    axis: str
+    factors: list[str] = Field(min_length=2, max_length=32)
+
+
 Feature = Annotated[
     Source
     | Selection
     | SurfaceFit
     | Growth
+    | SelectionRegion
+    | RegionSelection
+    | FeatureReuse
+    | ReuseSelection
     | Perpendicular
     | Coaxial
     | RotationalSymmetry
-    | JointFit,
+    | JointFit
+    | AxisDefinition
+    | PlaneDefinition
+    | MirrorSymmetry
+    | ParallelToPlane
+    | EqualQuantities
+    | EqualRadii
+    | PlaneRelationship
+    | AxisSolve,
     Field(discriminator="operation"),
 ]
 
@@ -120,6 +322,7 @@ Feature = Annotated[
 class Recipe(Record):
     schema_version: Literal[2] = 2
     nodes: list[Feature] = Field(min_length=1, max_length=100)
+    groups: list[FeatureGroup] = Field(default_factory=list, max_length=100)
     output: str
 
     @model_validator(mode="before")
@@ -161,20 +364,79 @@ class Recipe(Record):
         payload["schema_version"] = 2
         return payload
 
+    @model_validator(mode="after")
+    def unique_feature_names(self) -> Recipe:
+        names = [node.label.strip().casefold() for node in self.nodes]
+        if len(names) != len(set(names)):
+            raise ValueError("feature names must be unique")
+        group_ids = [group.id for group in self.groups]
+        if len(group_ids) != len(set(group_ids)):
+            raise ValueError("feature group IDs must be unique")
+        if set(group_ids) & {node.id for node in self.nodes}:
+            raise ValueError("feature group IDs must not match feature IDs")
+        group_names = [group.label.strip().casefold() for group in self.groups]
+        if len(group_names) != len(set(group_names)):
+            raise ValueError("feature group names must be unique")
+        groups = set(group_ids)
+        positions = {node.id: index for index, node in enumerate(self.nodes)}
+        managed_keys: set[tuple[str, str]] = set()
+        for node in self.nodes:
+            if node.group_id is not None and node.group_id not in groups:
+                raise ValueError("feature references an unknown organizational group")
+            if (node.managed_by is None) != (node.managed_key is None):
+                raise ValueError(
+                    "managed features require both an owner and stable key"
+                )
+            if node.managed_by is None:
+                continue
+            if node.group_id is not None:
+                raise ValueError("managed features inherit their owner's group")
+            if (
+                node.managed_by not in positions
+                or positions[node.managed_by] >= positions[node.id]
+            ):
+                raise ValueError("managed feature owners must be earlier actions")
+            key = (node.managed_by, cast(str, node.managed_key))
+            if key in managed_keys:
+                raise ValueError(
+                    "managed feature keys must be unique within their owner"
+                )
+            managed_keys.add(key)
+        return self
+
 
 class GraphRequest(Record):
     token: str
     recipe: Recipe | None = None
     target: str | None = None
+    all_actions: bool = False
 
 
 def dependencies(node: Feature) -> list[str]:
     if isinstance(node, Selection):
         return [node.source]
     if isinstance(node, SurfaceFit):
-        return node.selections
+        reference = node.axis or node.reference_plane
+        return [*node.selections, *((reference,) if reference is not None else ())]
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
+    if isinstance(node, SelectionRegion):
+        return [node.selection, node.fit, node.axial_plane, node.clock_plane]
+    if isinstance(node, RegionSelection):
+        return [node.region, node.source, node.axial_plane, node.clock_plane]
+    if isinstance(node, FeatureReuse):
+        return list(
+            dict.fromkeys(
+                [
+                    *node.fits,
+                    *node.lineage,
+                    node.reference_selection,
+                    *node.target_selections,
+                ]
+            )
+        )
+    if isinstance(node, ReuseSelection):
+        return [node.reuse, node.fit, node.source_selection, node.target_selection]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
@@ -183,12 +445,163 @@ def dependencies(node: Feature) -> list[str]:
         return [node.axis, *node.planes]
     if isinstance(node, JointFit):
         return node.constraints
+    if isinstance(node, AxisDefinition):
+        return [node.source_fit] if node.source_fit is not None else []
+    if isinstance(node, PlaneDefinition):
+        return [node.axis]
+    if isinstance(node, MirrorSymmetry):
+        return [node.plane, *node.surfaces]
+    if isinstance(node, ParallelToPlane):
+        return [node.surface, node.reference_plane]
+    if isinstance(node, EqualQuantities):
+        refs: list[str] = []
+        for measurement in (node.left, node.right):
+            refs.append(measurement.surface)
+            if isinstance(measurement, PlaneDistance):
+                refs.append(measurement.reference_plane)
+        return list(dict.fromkeys(refs))
+    if isinstance(node, EqualRadii):
+        return node.surfaces
+    if isinstance(node, PlaneRelationship):
+        return node.surfaces
+    if isinstance(node, AxisSolve):
+        return [node.axis, *node.factors]
     return []
+
+
+def is_standalone_fit(node: SurfaceFit) -> bool:
+    return node.axis is None and node.reference_plane is None
+
+
+def fit_axis(node: SurfaceFit, nodes: dict[str, Feature]) -> str | None:
+    if node.axis is not None:
+        return node.axis
+    if node.reference_plane is not None:
+        reference = nodes[node.reference_plane]
+        if isinstance(reference, PlaneDefinition):
+            return reference.axis
+    return None
+
+
+def automatic_axis_components(
+    nodes: dict[str, Feature],
+) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
+    """Connected fit evidence for manually initialized (free) axes."""
+    components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
+    for axis in nodes.values():
+        if not isinstance(axis, AxisDefinition) or axis.source_fit is not None:
+            continue
+        factors = [
+            node
+            for node in nodes.values()
+            if isinstance(node, SurfaceFit) and fit_axis(node, nodes) == axis.id
+        ]
+        if not any(factor.kind in ("cone", "cylinder") for factor in factors):
+            continue
+        members = {
+            axis.id,
+            *(factor.reference_plane for factor in factors if factor.reference_plane),
+            *(factor.id for factor in factors),
+        }
+        components[axis.id] = (factors, members)
+    return components
+
+
+def automatic_equal_radius_components(
+    nodes: dict[str, Feature],
+) -> dict[str, set[str]]:
+    """Radius relationships that participate whenever one member is evaluated."""
+    return {
+        node.id: {node.id, *node.surfaces}
+        for node in nodes.values()
+        if isinstance(node, EqualRadii)
+    }
+
+
+def automatic_plane_relationship_components(
+    nodes: dict[str, Feature],
+) -> dict[str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]]:
+    """Connected exact plane relationships evaluated as one constraint system."""
+    relationships = [
+        node for node in nodes.values() if isinstance(node, PlaneRelationship)
+    ]
+    pending = set(relationship.id for relationship in relationships)
+    by_id = {relationship.id: relationship for relationship in relationships}
+    components: dict[
+        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
+    ] = {}
+    while pending:
+        first = next(
+            relationship.id
+            for relationship in relationships
+            if relationship.id in pending
+        )
+        relation_ids = {first}
+        surface_ids = set(by_id[first].surfaces)
+        while True:
+            connected = {
+                relationship.id
+                for relationship in relationships
+                if relationship.id in pending
+                and surface_ids.intersection(relationship.surfaces)
+            }
+            expanded_surfaces = {
+                surface
+                for relationship_id in connected | relation_ids
+                for surface in by_id[relationship_id].surfaces
+            }
+            if connected <= relation_ids and expanded_surfaces == surface_ids:
+                break
+            relation_ids.update(connected)
+            surface_ids.update(expanded_surfaces)
+        pending.difference_update(relation_ids)
+        component_relationships = [
+            relationship
+            for relationship in relationships
+            if relationship.id in relation_ids
+        ]
+        component_surfaces = [
+            cast(SurfaceFit, nodes[node_id])
+            for node_id in nodes
+            if node_id in surface_ids
+        ]
+        members = {*relation_ids, *surface_ids}
+        for relationship_id in relation_ids:
+            components[relationship_id] = (
+                component_relationships,
+                component_surfaces,
+                members,
+            )
+    return components
+
+
+def selection_frame_axis(
+    axial_plane_id: str, clock_plane_id: str, nodes: dict[str, Feature]
+) -> str:
+    axial_plane = nodes[axial_plane_id]
+    clock_plane = nodes[clock_plane_id]
+    if (
+        not isinstance(axial_plane, PlaneDefinition)
+        or axial_plane.construction != "perpendicular_to_axis"
+    ):
+        raise ValueError("a selection frame requires a perpendicular axial plane")
+    if not isinstance(clock_plane, PlaneDefinition) or clock_plane.construction not in (
+        "contains_axis",
+        "parallel_to_axis",
+    ):
+        raise ValueError("a selection frame requires an axis-parallel clock plane")
+    if axial_plane.axis != clock_plane.axis:
+        raise ValueError("selection-frame planes must reference the same axis")
+    return axial_plane.axis
 
 
 def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, Selection):
         return node.source
+    if isinstance(node, RegionSelection):
+        return node.source
+    if isinstance(node, ReuseSelection):
+        return selection_source(nodes[node.target_selection], nodes)
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
         if isinstance(fitted, SurfaceFit):
@@ -196,6 +609,65 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
             if len(sources) == 1:
                 return next(iter(sources))
     raise ValueError("expected selections from one source")
+
+
+def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> list[str]:
+    """Return selected fits, their upstream inputs, and enclosed relationships."""
+    selected = set(fit_ids)
+    closure = set(fit_ids)
+
+    def add_upstream() -> bool:
+        before = len(closure)
+        for key in tuple(closure):
+            closure.update(dependencies(nodes[key]))
+        return len(closure) != before
+
+    while add_upstream():
+        pass
+    relationship_types = (
+        Perpendicular,
+        Coaxial,
+        RotationalSymmetry,
+        JointFit,
+        MirrorSymmetry,
+        ParallelToPlane,
+        EqualQuantities,
+        EqualRadii,
+        AxisSolve,
+    )
+
+    def referenced_fits(candidate: Feature) -> set[str]:
+        found: set[str] = set()
+        pending = list(dependencies(candidate))
+        visited: set[str] = set()
+        while pending:
+            ref = pending.pop()
+            if ref in visited:
+                continue
+            visited.add(ref)
+            referenced = nodes[ref]
+            if isinstance(referenced, SurfaceFit):
+                found.add(ref)
+            elif isinstance(referenced, relationship_types):
+                pending.extend(dependencies(referenced))
+        return found
+
+    changed = True
+    while changed:
+        changed = False
+        for candidate in nodes.values():
+            if candidate.id in closure or not isinstance(candidate, relationship_types):
+                continue
+            refs = dependencies(candidate)
+            fitted_refs = referenced_fits(candidate)
+            enclosed = bool(fitted_refs) and fitted_refs <= selected
+            if enclosed:
+                closure.add(candidate.id)
+                closure.update(refs)
+                changed = True
+        while add_upstream():
+            changed = True
+    return [key for key in nodes if key in closure]
 
 
 def joint_surfaces(
@@ -312,26 +784,362 @@ class StaleGraph(ValueError):
     """The current graph changed while a client or worker was using it."""
 
 
+def workspace_reference_sha256(workspace: NozzleWorkspace) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "selection": workspace.data.selection,
+                "model": workspace.model_sha256,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
+def reference_plane_result(
+    axis_result: dict[str, Any], plane: PlaneDefinition
+) -> dict[str, Any]:
+    axis = np.asarray(axis_result["axis_display"], dtype=float)
+    axis /= np.linalg.norm(axis)
+    basis = np.eye(3)[int(np.argmin(np.abs(axis)))]
+    u = np.cross(axis, basis)
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    anchor = np.asarray(axis_result["point_display"], dtype=float)
+    if plane.construction in ("contains_axis", "parallel_to_axis"):
+        assert plane.initial_angle_degrees is not None
+        angle = np.radians(plane.initial_angle_degrees)
+        basis_u = axis
+        basis_v = np.cos(angle) * u + np.sin(angle) * v
+        normal = np.cross(basis_u, basis_v)
+        point = anchor + plane.offset * normal
+    else:
+        basis_u = u
+        basis_v = v
+        normal = axis
+        point = anchor + plane.offset * axis
+    return {
+        "axis_display": axis.tolist(),
+        "basis_u_display": basis_u.tolist(),
+        "basis_v_display": basis_v.tolist(),
+        "point_display": point.tolist(),
+        "radial_display": basis_v.tolist(),
+        "normal_display": normal.tolist(),
+        "plane_equation": [*normal.tolist(), float(normal @ point)],
+        "angle_degrees": plane.initial_angle_degrees,
+        "offset": plane.offset,
+        "construction": plane.construction,
+    }
+
+
+def fit_plane_to_reference(
+    workspace: NozzleWorkspace,
+    surface: SurfaceFit,
+    ids: list[VertexId],
+    reference: dict[str, Any],
+) -> dict[str, Any]:
+    """Fit an offset while preserving an upstream reference plane's orientation."""
+    if len(ids) < 3:
+        raise ValueError(f"{surface.id}: select at least three plane vertices")
+    points = workspace.local[ids]
+    weights = workspace.data.weights[ids]
+    normal = np.asarray(reference["normal_display"], dtype=float)
+    normal /= np.linalg.norm(normal)
+    offset = float(weights @ (points @ normal) / weights.sum())
+    residuals = points @ normal - offset
+    reference_offset = float(reference["plane_equation"][3])
+    return {
+        "kind": "plane",
+        "ids": ids,
+        "parameters": [*normal.tolist(), offset],
+        "plane_equation": [*normal.tolist(), offset],
+        "axial_domain": surface.axial_domain,
+        "residuals": residuals.tolist(),
+        "weighted_rms": float(np.sqrt(weights @ residuals**2 / float(weights.sum()))),
+        "condition": 1.0,
+        "reference_plane": surface.reference_plane,
+        "reference_offset": reference_offset,
+        "signed_relative_offset": offset - reference_offset,
+    }
+
+
+def fit_equal_cylinder_radii(
+    workspace: NozzleWorkspace,
+    surfaces: list[SurfaceFit],
+    results: list[dict[str, Any]],
+    ids: list[list[int]],
+) -> dict[str, Any]:
+    """Fit one exact radius while retaining each cylinder's fitted axis."""
+    radial_observations: list[np.ndarray] = []
+    observation_weights: list[np.ndarray] = []
+    for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
+        if surface.kind != "cylinder":
+            raise ValueError("all-equal radii require cylinder fits")
+        parameters = np.asarray(result["parameters"], dtype=float)
+        if parameters.shape != (7,) or not np.isfinite(parameters).all():
+            raise ValueError(f"{surface.label}: cylinder result is unavailable")
+        direction = np.asarray([parameters[2], parameters[3], 1.0])
+        direction /= np.linalg.norm(direction)
+        point = np.asarray([parameters[0], parameters[1], 0.0])
+        offset = workspace.local[surface_ids] - point
+        axial = offset @ direction
+        radial = offset - axial[:, None] * direction
+        radial_observations.append(np.linalg.norm(radial, axis=1))
+        observation_weights.append(workspace.data.weights[surface_ids])
+    total_weight = sum(float(weights.sum()) for weights in observation_weights)
+    if not np.isfinite(total_weight) or total_weight <= 0:
+        raise ValueError("all-equal radii need positive-area observations")
+    radius = (
+        sum(
+            float(weights @ radial)
+            for weights, radial in zip(
+                observation_weights, radial_observations, strict=True
+            )
+        )
+        / total_weight
+    )
+    adjusted: dict[str, dict[str, Any]] = {}
+    for surface, result, surface_ids, radial, weights in zip(
+        surfaces,
+        results,
+        ids,
+        radial_observations,
+        observation_weights,
+        strict=True,
+    ):
+        parameters = list(result["parameters"])
+        parameters[4] = radius
+        residuals = radial - radius
+        adjusted[surface.id] = {
+            **deepcopy(result),
+            "ids": surface_ids,
+            "parameters": parameters,
+            "residuals": residuals.tolist(),
+            "weighted_rms": float(
+                np.sqrt(weights @ residuals**2 / float(weights.sum()))
+            ),
+            "resolved_by": "equal_radii",
+        }
+    return {
+        "format": "scansor-equal-radii-v1",
+        "measurement": "radius",
+        "value": radius,
+        "surfaces": adjusted,
+    }
+
+
+def fit_plane_relationships(
+    workspace: NozzleWorkspace,
+    relationships: list[PlaneRelationship],
+    surfaces: list[SurfaceFit],
+    results: list[dict[str, Any]],
+    ids: list[list[int]],
+) -> dict[str, Any]:
+    """Solve a connected set of exact coincident/parallel plane constraints."""
+    parent = {surface.id: surface.id for surface in surfaces}
+
+    def root(surface_id: str) -> str:
+        while parent[surface_id] != surface_id:
+            parent[surface_id] = parent[parent[surface_id]]
+            surface_id = parent[surface_id]
+        return surface_id
+
+    def union(left: str, right: str) -> None:
+        left_root, right_root = root(left), root(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for relationship in relationships:
+        if relationship.relation != "coincident":
+            continue
+        anchor = relationship.surfaces[0]
+        for surface_id in relationship.surfaces[1:]:
+            union(anchor, surface_id)
+
+    groups: dict[str, list[int]] = {}
+    for index, surface in enumerate(surfaces):
+        groups.setdefault(root(surface.id), []).append(index)
+
+    covariance = np.zeros((3, 3), dtype=float)
+    total_weight = 0.0
+    for indices in groups.values():
+        group_points = np.concatenate(
+            [workspace.local[ids[index]] for index in indices]
+        )
+        group_weights = np.concatenate(
+            [workspace.data.weights[ids[index]] for index in indices]
+        )
+        weight = float(group_weights.sum())
+        if not np.isfinite(weight) or weight <= 0:
+            raise ValueError("plane relationships need positive-area observations")
+        centroid = group_weights @ group_points / weight
+        centered = group_points - centroid
+        covariance += (centered * group_weights[:, None]).T @ centered
+        total_weight += weight
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    normal = eigenvectors[:, int(np.argmin(eigenvalues))]
+    reference_normals = [
+        np.asarray(result["plane_equation"][:3], dtype=float)
+        for result in results
+        if "plane_equation" in result
+    ]
+    bound_normals = [
+        np.asarray(result["plane_equation"][:3], dtype=float)
+        for surface, result in zip(surfaces, results, strict=True)
+        if (surface.axis is not None or surface.reference_plane is not None)
+        and "plane_equation" in result
+    ]
+    if bound_normals:
+        normal = sum(
+            candidate if candidate @ bound_normals[0] >= 0 else -candidate
+            for candidate in bound_normals
+        )
+        normal /= np.linalg.norm(normal)
+    elif reference_normals and normal @ sum(reference_normals) < 0:
+        normal = -normal
+
+    adjusted: dict[str, dict[str, Any]] = {}
+    group_offsets: dict[str, float] = {}
+    for group_id, indices in groups.items():
+        bound_offsets = [
+            float(results[index]["plane_equation"][3])
+            for index in indices
+            if (
+                surfaces[index].axis is not None
+                or surfaces[index].reference_plane is not None
+            )
+            and "plane_equation" in results[index]
+        ]
+        if bound_offsets:
+            group_offsets[group_id] = float(np.mean(bound_offsets))
+            continue
+        group_points = np.concatenate(
+            [workspace.local[ids[index]] for index in indices]
+        )
+        group_weights = np.concatenate(
+            [workspace.data.weights[ids[index]] for index in indices]
+        )
+        group_offsets[group_id] = float(
+            group_weights @ (group_points @ normal) / group_weights.sum()
+        )
+    for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
+        points = workspace.local[surface_ids]
+        weights = workspace.data.weights[surface_ids]
+        offset = group_offsets[root(surface.id)]
+        residuals = points @ normal - offset
+        adjusted[surface.id] = {
+            **deepcopy(result),
+            "kind": "plane",
+            "ids": surface_ids,
+            "parameters": [*normal.tolist(), offset],
+            "plane_equation": [*normal.tolist(), offset],
+            "residuals": residuals.tolist(),
+            "weighted_rms": float(
+                np.sqrt(weights @ residuals**2 / float(weights.sum()))
+            ),
+            "resolved_by": "plane_relationship",
+        }
+    return {
+        "format": "scansor-plane-relationships-v1",
+        "relationships": [relationship.id for relationship in relationships],
+        "normal_display": normal.tolist(),
+        "surfaces": adjusted,
+        "weighted_rms": float(
+            np.sqrt(
+                sum(
+                    workspace.data.weights[ids[index]]
+                    @ np.asarray(adjusted[surface.id]["residuals"]) ** 2
+                    for index, surface in enumerate(surfaces)
+                )
+                / total_weight
+            )
+        ),
+    }
+
+
+def equality_measurements(
+    relationship: EqualQuantities,
+) -> tuple[SurfaceRadius, PlaneDistance]:
+    measurements = (relationship.left, relationship.right)
+    radii = [value for value in measurements if isinstance(value, SurfaceRadius)]
+    distances = [value for value in measurements if isinstance(value, PlaneDistance)]
+    if len(radii) != 1 or len(distances) != 1:
+        raise ValueError(
+            "the bounded equality relationship requires one surface radius and one plane distance"
+        )
+    return radii[0], distances[0]
+
+
+def constrained_mirror_radii(
+    factors: list[Feature], nodes: dict[str, Feature]
+) -> tuple[str | None, ...]:
+    """Lower complete mirror/parallel/equality clusters to shared radii."""
+    mirrors = [factor for factor in factors if isinstance(factor, MirrorSymmetry)]
+    parallels = [factor for factor in factors if isinstance(factor, ParallelToPlane)]
+    equalities = [factor for factor in factors if isinstance(factor, EqualQuantities)]
+    used_parallel: set[str] = set()
+    used_equal: set[str] = set()
+    radius_sources: list[str | None] = []
+    for mirror in mirrors:
+        matching_parallel = [
+            relationship
+            for relationship in parallels
+            if relationship.reference_plane == mirror.plane
+            and relationship.surface in mirror.surfaces
+        ]
+        matching_equal: list[tuple[EqualQuantities, SurfaceRadius]] = []
+        for relationship in equalities:
+            radius, distance = equality_measurements(relationship)
+            if (
+                distance.reference_plane == mirror.plane
+                and distance.surface in mirror.surfaces
+                and any(
+                    parallel.surface == distance.surface
+                    for parallel in matching_parallel
+                )
+            ):
+                matching_equal.append((relationship, radius))
+        if not matching_parallel and not matching_equal:
+            radius_sources.append(None)
+            continue
+        if len(matching_parallel) != 1 or len(matching_equal) != 1:
+            raise ValueError(
+                "a constrained mirror pair requires exactly one parallel relationship and one radius-to-plane-distance equality"
+            )
+        parallel = matching_parallel[0]
+        equality, radius = matching_equal[0]
+        if parallel.surface != equality_measurements(equality)[1].surface:
+            raise ValueError(
+                "parallel and equality relationships must reference the same mirror member"
+            )
+        cylinder = nodes[radius.surface]
+        if not isinstance(cylinder, SurfaceFit) or cylinder.kind != "cylinder":
+            raise ValueError("radius equality currently requires a cylinder fit")
+        used_parallel.add(parallel.id)
+        used_equal.add(equality.id)
+        radius_sources.append(radius.surface)
+    if used_parallel != {
+        relationship.id for relationship in parallels
+    } or used_equal != {relationship.id for relationship in equalities}:
+        raise ValueError(
+            "parallel and equality relationships must form a complete active mirror cluster"
+        )
+    return tuple(radius_sources)
+
+
 @final
 class FeatureGraph:
     def __init__(self, workspace: NozzleWorkspace, recipe: Recipe) -> None:
         self.workspace = workspace
         # Bind the fixture adapter's frame/initialization as well as the raw mesh.
-        self.reference_sha256 = hashlib.sha256(
-            json.dumps(
-                {
-                    "selection": workspace.data.selection,
-                    "model": workspace.model_sha256,
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        self.reference_sha256 = workspace_reference_sha256(workspace)
         self.lock = RLock()
         self._recipe = self.validate(recipe)
         self._states: dict[str, str] = dict.fromkeys(
             (n.id for n in recipe.nodes), "unevaluated"
         )
         self._results: dict[str, SessionFit] = {}
+        self._connected_solves: dict[str, SessionFit] = {}
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self._diagnostics: dict[str, dict[str, Any]] = {}
@@ -339,6 +1147,7 @@ class FeatureGraph:
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
+        positions = {node.id: index for index, node in enumerate(recipe.nodes)}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
         if recipe.output not in nodes:
@@ -382,36 +1191,177 @@ class FeatureGraph:
                 lo, hi = node.axial_domain
                 if not np.isfinite([lo, hi]).all() or lo >= hi:
                     raise ValueError("invalid axial domain")
+                if node.axis is not None:
+                    axis = nodes[node.axis]
+                    if not isinstance(axis, AxisDefinition):
+                        raise ValueError("axis-bound fit requires an explicit axis")
+                if node.reference_plane is not None and not isinstance(
+                    nodes[node.reference_plane], PlaneDefinition
+                ):
+                    raise ValueError(
+                        "plane-bound fit requires an explicit reference plane"
+                    )
+                for selection_id in node.selections:
+                    applied = nodes[selection_id]
+                    if not isinstance(applied, RegionSelection):
+                        continue
+                    target_axis = selection_frame_axis(
+                        applied.axial_plane, applied.clock_plane, nodes
+                    )
+                    axis = nodes[target_axis]
+                    if (
+                        fit_axis(node, nodes) == target_axis
+                        and isinstance(axis, AxisDefinition)
+                        and axis.source_fit is None
+                    ):
+                        raise ValueError(
+                            "fit an applied region standalone before using it to initialize its target axis"
+                        )
             elif isinstance(node, Growth):
                 fitted = nodes[node.seed_fit]
-                if not isinstance(fitted, SurfaceFit):
-                    raise ValueError("growth input must be an earlier fit")
+                if not isinstance(fitted, SurfaceFit) or not is_standalone_fit(fitted):
+                    raise ValueError("growth input must be an earlier standalone fit")
                 source = selection_source(node, nodes)
                 for barrier in node.barriers:
                     if selection_source(nodes[barrier], nodes) != source:
                         raise ValueError("growth barrier belongs to another source")
+            elif isinstance(node, SelectionRegion):
+                selected = nodes[node.selection]
+                fitted = nodes[node.fit]
+                if not isinstance(
+                    selected, (Selection, Growth, RegionSelection, ReuseSelection)
+                ):
+                    raise ValueError("a reusable region requires an earlier selection")
+                if (
+                    not isinstance(fitted, SurfaceFit)
+                    or fitted.kind not in ("cylinder", "plane")
+                    or node.selection not in fitted.selections
+                ):
+                    raise ValueError(
+                        "a reusable region requires a cylinder or plane fit using its selection"
+                    )
+                axis_id = selection_frame_axis(
+                    node.axial_plane, node.clock_plane, nodes
+                )
+                if fitted.kind == "cylinder" and fit_axis(fitted, nodes) != axis_id:
+                    raise ValueError(
+                        "a cylinder selection region must use its datum-frame axis"
+                    )
+                if selection_source(selected, nodes) != selection_source(
+                    nodes[fitted.selections[0]], nodes
+                ):
+                    raise ValueError("selection region inputs must share one source")
+            elif isinstance(node, RegionSelection):
+                region = nodes[node.region]
+                source = nodes[node.source]
+                if not isinstance(region, SelectionRegion):
+                    raise ValueError("region application requires a reusable region")
+                if not isinstance(source, Source):
+                    raise ValueError("region application requires a source mesh")
+                _ = selection_frame_axis(node.axial_plane, node.clock_plane, nodes)
+                region_source = selection_source(nodes[region.selection], nodes)
+                if node.source != region_source:
+                    raise ValueError(
+                        "region application currently requires the region's source mesh"
+                    )
+            elif isinstance(node, FeatureReuse):
+                if len(set(node.fits)) != len(node.fits):
+                    raise ValueError("a reuse feature cannot contain duplicate fits")
+                if len(set(node.target_selections)) != len(node.target_selections):
+                    raise ValueError("a reuse feature cannot contain duplicate targets")
+                if node.reference_selection in node.target_selections:
+                    raise ValueError(
+                        "reuse reference and target selections must be different"
+                    )
+                fits = [nodes[key] for key in node.fits]
+                if any(
+                    not isinstance(fit, SurfaceFit)
+                    or fit.kind not in ("cylinder", "plane")
+                    for fit in fits
+                ):
+                    raise ValueError("reuse currently supports cylinder and plane fits")
+                for selection_id in (
+                    node.reference_selection,
+                    *node.target_selections,
+                ):
+                    if not isinstance(
+                        nodes[selection_id],
+                        (Selection, Growth, RegionSelection, ReuseSelection),
+                    ):
+                        raise ValueError("reuse matching inputs must be selections")
+                sources = {
+                    selection_source(nodes[node.reference_selection], nodes),
+                    *(
+                        selection_source(nodes[selection_id], nodes)
+                        for selection_id in node.target_selections
+                    ),
+                    *(
+                        selection_source(nodes[selection_id], nodes)
+                        for fit in fits
+                        if isinstance(fit, SurfaceFit)
+                        for selection_id in fit.selections
+                    ),
+                }
+                if len(sources) != 1:
+                    raise ValueError(
+                        "reuse currently requires one source mesh for fits and matching selections"
+                    )
+                available = {
+                    key: value
+                    for key, value in nodes.items()
+                    if positions[key] < positions[node.id]
+                }
+                expected = discover_reuse_lineage(node.fits, available)
+                if node.lineage != expected:
+                    raise ValueError(
+                        "reuse lineage must contain the selected fits, their inputs, and enclosed relationships in action order"
+                    )
+            elif isinstance(node, ReuseSelection):
+                reuse = nodes[node.reuse]
+                fitted = nodes[node.fit]
+                if not isinstance(reuse, FeatureReuse):
+                    raise ValueError("a reused selection requires a reuse feature")
+                if node.fit not in reuse.fits or not isinstance(fitted, SurfaceFit):
+                    raise ValueError("a reused selection must belong to a reused fit")
+                if node.target_selection not in reuse.target_selections:
+                    raise ValueError(
+                        "a reused selection must name one target of its reuse feature"
+                    )
+                if node.source_selection not in fitted.selections:
+                    raise ValueError(
+                        "a reused selection must reference one input of its source fit"
+                    )
             elif isinstance(node, Perpendicular):
                 lateral, plane = nodes[node.lateral], nodes[node.plane]
                 if (
                     not isinstance(lateral, SurfaceFit)
                     or lateral.kind not in ("cone", "cylinder")
+                    or not is_standalone_fit(lateral)
                     or not isinstance(plane, SurfaceFit)
                     or plane.kind != "plane"
+                    or not is_standalone_fit(plane)
                 ):
                     raise ValueError(
-                        "supported relationship needs a cone/cylinder and plane"
+                        "legacy relationship needs standalone cone/cylinder and plane fits"
                     )
             elif isinstance(node, RotationalSymmetry):
                 axis = nodes[node.axis]
-                if not isinstance(axis, SurfaceFit) or axis.kind not in (
-                    "cone",
-                    "cylinder",
+                if (
+                    not isinstance(axis, SurfaceFit)
+                    or axis.kind
+                    not in (
+                        "cone",
+                        "cylinder",
+                    )
+                    or not is_standalone_fit(axis)
                 ):
                     raise ValueError(
                         "rotational symmetry requires a cone/cylinder axis fit"
                     )
                 if len(set(node.planes)) != 3 or any(
-                    not isinstance(nodes[ref], SurfaceFit) for ref in node.planes
+                    not isinstance(nodes[ref], SurfaceFit)
+                    or not is_standalone_fit(cast(SurfaceFit, nodes[ref]))
+                    for ref in node.planes
                 ):
                     raise ValueError(
                         "rotational symmetry requires three distinct same-type surface fits"
@@ -423,12 +1373,217 @@ class FeatureGraph:
             elif isinstance(node, Coaxial):
                 pair = [nodes[node.surface], nodes[node.reference]]
                 if node.surface == node.reference or any(
-                    not isinstance(n, SurfaceFit) or n.kind not in ("cone", "cylinder")
+                    not isinstance(n, SurfaceFit)
+                    or n.kind not in ("cone", "cylinder")
+                    or not is_standalone_fit(n)
                     for n in pair
                 ):
                     raise ValueError(
-                        "coaxial relationship requires two distinct cone/cylinder surfaces"
+                        "legacy coaxial relationship requires two distinct standalone cone/cylinder fits"
                     )
+            elif isinstance(node, AxisDefinition):
+                if node.source_fit is not None:
+                    source_fit = nodes[node.source_fit]
+                    if (
+                        not isinstance(source_fit, SurfaceFit)
+                        or source_fit.kind not in ("cone", "cylinder")
+                        or not is_standalone_fit(source_fit)
+                    ):
+                        raise ValueError(
+                            "an axis fit initializer must be an earlier standalone cone or cylinder"
+                        )
+                else:
+                    assert node.initial_parameters is not None
+                    if not np.isfinite(node.initial_parameters).all():
+                        raise ValueError("manual axis initialization must be finite")
+            elif isinstance(node, PlaneDefinition):
+                if not isinstance(nodes[node.axis], AxisDefinition):
+                    raise ValueError("reference plane requires an explicit axis")
+            elif isinstance(node, MirrorSymmetry):
+                plane = nodes[node.plane]
+                if not isinstance(plane, PlaneDefinition):
+                    raise ValueError("mirror symmetry requires a reference plane")
+                if plane.construction != "contains_axis":
+                    raise ValueError(
+                        "mirror symmetry on a shared axis requires a reference plane containing that axis"
+                    )
+                if len(set(node.surfaces)) != 2:
+                    raise ValueError(
+                        "mirror symmetry requires two distinct same-type surface fits"
+                    )
+                surfaces = [nodes[ref] for ref in node.surfaces]
+                if any(
+                    not isinstance(surface, SurfaceFit)
+                    or not is_standalone_fit(surface)
+                    for surface in surfaces
+                ):
+                    raise ValueError(
+                        "mirror symmetry requires two standalone surface fits"
+                    )
+                if len({cast(SurfaceFit, surface).kind for surface in surfaces}) != 1:
+                    raise ValueError(
+                        "mirror symmetry requires matching fit types; existing fits are not converted"
+                    )
+            elif isinstance(node, ParallelToPlane):
+                surface = nodes[node.surface]
+                reference = nodes[node.reference_plane]
+                if (
+                    not isinstance(surface, SurfaceFit)
+                    or surface.kind != "plane"
+                    or not is_standalone_fit(surface)
+                ):
+                    raise ValueError(
+                        "parallel relationship requires a standalone plane fit"
+                    )
+                if not isinstance(reference, PlaneDefinition):
+                    raise ValueError(
+                        "parallel relationship requires an explicit reference plane"
+                    )
+            elif isinstance(node, EqualQuantities):
+                radius, distance = equality_measurements(node)
+                cylinder = nodes[radius.surface]
+                surface = nodes[distance.surface]
+                reference = nodes[distance.reference_plane]
+                if (
+                    not isinstance(cylinder, SurfaceFit)
+                    or cylinder.kind != "cylinder"
+                    or cylinder.axis is None
+                ):
+                    raise ValueError(
+                        "radius measurement requires an axis-bound cylinder fit"
+                    )
+                if (
+                    not isinstance(surface, SurfaceFit)
+                    or surface.kind != "plane"
+                    or not is_standalone_fit(surface)
+                ):
+                    raise ValueError(
+                        "plane-distance measurement requires a standalone plane fit"
+                    )
+                if not isinstance(reference, PlaneDefinition):
+                    raise ValueError(
+                        "plane-distance measurement requires an explicit reference plane"
+                    )
+                if cylinder.axis != reference.axis:
+                    raise ValueError(
+                        "radius and plane-distance measurements must use the same axis"
+                    )
+            elif isinstance(node, EqualRadii):
+                if len(set(node.surfaces)) != len(node.surfaces):
+                    raise ValueError("all-equal radius inputs must be unique")
+                surfaces = [nodes[ref] for ref in node.surfaces]
+                if any(
+                    not isinstance(surface, SurfaceFit) or surface.kind != "cylinder"
+                    for surface in surfaces
+                ):
+                    raise ValueError("all-equal radii require cylinder fits")
+                overlapping = [
+                    candidate
+                    for candidate in nodes.values()
+                    if isinstance(candidate, EqualRadii)
+                    and positions[candidate.id] < positions[node.id]
+                    and set(candidate.surfaces).intersection(node.surfaces)
+                ]
+                if overlapping:
+                    raise ValueError(
+                        "a cylinder may belong to only one all-equal radius relationship"
+                    )
+            elif isinstance(node, PlaneRelationship):
+                if len(set(node.surfaces)) != len(node.surfaces):
+                    raise ValueError("plane relationship inputs must be unique")
+                surfaces = [nodes[ref] for ref in node.surfaces]
+                if any(
+                    not isinstance(surface, SurfaceFit) or surface.kind != "plane"
+                    for surface in surfaces
+                ):
+                    raise ValueError("plane relationships require plane fits")
+            elif isinstance(node, AxisSolve):
+                axis = nodes[node.axis]
+                if not isinstance(axis, AxisDefinition):
+                    raise ValueError("axis solve requires an explicit axis")
+                if len(set(node.factors)) != len(node.factors):
+                    raise ValueError("axis solve factor references must be unique")
+                factors = [nodes[ref] for ref in node.factors]
+                if any(
+                    not (
+                        isinstance(factor, SurfaceFit)
+                        and fit_axis(factor, nodes) == node.axis
+                        and factor.kind in ("cone", "cylinder", "plane")
+                    )
+                    and not (
+                        isinstance(factor, MirrorSymmetry)
+                        and isinstance(nodes[factor.plane], PlaneDefinition)
+                        and cast(PlaneDefinition, nodes[factor.plane]).axis == node.axis
+                    )
+                    and not (
+                        isinstance(factor, ParallelToPlane)
+                        and isinstance(nodes[factor.reference_plane], PlaneDefinition)
+                        and cast(PlaneDefinition, nodes[factor.reference_plane]).axis
+                        == node.axis
+                    )
+                    and not (
+                        isinstance(factor, EqualQuantities)
+                        and cast(
+                            SurfaceFit,
+                            nodes[equality_measurements(factor)[0].surface],
+                        ).axis
+                        == node.axis
+                        and cast(
+                            PlaneDefinition,
+                            nodes[equality_measurements(factor)[1].reference_plane],
+                        ).axis
+                        == node.axis
+                    )
+                    for factor in factors
+                ):
+                    raise ValueError(
+                        "axis solve inputs must be bound fits or relationships on its axis"
+                    )
+                typed_factors = [
+                    factor for factor in factors if isinstance(factor, SurfaceFit)
+                ]
+                mirror_factors = [
+                    factor for factor in factors if isinstance(factor, MirrorSymmetry)
+                ]
+                if len({factor.plane for factor in mirror_factors}) != len(
+                    mirror_factors
+                ):
+                    raise ValueError(
+                        "each mirror plane may drive only one pair in a joint"
+                    )
+                if not any(
+                    factor.kind in ("cone", "cylinder") for factor in typed_factors
+                ):
+                    raise ValueError(
+                        "free axis solve requires a cone or cylinder factor"
+                    )
+                mirror_radii = constrained_mirror_radii(factors, nodes)
+                if (
+                    not any(factor.kind == "plane" for factor in typed_factors)
+                    and not mirror_factors
+                ):
+                    raise ValueError(
+                        "free axis solve requires a plane factor or mirror relationship"
+                    )
+                for radius_surface in (value for value in mirror_radii if value):
+                    if radius_surface not in node.factors:
+                        raise ValueError(
+                            "a radius equality requires its cylinder fit active in the solve"
+                        )
+                sources = {
+                    selection_source(nodes[ref], nodes)
+                    for factor in typed_factors
+                    for ref in factor.selections
+                }
+                for factor in factors:
+                    if isinstance(factor, MirrorSymmetry):
+                        sources.update(
+                            selection_source(nodes[ref], nodes)
+                            for surface_ref in factor.surfaces
+                            for ref in cast(SurfaceFit, nodes[surface_ref]).selections
+                        )
+                if len(sources) != 1:
+                    raise ValueError("axis solve factors must share one source")
             else:
                 sides, planes = joint_surfaces(node, nodes)
                 sources = {
@@ -446,6 +1601,46 @@ class FeatureGraph:
 
     def snapshot(self) -> dict[str, object]:
         with self.lock:
+            resolved = deepcopy({**self._derived, **self._results})
+            for axis_id, solve in self._connected_solves.items():
+                axis = deepcopy(self._derived.get(axis_id, {}))
+                axis.update(
+                    {
+                        "parameters": solve["fit"]["parameters"],
+                        "axis_display": solve["axis_display"],
+                        "point_display": solve["point_display"],
+                        "resolved_by": "connected_fits",
+                    }
+                )
+                resolved[axis_id] = axis
+                condition = solve["fit"]["normal_matrix_condition"]
+                for fit_id, surface in solve.get("surfaces", {}).items():
+                    resolved[fit_id] = {**deepcopy(surface), "condition": condition}
+                solved_planes = solve.get("reference_planes", {})
+                for node in self._recipe.nodes:
+                    if isinstance(node, PlaneDefinition) and node.axis == axis_id:
+                        resolved[node.id] = deepcopy(
+                            solved_planes.get(node.id)
+                            or reference_plane_result(axis, node)
+                        )
+            for node in self._recipe.nodes:
+                if (
+                    not isinstance(node, EqualRadii)
+                    or self._states.get(node.id) != "ready"
+                ):
+                    continue
+                relationship = self._derived.get(node.id, {})
+                for fit_id, surface in relationship.get("surfaces", {}).items():
+                    resolved[fit_id] = deepcopy(surface)
+            for node in self._recipe.nodes:
+                if (
+                    not isinstance(node, PlaneRelationship)
+                    or self._states.get(node.id) != "ready"
+                ):
+                    continue
+                relationship = self._derived.get(node.id, {})
+                for fit_id, surface in relationship.get("surfaces", {}).items():
+                    resolved[fit_id] = deepcopy(surface)
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -454,13 +1649,15 @@ class FeatureGraph:
                 "diagnostics": deepcopy(self._diagnostics),
                 "result": deepcopy(self._results.get(self._recipe.output)),
                 "derived": deepcopy(self._derived),
-                "results": deepcopy({**self._derived, **self._results}),
+                "results": resolved,
                 "memberships": {
                     n.id: n.ids.copy()
                     if isinstance(n, Selection)
                     else deepcopy(self._derived.get(n.id, {}).get("ids"))
                     for n in self._recipe.nodes
-                    if isinstance(n, (Selection, Growth))
+                    if isinstance(
+                        n, (Selection, Growth, RegionSelection, ReuseSelection)
+                    )
                 },
             }
 
@@ -480,6 +1677,33 @@ class FeatureGraph:
                 if expanded == affected:
                     break
                 affected = expanded
+            before_components = automatic_axis_components(before)
+            after_nodes = {n.id: n for n in recipe.nodes}
+            after_components = automatic_axis_components(after_nodes)
+            for axis_id in before_components.keys() | after_components.keys():
+                before_members = before_components.get(axis_id, ([], set()))[1]
+                after_members = after_components.get(axis_id, ([], set()))[1]
+                if before_members != after_members or affected.intersection(
+                    before_members | after_members
+                ):
+                    affected.update(after_members)
+            before_plane_components = automatic_plane_relationship_components(before)
+            after_plane_components = automatic_plane_relationship_components(
+                after_nodes
+            )
+            for relationship_id in (
+                before_plane_components.keys() | after_plane_components.keys()
+            ):
+                before_members = before_plane_components.get(
+                    relationship_id, ([], [], set())
+                )[2]
+                after_members = after_plane_components.get(
+                    relationship_id, ([], [], set())
+                )[2]
+                if before_members != after_members or affected.intersection(
+                    before_members | after_members
+                ):
+                    affected.update(after_members)
             self._states = {
                 n.id: ("stale" if n.id in before else "unevaluated")
                 if n.id in affected
@@ -490,6 +1714,12 @@ class FeatureGraph:
                 key: value
                 for key, value in self._results.items()
                 if key not in affected and any(n.id == key for n in recipe.nodes)
+            }
+            self._connected_solves = {
+                key: value
+                for key, value in self._connected_solves.items()
+                if key in after_components
+                and not affected.intersection(after_components[key][1])
             }
             self._derived = {
                 key: value
@@ -515,28 +1745,71 @@ class FeatureGraph:
             self._epoch += 1
             return self.snapshot()
 
-    def evaluate(self, token: str, target: str | None = None) -> dict[str, object]:
+    def evaluate(
+        self, token: str, target: str | None = None, all_actions: bool = False
+    ) -> dict[str, object]:
         with self.lock:
             if token != self._token():
                 raise StaleGraph("graph changed before evaluation")
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
-            target = recipe.output if target is None else target
-            if target not in nodes or not isinstance(
-                nodes[target], (JointFit, SurfaceFit, Growth, Selection, Source)
-            ):
-                raise ValueError(
-                    "evaluation target must be a source, selection, fit or growth action"
-                )
-            needed = {target}
-            while True:
-                expanded = needed | {
-                    dep for key in needed for dep in dependencies(nodes[key])
-                }
-                if expanded == needed:
-                    break
-                needed = expanded
-            order = tuple(n.id for n in recipe.nodes if n.id in needed)
+            connected_components = automatic_axis_components(nodes)
+            equal_radius_components = automatic_equal_radius_components(nodes)
+            plane_relationship_components = automatic_plane_relationship_components(
+                nodes
+            )
+            if all_actions:
+                if target is not None:
+                    raise ValueError("evaluate all cannot also specify a target")
+                order = tuple(nodes)
+            else:
+                target = recipe.output if target is None else target
+                if target not in nodes or not isinstance(
+                    nodes[target],
+                    (
+                        JointFit,
+                        SurfaceFit,
+                        Growth,
+                        SelectionRegion,
+                        RegionSelection,
+                        FeatureReuse,
+                        ReuseSelection,
+                        Selection,
+                        Source,
+                        AxisDefinition,
+                        PlaneDefinition,
+                        AxisSolve,
+                        EqualRadii,
+                        PlaneRelationship,
+                    ),
+                ):
+                    raise ValueError(
+                        "evaluation target must be a source, selection, reuse, region, fit, axis, plane, solve, or growth action"
+                    )
+                needed = {target}
+                while True:
+                    expanded = needed | {
+                        dep for key in needed for dep in dependencies(nodes[key])
+                    }
+                    for _, members in connected_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    for members in equal_radius_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    for _, _, members in plane_relationship_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    if expanded == needed:
+                        break
+                    needed = expanded
+                order = tuple(n.id for n in recipe.nodes if n.id in needed)
+
+        requested_explicit_solve_axes = {
+            cast(AxisSolve, nodes[key]).axis
+            for key in order
+            if isinstance(nodes[key], AxisSolve)
+        }
 
         def membership(selection_id: str) -> list[int]:
             selection = nodes[selection_id]
@@ -547,9 +1820,188 @@ class FeatureGraph:
                     raise StaleGraph("graph changed during evaluation")
                 return cast(list[int], self._derived[selection_id]["ids"])
 
+        def derived_result(node_id: str) -> dict[str, Any]:
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                return deepcopy(self._derived[node_id])
+
+        def resolved_result(node_id: str) -> dict[str, Any]:
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                node = nodes[node_id]
+                axis_id = (
+                    node.id
+                    if isinstance(node, AxisDefinition)
+                    else node.axis
+                    if isinstance(node, PlaneDefinition)
+                    else fit_axis(node, nodes)
+                    if isinstance(node, SurfaceFit)
+                    else None
+                )
+                solve = self._connected_solves.get(axis_id or "")
+                value = deepcopy(self._derived[node_id])
+                if solve is not None and isinstance(node, AxisDefinition):
+                    value.update(
+                        {
+                            "parameters": solve["fit"]["parameters"],
+                            "axis_display": solve["axis_display"],
+                            "point_display": solve["point_display"],
+                            "resolved_by": "connected_fits",
+                        }
+                    )
+                elif solve is not None and isinstance(node, PlaneDefinition):
+                    solved_plane = solve.get("reference_planes", {}).get(node_id)
+                    if solved_plane is not None:
+                        value = deepcopy(solved_plane)
+                    else:
+                        axis_value = deepcopy(self._derived[node.axis])
+                        axis_value.update(
+                            {
+                                "parameters": solve["fit"]["parameters"],
+                                "axis_display": solve["axis_display"],
+                                "point_display": solve["point_display"],
+                            }
+                        )
+                        value = reference_plane_result(axis_value, node)
+                elif solve is not None and isinstance(node, SurfaceFit):
+                    surface = solve.get("surfaces", {}).get(node_id)
+                    if surface is not None:
+                        value = deepcopy(dict(surface))
+                if isinstance(node, SurfaceFit):
+                    for relationship in recipe.nodes:
+                        if (
+                            isinstance(relationship, EqualRadii)
+                            and self._states.get(relationship.id) == "ready"
+                        ):
+                            adjusted = self._derived.get(relationship.id, {}).get(
+                                "surfaces", {}
+                            )
+                            if node_id in adjusted:
+                                value = deepcopy(adjusted[node_id])
+                    for relationship in recipe.nodes:
+                        if (
+                            isinstance(relationship, PlaneRelationship)
+                            and self._states.get(relationship.id) == "ready"
+                        ):
+                            adjusted = self._derived.get(relationship.id, {}).get(
+                                "surfaces", {}
+                            )
+                            if node_id in adjusted:
+                                value = deepcopy(adjusted[node_id])
+                return value
+
         def fitted_ids(surface: SurfaceFit) -> list[int]:
             return sorted({i for ref in surface.selections for i in membership(ref)})
 
+        def selected(surface: SurfaceFit) -> FitSelection:
+            return FitSelection(
+                surface.id,
+                fitted_ids(surface),
+                surface.kind,
+                surface.axial_domain,
+            )
+
+        def reject_overlaps(surfaces: list[SurfaceFit]) -> None:
+            memberships = [
+                (surface.id, set(fitted_ids(surface))) for surface in surfaces
+            ]
+            conflicts: list[dict[str, Any]] = []
+            for index, (left, left_ids) in enumerate(memberships):
+                for right, right_ids in memberships[index + 1 :]:
+                    overlap = sorted(left_ids & right_ids)
+                    if overlap:
+                        conflicts.append({"fits": [left, right], "ids": overlap})
+            if conflicts:
+                raise SelectionOverlap(conflicts)
+
+        def solve_connected_axis(
+            axis_id: str, fitted_factors: list[SurfaceFit]
+        ) -> SessionFit:
+            reject_overlaps(fitted_factors)
+            sources = {
+                selection_source(nodes[ref], nodes)
+                for factor in fitted_factors
+                for ref in factor.selections
+            }
+            if len(sources) != 1:
+                raise ValueError("connected fits on a free axis must share one source")
+            sides = [factor for factor in fitted_factors if factor.kind != "plane"]
+            planes = [
+                factor
+                for factor in fitted_factors
+                if factor.kind == "plane" and factor.axis is not None
+            ]
+            referenced_plane_factors: dict[str, list[SurfaceFit]] = {}
+            for factor in fitted_factors:
+                if factor.reference_plane is not None:
+                    referenced_plane_factors.setdefault(
+                        factor.reference_plane, []
+                    ).append(factor)
+            reference_plane_groups = tuple(
+                ReferencePlaneGroup(
+                    reference_id,
+                    tuple(selected(factor) for factor in group),
+                    cast(PlaneDefinition, nodes[reference_id]).construction,
+                    cast(PlaneDefinition, nodes[reference_id]).initial_angle_degrees,
+                )
+                for reference_id, group in referenced_plane_factors.items()
+            )
+            axis_result = derived_result(axis_id)
+            return fit_group(
+                self.workspace,
+                [selected(side) for side in sides],
+                [selected(plane) for plane in planes],
+                axis_initial=np.asarray(axis_result["parameters"], dtype=float),
+                reference_plane_groups=reference_plane_groups,
+            )
+
+        def resolve_completed_components(completed: set[str]) -> None:
+            explicit_solve_axes = {
+                cast(AxisSolve, nodes[key]).axis
+                for key in completed
+                if isinstance(nodes[key], AxisSolve)
+            }
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                for axis_id in explicit_solve_axes:
+                    _ = self._connected_solves.pop(axis_id, None)
+            for axis_id, (factors, members) in connected_components.items():
+                if axis_id in requested_explicit_solve_axes or not members <= completed:
+                    continue
+                with self.lock:
+                    if axis_id in self._connected_solves:
+                        continue
+                try:
+                    connected = solve_connected_axis(axis_id, factors)
+                except Exception as error:
+                    with self.lock:
+                        if epoch == self._epoch:
+                            for member in members:
+                                self._states[member] = "failed"
+                                self._errors[member] = str(error)
+                            if isinstance(error, SelectionOverlap):
+                                self._diagnostics[axis_id] = error.diagnostic
+                            else:
+                                _ = self._diagnostics.pop(axis_id, None)
+                            _ = self._connected_solves.pop(axis_id, None)
+                    raise
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during connected solve; result discarded"
+                        )
+                    self._connected_solves[axis_id] = connected
+                    for member in members:
+                        self._states[member] = "ready"
+                        _ = self._errors.pop(member, None)
+                    _ = self._diagnostics.pop(axis_id, None)
+
+        with self.lock:
+            completed = {key for key, state in self._states.items() if state == "ready"}
+        resolve_completed_components(completed)
         for key in order:
             node = nodes[key]
             with self.lock:
@@ -565,22 +2017,111 @@ class FeatureGraph:
                 derived = None
                 if isinstance(node, SurfaceFit):
                     ids = fitted_ids(node)
-                    derived = fit_seed(
-                        self.workspace.local[ids],
-                        self.workspace.data.weights[ids],
-                        self.workspace.data.normals[ids] @ self.workspace.frame,
-                        node.kind,
-                        np.array(self.workspace.data.selection["initial_parameters"]),
-                        node.axial_domain,
-                    )
-                    derived["ids"] = ids
+                    if node.reference_plane is not None:
+                        derived = fit_plane_to_reference(
+                            self.workspace,
+                            node,
+                            ids,
+                            derived_result(node.reference_plane),
+                        )
+                    elif node.axis is None:
+                        fit_points = self.workspace.local[ids]
+                        reuse_inputs = [
+                            derived_result(ref)
+                            for ref in node.selections
+                            if isinstance(nodes[ref], ReuseSelection)
+                        ]
+                        initial = np.array(
+                            self.workspace.data.selection["initial_parameters"]
+                        )
+                        domain = node.axial_domain
+                        if reuse_inputs:
+                            if len(reuse_inputs) != len(node.selections):
+                                raise ValueError(
+                                    "a fit cannot mix reused and ordinary selections"
+                                )
+                            initials = [
+                                value.get("fit_initial") for value in reuse_inputs
+                            ]
+                            domains = [
+                                tuple(value["target_axial_domain"])
+                                for value in reuse_inputs
+                            ]
+                            if any(
+                                value != initials[0] for value in initials[1:]
+                            ) or any(value != domains[0] for value in domains[1:]):
+                                raise ValueError(
+                                    "reused fit selections must share one transformed source fit"
+                                )
+                            if initials[0] is not None:
+                                initial = np.asarray(initials[0], dtype=float)
+                            domain = cast(tuple[float, float], domains[0])
+                            if initials[0] is not None:
+                                point = np.asarray([initial[0], initial[1], 0.0])
+                                direction = np.asarray([initial[2], initial[3], 1.0])
+                                axial = (
+                                    (fit_points - point)
+                                    @ direction
+                                    / float(direction @ direction)
+                                )
+                                padding = max(
+                                    float(np.ptp(axial)) * 0.05,
+                                    1e-3,
+                                )
+                                domain = (
+                                    min(domain[0], float(np.min(axial)) - padding),
+                                    max(domain[1], float(np.max(axial)) + padding),
+                                )
+                        derived = fit_seed(
+                            fit_points,
+                            self.workspace.data.weights[ids],
+                            self.workspace.data.normals[ids] @ self.workspace.frame,
+                            node.kind,
+                            initial,
+                            domain,
+                        )
+                        derived["ids"] = ids
+                    else:
+                        axis_result = derived_result(node.axis)
+                        fixed = fit_fixed_axis_group(
+                            self.workspace,
+                            [selected(node)] if node.kind != "plane" else [],
+                            [selected(node)] if node.kind == "plane" else [],
+                            np.asarray(axis_result["parameters"], dtype=float),
+                        )
+                        fixed_surfaces = fixed.get("surfaces")
+                        if fixed_surfaces is None:
+                            raise AssertionError("fixed-axis fit omitted its surface")
+                        derived = dict(fixed_surfaces[node.id])
+                        derived["condition"] = fixed["fit"]["normal_matrix_condition"]
+                        if node.kind == "plane":
+                            parameters = cast(list[float], derived["parameters"])
+                            derived["plane_equation"] = [
+                                *fixed["axis_display"],
+                                parameters[5],
+                            ]
+                elif isinstance(node, AxisDefinition):
+                    if node.source_fit is not None:
+                        source = derived_result(node.source_fit)
+                        parameters = list(source["parameters"])
+                    else:
+                        assert node.initial_parameters is not None
+                        parameters = [*node.initial_parameters, 0.0, 0.0, 0.0]
+                    raw_axis = np.array([parameters[2], parameters[3], 1.0])
+                    axis = raw_axis / np.linalg.norm(raw_axis)
+                    point = np.array([parameters[0], parameters[1], 0.0])
+                    derived = {
+                        "source_fit": node.source_fit,
+                        "parameters": parameters,
+                        "axis_display": axis.tolist(),
+                        "point_display": point.tolist(),
+                    }
+                elif isinstance(node, PlaneDefinition):
+                    derived = reference_plane_result(derived_result(node.axis), node)
                 elif isinstance(node, Growth):
                     fitted = nodes[node.seed_fit]
                     assert isinstance(fitted, SurfaceFit)
-                    with self.lock:
-                        if epoch != self._epoch:
-                            raise StaleGraph("graph changed during evaluation")
-                        seed_result = deepcopy(self._derived[node.seed_fit])
+                    seed_result = derived_result(node.seed_fit)
                     barriers = sorted(
                         {i for ref in node.barriers for i in membership(ref)}
                     )
@@ -595,6 +2136,243 @@ class FeatureGraph:
                         node.distance,
                         node.angle_degrees,
                     )
+                elif isinstance(node, SelectionRegion):
+                    axis_id = selection_frame_axis(
+                        node.axial_plane, node.clock_plane, nodes
+                    )
+                    origin, rotation = datum_frame(
+                        resolved_result(axis_id),
+                        resolved_result(node.axial_plane),
+                        resolved_result(node.clock_plane),
+                    )
+                    ids = membership(node.selection)
+                    derived = build_selection_region(
+                        self.workspace.local[ids],
+                        self.workspace.data.normals[ids] @ self.workspace.frame,
+                        resolved_result(node.fit),
+                        origin,
+                        rotation,
+                        tangent_margin=node.tangent_margin,
+                        normal_margin=node.normal_margin,
+                        normal_angle_degrees=node.normal_angle_degrees,
+                    )
+                    derived.update(
+                        {
+                            "selection": node.selection,
+                            "fit": node.fit,
+                            "source": selection_source(nodes[node.selection], nodes),
+                        }
+                    )
+                elif isinstance(node, RegionSelection):
+                    axis_id = selection_frame_axis(
+                        node.axial_plane, node.clock_plane, nodes
+                    )
+                    origin, rotation = datum_frame(
+                        resolved_result(axis_id),
+                        resolved_result(node.axial_plane),
+                        resolved_result(node.clock_plane),
+                    )
+                    region = derived_result(node.region)
+                    ids = apply_selection_region(
+                        self.workspace.local,
+                        self.workspace.data.normals @ self.workspace.frame,
+                        self.workspace.data.weights,
+                        region,
+                        origin,
+                        rotation,
+                    )
+                    derived = {
+                        "ids": ids,
+                        "region": node.region,
+                        "source": node.source,
+                        "vertex_count": len(ids),
+                    }
+                elif isinstance(node, FeatureReuse):
+                    reference_ids = membership(node.reference_selection)
+                    normals = self.workspace.data.normals @ self.workspace.frame
+                    matches = {}
+                    for target_selection in node.target_selections:
+                        target_ids = membership(target_selection)
+                        matches[target_selection] = estimate_rigid_match(
+                            self.workspace.local[reference_ids],
+                            normals[reference_ids],
+                            self.workspace.local[target_ids],
+                            normals[target_ids],
+                        )
+                    derived = {
+                        "format": "scansor-feature-reuse-v1",
+                        "fits": node.fits,
+                        "lineage": node.lineage,
+                        "reference_selection": node.reference_selection,
+                        "target_selections": node.target_selections,
+                        "matches": matches,
+                    }
+                elif isinstance(node, ReuseSelection):
+                    reuse = nodes[node.reuse]
+                    fitted = nodes[node.fit]
+                    assert isinstance(reuse, FeatureReuse)
+                    assert isinstance(fitted, SurfaceFit)
+                    reuse_result = derived_result(node.reuse)
+                    match = reuse_result["matches"][node.target_selection]
+                    rotation = np.asarray(match["rotation"], dtype=float)
+                    translation = np.asarray(match["translation"], dtype=float)
+                    source_ids = membership(node.source_selection)
+                    source_points = self.workspace.local[source_ids]
+                    fit_result = resolved_result(node.fit)
+                    fit_result.setdefault("kind", fitted.kind)
+                    fit_result.setdefault("axial_domain", fitted.axial_domain)
+                    fit_initial, target_domain = transformed_fit_seed(
+                        fit_result, rotation, translation
+                    )
+                    source_origin, source_frame = surface_region_frame(
+                        source_points, fit_result
+                    )
+                    region = build_selection_region(
+                        source_points,
+                        self.workspace.data.normals[source_ids] @ self.workspace.frame,
+                        fit_result,
+                        source_origin,
+                        source_frame,
+                        tangent_margin=reuse.tangent_margin,
+                        normal_margin=reuse.normal_margin,
+                        normal_angle_degrees=reuse.normal_angle_degrees,
+                    )
+                    target_origin = source_origin @ rotation + translation
+                    target_frame = rotation.T @ source_frame
+                    ids = apply_selection_region(
+                        self.workspace.local,
+                        self.workspace.data.normals @ self.workspace.frame,
+                        self.workspace.data.weights,
+                        region,
+                        target_origin,
+                        target_frame,
+                    )
+                    derived = {
+                        "ids": ids,
+                        "reuse": node.reuse,
+                        "fit": node.fit,
+                        "source_selection": node.source_selection,
+                        "target_selection": node.target_selection,
+                        "vertex_count": len(ids),
+                        "region": region,
+                        "target_origin": target_origin.tolist(),
+                        "target_rotation": target_frame.tolist(),
+                        "fit_initial": fit_initial,
+                        "target_axial_domain": target_domain,
+                    }
+                elif isinstance(node, EqualRadii):
+                    cylinders = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
+                    cylinder_ids = [fitted_ids(surface) for surface in cylinders]
+                    derived = fit_equal_cylinder_radii(
+                        self.workspace,
+                        cylinders,
+                        [resolved_result(surface.id) for surface in cylinders],
+                        cylinder_ids,
+                    )
+                elif isinstance(node, PlaneRelationship):
+                    relationships, planes, _ = plane_relationship_components[node.id]
+                    plane_ids = [fitted_ids(surface) for surface in planes]
+                    derived = fit_plane_relationships(
+                        self.workspace,
+                        relationships,
+                        planes,
+                        [resolved_result(surface.id) for surface in planes],
+                        plane_ids,
+                    )
+                elif isinstance(node, AxisSolve):
+                    factors = [nodes[ref] for ref in node.factors]
+                    fitted_factors = [
+                        factor for factor in factors if isinstance(factor, SurfaceFit)
+                    ]
+                    mirrors = [
+                        factor
+                        for factor in factors
+                        if isinstance(factor, MirrorSymmetry)
+                    ]
+                    mirror_radius_sources = constrained_mirror_radii(factors, nodes)
+                    if len({mirror.plane for mirror in mirrors}) != len(mirrors):
+                        raise ValueError(
+                            "each mirror plane may drive only one pair in a joint"
+                        )
+                    mirror_surfaces = [
+                        cast(SurfaceFit, nodes[ref])
+                        for mirror in mirrors
+                        for ref in mirror.surfaces
+                    ]
+                    reject_overlaps([*fitted_factors, *mirror_surfaces])
+                    sides = [
+                        factor for factor in fitted_factors if factor.kind != "plane"
+                    ]
+                    planes = [
+                        factor
+                        for factor in fitted_factors
+                        if factor.kind == "plane" and factor.axis is not None
+                    ]
+                    referenced_plane_factors: dict[str, list[SurfaceFit]] = {}
+                    for factor in fitted_factors:
+                        if factor.reference_plane is not None:
+                            referenced_plane_factors.setdefault(
+                                factor.reference_plane, []
+                            ).append(factor)
+                    reference_plane_groups = tuple(
+                        ReferencePlaneGroup(
+                            reference_id,
+                            tuple(selected(factor) for factor in group),
+                            cast(PlaneDefinition, nodes[reference_id]).construction,
+                            cast(
+                                PlaneDefinition, nodes[reference_id]
+                            ).initial_angle_degrees,
+                        )
+                        for reference_id, group in referenced_plane_factors.items()
+                    )
+                    axis_result = derived_result(node.axis)
+                    result = fit_group(
+                        self.workspace,
+                        [selected(side) for side in sides],
+                        [selected(plane) for plane in planes],
+                        axis_initial=np.asarray(axis_result["parameters"], dtype=float),
+                        mirror_groups=tuple(
+                            (
+                                selected(cast(SurfaceFit, nodes[mirror.surfaces[0]])),
+                                selected(cast(SurfaceFit, nodes[mirror.surfaces[1]])),
+                            )
+                            for mirror in mirrors
+                        ),
+                        mirror_radius_surface_ids=mirror_radius_sources,
+                        mirror_phases_radians=tuple(
+                            np.radians(
+                                cast(
+                                    float,
+                                    cast(
+                                        PlaneDefinition, nodes[mirror.plane]
+                                    ).initial_angle_degrees,
+                                )
+                            )
+                            for mirror in mirrors
+                        ),
+                        reference_plane_groups=reference_plane_groups,
+                    )
+                    fitted_mirror_planes = cast(
+                        list[dict[str, Any]], result.get("mirror_planes", [])
+                    )
+                    result_data = cast(dict[str, Any], cast(object, result))
+                    result_data["mirror_planes"] = {
+                        mirror.plane: {
+                            "axis_display": result["axis_display"],
+                            "basis_u_display": result["axis_display"],
+                            "basis_v_display": values["direction"],
+                            "point_display": result["point_display"],
+                            "radial_display": values["direction"],
+                            "normal_display": values["equation"][:3],
+                            "plane_equation": values["equation"],
+                            "angle_degrees": float(np.degrees(values["phase_radians"])),
+                            "offset": 0.0,
+                            "construction": "contains_axis",
+                        }
+                        for mirror, values in zip(
+                            mirrors, fitted_mirror_planes, strict=True
+                        )
+                    }
                 elif isinstance(node, JointFit):
                     sides, planes = joint_surfaces(node, nodes)
                     rotations = [
@@ -606,29 +2384,7 @@ class FeatureGraph:
                         ref for rotation in rotations for ref in rotation.planes
                     }
 
-                    def selected(surface: SurfaceFit) -> FitSelection:
-                        selected_ids = fitted_ids(surface)
-                        return FitSelection(
-                            surface.id,
-                            selected_ids,
-                            surface.kind,
-                            surface.axial_domain,
-                        )
-
-                    memberships = [
-                        (surface.id, set(fitted_ids(surface)))
-                        for surface in [*sides, *planes]
-                    ]
-                    conflicts: list[dict[str, Any]] = []
-                    for index, (left, left_ids) in enumerate(memberships):
-                        for right, right_ids in memberships[index + 1 :]:
-                            overlap = sorted(left_ids & right_ids)
-                            if overlap:
-                                conflicts.append(
-                                    {"fits": [left, right], "ids": overlap}
-                                )
-                    if conflicts:
-                        raise SelectionOverlap(conflicts)
+                    reject_overlaps([*sides, *planes])
                     if len(sides) > 1 or len(planes) > 1 or rotations:
                         result = fit_group(
                             self.workspace,
@@ -698,6 +2454,9 @@ class FeatureGraph:
                     self._results[key] = result
                 if derived is not None:
                     self._derived[key] = derived
+            completed.add(key)
+            resolve_completed_components(completed)
+        resolve_completed_components(completed)
         return self.snapshot()
 
 

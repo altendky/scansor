@@ -19,11 +19,25 @@ outside the intended boundary.
     and depth mode, painted seeds and assisted growth/inset, backend DAG and
     ordered frontend actions, and a bounded implemented nozzle recipe; change history
     is deferred
+- [Reference geometry and solve graph](planning/reference-geometry-and-solve-graph.md)
+  - **Provisional direction and first internal contract:** compatibility-free
+    axis/cylinder/perpendicular-plane declarations, exact dependencies,
+    solve-local fixed/free roles, exact selection bindings, explicit factor
+    activation, and component-level influence compilation; a bounded browser
+    numerical slice now exercises fixed and free shared-axis workflows, while
+    broader reference geometry remains an implementation gate; exact compound
+    definitions with independently placed occurrences are recorded only as an
+    exploratory later direction
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
-  - **Provisional experiment:** local selection editing, joint cone/plane fitting,
-    and residual display; frontend-independent sessions and Python adapter;
+  - **Provisional experiment:** retained selection editing, explicit axes,
+    fixed-axis fits, shared-axis cone/cylinder-and-plane solving, and residual display;
+    frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
+- [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
+  - **Exploratory generated fixture:** three congruent compound bosses with
+    clocking flats, deterministic as-built deviations, scan corruption, distinct
+    tessellations, and a separately posed rescan for selection-region transfer
 
 - [Terminology and scope](terminology-and-scope.md) - **Current direction:**
   canonical terminology, the user-to-product contract, initial model families,

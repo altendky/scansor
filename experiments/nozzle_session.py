@@ -49,6 +49,8 @@ class SurfaceResult(TypedDict):
 
 class SessionFit(TypedDict):
     surfaces: NotRequired[dict[str, SurfaceResult]]
+    mirror_planes: NotRequired[list[dict[str, object]]]
+    reference_planes: NotRequired[dict[str, dict[str, object]]]
     session: dict[str, object]
     fit: ConePlaneFitResult
     axis_display: list[float]
@@ -67,8 +69,12 @@ class NozzleWorkspace:
     """Small-example adapter with immutable source geometry and per-request fits."""
 
     def __init__(self, example: Path) -> None:
+        manifest = json.loads((example / "manifest.json").read_text())
+        self.name: str = manifest.get("name", example.name)
         self.data = load_example(example)
-        model_bytes = (example / "models/cone-plane.json").read_bytes()
+        model_bytes = (
+            example / manifest.get("model", "models/cone-plane.json")
+        ).read_bytes()
         self.model_sha256: str = hashlib.sha256(model_bytes).hexdigest()
         model = json.loads(model_bytes)
         lo, hi = model["axial_domain"]
@@ -102,7 +108,7 @@ class NozzleWorkspace:
 
     def metadata(self) -> dict[str, object]:
         return {
-            "name": "nozzle-bayonette-simplified",
+            "name": self.name,
             "vertices": len(self.local),
             "triangles": len(self.data.triangles),
             "session": self.default.model_dump(),

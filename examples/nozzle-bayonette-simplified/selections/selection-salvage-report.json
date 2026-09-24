@@ -1,0 +1,67 @@
+{
+  "bundle_sha256": "c88422b28aa2757d94adfa0f156e97692c89a3489ccf5ebe866f01679426bf94",
+  "format": "scansor-selection-salvage-report-v1",
+  "format_status": "internal/provisional/one-time/non-public-evidence",
+  "recipes": [
+    {
+      "discarded_node_ids": [
+        "side",
+        "end",
+        "perpendicular",
+        "fit"
+      ],
+      "discarded_output": "fit",
+      "legacy_source_bindings": [
+        {
+          "legacy_reference_sha256": "3f9c48e04a1ad9f31a202ef1cca6a5afce4fbba810aaf9d02e90326cf9d9d676",
+          "source_id": "scan"
+        }
+      ],
+      "materialized_growth_ids": [],
+      "preserved_node_ids": [
+        "scan",
+        "outer_band",
+        "top_face"
+      ],
+      "recipe_path": "examples/nozzle-bayonette-simplified/recipes/cone-plane.json",
+      "recipe_schema_version": 2,
+      "recipe_sha256": "f162f7c7f237694e6b978654d83dc4031f4128cfda7b10de36d3187906a016a0"
+    },
+    {
+      "discarded_node_ids": [
+        "side",
+        "end",
+        "perpendicular",
+        "fit"
+      ],
+      "discarded_output": "fit",
+      "legacy_source_bindings": [
+        {
+          "legacy_reference_sha256": "3f9c48e04a1ad9f31a202ef1cca6a5afce4fbba810aaf9d02e90326cf9d9d676",
+          "source_id": "scan"
+        }
+      ],
+      "materialized_growth_ids": [],
+      "preserved_node_ids": [
+        "scan",
+        "outer_band",
+        "top_face"
+      ],
+      "recipe_path": "examples/nozzle-bayonette-simplified/recipes/cylinder-plane.json",
+      "recipe_schema_version": 2,
+      "recipe_sha256": "9cd48eae499c6e4a99ec38a78ec923601295566c6b3580ba11a335d7bbd04961"
+    }
+  ],
+  "selections": [
+    {
+      "selection_id": "outer_band",
+      "vertex_count": 1261,
+      "vertex_ids_sha256": "6a34b965a578b3fa94dcad95f3e4236ea804bf22df06bbcbbbf863fd903aeada"
+    },
+    {
+      "selection_id": "top_face",
+      "vertex_count": 642,
+      "vertex_ids_sha256": "53e3c3a161472b72c6558031377a3c59ddf67886c1edbfddabd6b21711cab224"
+    }
+  ]
+}

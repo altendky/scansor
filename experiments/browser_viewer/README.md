@@ -1,6 +1,7 @@
 # Nozzle browser selection experiment
 
-**Provisional.** A local browser frontend for the captured simplified nozzle.
+**Provisional.** A local browser frontend for the captured simplified nozzle and
+bounded generated fixture examples.
 This is an experiment in selection and fitting interaction, not a browser-only
 product decision. Python owns source validation, selections and fitting. A native
 frontend can reuse the session records and Python adapter without browser code.
@@ -19,8 +20,17 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
 
 Open the printed `http://127.0.0.1:PORT/` address in Brave or another WebGL2-capable
 browser. An explicit `--port 8765` is optional. Stop the local server with Ctrl+C.
-Only the captured simplified example is supported by this adapter; this is not
-an arbitrary mesh loader or a full-resolution GUI.
+The adapter supports the captured simplified example plus generated directories
+that implement its bounded manifest/selection contract; this is not an arbitrary
+mesh loader or a full-resolution GUI. The repeated-boss fixture documents its
+generation and `--example` command in
+[its example README](../../examples/repeated-boss-selection/README.md).
+
+The default graph starts from the checked-in compatibility-free bundle containing
+the 11 retained user selections. It deliberately does not reconstruct old fits,
+constraints, joints, or results. `--recipe PATH` remains available only for
+opening an explicit experimental action recipe; it is not a compatibility
+promise for a successor format.
 
 The browser loads the full 24,999-vertex, 49,994-triangle simplified mesh. No mesh
 is uploaded externally. Assets are served locally after installation. Three.js
@@ -68,8 +78,9 @@ configurations remain future work. Navigation is isolated in `navigation.js`.
 
 Select a selection in the feature tree, then choose **Paint** or **Rectangle**,
 and Add, Remove or Replace in its properties pane. Painting always edits the
-highlighted selection; inspecting a fit, constraint, source or joint disables
-painting and hides the selection tools. There is no separate active selection.
+highlighted selection; inspecting a fit, axis, solve, constraint, source or joint
+disables painting and hides the selection tools. There is no separate active
+selection.
 The shared **Depth** selector offers **First surface** (default) and **Through all**
 for both tools. Paint uses a circular brush with an adjustable diameter in CSS
 pixels and a visible footprint. Click to dab, or drag to sweep a continuous strip;
@@ -102,7 +113,7 @@ recently applied depth mode. Mixed strokes do not retain a stroke log or camera
 snapshots, and their gesture sequence cannot be replayed. Saved IDs reproduce the
 current membership. Gesture provenance and boundary inset remain future work; no undo
 stack, revision chain or change log is retained.
-Restore example graph reloads the checked-in example recipe from disk.
+Restore example graph reloads the retained-selection starting graph from disk.
 
 ## Ordered actions
 
@@ -111,7 +122,11 @@ The left column has two independently scrollable areas: features above, selected
 feature information/properties and results below. Selection editing appears only
 for a selected selection. Save actions, Load actions and Restore example are in
 the project header. Display settings sit beside Navigation over the viewport;
-general status and errors appear in the footer.
+general status and errors appear in the footer. **Show reuse volumes** displays
+all currently evaluated generated reuse-selection envelopes as translucent
+target-colored overlays. It is off by default and is display state only; the
+surface-normal acceptance test still determines which vertices inside an
+envelope become selected.
 Drag the divider between the tree and attributes to resize them. With the divider
 focused, Up/Down adjusts the split (Shift for larger steps); Home/End selects its
 limits. Escape cancels an unfinished drag. The split is remembered in browser
@@ -125,24 +140,109 @@ running, and red warning for failed. Tooltips and accessible names explain the
 icons; the properties panel shows the full status and any error.
 Select an action to inspect its settings and result. Drag its grip to insert it
 before or after another row; the insertion line turns red for invalid dependency
-orders. Focus a grip and use the Up/Down keys to reorder with the keyboard.
+orders. Focus a feature and use the Up/Down keys to change selection without
+scrolling the panel; focus its grip to use the same keys to reorder it.
 Reordering requires every input to still
 appear earlier and waits until evaluation or selection editing finishes.
 Stable IDs preserve references when positions change.
 A valid reorder preserves cached results. This is recipe order, not edit history.
 
-1. **New selection** creates an empty selection independently of any fit. Paint
+Creating an action does not evaluate it by default. A manually initialized axis
+is previewed immediately because its value is already known. **Evaluate action**
+evaluates the selected action and only the earlier inputs it requires;
+**Evaluate all** explicitly evaluates every stale or unevaluated action. The
+top action toolbar groups primitive actions under **Create**, **Organize**,
+**Reuse**, **Relate**, **Combine**, and **Run**. **Group** creates or edits
+presentation-only feature-tree groups without changing graph dependencies or
+evaluation. A generator action is itself a collapsed group, with its generated
+target groups directly beneath it. Generator and target groups use the same
+folder-based, collapsible presentation as user groups; generated target groups
+and actions carry a **Generated** marker. Generated actions remain inspectable
+and usable as inputs, but their properties, deletion, and reordering are managed
+by their owner. **Evaluate all** and the opt-in **Auto**
+checkbox live under Run. Enabling automatic evaluation immediately evaluates the
+graph and repeats **Evaluate all** after creation, property, selection, reorder,
+delete, load, or reset changes. **Show all available fits and references** keeps
+available guides visible together; disabling it restores selected-action-only
+display. The selected action's evaluation and proposal controls remain in its
+properties pane.
+
+1. **Selection** creates an empty selection independently of any fit. Paint
    it, rename it, and add more selections as needed.
-2. **New fit** chooses cone, cylinder or plane and one or more earlier
+2. **Surface fit** chooses cone, cylinder or plane and one or more earlier
    selections. Overlapping input memberships count each source vertex once.
    Evaluate the fit to inspect its own parameters, guide and residuals. Plane
    fits can have independent orientations and do not require a joint solve.
-3. **New joint** chooses earlier fits and creates constraint actions followed by
-   a joint solve. The current solver supports independently offset perpendicular planes
-   and a
-   connected group of coaxial cone/cylinder fits. It refits their observations
-   together and produces separate adjusted results; standalone results remain
-   available by selecting their actions. The shared axis is free to move.
+3. **Axis** defaults to a free-axis initial value entered directly as a point
+   at local Z=0 and two direction slopes. The zero defaults describe the local Z
+   axis. Alternatively, initialize the separate axis action from an earlier
+   standalone cone or cylinder fit; in that mode the dialog can also create an
+   axis-bound factor of the same type from the same observations.
+4. **Plane** creates an explicit reference plane from an earlier axis. Choose
+   **Contains axis**, **Parallel to axis**, or **Perpendicular to axis**. The
+   first two use a clocking angle; a parallel plane also has a signed normal
+   offset. A perpendicular plane has an axial offset from the axis initializer's
+   point at local Z=0. The plane is previewed immediately and remains a
+   separately selectable feature. That axis point is a bounded prototype
+   convention; the generalized model should use an explicit point or frame.
+5. **Feature** is the high-level reuse workflow. Choose one or more existing
+   cylinder/plane fits, a painted reference selection on that occurrence, and
+   one or more painted target selections on similar occurrences. It estimates
+   an independent approximate rigid transform for each target, captures the
+   source fits' datum/relationship lineage, and generates a separate target
+   selection plus fresh standalone fit for every target and source fit input
+   selection. Generated fits remain independent by default. **Equal
+   corresponding dimensions** adds a visible managed **All equal radii**
+   relationship for each reused source cylinder, including the source fit and
+   every generated copy. You can enable the same option by selecting the reuse
+   feature and clicking **Equal**. The shared-radius result is exact while each
+   cylinder retains its independently fitted axis. Paint an asymmetric cue when
+   possible; rings or cylinders alone cannot determine clocking. This first
+   slice stays on one mesh and does not yet recreate target datums or arbitrary
+   relationships.
+6. **Region** lifts an earlier selection and its cylinder or plane fit into a
+   reusable surface-following volume. Choose a perpendicular axial plane for
+   the frame origin and an axis-parallel plane for clocking, plus footprint,
+   surface-normal, and normal-angle margins. **Apply** places that region in
+   another datum frame on the same source mesh and resolves a new selection.
+   The applied selection is a normal input to later surface fits. Fit it
+   standalone before using that fit to initialize a refined target axis; making
+   the applied selection directly drive the same free frame would be circular.
+   This first slice does not yet support cones, target-pose discovery, or another
+   scan.
+7. **Mirror** relates two distinct, same-type standalone fits across an
+   explicit reference plane that contains their axis. It defines geometry; it
+   is not itself a joint. Add
+   the relationship to a joint on that plane's axis. Evaluating the joint may
+   refine both the shared axis and the plane's
+   clocking while keeping the two adjusted surfaces exact reflected copies.
+   Axis-bound fits are not mirror members because coaxial sides and perpendicular
+   planes are already invariant under reflection in any plane through their axis.
+   The current bounded adapter permits one mirrored pair per reference plane in a
+   joint; create another reference-plane action for another independently clocked
+   pair.
+8. **Parallel** relates a standalone plane fit to a reference plane. **Equal**
+   currently supports typed equality between an axis-bound cylinder radius and
+   the absolute distance from a standalone plane fit to a reference plane. With
+   a mirrored plane pair, these independent primitives compile to exact parallel
+   planes at opposite signed cylinder-radius offsets; no penalty weights or
+   arch-specific action are introduced.
+9. Choose shared upstream geometry under **Reference geometry**. A cone or
+   cylinder can reference an axis; a plane can reference an axis (making the
+   fitted plane perpendicular while fitting its offset) or a reference plane
+   (fixing its orientation while fitting a new offset). In every case,
+   fits connected to a manually initialized axis refine that free axis together;
+   an axis initialized from an earlier fit remains fixed.
+10. To explicitly choose the observations and relationships participating in one
+   solve, choose **Joint**. Select
+   the explicit axis and the active bound fits and relationships. Evaluation
+   returns a separate result: bound factor sets influence axis direction,
+   while a perpendicular plane does not locate the axis transversely. Mirror
+   member observations refine their symmetry plane and shared axis. Standalone
+   fits, reference definitions, and the axis initializer remain unchanged.
+
+The older constraint/joint implementation remains readable as bounded experiment
+evidence, but its creation controls are no longer part of the default workflow.
 
 To extend an existing joint, select it, choose standalone fits under **Add fitted
 surfaces**, then click **Add fits to this joint**. Each additional plane gets a
@@ -160,9 +260,15 @@ opens the conflicting-fit list; its buttons inspect the fits involved. Highlight
 remain while inspecting other features, then clear when an affected input changes.
 Re-evaluate the joint after editing to check the new memberships.
 
-Fit properties expose type, earlier selection inputs and finite axial support.
-Constraint properties expose earlier fit references; joint properties expose
-constraint inputs. Deleting an action is allowed only when nothing references it.
+Fit properties expose type, earlier selection inputs, optional reference axis,
+and finite axial support. Axis properties expose either their manual initial
+value or the standalone cone/cylinder used as their initializer. Reference-plane
+properties expose their axis and initial clocking. Mirror properties expose the
+plane, two same-type standalone members, and the export-extents choice.
+Joint properties expose the axis and exact active fit/relationship list.
+Legacy constraint properties expose earlier fit references; legacy joint-fit
+properties expose constraint inputs. Deleting an action is allowed only when
+nothing references it.
 Editing settings invalidates dependent results. In-flight results from an older
 recipe are discarded by the backend. Empty/ill-conditioned fits fail visibly.
 
@@ -226,9 +332,10 @@ objective; viewport guides still use their existing bounds.
 
 ## Experimental Rhino export
 
-**Export Rhino…** evaluates a chosen standalone fit or joint and downloads one
-Rhino 8 `.3dm` containing named analytic surface bodies and, optionally, the
-loaded original reference mesh on a separate layer. It uses `rhino3dm` (MIT,
+**Export Rhino…** evaluates a chosen standalone fit, shared-axis joint, or legacy
+joint and downloads one Rhino 8 `.3dm` containing named analytic surface bodies
+and, optionally, the loaded original reference mesh on a separate layer. It uses
+`rhino3dm` (MIT,
 including the underlying openNURBS library); Rhino is not required locally.
 This is a provisional export path, not a general CAD integration commitment.
 When updating rhino3dm, review its changelog and repeat geometry/file round-trip

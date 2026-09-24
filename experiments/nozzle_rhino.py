@@ -103,7 +103,7 @@ def surface_brep(surface: dict[str, Any], positions: Any) -> Any:
 def joint_breps(
     result: dict[str, Any], constraints: list[dict[str, Any]], positions: Any
 ) -> dict[str, Any]:
-    """Bound the union in slot zero's frame, then rotate the actual trimmed patch."""
+    """Bound symmetry members in slot zero's frame, then transform one patch."""
     surfaces = result["surfaces"]
     breps: dict[str, Any] = {}
     axis = np.asarray(result["axis_display"], dtype=float)
@@ -112,32 +112,65 @@ def joint_breps(
     x, y, z = axis
     cross = np.array([[0, -z, y], [z, 0, -x], [-y, x, 0]])
     for constraint in constraints:
-        if constraint["operation"] != "rotational_symmetry" or not constraint.get(
-            "symmetric_extents", True
-        ):
+        if not constraint.get("symmetric_extents", True):
             continue
-        ids = constraint["planes"]
-        local: list[Any] = []
-        for slot, id in enumerate(ids):
-            angle = slot * 2 * np.pi / 3
-            rotation = (
-                np.eye(3) * np.cos(angle)
-                + cross * np.sin(angle)
-                + np.outer(axis, axis) * (1 - np.cos(angle))
+        if constraint["operation"] == "rotational_symmetry":
+            ids = constraint["planes"]
+            local: list[Any] = []
+            for slot, id in enumerate(ids):
+                angle = slot * 2 * np.pi / 3
+                rotation = (
+                    np.eye(3) * np.cos(angle)
+                    + cross * np.sin(angle)
+                    + np.outer(axis, axis) * (1 - np.cos(angle))
+                )
+                local.append(
+                    center + (positions[surfaces[id]["ids"]] - center) @ rotation
+                )
+            combined = np.vstack(local)
+            base = surface_brep(
+                {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
             )
-            local.append(center + (positions[surfaces[id]["ids"]] - center) @ rotation)
-        combined = np.vstack(local)
-        base = surface_brep(
-            {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
-        )
-        for slot, id in enumerate(ids):
-            brep = base.Duplicate()
-            rotation = rhino.Transform.Rotation(
-                slot * 2 * np.pi / 3, vector(axis), point(center)
+            for slot, id in enumerate(ids):
+                brep = base.Duplicate()
+                rotation = rhino.Transform.Rotation(
+                    slot * 2 * np.pi / 3, vector(axis), point(center)
+                )
+                if not brep.Transform(rotation):
+                    raise ValueError("symmetry extent transform failed")
+                breps[id] = brep
+        elif constraint["operation"] == "mirror_symmetry":
+            ids = constraint["surfaces"]
+            mirror_plane = result.get("mirror_planes", {}).get(constraint["plane"])
+            if mirror_plane is None:
+                raise ValueError("mirror symmetry result omitted its reference plane")
+            equation = np.asarray(mirror_plane.get("plane_equation"), dtype=float)
+            if equation.shape != (4,) or not np.isfinite(equation).all():
+                raise ValueError(
+                    "mirror plane equation must contain four finite values"
+                )
+            length = float(np.linalg.norm(equation[:3]))
+            if length <= 1e-12:
+                raise ValueError("mirror plane normal must be nonzero")
+            normal, distance = equation[:3] / length, float(equation[3] / length)
+            reflection = np.eye(3) - 2 * np.outer(normal, normal)
+            offset = 2 * distance * normal
+            first = positions[surfaces[ids[0]]["ids"]]
+            second = positions[surfaces[ids[1]]["ids"]] @ reflection.T + offset
+            combined = np.vstack([first, second])
+            base = surface_brep(
+                {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
             )
-            if not brep.Transform(rotation):
-                raise ValueError("symmetry extent transform failed")
-            breps[id] = brep
+            transform = rhino.Transform.Identity()
+            for row in range(3):
+                for col in range(3):
+                    setattr(transform, f"M{row}{col}", float(reflection[row, col]))
+                setattr(transform, f"M{row}3", float(offset[row]))
+            breps[ids[0]] = base
+            reflected = base.Duplicate()
+            if not reflected.Transform(transform):
+                raise ValueError("mirror extent transform failed")
+            breps[ids[1]] = reflected
     for id, surface in surfaces.items():
         if id not in breps:
             breps[id] = surface_brep(surface, positions)
@@ -151,25 +184,21 @@ def export_rhino(
         raise StaleGraph("graph changed before export; refresh and export again")
     nodes = {n["id"]: n for n in snapshot["recipe"]["nodes"]}
     node = nodes.get(request.target)
-    if node is None or node["operation"] not in ("fit", "joint_fit"):
-        raise ValueError("select a fit or joint to export")
+    if node is None or node["operation"] not in ("fit", "joint_fit", "axis_solve"):
+        raise ValueError("select a fit or solve to export")
     if snapshot["states"].get(request.target) != "ready":
-        raise ValueError("evaluate the selected fit or joint before export")
+        raise ValueError("evaluate the selected fit or solve before export")
     result = snapshot["results"][request.target]
-    if node["operation"] == "joint_fit":
+    if node["operation"] in ("joint_fit", "axis_solve"):
         surfaces = result["surfaces"]
         axis = np.asarray(result["axis_display"], dtype=float)
         anchor = np.asarray(result["point_display"], dtype=float)
     else:
         surfaces = {request.target: result}
-        p = result["parameters"]
-        axis = np.asarray(
-            p[:3] if node["kind"] == "plane" else [p[2], p[3], 1.0], dtype=float
-        )
+        p = np.asarray(result.get("plane_equation", result["parameters"]), dtype=float)
+        axis = p[:3] if node["kind"] == "plane" else np.array([p[2], p[3], 1.0])
         anchor = (
-            np.asarray(p[:3], dtype=float) * p[3]
-            if node["kind"] == "plane"
-            else np.asarray([p[0], p[1], 0.0])
+            p[:3] * p[3] if node["kind"] == "plane" else np.array([p[0], p[1], 0.0])
         )
     if request.origin_plane is not None:
         if not request.axis_up:
@@ -177,7 +206,7 @@ def export_rhino(
         selected_plane = surfaces.get(request.origin_plane)
         if selected_plane is None or selected_plane["kind"] != "plane":
             raise ValueError(
-                "origin plane must be a plane in the exported fit or joint"
+                "origin plane must be a plane in the exported fit or solve"
             )
         p = np.asarray(
             selected_plane.get("plane_equation", selected_plane["parameters"]),
@@ -232,9 +261,20 @@ def export_rhino(
         layer.Name = name
         layer.Color = color
         _ = model.Layers.Add(layer)
-    patches = (
-        joint_breps(result, [nodes[id] for id in node["constraints"]], workspace.local)
+    relationships = (
+        [nodes[id] for id in node["constraints"]]
         if node["operation"] == "joint_fit"
+        else [
+            nodes[id]
+            for id in node.get("factors", [])
+            if nodes[id]["operation"] == "mirror_symmetry"
+        ]
+        if node["operation"] == "axis_solve"
+        else []
+    )
+    patches = (
+        joint_breps(result, relationships, workspace.local)
+        if node["operation"] in ("joint_fit", "axis_solve")
         else {
             id: surface_brep(surface, workspace.local)
             for id, surface in surfaces.items()

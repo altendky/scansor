@@ -258,6 +258,54 @@ product-support claim. Compatibility-free model-bound successors may replace
 stepped-model-specific experimental formats. See the
 [declared analytic model contract](planning/declared-analytic-model-contract.md).
 
+### Generalize joints through explicit reference geometry and solve graphs
+
+Treat identified points, directions, axis lines, planes, and frames as reference
+geometry that analytic elements may share or derive from. Exact geometric
+relationships should compile through shared or reduced quantities and typed
+dependencies. Observation factors, priors, diagnostics, and solve requests remain
+separate from those definitions.
+
+Freedom is solve-local and may apply below whole-entity granularity. A resolved
+upstream result used as fixed geometry permits only forward dependency and
+invalidation; downstream observations do not alter it. Shared free geometry lets
+all explicitly active factors influence the free quantities on which they
+actually depend. Initialization does not imply fixing or prior evidence.
+
+Keep the ordered backend operation DAG distinct from each solve's factor graph,
+and emit immutable per-solve assignments rather than mutating declarations or
+standalone results. A fit's reference to shared free geometry activates that
+observation factor for the connected solve; an optional joint can instead select
+an explicit factor subset and add relationships. An axis line has no implicit
+axial zero or roll; use additional points or a frame when those degrees of
+freedom are intended. This is a provisional successor direction, not a migration
+or reinterpretation of implemented browser recipes or the current
+fixed-pose declared analytic model. See the
+[reference-geometry design](planning/reference-geometry-and-solve-graph.md).
+
+Preserve retained user-authored selections with a one-time, exact-version offline
+conversion before replacing the browser recipe contract. Carry forward source
+identity, selection identity and labels, resolved source IDs, and applicable
+selection properties. Materialize an evaluated growth output when needed, but do
+not translate old fits, constraints, symmetry, joints, cached results, or output
+semantics. The successor runtime will not maintain an old-recipe reader; after
+verified conversion, new geometric definitions and solves are authored anew.
+The exact-v2 converter and strict selection-bundle record now implement this for
+the checked-in recipes, the `11` current selections in `nozzle-actions.json` and
+its recovery copy, and two older conflicting saved snapshots. Conflicts remain in
+separate bundles instead of receiving inferred precedence. Every retained
+selection is pinned by identity, count, and ID hash; one saved growth result is
+materialized. Discarded fit/joint content remains only in the old recipes and
+salvage reports.
+
+The first compatibility-free reference-geometry contract also implements the
+bounded axis/cylinder/perpendicular-plane subset. It validates content-bound
+upstream values, exact selection memberships, solve-local fixed/free roles, and
+explicit ordered activation, then compiles component-level influence. This is
+not yet a numerical solver or browser replacement: residual/Jacobian evaluation,
+rank diagnostics, immutable solve results, operation-DAG invalidation, and
+broader point/frame/transform constructions remain provisional work.
+
 ### Use a bounded Python support layer for the prototype
 
 Provisionally use structlog for structured runtime diagnostics, Rich for human

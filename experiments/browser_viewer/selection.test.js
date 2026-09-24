@@ -93,18 +93,103 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   const nodes = [
     { id: 'a', operation: 'selection' },
     { id: 'b', operation: 'selection' },
+    { id: 'c', operation: 'selection' },
     { id: 'grown', operation: 'growth', seed_fit: 'seed', barriers: ['b'] },
     { id: 'seed', operation: 'fit', selections: ['a'] },
     { id: 'side', operation: 'fit', selections: ['a', 'grown'] },
     { id: 'plane', operation: 'fit', selections: ['b'] },
+    { id: 'axis', operation: 'axis', source_fit: 'side' },
+    { id: 'manual-axis', operation: 'axis', initial_parameters: [0, 0, 0, 0] },
+    { id: 'side-factor', operation: 'fit', selections: ['a'], axis: 'axis' },
+    { id: 'plane-factor', operation: 'fit', selections: ['b'], axis: 'axis' },
+    { id: 'mirror-plane', operation: 'reference_plane', axis: 'axis' },
+    { id: 'mirror-member', operation: 'fit', selections: ['b'] },
+    {
+      id: 'mirror',
+      operation: 'mirror_symmetry',
+      plane: 'mirror-plane',
+      surfaces: ['seed', 'mirror-member'],
+    },
+    {
+      id: 'parallel',
+      operation: 'parallel',
+      surface: 'mirror-member',
+      reference_plane: 'mirror-plane',
+    },
+    {
+      id: 'equal',
+      operation: 'equal',
+      left: { measurement: 'radius', surface: 'side-factor' },
+      right: {
+        measurement: 'plane_distance',
+        surface: 'mirror-member',
+        reference_plane: 'mirror-plane',
+      },
+    },
+    {
+      id: 'axis-solve',
+      operation: 'axis_solve',
+      axis: 'axis',
+      factors: ['side-factor', 'plane-factor'],
+    },
     { id: 'constraint', operation: 'perpendicular', lateral: 'side', plane: 'plane' },
     { id: 'joint', operation: 'joint_fit', constraints: ['constraint'] },
+    {
+      id: 'region',
+      operation: 'selection_region',
+      selection: 'a',
+      fit: 'side-factor',
+      axial_plane: 'mirror-plane',
+      clock_plane: 'mirror-plane',
+    },
+    {
+      id: 'applied',
+      operation: 'region_selection',
+      region: 'region',
+      source: 'source',
+      axial_plane: 'mirror-plane',
+      clock_plane: 'mirror-plane',
+    },
+    {
+      id: 'reuse',
+      operation: 'feature_reuse',
+      fits: ['side'],
+      reference_selection: 'a',
+      target_selections: ['b', 'c'],
+    },
+    {
+      id: 'reused',
+      operation: 'reuse_selection',
+      reuse: 'reuse',
+      fit: 'side',
+      source_selection: 'a',
+      target_selection: 'b',
+    },
   ];
-  const memberships = { a: [1, 2], b: [8], grown: [2, 3] };
+  const memberships = {
+    a: [1, 2],
+    b: [8],
+    c: [9, 10],
+    grown: [2, 3],
+    applied: [20, 21],
+    reused: [30, 31],
+  };
   assert.deepEqual(featureVertexIds(nodes, memberships, 'grown'), [2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'side'), [1, 2, 3]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'constraint'), [1, 2, 3, 8]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'joint'), [1, 2, 3, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'axis'), [1, 2, 3]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'manual-axis'), []);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'plane-factor'), [8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'axis-solve'), [1, 2, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'mirror-plane'), [1, 2, 3]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'mirror'), [1, 2, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'parallel'), [8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'equal'), [1, 2, 8]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'region'), [1, 2]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'applied'), [20, 21]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'reuse'), [1, 2, 3, 8, 9, 10]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'reused'), [30, 31]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 
@@ -132,4 +217,21 @@ test('rotational symmetry preserves cylinder fit references and rejects selectio
       ),
     /same type/,
   );
+});
+
+test('mirror symmetry preserves two standalone same-type fit references', async () => {
+  const { mirrorFitInputs } = await import('./selection.js');
+  const nodes = ['a', 'b'].map((id) => ({
+    id,
+    operation: 'fit',
+    kind: 'cone',
+    selections: ['selection-' + id],
+  }));
+  assert.deepEqual(mirrorFitInputs(nodes, ['a', 'b']), ['a', 'b']);
+  assert.throws(() => mirrorFitInputs(nodes, ['a', 'a']), /distinct/);
+  assert.throws(
+    () => mirrorFitInputs(nodes.map((n) => (n.id === 'b' ? { ...n, kind: 'plane' } : n)), ['a', 'b']),
+    /same type/,
+  );
+  assert.throws(() => mirrorFitInputs([{ ...nodes[0], axis: 'axis' }, nodes[1]], ['a', 'b']), /standalone/);
 });

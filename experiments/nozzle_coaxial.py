@@ -4,7 +4,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from experiments.mesh_coaxial_fit import SideObservations, fit_coaxial
+from experiments.mesh_coaxial_fit import (
+    AxisPlaneObservations,
+    SideObservations,
+    axis_plane_frame,
+    fit_coaxial,
+)
+from experiments.mesh_mirror_surfaces import MirrorSurfaces, initial_mirror
 from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
 from experiments.nozzle_session import NozzleWorkspace, SessionFit, SurfaceResult
 from experiments.selection_growth import fit_seed
@@ -18,15 +24,26 @@ class FitSelection:
     domain: tuple[float, float]
 
 
+@dataclass(frozen=True)
+class ReferencePlaneGroup:
+    id: str
+    surfaces: tuple[FitSelection, ...]
+    construction: str
+    angle_degrees: float | None
+
+
 def fit_group(
     workspace: NozzleWorkspace,
     sides: list[FitSelection],
     planes: list[FitSelection],
     rotational_groups: tuple[tuple[FitSelection, ...], ...] = (),
+    axis_initial: np.ndarray | None = None,
+    mirror_groups: tuple[tuple[FitSelection, FitSelection], ...] = (),
+    mirror_phases_radians: tuple[float, ...] | None = None,
+    mirror_radius_surface_ids: tuple[str | None, ...] | None = None,
+    reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
 ) -> SessionFit:
-    if not planes:
-        raise ValueError("at least one plane is required")
-    plane = planes[0]
+    """Joint fit; a mirror's optional radius source makes its planes tangent."""
     observations = [
         SideObservations(
             workspace.local[s.ids], workspace.data.weights[s.ids], s.kind, s.domain
@@ -41,12 +58,19 @@ def fit_group(
             raise ValueError(
                 f"{selected_plane.id}: select at least three plane vertices"
             )
-    pp = workspace.local[plane.ids]
-    pw = workspace.data.weights[plane.ids]
+    plane = planes[0] if planes else None
+    pp = workspace.local[plane.ids] if plane is not None else None
+    pw = workspace.data.weights[plane.ids] if plane is not None else None
     seed = np.array(workspace.data.selection["initial_parameters"], dtype=float)
+    if axis_initial is not None:
+        if axis_initial.shape != (7,) or not np.isfinite(axis_initial).all():
+            raise ValueError("axis initialization must contain seven finite parameters")
+        seed[:4] = axis_initial[:4]
     axis = np.array([seed[2], seed[3], 1.0])
     axis /= np.linalg.norm(axis)
-    initial = [*seed[:4], float(pw @ (pp @ axis) / pw.sum())]
+    initial = [*seed[:4]]
+    if pp is not None and pw is not None:
+        initial.append(float(pw @ (pp @ axis) / pw.sum()))
     for side in observations:
         q = side.points - np.array([seed[0], seed[1], 0.0])
         z = q @ axis
@@ -58,6 +82,39 @@ def fit_group(
         (workspace.local[s.ids], workspace.data.weights[s.ids]) for s in planes[1:]
     )
     initial.extend(float(w @ (points @ axis) / w.sum()) for points, w in extra_planes)
+    basis_index = int(np.argmin(np.abs(axis)))
+    axis_plane_observations = tuple(
+        AxisPlaneObservations(
+            np.concatenate([workspace.local[s.ids] for s in group.surfaces]),
+            np.concatenate([workspace.data.weights[s.ids] for s in group.surfaces]),
+            group.construction,
+            (
+                None
+                if group.angle_degrees is None
+                else float(np.radians(group.angle_degrees))
+            ),
+            basis_index,
+        )
+        for group in reference_plane_groups
+    )
+    for group, observations_for_plane in zip(
+        reference_plane_groups, axis_plane_observations, strict=True
+    ):
+        if not group.surfaces:
+            raise ValueError("a reference plane requires at least one fitted surface")
+        if any(surface.kind != "plane" for surface in group.surfaces):
+            raise ValueError("reference-plane factors must be plane fits")
+        if any(len(surface.ids) < 3 for surface in group.surfaces):
+            raise ValueError("each reference-plane fit needs at least three vertices")
+        if observations_for_plane.size:
+            normal = axis_plane_frame(observations_for_plane, seed)[2]
+            initial.append(
+                float(
+                    observations_for_plane.area
+                    @ (observations_for_plane.points @ normal)
+                    / observations_for_plane.area.sum()
+                )
+            )
     rotations = tuple(
         RotationalPlanes(
             tuple(workspace.local[s.ids] for s in group),
@@ -83,14 +140,84 @@ def fit_group(
         if any(len(points) < 3 for points in group.points):
             raise ValueError("each rotational surface needs at least three vertices")
         initial.extend(initial_rotation(group, np.array(initial)).tolist())
+    if mirror_radius_surface_ids is not None and len(mirror_radius_surface_ids) != len(
+        mirror_groups
+    ):
+        raise ValueError(
+            "provide exactly one optional radius source for each mirror group"
+        )
+    side_indices = {side.id: index for index, side in enumerate(sides)}
+    mirrors: list[MirrorSurfaces] = []
+    for group_index, group in enumerate(mirror_groups):
+        if len(group) != 2 or group[0].id == group[1].id:
+            raise ValueError("mirror symmetry requires two distinct surface fits")
+        if group[0].kind != group[1].kind:
+            raise ValueError("mirror symmetry requires two same-type surface fits")
+        if any(
+            len(surface.ids) < (3 if surface.kind == "plane" else 7)
+            for surface in group
+        ):
+            raise ValueError(
+                "each mirror surface needs enough observations for its fit type"
+            )
+        seed_result = fit_seed(
+            workspace.local[group[0].ids],
+            workspace.data.weights[group[0].ids],
+            workspace.data.normals[group[0].ids] @ workspace.frame,
+            group[0].kind,
+            seed,
+            group[0].domain,
+        )
+        radius_source = (
+            None
+            if mirror_radius_surface_ids is None
+            else mirror_radius_surface_ids[group_index]
+        )
+        radius_side_index = None
+        if radius_source is not None:
+            radius_side_index = side_indices.get(radius_source)
+            if radius_side_index is None or sides[radius_side_index].kind != "cylinder":
+                raise ValueError(
+                    "a mirror radius source must name a cylinder in this joint"
+                )
+            if group[0].kind != "plane":
+                raise ValueError(
+                    "a mirror radius source can constrain only a pair of planes"
+                )
+        mirrors.append(
+            MirrorSurfaces(
+                (workspace.local[group[0].ids], workspace.local[group[1].ids]),
+                (
+                    workspace.data.weights[group[0].ids],
+                    workspace.data.weights[group[1].ids],
+                ),
+                group[0].kind,
+                tuple(seed_result["parameters"]),
+                group[0].domain,
+                group[1].domain,
+                radius_side_index,
+            )
+        )
+    if mirror_phases_radians is not None and len(mirror_phases_radians) != len(mirrors):
+        raise ValueError("provide exactly one initial phase for each mirror group")
+    for index, group in enumerate(mirrors):
+        phase = None if mirror_phases_radians is None else mirror_phases_radians[index]
+        initial.extend(initial_mirror(group, np.array(initial), phase).tolist())
     fitted = fit_coaxial(
-        observations, pp, pw, np.array(initial), extra_planes, rotations
+        observations,
+        pp,
+        pw,
+        np.array(initial),
+        extra_planes,
+        rotations,
+        tuple(mirrors),
+        axis_plane_observations,
     )
     p = fitted.parameters[0]
     axis = np.array([p[2], p[3], 1.0])
     axis /= np.linalg.norm(axis)
     point = np.array([p[0], p[1], 0.0])
-    plane_point = point + (p[5] - axis @ point) * axis
+    plane_point = point + (p[5] - axis @ point) * axis if plane is not None else point
     surfaces: dict[str, SurfaceResult] = {}
     for side, obs, parameters, residual in zip(
         sides, observations, fitted.parameters, fitted.residuals, strict=True
@@ -103,11 +230,18 @@ def fit_group(
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(obs.area @ residual**2 / obs.area.sum())),
         }
-    plane_rms = float(np.sqrt(pw @ fitted.plane_residuals**2 / pw.sum()))
+    plane_rms = (
+        float(np.sqrt(pw @ fitted.plane_residuals**2 / pw.sum()))
+        if pw is not None
+        else 0.0
+    )
     for selected_plane, offset, residual in zip(
         planes,
         fitted.plane_offsets,
-        [fitted.plane_residuals, *fitted.extra_plane_residuals],
+        [
+            *((fitted.plane_residuals,) if plane is not None else ()),
+            *fitted.extra_plane_residuals,
+        ],
         strict=True,
     ):
         parameters = p.copy()
@@ -120,6 +254,48 @@ def fit_group(
             "axial_domain": selected_plane.domain,
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
+        }
+    reference_planes: dict[str, dict[str, object]] = {}
+    for group, equation, basis_u, basis_v, residual in zip(
+        reference_plane_groups,
+        fitted.axis_plane_equations,
+        fitted.axis_plane_basis_u,
+        fitted.axis_plane_basis_v,
+        fitted.axis_plane_residuals,
+        strict=True,
+    ):
+        start = 0
+        for selected_plane in group.surfaces:
+            stop = start + len(selected_plane.ids)
+            selected_residual = residual[start:stop]
+            weights = workspace.data.weights[selected_plane.ids]
+            parameters = p.copy()
+            parameters[5] = equation[3]
+            surfaces[selected_plane.id] = {
+                "kind": "plane",
+                "ids": selected_plane.ids,
+                "parameters": parameters.tolist(),
+                "plane_equation": equation.tolist(),
+                "axial_domain": selected_plane.domain,
+                "residuals": selected_residual.tolist(),
+                "weighted_rms": float(
+                    np.sqrt(weights @ selected_residual**2 / weights.sum())
+                ),
+            }
+            start = stop
+        normal = equation[:3]
+        resolved_point = point + (equation[3] - normal @ point) * normal
+        reference_planes[group.id] = {
+            "axis_display": axis.tolist(),
+            "basis_u_display": basis_u.tolist(),
+            "basis_v_display": basis_v.tolist(),
+            "point_display": resolved_point.tolist(),
+            "radial_display": basis_v.tolist(),
+            "normal_display": normal.tolist(),
+            "plane_equation": equation.tolist(),
+            "angle_degrees": group.angle_degrees,
+            "offset": float(equation[3] - normal @ point),
+            "construction": group.construction,
         }
     for group, equations, residuals, domains in zip(
         rotational_groups,
@@ -142,10 +318,31 @@ def fit_group(
             }
             if surface.kind == "plane":
                 surfaces[surface.id]["plane_equation"] = equation.tolist()
+    for group, equations, residuals, domains in zip(
+        mirror_groups,
+        fitted.mirror_equations,
+        fitted.mirror_residuals,
+        fitted.mirror_domains,
+        strict=True,
+    ):
+        for surface, equation, residual, domain in zip(
+            group, equations, residuals, domains, strict=True
+        ):
+            weights = workspace.data.weights[surface.ids]
+            surfaces[surface.id] = {
+                "kind": surface.kind,
+                "ids": surface.ids,
+                "parameters": equation.tolist(),
+                "axial_domain": domain,
+                "residuals": residual.tolist(),
+                "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
+            }
+            if surface.kind == "plane":
+                surfaces[surface.id]["plane_equation"] = equation.tolist()
     return {
         "session": {
             "lateral_ids": sides[0].ids,
-            "plane_ids": plane.ids,
+            "plane_ids": plane.ids if plane is not None else [],
             "source_sha256": workspace.default.source_sha256,
             "model_sha256": workspace.model_sha256,
             "schema_version": 1,
@@ -174,8 +371,162 @@ def fit_group(
             },
             **{
                 s.id: float(workspace.data.weights[s.ids].sum())
-                for s in [*planes, *(s for group in rotational_groups for s in group)]
+                for s in [
+                    *planes,
+                    *(
+                        surface
+                        for group in reference_plane_groups
+                        for surface in group.surfaces
+                    ),
+                    *(s for group in rotational_groups for s in group),
+                    *(s for group in mirror_groups for s in group),
+                ]
             },
+        },
+        "surfaces": surfaces,
+        "reference_planes": reference_planes,
+        "mirror_planes": [
+            {
+                "phase_radians": phase,
+                "equation": equation.tolist(),
+                "direction": direction.tolist(),
+            }
+            for phase, equation, direction in zip(
+                fitted.mirror_phases,
+                fitted.mirror_plane_equations,
+                fitted.mirror_plane_directions,
+                strict=True,
+            )
+        ],
+    }
+
+
+def fit_fixed_axis_group(
+    workspace: NozzleWorkspace,
+    sides: list[FitSelection],
+    planes: list[FitSelection],
+    axis_parameters: np.ndarray,
+) -> SessionFit:
+    """Fit radii, taper, and plane offsets without moving the supplied axis."""
+    if not sides and not planes:
+        raise ValueError("a fixed-axis fit requires at least one surface")
+    if axis_parameters.shape != (7,) or not np.isfinite(axis_parameters).all():
+        raise ValueError("fixed axis must contain seven finite source-fit parameters")
+    raw_axis = np.array([axis_parameters[2], axis_parameters[3], 1.0])
+    axis = raw_axis / np.linalg.norm(raw_axis)
+    point = np.array([axis_parameters[0], axis_parameters[1], 0.0])
+    surfaces: dict[str, SurfaceResult] = {}
+    weighted_squares = 0.0
+    total_area = 0.0
+    condition = 1.0
+
+    for side in sides:
+        if len(side.ids) < 7:
+            raise ValueError(f"{side.id}: select at least seven lateral vertices")
+        points = workspace.local[side.ids]
+        weights = workspace.data.weights[side.ids]
+        relative = points - point
+        z = relative @ axis
+        radial = np.linalg.norm(relative - z[:, None] * axis, axis=1)
+        if side.kind == "cylinder":
+            radius = float(weights @ radial / weights.sum())
+            if radius <= 0.0:
+                raise ValueError(f"{side.id}: fitted cylinder radius must be positive")
+            taper = 0.0
+            local_condition = 1.0
+        elif side.kind == "cone":
+            design = np.column_stack([np.ones(len(z)), z])
+            normal = design.T @ (weights[:, None] * design)
+            local_condition = float(np.linalg.cond(normal))
+            if not np.isfinite(local_condition) or local_condition > 1e12:
+                raise ValueError(f"{side.id}: ill-conditioned cone observations")
+            radius, taper = np.linalg.solve(normal, design.T @ (weights * radial))
+            if min(radius + taper * np.asarray(side.domain)) <= 0.0:
+                raise ValueError(f"{side.id}: fitted cone crosses its apex")
+        else:
+            raise ValueError("fixed-axis lateral surfaces must be cones or cylinders")
+        residual = radial - (radius + taper * z)
+        parameters = axis_parameters.copy()
+        parameters[4], parameters[6] = radius, taper
+        area = float(weights.sum())
+        weighted_squares += float(weights @ residual**2)
+        total_area += area
+        condition = max(condition, local_condition)
+        surfaces[side.id] = {
+            "kind": side.kind,
+            "ids": side.ids,
+            "parameters": parameters.tolist(),
+            "axial_domain": side.domain,
+            "residuals": residual.tolist(),
+            "weighted_rms": float(np.sqrt(weights @ residual**2 / area)),
+        }
+
+    plane_offsets: list[float] = []
+    plane_residuals: list[np.ndarray] = []
+    for plane in planes:
+        if plane.kind != "plane":
+            raise ValueError("fixed-axis plane inputs must be planes")
+        if len(plane.ids) < 3:
+            raise ValueError(f"{plane.id}: select at least three plane vertices")
+        points = workspace.local[plane.ids]
+        weights = workspace.data.weights[plane.ids]
+        offset = float(weights @ (points @ axis) / weights.sum())
+        residual = points @ axis - offset
+        parameters = axis_parameters.copy()
+        parameters[5] = offset
+        area = float(weights.sum())
+        weighted_squares += float(weights @ residual**2)
+        total_area += area
+        plane_offsets.append(offset)
+        plane_residuals.append(residual)
+        surfaces[plane.id] = {
+            "kind": "plane",
+            "ids": plane.ids,
+            "parameters": parameters.tolist(),
+            "axial_domain": plane.domain,
+            "residuals": residual.tolist(),
+            "weighted_rms": float(np.sqrt(weights @ residual**2 / area)),
+        }
+
+    summary = axis_parameters.copy()
+    if sides:
+        summary = np.asarray(surfaces[sides[0].id]["parameters"], dtype=float)
+    if plane_offsets:
+        summary[5] = plane_offsets[0]
+    plane_point = point + (summary[5] - axis @ point) * axis
+    weighted_rms = float(np.sqrt(weighted_squares / total_area))
+    first_side_residuals = surfaces[sides[0].id]["residuals"] if sides else []
+    first_plane_residuals = plane_residuals[0].tolist() if planes else []
+    first_side_rms = surfaces[sides[0].id]["weighted_rms"] if sides else 0.0
+    first_plane_rms = surfaces[planes[0].id]["weighted_rms"] if planes else 0.0
+    return {
+        "session": {
+            "lateral_ids": sides[0].ids if sides else [],
+            "plane_ids": planes[0].ids if planes else [],
+            "source_sha256": workspace.default.source_sha256,
+            "model_sha256": workspace.model_sha256,
+            "schema_version": 1,
+        },
+        "fit": {
+            "parameters": summary.tolist(),
+            "objective_history": [weighted_rms**2],
+            "weighted_rms": weighted_rms,
+            "cone_weighted_rms": float(first_side_rms),
+            "plane_weighted_rms": float(first_plane_rms),
+            "normal_matrix_condition": condition,
+            "gradient_infinity_norm": 0.0,
+        },
+        "axis_display": axis.tolist(),
+        "point_display": point.tolist(),
+        "plane_point_display": plane_point.tolist(),
+        "axial_domain": sides[0].domain if sides else (-2.0, 5.0),
+        "lateral_residuals": list(first_side_residuals),
+        "plane_residuals": first_plane_residuals,
+        "reference_diameter": float(2 * summary[4]),
+        "signed_half_angle_degrees": float(np.degrees(np.arctan(summary[6]))),
+        "selected_area": {
+            surface.id: float(workspace.data.weights[surface.ids].sum())
+            for surface in [*sides, *planes]
         },
         "surfaces": surfaces,
     }

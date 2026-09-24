@@ -178,11 +178,23 @@ inset; that does not require retaining earlier versions of each step. Editing a
 node replaces its current settings and invalidates dependents without keeping an
 edit log or previous graph snapshots.
 
-The frontend presents an **ordered action list**, replacing the initial feature
-tree presentation. The backend remains a **directed acyclic graph (DAG)**, because
-one input can feed several actions, with an additional ordering rule: every
-reference must point to an earlier action. Reordering is allowed only while that
-rule holds. Stable IDs identify actions independently of list position.
+The frontend presents an ordered **feature tree** over the action graph. User
+groups are presentation-only organization: they can be created, renamed,
+collapsed, and assigned members without adding dependencies or solve semantics.
+Generated actions instead carry an owning action and a stable owner-relative key.
+They appear in a read-only **Generated outputs** subtree beneath that owner, are
+collapsed by default, and cannot be independently renamed, reordered, deleted,
+or moved into a user group. They remain selectable for inspection and usable as
+inputs to later actions. Editing the owner synchronizes its managed subtree and
+must refuse removal of an output referenced elsewhere. Deleting an owner deletes
+its managed subtree as one unit, unless an action outside that subtree depends on
+one of those outputs.
+
+The backend remains a **directed acyclic graph (DAG)**, because one input can feed
+several actions, with an additional ordering rule: every reference must point to
+an earlier action. Organizational grouping does not alter that flat evaluation
+order. Reordering is allowed only while the dependency rule holds. Stable IDs
+identify actions independently of list position.
 
 Cone, cylinder and plane are types of standalone fit actions. Each fit references
 one or more earlier selections and evaluates their deduplicated union. Selections
@@ -192,11 +204,62 @@ fits may have arbitrary orientations.
 Constraint actions reference earlier fits. A later joint action solves their
 observations together under those constraints and produces separate adjusted
 results. It preserves each standalone fit and its result. Mutual geometric
-constraints do not create circular execution dependencies. The current joint
+constraints do not create circular execution dependencies. The legacy joint
 adapter supports independently offset perpendicular planes and connected coaxial
-cone/cylinder sides with disjoint observations. All planes share the axis normal. All
-surfaces inform the shared
-axis; a fixed-axis mode and broader constraint networks remain future work.
+cone/cylinder sides with disjoint observations. All planes share the axis normal
+and all surfaces inform the shared axis. The newer bounded browser slice instead
+creates an explicit axis from a manual initial value or a standalone cone or
+cylinder. Fits connected to a manually initialized axis jointly resolve that
+free axis and its derived planes without a separate joint action. Fits connected
+to an axis sourced from an earlier fit treat it as fixed. An explicit shared-axis
+joint remains available to select a factor set and add relationships, producing
+a separate result. Broader
+constraint networks remain future work.
+
+The browser's relationship workflow treats feature selection as a persistent
+operand set. Clicking a feature toggles it without a modifier key; **Clear**, an
+empty-tree click, or Escape clears the set. **Relationship…** opens one builder
+prefilled from that set, but every participant can also be chosen inside the
+dialog. Applicable exact relationships are enabled and ambiguous valid choices
+remain explicit; incompatible choices stay visible with a reason instead of
+silently dropping operands. The first direct multi-fit plane relationships are
+**Coincident** (shared normal and offset) and **Parallel** (shared normal with
+independent offsets). Connected plane relationships solve as one component and
+do not require a joint action. A plane already governed by explicit reference
+geometry anchors that component to its resolved datum orientation.
+
+**Provisional successor direction with a first internal contract, 2026-09-20:**
+generalized model semantics make reference geometry and solve participation
+explicit rather than connect fitted surfaces through a joint-owned hidden axis.
+The compatibility-free contract now lets cylinders reference an identified axis
+line, lets a plane derive its normal from an explicitly oriented direction
+parallel to that axis, and makes each solve declare fixed/free quantities and
+active observation factors. It validates exact salvaged-selection bindings and
+compiles factor influence separately for axis position and direction. The
+operation DAG continues to own
+ordering, provenance, and invalidation, while a separate factor-graph view owns
+simultaneous influence. See the
+[reference-geometry design](reference-geometry-and-solve-graph.md). A bounded
+numerical/browser slice now exercises cone/cylinder-and-plane behavior, without
+reinterpreting the legacy joint adapter or making either internal recipe format a
+public compatibility contract.
+
+Before that successor replaces the prototype format, preserve retained
+user-authored selections through one exact-version offline conversion. Copy
+source bindings, labels, depth settings, and resolved source IDs; materialize any
+evaluated growth result as a static imported selection. Do not migrate fit,
+constraint, symmetry, joint, cached-result, or output semantics. The new runtime
+need not read the old recipe after the selected samples are converted. See
+[one-time selection salvage](reference-geometry-and-solve-graph.md#one-time-selection-salvage-not-backward-compatibility).
+
+**Implemented for discovered saved recipes, 2026-09-20:** the exact-v2 offline
+converter preserves the two checked-in memberships and the `11` selections in
+the user-saved `nozzle-actions.json`. Two older snapshots with conflicting reused
+selection IDs are retained as separate bundles rather than merged by an inferred
+precedence. One of those snapshots materializes its evaluated growth result as a
+static selection. Reports list every discarded fit/constraint/symmetry/joint
+node. The new bundle parser has no legacy recipe path; visual overlay remains a
+manual check.
 
 Growth references an earlier fit. Using its result means adding a later fit,
 possibly followed by a later joint; it cannot rewire an earlier fit to a later
@@ -288,3 +351,100 @@ as independently
 inspectable operation types. This order gives those tools an operation graph and
 current-recipe replay model from their first implementation, without deciding
 edit-history policy.
+
+## Reusable fitted selection regions
+
+**Provisional experiment with a bounded browser slice, 2026-09-23.** A
+source-vertex selection can
+be lifted into a transferable region by combining its fitted analytic surface,
+its bounded surface footprint, and explicit inward/outward offsets. The result is
+a volumetric selection region rather than another source-specific vertex list.
+Applying it to another occurrence or scan requires an explicit rigid transform,
+then resolves a new source-bound membership while retaining both the region
+definition and the resolved IDs. This is intended to reuse selection effort; it
+must not imply vertex correspondence, identical tessellation, or physical
+accuracy.
+
+Rotationally symmetric fits do not determine clocking about their axis. A partial
+footprint therefore needs another orientation cue, such as a plane, key, or
+clocking flat, before it can be transferred without ambiguity. Compound groups
+can supply that frame by owning reference geometry and fitted members while each
+occurrence owns its pose. Whether groups become first-class feature-graph nodes
+and how transferred boundaries behave near missing data remain open.
+
+The browser implements two same-source cylinder/plane slices. A low-level
+**Region** action stores a fitted surface footprint, tangential and
+surface-normal margins, source-normal tolerance, and a frame defined by an axis,
+perpendicular axial plane, and axis-parallel clock plane. **Apply** places that
+region in another such frame and resolves a new source-vertex membership usable
+by later fits.
+
+The higher-level **Feature** reuse action takes one or more fitted surfaces, one
+user-painted reference correspondence selection, and one or more independently
+painted target selections. It estimates a separate approximate rigid transform
+from the reference occurrence to each target occurrence without using fixture
+labels or vertex correspondence. For every target and source fit selection it
+constructs a surface-relative region, applies that region through the target's
+estimated transform, and exposes the resulting membership to a new standalone
+fit of the same type. The action records the selected fits' complete upstream
+lineage and any relationships enclosed wholly by the selected fit set, so
+provenance is not lost while compound-feature semantics remain under design.
+
+### Reuse-volume inspection
+
+**Provisional display plan, 2026-09-23.** Reuse regions should remain graph
+results rather than becoming additional feature nodes. The viewport should be
+able to display their spatial envelopes with translucent faces and stronger
+boundary lines. A global Display control governs the entire overlay; later tree
+controls may provide tri-state visibility for each reuse action, target group,
+and generated selection. Source envelopes should be distinguishable from their
+transformed target envelopes, and inspecting one generated selection should be
+able to emphasize its corresponding volume. Visibility is presentation state
+and must not affect graph identity, evaluation, or saved actions.
+
+The spatial envelope alone cannot represent the surface-normal tolerance. A
+complete inspection design should distinguish points which are spatially inside
+the envelope and pass the normal test from points which are inside but rejected
+by that test. Stale envelopes should be marked as stale or withheld rather than
+presented as current geometry.
+
+The first browser slice intentionally provides only an off-by-default **Show
+reuse volumes** checkbox under Display. It renders every ready target envelope
+from the same retained cylinder/plane region bounds and target placement used by
+selection evaluation. It does not yet show source envelopes, rejection points,
+per-reuse visibility, per-target visibility, or stale geometry.
+
+This is deliberately an approximate placement stage followed by fresh target
+fits. Those fits are independent by default. The first cross-occurrence
+relationship is an exact **All equal radii** action: a reuse feature's **Equal
+corresponding dimensions** option creates one visible managed relationship for
+each source-cylinder role and includes the source plus every generated copy.
+Selecting the corresponding cylinder fits and choosing **Equal radii** in the
+relationship builder creates the same relationship. The measurement solve
+retains each cylinder's independently resolved axis and fits one area-weighted
+shared radius from all observations.
+Disabling the option removes the managed equality actions without changing the
+generated selections or independent fits.
+
+This is a bounded implementation of the more general design: managed outputs
+must remain valid operands for ordinary user relationships, and convenience
+controls on reuse must materialize the same visible relationships rather than
+hidden special behavior. Future quantity relationships should cover other
+intrinsic dimensions, while coincident, parallel, coaxial, and similar
+relationships govern pose separately. The current slice does not yet clone
+datums, recreate arbitrary source relationships, simultaneously refine axes in
+the shared-radius solve, support cone regions, or transfer across a different
+source mesh. Ambiguous rotationally symmetric correspondence selections remain
+visible through a rotation-ambiguity metric; the user should paint a clocking
+cue such as a flat or asymmetric edge.
+
+The exploratory
+[repeated-boss fixture](../../../../examples/repeated-boss-selection/README.md)
+provides four boss occurrences with a shared cross-section, a clocking flat,
+deliberate height and axis-pose variation, independent irregular mesh
+topologies, deterministic deviations/noise/occlusions, and a separately posed
+rescan. Its oracle role selections and coordinate layers remain test truth, not
+algorithm inputs. A transfer test builds the region only from boss A's observed
+outer-cylinder patch and its explicit source/target frames, then uses the hidden
+labels afterward to verify that the resolved boss B vertices belong exclusively
+to the intended outer surface and cover at least 80% of its oracle footprint.

@@ -1,0 +1,65 @@
+{
+  "bundle_sha256": "88b0f1db152cbf4ade1a7b90109581b5d0ab74717521391405739da8be1a1c55",
+  "format": "scansor-selection-salvage-report-v1",
+  "format_status": "internal/provisional/one-time/non-public-evidence",
+  "recipes": [
+    {
+      "discarded_node_ids": [
+        "side",
+        "end",
+        "perpendicular",
+        "rot_plane_0",
+        "rot_plane_1",
+        "rot_plane_2",
+        "rotation_b993af9ab9264a37bb07749d4f3487be",
+        "fit"
+      ],
+      "discarded_output": "fit",
+      "legacy_source_bindings": [
+        {
+          "legacy_reference_sha256": "3f9c48e04a1ad9f31a202ef1cca6a5afce4fbba810aaf9d02e90326cf9d9d676",
+          "source_id": "scan"
+        }
+      ],
+      "materialized_growth_ids": [],
+      "preserved_node_ids": [
+        "scan",
+        "outer_band",
+        "top_face",
+        "rot_selection_0",
+        "rot_selection_1",
+        "rot_selection_2"
+      ],
+      "recipe_path": "local-inputs/rotation-saved.json",
+      "recipe_schema_version": 2,
+      "recipe_sha256": "1cccb02689fb41083be3701cf01e4d377295dd57ea4e50ed73e13f90dff675c9"
+    }
+  ],
+  "selections": [
+    {
+      "selection_id": "outer_band",
+      "vertex_count": 320,
+      "vertex_ids_sha256": "56ed839bf8fbbec717ab43ae49de1cd7df02e378e7b948b35de9483b939cac3e"
+    },
+    {
+      "selection_id": "top_face",
+      "vertex_count": 49,
+      "vertex_ids_sha256": "d109d117980693853d701eca4065b13070ab1c7a46243e49c83a9c507713320e"
+    },
+    {
+      "selection_id": "rot_selection_0",
+      "vertex_count": 320,
+      "vertex_ids_sha256": "f082f0e247347c26326c55e6ef2f99fcf4bc5e4e965614eefd33874938c79c78"
+    },
+    {
+      "selection_id": "rot_selection_1",
+      "vertex_count": 320,
+      "vertex_ids_sha256": "0d0e6cf94b11ba8d9ae5f05d16c0b9db7fdacc2f818537962f7b725e7144e55d"
+    },
+    {
+      "selection_id": "rot_selection_2",
+      "vertex_count": 320,
+      "vertex_ids_sha256": "2d6e01a5ae6d93583e62a39a581c1ccc71c038d66d28aa7c7afdd6c9a0ff4a23"
+    }
+  ]
+}
