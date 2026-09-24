@@ -1103,7 +1103,11 @@ function showResult() {
   if (node.operation === 'fit') {
     fitGuide(node, result, '#66dbe9');
     values['Weighted RMS'] = result.weighted_rms.toFixed(5);
-    values['Condition'] = result.condition.toExponential(3);
+    // Some constrained solves replace an earlier fit result with an exact
+    // relationship result. Those results retain residuals but do not always
+    // have a standalone-fit condition estimate.
+    if (Number.isFinite(result.condition))
+      values['Condition'] = result.condition.toExponential(3);
     if (node.kind === 'plane')
       values['Plane normal'] = (result.plane_equation || result.parameters)
         .slice(0, 3)
