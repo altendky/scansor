@@ -1184,8 +1184,17 @@ function paint() {
     gray = new THREE.Color('#8796a2'),
     residualMode = $('colors').value === 'residual',
     selectedNode = graphNode(selectedFeatureId),
-    residualSurfaces = resultResidualSurfaces(result, selectedFeatureId);
-  if (residualMode && selectedNode.operation === 'feature_reuse') {
+    allResiduals = $('all-residuals').checked,
+    residualSurfaces = [];
+  $('all-residuals').disabled = !residualMode;
+  if (residualMode && allResiduals) {
+    for (const node of graphState.recipe.nodes)
+      if (node.operation === 'fit')
+        residualSurfaces.push(...resultResidualSurfaces(graphState.results[node.id], node.id));
+  } else {
+    residualSurfaces.push(...resultResidualSurfaces(result, selectedFeatureId));
+  }
+  if (residualMode && !allResiduals && selectedNode.operation === 'feature_reuse') {
     const subtree = managedSubtreeIds(selectedFeatureId, graphState.recipe.nodes);
     for (const node of graphState.recipe.nodes)
       if (subtree.has(node.id) && node.operation === 'fit')
@@ -1219,11 +1228,12 @@ function paint() {
       });
     }
     $('legend').textContent =
-      `Residuals on ${residualSurfaces.length} fitted surface${residualSurfaces.length === 1 ? '' : 's'}: ` +
+      `${allResiduals ? 'All residuals' : 'Residuals'} on ${residualSurfaces.length} fitted surface${residualSurfaces.length === 1 ? '' : 's'}: ` +
       `blue negative, white zero, red positive; shared limit ±${limit.toPrecision(4)}.`;
   } else if (residualMode) {
-    $('legend').textContent =
-      'No residuals for this action. Select an evaluated fit, relationship, or reuse feature.';
+    $('legend').textContent = allResiduals
+      ? 'No evaluated fit residuals are available.'
+      : 'No residuals for this action. Select an evaluated fit, relationship, or reuse feature.';
   }
   if ($('reuse-volumes').checked)
     $('legend').textContent += reuseVolumes.userData.volumeCount
@@ -2685,7 +2695,7 @@ async function start() {
   $('home').onclick = () => home();
   $('side').onclick = () => home('side');
   $('top').onclick = () => home('top');
-  for (const name of ['colors', 'guides', 'points']) $(name).onchange = paint;
+  for (const name of ['colors', 'all-residuals', 'guides', 'points']) $(name).onchange = paint;
   $('all-guides').onchange = () => {
     showResult();
     paint();
