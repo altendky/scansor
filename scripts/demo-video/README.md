@@ -6,7 +6,7 @@ two-workflow demo planned in
 speech, and video are intentionally kept outside the repository.
 
 Start the repeated-boss server on port `8765` and the nozzle server on port
-`8766`, then capture the review frames:
+`8766`, then capture the review sources:
 
 ```sh
 node scripts/demo-video/capture.mjs /tmp/scansor-demo/capture
@@ -29,11 +29,12 @@ node scripts/demo-video/render.mjs \
   /tmp/scansor-demo/render
 ```
 
-The renderer synthesizes one audio file per narration section so timing and
-wording remain reviewable, then builds sentence-level SRT captions and a static
-shot timeline from the real application captures. The current cut intentionally
-uses held frames; cursor choreography and live camera motion are a later polish
-pass after the content and narration are approved.
+The capture records short application clips with a visible cursor, actual tree
+interaction, and restrained camera motion. Title and transition cards remain
+still images. The renderer synthesizes one audio file per narration section so
+timing and wording remain reviewable, builds sentence-level SRT captions, and
+extends each clip's final frame to match its narration rather than looping the
+interaction.
 
 Set `SCANSOR_DEMO_REUSE_TTS=1` to reuse already-rendered section WAV files after
 changing only assembly settings. The working cut uses a small `1.04` post-process

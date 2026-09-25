@@ -2,6 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 
@@ -22,20 +23,22 @@ const shotMap = new Map([
   ['00', ['00-title']],
   ['01', ['01-nozzle-overview']],
   ['02', ['02-nozzle-selections']],
-  ['03', ['03-nozzle-outer-fit', '04-nozzle-fit-pair']],
-  ['04', ['05-nozzle-residuals']],
-  ['05', ['06-nozzle-graph']],
-  ['06', ['07-transition']],
-  ['07', ['08-boss-source-frame']],
-  ['08', ['09-boss-reuse']],
-  ['09', ['10-boss-relationships']],
-  ['10', ['11-boss-graph']],
-  ['11', ['12-boss-datums', '13-boss-frame', '14-boss-scale']],
-  ['12', ['14-boss-scale', '15-boss-transformed', '16-boss-transformed-top', '17-boss-export']],
-  ['13', ['18-closing']],
+  ['03', ['03-nozzle-primitives']],
+  ['04', ['04-nozzle-rotation']],
+  ['05', ['05-nozzle-residuals']],
+  ['06', ['06-transition']],
+  ['07', ['07-boss-source-frame']],
+  ['08', ['08-boss-source-build']],
+  ['09', ['09-boss-reuse']],
+  ['10', ['10-boss-relationships']],
+  ['11', ['11-boss-datums']],
+  ['12', ['12-boss-transformed']],
+  ['13', ['13-boss-export']],
+  ['14', ['14-closing']],
 ]);
 
 await mkdir(resolve(outputDirectory, 'tts'), { recursive: true });
+await mkdir(resolve(outputDirectory, 'segments'), { recursive: true });
 
 function command(executable, arguments_, options = {}) {
   return execFileSync(executable, arguments_, {
@@ -158,6 +161,7 @@ let captionNumber = 1;
 const captions = [];
 const timeline = ['ffconcat version 1.0'];
 const timings = [];
+let shotNumber = 0;
 for (const section of narration) {
   const sectionStart = cursor;
   const playedDuration = section.duration / playbackRate;
@@ -183,8 +187,27 @@ for (const section of narration) {
   const shots = shotMap.get(section.id);
   const shotDuration = sectionTotal / shots.length;
   for (const shot of shots) {
-    const path = resolve(captureDirectory, `${shot}.png`).replaceAll("'", "'\\''");
-    timeline.push(`file '${path}'`, `duration ${shotDuration.toFixed(6)}`);
+    const clip = resolve(captureDirectory, `${shot}.mp4`);
+    const still = resolve(captureDirectory, `${shot}.png`);
+    const source = existsSync(clip) ? clip : still;
+    if (!existsSync(source)) throw new Error(`Missing capture source for ${shot}`);
+    const segment = resolve(
+      outputDirectory,
+      'segments',
+      `${String(shotNumber++).padStart(3, '0')}-${shot}.mp4`,
+    );
+    const arguments_ = ['-hide_banner', '-loglevel', 'error', '-y'];
+    if (source === still) arguments_.push('-loop', '1', '-framerate', '30');
+    arguments_.push('-i', source);
+    const filter = source === clip
+      ? `tpad=stop_mode=clone:stop_duration=${shotDuration.toFixed(6)},fps=30,format=yuv420p`
+      : 'fps=30,format=yuv420p';
+    arguments_.push(
+      '-t', shotDuration.toFixed(6), '-vf', filter, '-an', '-c:v', 'libx264',
+      '-preset', 'medium', '-crf', '18', '-movflags', '+faststart', segment,
+    );
+    mise('ffmpeg', arguments_);
+    timeline.push(`file '${segment.replaceAll("'", "'\\''")}'`);
   }
   timings.push({
     id: section.id,
@@ -196,8 +219,6 @@ for (const section of narration) {
   });
   cursor += sectionTotal;
 }
-const finalShot = shotMap.get(narration.at(-1).id).at(-1);
-timeline.push(`file '${resolve(captureDirectory, `${finalShot}.png`)}'`);
 
 const captionPath = resolve(outputDirectory, 'scansor-demo-captions.srt');
 const timelinePath = resolve(outputDirectory, 'video.ffconcat');
@@ -209,8 +230,7 @@ mise('ffmpeg', [
   '-hide_banner', '-loglevel', 'error', '-y',
   '-f', 'concat', '-safe', '0', '-i', timelinePath,
   '-t', cursor.toFixed(6),
-  '-vf', 'fps=30,format=yuv420p',
-  '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
+  '-c:v', 'copy',
   '-movflags', '+faststart',
   silentVideo,
 ]);
@@ -234,7 +254,8 @@ for (const path of recipePaths) sourceHashes[path] = await sha256(resolve(reposi
 const frames = {};
 for (const shots of shotMap.values()) {
   for (const shot of shots) {
-    const filename = `${shot}.png`;
+    const extension = existsSync(resolve(captureDirectory, `${shot}.mp4`)) ? 'mp4' : 'png';
+    const filename = `${shot}.${extension}`;
     frames[filename] = await sha256(resolve(captureDirectory, filename));
   }
 }
