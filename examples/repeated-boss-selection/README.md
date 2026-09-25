@@ -6,7 +6,8 @@ is not physical evidence, a metrology reference, a supported model family, or a
 public artifact format.
 
 The exact nominal part is a `120 x 80 x 6 mm` plate with four bosses sharing a
-common cross-section. Each boss has an axis, an outer cylindrical wall, a
+common cross-section and three equal `5 mm`-radius spheres resting on three
+plate corners. Each boss has an axis, an outer cylindrical wall, a
 cylindrical blind bore, an annular shoulder plane, and a clocking flat. The
 occurrences have different positions and clock angles; `boss-b` is deliberately
 taller (`22 mm` rather than `14 mm`), and `boss-d` is tilted `12°` toward the
@@ -18,13 +19,19 @@ The checked-in [fixture recipe](fixture.json) defines four realizations:
 
 - `reference`: exact nominal geometry without noise or missing patches;
 - `scan-coarse`: coarse tessellation, deterministic as-built deviations,
-  structured missing patches, low-frequency bias, and `0.12 mm` normal noise;
+  structured missing patches, low-frequency bias, `0.12 mm` normal noise, and
+  a visible `(6°, -8°, 11°)` XYZ scan-frame rotation for output-orientation
+  experiments;
 - `scan-fine`: the same as-built part and capture occlusions with independent,
   denser tessellation and `0.04 mm` normal noise; coincident surface-parameter
   samples reuse the coarse scan's deterministic noise field; and
 - `scan-rescan`: another tessellation and occlusion pattern, `0.09 mm` normal
   noise, and a recorded nonidentity rigid pose.
 
+The spheres provide independent curved patches for exercising standalone sphere
+fits; their identities, centers, and radii are recorded in the truth sidecar.
+The oracle selection bundle also includes the broad plate-top patch used by the
+saved interactive recipe as an output-orientation reference.
 As-built deviations and sensor corruption are recorded separately. The former
 include plate bow, small outer- and bore-wall ovality, slight outer-wall taper,
 shoulder-height variation, and one localized outer-wall dent. They deliberately
@@ -62,18 +69,39 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   --port 8765
 ```
 
+To load the checked-in end-to-end demonstration graph, run:
+
+```sh
+OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
+  python -m experiments.nozzle_browser \
+  --example local-inputs/repeated-boss-selection-v2/scan-coarse \
+  --recipe \
+  examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json \
+  --port 8765
+```
+
+That recipe retains the four source selections, three target match selections,
+generated reuse selections and fits, equal-radius and parallel-plane
+relationships, sphere-center point datums, directed axis, output Frame, measured
+Scale, and applied Transform. It is intended as a reproducible UI demonstration,
+not a compatibility promise or physical-validation record.
+
 The adapter retains its historical module name but reads the generated example's
 manifest, source, model, and initial selection bundle. The browser's provisional
 **Reuse → Feature** action can use one painted reference patch and multiple
 target patches to place the source boss's fitted selection regions independently
 on several occurrences. The fixture's
-oracle labels remain verification truth rather than matcher inputs.
+oracle labels remain verification truth rather than matcher inputs. This is a
+bounded selection-and-fit reuse workflow, not an implemented compound definition
+or occurrence model; compound roles and placements remain truth-sidecar evidence.
 
-The browser and fitting workspace use the plate's part frame: the displayed
-origin is the plate center at `(0, 0, 0)`, away from every boss. The rescan's
+The coarse browser example deliberately keeps its scan coordinate frame, so the
+plate and its features appear rotated rather than pre-aligned with the display
+axes. The other realizations use the plate's part frame: their displayed origin
+is the plate center at `(0, 0, 0)`, away from every boss, and the rescan's
 declared capture pose is inverted for display and fitting. Seed-selection
-azimuth gates retain a separate boss-relative frame, so moving the workspace
-origin does not change the saved `boss-a` memberships.
+azimuth gates retain a separate boss-relative frame, so changing the workspace
+frame does not change the saved `boss-a` memberships.
 
 ## Truth boundary
 

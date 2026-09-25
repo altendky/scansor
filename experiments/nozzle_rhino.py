@@ -26,6 +26,7 @@ class RhinoExportRequest(BaseModel):
     axis_up: bool = True
     include_mesh: bool = True
     origin_plane: str | None = None
+    transform: str | None = None
 
 
 def point(xyz: Any) -> rhino3dm.Point3d:
@@ -67,6 +68,10 @@ def surface_brep(surface: dict[str, Any], positions: Any) -> Any:
             rhino.Interval(lo[1] - pad[1], hi[1] + pad[1]),
         )
         brep = rhino.Brep.CreateFromSurface(surface_geometry)
+    elif kind == "sphere":
+        if p.shape != (4,) or p[3] <= 0:
+            raise ValueError("sphere parameters require a positive radius")
+        brep = rhino.Sphere(point(p[:3]), float(p[3])).ToBrep()
     elif kind in ("cone", "cylinder"):
         origin = np.array([p[0], p[1], 0.0])
         axis = np.array([p[2], p[3], 1.0])
@@ -196,35 +201,58 @@ def export_rhino(
     else:
         surfaces = {request.target: result}
         p = np.asarray(result.get("plane_equation", result["parameters"]), dtype=float)
-        axis = p[:3] if node["kind"] == "plane" else np.array([p[2], p[3], 1.0])
-        anchor = (
-            p[:3] * p[3] if node["kind"] == "plane" else np.array([p[0], p[1], 0.0])
-        )
-    if request.origin_plane is not None:
-        if not request.axis_up:
-            raise ValueError("an origin plane requires axis-up export")
-        selected_plane = surfaces.get(request.origin_plane)
-        if selected_plane is None or selected_plane["kind"] != "plane":
-            raise ValueError(
-                "origin plane must be a plane in the exported fit or solve"
-            )
-        p = np.asarray(
-            selected_plane.get("plane_equation", selected_plane["parameters"]),
-            dtype=float,
-        )
-        if len(p) == 7:
-            normal = np.array([p[2], p[3], 1.0])
-            normal /= np.linalg.norm(normal)
-            distance = p[5]
+        if node["kind"] == "plane":
+            axis, anchor = p[:3], p[:3] * p[3]
+        elif node["kind"] == "sphere":
+            axis, anchor = np.array([0.0, 0.0, 1.0]), p[:3]
         else:
-            normal, distance = p[:3], p[3]
-        denominator = float(normal @ axis)
-        if abs(denominator) <= 1e-10 * np.linalg.norm(normal) * np.linalg.norm(axis):
+            axis, anchor = np.array([p[2], p[3], 1.0]), np.array([p[0], p[1], 0.0])
+    if request.transform is not None:
+        if request.axis_up or request.origin_plane is not None:
             raise ValueError(
-                "origin plane is parallel to the axis; no unique intersection"
+                "an explicit transform cannot be combined with legacy axis-up export"
             )
-        anchor = anchor + axis * ((distance - normal @ anchor) / denominator)
-    if request.axis_up:
+        transform_node = nodes.get(request.transform)
+        if transform_node is None or transform_node["operation"] != "transform":
+            raise ValueError("export transform must name a transform feature")
+        if snapshot["states"].get(request.transform) != "ready":
+            raise ValueError("evaluate the selected transform before export")
+        matrix = np.asarray(
+            snapshot["results"][request.transform]["matrix"], dtype=float
+        )
+        if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
+            raise ValueError("export transform must contain a finite 4x4 matrix")
+        transform = rhino.Transform.Identity()
+        for row in range(4):
+            for col in range(4):
+                setattr(transform, f"M{row}{col}", float(matrix[row, col]))
+    elif request.origin_plane is not None and not request.axis_up:
+        raise ValueError("an origin plane requires axis-up export")
+    elif request.axis_up:
+        if request.origin_plane is not None:
+            selected_plane = surfaces.get(request.origin_plane)
+            if selected_plane is None or selected_plane["kind"] != "plane":
+                raise ValueError(
+                    "origin plane must be a plane in the exported fit or solve"
+                )
+            p = np.asarray(
+                selected_plane.get("plane_equation", selected_plane["parameters"]),
+                dtype=float,
+            )
+            if len(p) == 7:
+                normal = np.array([p[2], p[3], 1.0])
+                normal /= np.linalg.norm(normal)
+                distance = p[5]
+            else:
+                normal, distance = p[:3], p[3]
+            denominator = float(normal @ axis)
+            if abs(denominator) <= 1e-10 * np.linalg.norm(normal) * np.linalg.norm(
+                axis
+            ):
+                raise ValueError(
+                    "origin plane is parallel to the axis; no unique intersection"
+                )
+            anchor = anchor + axis * ((distance - normal @ anchor) / denominator)
         transform = rhino.Transform.Rotation(
             vector(axis), vector([0, 0, 1]), point([0, 0, 0])
         )

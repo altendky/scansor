@@ -11,6 +11,7 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
 )
 from experiments.mesh_cylinder_fit import Array
+from experiments.mesh_sphere_fit import fit_sphere
 
 
 def fit_seed(
@@ -21,7 +22,7 @@ def fit_seed(
     initial: Array,
     domain: tuple[float, float],
 ) -> dict[str, Any]:
-    minimum = 3 if kind == "plane" else 7
+    minimum = 3 if kind == "plane" else 4 if kind == "sphere" else 7
     if (
         len(points) < minimum
         or not np.isfinite(points).all()
@@ -47,6 +48,13 @@ def fit_seed(
         residual = points @ axis - h
         parameters = [*axis.tolist(), h]
         condition = float(values[-1] / values[1])
+    elif kind == "sphere":
+        result = fit_sphere(points, weights)
+        parameters = result["parameters"]
+        residual = np.linalg.norm(points - np.asarray(parameters[:3]), axis=1) - float(
+            parameters[3]
+        )
+        condition = result["normal_matrix_condition"]
     elif kind in ("cone", "cylinder"):
         if initial.shape != (5,) or not np.isfinite(initial).all() or initial[4] <= 0:
             raise ValueError("invalid seed initialization")
@@ -121,6 +129,14 @@ def surface_distance(
             points @ p[:3] - p[3],
             np.broadcast_to(p[:3], points.shape).copy(),
             np.ones(len(points), dtype=bool),
+        )
+    if fit["kind"] == "sphere":
+        radial = points - p[:3]
+        rho = np.linalg.norm(radial, axis=1)
+        return (
+            rho - p[3],
+            radial / np.maximum(rho, 1e-30)[:, None],
+            rho > 0,
         )
     axis = np.array([p[2], p[3], 1.0])
     axis /= np.linalg.norm(axis)

@@ -8,6 +8,8 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { renderFeatureGraph } from './feature-graph-view.js';
+import { activeDisplayTransform } from './display-transform.js';
 import { residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
 import * as THREE from 'three';
@@ -24,7 +26,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const viewport = $('viewport');
-let renderer, scene, camera, controls, mesh, selectedPoints, overlays, reuseVolumes;
+let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
 let metadata,
   positions,
   session,
@@ -34,6 +36,8 @@ let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
 let selectedFeatureIds = new Set();
+let workspaceView = 'model', resizeViewport = null;
+let displayTransformKey = 'identity';
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -158,12 +162,63 @@ function toggleFeatureSelection(id) {
   else selectedFeatureIds.add(id);
   selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
 }
+function updateDisplayTransform() {
+  if (!modelRoot || !graphState) return false;
+  const active = activeDisplayTransform(graphState, selectedFeatureIds),
+    key = active ? `${active.id}:${JSON.stringify(active.matrix)}` : 'identity';
+  if (key === displayTransformKey) return false;
+  displayTransformKey = key;
+  modelRoot.matrixAutoUpdate = false;
+  modelRoot.matrix.identity();
+  if (active) modelRoot.matrix.set(...active.matrix.flat());
+  modelRoot.updateMatrixWorld(true);
+  return true;
+}
 function refreshFeatureSelection(scroll = false) {
   if (scroll) $('feature-properties-panel').scrollTop = 0;
+  const transformChanged = updateDisplayTransform();
   renderActions();
   showProperties();
   showResult();
   paint();
+  if (transformChanged) home('oblique');
+}
+function featureGraphOptions() {
+  return {
+    lens: $('feature-graph-lens').value,
+    showSelections: $('feature-graph-selections').checked,
+    showGenerated: $('feature-graph-generated').checked,
+    selectedNeighborhood: $('feature-graph-neighborhood').checked,
+  };
+}
+function renderGraphView() {
+  if (!graphState) return;
+  const graph = renderFeatureGraph($('feature-graph-canvas'), {
+    recipe: graphState.recipe,
+    states: graphState.states,
+    errors: graphState.errors,
+    selected: selectedFeatureIds,
+    options: featureGraphOptions(),
+    onSelect: (id, { clear = false } = {}) => {
+      if (clear || !id) selectOnly(null);
+      else toggleFeatureSelection(id);
+      refreshFeatureSelection(true);
+    },
+  });
+  $('feature-graph-summary').textContent =
+    `${graph.nodes.length} feature${graph.nodes.length === 1 ? '' : 's'} · ` +
+    `${graph.edges.length} connection${graph.edges.length === 1 ? '' : 's'}`;
+}
+function setWorkspaceView(next) {
+  workspaceView = next;
+  const model = next === 'model';
+  $('viewport').hidden = !model;
+  $('feature-graph-view').hidden = model;
+  $('model-view-tab').setAttribute('aria-selected', String(model));
+  $('graph-view-tab').setAttribute('aria-selected', String(!model));
+  history.replaceState(null, '', model ? location.pathname + location.search : '#graph');
+  if (model) requestAnimationFrame(() => resizeViewport?.());
+  else renderGraphView();
 }
 function nextFeatureLabel(base, reserved = []) {
   return uniqueFeatureLabel(base, [
@@ -251,8 +306,77 @@ function choices(id, nodes, selected = []) {
     ...nodes.map((n) => new Option(n.label, n.id, false, selected.includes(n.id))),
   );
 }
+function frameGeometry(nodes) {
+  return {
+    points: nodes.filter((node) => node.operation === 'point'),
+    references: nodes.filter(
+      (node) =>
+        ['axis', 'reference_plane'].includes(node.operation) ||
+        (node.operation === 'fit' && node.kind === 'plane'),
+    ),
+  };
+}
+function pointCoordinates(id) {
+  const node = graphNode(id),
+    value = graphState.results[id] || (node?.operation === 'point' ? pointPreview(node) : null);
+  return value?.point_display || null;
+}
+function currentPointDistance(first, second) {
+  const a = pointCoordinates(first),
+    b = pointCoordinates(second);
+  if (!a || !b) return 1;
+  return Math.hypot(...a.map((value, index) => value - b[index]));
+}
+function scaleDistanceRow(containerId, points, distance = {}) {
+  const row = document.createElement('div'),
+    firstLabel = document.createElement('label'),
+    secondLabel = document.createElement('label'),
+    knownLabel = document.createElement('label'),
+    first = document.createElement('select'),
+    second = document.createElement('select'),
+    known = document.createElement('input'),
+    remove = document.createElement('button');
+  row.className = 'scale-distance-row';
+  first.dataset.field = 'first';
+  second.dataset.field = 'second';
+  known.dataset.field = 'known';
+  first.replaceChildren(
+    ...points.map((point) => new Option(point.label, point.id, false, point.id === distance.first_point)),
+  );
+  second.replaceChildren(
+    ...points.map((point) => new Option(point.label, point.id, false, point.id === distance.second_point)),
+  );
+  if (!distance.first_point) first.value = points[0]?.id || '';
+  if (!distance.second_point) second.value = points[1]?.id || points[0]?.id || '';
+  known.type = 'number';
+  known.min = '0.000000000001';
+  known.step = 'any';
+  known.required = true;
+  known.value = distance.known_distance ?? currentPointDistance(first.value, second.value);
+  remove.type = 'button';
+  remove.textContent = 'Remove';
+  remove.onclick = () => row.remove();
+  firstLabel.append('From point', first);
+  secondLabel.append('To point', second);
+  knownLabel.append('Known output distance', known);
+  row.append(firstLabel, secondLabel, knownLabel, remove);
+  $(containerId).append(row);
+  return row;
+}
+function renderScaleDistances(containerId, points, distances) {
+  $(containerId).replaceChildren();
+  for (const distance of distances) scaleDistanceRow(containerId, points, distance);
+}
+function readScaleDistances(containerId) {
+  return [...$(containerId).querySelectorAll('.scale-distance-row')].map((row) => ({
+    first_point: row.querySelector('[data-field="first"]').value,
+    second_point: row.querySelector('[data-field="second"]').value,
+    known_distance: Number(row.querySelector('[data-field="known"]').value),
+    weight: 1,
+  }));
+}
 function isStandaloneFit(node) {
-  return !node.axis && !node.reference_plane;
+  return !node.axis && !node.point && !node.reference_plane;
 }
 let relationshipParticipantIds = new Set(), selectedRelationshipKind = null;
 const relationshipDefinitions = [
@@ -272,7 +396,7 @@ const relationshipDefinitions = [
     id: 'equal_radii',
     label: 'Equal radii',
     baseName: 'Equal radii',
-    summary: 'All selected cylinder fits share one exact radius; their axes remain independent.',
+    summary: 'All selected sphere and cylinder fits share one exact radius; their centers and axes remain independent.',
   },
   {
     id: 'mirror',
@@ -291,6 +415,7 @@ function relationshipValidity(kind, participants) {
   const fits = participants.filter((node) => node.operation === 'fit'),
     planes = fits.filter((node) => node.kind === 'plane'),
     cylinders = fits.filter((node) => node.kind === 'cylinder'),
+    radiusFits = fits.filter((node) => ['cylinder', 'sphere'].includes(node.kind)),
     datums = participants.filter((node) => node.operation === 'reference_plane'),
     only = (expected) => participants.length === expected;
   if (kind === 'coincident_planes' || kind === 'parallel_planes')
@@ -298,14 +423,16 @@ function relationshipValidity(kind, participants) {
       ? { valid: true }
       : { valid: false, reason: 'Select two or more plane fits only.' };
   if (kind === 'equal_radii')
-    return participants.length >= 2 && cylinders.length === participants.length
+    return participants.length >= 2 && radiusFits.length === participants.length
       ? { valid: true }
-      : { valid: false, reason: 'Select two or more cylinder fits only.' };
+      : { valid: false, reason: 'Select two or more sphere or cylinder fits only.' };
   if (kind === 'mirror') {
+    const supported = fits.every((fit) => ['cone', 'cylinder', 'plane'].includes(fit.kind));
     const valid =
       only(3) &&
       fits.length === 2 &&
       datums.length === 1 &&
+      supported &&
       fits.every(isStandaloneFit) &&
       fits[0]?.kind === fits[1]?.kind &&
       datums[0]?.construction === 'contains_axis';
@@ -330,6 +457,7 @@ function relationshipValidity(kind, participants) {
 }
 function participantType(node) {
   if (node.operation === 'fit') return `${node.kind} fit`;
+  if (node.operation === 'point') return 'reference point';
   if (node.operation === 'reference_plane') return 'reference plane';
   return node.operation.replaceAll('_', ' ');
 }
@@ -415,31 +543,40 @@ function clockDatumPlanes(nodes, axis = null) {
   );
 }
 function fitReferenceChoices(id, kind, nodes, selected = '') {
-  const references = nodes.filter((node) =>
-    ['axis', 'reference_plane'].includes(node.operation),
-  );
+  const references = kind === 'sphere'
+    ? nodes.filter((node) => node.operation === 'point')
+    : nodes.filter((node) => ['axis', 'reference_plane'].includes(node.operation));
+  const validSelected = references.some((node) => node.id === selected) ? selected : '';
   $(id).replaceChildren(
-    new Option('None (standalone)', '', false, !selected),
+    new Option('None (standalone)', '', false, !validSelected),
     ...references.map(
       (node) =>
         new Option(
-          `${node.operation === 'axis' ? 'Axis' : 'Plane'} — ${node.label}`,
+          `${node.operation === 'axis' ? 'Axis' : node.operation === 'point' ? 'Point' : 'Plane'} — ${node.label}`,
           node.id,
           false,
-          node.id === selected,
+          node.id === validSelected,
         ),
     ),
   );
   const hint = $(`${id}-hint`);
   if (hint)
     hint.textContent =
-      kind === 'plane'
+      kind === 'sphere'
+        ? 'A point datum supplies the sphere center. A free point is refined by all connected sphere fits; a fit-initialized point remains fixed.'
+        : kind === 'plane'
         ? 'An axis makes the fitted plane perpendicular to it. A plane datum fixes its orientation. In either case, observations fit the plane offset.'
         : 'An axis is shared by the fitted surface. Connected fits refine a manually initialized free axis; a fit-initialized axis stays fixed. Choosing a plane datum switches the fit type to Plane.';
 }
 function updateFitKindForReference(kindId, referenceId, nodes = graphState.recipe.nodes) {
-  if (graphNode($(referenceId).value)?.operation === 'reference_plane')
+  const operation = graphNode($(referenceId).value)?.operation;
+  if (operation === 'reference_plane')
     $(kindId).value = 'plane';
+  if (operation === 'point') $(kindId).value = 'sphere';
+  if (kindId === 'surface-kind') {
+    $('axial-start-row').hidden = $(kindId).value === 'sphere';
+    $('axial-end-row').hidden = $(kindId).value === 'sphere';
+  }
   fitReferenceChoices(
     referenceId,
     $(kindId).value,
@@ -450,16 +587,21 @@ function updateFitKindForReference(kindId, referenceId, nodes = graphState.recip
 function setFitReference(node, referenceId) {
   const reference = graphNode(referenceId);
   node.axis = reference?.operation === 'axis' ? reference.id : null;
+  node.point = reference?.operation === 'point' ? reference.id : null;
   node.reference_plane = reference?.operation === 'reference_plane' ? reference.id : null;
 }
-function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId) {
-  const manual = $(modeId).value === 'free';
-  $(sourceFieldsId).hidden = manual;
-  $(manualFieldsId).hidden = !manual;
-  for (const control of $(sourceFieldsId).querySelectorAll('input, select'))
-    control.disabled = manual;
-  for (const control of $(manualFieldsId).querySelectorAll('input, select'))
-    control.disabled = !manual;
+function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId, pointFieldsId = null) {
+  const mode = $(modeId).value,
+    fields = [
+      [sourceFieldsId, mode === 'fit'],
+      [manualFieldsId, mode === 'free'],
+      ...(pointFieldsId ? [[pointFieldsId, mode === 'points']] : []),
+    ];
+  for (const [id, enabled] of fields) {
+    $(id).hidden = !enabled;
+    for (const control of $(id).querySelectorAll('input, select'))
+      control.disabled = !enabled;
+  }
 }
 function axisContainingPlanes(nodes) {
   return nodes.filter(
@@ -546,6 +688,7 @@ function acceptGraph(state) {
   session = Object.fromEntries(
     state.recipe.nodes.filter((n) => n.operation === 'selection').map((n) => [n.id, n.ids]),
   );
+  const transformChanged = updateDisplayTransform();
   choices(
     'new-fit-inputs',
     state.recipe.nodes.filter((n) => selectionOperations.includes(n.operation)),
@@ -563,10 +706,14 @@ function acceptGraph(state) {
     'new-axis-source',
     fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && isStandaloneFit(n)),
   );
+  choices(
+    'new-point-source',
+    fits.filter((n) => n.kind === 'sphere' && isStandaloneFit(n)),
+  );
   choices('new-axis-solve-axis', axes);
   choices(
     'new-joint-side',
-    fits.filter((n) => n.kind !== 'plane' && isStandaloneFit(n)),
+    fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && isStandaloneFit(n)),
   );
   choices(
     'new-joint-plane',
@@ -574,13 +721,14 @@ function acceptGraph(state) {
   );
   choices(
     'new-joint-extra',
-    fits.filter((n) => n.kind !== 'plane' && isStandaloneFit(n)),
+    fits.filter((n) => ['cone', 'cylinder'].includes(n.kind) && isStandaloneFit(n)),
   );
   renderActions();
   showProperties();
   showResult();
   showReuseVolumes();
   paint();
+  if (transformChanged) home('oblique');
 }
 function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
@@ -606,6 +754,7 @@ function renderActions() {
     editGroup: openFeatureGroup,
     removeGroup: (groupId) => void removeFeatureGroup(groupId),
   });
+  renderGraphView();
 }
 function showProperties() {
   const single = selectedFeatureIds.size === 1;
@@ -653,6 +802,10 @@ function showProperties() {
   for (const [id, enabled] of [
     ['fit-properties', node.operation === 'fit'],
     ['axis-properties', node.operation === 'axis'],
+    ['point-properties', node.operation === 'point'],
+    ['frame-properties', node.operation === 'frame'],
+    ['scale-properties', node.operation === 'scale'],
+    ['transform-properties', node.operation === 'transform'],
     ['reference-plane-properties', node.operation === 'reference_plane'],
     ['axis-solve-properties', node.operation === 'axis_solve'],
     ['growth-properties', node.operation === 'growth'],
@@ -681,12 +834,14 @@ function showProperties() {
       'fit-reference',
       node.kind,
       earlier,
-      node.axis || node.reference_plane || '',
+      node.axis || node.point || node.reference_plane || '',
     );
     $('axial-start').value = node.axial_domain[0];
     $('axial-end').value = node.axial_domain[1];
+    $('axial-start-row').hidden = node.kind === 'sphere';
+    $('axial-end-row').hidden = node.kind === 'sphere';
   } else if (node.operation === 'axis') {
-    $('axis-init-mode').value = node.source_fit ? 'fit' : 'free';
+    $('axis-init-mode').value = node.source_points ? 'points' : node.source_fit ? 'fit' : 'free';
     choices(
       'axis-source-fit',
       earlier.filter(
@@ -697,11 +852,58 @@ function showProperties() {
       ),
       node.source_fit ? [node.source_fit] : [],
     );
+    const points = earlier.filter((n) => n.operation === 'point');
+    choices('axis-source-point-a', points, node.source_points ? [node.source_points[0]] : []);
+    choices('axis-source-point-b', points, node.source_points ? [node.source_points[1]] : []);
     const initial = node.initial_parameters || [0, 0, 0, 0];
     ['axis-point-x', 'axis-point-y', 'axis-direction-x', 'axis-direction-y'].forEach(
       (id, index) => ($(id).value = initial[index]),
     );
-    showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
+    $('axis-direction-reversed').checked = !!node.direction_reversed;
+    showAxisInitializer(
+      'axis-init-mode',
+      'axis-source-fields',
+      'axis-manual-fields',
+      'axis-point-fields',
+    );
+  } else if (node.operation === 'point') {
+    $('point-init-mode').value = node.source_fit ? 'fit' : 'free';
+    choices(
+      'point-source-fit',
+      earlier.filter(
+        (n) => n.operation === 'fit' && n.kind === 'sphere' && isStandaloneFit(n),
+      ),
+      node.source_fit ? [node.source_fit] : [],
+    );
+    const initial = node.initial_coordinates || [0, 0, 0];
+    ['point-x', 'point-y', 'point-z'].forEach(
+      (id, index) => ($(id).value = initial[index]),
+    );
+    showAxisInitializer('point-init-mode', 'point-source-fields', 'point-manual-fields');
+  } else if (node.operation === 'frame') {
+    const geometry = frameGeometry(earlier);
+    choices('frame-origin', geometry.points, [node.origin_point]);
+    choices('frame-primary-reference', geometry.references, [node.primary_reference]);
+    choices('frame-secondary-reference', geometry.references, [node.secondary_reference]);
+    $('frame-primary-output').value = node.primary_output_axis;
+    $('frame-secondary-output').value = node.secondary_output_axis;
+  } else if (node.operation === 'scale') {
+    renderScaleDistances(
+      'scale-distance-rows',
+      frameGeometry(earlier).points,
+      node.distances,
+    );
+  } else if (node.operation === 'transform') {
+    choices(
+      'transform-frame',
+      earlier.filter((candidate) => candidate.operation === 'frame'),
+      [node.frame],
+    );
+    choices(
+      'transform-scale',
+      earlier.filter((candidate) => candidate.operation === 'scale'),
+      [node.scale],
+    );
   } else if (node.operation === 'reference_plane') {
     choices(
       'reference-plane-axis',
@@ -858,7 +1060,10 @@ function showProperties() {
     choices(
       'constraint-a',
       earlier.filter(
-        (n) => n.operation === 'fit' && n.kind !== 'plane' && isStandaloneFit(n),
+        (n) =>
+          n.operation === 'fit' &&
+          ['cone', 'cylinder'].includes(n.kind) &&
+          isStandaloneFit(n),
       ),
       [node.surface || node.lateral],
     );
@@ -868,7 +1073,9 @@ function showProperties() {
         (n) =>
           n.operation === 'fit' &&
           isStandaloneFit(n) &&
-          (node.operation === 'coaxial' ? n.kind !== 'plane' : n.kind === 'plane'),
+          (node.operation === 'coaxial'
+            ? ['cone', 'cylinder'].includes(n.kind)
+            : n.kind === 'plane'),
       ),
       [node.reference || node.plane],
     );
@@ -877,14 +1084,22 @@ function showProperties() {
     choices(
       'rotation-axis',
       earlier.filter(
-        (n) => n.operation === 'fit' && n.kind !== 'plane' && isStandaloneFit(n),
+        (n) =>
+          n.operation === 'fit' &&
+          ['cone', 'cylinder'].includes(n.kind) &&
+          isStandaloneFit(n),
       ),
       [node.axis],
     );
     node.planes.forEach((id, i) =>
       choices(
         'rotation-input-' + i,
-        earlier.filter((n) => n.operation === 'fit' && isStandaloneFit(n)),
+        earlier.filter(
+          (n) =>
+            n.operation === 'fit' &&
+            ['cone', 'cylinder', 'plane'].includes(n.kind) &&
+            isStandaloneFit(n),
+        ),
         [id],
       ),
     );
@@ -897,7 +1112,12 @@ function showProperties() {
     node.surfaces.forEach((id, i) =>
       choices(
         'mirror-input-' + i,
-        earlier.filter((n) => n.operation === 'fit' && isStandaloneFit(n)),
+        earlier.filter(
+          (n) =>
+            n.operation === 'fit' &&
+            ['cone', 'cylinder', 'plane'].includes(n.kind) &&
+            isStandaloneFit(n),
+        ),
         [id],
       ),
     );
@@ -950,7 +1170,11 @@ function showProperties() {
     choices(
       'joint-add-fits',
       graphState.recipe.nodes.filter(
-        (n) => n.operation === 'fit' && isStandaloneFit(n) && !used.has(n.id),
+        (n) =>
+          n.operation === 'fit' &&
+          ['cone', 'cylinder'].includes(n.kind) &&
+          isStandaloneFit(n) &&
+          !used.has(n.id),
       ),
     );
   }
@@ -1002,7 +1226,10 @@ function axisGuide(axisValues, color = '#ffd166') {
   const axis = new THREE.Vector3(...axisValues.axis_display).normalize();
   const point = new THREE.Vector3(...axisValues.point_display);
   const domain = metadata?.axial_domain || [-2, 5];
-  const endpoints = domain.map((distance) => point.clone().addScaledVector(axis, distance));
+  const extent = Math.max(...domain.map(Math.abs), 1),
+    endpoints = [-extent, extent].map((distance) =>
+      point.clone().addScaledVector(axis, distance),
+    );
   overlays.add(
     new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(endpoints),
@@ -1020,16 +1247,76 @@ function axisGuide(axisValues, color = '#ffd166') {
       new THREE.PointsMaterial({ color, depthTest: false, size: 7, sizeAttenuation: false }),
     ),
   );
+  const arrowLength = Math.min(Math.max(extent * 0.16, 0.45), 2.0),
+    arrow = new THREE.Mesh(
+      new THREE.ConeGeometry(arrowLength * 0.32, arrowLength, 12),
+      new THREE.MeshBasicMaterial({ color, depthTest: false }),
+    );
+  arrow.position.copy(endpoints[1]);
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+  arrow.renderOrder = 5;
+  overlays.add(arrow);
 }
 function axisPreview(node) {
+  if (node.source_points) {
+    const first = graphState.results[node.source_points[0]] || pointPreview(graphNode(node.source_points[0])),
+      second = graphState.results[node.source_points[1]] || pointPreview(graphNode(node.source_points[1]));
+    if (!first || !second) return null;
+    const point = new THREE.Vector3(...first.point_display),
+      axis = new THREE.Vector3(...second.point_display).sub(point);
+    if (axis.lengthSq() <= Number.EPSILON) return null;
+    axis.normalize();
+    if (node.direction_reversed) axis.negate();
+    return { axis_display: axis.toArray(), point_display: point.toArray() };
+  }
   let parameters = node.initial_parameters;
   if (!parameters && node.source_fit) parameters = graphState.results[node.source_fit]?.parameters;
   if (!parameters) return null;
   const axis = new THREE.Vector3(parameters[2], parameters[3], 1).normalize();
+  if (node.direction_reversed) axis.negate();
   return {
     axis_display: axis.toArray(),
     point_display: [parameters[0], parameters[1], 0],
   };
+}
+function pointPreview(node) {
+  let coordinates = node.initial_coordinates;
+  if (!coordinates && node.source_fit)
+    coordinates = graphState.results[node.source_fit]?.parameters?.slice(0, 3);
+  return coordinates ? { point_display: coordinates } : null;
+}
+function pointGuide(values, color = '#ffd166') {
+  overlays.add(
+    new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(...values.point_display),
+      ]),
+      new THREE.PointsMaterial({
+        color,
+        depthTest: false,
+        size: 12,
+        sizeAttenuation: false,
+      }),
+    ),
+  );
+}
+function transformGuide(values) {
+  const origin = new THREE.Vector3(...values.origin_display),
+    extent = Math.max(...(metadata?.axial_domain || [-2, 5]).map(Math.abs), 1) * 0.7;
+  for (const [key, color] of [
+    ['x_axis_display', '#ff6b6b'],
+    ['y_axis_display', '#67dba2'],
+    ['z_axis_display', '#72b7ed'],
+  ]) {
+    const end = origin.clone().addScaledVector(new THREE.Vector3(...values[key]), extent);
+    overlays.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([origin, end]),
+        new THREE.LineBasicMaterial({ color, depthTest: false }),
+      ),
+    );
+  }
+  pointGuide({ point_display: values.origin_display }, '#ffffff');
 }
 function referencePlanePreview(node) {
   const axisNode = graphNode(node.axis);
@@ -1102,6 +1389,59 @@ function referencePlaneGuide(values, color = '#ff8fe5') {
   );
 }
 function surfaceGuide(kind, p, domain, color, ids = []) {
+  const line = (points) =>
+    overlays.add(
+      new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({
+          color: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.18),
+          depthTest: false,
+          transparent: true,
+          opacity: 1,
+        }),
+      ),
+    );
+  if (kind === 'sphere') {
+    const center = new THREE.Vector3(...p.slice(0, 3)),
+      radius = p[3];
+    for (const degrees of [-60, -30, 0, 30, 60]) {
+      const latitude = (degrees * Math.PI) / 180,
+        ringRadius = radius * Math.cos(latitude),
+        z = radius * Math.sin(latitude),
+        points = [];
+      for (let i = 0; i <= 96; i++) {
+        const angle = (i * 2 * Math.PI) / 96;
+        points.push(
+          center
+            .clone()
+            .add(new THREE.Vector3(
+              ringRadius * Math.cos(angle),
+              ringRadius * Math.sin(angle),
+              z,
+            )),
+        );
+      }
+      line(points);
+    }
+    for (let longitude = 0; longitude < 12; longitude++) {
+      const angle = (longitude * Math.PI) / 12,
+        points = [];
+      for (let i = 0; i <= 96; i++) {
+        const polar = (i * 2 * Math.PI) / 96;
+        points.push(
+          center
+            .clone()
+            .add(new THREE.Vector3(
+              radius * Math.sin(polar) * Math.cos(angle),
+              radius * Math.sin(polar) * Math.sin(angle),
+              radius * Math.cos(polar),
+            )),
+        );
+      }
+      line(points);
+    }
+    return;
+  }
   let axis, point;
   if (kind === 'plane') {
     axis = new THREE.Vector3(...p.slice(0, 3));
@@ -1120,18 +1460,6 @@ function surfaceGuide(kind, p, domain, color, ids = []) {
       )
       .normalize(),
     v = new THREE.Vector3().crossVectors(axis, u);
-  const line = (points) =>
-    overlays.add(
-      new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points),
-        new THREE.LineBasicMaterial({
-          color: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.18),
-          depthTest: false,
-          transparent: true,
-          opacity: 1,
-        }),
-      ),
-    );
   const ring = (z, r) => {
     const points = [];
     for (let i = 0; i <= 96; i++) {
@@ -1199,9 +1527,14 @@ function showAvailableGuides() {
     if (node.operation === 'axis') {
       const values = fitted || axisPreview(node);
       if (values) axisGuide(values, '#f4cf72');
+    } else if (node.operation === 'point') {
+      const values = fitted || pointPreview(node);
+      if (values) pointGuide(values, '#f4cf72');
     } else if (node.operation === 'reference_plane') {
       const values = fitted || referencePlanePreview(node);
       if (values) referencePlaneGuide(values);
+    } else if (node.operation === 'frame' && fitted) {
+      transformGuide(fitted);
     } else if (node.operation === 'fit' && fitted) {
       fitGuide(node, fitted, palette[colorIndex++ % palette.length]);
     }
@@ -1269,6 +1602,9 @@ function showResult() {
     if (node.operation === 'axis') {
       const preview = axisPreview(node);
       if (preview) axisGuide(preview);
+    } else if (node.operation === 'point') {
+      const preview = pointPreview(node);
+      if (preview) pointGuide(preview);
     } else if (node.operation === 'reference_plane') {
       const preview = referencePlanePreview(node);
       if (preview) referencePlaneGuide(preview);
@@ -1310,14 +1646,52 @@ function showResult() {
         .slice(0, 3)
         .map((v) => v.toFixed(4))
         .join(', ');
+    else if (node.kind === 'sphere') {
+      values['Center'] = result.parameters
+        .slice(0, 3)
+        .map((v) => v.toFixed(5))
+        .join(', ');
+      values['Diameter'] = (2 * result.parameters[3]).toFixed(5);
+    }
     else {
       values['Diameter'] = (2 * result.parameters[4]).toFixed(5);
       values['Half-angle'] = ((Math.atan(result.parameters[6]) * 180) / Math.PI).toFixed(4) + '°';
     }
   } else if (node.operation === 'axis') {
     axisGuide(result);
-    values['Initialized by'] = node.source_fit ? graphNode(node.source_fit).label : 'Manual value';
+    values['Constructed by'] = node.source_points
+      ? `${graphNode(node.source_points[0]).label} → ${graphNode(node.source_points[1]).label}`
+      : node.source_fit
+        ? graphNode(node.source_fit).label
+        : 'Manual value';
     values['Direction'] = result.axis_display.map((v) => v.toFixed(5)).join(', ');
+    values['Direction flipped'] = node.direction_reversed ? 'Yes' : 'No';
+  } else if (node.operation === 'point') {
+    pointGuide(result);
+    values['Initialized by'] = node.source_fit ? graphNode(node.source_fit).label : 'Manual value';
+    values['Coordinates'] = result.point_display.map((v) => v.toFixed(5)).join(', ');
+  } else if (node.operation === 'frame') {
+    transformGuide(result);
+    values['Origin'] = result.origin_display.map((v) => v.toFixed(5)).join(', ');
+    values['Primary mapping'] = `${graphNode(node.primary_reference).label} → ${node.primary_output_axis}`;
+    values['Secondary mapping'] = `${graphNode(node.secondary_reference).label} → ${node.secondary_output_axis}`;
+    values['Reference separation'] = `${result.reference_separation_degrees.toFixed(4)}°`;
+  } else if (node.operation === 'scale') {
+    values['Uniform scale'] = result.scale.toPrecision(9);
+    values['Distance observations'] = result.observations.length;
+    values['Distance RMS'] = result.weighted_rms.toPrecision(6);
+    values['Worst distance residual'] = result.max_abs_residual.toPrecision(6);
+  } else if (node.operation === 'transform') {
+    transformGuide(result);
+    values['Frame'] = graphNode(node.frame).label;
+    values['Scale'] = graphNode(node.scale).label;
+    values['Uniform scale'] = result.scale.toPrecision(9);
+    values['Scale observations'] = result.scale_observation_count;
+    values['Scale RMS'] = result.scale_weighted_rms.toPrecision(6);
+    values['Origin'] = result.origin_display.map((v) => v.toFixed(5)).join(', ');
+    values['Output X'] = result.x_axis_display.map((v) => v.toFixed(5)).join(', ');
+    values['Output Y'] = result.y_axis_display.map((v) => v.toFixed(5)).join(', ');
+    values['Output Z'] = result.z_axis_display.map((v) => v.toFixed(5)).join(', ');
   } else if (node.operation === 'reference_plane') {
     referencePlaneGuide(result);
     values['Construction'] = planeConstructionLabel(result.construction);
@@ -1362,7 +1736,7 @@ function showResult() {
     values['Source selection'] = graphNode(result.source_selection).label;
   } else if (node.operation === 'equal_radii') {
     values['Shared radius'] = result.value.toFixed(5);
-    values['Cylinders'] = node.surfaces.length;
+    values['Fits'] = node.surfaces.length;
     Object.entries(result.surfaces).forEach(([id, surface], index) =>
       fitGuide(graphNode(id), surface, palette[index % palette.length]),
     );
@@ -1575,7 +1949,8 @@ async function evaluateGraph(allActions, target = null) {
 }
 function home(direction = null) {
   mesh.geometry.computeBoundingSphere();
-  const sphere = mesh.geometry.boundingSphere;
+  mesh.updateMatrixWorld(true);
+  const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld);
   const distance =
     (sphere.radius /
       Math.sin(
@@ -1680,6 +2055,9 @@ async function start() {
   renderer.domElement.setAttribute('aria-label', 'Nozzle 3D view');
   scene = new THREE.Scene();
   scene.background = new THREE.Color('#17232e');
+  modelRoot = new THREE.Group();
+  modelRoot.matrixAutoUpdate = false;
+  scene.add(modelRoot);
   camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
   camera.up.set(0, 0, 1);
   const raycaster = new THREE.Raycaster();
@@ -1726,7 +2104,7 @@ async function start() {
       polygonOffsetUnits: 2,
     }),
   );
-  scene.add(mesh);
+  modelRoot.add(mesh);
   const pointGeometry = new THREE.BufferGeometry();
   pointGeometry.setAttribute('position', geometry.getAttribute('position'));
   pointGeometry.setAttribute(
@@ -1743,7 +2121,7 @@ async function start() {
     }),
   );
   selectedPoints.renderOrder = 1;
-  scene.add(selectedPoints);
+  modelRoot.add(selectedPoints);
   const focusedGeometry = new THREE.BufferGeometry();
   focusedGeometry.setAttribute('position', geometry.getAttribute('position'));
   focusedGeometry.setAttribute(
@@ -1760,7 +2138,7 @@ async function start() {
     }),
   );
   focusedPoints.renderOrder = 2;
-  scene.add(focusedPoints);
+  modelRoot.add(focusedPoints);
   const overlapGeometry = new THREE.BufferGeometry();
   overlapGeometry.setAttribute('position', geometry.getAttribute('position'));
   overlapMarkers = new THREE.Points(
@@ -1785,23 +2163,25 @@ async function start() {
   );
   overlapHalo.renderOrder = 100;
   overlapMarkers.renderOrder = 101;
-  scene.add(overlapHalo, overlapMarkers);
+  modelRoot.add(overlapHalo, overlapMarkers);
   scene.add(new THREE.HemisphereLight('#ffffff', '#738396', 2));
   const light = new THREE.DirectionalLight('#ffffff', 2.5);
   light.position.set(15, -20, 30);
   scene.add(light);
   overlays = new THREE.Group();
-  scene.add(overlays);
+  modelRoot.add(overlays);
   reuseVolumes = new THREE.Group();
   reuseVolumes.userData.volumeCount = 0;
-  scene.add(reuseVolumes);
+  modelRoot.add(reuseVolumes);
   const resize = () => {
+    if (viewport.hidden || !viewport.clientWidth || !viewport.clientHeight) return;
     renderer.setSize(viewport.clientWidth, viewport.clientHeight);
     camera.aspect = viewport.clientWidth / viewport.clientHeight;
     camera.updateProjectionMatrix();
     controls.resize();
     draw();
   };
+  resizeViewport = resize;
   new ResizeObserver(resize).observe(viewport);
   resize();
   home('oblique');
@@ -1847,6 +2227,7 @@ async function start() {
   };
   const updateExportPlanes = () => {
     const nodes = graphState.recipe.nodes;
+    const explicitTransform = $('export-transform').value;
     const target = nodes.find((n) => n.id === $('export-target').value);
     const ids = new Set([target?.id]);
     for (const id of target?.factors || []) {
@@ -1868,10 +2249,12 @@ async function start() {
       select.add(new Option(node.label, node.id));
     }
     select.value = [...select.options].some((o) => o.value === previous) ? previous : '';
-    select.disabled = !$('export-axis-up').checked;
+    $('export-legacy-frame').hidden = !!explicitTransform;
+    select.disabled = !!explicitTransform || !$('export-axis-up').checked;
   };
   $('export-target').onchange = updateExportPlanes;
   $('export-axis-up').onchange = updateExportPlanes;
+  $('export-transform').onchange = updateExportPlanes;
   $('export-rhino').onclick = () => {
     const targets = graphState.recipe.nodes.filter((n) =>
       ['fit', 'joint_fit', 'axis_solve'].includes(n.operation),
@@ -1880,6 +2263,13 @@ async function start() {
       targets.find((n) => n.id === selectedFeatureId)?.id ||
         targets.find((n) => ['axis_solve', 'joint_fit'].includes(n.operation))?.id,
     ]);
+    choices(
+      'export-transform',
+      [
+        { id: '', label: 'No explicit transform' },
+        ...graphState.recipe.nodes.filter((node) => node.operation === 'transform'),
+      ],
+    );
     updateExportPlanes();
     $('export-error').textContent = '';
     $('export-dialog').showModal();
@@ -1890,16 +2280,22 @@ async function start() {
     busy = true;
     $('export-download').disabled = true;
     $('export-error').textContent = 'Evaluating surfaces…';
-    const target = $('export-target').value;
+    const target = $('export-target').value,
+      transform = $('export-transform').value || null;
     try {
-      await request('/api/graph/evaluate', { token: graphState.token, target });
       let state;
-      do {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        state = await request('/api/graph');
-        acceptGraph(state);
-      } while (state.evaluation_running);
-      if (state.evaluation_error) throw new Error(state.evaluation_error);
+      for (const evaluationTarget of [...new Set([transform, target].filter(Boolean))]) {
+        await request('/api/graph/evaluate', {
+          token: graphState.token,
+          target: evaluationTarget,
+        });
+        do {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          state = await request('/api/graph');
+          acceptGraph(state);
+        } while (state.evaluation_running);
+        if (state.evaluation_error) throw new Error(state.evaluation_error);
+      }
       $('export-error').textContent = 'Preparing Rhino file…';
       const response = await fetch('/api/export/rhino', {
         method: 'POST',
@@ -1908,8 +2304,12 @@ async function start() {
           token: state.token,
           target,
           units: $('export-units').value,
-          axis_up: $('export-axis-up').checked,
-          origin_plane: $('export-axis-up').checked ? $('export-origin-plane').value || null : null,
+          axis_up: transform ? false : $('export-axis-up').checked,
+          origin_plane:
+            !transform && $('export-axis-up').checked
+              ? $('export-origin-plane').value || null
+              : null,
+          transform,
           include_mesh: $('export-mesh').checked,
         }),
       });
@@ -2084,18 +2484,94 @@ async function start() {
         ['cone', 'cylinder'].includes(node.kind) &&
         isStandaloneFit(node),
     );
+    const points = graphState.recipe.nodes.filter((node) => node.operation === 'point'),
+      selectedPoints = points.filter((node) => selectedFeatureIds.has(node.id));
     choices(
       'new-axis-source',
       sources,
       [selectedFeatureId],
     );
-    $('new-axis-mode').value = 'free';
+    choices('new-axis-point-a', points, selectedPoints.slice(0, 1).map((node) => node.id));
+    choices('new-axis-point-b', points, selectedPoints.slice(1, 2).map((node) => node.id));
+    $('new-axis-mode').value = selectedPoints.length === 2 ? 'points' : 'free';
+    $('new-axis-direction-reversed').checked = false;
+    $('axis-error').textContent = '';
     showAxisInitializer(
       'new-axis-mode',
       'new-axis-source-fields',
       'new-axis-manual-fields',
+      'new-axis-point-fields',
     );
     showCreateDialog('axis-dialog', 'new-axis-label', 'Reference axis');
+  };
+  $('new-point').onclick = () => {
+    const fits = graphState.recipe.nodes.filter(
+      (node) => node.operation === 'fit' && node.kind === 'sphere' && isStandaloneFit(node),
+    );
+    choices('new-point-source', fits, [selectedFeatureId]);
+    $('new-point-mode').value = 'free';
+    showAxisInitializer(
+      'new-point-mode',
+      'new-point-source-fields',
+      'new-point-manual-fields',
+    );
+    showCreateDialog('point-dialog', 'new-point-label', 'Reference point');
+  };
+  $('new-frame').onclick = () => {
+    const geometry = frameGeometry(graphState.recipe.nodes),
+      selectedPoint = geometry.points.find((node) => selectedFeatureIds.has(node.id)),
+      selectedReferences = geometry.references.filter((node) => selectedFeatureIds.has(node.id));
+    if (!geometry.points.length || geometry.references.length < 2) {
+      status('Create a point and two direction-bearing references before defining a frame.', true);
+      return;
+    }
+    const primary =
+        selectedReferences.find((node) => node.operation !== 'axis') ||
+        selectedReferences[0] ||
+        geometry.references.find((node) => node.operation !== 'axis') ||
+        geometry.references[0],
+      secondary =
+        selectedReferences.find((node) => node.id !== primary.id) ||
+        geometry.references.find((node) => node.id !== primary.id);
+    choices('new-frame-origin', geometry.points, [selectedPoint?.id || geometry.points[0].id]);
+    choices('new-frame-primary-reference', geometry.references, [primary.id]);
+    choices('new-frame-secondary-reference', geometry.references, [secondary.id]);
+    $('new-frame-primary-output').value = '+Z';
+    $('new-frame-secondary-output').value = '+X';
+    $('frame-error').textContent = '';
+    showCreateDialog('frame-dialog', 'new-frame-label', 'Coordinate frame');
+  };
+  $('new-scale').onclick = () => {
+    const geometry = frameGeometry(graphState.recipe.nodes),
+      selectedPoints = geometry.points.filter((node) => selectedFeatureIds.has(node.id));
+    if (geometry.points.length < 2) {
+      status('Create at least two point datums before defining scale.', true);
+      return;
+    }
+    const pairPoints = selectedPoints.length >= 2 ? selectedPoints : geometry.points.slice(0, 2),
+      distances = [];
+    for (let first = 0; first < pairPoints.length; first++)
+      for (let second = first + 1; second < pairPoints.length; second++)
+        distances.push({
+          first_point: pairPoints[first].id,
+          second_point: pairPoints[second].id,
+          known_distance: currentPointDistance(pairPoints[first].id, pairPoints[second].id),
+        });
+    renderScaleDistances('new-scale-distance-rows', geometry.points, distances);
+    $('scale-error').textContent = '';
+    showCreateDialog('scale-dialog', 'new-scale-label', 'Output scale');
+  };
+  $('new-transform').onclick = () => {
+    const frames = graphState.recipe.nodes.filter((node) => node.operation === 'frame'),
+      scales = graphState.recipe.nodes.filter((node) => node.operation === 'scale');
+    if (!frames.length || !scales.length) {
+      status('Create a coordinate frame and output scale before composing a transform.', true);
+      return;
+    }
+    choices('new-transform-frame', frames, [...selectedFeatureIds]);
+    choices('new-transform-scale', scales, [...selectedFeatureIds]);
+    $('transform-error').textContent = '';
+    showCreateDialog('transform-dialog', 'new-transform-label', 'Output transform');
   };
   $('new-reference-plane').onclick = () => {
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
@@ -2116,7 +2592,10 @@ async function start() {
   };
   const updateMirrorChoices = () => {
     const fits = graphState.recipe.nodes.filter(
-      (node) => node.operation === 'fit' && isStandaloneFit(node),
+      (node) =>
+        node.operation === 'fit' &&
+        ['cone', 'cylinder', 'plane'].includes(node.kind) &&
+        isStandaloneFit(node),
     );
     const first = fits.find((fit) => fit.id === selectedFeatureId) || fits[0];
     const second = fits.find((fit) => fit.id !== first?.id);
@@ -2131,7 +2610,10 @@ async function start() {
     }
     if (
       graphState.recipe.nodes.filter(
-        (node) => node.operation === 'fit' && isStandaloneFit(node),
+        (node) =>
+          node.operation === 'fit' &&
+          ['cone', 'cylinder', 'plane'].includes(node.kind) &&
+          isStandaloneFit(node),
       ).length < 2
     ) {
       status('Create two standalone fits before adding mirror symmetry.', true);
@@ -2223,9 +2705,12 @@ async function start() {
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
   $('new-fit-kind').onchange = () => {
+    const referenceOperation = graphNode($('new-fit-reference').value)?.operation;
     if (
-      $('new-fit-kind').value !== 'plane' &&
-      graphNode($('new-fit-reference').value)?.operation === 'reference_plane'
+      ($('new-fit-kind').value === 'sphere' && referenceOperation !== 'point') ||
+      ($('new-fit-kind').value !== 'sphere' && referenceOperation === 'point') ||
+      ($('new-fit-kind').value !== 'plane' &&
+        referenceOperation === 'reference_plane')
     )
       $('new-fit-reference').value = '';
     fitReferenceChoices(
@@ -2239,11 +2724,16 @@ async function start() {
     updateFitKindForReference('new-fit-kind', 'new-fit-reference');
   $('surface-kind').onchange = () => {
     const node = graphNode(selectedFeatureId);
+    const referenceOperation = graphNode($('fit-reference').value)?.operation;
     if (
-      $('surface-kind').value !== 'plane' &&
-      graphNode($('fit-reference').value)?.operation === 'reference_plane'
+      ($('surface-kind').value === 'sphere' && referenceOperation !== 'point') ||
+      ($('surface-kind').value !== 'sphere' && referenceOperation === 'point') ||
+      ($('surface-kind').value !== 'plane' &&
+        referenceOperation === 'reference_plane')
     )
       $('fit-reference').value = '';
+    $('axial-start-row').hidden = $('surface-kind').value === 'sphere';
+    $('axial-end-row').hidden = $('surface-kind').value === 'sphere';
     fitReferenceChoices(
       'fit-reference',
       $('surface-kind').value,
@@ -2264,9 +2754,33 @@ async function start() {
       'new-axis-mode',
       'new-axis-source-fields',
       'new-axis-manual-fields',
+      'new-axis-point-fields',
+    );
+  $('new-point-mode').onchange = () =>
+    showAxisInitializer(
+      'new-point-mode',
+      'new-point-source-fields',
+      'new-point-manual-fields',
     );
   $('axis-init-mode').onchange = () =>
-    showAxisInitializer('axis-init-mode', 'axis-source-fields', 'axis-manual-fields');
+    showAxisInitializer(
+      'axis-init-mode',
+      'axis-source-fields',
+      'axis-manual-fields',
+      'axis-point-fields',
+    );
+  $('point-init-mode').onchange = () =>
+    showAxisInitializer('point-init-mode', 'point-source-fields', 'point-manual-fields');
+  $('add-new-scale-distance-row').onclick = () =>
+    scaleDistanceRow(
+      'new-scale-distance-rows',
+      frameGeometry(graphState.recipe.nodes).points,
+    );
+  $('add-scale-distance-row').onclick = () => {
+    const selected = graphNode(selectedFeatureId),
+      earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(selected));
+    scaleDistanceRow('scale-distance-rows', frameGeometry(earlier).points);
+  };
   $('new-reference-plane-construction').onchange = () => showReferencePlaneFields('new-');
   $('reference-plane-construction').onchange = () => showReferencePlaneFields();
   $('axis-solve-axis').onchange = () => {
@@ -2442,20 +2956,31 @@ async function start() {
   };
   $('add-axis-form').onsubmit = async (event) => {
     event.preventDefault();
-    const fromFit = $('new-axis-mode').value === 'fit',
+    const mode = $('new-axis-mode').value,
+      fromFit = mode === 'fit',
+      fromPoints = mode === 'points',
       sourceId = $('new-axis-source').value,
       source = graphNode(sourceId),
+      pointA = $('new-axis-point-a').value,
+      pointB = $('new-axis-point-b').value,
       axisLabel = submittedFeatureLabel('new-axis-label');
     if (fromFit && !source) {
       status('Create a standalone cone or cylinder fit first.', true);
+      return;
+    }
+    if (fromPoints && (!pointA || !pointB || pointA === pointB)) {
+      $('axis-error').textContent = 'Choose two distinct point datums.';
       return;
     }
     const axis = {
       id: uid('axis'),
       label: axisLabel,
       operation: 'axis',
+      direction_reversed: $('new-axis-direction-reversed').checked,
       ...(fromFit
         ? { source_fit: sourceId }
+        : fromPoints
+          ? { source_points: [pointA, pointB] }
         : {
             initial_parameters: [
               Number($('new-axis-point-x').value),
@@ -2477,6 +3002,116 @@ async function start() {
         axis: axis.id,
       });
     if (await appendActions(nodes)) $('axis-dialog').close();
+  };
+  $('add-point-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const fromFit = $('new-point-mode').value === 'fit',
+      sourceId = $('new-point-source').value,
+      source = graphNode(sourceId),
+      pointLabel = submittedFeatureLabel('new-point-label');
+    if (fromFit && !source) {
+      status('Create a standalone sphere fit first.', true);
+      return;
+    }
+    const point = {
+      id: uid('point'),
+      label: pointLabel,
+      operation: 'point',
+      ...(fromFit
+        ? { source_fit: sourceId }
+        : {
+            initial_coordinates: [
+              Number($('new-point-x').value),
+              Number($('new-point-y').value),
+              Number($('new-point-z').value),
+            ],
+          }),
+    };
+    const nodes = [point];
+    if (fromFit && $('new-point-clone').checked)
+      nodes.push({
+        id: uid('fit'),
+        label: nextFeatureLabel(source.label + ' point factor', [pointLabel]),
+        operation: 'fit',
+        selections: [...source.selections],
+        kind: 'sphere',
+        axial_domain: [...source.axial_domain],
+        point: point.id,
+      });
+    if (await appendActions(nodes)) $('point-dialog').close();
+  };
+  $('add-frame-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const primaryReference = $('new-frame-primary-reference').value,
+      secondaryReference = $('new-frame-secondary-reference').value,
+      primaryOutput = $('new-frame-primary-output').value,
+      secondaryOutput = $('new-frame-secondary-output').value;
+    if (
+      !primaryReference ||
+      !secondaryReference ||
+      primaryReference === secondaryReference ||
+      primaryOutput.at(-1) === secondaryOutput.at(-1)
+    ) {
+      $('frame-error').textContent =
+        'Choose two different direction references and two different output axes.';
+      return;
+    }
+    const saved = await appendActions([
+      {
+        id: uid('frame'),
+        label: submittedFeatureLabel('new-frame-label'),
+        operation: 'frame',
+        origin_point: $('new-frame-origin').value,
+        primary_reference: primaryReference,
+        primary_output_axis: primaryOutput,
+        secondary_reference: secondaryReference,
+        secondary_output_axis: secondaryOutput,
+      },
+    ]);
+    if (saved) $('frame-dialog').close();
+    else $('frame-error').textContent = $('status').textContent;
+  };
+  $('add-scale-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const distances = readScaleDistances('new-scale-distance-rows');
+    if (
+      !distances.length ||
+      distances.some(
+        (distance) =>
+          !distance.first_point ||
+          !distance.second_point ||
+          distance.first_point === distance.second_point ||
+          !(distance.known_distance > 0),
+      )
+    ) {
+      $('scale-error').textContent =
+        'Add at least one valid distance between two distinct point datums.';
+      return;
+    }
+    const saved = await appendActions([
+      {
+        id: uid('scale'),
+        label: submittedFeatureLabel('new-scale-label'),
+        operation: 'scale',
+        distances,
+      },
+    ]);
+    if (saved) $('scale-dialog').close();
+    else $('scale-error').textContent = $('status').textContent;
+  };
+  $('add-transform-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const saved = await appendActions([
+      {
+        id: uid('transform'),
+        label: submittedFeatureLabel('new-transform-label'),
+        operation: 'transform',
+        frame: $('new-transform-frame').value,
+        scale: $('new-transform-scale').value,
+      },
+    ]);
+    if (saved) $('transform-dialog').close();
+    else $('transform-error').textContent = $('status').textContent;
   };
   $('add-reference-plane-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -2643,7 +3278,11 @@ async function start() {
     const joint = graphNode($('rotation-joint').value);
     const used = new Set(joint ? joint.constraints.flatMap((id) => refs(graphNode(id))) : []);
     const planes = graphState.recipe.nodes.filter(
-      (n) => n.operation === 'fit' && isStandaloneFit(n) && !used.has(n.id),
+      (n) =>
+        n.operation === 'fit' &&
+        ['cone', 'cylinder', 'plane'].includes(n.kind) &&
+        isStandaloneFit(n) &&
+        !used.has(n.id),
     );
     for (let i = 0; i < 3; i++) choices('rotation-plane-' + i, planes, [planes[i]?.id]);
   };
@@ -2755,11 +3394,25 @@ async function start() {
       setFitReference(node, $('fit-reference').value);
     }
     if (node.operation === 'axis') {
-      if ($('axis-init-mode').value === 'fit') {
+      const mode = $('axis-init-mode').value;
+      node.direction_reversed = $('axis-direction-reversed').checked;
+      if (mode === 'fit') {
         node.source_fit = $('axis-source-fit').value;
+        node.source_points = null;
+        node.initial_parameters = null;
+      } else if (mode === 'points') {
+        const pointA = $('axis-source-point-a').value,
+          pointB = $('axis-source-point-b').value;
+        if (!pointA || !pointB || pointA === pointB) {
+          status('Choose two distinct point datums.', true);
+          return;
+        }
+        node.source_fit = null;
+        node.source_points = [pointA, pointB];
         node.initial_parameters = null;
       } else {
         node.source_fit = null;
+        node.source_points = null;
         node.initial_parameters = [
           Number($('axis-point-x').value),
           Number($('axis-point-y').value),
@@ -2767,6 +3420,58 @@ async function start() {
           Number($('axis-direction-y').value),
         ];
       }
+    }
+    if (node.operation === 'point') {
+      if ($('point-init-mode').value === 'fit') {
+        node.source_fit = $('point-source-fit').value;
+        node.initial_coordinates = null;
+      } else {
+        node.source_fit = null;
+        node.initial_coordinates = [
+          Number($('point-x').value),
+          Number($('point-y').value),
+          Number($('point-z').value),
+        ];
+      }
+    }
+    if (node.operation === 'frame') {
+      const primaryReference = $('frame-primary-reference').value,
+        secondaryReference = $('frame-secondary-reference').value,
+        primaryOutput = $('frame-primary-output').value,
+        secondaryOutput = $('frame-secondary-output').value;
+      if (
+        primaryReference === secondaryReference ||
+        primaryOutput.at(-1) === secondaryOutput.at(-1)
+      ) {
+        status('Choose different direction references and output axes.', true);
+        return;
+      }
+      node.origin_point = $('frame-origin').value;
+      node.primary_reference = primaryReference;
+      node.primary_output_axis = primaryOutput;
+      node.secondary_reference = secondaryReference;
+      node.secondary_output_axis = secondaryOutput;
+    }
+    if (node.operation === 'scale') {
+      const distances = readScaleDistances('scale-distance-rows');
+      if (
+        !distances.length ||
+        distances.some(
+          (distance) =>
+            !distance.first_point ||
+            !distance.second_point ||
+            distance.first_point === distance.second_point ||
+            !(distance.known_distance > 0),
+        )
+      ) {
+        status('Add at least one valid distance between distinct points.', true);
+        return;
+      }
+      node.distances = distances;
+    }
+    if (node.operation === 'transform') {
+      node.frame = $('transform-frame').value;
+      node.scale = $('transform-scale').value;
     }
     if (node.operation === 'reference_plane') {
       node.axis = $('reference-plane-axis').value;
@@ -3061,6 +3766,31 @@ async function start() {
     acceptGraph(graphState);
     status('Selection gesture cancelled.');
   };
+  const workspaceTabs = [$('model-view-tab'), $('graph-view-tab')];
+  $('model-view-tab').onclick = () => {
+    cancelStroke();
+    setWorkspaceView('model');
+  };
+  $('graph-view-tab').onclick = () => {
+    cancelStroke();
+    setWorkspaceView('graph');
+  };
+  for (const tab of workspaceTabs) {
+    tab.onkeydown = (event) => {
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      event.preventDefault();
+      const next = workspaceView === 'model' ? 'graph' : 'model';
+      setWorkspaceView(next);
+      $(next === 'model' ? 'model-view-tab' : 'graph-view-tab').focus();
+    };
+  }
+  for (const id of [
+    'feature-graph-lens',
+    'feature-graph-selections',
+    'feature-graph-generated',
+    'feature-graph-neighborhood',
+  ])
+    $(id).onchange = renderGraphView;
   const preview = () => {
     session = editMembership(stroke.original, stroke.region, stroke.hits, stroke.operation);
     result = null;
@@ -3230,7 +3960,9 @@ async function start() {
   };
   const state = await request('/api/graph');
   acceptGraph(state);
+  setWorkspaceView(location.hash === '#graph' ? 'graph' : 'model');
   $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');
+  if ($('auto-evaluate').checked) await evaluateAll();
 }
 await start();

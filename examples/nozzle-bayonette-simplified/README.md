@@ -28,7 +28,23 @@ It displays guides and residual colors. The backend feature graph drives both th
 UI and script. Current recipes save as source-bound JSON; undo and change history
 are deferred. The checked-in
 `recipes/cone-plane.json` and `recipes/cylinder-plane.json` declare alternative
-fits using the same selections. This remains an exploratory frontend, not a product UI commitment.
+fits using the same selections. The
+[`nozzle-selection-and-fitting-demo.json`](recipes/nozzle-selection-and-fitting-demo.json)
+recipe retains the broader interactive selection work: eleven named surface
+patches, a free center axis, and two cone fits. This remains an exploratory
+frontend, not a product UI commitment.
+
+Run that demonstration graph from the repository root with:
+
+```sh
+OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
+  python -m experiments.nozzle_browser \
+  --example examples/nozzle-bayonette-simplified \
+  --recipe \
+  examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json \
+  --port 8765
+```
+
 These checked-in recipes were inputs to the completed one-time data salvage for
 the reference-geometry successor. Any richer browser-edited graph must be saved
 with **Save actions** before the old browser is removed. Only source-bound
@@ -52,6 +68,10 @@ pending because the manual overlay check has not been performed.
   vertex normals, and triangle connectivity.
 - `nozzle-bayonette-simplified.ply.rsInfo`: unchanged RealityScan export sidecar.
 - `manifest.json`: source hashes, actual counts, and provenance limitations.
+- `recipes/nozzle-selection-and-fitting-demo.json`: current-schema browser demo
+  recipe with eleven retained selections, a free center axis, and outer/recess
+  cone fits. The two fit labels were made unique when the saved user graph was
+  admitted; memberships and geometric properties are unchanged.
 - `selections/outer-band.json`: geometric gates, weight definition, local fit
   frame, initial guess, and binding to this exact mesh and ID list.
 - `selections/outer-band-vertex-ids.txt`: 1,261 zero-based source vertex row IDs,

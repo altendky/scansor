@@ -15,10 +15,11 @@ outside the intended boundary.
 ## Documentation
 
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
-  - **Future requirements and provisional next step:** independent selection shape
-    and depth mode, painted seeds and assisted growth/inset, backend DAG and
-    ordered frontend actions, and a bounded implemented nozzle recipe; change history
-    is deferred
+  - **Implemented bounded slice and future requirements:** circular painting and
+    rectangles with independent depth modes, painted seeds and one-pass connected
+    growth, backend DAG and ordered frontend actions, reusable regions and
+    multi-target feature reuse; standalone circle/polygon tools, boundary inset,
+    iterative growth, compound semantics, and change history remain deferred
 - [Reference geometry and solve graph](planning/reference-geometry-and-solve-graph.md)
   - **Provisional direction and first internal contract:** compatibility-free
     axis/cylinder/perpendicular-plane declarations, exact dependencies,
@@ -30,14 +31,21 @@ outside the intended boundary.
     exploratory later direction
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
-  - **Provisional experiment:** retained selection editing, explicit axes,
-    fixed-axis fits, shared-axis cone/cylinder-and-plane solving, and residual display;
+  - **Provisional experiment:** retained selection editing, explicit points and
+    axes, cone/cylinder/plane/sphere fits, shared-point sphere centers,
+    sphere/cylinder radius equality, fixed-axis fits, shared-axis
+    cone/cylinder-and-plane solving, residual display, explicit coordinate Frame
+    construction, uniform Scale derivation from multiple point distances, and an
+    editable Transform composing those features for the model view and Rhino
+    export;
     frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
-  - **Exploratory generated fixture:** three congruent compound bosses with
-    clocking flats, deterministic as-built deviations, scan corruption, distinct
-    tessellations, and a separately posed rescan for selection-region transfer
+  - **Exploratory generated fixture:** four compound bosses with clocking flats,
+    three spherical corner features, a plate-top orientation reference,
+    deterministic as-built deviations, scan corruption, a visibly rotated
+    coarse workspace, distinct tessellations, and a separately posed rescan
+    for selection-region transfer
 
 - [Terminology and scope](terminology-and-scope.md) - **Current direction:**
   canonical terminology, the user-to-product contract, initial model families,

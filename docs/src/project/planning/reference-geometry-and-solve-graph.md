@@ -43,17 +43,18 @@ vocabulary should distinguish at least:
 
 - a point;
 - an unoriented or oriented direction, where the distinction is explicit;
-- an axis line, geometrically unoriented unless separately paired with an
-  oriented direction;
+- a directed axis datum, whose underlying unoriented line remains separately
+  meaningful;
 - an oriented plane; and
 - a right-handed frame.
 
-An **axis line** is a line, not an implicit coordinate frame. It has no preferred
-point along itself, direction sign, or roll about itself. Deriving an oriented
-normal or signed axial coordinate from it requires a separate explicit direction
-choice. A use case requiring an axial zero, a clocking direction, or both must
-declare additional geometry such as a point on the axis or a frame. This avoids
-hiding unobservable degrees of freedom in the word `axis`.
+An **axis datum** carries a line plus an explicit positive direction, but it is
+not an implicit coordinate frame. Reversing the direction does not change the
+underlying line. An axis constructed from two ordered points runs from the first
+point toward the second; a fit-derived line requires an explicit direction-sign
+choice. A use case requiring an axial zero or roll about the axis must still
+declare additional geometry such as a point or a frame. This avoids hiding the
+remaining unobservable degrees of freedom in the word `axis`.
 
 The bounded browser adapter now exposes three axis-relative plane constructions:
 a plane containing an axis, a parallel plane at a signed normal offset, and a
@@ -63,7 +64,8 @@ deterministic display basis. Those are prototype coordinate conventions, not a
 claim that a geometric axis intrinsically owns an origin or clocking frame.
 
 Surface-fit actions in the bounded adapter expose these definitions through one
-**Reference geometry** choice. Cone and cylinder fits accept an axis. Plane fits
+**Reference geometry** choice. Sphere fits accept a point; cone and cylinder
+fits accept an axis. Plane fits
 accept either an axis, which fixes their normal parallel to that axis, or a
 reference plane, which fixes their normal parallel to the datum normal. In both
 cases the observations fit an independent offset. When the referenced axis is
@@ -329,8 +331,15 @@ source coordinates, evaluate residuals or derivatives, optimize, diagnose numeri
 rank, or emit a resolved solve result. The nozzle browser now provides separate,
 fixture-specific numerical evidence for the two axis workflows and operation-DAG
 invalidation; that adapter is not the generalized contract's execution backend.
-Point reference geometry, placed frame values, transforms, partial axis locking,
-priors, and generalized numerical preflight remain later work. Structural
+The browser experiment now adds bounded applicable-transform workflow evidence
+through three explicit features: multiple point-datum distances produce a
+uniform least-squares Scale; an origin point and two datum directions mapped to
+signed output axes produce a right-handed Frame; and a Transform composes one of
+each for the model view and export without changing upstream fitted values.
+These features are separate from this successor contract and do not yet supply
+provenance, uncertainty, or joint solve semantics. General placed-frame values,
+partial axis locking, priors, and generalized numerical preflight remain later
+work. Structural
 reachability must not be mistaken for empirical observability.
 
 ## Compatibility and remaining implementation gates

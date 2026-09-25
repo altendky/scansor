@@ -11,15 +11,31 @@ import pytest
 
 from experiments.feature_graph import (
     FeatureGraph,
+    FrameDefinition,
     Recipe,
     StaleGraph,
     discover_reuse_lineage,
+    frame_result,
 )
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 
 EXAMPLE = Path("examples/nozzle-bayonette-simplified")
+DEMO_RECIPES = (
+    EXAMPLE / "recipes/nozzle-selection-and-fitting-demo.json",
+    Path(
+        "examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json"
+    ),
+)
+
+
+@pytest.mark.parametrize("path", DEMO_RECIPES)
+def test_checked_in_browser_demo_recipes_validate(path: Path) -> None:
+    recipe = Recipe.model_validate_json(path.read_text())
+
+    assert recipe.nodes
+    assert recipe.output in {node.id for node in recipe.nodes}
 
 
 @pytest.fixture
@@ -48,6 +64,389 @@ def test_recipe_requires_unique_feature_names(graph: FeatureGraph) -> None:
     payload["nodes"][1]["label"] = f"  {payload['nodes'][0]['label'].upper()}  "
     with pytest.raises(ValueError, match="feature names must be unique"):
         _ = Recipe.model_validate(payload)
+
+
+def test_standalone_sphere_fit_evaluates_and_rejects_axis_binding(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    sphere = {
+        "id": "sphere",
+        "label": "Sphere",
+        "operation": "fit",
+        "selections": ["outer_band"],
+        "kind": "sphere",
+        "axial_domain": [-2, 5],
+    }
+    payload["nodes"] = [base["scan"], base["outer_band"], sphere]
+    payload["output"] = "sphere"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, dict[str, Any]], state["derived"])["sphere"]
+
+    assert result["kind"] == "sphere"
+    assert len(result["parameters"]) == 4
+    assert result["parameters"][3] > 0
+    assert result["ids"] == base["outer_band"]["ids"]
+    assert len(result["residuals"]) == len(base["outer_band"]["ids"])
+
+    sphere["axis"] = "reference_axis"
+    with pytest.raises(ValueError, match="reference a point"):
+        _ = Recipe.model_validate(payload)
+
+
+def sphere_points(count: int, center: np.ndarray, radius: float) -> np.ndarray:
+    z = np.linspace(-0.95, 0.95, count)
+    angle = np.arange(count) * np.pi * (3.0 - np.sqrt(5.0))
+    radial = np.sqrt(1.0 - z**2)
+    return center + radius * np.column_stack(
+        (radial * np.cos(angle), radial * np.sin(angle), z)
+    )
+
+
+def test_free_point_is_jointly_refined_by_a_bound_sphere(graph: FeatureGraph) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    ids = base["top_face"]["ids"]
+    expected_center = np.array([2.5, -1.75, 3.25])
+    graph.workspace.local[ids] = sphere_points(len(ids), expected_center, 4.5)
+    payload["nodes"] = [
+        base["scan"],
+        base["top_face"],
+        {
+            "id": "center",
+            "label": "Sphere center",
+            "operation": "point",
+            "initial_coordinates": [1.0, -1.0, 2.0],
+        },
+        {
+            "id": "sphere",
+            "label": "Point-bound sphere",
+            "operation": "fit",
+            "selections": ["top_face"],
+            "kind": "sphere",
+            "point": "center",
+        },
+    ]
+    payload["output"] = "sphere"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    results = cast(dict[str, dict[str, Any]], state["results"])
+
+    np.testing.assert_allclose(results["center"]["point_display"], expected_center)
+    np.testing.assert_allclose(results["sphere"]["parameters"][:3], expected_center)
+    assert results["sphere"]["parameters"][3] == pytest.approx(4.5)
+    assert results["center"]["resolved_by"] == "connected_fits"
+    assert results["sphere"]["resolved_by"] == "connected_fits"
+
+
+def test_point_initialized_from_sphere_is_fixed_for_a_downstream_fit(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    ids = base["top_face"]["ids"]
+    expected_center = np.array([-3.0, 2.0, 1.5])
+    graph.workspace.local[ids] = sphere_points(len(ids), expected_center, 3.25)
+    payload["nodes"] = [
+        base["scan"],
+        base["top_face"],
+        {
+            "id": "source_sphere",
+            "label": "Source sphere",
+            "operation": "fit",
+            "selections": ["top_face"],
+            "kind": "sphere",
+        },
+        {
+            "id": "fixed_center",
+            "label": "Fixed center",
+            "operation": "point",
+            "source_fit": "source_sphere",
+        },
+        {
+            "id": "bound_sphere",
+            "label": "Fixed-center sphere",
+            "operation": "fit",
+            "selections": ["top_face"],
+            "kind": "sphere",
+            "point": "fixed_center",
+        },
+    ]
+    payload["output"] = "bound_sphere"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    results = cast(dict[str, dict[str, Any]], state["results"])
+
+    np.testing.assert_allclose(
+        results["fixed_center"]["point_display"], expected_center
+    )
+    np.testing.assert_allclose(
+        results["bound_sphere"]["parameters"][:3], expected_center
+    )
+    assert "resolved_by" not in results["fixed_center"]
+
+
+def test_point_pair_axis_is_directed_and_can_be_horizontal(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    source = payload["nodes"][0]
+    payload["nodes"] = [
+        source,
+        {
+            "id": "from_point",
+            "label": "From point",
+            "operation": "point",
+            "initial_coordinates": [1.0, 2.0, 3.0],
+        },
+        {
+            "id": "toward_point",
+            "label": "Toward point",
+            "operation": "point",
+            "initial_coordinates": [5.0, 2.0, 3.0],
+        },
+        {
+            "id": "point_axis",
+            "label": "Point axis",
+            "operation": "axis",
+            "source_points": ["from_point", "toward_point"],
+            "direction_reversed": True,
+        },
+    ]
+    payload["output"] = "point_axis"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, dict[str, Any]], state["results"])["point_axis"]
+
+    np.testing.assert_allclose(result["point_display"], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(result["axis_display"], [-1.0, 0.0, 0.0])
+    assert result["parameters"] is None
+    assert result["source_points"] == ["from_point", "toward_point"]
+    assert result["direction_reversed"] is True
+
+
+def test_output_transform_averages_distances_and_constructs_frame(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    source = payload["nodes"][0]
+    payload["nodes"] = [
+        source,
+        {
+            "id": "origin",
+            "label": "Origin",
+            "operation": "point",
+            "initial_coordinates": [1.0, 2.0, 3.0],
+        },
+        {
+            "id": "forward_point",
+            "label": "Forward point",
+            "operation": "point",
+            "initial_coordinates": [5.0, 2.0, 3.0],
+        },
+        {
+            "id": "side_point",
+            "label": "Side point",
+            "operation": "point",
+            "initial_coordinates": [1.0, 5.0, 3.0],
+        },
+        {
+            "id": "forward",
+            "label": "Forward",
+            "operation": "axis",
+            "source_points": ["origin", "forward_point"],
+        },
+        {
+            "id": "up",
+            "label": "Up",
+            "operation": "axis",
+            "initial_parameters": [0.0, 0.0, 0.0, 0.0],
+        },
+        {
+            "id": "output_frame",
+            "label": "Output frame",
+            "operation": "frame",
+            "origin_point": "origin",
+            "primary_reference": "up",
+            "primary_output_axis": "+Z",
+            "secondary_reference": "forward",
+            "secondary_output_axis": "+X",
+        },
+        {
+            "id": "output_scale",
+            "label": "Output scale",
+            "operation": "scale",
+            "distances": [
+                {
+                    "first_point": "origin",
+                    "second_point": "forward_point",
+                    "known_distance": 8.0,
+                },
+                {
+                    "first_point": "origin",
+                    "second_point": "side_point",
+                    "known_distance": 6.0,
+                },
+            ],
+        },
+        {
+            "id": "output_transform",
+            "label": "Output transform",
+            "operation": "transform",
+            "frame": "output_frame",
+            "scale": "output_scale",
+        },
+    ]
+    payload["output"] = "output_transform"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    result = cast(dict[str, dict[str, Any]], state["results"])["output_transform"]
+
+    assert result["format"] == "scansor-output-transform-v2"
+    assert result["scale"] == pytest.approx(2.0)
+    assert result["scale_weighted_rms"] == pytest.approx(0.0)
+    np.testing.assert_allclose(result["x_axis_display"], [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(result["z_axis_display"], [0.0, 0.0, 1.0])
+    np.testing.assert_allclose(
+        result["matrix"],
+        [
+            [2.0, 0.0, 0.0, -2.0],
+            [0.0, 2.0, 0.0, -4.0],
+            [0.0, 0.0, 2.0, -6.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+    )
+
+
+def test_coordinate_frame_accepts_plane_fit_normal() -> None:
+    node = FrameDefinition.model_validate(
+        {
+            "id": "frame",
+            "label": "Frame",
+            "operation": "frame",
+            "origin_point": "origin",
+            "primary_reference": "plate",
+            "primary_output_axis": "+Z",
+            "secondary_reference": "forward",
+            "secondary_output_axis": "+X",
+        }
+    )
+    result = frame_result(
+        node,
+        {
+            "origin": {"point_display": [0.0, 0.0, 0.0]},
+            "plate": {"kind": "plane", "parameters": [0.0, 0.0, 1.0, 3.0]},
+            "forward": {"axis_display": [1.0, 0.0, 0.0]},
+        },
+    )
+
+    np.testing.assert_allclose(result["z_axis_display"], [0.0, 0.0, 1.0])
+    np.testing.assert_allclose(result["x_axis_display"], [1.0, 0.0, 0.0])
+
+
+@pytest.mark.parametrize(
+    ("primary_output", "secondary_output"),
+    [
+        (primary, secondary)
+        for primary in ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
+        for secondary in ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
+        if primary[-1] != secondary[-1]
+    ],
+)
+def test_coordinate_frame_maps_any_two_signed_output_axes(
+    primary_output: str,
+    secondary_output: str,
+) -> None:
+    node = FrameDefinition.model_validate(
+        {
+            "id": "frame",
+            "label": "Frame",
+            "operation": "frame",
+            "origin_point": "origin",
+            "primary_reference": "primary",
+            "primary_output_axis": primary_output,
+            "secondary_reference": "secondary",
+            "secondary_output_axis": secondary_output,
+        }
+    )
+    primary = np.array([0.0, 0.0, 1.0])
+    secondary = np.array([2.0, 1.0, 0.5])
+    projected = secondary - primary * (secondary @ primary)
+    projected /= np.linalg.norm(projected)
+    result = frame_result(
+        node,
+        {
+            "origin": {"point_display": [1.0, 2.0, 3.0]},
+            "primary": {"axis_display": primary.tolist()},
+            "secondary": {"axis_display": secondary.tolist()},
+        },
+    )
+    rotation = np.asarray(result["rotation"])
+    primary_expected = np.zeros(3)
+    secondary_expected = np.zeros(3)
+    indices = {"X": 0, "Y": 1, "Z": 2}
+    primary_expected[indices[primary_output[-1]]] = (
+        1 if primary_output[0] == "+" else -1
+    )
+    secondary_expected[indices[secondary_output[-1]]] = (
+        1 if secondary_output[0] == "+" else -1
+    )
+
+    np.testing.assert_allclose(rotation @ primary, primary_expected, atol=1e-12)
+    np.testing.assert_allclose(rotation @ projected, secondary_expected, atol=1e-12)
+    np.testing.assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-12)
+    assert np.linalg.det(rotation) == pytest.approx(1.0)
+
+
+def test_equal_radii_accepts_sphere_and_cylinder_fits(graph: FeatureGraph) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    base = {node["id"]: node for node in payload["nodes"]}
+    sphere_ids = base["top_face"]["ids"]
+    graph.workspace.local[sphere_ids] = sphere_points(
+        len(sphere_ids), np.array([4.0, 3.0, 2.0]), 6.0
+    )
+    cylinder = base["side"].copy()
+    cylinder.update(kind="cylinder")
+    sphere = {
+        "id": "sphere",
+        "label": "Sphere",
+        "operation": "fit",
+        "selections": ["top_face"],
+        "kind": "sphere",
+    }
+    equality = {
+        "id": "equal_radius",
+        "label": "Equal radius",
+        "operation": "equal_radii",
+        "surfaces": ["side", "sphere"],
+    }
+    payload["nodes"] = [
+        base["scan"],
+        base["outer_band"],
+        base["top_face"],
+        cylinder,
+        sphere,
+        equality,
+    ]
+    payload["output"] = "equal_radius"
+
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    results = cast(dict[str, dict[str, Any]], state["results"])
+
+    assert results["equal_radius"]["format"] == "scansor-equal-radii-v2"
+    assert results["side"]["parameters"][4] == pytest.approx(
+        results["sphere"]["parameters"][3]
+    )
+    assert results["side"]["resolved_by"] == "equal_radii"
+    assert results["sphere"]["resolved_by"] == "equal_radii"
 
 
 def test_recipe_retains_organizational_groups_and_managed_ownership(

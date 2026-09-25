@@ -1,0 +1,6 @@
+[settings]
+locked = true
+
+[tools]
+"asdf:mise-plugins/mise-ffmpeg" = { version = "9.0.2", install_env = { ASDF_FFMPEG_ENABLE = "libx264", ASDF_FFMPEG_OPTIONS_EXTRA = "--enable-gpl" } }
+"pypi:kokoro" = { version = "0.9.4", uvx_args = "--index https://download.pytorch.org/whl/cpu --with https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

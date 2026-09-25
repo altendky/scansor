@@ -7,6 +7,11 @@ const paths = {
   plane: 'm3 15 6-9 12 3-6 9Z',
   cylinder: 'M4 6c0-4 16-4 16 0s-16 4-16 0v12c0 4 16 4 16 0V6',
   cone: 'M12 3 3 18c0 4 18 4 18 0L12 3M3 18c0-4 18-4 18 0',
+  sphere: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 0c-4 3-4 17 0 20m0-20c4 3 4 17 0 20M2 12h20',
+  point: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0-5v3m0 14v3M2 12h3m14 0h3',
+  frame: 'M5 19V7m0 0-2 3m2-3 3 2M5 19h12m0 0-3-2m3 2-2 3M5 19l7-7m0 0h-4m4 0v4',
+  scale: 'M3 17 17 3m-9 9-3-3m7-1-3-3m7-1-3-3M3 17l4 4 14-14-4-4Z',
+  transform: 'M4 20V4m0 0-2 3m2-3 3 2m-3 14h16m0 0-3-2m3 2-2 3M9 15l6-6m0 0h-4m4 0v4',
   axis: 'M3 12h18m-4-4 4 4-4 4M7 8l-4 4 4 4',
   reference_plane: 'm3 15 6-9 12 3-6 9ZM12 3v18',
   axis_solve: 'M3 12h18M7 7l-4 5 4 5m10-10 4 5-4 5M12 3v18',
@@ -37,6 +42,10 @@ const operations = {
   selection: 'Selection',
   fit: 'Surface fit',
   axis: 'Reference axis',
+  point: 'Reference point',
+  frame: 'Coordinate frame',
+  scale: 'Output scale',
+  transform: 'Output transform',
   reference_plane: 'Reference plane',
   axis_solve: 'Joint',
   growth: 'Selection growth',
@@ -73,9 +82,19 @@ export function nodeReferences(node) {
     return [
       ...node.selections,
       ...(node.axis ? [node.axis] : []),
+      ...(node.point ? [node.point] : []),
       ...(node.reference_plane ? [node.reference_plane] : []),
     ];
-  if (node.operation === 'axis') return node.source_fit ? [node.source_fit] : [];
+  if (node.operation === 'axis')
+    return node.source_fit ? [node.source_fit] : [...(node.source_points || [])];
+  if (node.operation === 'point') return node.source_fit ? [node.source_fit] : [];
+  if (node.operation === 'scale')
+    return [...new Set([
+      ...node.distances.flatMap((distance) => [distance.first_point, distance.second_point]),
+    ])];
+  if (node.operation === 'frame')
+    return [...new Set([node.origin_point, node.primary_reference, node.secondary_reference])];
+  if (node.operation === 'transform') return [node.frame, node.scale];
   if (node.operation === 'reference_plane') return [node.axis];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];

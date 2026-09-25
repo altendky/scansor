@@ -35,10 +35,15 @@ probes do not implement ingestion or establish external-source fitting evidence.
 
 ## Tracks
 
+- [Two-workflow demo video](demo-video.md)
+  - planned narrated walkthrough of the retained nozzle selection/fitting graph
+    and generated repeated-boss reuse/alignment graph, with reproducible browser
+    capture and external video-production tooling
 - [Selection tools and feature graph](selection-feature-graph.md)
-  - future interactive selection requirements and a provisional, frontend-independent
-    operation-graph slice for the captured nozzle experiment; additional tools
-    and automatic expansion/inset remain deferred
+  - a provisional, frontend-independent operation graph with circular painting,
+    rectangles, one-pass connected growth, reusable regions, and multi-target
+    feature reuse; standalone circle/polygon tools, boundary inset, iterative
+    expansion, and compound semantics remain deferred
 
 - [Full-resolution mesh ingestion and visual audit](full-resolution-mesh-ingestion.md)
   - provisional design for the first external mesh profile, complete accounting,
@@ -256,7 +261,12 @@ Phase B only after nominal generated end-to-end evidence exists.
 9. **Constraint-derived calibration:** derive scale and the constrained portion
    of pose from explicit provenance-bearing constraints, report unresolved pose
    freedoms, and run the existing fixed-pose shape workflow before considering
-   joint pose/scale/shape fitting.
+   joint pose/scale/shape fitting. The browser now supplies bounded workflow
+   evidence through explicit Frame and Scale features and an editable output
+   Transform that composes them and applies to the model view and export. Scale
+   can use multiple known point-to-point distances; Frame maps two datum
+   directions to signed output axes. Production provenance, uncertainty,
+   validation separation, and solver integration remain gated work.
 10. **Later physical validation:** select an artifact and protocol, acquire scans,
     reserve independent measurements, and assess only bounded physical claims.
 11. **Publication planning and extensions:** separately consider effect-free

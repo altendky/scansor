@@ -75,17 +75,27 @@ class SurfaceFit(Node):
 
     operation: Literal["fit"]
     selections: list[str] = Field(min_length=1, max_length=99)
-    kind: Literal["cone", "cylinder", "plane"]
+    kind: Literal["cone", "cylinder", "plane", "sphere"]
     axial_domain: tuple[float, float] = (-2.0, 5.0)
     axis: str | None = None
+    point: str | None = None
     reference_plane: str | None = None
 
     @model_validator(mode="after")
     def compatible_reference_geometry(self) -> SurfaceFit:
-        if self.axis is not None and self.reference_plane is not None:
+        references = tuple(
+            value
+            for value in (self.axis, self.point, self.reference_plane)
+            if value is not None
+        )
+        if len(references) > 1:
             raise ValueError("a fit can reference only one datum")
         if self.reference_plane is not None and self.kind != "plane":
             raise ValueError("only a plane fit can reference a plane datum")
+        if self.point is not None and self.kind != "sphere":
+            raise ValueError("only a sphere fit can reference a point datum")
+        if self.axis is not None and self.kind == "sphere":
+            raise ValueError("a sphere fit can reference a point, not an axis")
         return self
 
 
@@ -187,19 +197,104 @@ class JointFit(Node):
 
 
 class AxisDefinition(Node):
-    """Explicit axis with either a manual value or an upstream fit initializer."""
+    """Directed axis initialized manually, by a fit, or by two ordered points."""
 
     operation: Literal["axis"]
     source_fit: str | None = None
+    source_points: tuple[str, str] | None = None
     initial_parameters: tuple[float, float, float, float] | None = None
+    direction_reversed: bool = False
 
     @model_validator(mode="after")
     def exactly_one_initializer(self) -> AxisDefinition:
-        if (self.source_fit is None) == (self.initial_parameters is None):
+        if (
+            sum(
+                initializer is not None
+                for initializer in (
+                    self.source_fit,
+                    self.source_points,
+                    self.initial_parameters,
+                )
+            )
+            != 1
+        ):
             raise ValueError(
-                "axis requires exactly one of source_fit or initial_parameters"
+                "axis requires exactly one of source_fit, source_points, or initial_parameters"
+            )
+        if (
+            self.source_points is not None
+            and self.source_points[0] == self.source_points[1]
+        ):
+            raise ValueError("a point-pair axis requires two distinct points")
+        return self
+
+
+class PointDefinition(Node):
+    """Explicit point with either a manual value or an upstream sphere initializer."""
+
+    operation: Literal["point"]
+    source_fit: str | None = None
+    initial_coordinates: tuple[float, float, float] | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_initializer(self) -> PointDefinition:
+        if (self.source_fit is None) == (self.initial_coordinates is None):
+            raise ValueError(
+                "point requires exactly one of source_fit or initial_coordinates"
             )
         return self
+
+
+class ScaleDistance(Record):
+    """One known output distance between two fitted point datums."""
+
+    first_point: str
+    second_point: str
+    known_distance: float = Field(gt=0, allow_inf_nan=False)
+    weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def distinct_points(self) -> ScaleDistance:
+        if self.first_point == self.second_point:
+            raise ValueError("a scale distance requires two distinct points")
+        return self
+
+
+class ScaleDefinition(Node):
+    """Uniform output scale calibrated by one or more known distances."""
+
+    operation: Literal["scale"]
+    distances: list[ScaleDistance] = Field(min_length=1, max_length=32)
+
+
+CoordinateAxis = Literal["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
+
+
+class FrameDefinition(Node):
+    """Right-handed coordinate frame constructed from explicit datum references."""
+
+    operation: Literal["frame"]
+    origin_point: str
+    primary_reference: str
+    primary_output_axis: CoordinateAxis
+    secondary_reference: str
+    secondary_output_axis: CoordinateAxis
+
+    @model_validator(mode="after")
+    def distinct_output_axes(self) -> FrameDefinition:
+        if self.primary_reference == self.secondary_reference:
+            raise ValueError("frame primary and secondary references must differ")
+        if self.primary_output_axis[-1] == self.secondary_output_axis[-1]:
+            raise ValueError("frame primary and secondary output axes must differ")
+        return self
+
+
+class TransformDefinition(Node):
+    """Applicable similarity transform composed from a frame and scale."""
+
+    operation: Literal["transform"]
+    frame: str
+    scale: str
 
 
 class PlaneDefinition(Node):
@@ -308,6 +403,10 @@ Feature = Annotated[
     | RotationalSymmetry
     | JointFit
     | AxisDefinition
+    | PointDefinition
+    | ScaleDefinition
+    | FrameDefinition
+    | TransformDefinition
     | PlaneDefinition
     | MirrorSymmetry
     | ParallelToPlane
@@ -416,7 +515,7 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, Selection):
         return [node.source]
     if isinstance(node, SurfaceFit):
-        reference = node.axis or node.reference_plane
+        reference = node.axis or node.point or node.reference_plane
         return [*node.selections, *((reference,) if reference is not None else ())]
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
@@ -446,7 +545,34 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, JointFit):
         return node.constraints
     if isinstance(node, AxisDefinition):
+        if node.source_fit is not None:
+            return [node.source_fit]
+        return list(node.source_points or ())
+    if isinstance(node, PointDefinition):
         return [node.source_fit] if node.source_fit is not None else []
+    if isinstance(node, ScaleDefinition):
+        return list(
+            dict.fromkeys(
+                [
+                    *(
+                        ref
+                        for distance in node.distances
+                        for ref in (
+                            distance.first_point,
+                            distance.second_point,
+                        )
+                    ),
+                ]
+            )
+        )
+    if isinstance(node, FrameDefinition):
+        return list(
+            dict.fromkeys(
+                [node.origin_point, node.primary_reference, node.secondary_reference]
+            )
+        )
+    if isinstance(node, TransformDefinition):
+        return [node.frame, node.scale]
     if isinstance(node, PlaneDefinition):
         return [node.axis]
     if isinstance(node, MirrorSymmetry):
@@ -470,7 +596,7 @@ def dependencies(node: Feature) -> list[str]:
 
 
 def is_standalone_fit(node: SurfaceFit) -> bool:
-    return node.axis is None and node.reference_plane is None
+    return node.axis is None and node.point is None and node.reference_plane is None
 
 
 def fit_axis(node: SurfaceFit, nodes: dict[str, Feature]) -> str | None:
@@ -489,7 +615,7 @@ def automatic_axis_components(
     """Connected fit evidence for manually initialized (free) axes."""
     components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
     for axis in nodes.values():
-        if not isinstance(axis, AxisDefinition) or axis.source_fit is not None:
+        if not isinstance(axis, AxisDefinition) or axis.initial_parameters is None:
             continue
         factors = [
             node
@@ -504,6 +630,26 @@ def automatic_axis_components(
             *(factor.id for factor in factors),
         }
         components[axis.id] = (factors, members)
+    return components
+
+
+def automatic_point_components(
+    nodes: dict[str, Feature],
+) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
+    """Sphere evidence that jointly refines each manually initialized free point."""
+    components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
+    for point in nodes.values():
+        if not isinstance(point, PointDefinition) or point.source_fit is not None:
+            continue
+        factors = [
+            node
+            for node in nodes.values()
+            if isinstance(node, SurfaceFit)
+            and node.kind == "sphere"
+            and node.point == point.id
+        ]
+        if factors:
+            components[point.id] = (factors, {point.id, *(fit.id for fit in factors)})
     return components
 
 
@@ -796,6 +942,47 @@ def workspace_reference_sha256(workspace: NozzleWorkspace) -> str:
     ).hexdigest()
 
 
+def directed_axis_result(
+    node: AxisDefinition,
+    *,
+    parameters: list[float] | None = None,
+    first_point: dict[str, Any] | None = None,
+    second_point: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve an explicitly directed axis without assuming it has a usable Z slope."""
+    if node.source_points is not None:
+        if first_point is None or second_point is None:
+            raise ValueError(f"{node.label}: both source points must be evaluated")
+        point = np.asarray(first_point["point_display"], dtype=float)
+        other = np.asarray(second_point["point_display"], dtype=float)
+        direction = other - point
+        length = float(np.linalg.norm(direction))
+        if not np.isfinite(length) or length <= 1e-12:
+            raise ValueError(f"{node.label}: source points must not coincide")
+        direction /= length
+        legacy_parameters = None
+    else:
+        if parameters is None:
+            raise ValueError(f"{node.label}: axis initializer result is unavailable")
+        values = np.asarray(parameters, dtype=float)
+        if values.ndim != 1 or len(values) < 4 or not np.isfinite(values).all():
+            raise ValueError(f"{node.label}: axis initializer must be finite")
+        direction = np.asarray([values[2], values[3], 1.0], dtype=float)
+        direction /= np.linalg.norm(direction)
+        point = np.asarray([values[0], values[1], 0.0], dtype=float)
+        legacy_parameters = values.tolist()
+    if node.direction_reversed:
+        direction = -direction
+    return {
+        "source_fit": node.source_fit,
+        "source_points": list(node.source_points) if node.source_points else None,
+        "parameters": legacy_parameters,
+        "axis_display": direction.tolist(),
+        "point_display": point.tolist(),
+        "direction_reversed": node.direction_reversed,
+    }
+
+
 def reference_plane_result(
     axis_result: dict[str, Any], plane: PlaneDefinition
 ) -> dict[str, Any]:
@@ -832,6 +1019,147 @@ def reference_plane_result(
     }
 
 
+def scale_result(
+    node: ScaleDefinition,
+    resolved: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Solve one uniform scale from known point-to-point distances."""
+    observations: list[dict[str, Any]] = []
+    measured: list[float] = []
+    known: list[float] = []
+    weights: list[float] = []
+    for distance in node.distances:
+        first = np.asarray(resolved[distance.first_point]["point_display"], dtype=float)
+        second = np.asarray(
+            resolved[distance.second_point]["point_display"], dtype=float
+        )
+        value = float(np.linalg.norm(second - first))
+        if not np.isfinite(value) or value <= 1e-12:
+            raise ValueError(
+                f"{node.label}: scale points {distance.first_point!r} and {distance.second_point!r} coincide"
+            )
+        measured.append(value)
+        known.append(distance.known_distance)
+        weights.append(distance.weight)
+    measured_array = np.asarray(measured)
+    known_array = np.asarray(known)
+    weight_array = np.asarray(weights)
+    denominator = float(weight_array @ measured_array**2)
+    scale = float(weight_array @ (measured_array * known_array) / denominator)
+    residuals = scale * measured_array - known_array
+    for distance, measured_value, residual in zip(
+        node.distances, measured, residuals, strict=True
+    ):
+        observations.append(
+            {
+                **distance.model_dump(),
+                "measured_distance": measured_value,
+                "scaled_distance": scale * measured_value,
+                "residual": float(residual),
+            }
+        )
+
+    return {
+        "format": "scansor-output-scale-v1",
+        "scale": scale,
+        "observations": observations,
+        "weighted_rms": float(
+            np.sqrt(weight_array @ residuals**2 / float(weight_array.sum()))
+        ),
+        "max_abs_residual": float(np.max(np.abs(residuals))),
+    }
+
+
+def reference_direction(result: dict[str, Any], label: str) -> np.ndarray:
+    direction = result.get("normal_display", result.get("axis_display"))
+    if direction is None:
+        plane = result.get("plane_equation", result.get("parameters"))
+        direction = plane[:3] if plane is not None else None
+    value = np.asarray(direction, dtype=float)
+    if value.shape != (3,) or not np.isfinite(value).all():
+        raise ValueError(f"{label}: reference has no usable direction")
+    length = float(np.linalg.norm(value))
+    if length <= 1e-12:
+        raise ValueError(f"{label}: reference direction is zero")
+    return value / length
+
+
+def frame_result(
+    node: FrameDefinition,
+    resolved: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Construct an explicit right-handed frame from two mapped directions."""
+    origin = np.asarray(resolved[node.origin_point]["point_display"], dtype=float)
+    primary = reference_direction(resolved[node.primary_reference], node.label)
+    secondary = reference_direction(resolved[node.secondary_reference], node.label)
+    projected = secondary - primary * float(secondary @ primary)
+    projected_length = float(np.linalg.norm(projected))
+    if not np.isfinite(projected_length) or projected_length <= 1e-10:
+        raise ValueError(
+            f"{node.label}: primary and secondary references must not be parallel"
+        )
+    projected /= projected_length
+
+    axes: dict[str, np.ndarray] = {}
+    for mapping, direction in (
+        (node.primary_output_axis, primary),
+        (node.secondary_output_axis, projected),
+    ):
+        axes[mapping[-1].lower()] = direction * (-1 if mapping[0] == "-" else 1)
+    missing = ({"x", "y", "z"} - axes.keys()).pop()
+    if missing == "x":
+        axes["x"] = np.cross(axes["y"], axes["z"])
+    elif missing == "y":
+        axes["y"] = np.cross(axes["z"], axes["x"])
+    else:
+        axes["z"] = np.cross(axes["x"], axes["y"])
+    axes[missing] /= np.linalg.norm(axes[missing])
+    rotation = np.vstack([axes["x"], axes["y"], axes["z"]])
+    return {
+        "format": "scansor-coordinate-frame-v1",
+        "origin_display": origin.tolist(),
+        "x_axis_display": axes["x"].tolist(),
+        "y_axis_display": axes["y"].tolist(),
+        "z_axis_display": axes["z"].tolist(),
+        "rotation": rotation.tolist(),
+        "primary_reference": node.primary_reference,
+        "primary_output_axis": node.primary_output_axis,
+        "secondary_reference": node.secondary_reference,
+        "secondary_output_axis": node.secondary_output_axis,
+        "reference_separation_degrees": float(
+            np.degrees(np.arccos(np.clip(float(primary @ secondary), -1.0, 1.0)))
+        ),
+    }
+
+
+def output_transform_result(
+    node: TransformDefinition,
+    frame: dict[str, Any],
+    scale: dict[str, Any],
+) -> dict[str, Any]:
+    """Compose an applicable similarity transform from frame and scale features."""
+    factor = float(scale["scale"])
+    origin = np.asarray(frame["origin_display"], dtype=float)
+    rotation = np.asarray(frame["rotation"], dtype=float)
+    matrix = np.eye(4)
+    matrix[:3, :3] = factor * rotation
+    matrix[:3, 3] = -matrix[:3, :3] @ origin
+    return {
+        "format": "scansor-output-transform-v2",
+        "frame": node.frame,
+        "scale_feature": node.scale,
+        "scale": factor,
+        "origin_display": origin.tolist(),
+        "x_axis_display": list(frame["x_axis_display"]),
+        "y_axis_display": list(frame["y_axis_display"]),
+        "z_axis_display": list(frame["z_axis_display"]),
+        "matrix": matrix.tolist(),
+        "scale_weighted_rms": float(scale["weighted_rms"]),
+        "scale_max_abs_residual": float(scale["max_abs_residual"]),
+        "scale_observation_count": len(scale["observations"]),
+    }
+
+
 def fit_plane_to_reference(
     workspace: NozzleWorkspace,
     surface: SurfaceFit,
@@ -863,28 +1191,166 @@ def fit_plane_to_reference(
     }
 
 
-def fit_equal_cylinder_radii(
+def fit_sphere_at_point(
+    workspace: NozzleWorkspace,
+    surface: SurfaceFit,
+    ids: list[int],
+    point: dict[str, Any],
+) -> dict[str, Any]:
+    """Fit only a sphere radius while retaining an explicit fixed center."""
+    if len(ids) < 4:
+        raise ValueError(f"{surface.id}: select at least four sphere vertices")
+    center = np.asarray(point["point_display"], dtype=float)
+    if center.shape != (3,) or not np.isfinite(center).all():
+        raise ValueError(f"{surface.label}: point result is unavailable")
+    weights = workspace.data.weights[ids]
+    distances = np.linalg.norm(workspace.local[ids] - center, axis=1)
+    radius = float(weights @ distances / float(weights.sum()))
+    if not np.isfinite(radius) or radius <= 0:
+        raise ValueError(f"{surface.label}: sphere radius must be positive")
+    residuals = distances - radius
+    return {
+        "kind": "sphere",
+        "ids": ids,
+        "parameters": [*center.tolist(), radius],
+        "axial_domain": surface.axial_domain,
+        "residuals": residuals.tolist(),
+        "weighted_rms": float(np.sqrt(weights @ residuals**2 / float(weights.sum()))),
+        "condition": 1.0,
+        "point": surface.point,
+    }
+
+
+def fit_spheres_to_free_point(
+    workspace: NozzleWorkspace,
+    point_id: str,
+    surfaces: list[SurfaceFit],
+    ids: list[list[int]],
+    initial_center: np.ndarray,
+) -> dict[str, Any]:
+    """Jointly fit one exact center and an independent radius per sphere."""
+    if initial_center.shape != (3,) or not np.isfinite(initial_center).all():
+        raise ValueError("free point initialization must be a finite XYZ value")
+    points = [workspace.local[surface_ids] for surface_ids in ids]
+    weights = [workspace.data.weights[surface_ids] for surface_ids in ids]
+    if any(len(surface_points) < 4 for surface_points in points):
+        raise ValueError("each point-bound sphere needs at least four observations")
+    total_weight = sum(float(surface_weights.sum()) for surface_weights in weights)
+    if not np.isfinite(total_weight) or total_weight <= 0:
+        raise ValueError("point-bound spheres need positive-area observations")
+    normalized_weights = [surface_weights / total_weight for surface_weights in weights]
+    radii = [
+        float(surface_weights @ np.linalg.norm(surface_points - initial_center, axis=1))
+        / float(surface_weights.sum())
+        for surface_points, surface_weights in zip(points, weights, strict=True)
+    ]
+    parameters = np.asarray([*initial_center, *radii], dtype=float)
+    condition = float("inf")
+    for _ in range(60):
+        residual_parts: list[np.ndarray] = []
+        jacobian_parts: list[np.ndarray] = []
+        for index, surface_points in enumerate(points):
+            delta = surface_points - parameters[:3]
+            distance = np.linalg.norm(delta, axis=1)
+            if np.any(distance <= np.finfo(float).eps):
+                raise ValueError(
+                    "sphere observations cannot coincide with their center"
+                )
+            residual_parts.append(distance - parameters[3 + index])
+            jacobian = np.zeros((len(surface_points), len(parameters)))
+            jacobian[:, :3] = -delta / distance[:, None]
+            jacobian[:, 3 + index] = -1.0
+            jacobian_parts.append(jacobian)
+        residual = np.concatenate(residual_parts)
+        jacobian = np.concatenate(jacobian_parts)
+        combined_weights = np.concatenate(normalized_weights)
+        objective = float(combined_weights @ residual**2)
+        normal = jacobian.T @ (combined_weights[:, None] * jacobian)
+        condition = float(np.linalg.cond(normal))
+        if not np.isfinite(condition) or condition > 1e12:
+            raise ValueError(
+                "point-bound sphere geometry is ill-conditioned; select a wider curved patch"
+            )
+        gradient = jacobian.T @ (combined_weights * residual)
+        step = np.linalg.solve(normal, -gradient)
+        scale = max(1.0, *parameters[3:])
+        if np.max(np.abs(step)) <= 1e-10 * scale:
+            break
+        for power in range(25):
+            candidate = parameters + step * 2.0**-power
+            if np.any(candidate[3:] <= 0):
+                continue
+            candidate_residual = np.concatenate(
+                [
+                    np.linalg.norm(surface_points - candidate[:3], axis=1)
+                    - candidate[3 + index]
+                    for index, surface_points in enumerate(points)
+                ]
+            )
+            if float(combined_weights @ candidate_residual**2) < objective:
+                parameters = candidate
+                break
+        else:
+            if np.linalg.norm(gradient, ord=np.inf) <= 1e-10 * scale:
+                break
+            raise ValueError("point-bound sphere fit failed to decrease objective")
+    adjusted: dict[str, dict[str, Any]] = {}
+    for index, (surface, surface_points, surface_ids, surface_weights) in enumerate(
+        zip(surfaces, points, ids, weights, strict=True)
+    ):
+        radius = float(parameters[3 + index])
+        residuals = np.linalg.norm(surface_points - parameters[:3], axis=1) - radius
+        adjusted[surface.id] = {
+            "kind": "sphere",
+            "ids": surface_ids,
+            "parameters": [*parameters[:3].tolist(), radius],
+            "axial_domain": surface.axial_domain,
+            "residuals": residuals.tolist(),
+            "weighted_rms": float(
+                np.sqrt(surface_weights @ residuals**2 / float(surface_weights.sum()))
+            ),
+            "condition": condition,
+            "point": point_id,
+            "resolved_by": "connected_fits",
+        }
+    return {
+        "format": "scansor-shared-sphere-center-v1",
+        "point": {
+            "point_display": parameters[:3].tolist(),
+            "coordinates": parameters[:3].tolist(),
+            "resolved_by": "connected_fits",
+        },
+        "surfaces": adjusted,
+    }
+
+
+def fit_equal_radii(
     workspace: NozzleWorkspace,
     surfaces: list[SurfaceFit],
     results: list[dict[str, Any]],
     ids: list[list[int]],
 ) -> dict[str, Any]:
-    """Fit one exact radius while retaining each cylinder's fitted axis."""
+    """Fit one exact radius while retaining each surface's position and orientation."""
     radial_observations: list[np.ndarray] = []
     observation_weights: list[np.ndarray] = []
     for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
-        if surface.kind != "cylinder":
-            raise ValueError("all-equal radii require cylinder fits")
         parameters = np.asarray(result["parameters"], dtype=float)
-        if parameters.shape != (7,) or not np.isfinite(parameters).all():
-            raise ValueError(f"{surface.label}: cylinder result is unavailable")
-        direction = np.asarray([parameters[2], parameters[3], 1.0])
-        direction /= np.linalg.norm(direction)
-        point = np.asarray([parameters[0], parameters[1], 0.0])
-        offset = workspace.local[surface_ids] - point
-        axial = offset @ direction
-        radial = offset - axial[:, None] * direction
-        radial_observations.append(np.linalg.norm(radial, axis=1))
+        if not np.isfinite(parameters).all():
+            raise ValueError(f"{surface.label}: fit result is unavailable")
+        if surface.kind == "cylinder" and parameters.shape == (7,):
+            direction = np.asarray([parameters[2], parameters[3], 1.0])
+            direction /= np.linalg.norm(direction)
+            point = np.asarray([parameters[0], parameters[1], 0.0])
+            offset = workspace.local[surface_ids] - point
+            axial = offset @ direction
+            radial = offset - axial[:, None] * direction
+            radial_observations.append(np.linalg.norm(radial, axis=1))
+        elif surface.kind == "sphere" and parameters.shape == (4,):
+            radial_observations.append(
+                np.linalg.norm(workspace.local[surface_ids] - parameters[:3], axis=1)
+            )
+        else:
+            raise ValueError("all-equal radii require sphere or cylinder fits")
         observation_weights.append(workspace.data.weights[surface_ids])
     total_weight = sum(float(weights.sum()) for weights in observation_weights)
     if not np.isfinite(total_weight) or total_weight <= 0:
@@ -908,7 +1374,7 @@ def fit_equal_cylinder_radii(
         strict=True,
     ):
         parameters = list(result["parameters"])
-        parameters[4] = radius
+        parameters[4 if surface.kind == "cylinder" else 3] = radius
         residuals = radial - radius
         adjusted[surface.id] = {
             **deepcopy(result),
@@ -921,7 +1387,7 @@ def fit_equal_cylinder_radii(
             "resolved_by": "equal_radii",
         }
     return {
-        "format": "scansor-equal-radii-v1",
+        "format": "scansor-equal-radii-v2",
         "measurement": "radius",
         "value": radius,
         "surfaces": adjusted,
@@ -1140,6 +1606,7 @@ class FeatureGraph:
         )
         self._results: dict[str, SessionFit] = {}
         self._connected_solves: dict[str, SessionFit] = {}
+        self._connected_point_solves: dict[str, dict[str, Any]] = {}
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self._diagnostics: dict[str, dict[str, Any]] = {}
@@ -1195,6 +1662,14 @@ class FeatureGraph:
                     axis = nodes[node.axis]
                     if not isinstance(axis, AxisDefinition):
                         raise ValueError("axis-bound fit requires an explicit axis")
+                    if axis.source_points is not None:
+                        raise ValueError(
+                            "point-pair axes are currently datum-only and cannot drive a surface fit"
+                        )
+                if node.point is not None and not isinstance(
+                    nodes[node.point], PointDefinition
+                ):
+                    raise ValueError("point-bound fit requires an explicit point")
                 if node.reference_plane is not None and not isinstance(
                     nodes[node.reference_plane], PlaneDefinition
                 ):
@@ -1370,6 +1845,14 @@ class FeatureGraph:
                     raise ValueError(
                         "rotational symmetry requires matching fit types; existing fits are not converted"
                     )
+                if any(
+                    cast(SurfaceFit, nodes[ref]).kind
+                    not in ("cone", "cylinder", "plane")
+                    for ref in node.planes
+                ):
+                    raise ValueError(
+                        "rotational symmetry currently supports cone, cylinder, or plane fits"
+                    )
             elif isinstance(node, Coaxial):
                 pair = [nodes[node.surface], nodes[node.reference]]
                 if node.surface == node.reference or any(
@@ -1392,10 +1875,64 @@ class FeatureGraph:
                         raise ValueError(
                             "an axis fit initializer must be an earlier standalone cone or cylinder"
                         )
+                elif node.source_points is not None:
+                    points = [nodes[ref] for ref in node.source_points]
+                    if any(not isinstance(point, PointDefinition) for point in points):
+                        raise ValueError(
+                            "a point-pair axis requires two earlier point datums"
+                        )
                 else:
                     assert node.initial_parameters is not None
                     if not np.isfinite(node.initial_parameters).all():
                         raise ValueError("manual axis initialization must be finite")
+            elif isinstance(node, PointDefinition):
+                if node.source_fit is not None:
+                    source_fit = nodes[node.source_fit]
+                    if (
+                        not isinstance(source_fit, SurfaceFit)
+                        or source_fit.kind != "sphere"
+                        or not is_standalone_fit(source_fit)
+                    ):
+                        raise ValueError(
+                            "a point fit initializer must be an earlier standalone sphere"
+                        )
+                else:
+                    assert node.initial_coordinates is not None
+                    if not np.isfinite(node.initial_coordinates).all():
+                        raise ValueError("manual point initialization must be finite")
+            elif isinstance(node, ScaleDefinition):
+                pairs = [
+                    frozenset((distance.first_point, distance.second_point))
+                    for distance in node.distances
+                ]
+                if len(pairs) != len(set(pairs)):
+                    raise ValueError("scale distance point pairs must be unique")
+                for distance in node.distances:
+                    if not isinstance(
+                        nodes[distance.first_point], PointDefinition
+                    ) or not isinstance(nodes[distance.second_point], PointDefinition):
+                        raise ValueError("scale distances require earlier point datums")
+            elif isinstance(node, FrameDefinition):
+                if not isinstance(nodes[node.origin_point], PointDefinition):
+                    raise ValueError("frame origin requires a point datum")
+                for reference_id in (
+                    node.primary_reference,
+                    node.secondary_reference,
+                ):
+                    reference = nodes[reference_id]
+                    if not isinstance(
+                        reference, (AxisDefinition, PlaneDefinition)
+                    ) and not (
+                        isinstance(reference, SurfaceFit) and reference.kind == "plane"
+                    ):
+                        raise ValueError(
+                            "frame directions require axes, reference planes, or plane fits"
+                        )
+            elif isinstance(node, TransformDefinition):
+                if not isinstance(nodes[node.frame], FrameDefinition):
+                    raise ValueError("transform requires an earlier frame feature")
+                if not isinstance(nodes[node.scale], ScaleDefinition):
+                    raise ValueError("transform requires an earlier scale feature")
             elif isinstance(node, PlaneDefinition):
                 if not isinstance(nodes[node.axis], AxisDefinition):
                     raise ValueError("reference plane requires an explicit axis")
@@ -1415,10 +1952,11 @@ class FeatureGraph:
                 if any(
                     not isinstance(surface, SurfaceFit)
                     or not is_standalone_fit(surface)
+                    or surface.kind not in ("cone", "cylinder", "plane")
                     for surface in surfaces
                 ):
                     raise ValueError(
-                        "mirror symmetry requires two standalone surface fits"
+                        "mirror symmetry requires two supported standalone surface fits"
                     )
                 if len({cast(SurfaceFit, surface).kind for surface in surfaces}) != 1:
                     raise ValueError(
@@ -1473,10 +2011,11 @@ class FeatureGraph:
                     raise ValueError("all-equal radius inputs must be unique")
                 surfaces = [nodes[ref] for ref in node.surfaces]
                 if any(
-                    not isinstance(surface, SurfaceFit) or surface.kind != "cylinder"
+                    not isinstance(surface, SurfaceFit)
+                    or surface.kind not in ("cylinder", "sphere")
                     for surface in surfaces
                 ):
-                    raise ValueError("all-equal radii require cylinder fits")
+                    raise ValueError("all-equal radii require sphere or cylinder fits")
                 overlapping = [
                     candidate
                     for candidate in nodes.values()
@@ -1486,7 +2025,7 @@ class FeatureGraph:
                 ]
                 if overlapping:
                     raise ValueError(
-                        "a cylinder may belong to only one all-equal radius relationship"
+                        "a fit may belong to only one all-equal radius relationship"
                     )
             elif isinstance(node, PlaneRelationship):
                 if len(set(node.surfaces)) != len(node.surfaces):
@@ -1603,15 +2142,18 @@ class FeatureGraph:
         with self.lock:
             resolved = deepcopy({**self._derived, **self._results})
             for axis_id, solve in self._connected_solves.items():
+                axis_node = next(
+                    node
+                    for node in self._recipe.nodes
+                    if isinstance(node, AxisDefinition) and node.id == axis_id
+                )
                 axis = deepcopy(self._derived.get(axis_id, {}))
                 axis.update(
-                    {
-                        "parameters": solve["fit"]["parameters"],
-                        "axis_display": solve["axis_display"],
-                        "point_display": solve["point_display"],
-                        "resolved_by": "connected_fits",
-                    }
+                    directed_axis_result(
+                        axis_node, parameters=solve["fit"]["parameters"]
+                    )
                 )
+                axis["resolved_by"] = "connected_fits"
                 resolved[axis_id] = axis
                 condition = solve["fit"]["normal_matrix_condition"]
                 for fit_id, surface in solve.get("surfaces", {}).items():
@@ -1623,6 +2165,32 @@ class FeatureGraph:
                             solved_planes.get(node.id)
                             or reference_plane_result(axis, node)
                         )
+            for point_id, solve in self._connected_point_solves.items():
+                point = deepcopy(self._derived.get(point_id, {}))
+                point.update(deepcopy(solve["point"]))
+                resolved[point_id] = point
+                for fit_id, surface in solve["surfaces"].items():
+                    resolved[fit_id] = deepcopy(surface)
+            for node in self._recipe.nodes:
+                if (
+                    not isinstance(node, AxisDefinition)
+                    or node.source_points is None
+                    or self._states.get(node.id) != "ready"
+                ):
+                    continue
+                axis_result = directed_axis_result(
+                    node,
+                    first_point=cast(dict[str, Any], resolved[node.source_points[0]]),
+                    second_point=cast(dict[str, Any], resolved[node.source_points[1]]),
+                )
+                resolved[node.id] = axis_result
+                for plane in self._recipe.nodes:
+                    if (
+                        isinstance(plane, PlaneDefinition)
+                        and plane.axis == node.id
+                        and self._states.get(plane.id) == "ready"
+                    ):
+                        resolved[plane.id] = reference_plane_result(axis_result, plane)
             for node in self._recipe.nodes:
                 if (
                     not isinstance(node, EqualRadii)
@@ -1687,6 +2255,17 @@ class FeatureGraph:
                     before_members | after_members
                 ):
                     affected.update(after_members)
+            before_point_components = automatic_point_components(before)
+            after_point_components = automatic_point_components(after_nodes)
+            for point_id in (
+                before_point_components.keys() | after_point_components.keys()
+            ):
+                before_members = before_point_components.get(point_id, ([], set()))[1]
+                after_members = after_point_components.get(point_id, ([], set()))[1]
+                if before_members != after_members or affected.intersection(
+                    before_members | after_members
+                ):
+                    affected.update(after_members)
             before_plane_components = automatic_plane_relationship_components(before)
             after_plane_components = automatic_plane_relationship_components(
                 after_nodes
@@ -1721,6 +2300,12 @@ class FeatureGraph:
                 if key in after_components
                 and not affected.intersection(after_components[key][1])
             }
+            self._connected_point_solves = {
+                key: value
+                for key, value in self._connected_point_solves.items()
+                if key in after_point_components
+                and not affected.intersection(after_point_components[key][1])
+            }
             self._derived = {
                 key: value
                 for key, value in self._derived.items()
@@ -1754,6 +2339,7 @@ class FeatureGraph:
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
             connected_components = automatic_axis_components(nodes)
+            point_components = automatic_point_components(nodes)
             equal_radius_components = automatic_equal_radius_components(nodes)
             plane_relationship_components = automatic_plane_relationship_components(
                 nodes
@@ -1777,6 +2363,10 @@ class FeatureGraph:
                         Selection,
                         Source,
                         AxisDefinition,
+                        PointDefinition,
+                        ScaleDefinition,
+                        FrameDefinition,
+                        TransformDefinition,
                         PlaneDefinition,
                         AxisSolve,
                         EqualRadii,
@@ -1784,7 +2374,7 @@ class FeatureGraph:
                     ),
                 ):
                     raise ValueError(
-                        "evaluation target must be a source, selection, reuse, region, fit, axis, plane, solve, or growth action"
+                        "evaluation target must be a source, selection, reuse, region, fit, point, axis, plane, frame, scale, transform, solve, or growth action"
                     )
                 needed = {target}
                 while True:
@@ -1792,6 +2382,9 @@ class FeatureGraph:
                         dep for key in needed for dep in dependencies(nodes[key])
                     }
                     for _, members in connected_components.values():
+                        if expanded.intersection(members):
+                            expanded.update(members)
+                    for _, members in point_components.values():
                         if expanded.intersection(members):
                             expanded.update(members)
                     for members in equal_radius_components.values():
@@ -1841,16 +2434,22 @@ class FeatureGraph:
                     else None
                 )
                 solve = self._connected_solves.get(axis_id or "")
+                point_id = (
+                    node.id
+                    if isinstance(node, PointDefinition)
+                    else node.point
+                    if isinstance(node, SurfaceFit)
+                    else None
+                )
+                point_solve = self._connected_point_solves.get(point_id or "")
                 value = deepcopy(self._derived[node_id])
                 if solve is not None and isinstance(node, AxisDefinition):
                     value.update(
-                        {
-                            "parameters": solve["fit"]["parameters"],
-                            "axis_display": solve["axis_display"],
-                            "point_display": solve["point_display"],
-                            "resolved_by": "connected_fits",
-                        }
+                        directed_axis_result(
+                            node, parameters=solve["fit"]["parameters"]
+                        )
                     )
+                    value["resolved_by"] = "connected_fits"
                 elif solve is not None and isinstance(node, PlaneDefinition):
                     solved_plane = solve.get("reference_planes", {}).get(node_id)
                     if solved_plane is not None:
@@ -1858,17 +2457,22 @@ class FeatureGraph:
                     else:
                         axis_value = deepcopy(self._derived[node.axis])
                         axis_value.update(
-                            {
-                                "parameters": solve["fit"]["parameters"],
-                                "axis_display": solve["axis_display"],
-                                "point_display": solve["point_display"],
-                            }
+                            directed_axis_result(
+                                cast(AxisDefinition, nodes[node.axis]),
+                                parameters=solve["fit"]["parameters"],
+                            )
                         )
                         value = reference_plane_result(axis_value, node)
                 elif solve is not None and isinstance(node, SurfaceFit):
                     surface = solve.get("surfaces", {}).get(node_id)
                     if surface is not None:
                         value = deepcopy(dict(surface))
+                if point_solve is not None and isinstance(node, PointDefinition):
+                    value.update(deepcopy(point_solve["point"]))
+                elif point_solve is not None and isinstance(node, SurfaceFit):
+                    surface = point_solve["surfaces"].get(node_id)
+                    if surface is not None:
+                        value = deepcopy(surface)
                 if isinstance(node, SurfaceFit):
                     for relationship in recipe.nodes:
                         if (
@@ -1957,6 +2561,26 @@ class FeatureGraph:
                 reference_plane_groups=reference_plane_groups,
             )
 
+        def solve_connected_point(
+            point_id: str, fitted_factors: list[SurfaceFit]
+        ) -> dict[str, Any]:
+            reject_overlaps(fitted_factors)
+            sources = {
+                selection_source(nodes[ref], nodes)
+                for factor in fitted_factors
+                for ref in factor.selections
+            }
+            if len(sources) != 1:
+                raise ValueError("connected fits on a free point must share one source")
+            point_result = derived_result(point_id)
+            return fit_spheres_to_free_point(
+                self.workspace,
+                point_id,
+                fitted_factors,
+                [fitted_ids(surface) for surface in fitted_factors],
+                np.asarray(point_result["point_display"], dtype=float),
+            )
+
         def resolve_completed_components(completed: set[str]) -> None:
             explicit_solve_axes = {
                 cast(AxisSolve, nodes[key]).axis
@@ -1998,6 +2622,36 @@ class FeatureGraph:
                         self._states[member] = "ready"
                         _ = self._errors.pop(member, None)
                     _ = self._diagnostics.pop(axis_id, None)
+            for point_id, (factors, members) in point_components.items():
+                if not members <= completed:
+                    continue
+                with self.lock:
+                    if point_id in self._connected_point_solves:
+                        continue
+                try:
+                    connected = solve_connected_point(point_id, factors)
+                except Exception as error:
+                    with self.lock:
+                        if epoch == self._epoch:
+                            for member in members:
+                                self._states[member] = "failed"
+                                self._errors[member] = str(error)
+                            if isinstance(error, SelectionOverlap):
+                                self._diagnostics[point_id] = error.diagnostic
+                            else:
+                                _ = self._diagnostics.pop(point_id, None)
+                            _ = self._connected_point_solves.pop(point_id, None)
+                    raise
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during connected solve; result discarded"
+                        )
+                    self._connected_point_solves[point_id] = connected
+                    for member in members:
+                        self._states[member] = "ready"
+                        _ = self._errors.pop(member, None)
+                    _ = self._diagnostics.pop(point_id, None)
 
         with self.lock:
             completed = {key for key, state in self._states.items() if state == "ready"}
@@ -2023,6 +2677,13 @@ class FeatureGraph:
                             node,
                             ids,
                             derived_result(node.reference_plane),
+                        )
+                    elif node.point is not None:
+                        derived = fit_sphere_at_point(
+                            self.workspace,
+                            node,
+                            ids,
+                            derived_result(node.point),
                         )
                     elif node.axis is None:
                         fit_points = self.workspace.local[ids]
@@ -2104,18 +2765,51 @@ class FeatureGraph:
                     if node.source_fit is not None:
                         source = derived_result(node.source_fit)
                         parameters = list(source["parameters"])
+                        derived = directed_axis_result(node, parameters=parameters)
+                    elif node.source_points is not None:
+                        derived = directed_axis_result(
+                            node,
+                            first_point=resolved_result(node.source_points[0]),
+                            second_point=resolved_result(node.source_points[1]),
+                        )
                     else:
                         assert node.initial_parameters is not None
                         parameters = [*node.initial_parameters, 0.0, 0.0, 0.0]
-                    raw_axis = np.array([parameters[2], parameters[3], 1.0])
-                    axis = raw_axis / np.linalg.norm(raw_axis)
-                    point = np.array([parameters[0], parameters[1], 0.0])
+                        derived = directed_axis_result(node, parameters=parameters)
+                elif isinstance(node, PointDefinition):
+                    if node.source_fit is not None:
+                        source = derived_result(node.source_fit)
+                        coordinates = list(source["parameters"][:3])
+                    else:
+                        assert node.initial_coordinates is not None
+                        coordinates = list(node.initial_coordinates)
                     derived = {
                         "source_fit": node.source_fit,
-                        "parameters": parameters,
-                        "axis_display": axis.tolist(),
-                        "point_display": point.tolist(),
+                        "coordinates": coordinates,
+                        "point_display": coordinates,
                     }
+                elif isinstance(node, ScaleDefinition):
+                    derived = scale_result(
+                        node,
+                        {
+                            reference: resolved_result(reference)
+                            for reference in dependencies(node)
+                        },
+                    )
+                elif isinstance(node, FrameDefinition):
+                    derived = frame_result(
+                        node,
+                        {
+                            reference: resolved_result(reference)
+                            for reference in dependencies(node)
+                        },
+                    )
+                elif isinstance(node, TransformDefinition):
+                    derived = output_transform_result(
+                        node,
+                        resolved_result(node.frame),
+                        resolved_result(node.scale),
+                    )
                 elif isinstance(node, PlaneDefinition):
                     derived = reference_plane_result(derived_result(node.axis), node)
                 elif isinstance(node, Growth):
@@ -2261,13 +2955,13 @@ class FeatureGraph:
                         "target_axial_domain": target_domain,
                     }
                 elif isinstance(node, EqualRadii):
-                    cylinders = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
-                    cylinder_ids = [fitted_ids(surface) for surface in cylinders]
-                    derived = fit_equal_cylinder_radii(
+                    surfaces = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
+                    surface_ids = [fitted_ids(surface) for surface in surfaces]
+                    derived = fit_equal_radii(
                         self.workspace,
-                        cylinders,
-                        [resolved_result(surface.id) for surface in cylinders],
-                        cylinder_ids,
+                        surfaces,
+                        [resolved_result(surface.id) for surface in surfaces],
+                        surface_ids,
                     )
                 elif isinstance(node, PlaneRelationship):
                     relationships, planes, _ = plane_relationship_components[node.id]
