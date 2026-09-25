@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from experiments.selection_growth import connected_growth, fit_seed
+from experiments.selection_growth import connected_growth, fit_seed, surface_distance
 
 
 def grid() -> tuple[Any, Any, Any, Any]:
@@ -97,6 +97,38 @@ def test_seed_side_recovery_without_plane(
         fitted["parameters"], [0.2, -0.3, *slopes, 3, 0, taper], atol=1e-8
     )
     assert fitted["weighted_rms"] < 1e-9
+
+
+def test_seed_sphere_recovery_and_distance_normals() -> None:
+    center = np.array([0.6, -1.1, 2.3])
+    azimuth, elevation = np.meshgrid(
+        np.linspace(0, 2 * np.pi, 20, endpoint=False),
+        np.linspace(-0.8, 0.9, 7),
+    )
+    normals = np.column_stack(
+        (
+            np.cos(elevation.ravel()) * np.cos(azimuth.ravel()),
+            np.cos(elevation.ravel()) * np.sin(azimuth.ravel()),
+            np.sin(elevation.ravel()),
+        )
+    )
+    points = center + 4.2 * normals
+
+    fitted = fit_seed(
+        points,
+        np.ones(len(points)),
+        normals,
+        "sphere",
+        np.zeros(5),
+        (-2, 5),
+    )
+    residual, expected, supported = surface_distance(points, fitted)
+
+    np.testing.assert_allclose(fitted["parameters"], [*center, 4.2], atol=1e-9)
+    np.testing.assert_allclose(residual, 0, atol=1e-9)
+    np.testing.assert_allclose(expected, normals, atol=1e-9)
+    assert supported.all()
+    assert fitted["normal_sign"] == 1
 
 
 def test_insufficient_seed_coverage_fails() -> None:

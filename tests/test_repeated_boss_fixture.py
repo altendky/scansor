@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from experiments.feature_reuse import estimate_rigid_match
+from experiments.mesh_sphere_fit import fit_sphere
 from experiments.nozzle_browser import selection_bundle_recipe
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.repeated_boss_fixture import (
@@ -107,10 +108,10 @@ def test_generated_repeated_boss_fixture_is_deterministic_and_browser_readable(
         (item["realization_id"], item["vertices"], item["triangles"])
         for item in first["realizations"]
     ] == [
-        ("reference", 20_182, 37_120),
-        ("scan-coarse", 5_362, 9_128),
-        ("scan-fine", 18_093, 33_096),
-        ("scan-rescan", 10_939, 19_454),
+        ("reference", 24_508, 45_760),
+        ("scan-coarse", 6_292, 10_976),
+        ("scan-fine", 21_795, 40_488),
+        ("scan-rescan", 12_985, 23_534),
     ]
 
     source_hashes: set[str] = set()
@@ -126,17 +127,39 @@ def test_generated_repeated_boss_fixture_is_deterministic_and_browser_readable(
         manifest = json.loads((root / "manifest.json").read_text())
         pose_rotation = np.asarray(manifest["pose"]["part_to_scan_rotation"])
         pose_translation = np.asarray(manifest["pose"]["part_to_scan_translation_mm"])
-        np.testing.assert_allclose(workspace.origin, pose_translation)
-        np.testing.assert_allclose(workspace.frame, pose_rotation)
         measured_part = np.load(root / "truth/measured-part.npy", allow_pickle=False)
-        np.testing.assert_allclose(workspace.local, measured_part, atol=8e-6)
-        assert workspace.data.selection["initial_parameters"] == [
-            -34.0,
-            -20.0,
-            0.0,
-            0.0,
-            11.0,
-        ]
+        measured_scan = np.load(root / "truth/measured-scan.npy", allow_pickle=False)
+        if manifest["realization"]["workspace_frame"] == "scan":
+            np.testing.assert_allclose(workspace.origin, np.zeros(3))
+            np.testing.assert_allclose(workspace.frame, np.eye(3))
+            np.testing.assert_allclose(workspace.local, measured_scan, atol=8e-6)
+            initial = workspace.data.selection["initial_parameters"]
+            expected_axis = pose_rotation @ np.array([0.0, 0.0, 1.0])
+            expected_center = pose_rotation @ np.array([-34.0, -20.0, 0.0])
+            expected_point = (
+                expected_center - expected_axis * expected_center[2] / expected_axis[2]
+            )
+            np.testing.assert_allclose(
+                initial,
+                [
+                    expected_point[0],
+                    expected_point[1],
+                    expected_axis[0] / expected_axis[2],
+                    expected_axis[1] / expected_axis[2],
+                    11.0,
+                ],
+            )
+        else:
+            np.testing.assert_allclose(workspace.origin, pose_translation)
+            np.testing.assert_allclose(workspace.frame, pose_rotation)
+            np.testing.assert_allclose(workspace.local, measured_part, atol=8e-6)
+            assert workspace.data.selection["initial_parameters"] == [
+                -34.0,
+                -20.0,
+                0.0,
+                0.0,
+                11.0,
+            ]
         assert (
             workspace.data.selection["azimuth_frame"]["origin"]
             == (workspace.data.selection["axis_seed"]["center"])
@@ -239,22 +262,39 @@ def test_role_regions_transfer_across_occurrences_and_topologies(
         seed = SelectionBundle.model_validate_json(
             (directory / "user-selection-bundle.json").read_bytes()
         )
-        assert len(oracle.selections) == 16
+        assert len(oracle.selections) == 20
         assert len(seed.selections) == 4
-        assert {item.label.split()[0] for item in oracle.selections} == {
+        boss_selections = [
+            item for item in oracle.selections if item.label.startswith("boss-")
+        ]
+        sphere_selections = [
+            item for item in oracle.selections if item.label.startswith("sphere-")
+        ]
+        assert {item.label.split()[0] for item in boss_selections} == {
             "boss-a",
             "boss-b",
             "boss-c",
             "boss-d",
         }
-        assert {item.label.split()[1] for item in oracle.selections} == {
+        assert {item.label.split()[1] for item in boss_selections} == {
             "outer",
             "bore",
             "shoulder",
             "clock",
         }
+        assert {item.label for item in sphere_selections} == {
+            "sphere-a sphere",
+            "sphere-b sphere",
+            "sphere-c sphere",
+        }
+        plate_top = next(
+            item for item in oracle.selections if item.label == "plate top"
+        )
+        plate_top_ids = np.asarray(plate_top.vertex_ids)
+        assert np.all(occurrence_codes[plate_top_ids] == 0)
+        assert np.all(role_codes[plate_top_ids] == ROLE_CODES["plate"])
         assert all(item.vertex_count >= 3 for item in oracle.selections)
-        for item in oracle.selections:
+        for item in boss_selections:
             occurrence, role = item.label.split()
             ids = np.asarray(item.vertex_ids)
             expected_occurrence = (
@@ -283,6 +323,57 @@ def test_role_regions_transfer_across_occurrences_and_topologies(
     assert len(set(first_ids.values())) == 3
 
 
+def test_corner_spheres_are_recorded_and_fit_from_noisy_scan(tmp_path: Path) -> None:
+    root = tmp_path / "fixture"
+    _ = publish_fixture(root, DEFINITION)
+    example = root / "scan-coarse"
+    workspace = NozzleWorkspace(example)
+    oracle = SelectionBundle.model_validate_json(
+        (example / "selections/oracle-selection-bundle.json").read_bytes()
+    )
+    occurrence_codes = np.load(
+        example / "truth/occurrence-code.npy", allow_pickle=False
+    )
+    role_codes = np.load(example / "truth/role-code.npy", allow_pickle=False)
+    truth = json.loads((example / "truth/occurrences.json").read_text())
+    pose_rotation = np.asarray(
+        json.loads((example / "manifest.json").read_text())["pose"][
+            "part_to_scan_rotation"
+        ]
+    )
+
+    assert truth["spheres"] == [
+        {
+            "center_part_mm": [-52.0, -32.0, 5.0],
+            "radius_mm": 5.0,
+            "sphere_id": "sphere-a",
+        },
+        {
+            "center_part_mm": [52.0, -32.0, 5.0],
+            "radius_mm": 5.0,
+            "sphere_id": "sphere-b",
+        },
+        {
+            "center_part_mm": [52.0, 32.0, 5.0],
+            "radius_mm": 5.0,
+            "sphere_id": "sphere-c",
+        },
+    ]
+    for sphere_index, expected in enumerate(truth["spheres"], start=5):
+        selection = next(
+            item
+            for item in oracle.selections
+            if item.selection_id == f"{expected['sphere_id']}-sphere"
+        )
+        ids = np.asarray(selection.vertex_ids)
+        assert np.all(occurrence_codes[ids] == sphere_index)
+        assert np.all(role_codes[ids] == ROLE_CODES["sphere"])
+        result = fit_sphere(workspace.local[ids], workspace.data.weights[ids])
+        expected_center = pose_rotation @ np.asarray(expected["center_part_mm"])
+        np.testing.assert_allclose(result["parameters"][:3], expected_center, atol=0.03)
+        assert result["parameters"][3] == pytest.approx(expected["radius_mm"], abs=0.03)
+
+
 def test_fitted_outer_region_selects_the_same_role_on_another_boss(
     tmp_path: Path,
 ) -> None:
@@ -304,8 +395,16 @@ def test_fitted_outer_region_selects_the_same_role_on_another_boss(
         )
     )
     truth = json.loads((example / "truth/occurrences.json").read_text())["occurrences"]
-    source_rotation = np.asarray(truth[0]["local_to_part_rotation"], dtype=float)
-    source_origin = np.asarray(truth[0]["center_part_mm"], dtype=float)
+    manifest = json.loads((example / "manifest.json").read_text())
+    pose_rotation = np.asarray(manifest["pose"]["part_to_scan_rotation"])
+    pose_translation = np.asarray(manifest["pose"]["part_to_scan_translation_mm"])
+    source_rotation = pose_rotation @ np.asarray(
+        truth[0]["local_to_part_rotation"], dtype=float
+    )
+    source_origin = (
+        pose_rotation @ np.asarray(truth[0]["center_part_mm"], dtype=float)
+        + pose_translation
+    )
     source_local = (workspace.local[source_ids] - source_origin) @ source_rotation
     fitted_radius = float(np.median(np.linalg.norm(source_local[:, :2], axis=1)))
     region = build_selection_region(
@@ -321,8 +420,13 @@ def test_fitted_outer_region_selects_the_same_role_on_another_boss(
         normal_margin=0.35,
         normal_angle_degrees=25.0,
     )
-    target_rotation = np.asarray(truth[1]["local_to_part_rotation"], dtype=float)
-    target_origin = np.asarray(truth[1]["center_part_mm"], dtype=float)
+    target_rotation = pose_rotation @ np.asarray(
+        truth[1]["local_to_part_rotation"], dtype=float
+    )
+    target_origin = (
+        pose_rotation @ np.asarray(truth[1]["center_part_mm"], dtype=float)
+        + pose_translation
+    )
     transferred = set(
         apply_selection_region(
             workspace.local,
@@ -373,11 +477,18 @@ def test_painted_correspondence_selections_recover_the_tilted_boss_pose(
     ]
     reference = occurrences[0]
     target = occurrences[3]
-    reference_rotation = np.asarray(reference["local_to_part_rotation"])
-    target_rotation = np.asarray(target["local_to_part_rotation"])
+    manifest = json.loads((example / "manifest.json").read_text())
+    pose_rotation = np.asarray(manifest["pose"]["part_to_scan_rotation"])
+    pose_translation = np.asarray(manifest["pose"]["part_to_scan_translation_mm"])
+    reference_rotation = pose_rotation @ np.asarray(reference["local_to_part_rotation"])
+    target_rotation = pose_rotation @ np.asarray(target["local_to_part_rotation"])
     expected_rotation = reference_rotation @ target_rotation.T
-    reference_origin = np.asarray(reference["center_part_mm"])
-    target_origin = np.asarray(target["center_part_mm"])
+    reference_origin = (
+        pose_rotation @ np.asarray(reference["center_part_mm"]) + pose_translation
+    )
+    target_origin = (
+        pose_rotation @ np.asarray(target["center_part_mm"]) + pose_translation
+    )
     expected_translation = target_origin - reference_origin @ expected_rotation
     actual_rotation = np.asarray(match["rotation"])
     actual_translation = np.asarray(match["translation"])
@@ -519,12 +630,19 @@ def test_checked_in_definition_is_valid_and_names_distinct_realizations() -> Non
     assert spec.occurrences[1].height_mm == 22.0
     assert spec.occurrences[3].tilt_degrees == 12.0
     assert spec.occurrences[3].tilt_azimuth_degrees == 330.0
+    assert [item.sphere_id for item in spec.spheres] == [
+        "sphere-a",
+        "sphere-b",
+        "sphere-c",
+    ]
     assert [item.realization_id for item in spec.realizations] == [
         "reference",
         "scan-coarse",
         "scan-fine",
         "scan-rescan",
     ]
+    assert spec.realizations[1].pose.rotation_xyz_degrees == (6.0, -8.0, 11.0)
+    assert spec.realizations[1].workspace_frame == "scan"
 
     invalid = json.loads(DEFINITION.read_text())
     invalid["realizations"][0]["sensor_sigma_mm"] = 0.01

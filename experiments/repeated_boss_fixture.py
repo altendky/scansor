@@ -29,7 +29,7 @@ from scansor.serialization import canonical_json, sha256
 
 FIXTURE_FORMAT = "scansor-repeated-boss-selection-fixture-v2"
 GENERATOR_REVISION = "repeated-boss-selection-generator-v2"
-ROLE_NAMES = ("plate", "outer", "bore", "shoulder", "clock")
+ROLE_NAMES = ("plate", "outer", "bore", "shoulder", "clock", "sphere")
 ROLE_CODES = {name: index for index, name in enumerate(ROLE_NAMES)}
 AXIAL_REGION_ROLES = frozenset(("outer", "bore", "clock"))
 REGION_BOUNDS = {
@@ -64,6 +64,12 @@ class BossSpec(FixtureRecord):
         if not self.bore_radius_mm < self.flat_offset_mm < self.outer_radius_mm:
             raise ValueError("boss radii require bore < flat offset < outer")
         return self
+
+
+class SphereSpec(FixtureRecord):
+    center_mm: tuple[float, float, float]
+    radius_mm: float = Field(gt=0.0)
+    sphere_id: str = Field(pattern=r"^sphere-[a-z]$")
 
 
 class OccurrenceSpec(FixtureRecord):
@@ -107,6 +113,7 @@ class RealizationSpec(FixtureRecord):
     sensor_sigma_mm: float = Field(ge=0.0, le=1.0)
     surface_jitter_fraction: float = Field(default=0.0, ge=0.0, le=0.35)
     tessellation: TessellationSpec
+    workspace_frame: Literal["part", "scan"] = "part"
 
 
 class FixtureSpec(FixtureRecord):
@@ -116,6 +123,7 @@ class FixtureSpec(FixtureRecord):
     occurrences: tuple[OccurrenceSpec, ...] = Field(min_length=2, max_length=12)
     plate: PlateSpec
     realizations: tuple[RealizationSpec, ...] = Field(min_length=2, max_length=12)
+    spheres: tuple[SphereSpec, ...] = Field(default=(), max_length=12)
     units: Literal["mm"] = "mm"
 
     @model_validator(mode="after")
@@ -128,6 +136,8 @@ class FixtureSpec(FixtureRecord):
             self.realizations
         ):
             raise ValueError("realization IDs must be unique")
+        if len({item.sphere_id for item in self.spheres}) != len(self.spheres):
+            raise ValueError("sphere IDs must be unique")
         if self.realizations[0].realization_id != "reference":
             raise ValueError("the first realization must be the exact reference")
         if self.realizations[0].as_built:
@@ -147,6 +157,13 @@ class FixtureSpec(FixtureRecord):
         x, y, thickness = self.plate.size_mm
         if min(x, y, thickness) <= 0.0:
             raise ValueError("plate dimensions must be positive")
+        for sphere in self.spheres:
+            center_x, center_y, center_z = sphere.center_mm
+            radius = sphere.radius_mm
+            if abs(center_x) + radius > x / 2.0 or abs(center_y) + radius > y / 2.0:
+                raise ValueError(f"{sphere.sphere_id} extends beyond the plate")
+            if center_z - radius < 0.0:
+                raise ValueError(f"{sphere.sphere_id} extends below the plate top")
         return self
 
 
@@ -788,6 +805,113 @@ def _plate_patches(spec: FixtureSpec, realization: RealizationSpec) -> list[Patc
     ]
 
 
+def _sphere_patch(
+    sphere: SphereSpec,
+    realization: RealizationSpec,
+    occurrence_code: int,
+) -> Patch:
+    angular_segments = realization.tessellation.angular_segments
+    latitude_segments = max(6, realization.tessellation.axial_segments)
+    fraction = realization.surface_jitter_fraction
+    samples: list[tuple[float, float]] = [(0.0, 0.0)]
+    for latitude_index in range(1, latitude_segments):
+        base_v = latitude_index / latitude_segments
+        for angular_index in range(angular_segments):
+            base_u = angular_index / angular_segments
+            key = f"{sphere.sphere_id}:sphere:{latitude_index}:{angular_index}"
+            u = base_u + (
+                fraction
+                / angular_segments
+                * _uniform_jitter(realization.seed, key + ":u")
+            )
+            v = base_v + (
+                fraction
+                / latitude_segments
+                * _uniform_jitter(realization.seed, key + ":v")
+            )
+            samples.append((u % 1.0, v))
+    samples.append((0.0, 1.0))
+    uv = np.asarray(samples, dtype=np.float64)
+    theta = 2.0 * math.pi * uv[:, 0]
+    phi = math.pi * uv[:, 1]
+    normals_part = np.column_stack(
+        (
+            np.sin(phi) * np.cos(theta),
+            np.sin(phi) * np.sin(theta),
+            np.cos(phi),
+        )
+    )
+    center = np.asarray(sphere.center_mm, dtype=np.float64)
+    nominal_part = center + sphere.radius_mm * normals_part
+    as_built_part = nominal_part.copy()
+    offsets = sensor_offsets(
+        realization,
+        sphere.sphere_id,
+        "sphere",
+        uv[:, None, :],
+    ).reshape(-1)
+    measured_part = as_built_part + offsets[:, None] * normals_part
+    scan_rotation = _rotation_xyz(realization.pose.rotation_xyz_degrees)
+    scan_translation = np.asarray(realization.pose.translation_mm)
+    positions_scan = measured_part @ scan_rotation.T + scan_translation
+    normals_scan = normals_part @ scan_rotation.T
+
+    north = 0
+    first_ring = 1
+    south = len(samples) - 1
+    faces: list[tuple[int, int, int]] = []
+    for angular_index in range(angular_segments):
+        following = (angular_index + 1) % angular_segments
+        faces.append((north, first_ring + angular_index, first_ring + following))
+    for latitude_index in range(latitude_segments - 2):
+        current = first_ring + latitude_index * angular_segments
+        following_ring = current + angular_segments
+        for angular_index in range(angular_segments):
+            following = (angular_index + 1) % angular_segments
+            faces.extend(
+                (
+                    (
+                        current + angular_index,
+                        following_ring + angular_index,
+                        following_ring + following,
+                    ),
+                    (
+                        current + angular_index,
+                        following_ring + following,
+                        current + following,
+                    ),
+                )
+            )
+    last_ring = south - angular_segments
+    for angular_index in range(angular_segments):
+        following = (angular_index + 1) % angular_segments
+        faces.append((last_ring + angular_index, south, last_ring + following))
+    face_array = np.asarray(faces, dtype=np.int32)
+    face_cross = np.cross(
+        positions_scan[face_array[:, 1]] - positions_scan[face_array[:, 0]],
+        positions_scan[face_array[:, 2]] - positions_scan[face_array[:, 0]],
+    )
+    face_normals = np.sum(normals_scan[face_array], axis=1)
+    alignment = np.sum(face_cross * face_normals, axis=1)
+    if np.any(np.abs(alignment) <= 1e-12):
+        raise ValueError(f"{sphere.sphere_id} produced degenerate face winding")
+    reversed_faces = alignment < 0.0
+    face_array[reversed_faces] = face_array[reversed_faces][:, (0, 2, 1)]
+    count = len(samples)
+    return Patch(
+        as_built_part=as_built_part,
+        faces=face_array,
+        measured_part=measured_part,
+        nominal_part=nominal_part,
+        normal_part=normals_part,
+        normals_scan=normals_scan,
+        occurrence_codes=np.full(count, occurrence_code, dtype=np.int16),
+        positions_scan=positions_scan,
+        role_codes=np.full(count, ROLE_CODES["sphere"], dtype=np.uint8),
+        surface_uv=uv.astype(np.float32),
+    )
+
+
 def _combine_patches(patches: list[Patch]) -> MeshData:
     offsets: list[int] = []
     total = 0
@@ -822,6 +946,14 @@ def generate_mesh(spec: FixtureSpec, realization: RealizationSpec) -> MeshData:
     patches = _plate_patches(spec, realization)
     for occurrence_code, occurrence in enumerate(spec.occurrences, start=1):
         patches.extend(_boss_patches(spec, realization, occurrence, occurrence_code))
+    for sphere_index, sphere in enumerate(spec.spheres, start=1):
+        patches.append(
+            _sphere_patch(
+                sphere,
+                realization,
+                len(spec.occurrences) + sphere_index,
+            )
+        )
     return _combine_patches(patches)
 
 
@@ -921,6 +1053,36 @@ def _write_bundle(
                     ids,
                 )
             )
+    if all_occurrences:
+        plate_top_ids = tuple(
+            int(value)
+            for value in np.flatnonzero(
+                (mesh.occurrence_codes == 0)
+                & (mesh.role_codes == ROLE_CODES["plate"])
+                & (mesh.normal_part[:, 2] > 0.9)
+            )
+        )
+        if len(plate_top_ids) < 3:
+            raise ValueError("plate top has insufficient plane support")
+        memberships.append(_selection("plate-top", "plate top", plate_top_ids))
+        for sphere_index, sphere in enumerate(spec.spheres, start=1):
+            occurrence_code = len(spec.occurrences) + sphere_index
+            ids = tuple(
+                int(value)
+                for value in np.flatnonzero(
+                    (mesh.occurrence_codes == occurrence_code)
+                    & (mesh.role_codes == ROLE_CODES["sphere"])
+                )
+            )
+            if len(ids) < 4:
+                raise ValueError(f"{sphere.sphere_id} has insufficient sphere support")
+            memberships.append(
+                _selection(
+                    f"{sphere.sphere_id}-sphere",
+                    f"{sphere.sphere_id} sphere",
+                    ids,
+                )
+            )
     bundle = SelectionBundle(
         format=SELECTION_BUNDLE_FORMAT,
         format_status=SELECTION_BUNDLE_STATUS,
@@ -1016,15 +1178,25 @@ def _write_legacy_selections(
     occurrence_rotation = _occurrence_rotation(occurrence)
     axis_part = occurrence_rotation[:, 2]
     center_part = np.asarray((*occurrence.center_mm, 0.0))
-    axis_point_at_zero = center_part - axis_part * center_part[2] / axis_part[2]
+    if realization.workspace_frame == "part":
+        fit_rotation = scan_rotation
+        fit_origin = part_origin_scan
+        axis_fit = axis_part
+        center_fit = center_part
+    else:
+        fit_rotation = np.eye(3)
+        fit_origin = np.zeros(3)
+        axis_fit = scan_rotation @ axis_part
+        center_fit = scan_rotation @ center_part + part_origin_scan
+    axis_point_at_zero = center_fit - axis_fit * center_fit[2] / axis_fit[2]
     axis_seed = {"axis": axis.tolist(), "center": occurrence_origin.tolist()}
     azimuth_frame = {
         "columns": occurrence_frame.tolist(),
         "origin": occurrence_origin.tolist(),
     }
     fit_frame = {
-        "columns": scan_rotation.tolist(),
-        "origin": part_origin_scan.tolist(),
+        "columns": fit_rotation.tolist(),
+        "origin": fit_origin.tolist(),
     }
     outer = {
         "axis_seed": axis_seed,
@@ -1035,8 +1207,8 @@ def _write_legacy_selections(
         "initial_parameters": [
             axis_point_at_zero[0],
             axis_point_at_zero[1],
-            axis_part[0] / axis_part[2],
-            axis_part[1] / axis_part[2],
+            axis_fit[0] / axis_fit[2],
+            axis_fit[1] / axis_fit[2],
             spec.boss.outer_radius_mm,
         ],
         "maximum_abs_axial_normal_dot": 0.35,
@@ -1100,6 +1272,10 @@ def _write_truth(root: Path, mesh: MeshData, spec: FixtureSpec) -> None:
                         str(code): occurrence.occurrence_id
                         for code, occurrence in enumerate(spec.occurrences, start=1)
                     },
+                    **{
+                        str(len(spec.occurrences) + code): sphere.sphere_id
+                        for code, sphere in enumerate(spec.spheres, start=1)
+                    },
                 },
                 "role_codes": {str(code): name for name, code in ROLE_CODES.items()},
             }
@@ -1120,6 +1296,14 @@ def _write_truth(root: Path, mesh: MeshData, spec: FixtureSpec) -> None:
                         "occurrence_id": occurrence.occurrence_id,
                     }
                     for occurrence in spec.occurrences
+                ],
+                "spheres": [
+                    {
+                        "center_part_mm": list(sphere.center_mm),
+                        "radius_mm": sphere.radius_mm,
+                        "sphere_id": sphere.sphere_id,
+                    }
+                    for sphere in spec.spheres
                 ],
                 "transform_convention": "point_part = local_to_part_rotation @ point_local + center_part_mm",
             }

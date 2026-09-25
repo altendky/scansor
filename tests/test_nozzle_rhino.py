@@ -1,5 +1,6 @@
 """Rhino round trips preserve analytic surfaces, mesh topology, and alignment."""
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,6 +26,77 @@ def evaluated() -> tuple[NozzleWorkspace, dict[str, Any]]:
     return workspace, cast(
         dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]))
     )
+
+
+def test_sphere_fit_exports_as_an_exact_sphere() -> None:
+    fitted = {
+        "kind": "sphere",
+        "parameters": [1.2, -0.8, 3.4, 2.5],
+        "ids": [0, 1, 2, 3],
+        "axial_domain": [-2, 5],
+    }
+    positions = np.array(
+        [[3.7, -0.8, 3.4], [-1.3, -0.8, 3.4], [1.2, 1.7, 3.4], [1.2, -0.8, 5.9]]
+    )
+
+    brep = surface_brep(fitted, positions)
+
+    assert brep.IsValid
+    assert brep.IsSolid
+    assert len(brep.Faces) == 1
+    assert brep.Surfaces[0].IsSphere()
+
+
+@pytest.mark.parametrize("axis_up", [False, True])
+def test_standalone_sphere_export_transforms_surface_and_mesh_together(
+    axis_up: bool,
+) -> None:
+    example = Path("examples/nozzle-bayonette-simplified")
+    workspace = NozzleWorkspace(example)
+    payload = Recipe.model_validate_json(
+        (example / "recipes/cone-plane.json").read_text()
+    ).model_dump()
+    base = {node["id"]: node for node in payload["nodes"]}
+    payload["nodes"] = [
+        base["scan"],
+        base["outer_band"],
+        {
+            "id": "sphere",
+            "label": "Sphere",
+            "operation": "fit",
+            "selections": ["outer_band"],
+            "kind": "sphere",
+            "axial_domain": [-2, 5],
+        },
+    ]
+    payload["output"] = "sphere"
+    graph = FeatureGraph(workspace, Recipe.model_validate(payload))
+    snapshot = cast(dict[str, Any], graph.evaluate(str(graph.snapshot()["token"])))
+    request = RhinoExportRequest(
+        token=snapshot["token"],
+        target="sphere",
+        units="Millimeters",
+        axis_up=axis_up,
+    )
+
+    model = rhino.File3dm.FromByteArray(export_rhino(workspace, snapshot, request))
+
+    brep = next(
+        obj.Geometry for obj in model.Objects if isinstance(obj.Geometry, rhino.Brep)
+    )
+    assert brep.IsValid and brep.IsSolid and brep.Surfaces[0].IsSphere()
+    mesh = next(
+        obj.Geometry for obj in model.Objects if isinstance(obj.Geometry, rhino.Mesh)
+    )
+    actual = np.array(
+        [[point.X, point.Y, point.Z] for point in mesh.Vertices.ToPoint3dArray()]
+    )
+    if axis_up:
+        center = np.asarray(snapshot["results"]["sphere"]["parameters"][:3])
+        expected = workspace.local - np.array([center[0], center[1], 0.0])
+    else:
+        expected = workspace.data.xyz
+    np.testing.assert_allclose(actual, expected, atol=1e-11, rtol=0)
 
 
 @pytest.mark.parametrize("axis_up", [False, True])
@@ -87,6 +159,55 @@ def test_export_roundtrip_alignment_mesh_and_analytic_surfaces(
         face = mesh.Faces[index]
         assert tuple(face[:3]) == tuple(expected_face)
     np.testing.assert_array_equal(workspace.local, before)
+
+
+def test_explicit_output_transform_applies_to_surfaces_and_mesh(
+    evaluated: tuple[NozzleWorkspace, dict[str, Any]],
+) -> None:
+    workspace, original = evaluated
+    snapshot = deepcopy(original)
+    snapshot["recipe"]["nodes"].append(
+        {
+            "id": "output_transform",
+            "label": "Output transform",
+            "operation": "transform",
+            "frame": "output_frame",
+            "scale": "output_scale",
+        }
+    )
+    snapshot["states"]["output_transform"] = "ready"
+    matrix = np.array(
+        [
+            [0.0, -2.0, 0.0, 7.0],
+            [2.0, 0.0, 0.0, -3.0],
+            [0.0, 0.0, 2.0, 5.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    snapshot["results"]["output_transform"] = {"matrix": matrix.tolist()}
+    request = RhinoExportRequest(
+        token=snapshot["token"],
+        target="fit",
+        units="Millimeters",
+        axis_up=False,
+        transform="output_transform",
+    )
+
+    model = rhino.File3dm.FromByteArray(export_rhino(workspace, snapshot, request))
+    mesh = next(
+        obj.Geometry for obj in model.Objects if isinstance(obj.Geometry, rhino.Mesh)
+    )
+    actual = np.array(
+        [[point.X, point.Y, point.Z] for point in mesh.Vertices.ToPoint3dArray()]
+    )
+    expected = workspace.local @ matrix[:3, :3].T + matrix[:3, 3]
+    np.testing.assert_allclose(actual, expected, atol=1e-11, rtol=0)
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _ = export_rhino(
+            workspace,
+            snapshot,
+            request.model_copy(update={"axis_up": True}),
+        )
 
 
 def test_export_options_and_rejects_stale_results(

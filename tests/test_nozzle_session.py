@@ -147,6 +147,29 @@ def test_http_binary_geometry_and_origin_boundary(server: NozzleServer) -> None:
         connection.close()
 
 
+@pytest.mark.parametrize(
+    ("path", "marker"),
+    [
+        ("/feature-graph-view.js", b"renderFeatureGraph"),
+        ("/display-transform.js", b"activeDisplayTransform"),
+    ],
+)
+def test_http_serves_browser_modules(
+    server: NozzleServer,
+    path: str,
+    marker: bytes,
+) -> None:
+    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+    try:
+        connection.request("GET", path)
+        response = connection.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "text/javascript"
+        assert marker in response.read()
+    finally:
+        connection.close()
+
+
 def test_fit_worker_does_not_block_reads_or_queue_more_fits(
     server: NozzleServer,
 ) -> None:

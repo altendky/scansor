@@ -304,7 +304,14 @@ upstream values, exact selection memberships, solve-local fixed/free roles, and
 explicit ordered activation, then compiles component-level influence. This is
 not yet a numerical solver or browser replacement: residual/Jacobian evaluation,
 rank diagnostics, immutable solve results, operation-DAG invalidation, and
-broader point/frame/transform constructions remain provisional work.
+broader reference constructions remain provisional work. The browser experiment
+now separately provides bounded point datums, directed point-pair axes, an
+explicit right-handed Frame built by mapping two datum directions to signed
+output axes, a uniform least-squares Scale built from one or more known point
+distances, and an editable Transform that composes a Frame and Scale for the
+model view and export while leaving upstream fitted values in source coordinates.
+This is prototype workflow evidence, not yet part of the declaration-driven
+solver contract or a general frame/registration system.
 
 ### Use a bounded Python support layer for the prototype
 

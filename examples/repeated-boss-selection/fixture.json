@@ -68,13 +68,14 @@
       "bias_amplitude_mm": 0.055,
       "occlusion_profile": "capture-a",
       "pose": {
-        "rotation_xyz_degrees": [0.0, 0.0, 0.0],
+        "rotation_xyz_degrees": [6.0, -8.0, 11.0],
         "translation_mm": [0.0, 0.0, 0.0]
       },
       "realization_id": "scan-coarse",
       "seed": 2026092201,
       "sensor_sigma_mm": 0.12,
       "surface_jitter_fraction": 0.18,
+      "workspace_frame": "scan",
       "tessellation": {
         "axial_segments": 8,
         "angular_segments": 44,
@@ -122,6 +123,23 @@
         "plate_y_segments": 21,
         "radial_segments": 6
       }
+    }
+  ],
+  "spheres": [
+    {
+      "center_mm": [-52.0, -32.0, 5.0],
+      "radius_mm": 5.0,
+      "sphere_id": "sphere-a"
+    },
+    {
+      "center_mm": [52.0, -32.0, 5.0],
+      "radius_mm": 5.0,
+      "sphere_id": "sphere-b"
+    },
+    {
+      "center_mm": [52.0, 32.0, 5.0],
+      "radius_mm": 5.0,
+      "sphere_id": "sphere-c"
     }
   ],
   "units": "mm"

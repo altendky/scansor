@@ -47,6 +47,58 @@ const manualAxis = {
 };
 assert.deepEqual(nodeReferences(axis), ['fit']);
 assert.deepEqual(nodeReferences(manualAxis), []);
+assert.deepEqual(
+  nodeReferences({
+    id: 'point-axis',
+    label: 'Point axis',
+    operation: 'axis',
+    source_points: ['point-a', 'point-b'],
+  }),
+  ['point-a', 'point-b'],
+);
+const point = { id: 'point', label: 'Center', operation: 'point', source_fit: 'sphere' };
+const manualPoint = {
+  id: 'manual-point',
+  label: 'Initial center',
+  operation: 'point',
+  initial_coordinates: [0, 0, 0],
+};
+assert.deepEqual(nodeReferences(point), ['sphere']);
+assert.deepEqual(nodeReferences(manualPoint), []);
+assert.deepEqual(
+  nodeReferences({
+    id: 'scale',
+    operation: 'scale',
+    distances: [
+      { first_point: 'point-a', second_point: 'point-b', known_distance: 10 },
+      { first_point: 'point-a', second_point: 'point-c', known_distance: 20 },
+    ],
+  }),
+  ['point-a', 'point-b', 'point-c'],
+);
+assert.deepEqual(
+  nodeReferences({
+    id: 'frame',
+    operation: 'frame',
+    origin_point: 'point-a',
+    primary_reference: 'up-plane',
+    secondary_reference: 'forward-axis',
+  }),
+  ['point-a', 'up-plane', 'forward-axis'],
+);
+assert.deepEqual(
+  nodeReferences({ id: 'transform', operation: 'transform', frame: 'frame', scale: 'scale' }),
+  ['frame', 'scale'],
+);
+assert.deepEqual(
+  nodeReferences({
+    id: 'point-bound-sphere',
+    operation: 'fit',
+    selections: ['b'],
+    point: 'point',
+  }),
+  ['b', 'point'],
+);
 const boundPlane = {
   id: 'plane',
   label: 'Plane factor',

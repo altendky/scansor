@@ -212,6 +212,8 @@ export function rotationalFitInputs(nodes, ids) {
     throw new Error(
       'Rotational symmetry requires three fits of the same type. Fit types are not changed.',
     );
+  if (!['cone', 'cylinder', 'plane'].includes(fits[0].kind))
+    throw new Error('Rotational symmetry currently supports cone, cylinder, or plane fits.');
   return [...ids];
 }
 
@@ -223,5 +225,7 @@ export function mirrorFitInputs(nodes, ids) {
     throw new Error('Mirror symmetry requires standalone fits; datum-bound fits are already constrained.');
   if (new Set(fits.map((fit) => fit.kind)).size !== 1)
     throw new Error('Mirror symmetry requires two fits of the same type. Fit types are not changed.');
+  if (!['cone', 'cylinder', 'plane'].includes(fits[0].kind))
+    throw new Error('Mirror symmetry currently supports cone, cylinder, or plane fits.');
   return [...ids];
 }

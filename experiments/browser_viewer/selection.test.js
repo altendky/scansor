@@ -217,6 +217,10 @@ test('rotational symmetry preserves cylinder fit references and rejects selectio
       ),
     /same type/,
   );
+  assert.throws(
+    () => rotationalFitInputs(nodes.map((n) => ({ ...n, kind: 'sphere' })), ['a', 'b', 'c']),
+    /currently supports/,
+  );
 });
 
 test('mirror symmetry preserves two standalone same-type fit references', async () => {
@@ -232,6 +236,10 @@ test('mirror symmetry preserves two standalone same-type fit references', async 
   assert.throws(
     () => mirrorFitInputs(nodes.map((n) => (n.id === 'b' ? { ...n, kind: 'plane' } : n)), ['a', 'b']),
     /same type/,
+  );
+  assert.throws(
+    () => mirrorFitInputs(nodes.map((n) => ({ ...n, kind: 'sphere' })), ['a', 'b']),
+    /currently supports/,
   );
   assert.throws(() => mirrorFitInputs([{ ...nodes[0], axis: 'axis' }, nodes[1]], ['a', 'b']), /standalone/);
 });

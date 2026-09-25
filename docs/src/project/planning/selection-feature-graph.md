@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-**Current prototype and future requirements, 2026-09-13.** These
+**Current prototype and future requirements, updated 2026-09-24.** These
 requirements follow the initial
 [nozzle browser experiment](../../../../experiments/browser_viewer/README.md).
 The backend DAG now stores an ordered action sequence: sources, selections,
@@ -102,9 +102,10 @@ operation. Disconnected but geometrically identical surfaces remain excluded.
 The seed-only fit is separate from the final constrained solve. Do not use the
 end plane or another surface's observations to silently stabilize the seed fit.
 Insufficient seed coverage or an ill-conditioned fit should stop the proposal
-with a diagnostic. The adapter now fits cone/cylinder seeds directly and plane seeds
-through
-area-weighted covariance, independently of final-fit observations.
+with a diagnostic. The adapter now fits cone/cylinder and sphere seeds directly,
+and plane seeds through area-weighted covariance, independently of final-fit
+observations. A sphere seed resolves center XYZ and radius from a sufficiently
+curved patch; it is not admitted as axis-bearing reference geometry.
 
 Preview additions separately from the seed before applying them. Keep seed,
 preliminary fit and growth as distinct current graph nodes; accepting the result
@@ -182,13 +183,16 @@ The frontend presents an ordered **feature tree** over the action graph. User
 groups are presentation-only organization: they can be created, renamed,
 collapsed, and assigned members without adding dependencies or solve semantics.
 Generated actions instead carry an owning action and a stable owner-relative key.
-They appear in a read-only **Generated outputs** subtree beneath that owner, are
-collapsed by default, and cannot be independently renamed, reordered, deleted,
-or moved into a user group. They remain selectable for inspection and usable as
-inputs to later actions. Editing the owner synchronizes its managed subtree and
-must refuse removal of an output referenced elsewhere. Deleting an owner deletes
-its managed subtree as one unit, unless an action outside that subtree depends on
-one of those outputs.
+The generator action itself appears as a collapsible group, with generated target
+groups directly beneath it rather than an extra **Generated outputs** wrapper.
+Generated groups are collapsed by default and use the same folder and disclosure
+behavior as user groups, with an additional **Generated** marker. Their managed
+actions cannot be independently renamed, reordered, deleted, or moved into a user
+group. They remain selectable for inspection and usable as inputs to later
+actions. Editing the owner synchronizes its managed subtree and must refuse
+removal of an output referenced elsewhere. Deleting an owner deletes its managed
+subtree as one unit, unless an action outside that subtree depends on one of those
+outputs.
 
 The backend remains a **directed acyclic graph (DAG)**, because one input can feed
 several actions, with an additional ordering rule: every reference must point to
@@ -196,10 +200,25 @@ an earlier action. Organizational grouping does not alter that flat evaluation
 order. Reordering is allowed only while the dependency rule holds. Stable IDs
 identify actions independently of list position.
 
-Cone, cylinder and plane are types of standalone fit actions. Each fit references
+The browser also provides a read-only **Graph** workspace alongside the 3D model.
+It derives its nodes and connections from this same recipe rather than maintaining
+a frontend graph. Synchronized tree/graph selection and typed lenses distinguish
+evaluation dependencies, relationship participants, joint activation, and
+generated ownership. Selection details, generated outputs, and the selected
+one-hop neighborhood can be filtered without changing graph identity, ordering,
+or saved actions. Relationships and joints remain nodes because they are
+inspectable, potentially n-ary actions with their own settings and results; they
+are not flattened into pairwise decorative edges.
+
+Cone, cylinder, plane and sphere are types of fit actions. Each fit references
 one or more earlier selections and evaluates their deduplicated union. Selections
 may overlap; painting one does not silently change another. Independent plane
-fits may have arbitrary orientations.
+fits may have arbitrary orientations. A standalone sphere resolves its own center
+and radius. A sphere may instead reference an explicit point: a manually
+initialized free point is jointly refined by all connected sphere observations,
+while a point initialized from an earlier standalone sphere is fixed. Sphere fits
+currently remain outside the axis-based joint, symmetry, and reusable
+selection-volume contracts.
 
 Constraint actions reference earlier fits. A later joint action solves their
 observations together under those constraints and produces separate adjusted
@@ -367,10 +386,12 @@ accuracy.
 
 Rotationally symmetric fits do not determine clocking about their axis. A partial
 footprint therefore needs another orientation cue, such as a plane, key, or
-clocking flat, before it can be transferred without ambiguity. Compound groups
-can supply that frame by owning reference geometry and fitted members while each
-occurrence owns its pose. Whether groups become first-class feature-graph nodes
-and how transferred boundaries behave near missing data remain open.
+clocking flat, before it can be transferred without ambiguity. Compound
+definitions can supply that frame by owning reference geometry and fitted members
+while each occurrence owns its pose. Presentation-only user groups are already
+recipe records; whether compound definitions and occurrences become first-class
+semantic feature-graph records, and how transferred boundaries behave near
+missing data, remain open.
 
 The browser implements two same-source cylinder/plane slices. A low-level
 **Region** action stores a fitted surface footprint, tangential and
@@ -419,10 +440,10 @@ fits. Those fits are independent by default. The first cross-occurrence
 relationship is an exact **All equal radii** action: a reuse feature's **Equal
 corresponding dimensions** option creates one visible managed relationship for
 each source-cylinder role and includes the source plus every generated copy.
-Selecting the corresponding cylinder fits and choosing **Equal radii** in the
-relationship builder creates the same relationship. The measurement solve
-retains each cylinder's independently resolved axis and fits one area-weighted
-shared radius from all observations.
+Selecting any mixture of sphere and cylinder fits and choosing **Equal radii**
+in the relationship builder creates the same property-based relationship. The
+measurement solve retains each sphere center and cylinder axis while fitting one
+area-weighted shared radius from all observations.
 Disabling the option removes the managed equality actions without changing the
 generated selections or independent fits.
 
