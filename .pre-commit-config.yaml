@@ -39,7 +39,14 @@ repos:
         name: mise lock
         entry: mise install --locked --dry-run
         language: system
-        files: (^mise\.toml$|^mise\.lock$)
+        files: (^mise(\.demo)?\.(toml|lock)$)
+        pass_filenames: false
+
+      - id: mise-demo-lock
+        name: mise demo lock
+        entry: mise -E demo install --locked --dry-run
+        language: system
+        files: (^mise(\.demo)?\.(toml|lock)$)
         pass_filenames: false
 
       - id: lychee-internal

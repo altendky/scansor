@@ -20,8 +20,15 @@ pre-transform shot; it does not modify the checked-in recipe.
 
 The narration source is
 [`demo-video-narration.md`](../../docs/src/project/planning/demo-video-narration.md).
-Use the project-local Kokoro and FFmpeg tools documented there to create the
-silent master, working voiced edition, captions, and capture manifest:
+Install the project-local Kokoro and FFmpeg production tools separately from the
+default development toolchain:
+
+```sh
+mise -E demo install --locked
+```
+
+Then create the silent master, working voiced edition, captions, and capture
+manifest:
 
 ```sh
 node scripts/demo-video/render.mjs \
@@ -42,5 +49,5 @@ playback adjustment; `SCANSOR_DEMO_PLAYBACK_RATE` can override it without
 resynthesizing the voice.
 
 Kokoro's English phonemizer requires the spaCy `en_core_web_sm` model. It is
-declared explicitly in `mise.toml`; relying on Kokoro's runtime auto-installer
-can put the model outside the isolated tool environment.
+declared explicitly in `mise.demo.toml`; relying on Kokoro's runtime
+auto-installer can put the model outside the isolated tool environment.

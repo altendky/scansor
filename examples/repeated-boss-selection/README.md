@@ -75,7 +75,8 @@ To load the checked-in end-to-end demonstration graph, run:
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   python -m experiments.nozzle_browser \
   --example local-inputs/repeated-boss-selection-v2/scan-coarse \
-  --recipe examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json \
+  --recipe \
+  examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json \
   --port 8765
 ```
 

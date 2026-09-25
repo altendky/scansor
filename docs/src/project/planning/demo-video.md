@@ -146,11 +146,12 @@ repository, and record the package, model, voice, sample rate, speed, and exact
 invocation in the capture manifest. Generated speech remains a replaceable media
 artifact rather than a Scansor build or runtime dependency.
 
-The repository-local mise configuration pins FFmpeg, Kokoro, and Kokoro's
+The repository-local `demo` mise environment pins FFmpeg, Kokoro, and Kokoro's
 spaCy English model. Run
-`mise install --locked` from the repository root to install the production tools
-alongside the development tools. Kokoro's mise declaration selects CPU-only
-PyTorch wheels so production setup does not fetch an unused CUDA toolchain.
+`mise -E demo install --locked` from the repository root to install the
+production tools separately from the default development and CI toolchain.
+Kokoro's mise declaration selects CPU-only PyTorch wheels so production setup
+does not fetch an unused CUDA toolchain.
 The FFmpeg declaration builds the pinned release with `libx264` enabled and
 therefore requires the host's FFmpeg build prerequisites and x264 development
 library. That produces a GPL-licensed external production executable; it is not

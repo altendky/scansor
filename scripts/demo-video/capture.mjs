@@ -21,7 +21,7 @@ function command(executable, arguments_) {
 }
 
 function mise(tool, arguments_) {
-  return command('mise', ['exec', '--', tool, ...arguments_]);
+  return command('mise', ['-E', 'demo', 'exec', '--', tool, ...arguments_]);
 }
 
 await mkdir(outputDirectory, { recursive: true });

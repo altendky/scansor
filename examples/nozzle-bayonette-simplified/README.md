@@ -40,9 +40,11 @@ Run that demonstration graph from the repository root with:
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   python -m experiments.nozzle_browser \
   --example examples/nozzle-bayonette-simplified \
-  --recipe examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json \
+  --recipe \
+  examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json \
   --port 8765
 ```
+
 These checked-in recipes were inputs to the completed one-time data salvage for
 the reference-geometry successor. Any richer browser-edited graph must be saved
 with **Save actions** before the old browser is removed. Only source-bound

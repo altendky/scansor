@@ -50,7 +50,7 @@ function command(executable, arguments_, options = {}) {
 }
 
 function mise(tool, arguments_, options = {}) {
-  return command('mise', ['exec', '--', tool, ...arguments_], options);
+  return command('mise', ['-E', 'demo', 'exec', '--', tool, ...arguments_], options);
 }
 
 function sections(markdown) {
