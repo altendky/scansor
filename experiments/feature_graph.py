@@ -2178,20 +2178,19 @@ class FeatureGraph:
                     or self._states.get(node.id) != "ready"
                 ):
                     continue
-                resolved[node.id] = directed_axis_result(
+                axis_result = directed_axis_result(
                     node,
-                    first_point=resolved[node.source_points[0]],
-                    second_point=resolved[node.source_points[1]],
+                    first_point=cast(dict[str, Any], resolved[node.source_points[0]]),
+                    second_point=cast(dict[str, Any], resolved[node.source_points[1]]),
                 )
+                resolved[node.id] = axis_result
                 for plane in self._recipe.nodes:
                     if (
                         isinstance(plane, PlaneDefinition)
                         and plane.axis == node.id
                         and self._states.get(plane.id) == "ready"
                     ):
-                        resolved[plane.id] = reference_plane_result(
-                            resolved[node.id], plane
-                        )
+                        resolved[plane.id] = reference_plane_result(axis_result, plane)
             for node in self._recipe.nodes:
                 if (
                     not isinstance(node, EqualRadii)
