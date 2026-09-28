@@ -1,45 +1,100 @@
 # Scansor
 
-Scansor is a concept-stage reusable product for fitting declared parametric
-geometric models to scan observations while preserving explicit constraints and
-producing auditable results.
+Scansor is an exploratory tool for fitting user-declared geometric models to
+scan observations. It keeps selections, analytic primitives, reference geometry,
+exact relationships, reuse lineage, residuals, and output coordinates explicit
+instead of treating scan-to-CAD as an opaque automatic conversion.
 
-It is not currently an implemented product, and it is not intended to be a
-universal automatic scan-to-CAD system.
+[![Scansor repeated-feature reuse demonstration](docs/assets/readme/repeated-boss-feature-reuse.jpg)](https://youtu.be/oP44yI9DAoE)
+
+**[Watch the narrated Scansor prototype demonstration](https://youtu.be/oP44yI9DAoE)**
+
+The current local browser prototype demonstrates:
+
+- retained and editable mesh selections;
+- plane, cone, cylinder, and sphere fits;
+- explicit point, axis, plane, and coordinate-frame datums;
+- exact relationships, rotational and mirror symmetry, and joint solving;
+- reusable selection volumes that seed fresh local fits on repeated features;
+- signed residual inspection with a numeric color scale; and
+- measured output scale, coordinate transforms, and Rhino export.
+
+![Signed residuals on fitted nozzle surfaces](docs/assets/readme/nozzle-residuals.jpg)
 
 ## Status
 
-**Concept stage.** The problem contract and initial product boundary are
-documented. Architecture is provisional, key integration experiments remain to
-be run, and no production implementation stack or documentation generator has
-been chosen. Python and SciPy are selected only for the first evidence-generating
-prototype. One experiment-local generated solver/evaluator gate now exists; it is
-not a product implementation or production-stack selection. One internal,
-provisional CLI fixture performs bounded local PLY inspection and read-only
-replay. A synthetic-only successor exposes the fixed `stepped-rotational-v0`
-mapping and NumPy execution-run pipeline with read-only verification. Its
-commands and formats remain non-public, compatibility-free implementation
-evidence rather than a product fitting interface.
-One additional bounded slice generates and replays an asymmetric synthetic noisy
-XYZ cloud, carries stable fixture identities through mapping, and presents a
-read-only raw comparison with nominal generator truth. It does not add arbitrary
-clouds, fit acceptance, physical validation, or CAD publication.
+Scansor remains a concept-stage project with an implemented exploratory
+prototype. It is not a supported product, a universal automatic scan-to-CAD
+system, or evidence of physical metrology accuracy. The checked-in examples and
+recipes exercise specific interaction and solver ideas; their formats are not
+yet compatibility promises.
 
-The working name comes from a gecko adhesive toe-pad structure. Public-name
-clearance remains open because unrelated commercial SAP-monitoring software
-already uses Scansor; market separation may make coexistence plausible but has
-not been established.
+The browser experiment runs locally. Scan geometry, selections, and fits are not
+uploaded to an external service.
 
-## Documentation
+## Run the browser prototype
 
-- [Documentation home](docs/src/index.md) - project orientation and status
-- [Project documentation](docs/src/project/index.md) - annotated source hub for
-  scope, requirements, architecture, research, decisions, and open questions
+Install the locked development tools and browser assets from the repository
+root:
 
-## Captured examples
+```sh
+mise install --locked
+uv sync --locked
+npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
+```
 
-Small exploratory datasets and replay instructions are indexed in
-[examples/](examples/README.md). These are not physical-validation evidence.
+Open the captured-nozzle demonstration on port `8765`:
+
+```sh
+OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
+  python -m experiments.nozzle_browser \
+  --example examples/nozzle-bayonette-simplified \
+  --recipe \
+  examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json \
+  --port 8765
+```
+
+Then visit <http://127.0.0.1:8765/> in a WebGL2-capable browser.
+
+The generated repeated-boss workflow shown in the video can be reproduced with:
+
+```sh
+PYTHONPATH=src:. uv run --locked \
+  python -m experiments.repeated_boss_fixture \
+  --output local-inputs/repeated-boss-selection-v2
+
+OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
+  python -m experiments.nozzle_browser \
+  --example local-inputs/repeated-boss-selection-v2/scan-coarse \
+  --recipe \
+  examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json \
+  --port 8765
+```
+
+Generate the fixture only once; the generator intentionally refuses to overwrite
+an existing output directory. See the
+[browser experiment](experiments/browser_viewer/README.md) and
+[repeated-boss example](examples/repeated-boss-selection/README.md) for the full
+interaction and fixture details.
+
+## Reproducible demonstration
+
+The video is assembled from the real browser prototype rather than a separate
+mockup. Its checked-in sources include the deterministic
+[browser capture](scripts/demo-video/capture.mjs),
+[video renderer](scripts/demo-video/render.mjs),
+[narration](docs/src/project/planning/demo-video-narration.md), and
+[production instructions](scripts/demo-video/README.md). Rendered frames, speech,
+and video remain external production artifacts.
+
+## Documentation and examples
+
+- [Project documentation](docs/src/project/index.md) — scope, architecture,
+  decisions, experiments, and open questions
+- [Examples](examples/README.md) — captured nozzle and generated repeated-boss
+  workflows
+- [Selection tools and feature graph](docs/src/project/planning/selection-feature-graph.md)
+- [Reference geometry and solve graph](docs/src/project/planning/reference-geometry-and-solve-graph.md)
 
 ## License
 
