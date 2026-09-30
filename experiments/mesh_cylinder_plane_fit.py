@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import numpy as np
 
-from experiments.mesh_cylinder_fit import Array, residual_jacobian
+from experiments.fit_coordinates import (
+    AxisChart,
+    CoordinateFrame,
+    FitCoordinates,
+    GlobalPlaneOffset,
+)
+from experiments.fit_solver import (
+    SolverDiagnostics,
+    normalized_weights,
+    perpendicular_normal,
+    solve_geometric_fit,
+)
+from experiments.mesh_cylinder_fit import (
+    Array,
+    residual_jacobian,
+    valid_cylinder_geometry,
+)
 
 
 class CylinderPlaneFitResult(TypedDict):
@@ -17,6 +33,7 @@ class CylinderPlaneFitResult(TypedDict):
     plane_weighted_rms: float
     normal_matrix_condition: float
     gradient_infinity_norm: float
+    solver: NotRequired[SolverDiagnostics]
 
 
 def joint_residual_jacobian(
@@ -57,53 +74,34 @@ def fit_cylinder_plane(
     if initial.shape != (6,) or not np.isfinite(initial).all() or initial[4] <= 0:
         raise ValueError("invalid initial parameters")
     weights = np.concatenate((cylinder_area, plane_area))
-    total = float(weights.sum())
-    if not np.isfinite(total):
-        raise ValueError("nonfinite total area")
-    weights /= total
-    parameters = initial.copy()
-    history: list[float] = []
-    for _ in range(60):
-        residual, jacobian = joint_residual_jacobian(cylinder, plane, parameters)
-        objective = float(weights @ (residual * residual))
-        history.append(objective)
-        normal = jacobian.T @ (weights[:, None] * jacobian)
-        condition = float(np.linalg.cond(normal))
-        if not np.isfinite(condition) or condition > 1e12:
-            raise ValueError("ill-conditioned joint geometry in this parameter frame")
-        gradient = jacobian.T @ (weights * residual)
-        step = np.linalg.solve(normal, -gradient)
-        if np.max(np.abs(step)) < 1e-10 * max(1.0, float(np.max(np.abs(parameters)))):
-            break
-        for power in range(25):
-            candidate = parameters + step * 2.0**-power
-            if candidate[4] <= 0:
-                continue
-            r, _ = joint_residual_jacobian(cylinder, plane, candidate)
-            if float(weights @ (r * r)) < objective:
-                parameters = candidate
-                break
-        else:
-            raise ValueError("joint fit failed to decrease objective")
-    else:
-        raise ValueError("joint fit did not converge")
-    residual, jacobian = joint_residual_jacobian(cylinder, plane, parameters)
+    weights = normalized_weights(weights)
+    coordinates = FitCoordinates(
+        CoordinateFrame.from_observations(np.vstack((cylinder, plane)), weights),
+        6,
+        axes=(AxisChart(0, 1, 2, 3, 4),),
+        global_planes=(GlobalPlaneOffset(5, perpendicular_normal(6)),),
+    )
+    fit = solve_geometric_fit(
+        initial,
+        weights,
+        coordinates,
+        lambda p: joint_residual_jacobian(cylinder, plane, p),
+        lambda p: valid_cylinder_geometry(cylinder, p[:5]),
+    )
+    residual = fit.residual
     cylinder_residual = residual[: len(cylinder)]
     plane_residual = residual[len(cylinder) :]
     return {
-        "parameters": parameters.tolist(),
-        "objective_history": history,
+        "parameters": fit.parameters.tolist(),
+        "objective_history": fit.objective_history,
         "weighted_rms": float(np.sqrt(weights @ (residual * residual))),
         "cylinder_weighted_rms": float(
-            np.sqrt(cylinder_area @ (cylinder_residual**2) / cylinder_area.sum())
+            np.sqrt(normalized_weights(cylinder_area) @ cylinder_residual**2)
         ),
         "plane_weighted_rms": float(
-            np.sqrt(plane_area @ (plane_residual**2) / plane_area.sum())
+            np.sqrt(normalized_weights(plane_area) @ plane_residual**2)
         ),
-        "normal_matrix_condition": float(
-            np.linalg.cond(jacobian.T @ (weights[:, None] * jacobian))
-        ),
-        "gradient_infinity_norm": float(
-            np.max(np.abs(jacobian.T @ (weights * residual)))
-        ),
+        "normal_matrix_condition": fit.condition,
+        "gradient_infinity_norm": fit.gradient,
+        "solver": fit.solver,
     }

@@ -74,13 +74,14 @@ def test_invalid_domain_and_unobservable_taper() -> None:
     ring = np.column_stack((3 * np.cos(theta), 3 * np.sin(theta), np.zeros(32)))
     plane = np.array([[1.0, 0, 4], [0, 1, 4], [-1, -1, 4]])
     p = np.array([0.0, 0, 0, 0, 3, 4, 0])
-    with pytest.raises(InvalidConeDomain, match="outside"):
-        _ = cone_plane_residual_jacobian(ring, plane, p, (1, 2))
+    # Domain classification must not remove or reject fixed fitting rows.
+    residual, _ = cone_plane_residual_jacobian(ring, plane, p, (1, 2))
+    np.testing.assert_allclose(residual, 0, atol=1e-14)
     p[6] = 1
     with pytest.raises(InvalidConeDomain, match="positive"):
         _ = cone_plane_residual_jacobian(ring, plane, p, (-4, 6))
     p[6] = 0
-    with pytest.raises(ValueError, match="ill-conditioned"):
+    with pytest.raises(ValueError, match="rank-deficient"):
         _ = fit_cone_plane(
             ring, plane, np.ones(len(ring)), np.ones(len(plane)), p, (-2, 6)
         )

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import numpy as np
 
+from experiments.fit_solver import SolverDiagnostics, normalized_weights
 from experiments.mesh_cylinder_fit import Array
+from scansor.nonlinear_least_squares import solve_least_squares
 
 
 class SphereFitResult(TypedDict):
@@ -17,6 +19,7 @@ class SphereFitResult(TypedDict):
     normal_matrix_condition: float
     gradient_infinity_norm: float
     converged: bool
+    solver: NotRequired[SolverDiagnostics]
 
 
 def residual_jacobian(points: Array, parameters: Array) -> tuple[Array, Array]:
@@ -42,7 +45,7 @@ def fit_sphere(points: Array, weights: Array) -> SphereFitResult:
     if np.any(weights <= 0):
         raise ValueError("weights must be positive")
 
-    w = weights / weights.sum()
+    w = normalized_weights(weights)
     origin = w @ points
     centered = points - origin
     scale = float(np.sqrt(w @ np.sum(centered * centered, axis=1)))
@@ -70,54 +73,44 @@ def fit_sphere(points: Array, weights: Array) -> SphereFitResult:
     radius_squared = float(algebraic[3] + algebraic[:3] @ algebraic[:3])
     if radius_squared <= 0 or not np.isfinite(radius_squared):
         raise ValueError("sphere initialization produced a nonpositive radius")
-    parameters = np.array(
-        [*(origin + scale * algebraic[:3]), scale * np.sqrt(radius_squared)]
-    )
 
-    history: list[float] = []
-    converged = False
-    for _ in range(60):
-        residual, jacobian = residual_jacobian(points, parameters)
-        objective = float(w @ residual**2)
-        history.append(objective)
-        normal = jacobian.T @ (w[:, None] * jacobian)
-        condition = float(np.linalg.cond(normal))
-        if not np.isfinite(condition) or condition > 1e14:
-            raise ValueError(
-                "ill-conditioned sphere observations; paint a wider curved patch"
-            )
-        gradient = jacobian.T @ (w * residual)
-        step = np.linalg.solve(normal, -gradient)
-        parameter_scale = max(1.0, scale, abs(float(parameters[3])))
-        if np.max(np.abs(step)) < 1e-10 * parameter_scale:
-            converged = True
-            break
-        for power in range(25):
-            candidate = parameters + step * 2.0**-power
-            if candidate[3] <= 0:
-                continue
-            candidate_residual, _ = residual_jacobian(points, candidate)
-            if float(w @ candidate_residual**2) < objective:
-                parameters = candidate
-                break
-        else:
-            resolution = 32 * np.finfo(float).eps * max(scale**2, objective)
-            if float(step @ normal @ step) <= resolution:
-                converged = True
-                break
-            raise ValueError("sphere step failed to decrease objective")
-    if not converged:
-        raise ValueError("sphere fit did not converge")
+    def evaluate(local: Array) -> tuple[Array, Array]:
+        r, jac = residual_jacobian(normalized, local)
+        return np.sqrt(w) * r, np.sqrt(w)[:, None] * jac
+
+    numerical = solve_least_squares(
+        np.array([*algebraic[:3], np.sqrt(radius_squared)]),
+        evaluate,
+        parameter_scales=np.ones(4),
+        residual_scale=1.0,
+        geometry_is_valid=lambda p: bool(
+            p[3] > 0 and np.all(np.linalg.norm(normalized - p[:3], axis=1) > 0)
+        ),
+    )
+    local = np.asarray(numerical.parameters)
+    parameters = np.array([*(origin + scale * local[:3]), scale * local[3]])
 
     residual, jacobian = residual_jacobian(points, parameters)
-    normal = jacobian.T @ (w[:, None] * jacobian)
     gradient = jacobian.T @ (w * residual)
     return {
         "parameters": parameters.tolist(),
-        "objective_history": history,
+        "objective_history": [
+            2 * value * scale**2 for value in numerical.objective_history
+        ],
         "weighted_rms": float(np.sqrt(w @ residual**2)),
         "weighted_mean_residual": float(w @ residual),
-        "normal_matrix_condition": float(np.linalg.cond(normal)),
+        "normal_matrix_condition": numerical.condition**2,
         "gradient_infinity_norm": float(np.max(np.abs(gradient))),
-        "converged": converged,
+        "converged": True,
+        "solver": {
+            "implementation": "scaled-svd-least-squares-v1",
+            "termination": numerical.termination,
+            "iterations": numerical.iterations,
+            "evaluations": numerical.evaluations,
+            "rank": numerical.rank,
+            "scaled_jacobian_condition": numerical.condition,
+            "scaled_projected_gradient_infinity_norm": numerical.projected_gradient_norm,
+            "coordinate_origin": origin.tolist(),
+            "coordinate_length": scale,
+        },
     }

@@ -98,7 +98,7 @@ def test_empty_and_unobservable_groups_fail() -> None:
         _ = fit_coaxial([empty], plane, area, np.zeros(7))
     points = sides[0].points[:40]  # one axial ring does not identify taper
     ring = SideObservations(points, np.ones(len(points)), "cone", (-4, 4))
-    with pytest.raises(ValueError, match="ill-conditioned"):
+    with pytest.raises(ValueError, match="rank-deficient"):
         _ = fit_coaxial(
             [ring], plane, area, np.array([0.3, -0.4, 0.12, -0.08, 2.1, 3.2, 0.08])
         )

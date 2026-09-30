@@ -339,9 +339,13 @@ def transformed_fit_seed(
         )
     chart_direction = moved_direction / moved_direction[2]
     chart_point = moved_point - chart_direction * moved_point[2]
-    moved_domain = sorted(
-        moved_point[2] + moved_direction[2] * np.asarray(domain, dtype=float)
-    )
+    # Support endpoints are physical unit-axis distances. Transform their
+    # positions, then express them in the target chart's positive-Z unit axis.
+    source_axis = raw_direction / np.linalg.norm(raw_direction)
+    source_endpoints = point + np.asarray(domain, dtype=float)[:, None] * source_axis
+    moved_endpoints = source_endpoints @ rotation + translation
+    chart_axis = chart_direction / np.linalg.norm(chart_direction)
+    moved_domain = sorted((moved_endpoints - chart_point) @ chart_axis)
     return (
         [
             float(chart_point[0]),

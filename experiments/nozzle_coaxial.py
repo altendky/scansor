@@ -4,11 +4,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
+from experiments.fit_solver import normalized_weights, solve_geometric_fit
 from experiments.mesh_coaxial_fit import (
     AxisPlaneObservations,
     SideObservations,
     axis_plane_frame,
     fit_coaxial,
+)
+from experiments.mesh_cone_plane_fit import (
+    cone_plane_residual_jacobian,
+    valid_cone_geometry,
 )
 from experiments.mesh_mirror_surfaces import MirrorSurfaces, initial_mirror
 from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
@@ -355,6 +361,7 @@ def fit_group(
             "plane_weighted_rms": plane_rms,
             "normal_matrix_condition": fitted.condition,
             "gradient_infinity_norm": fitted.gradient,
+            "solver": fitted.solver,
         },
         "axis_display": axis.tolist(),
         "point_display": point.tolist(),
@@ -419,35 +426,78 @@ def fit_fixed_axis_group(
     weighted_squares = 0.0
     total_area = 0.0
     condition = 1.0
+    gradient = 0.0
 
     for side in sides:
         if len(side.ids) < 7:
             raise ValueError(f"{side.id}: select at least seven lateral vertices")
         points = workspace.local[side.ids]
         weights = workspace.data.weights[side.ids]
+        normalized = normalized_weights(weights)
         relative = points - point
         z = relative @ axis
         radial = np.linalg.norm(relative - z[:, None] * axis, axis=1)
+        solver = None
         if side.kind == "cylinder":
-            radius = float(weights @ radial / weights.sum())
+            radius = float(normalized @ radial)
             if radius <= 0.0:
                 raise ValueError(f"{side.id}: fitted cylinder radius must be positive")
             taper = 0.0
             local_condition = 1.0
         elif side.kind == "cone":
-            design = np.column_stack([np.ones(len(z)), z])
-            normal = design.T @ (weights[:, None] * design)
-            local_condition = float(np.linalg.cond(normal))
-            if not np.isfinite(local_condition) or local_condition > 1e12:
-                raise ValueError(f"{side.id}: ill-conditioned cone observations")
-            radius, taper = np.linalg.solve(normal, design.T @ (weights * radial))
-            if min(radius + taper * np.asarray(side.domain)) <= 0.0:
-                raise ValueError(f"{side.id}: fitted cone crosses its apex")
+            # Radial regression is only an initializer. The optimized objective
+            # is the same orthogonal distance used by the free-axis cone fit.
+            center_z = float(normalized @ z)
+            length = CoordinateFrame.from_observations(points, weights).length
+            design = np.column_stack([np.ones(len(z)), (z - center_z) / length])
+            guess, _, rank, _ = np.linalg.lstsq(
+                np.sqrt(normalized)[:, None] * design,
+                np.sqrt(normalized) * radial,
+                rcond=None,
+            )
+            if rank != 2:
+                raise ValueError(f"{side.id}: rank-deficient cone observations")
+            taper = float(guess[1] / length)
+            radius = float(guess[0] - taper * center_z)
+            initial = axis_parameters.copy()
+            initial[4], initial[6] = radius, taper
+            coordinates = FitCoordinates(
+                CoordinateFrame.from_observations(points, weights),
+                7,
+                axes=(AxisChart(0, 1, 2, 3, 4, 6),),
+            )
+            fitted = solve_geometric_fit(
+                initial,
+                weights,
+                coordinates,
+                lambda p, points=points, domain=side.domain: (
+                    cone_plane_residual_jacobian(points, np.empty((0, 3)), p, domain)
+                ),
+                lambda p, points=points, domain=side.domain: valid_cone_geometry(
+                    p, domain, points
+                ),
+                active_parameters=(4, 6),
+            )
+            radius, taper = fitted.parameters[[4, 6]]
+            local_condition = fitted.condition
+            solver = fitted.solver
+            gradient = max(
+                gradient,
+                float(
+                    np.max(
+                        np.abs(
+                            fitted.jacobian[:, [4, 6]].T @ (weights * fitted.residual)
+                        )
+                    )
+                ),
+            )
         else:
             raise ValueError("fixed-axis lateral surfaces must be cones or cylinders")
-        residual = radial - (radius + taper * z)
+        residual = (radial - (radius + taper * z)) / np.hypot(1.0, taper)
         parameters = axis_parameters.copy()
         parameters[4], parameters[6] = radius, taper
+        if not valid_cone_geometry(parameters, side.domain, points):
+            raise ValueError(f"{side.id}: invalid lateral geometry")
         area = float(weights.sum())
         weighted_squares += float(weights @ residual**2)
         total_area += area
@@ -460,6 +510,8 @@ def fit_fixed_axis_group(
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / area)),
         }
+        if solver is not None:
+            surfaces[side.id]["solver"] = solver
 
     plane_offsets: list[float] = []
     plane_residuals: list[np.ndarray] = []
@@ -514,7 +566,7 @@ def fit_fixed_axis_group(
             "cone_weighted_rms": float(first_side_rms),
             "plane_weighted_rms": float(first_plane_rms),
             "normal_matrix_condition": condition,
-            "gradient_infinity_norm": 0.0,
+            "gradient_infinity_norm": gradient / total_area,
         },
         "axis_display": axis.tolist(),
         "point_display": point.tolist(),

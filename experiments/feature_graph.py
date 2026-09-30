@@ -2720,11 +2720,10 @@ class FeatureGraph:
                             if initials[0] is not None:
                                 point = np.asarray([initial[0], initial[1], 0.0])
                                 direction = np.asarray([initial[2], initial[3], 1.0])
-                                axial = (
-                                    (fit_points - point)
-                                    @ direction
-                                    / float(direction @ direction)
-                                )
+                                # The residual evaluator's support is distance
+                                # along a unit axis, not the local-Z chart.
+                                direction /= np.linalg.norm(direction)
+                                axial = (fit_points - point) @ direction
                                 padding = max(
                                     float(np.ptp(axial)) * 0.05,
                                     1e-3,

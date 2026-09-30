@@ -6,9 +6,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from experiments.fit_coordinates import (
+    AxisChart,
+    CoordinateFrame,
+    FitCoordinates,
+    GlobalPlaneOffset,
+    NormalCallback,
+    RelativePlaneOffset,
+)
+from experiments.fit_solver import (
+    SolverDiagnostics,
+    normalized_weights,
+    perpendicular_normal,
+    solve_geometric_fit,
+)
 from experiments.mesh_cone_plane_fit import (
-    InvalidConeDomain,
     cone_plane_residual_jacobian,
+    valid_cone_geometry,
 )
 from experiments.mesh_cylinder_fit import Array
 from experiments.mesh_cylinder_fit import residual_jacobian as cylinder_residual
@@ -76,6 +90,7 @@ class CoaxialResult:
     weighted_rms: float
     condition: float
     gradient: float
+    solver: SolverDiagnostics
 
 
 def parameter_maps(
@@ -149,35 +164,53 @@ def axis_plane_residual_jacobian(
     offset: int | None,
     size: int,
 ) -> tuple[Array, Array]:
-    _, _, normal = axis_plane_frame(group, parameters)
+    normal, derivative = axis_plane_normal(group, size)(parameters)
     anchor = np.array([parameters[0], parameters[1], 0.0])
     plane_offset = float(normal @ anchor) if offset is None else parameters[offset]
     residual = group.points @ normal - plane_offset
-    jacobian = np.zeros((len(group.points), size))
-    columns = (0, 1, 2, 3) if offset is None else (2, 3)
-    for column in columns:
-        step = 1e-6 * max(1.0, abs(float(parameters[column])))
-        delta = np.zeros_like(parameters)
-        delta[column] = step
-        plus_normal = axis_plane_frame(group, parameters + delta)[2]
-        minus_normal = axis_plane_frame(group, parameters - delta)[2]
-        if offset is None:
-            plus_anchor = np.array(
-                [parameters[0] + delta[0], parameters[1] + delta[1], 0.0]
-            )
-            minus_anchor = np.array(
-                [parameters[0] - delta[0], parameters[1] - delta[1], 0.0]
-            )
-            plus = (group.points - plus_anchor) @ plus_normal
-            minus = (group.points - minus_anchor) @ minus_normal
-            jacobian[:, column] = (plus - minus) / (2 * step)
-        else:
-            jacobian[:, column] = group.points @ (
-                (plus_normal - minus_normal) / (2 * step)
-            )
+    if offset is None:
+        jacobian = (group.points - anchor) @ derivative
+        jacobian[:, 0] = -normal[0]
+        jacobian[:, 1] = -normal[1]
+    else:
+        jacobian = group.points @ derivative
     if offset is not None:
         jacobian[:, offset] = -1.0
     return residual, jacobian
+
+
+def axis_plane_normal(group: AxisPlaneObservations, size: int) -> NormalCallback:
+    """Differentiate the declared clocked frame, without world-origin steps."""
+
+    def normal(parameters: Array) -> tuple[Array, Array]:
+        axis, derivative = perpendicular_normal(size)(parameters)
+        if group.construction == "perpendicular_to_axis":
+            # Retain frame validity checks even though only the normal is used.
+            _ = axis_plane_frame(group, parameters)
+            return axis, derivative
+        u, v, result = axis_plane_frame(group, parameters)
+        # For axial planes axis_plane_frame returns (axis, radial, normal).
+        basis = np.eye(3)[group.basis_index]
+        cross = np.cross(axis, basis)
+        cross_length = float(np.linalg.norm(cross))
+        transverse = cross / cross_length
+        dtransverse = np.cross(derivative.T, basis).T
+        dtransverse = (
+            dtransverse - transverse[:, None] * (transverse @ dtransverse)
+        ) / cross_length
+        dsecond = np.cross(derivative.T, transverse).T + np.cross(axis, dtransverse.T).T
+        assert group.angle_radians is not None
+        dradial = (
+            np.cos(group.angle_radians) * dtransverse
+            + np.sin(group.angle_radians) * dsecond
+        )
+        dnormal = np.asarray(
+            np.cross(derivative.T, v).T + np.cross(u, dradial.T).T,
+            dtype=np.float64,
+        )
+        return result, dnormal
+
+    return normal
 
 
 def axis_plane_parameter_offsets(
@@ -339,77 +372,118 @@ def fit_coaxial(
             *(area for group in mirrors for area in group.areas),
         ]
     )
-    total = float(weights.sum())
-    if not np.isfinite(total):
-        raise ValueError("nonfinite total area")
-    weights /= total
-    parameters = initial.copy()
-    history: list[float] = []
-    for _ in range(80):
-        residual, jac = residual_jacobian(
-            sides,
-            plane,
-            parameters,
-            extra_points,
-            rotations,
-            mirrors,
-            axis_planes,
-        )
-        objective = float(weights @ residual**2)
-        history.append(objective)
-        normal = jac.T @ (weights[:, None] * jac)
-        condition = float(np.linalg.cond(normal))
-        if not np.isfinite(condition) or condition > 1e12:
-            raise ValueError("ill-conditioned joint geometry in this parameter frame")
-        gradient = jac.T @ (weights * residual)
-        step = np.linalg.solve(normal, -gradient)
-        if np.max(np.abs(step)) < 1e-10 * max(1.0, float(np.max(np.abs(parameters)))):
-            break
-        for power in range(25):
-            candidate = parameters + step * 2.0**-power
-            try:
-                r, _ = residual_jacobian(
-                    sides,
-                    plane,
-                    candidate,
-                    extra_points,
-                    rotations,
-                    mirrors,
-                    axis_planes,
-                )
-            except InvalidConeDomain:
-                continue
-            if float(weights @ r**2) < objective:
-                parameters = candidate
-                break
-        else:
-            # Accept only roundoff-limited stagnation, not a material failed step.
-            all_points = np.vstack(
-                [
-                    *(s.points for s in sides),
-                    *((plane,) if plane is not None else ()),
-                    *extra_points,
-                    *(group.points for group in axis_planes),
-                    *(points for group in rotations for points in group.points),
-                    *(points for group in mirrors for points in group.points),
-                ]
-            )
-            scale = float(weights @ np.sum(all_points**2, axis=1))
-            resolution = 32 * np.finfo(float).eps * float(np.sqrt(objective * scale))
-            if float(step @ normal @ step) <= resolution:
-                break
-            raise ValueError("joint fit failed to decrease objective")
-    else:
-        raise ValueError("joint fit did not converge")
-    residual, jac = residual_jacobian(
-        sides,
-        plane,
-        parameters,
-        extra_points,
-        rotations,
-        mirrors,
-        axis_planes,
+    weights = normalized_weights(weights)
+    all_points = np.vstack(
+        [
+            *(s.points for s in sides),
+            *((plane,) if plane is not None else ()),
+            *extra_points,
+            *(group.points for group in axis_planes),
+            *(points for group in rotations for points in group.points),
+            *(points for group in mirrors for points in group.points),
+        ]
     )
+    axes = [
+        AxisChart(0, 1, 2, 3, mapping[4], mapping[6] if side.kind == "cone" else None)
+        for side, mapping in zip(sides, maps, strict=True)
+    ]
+    shared_axis = axes[0]
+    global_planes = [
+        GlobalPlaneOffset(offset, perpendicular_normal(size))
+        for offset in (
+            *((4,) if plane is not None else ()),
+            *range(base_size, plane_size),
+        )
+    ]
+    global_planes.extend(
+        GlobalPlaneOffset(offset, axis_plane_normal(group, size))
+        for group, offset in zip(axis_planes, axis_plane_offsets, strict=True)
+        if offset is not None
+    )
+    relative_planes: list[RelativePlaneOffset] = []
+    for i, group in enumerate(rotations):
+        offset = axis_plane_size + sum(g.size for g in rotations[:i])
+        if group.kind == "plane":
+            relative_planes.append(RelativePlaneOffset(offset + 2, shared_axis, offset))
+        else:
+            axes.append(
+                AxisChart(
+                    offset,
+                    offset + 1,
+                    offset + 2,
+                    offset + 3,
+                    offset + 4,
+                    offset + 5 if group.kind == "cone" else None,
+                )
+            )
+    for i, group in enumerate(mirrors):
+        offset = mirror_offset + sum(g.size for g in mirrors[:i])
+        if group.radius_side_index is not None:
+            continue
+        if group.kind == "plane":
+            relative_planes.append(
+                RelativePlaneOffset(offset + 3, shared_axis, offset + 1)
+            )
+        else:
+            axes.append(
+                AxisChart(
+                    offset + 1,
+                    offset + 2,
+                    offset + 3,
+                    offset + 4,
+                    offset + 5,
+                    offset + 6 if group.kind == "cone" else None,
+                )
+            )
+    coordinates = FitCoordinates(
+        CoordinateFrame.from_observations(all_points, weights),
+        size,
+        axes=tuple(axes),
+        global_planes=tuple(global_planes),
+        relative_planes=tuple(relative_planes),
+    )
+
+    def geometry_is_valid(parameters: Array) -> bool:
+        if not np.isfinite(parameters).all():
+            return False
+        for side, mapping in zip(sides, maps, strict=True):
+            p = unpack(parameters, mapping, side.kind)
+            if not valid_cone_geometry(p, side.domain, side.points):
+                return False
+        try:
+            for group in axis_planes:
+                _ = axis_plane_frame(group, parameters)
+            for i, group in enumerate(rotations):
+                if group.kind == "plane":
+                    continue
+                offset = axis_plane_size + sum(g.size for g in rotations[:i])
+                for slot in range(3):
+                    p, domain = rotated_lateral(group, parameters, offset, slot)
+                    if not valid_cone_geometry(p, domain, group.points[slot]):
+                        return False
+            for i, group in enumerate(mirrors):
+                if group.kind == "plane":
+                    continue
+                offset = mirror_offset + sum(g.size for g in mirrors[:i])
+                for slot in range(2):
+                    p, domain = mirrored_lateral(group, parameters, offset, slot)
+                    if not valid_cone_geometry(p, domain, group.points[slot]):
+                        return False
+        except ValueError:
+            # Transformed axes may leave the explicit positive-Z chart.
+            return False
+        return True
+
+    fitted = solve_geometric_fit(
+        initial,
+        weights,
+        coordinates,
+        lambda p: residual_jacobian(
+            sides, plane, p, extra_points, rotations, mirrors, axis_planes
+        ),
+        geometry_is_valid,
+    )
+    parameters, residual = fitted.parameters, fitted.residual
     boundaries = np.cumsum(
         [
             *(len(s.points) for s in sides),
@@ -546,8 +620,9 @@ def fit_coaxial(
             float(parameters[mirror_offset + sum(g.size for g in mirrors[:i])])
             for i in range(len(mirrors))
         ],
-        objective_history=history,
+        objective_history=fitted.objective_history,
         weighted_rms=float(np.sqrt(weights @ residual**2)),
-        condition=float(np.linalg.cond(jac.T @ (weights[:, None] * jac))),
-        gradient=float(np.max(np.abs(jac.T @ (weights * residual)))),
+        condition=fitted.condition,
+        gradient=fitted.gradient,
+        solver=fitted.solver,
     )

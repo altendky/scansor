@@ -344,6 +344,30 @@ blue/white/red scales per surface. Units remain unconfirmed and lower training
 residual is not physical validation. Cone/cylinder initialization and local frame
 remain specific to this example, including the default axial support `[-2, 5]`.
 
+### Fitting support and numerical diagnostics
+
+Axial intervals serve selection/growth and display/export support, not implicit
+physical-edge constraints on the fixed observation factors. Cylinder and cone
+side factors evaluate the analytic surface on every selected observation with
+its original weight; a fitted-axis change does not silently remove a row or make
+an outside-support projection a line-search failure. Standalone and shared-axis
+fits use the same distinction. Cone radii at the reference and declared endpoints
+must remain positive, and undefined radial derivatives/apex-crossing projections
+remain invalid geometry. Growth continues to classify candidates against support.
+Standalone results report inside/outside support counts separately from residuals.
+
+The experimental nonlinear fitting paths now share centered/scaled coordinates
+and an SVD-based least-squares engine with adaptive damping. Diagnostics report
+scaled rank, condition, projected gradient, termination, iterations, and the
+numerical frame. Rank deficiency, invalid initialization, exhausted geometry
+trials, numerical failure, nonstationary stagnation, and iteration limits remain
+distinct failures. First-order local convergence is not evidence of unique/global
+recovery, appropriate correspondence, uncertainty, or physical accuracy.
+
+No finite-edge/cap distance objective or general nonlinear-constrained optimum is
+implied. The positive-Z axis chart and cone positive-reference-radius restriction
+remain explicit limits; see the [cone fitting experiment](../mesh-cone-fit/README.md).
+
 ## Rotational surface symmetry
 
 **Rotational symmetry** adds a relationship to an existing joint. Choose three

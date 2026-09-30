@@ -115,15 +115,15 @@ NumPy 2.5.1, and BLAS/OpenMP thread limits of two gave these median wall times:
 
 | Case | Vertices | Triangles | Fit vertices (lateral + plane) | Generate | Load | Successful fit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Boss 1x | 6,292 | 10,976 | 222 | 0.122 s | 8.8 ms | 3.2 ms |
-| Boss 2x | 23,783 | 44,388 | 994 | 0.304 s | 22.1 ms | Failed |
-| Boss 4x | 92,475 | 178,632 | 3,877 | 1.097 s | 71.6 ms | Failed |
-| Boss 8x | 364,614 | 716,638 | 15,195 | 4.594 s | 305.3 ms | 28.2 ms |
-| Simplified nozzle | 24,999 | 49,994 | 1,903 | N/A | 70.4 ms | 6.6 ms |
+| Boss 1x | 6,292 | 10,976 | 222 | 0.113 s | 8.0 ms | 4.7 ms |
+| Boss 2x | 23,783 | 44,388 | 994 | 0.297 s | 20.8 ms | 6.3 ms |
+| Boss 4x | 92,475 | 178,632 | 3,877 | 1.022 s | 68.1 ms | 11.5 ms |
+| Boss 8x | 364,614 | 716,638 | 15,195 | 3.959 s | 235.3 ms | 33.6 ms |
+| Simplified nozzle | 24,999 | 49,994 | 1,903 | N/A | 57.0 ms | 8.7 ms |
 
-The 2x and 4x joint solves reported `joint fit failed to decrease objective` in
-all three repetitions; their attempted-fit times remain in the raw report, but
-are not successful-solve measurements. A separate 8x generation profile attributed
+Every case completed in all three repetitions using the shared scaled solver.
+The earlier unscaled solver failed the 2x and 4x cases; those attempted-fit times
+are not completed-solve comparisons. A separate 8x generation profile attributed
 about 70% of its instrumented time to parameter jitter and sensor offsets, mainly
 per-vertex Python loops, coordinate key construction, and deterministic hashing.
 Profiling adds overhead and is separate from the timings above.
@@ -136,6 +136,88 @@ simplified nozzle, and only about one eighth of the original nozzle's mesh count
 These backend measurements therefore do not establish full-resolution nozzle
 or browser performance. The 8x worker's median lifetime peak RSS was 285 MiB,
 including generation; it is not an isolated loader or fit memory measurement.
+
+### Compare the full demo workflow
+
+The cylinder/plane benchmark above is not the full boss demo. To compare the
+complete 59-action recipe across mesh sizes on Linux, run:
+
+```sh
+PYTHONPATH=src:. uv run --locked \
+  python -m experiments.repeated_boss_full_benchmark \
+  --scales 1 2 4 8 --repeats 3 --threads 2 \
+  --output local-inputs/repeated-boss-full-scaling-benchmark.json
+```
+
+Only source bindings and explicit selection IDs change; all fit declarations,
+reuse settings, relationships, datums, and output features stay unchanged.
+The 1x recipe retains the exact saved memberships. Denser memberships use a
+deterministic nearest-ordinary-vertex reconstruction of each painted footprint
+in nominal part coordinates, restricted to the same occurrence, analytic role,
+and plate face. This is an approximate Voronoi footprint, not a reconstruction of
+the original painting gestures. Fixture truth is used only to prepare the
+benchmark selections, never to initialize or constrain the numerical fits.
+Preparation and generation are timed separately from graph evaluation.
+
+Three fresh-worker repetitions on 2026-09-29, with two-thread BLAS/OpenMP limits,
+produced these median wall times:
+
+| Tessellation | Vertices | Load | Evaluation attempt | Ready actions | Outcome |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1x | 6,292 | 8.1 ms | 190 ms | 59/59 | Complete |
+| 2x | 23,783 | 21.9 ms | 534 ms | 59/59 | Complete |
+| 4x | 92,475 | 69.5 ms | 3.964 s | 59/59 | Complete |
+| 8x | 364,614 | 252.5 ms | 6.794 s | 59/59 | Complete |
+
+Every case completed all 59 actions in all three repetitions, with identical
+source, transferred-recipe, and result hashes within each case. The 8x evaluation
+takes 35.7x as long
+for 57.95x the mesh vertices and 68.93x the fitted vertex entries
+(2,003 versus 138,073, counting observations again when used by multiple fits).
+Generation and footprint transfer are excluded from evaluation: at 8x their
+medians were 4.026 s and 2.726 s respectively.
+
+These results use the shared centered/scaled SVD solver and corrected support
+semantics. Rigidly transported support uses physical unit-axis distances, and
+fixed observation factors are not constrained by selection/display intervals.
+No observations are removed and no fixture truth is supplied to the fits. Cone
+positive-radius/apex checks remain structural requirements. See the
+[fitting contract and numerical limits](../../experiments/mesh-cone-fit/README.md).
+The earlier unit-axis-only correction completed 1x in 169 ms and 8x in 6.752 s,
+but failed 2x and 4x at a support boundary despite available descending steps.
+Those failed attempts are not successful-solve comparison timings.
+
+A separate profile of the completed 8x evaluation attributed about 50% of its
+instrumented time to three rigid reuse matches, mainly repeated all-pairs
+distances on the bounded matching samples, and about 37% to deep-copying result
+data, including the returned snapshot. Selection-volume application accounted
+for another 8%; the shared nonlinear solver accounted for about 2.4%.
+These figures come from a slower, instrumented run and should
+not be substituted for the unprofiled wall times above.
+
+JSON response serialization is separate: 6.1 ms for the 0.352 MB baseline
+response versus 329 ms for the 18.074 MB dense response. Worker lifetime peak
+RSS was 63.3 MiB versus 263 MiB, including generation and selection transfer;
+these are not isolated solver memory measurements. Browser rendering, HTTP
+transport, Rhino export, and cold-cache behavior are outside this comparison.
+
+Additional non-power-of-two checks on 2026-09-30 used the same 59-action graph,
+three fresh sequential workers per size, and the same two-thread limits:
+
+| Tessellation | Vertices | Fitted observation entries | Median evaluation | Ready actions |
+| --- | ---: | ---: | ---: | ---: |
+| 5x | 143,643 | 53,785 | 5.667 s | 59/59 |
+| 7x | 279,784 | 105,204 | 6.764 s | 59/59 |
+
+Both sizes completed every action in every repetition, with identical source,
+transferred-recipe, and result hashes within each size. These checks were run
+on a different day from the table above; they broaden coverage, rather than
+establishing a smooth timing curve or arbitrary-resolution robustness.
+Attempts at 13x and 31x were rejected before mesh generation by the existing
+tessellation-dimension limits; neither size reached the solver. The browser
+also retains a 25,000-vertex limit on each explicit selection. Larger-data
+support remains separate work; these benchmarks do not bypass either limit or
+downsample the requested observations to claim a successful solve.
 
 ## Open the ordinary fixtures
 

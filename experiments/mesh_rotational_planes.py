@@ -125,6 +125,34 @@ def rotation_matrix(parameters: Array, slot: int) -> Array:
     )
 
 
+def rotation_matrix_derivatives(parameters: Array, slot: int) -> tuple[Array, Array]:
+    """Rodrigues matrix and exact derivatives with respect to axis slopes."""
+    axis, _, _, derivatives, _, _ = axis_frame(parameters)
+    angle = slot * 2 * np.pi / 3
+    matrices: list[Array] = []
+    for derivative in derivatives:
+        x, y, z = derivative
+        cross = np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
+        matrices.append(
+            cross * np.sin(angle)
+            + (np.outer(derivative, axis) + np.outer(axis, derivative))
+            * (1 - np.cos(angle))
+        )
+    return rotation_matrix(parameters, slot), np.asarray(matrices)
+
+
+def lateral_point_gradient(points: Array, parameters: Array) -> Array:
+    """Spatial derivative of the validated signed cylinder/cone side distance."""
+    axis = np.array([parameters[2], parameters[3], 1.0])
+    axis /= np.linalg.norm(axis)
+    q = points - np.array([parameters[0], parameters[1], 0.0])
+    radial = q - (q @ axis)[:, None] * axis
+    rho = np.linalg.norm(radial, axis=1)
+    if np.any(rho <= 0):
+        raise ValueError("side distance derivative is undefined on its axis")
+    return (radial / rho[:, None] - parameters[6] * axis) / np.hypot(1.0, parameters[6])
+
+
 def lateral_parameters(
     group: RotationalPlanes, parameters: Array, offset: int
 ) -> Array:
@@ -178,29 +206,18 @@ def lateral_rotation_residual_jacobian(
     for slot, points in enumerate(group.points):
         # Back-rotate observations to one shared cylinder/cone. This keeps the
         # relationship exact while all four common-axis parameters can move.
-        local = center + (points - center) @ rotation_matrix(parameters, slot)
+        matrix, derivatives = rotation_matrix_derivatives(parameters, slot)
+        q = points - center
+        local = center + q @ matrix
         residual, full = cone_plane_residual_jacobian(
             local, np.empty((0, 3)), p, group.domain
         )
         jac = np.zeros((len(points), len(parameters)))
         jac[:, offset : offset + group.size] = full[:, columns]
-        # Only the moving symmetry transform uses central differences. The
-        # surface derivatives above remain analytic; test both against an
-        # independent finite-difference step over the complete joint residual.
-        for col in range(4):
-            step = 1e-5 * max(1.0, abs(parameters[col]))
-            values: list[Array] = []
-            for direction in (1, -1):
-                q = parameters.copy()
-                q[col] += direction * step
-                c = np.array([q[0], q[1], 0.0])
-                moved = c + (points - c) @ rotation_matrix(q, slot)
-                values.append(
-                    cone_plane_residual_jacobian(
-                        moved, np.empty((0, 3)), p, group.domain
-                    )[0]
-                )
-            jac[:, col] = (values[0] - values[1]) / (2 * step)
+        gradient = lateral_point_gradient(local, p)
+        jac[:, :2] = gradient @ (np.eye(3) - matrix)[:2].T
+        for column, derivative in enumerate(derivatives, start=2):
+            jac[:, column] = np.sum(gradient * (q @ derivative), axis=1)
         residuals.append(residual)
         jacobians.append(jac)
         equations.append(rotated_lateral(group, parameters, offset, slot)[0])
