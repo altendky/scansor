@@ -11,6 +11,7 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
 )
 from experiments.mesh_cylinder_fit import Array
+from experiments.mesh_rotational_planes import lateral_point_gradient
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,47 @@ def axis_frame(parameters: Array) -> tuple[Array, Array, Array]:
     u /= np.linalg.norm(u)
     v = np.cross(axis, u)
     return axis, u, v
+
+
+def axis_frame_derivatives(
+    parameters: Array,
+) -> tuple[Array, Array, Array, Array, Array, Array]:
+    """Exact derivatives within the currently selected transverse-frame branch.
+
+    The existing least-aligned-reference choice is piecewise smooth. This does
+    not assert differentiability where that discrete reference changes.
+    """
+    axis, u, v = axis_frame(parameters)
+    length = float(np.linalg.norm([parameters[2], parameters[3], 1.0]))
+    derivative = np.asarray(
+        [(np.eye(3)[index] - axis * axis[index]) / length for index in range(2)],
+        dtype=np.float64,
+    )
+    reference = np.eye(3)[int(np.argmin(np.abs(axis)))]
+    cross_length = float(np.linalg.norm(np.cross(axis, reference)))
+    dcross = np.asarray(np.cross(derivative, reference), dtype=np.float64)
+    du = (dcross - (dcross @ u)[:, None] * u) / cross_length
+    dv = np.asarray(np.cross(derivative, u) + np.cross(axis, du), dtype=np.float64)
+    return axis, u, v, derivative, du, dv
+
+
+def mirror_transform_derivatives(
+    parameters: Array, phase: float
+) -> tuple[Array, Array, Array, Array]:
+    """Matrix/normal and their derivatives with respect to slopes and phase."""
+    _, u, v, _, du, dv = axis_frame_derivatives(parameters)
+    matrix, _, normal = mirror_transform(parameters, phase)
+    derivative = np.vstack(
+        [
+            np.cos(phase) * dv - np.sin(phase) * du,
+            -np.sin(phase) * v - np.cos(phase) * u,
+        ]
+    )
+    matrices = np.asarray(
+        [-2.0 * (np.outer(dn, normal) + np.outer(normal, dn)) for dn in derivative],
+        dtype=np.float64,
+    )
+    return matrix, normal, matrices, derivative
 
 
 def mirror_transform(parameters: Array, phase: float) -> tuple[Array, Array, Array]:
@@ -211,21 +253,34 @@ def mirror_residual_jacobian(
     offset: int,
     radius_parameter_index: int | None = None,
 ) -> tuple[list[Array], list[Array], list[Array]]:
-    """Exact tied-surface residuals with numerical symmetry-transform derivatives."""
+    """Exact tied-surface residuals and analytic transform/surface derivatives."""
     residuals = _residuals(group, parameters, offset, radius_parameter_index)
     jacobians: list[Array] = []
+    center = np.array([parameters[0], parameters[1], 0.0])
+    matrix, mirror_normal, dmatrix, dmirror_normal = mirror_transform_derivatives(
+        parameters, float(parameters[offset])
+    )
     if group.radius_side_index is not None:
         if radius_parameter_index is None:
             raise ValueError(
                 "a shared-radius mirror group requires a cylinder radius parameter"
             )
-        for points in group.points:
+        for slot, points in enumerate(group.points):
+            sign = 1.0 if slot == 0 else -1.0
+            q = points - center
             jac = np.zeros((len(points), len(parameters)))
             jac[:, radius_parameter_index] = -1.0
+            jac[:, :2] = -sign * mirror_normal[:2]
+            jac[:, 2:4] = sign * q @ dmirror_normal[:2].T
+            jac[:, offset] = sign * q @ dmirror_normal[2]
             jacobians.append(jac)
     elif group.kind == "plane":
-        _, dtilt, dphase, _ = _plane_parameters(parameters, offset)
-        center = np.array([parameters[0], parameters[1], 0.0])
+        normal, dtilt, dphase, _ = _plane_parameters(parameters, offset)
+        _, _, _, daxis, du, dv = axis_frame_derivatives(parameters)
+        tilt, phase = parameters[offset + 1 : offset + 3]
+        dnormal = np.cos(tilt) * daxis + np.sin(tilt) * (
+            np.cos(phase) * du + np.sin(phase) * dv
+        )
         for slot, points in enumerate(group.points):
             local = _local_points(points, parameters, offset, slot)
             q = local - center
@@ -233,6 +288,11 @@ def mirror_residual_jacobian(
             jac[:, offset + 1] = q @ dtilt
             jac[:, offset + 2] = q @ dphase
             jac[:, offset + 3] = -1.0
+            jac[:, :2] = -(normal if slot == 0 else matrix @ normal)[:2]
+            jac[:, 2:4] = q @ dnormal.T
+            if slot == 1:
+                for column, derivative in zip((2, 3, offset), dmatrix, strict=True):
+                    jac[:, column] += (points - center) @ derivative @ normal
             jacobians.append(jac)
     else:
         p = _lateral_parameters(group, parameters, offset)
@@ -244,20 +304,14 @@ def mirror_residual_jacobian(
             )
             jac = np.zeros((len(points), len(parameters)))
             jac[:, offset + 1 : offset + 1 + group.surface_size] = full[:, columns]
+            if slot == 1:
+                gradient = lateral_point_gradient(local, p)
+                jac[:, :2] = gradient @ (np.eye(3) - matrix)[:2].T
+                for column, derivative in zip((2, 3, offset), dmatrix, strict=True):
+                    jac[:, column] = np.sum(
+                        gradient * ((points - center) @ derivative), axis=1
+                    )
             jacobians.append(jac)
-
-    # The reflection moves with the four shared-axis coordinates and its phase.
-    # Keep the canonical surface columns analytic and isolate numerical derivatives
-    # to this five-parameter transform, as in the rotational lateral prototype.
-    for col in (*range(4), offset):
-        step = 1e-5 * max(1.0, abs(parameters[col]))
-        values: list[list[Array]] = []
-        for direction in (1.0, -1.0):
-            candidate = parameters.copy()
-            candidate[col] += direction * step
-            values.append(_residuals(group, candidate, offset, radius_parameter_index))
-        for slot in range(2):
-            jacobians[slot][:, col] = (values[0][slot] - values[1][slot]) / (2 * step)
     return (
         residuals,
         jacobians,

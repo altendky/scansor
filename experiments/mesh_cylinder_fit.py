@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
+
+from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
+from experiments.fit_solver import (
+    SolverDiagnostics,
+    normalized_weights,
+    solve_geometric_fit,
+)
 
 Array = NDArray[np.float64]
 
@@ -18,6 +25,17 @@ class CylinderFitResult(TypedDict):
     normal_matrix_condition: float
     gradient_infinity_norm: float
     converged: bool
+    solver: NotRequired[SolverDiagnostics]
+
+
+def valid_cylinder_geometry(points: Array, parameters: Array) -> bool:
+    if not np.isfinite(parameters).all() or parameters[4] <= 0:
+        return False
+    raw = np.array([parameters[2], parameters[3], 1.0])
+    axis = raw / np.linalg.norm(raw)
+    q = points - np.array([parameters[0], parameters[1], 0.0])
+    radial = q - (q @ axis)[:, None] * axis
+    return bool(np.all(np.linalg.norm(radial, axis=1) > 0))
 
 
 def residual_jacobian(points: Array, parameters: Array) -> tuple[Array, Array]:
@@ -57,45 +75,27 @@ def fit_cylinder(points: Array, weights: Array, initial: Array) -> CylinderFitRe
         raise ValueError("nonfinite fit input")
     if np.any(weights <= 0) or initial[4] <= 0:
         raise ValueError("weights and initial radius must be positive")
-    w = weights / weights.sum()
-    parameters = initial.copy()
-    history: list[float] = []
-    converged = False
-    for _ in range(60):
-        residual, jacobian = residual_jacobian(points, parameters)
-        objective = float(w @ (residual * residual))
-        history.append(objective)
-        hessian = jacobian.T @ (w[:, None] * jacobian)
-        gradient = jacobian.T @ (w * residual)
-        if np.linalg.cond(hessian) > 1e12:
-            raise ValueError(
-                "ill-conditioned cylinder geometry in this parameter frame"
-            )
-        step = np.linalg.solve(hessian, -gradient)
-        if np.max(np.abs(step)) < 1e-10 * max(1.0, float(np.max(np.abs(parameters)))):
-            converged = True
-            break
-        for power in range(25):
-            candidate = parameters + step * 2.0**-power
-            if candidate[4] <= 0:
-                continue
-            r, _ = residual_jacobian(points, candidate)
-            if float(w @ (r * r)) < objective:
-                parameters = candidate
-                break
-        else:
-            raise ValueError("cylinder step failed to decrease objective")
-    if not converged:
-        raise ValueError("cylinder fit did not converge")
-    residual, jacobian = residual_jacobian(points, parameters)
+    w = normalized_weights(weights)
+    coordinates = FitCoordinates(
+        CoordinateFrame.from_observations(points, weights),
+        5,
+        axes=(AxisChart(0, 1, 2, 3, 4),),
+    )
+    fit = solve_geometric_fit(
+        initial,
+        weights,
+        coordinates,
+        lambda p: residual_jacobian(points, p),
+        lambda p: valid_cylinder_geometry(points, p),
+    )
+    residual = fit.residual
     return {
-        "parameters": parameters.tolist(),
-        "objective_history": history,
+        "parameters": fit.parameters.tolist(),
+        "objective_history": fit.objective_history,
         "weighted_rms": float(np.sqrt(w @ (residual * residual))),
         "weighted_mean_residual": float(w @ residual),
-        "normal_matrix_condition": float(
-            np.linalg.cond(jacobian.T @ (w[:, None] * jacobian))
-        ),
-        "gradient_infinity_norm": float(np.max(np.abs(jacobian.T @ (w * residual)))),
-        "converged": converged,
+        "normal_matrix_condition": fit.condition,
+        "gradient_infinity_norm": fit.gradient,
+        "converged": True,
+        "solver": fit.solver,
     }

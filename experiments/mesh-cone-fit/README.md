@@ -31,9 +31,13 @@ the cylinder/plane baseline. There is one additional fit parameter, taper.
 The example declares axial support `[-2,5]` in source units, measured from `c`
 along the fitted unit axis. These conservative bounds enclose the selected band
 and the top-plane visualization, and are not estimates of physical edges.
-Reference radius and both endpoint radii must be strictly positive. Every lateral
-observation's orthogonal projection must lie inside this interval. Invalid
-initial parameters fail; invalid trial steps are rejected during backtracking.
+Reference radius and both endpoint radii must be strictly positive. Support
+membership is separate from the analytic side-distance factors: every explicitly
+selected observation retains its weight during fitting, including observations
+whose projections leave the interval as the fitted axis changes. Growth still
+uses the interval to admit new observations. Undefined radial derivatives and
+side projections crossing the cone apex remain invalid geometry. Invalid
+initial parameters fail; structurally invalid trials are rejected.
 There is no clipping to an edge, cap residual, sample removal, or apex crossing.
 The example runner also checks that the plane/axis intersection lies in this
 interval before extending the cone guide to the plane.
@@ -42,6 +46,31 @@ Selections use their original fixed reference axes and IDs, not the changing con
 axis. Geometric selection replay must reproduce both ID lists exactly. The
 perpendicular plane has no fitted inner/outer boundary: its annular display bounds
 are visualization choices, as in the preceding cylinder experiment.
+
+The shared cylinder, cone, sphere, and free shared-axis fitting paths use the
+NumPy-only scaled SVD solver in `scansor.nonlinear_least_squares`, with centered
+solve-local coordinates supplied by the experiment adapter. It preserves the
+original objective, geometry-validity checks, memberships, weights, and exact
+relationships. Success requires first-order stationarity; a small step or stalled
+objective alone is not success. Result diagnostics identify the solver, scaled
+Jacobian rank/condition, scaled projected gradient, iterations, and coordinate
+frame. The historical normal-condition field now describes the normalized
+solve chart, not the raw global-coordinate normal matrix.
+
+Fixed-axis cones use the same orthogonal side-distance objective, with only
+radius and taper free; radial regression supplies an initializer, not the final
+objective. Per-surface solver diagnostics identify that reduced solve. Rotational
+and mirror transform derivatives are analytic, including their moving origins;
+the mirror's deterministic transverse-frame basis still has branch switches.
+
+This remains an experimental local optimizer, not a global-recovery or metrology
+guarantee. Its generic parameter-box handling does not establish optimality for
+arbitrary nonlinear constraints. The existing positive-Z slope chart excludes
+horizontal axes; cones also retain positive reference radius at the original
+`z=0` anchor. A valid finite cone placed across that reference apex can therefore
+remain unsupported even though its patch radii are positive. Numerical centering
+does not change those model/chart restrictions or recover precision already lost
+in stored coordinates.
 
 ## Reproduction and evidence
 

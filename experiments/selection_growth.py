@@ -6,9 +6,15 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
+from experiments.fit_solver import (
+    SolverDiagnostics,
+    normalized_weights,
+    solve_geometric_fit,
+)
 from experiments.mesh_cone_plane_fit import (
-    InvalidConeDomain,
     cone_plane_residual_jacobian,
+    valid_cone_geometry,
 )
 from experiments.mesh_cylinder_fit import Array
 from experiments.mesh_sphere_fit import fit_sphere
@@ -32,7 +38,8 @@ def fit_seed(
         raise ValueError(
             f"seed fit needs at least {minimum} finite, positive-area observations"
         )
-    w = weights / weights.sum()
+    w = normalized_weights(weights)
+    solver: SolverDiagnostics | None = None
     if kind == "plane":
         center = w @ points
         q = points - center
@@ -55,54 +62,39 @@ def fit_seed(
             parameters[3]
         )
         condition = result["normal_matrix_condition"]
+        solver = result.get("solver")
     elif kind in ("cone", "cylinder"):
         if initial.shape != (5,) or not np.isfinite(initial).all() or initial[4] <= 0:
             raise ValueError("invalid seed initialization")
-        parameters = [*initial.tolist(), 0.0, 0.0]
-        p = np.array(parameters)
         columns = [0, 1, 2, 3, 4, 6] if kind == "cone" else [0, 1, 2, 3, 4]
-        for _ in range(80):
-            residual, full = cone_plane_residual_jacobian(
-                points, np.empty((0, 3)), p, domain
+
+        def unpack(values: Array) -> Array:
+            full = np.zeros(7)
+            full[columns] = values
+            return full
+
+        def evaluate(values: Array) -> tuple[Array, Array]:
+            residual, jacobian = cone_plane_residual_jacobian(
+                points, np.empty((0, 3)), unpack(values), domain
             )
-            jac = full[:, columns]
-            normal = jac.T @ (w[:, None] * jac)
-            condition = float(np.linalg.cond(normal))
-            if not np.isfinite(condition) or condition > 1e12:
-                raise ValueError(
-                    "seed fit is ill-conditioned; paint more circumferential and axial coverage"
-                )
-            step = np.linalg.solve(normal, -(jac.T @ (w * residual)))
-            if np.max(np.abs(step)) < 1e-10 * max(1.0, float(np.max(np.abs(p)))):
-                break
-            objective = float(w @ residual**2)
-            for power in range(25):
-                candidate = p.copy()
-                candidate[columns] += step * 2.0**-power
-                try:
-                    r, _ = cone_plane_residual_jacobian(
-                        points, np.empty((0, 3)), candidate, domain
-                    )
-                except InvalidConeDomain:
-                    continue
-                if float(w @ r**2) < objective:
-                    p = candidate
-                    break
-            else:
-                # Squared distances lose resolution near the minimum on noisy
-                # data. Accept stagnation only if the predicted decrease is
-                # below roundoff; exact synthetic data still takes full steps.
-                scale = float(w @ np.sum(points**2, axis=1))
-                resolution = (
-                    32 * np.finfo(float).eps * float(np.sqrt(objective * scale))
-                )
-                if float(step @ normal @ step) <= resolution:
-                    break
-                raise ValueError("seed fit failed to decrease its objective")
-        else:
-            raise ValueError("seed fit did not converge")
-        parameters = p.tolist()
-        residual, _ = cone_plane_residual_jacobian(points, np.empty((0, 3)), p, domain)
+            return residual, jacobian[:, columns]
+
+        start = np.append(initial, 0.0) if kind == "cone" else initial
+        coordinates = FitCoordinates(
+            CoordinateFrame.from_observations(points, weights),
+            len(columns),
+            axes=(AxisChart(0, 1, 2, 3, 4, 5 if kind == "cone" else None),),
+        )
+        fit = solve_geometric_fit(
+            start,
+            weights,
+            coordinates,
+            evaluate,
+            lambda p: valid_cone_geometry(unpack(p), domain, points),
+        )
+        parameters = unpack(fit.parameters).tolist()
+        residual, condition = fit.residual, fit.condition
+        solver = fit.solver
     else:
         raise ValueError("unsupported seed surface type")
     fitted: dict[str, Any] = {
@@ -113,7 +105,14 @@ def fit_seed(
         "condition": condition,
         "residuals": residual.tolist(),
     }
-    _, expected, _ = surface_distance(points, fitted)
+    if solver is not None:
+        fitted["solver"] = solver
+    _, expected, inside = surface_distance(points, fitted)
+    fitted["support_classification"] = {
+        "inside_vertices": int(inside.sum()),
+        "outside_vertices": int((~inside).sum()),
+        "role": "selection-and-display",
+    }
     fitted["normal_sign"] = (
         1.0 if float(w @ np.sum(expected * normals, axis=1)) >= 0 else -1.0
     )
@@ -149,7 +148,14 @@ def surface_distance(
     residual = (rho - p[4] - p[6] * z) / scale
     projected_z = (z + p[6] * (rho - p[4])) / (1 + p[6] ** 2)
     lo, hi = fit["axial_domain"]
-    return residual, expected, (rho > 0) & (projected_z >= lo) & (projected_z <= hi)
+    return (
+        residual,
+        expected,
+        (rho > 0)
+        & (p[4] + p[6] * projected_z > 0)
+        & (projected_z >= lo)
+        & (projected_z <= hi),
+    )
 
 
 def connected_growth(

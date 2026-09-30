@@ -10,6 +10,7 @@ from typing import Annotated, ClassVar, Literal, NotRequired, TypedDict, final
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from experiments.fit_solver import SolverDiagnostics
 from experiments.mesh_cone_plane_fit import (
     ConePlaneFitResult,
     cone_plane_residual_jacobian,
@@ -38,6 +39,7 @@ class NozzleSession(BaseModel):
 
 
 class SurfaceResult(TypedDict):
+    solver: NotRequired[SolverDiagnostics]
     plane_equation: NotRequired[list[float]]
     kind: str
     ids: list[int]
@@ -160,6 +162,8 @@ class NozzleWorkspace:
                 "normal_matrix_condition": baseline["normal_matrix_condition"],
                 "gradient_infinity_norm": baseline["gradient_infinity_norm"],
             }
+            if "solver" in baseline:
+                result["solver"] = baseline["solver"]
             p = np.array(result["parameters"])
             residual, _ = joint_residual_jacobian(cone, plane, p[:6])
         else:
