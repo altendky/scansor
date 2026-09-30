@@ -222,6 +222,50 @@ def load_fixture(path: Path) -> FixtureSpec:
     return FixtureSpec.model_validate_json(path.read_bytes())
 
 
+def scale_fixture_tessellation(
+    spec: FixtureSpec,
+    scale: int,
+    realization_ids: tuple[str, ...] | None = None,
+) -> FixtureSpec:
+    if scale < 1:
+        raise ValueError("tessellation scale must be at least 1")
+    selected_ids = (
+        {realization.realization_id for realization in spec.realizations}
+        if realization_ids is None
+        else set(realization_ids)
+    )
+    known_ids = {realization.realization_id for realization in spec.realizations}
+    unknown_ids = selected_ids - known_ids
+    if unknown_ids:
+        unknown = ", ".join(sorted(unknown_ids))
+        raise ValueError(f"unknown realization IDs: {unknown}")
+    if not selected_ids:
+        raise ValueError("at least one realization must be selected")
+
+    scaled: list[RealizationSpec] = []
+    for realization in spec.realizations:
+        if realization.realization_id not in selected_ids:
+            scaled.append(realization)
+            continue
+        tessellation = realization.tessellation
+        try:
+            scaled_tessellation = TessellationSpec(
+                axial_segments=tessellation.axial_segments * scale,
+                angular_segments=tessellation.angular_segments * scale,
+                plate_x_segments=tessellation.plate_x_segments * scale,
+                plate_y_segments=tessellation.plate_y_segments * scale,
+                radial_segments=tessellation.radial_segments * scale,
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"tessellation scale {scale} exceeds the supported limits for {realization.realization_id}"
+            ) from error
+        scaled.append(
+            realization.model_copy(update={"tessellation": scaled_tessellation})
+        )
+    return spec.model_copy(update={"realizations": tuple(scaled)})
+
+
 def _rotation_xyz(degrees: tuple[float, float, float]) -> FloatArray:
     x, y, z = np.radians(degrees)
     cx, sx = math.cos(x), math.sin(x)
@@ -1405,10 +1449,23 @@ def _write_realization(
     }
 
 
-def publish_fixture(output: Path, definition_path: Path) -> GenerationManifest:
+def publish_fixture(
+    output: Path,
+    definition_path: Path,
+    *,
+    realization_ids: tuple[str, ...] | None = None,
+    tessellation_scale: int = 1,
+) -> GenerationManifest:
     if output.exists():
         raise FileExistsError(f"output already exists: {output}")
-    spec = load_fixture(definition_path)
+    spec = scale_fixture_tessellation(
+        load_fixture(definition_path), tessellation_scale, realization_ids
+    )
+    selected_ids = (
+        {realization.realization_id for realization in spec.realizations}
+        if realization_ids is None
+        else set(realization_ids)
+    )
     definition = canonical_json(spec)
     definition_sha = sha256(definition)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1418,6 +1475,7 @@ def publish_fixture(output: Path, definition_path: Path) -> GenerationManifest:
         summaries = [
             _write_realization(temporary, spec, realization, definition_sha)
             for realization in spec.realizations
+            if realization.realization_id in selected_ids
         ]
         artifacts: dict[str, ArtifactRecord] = {
             str(path.relative_to(temporary)): {
@@ -1451,8 +1509,33 @@ def main() -> None:
         default=Path("examples/repeated-boss-selection/fixture.json"),
     )
     _ = parser.add_argument("--output", type=Path, required=True)
+    _ = parser.add_argument(
+        "--realization",
+        action="append",
+        dest="realizations",
+        help="generate only this realization; repeat to select more than one",
+    )
+    _ = parser.add_argument(
+        "--tessellation-scale",
+        type=int,
+        default=1,
+        help=(
+            "multiply every tessellation segment count for selected realizations; "
+            "mesh size grows approximately with the square"
+        ),
+    )
     args = parser.parse_args()
-    manifest = publish_fixture(args.output, args.definition)
+    try:
+        manifest = publish_fixture(
+            args.output,
+            args.definition,
+            realization_ids=(
+                None if args.realizations is None else tuple(args.realizations)
+            ),
+            tessellation_scale=args.tessellation_scale,
+        )
+    except ValueError as error:
+        parser.error(str(error))
     print(canonical_json(manifest).decode("ascii"), end="")
 
 

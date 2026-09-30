@@ -75,7 +75,13 @@ def load_example(example: Path) -> NozzleExample:
         layout = build_layout(
             read_header(stream), fixed_lists={("face", "vertex_indices"): 3}
         )
-        reader = Reader(stream, layout, max_range_bytes=2_000_000)
+        # This experiment retains both complete arrays below, so the reader's
+        # single-range allowance must admit the largest declared element block.
+        max_range_bytes = max(
+            2_000_000,
+            *(block.element.count * block.dtype.itemsize for block in layout.elements),
+        )
+        reader = Reader(stream, layout, max_range_bytes=max_range_bytes)
         count = layout.element("vertex").element.count
         rows = reader.read_range("vertex", 0, count)
         faces = reader.read_range("face", 0, layout.element("face").element.count)
