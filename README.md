@@ -5,7 +5,7 @@ scan observations. It keeps selections, analytic primitives, reference geometry,
 exact relationships, reuse lineage, residuals, and output coordinates explicit
 instead of treating scan-to-CAD as an opaque automatic conversion.
 
-[![Scansor repeated-feature reuse demonstration](docs/assets/readme/repeated-boss-feature-reuse.jpg)](https://youtu.be/oP44yI9DAoE)
+[![Scansor repeated-feature reuse demonstration](docs/assets/readme/repeated-boss-fitted-surfaces-and-reuse-volumes.jpg)](https://youtu.be/oP44yI9DAoE)
 
 **[Watch the narrated Scansor prototype demonstration](https://youtu.be/oP44yI9DAoE)**
 
@@ -19,7 +19,7 @@ The current local browser prototype demonstrates:
 - signed residual inspection with a numeric color scale; and
 - measured output scale, coordinate transforms, and Rhino export.
 
-![Signed residuals on fitted nozzle surfaces](docs/assets/readme/nozzle-residuals.jpg)
+![Signed residuals on fitted nozzle surfaces with the residual color scale and display controls](docs/assets/readme/nozzle-fitted-surfaces-and-residual-scale.jpg)
 
 ## Status
 

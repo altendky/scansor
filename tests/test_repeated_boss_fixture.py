@@ -17,6 +17,7 @@ from experiments.repeated_boss_fixture import (
     FixtureSpec,
     load_fixture,
     publish_fixture,
+    scale_fixture_tessellation,
     sensor_offsets,
 )
 from experiments.run_nozzle_cylinder import load_example
@@ -616,6 +617,49 @@ def test_publication_refuses_to_overwrite(tmp_path: Path) -> None:
     _ = publish_fixture(output, DEFINITION)
     with pytest.raises(FileExistsError, match="already exists"):
         _ = publish_fixture(output, DEFINITION)
+
+
+def test_scaled_tessellation_can_publish_one_deterministic_realization(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first = publish_fixture(
+        first_root,
+        DEFINITION,
+        realization_ids=("scan-coarse",),
+        tessellation_scale=4,
+    )
+    second = publish_fixture(
+        second_root,
+        DEFINITION,
+        realization_ids=("scan-coarse",),
+        tessellation_scale=4,
+    )
+
+    assert first == second
+    assert [item["realization_id"] for item in first["realizations"]] == ["scan-coarse"]
+    assert first["realizations"][0]["vertices"] == 92_475
+    assert {path.name for path in first_root.iterdir()} == {
+        "definition.json",
+        "manifest.json",
+        "scan-coarse",
+    }
+    scaled = load_fixture(first_root / "definition.json")
+    assert scaled.realizations[1].tessellation.angular_segments == 176
+    assert scaled.realizations[1].tessellation.plate_x_segments == 80
+    assert scaled.realizations[2].tessellation.angular_segments == 88
+    assert len(load_example(first_root / "scan-coarse").xyz) == 92_475
+
+
+def test_tessellation_scaling_rejects_invalid_requests() -> None:
+    spec = load_fixture(DEFINITION)
+    with pytest.raises(ValueError, match="at least 1"):
+        _ = scale_fixture_tessellation(spec, 0)
+    with pytest.raises(ValueError, match="unknown realization IDs: missing"):
+        _ = scale_fixture_tessellation(spec, 2, ("missing",))
+    with pytest.raises(ValueError, match="supported limits for scan-coarse"):
+        _ = scale_fixture_tessellation(spec, 13, ("scan-coarse",))
 
 
 def test_checked_in_definition_is_valid_and_names_distinct_realizations() -> None:
