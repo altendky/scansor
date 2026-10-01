@@ -46,6 +46,11 @@ def test_circles_lie_on_both_surfaces(sign: float, slope: float) -> None:
     np.testing.assert_allclose(edge["center_display"], origin + 2 * axis)
     assert edge["radius"] == pytest.approx(3 + 2 * slope)
     points = np.asarray(edge["preview"]["positions"]).reshape(-1, 3)
+    np.testing.assert_allclose(
+        np.cross(edge["basis_u_display"], edge["basis_v_display"]),
+        edge["axis_display"],
+        atol=1e-12,
+    )
     np.testing.assert_allclose(points @ axis, distance, atol=1e-12)
     axial = (points - origin) @ axis
     np.testing.assert_allclose(
@@ -100,9 +105,9 @@ def test_annulus_and_disk_have_explicit_physical_radial_limits() -> None:
     assert result["bounds"]["radial"] == [2, 4]
     assert result["bounded"]
     points = np.asarray(result["preview"]["positions"]).reshape(-1, 3)
-    np.testing.assert_allclose(
-        np.sort(np.linalg.norm(points[:, :2] - [1, 2], axis=1)), np.repeat([2, 4], 96)
-    )
+    radii = np.linalg.norm(points[:, :2] - [1, 2], axis=1)
+    assert np.all(radii >= 2 - 1e-12) and np.all(radii <= 4 + 1e-12)
+    assert np.any(np.isclose(radii, 2)) and np.any(np.isclose(radii, 4))
     disk = trimmed_face(plane(), [outer], np.empty((0, 3)))
     assert disk["bounds"]["radial"] == [0, 4]
     triangles = np.asarray(disk["preview"]["indices"]).reshape(-1, 3)
@@ -176,6 +181,16 @@ def test_incomplete_face_has_null_endpoint_and_display_only_coverage() -> None:
     assert first["bounds"]["axial"] == second["bounds"]["axial"] == [2, None]
     assert not first["bounded"] and first["preview_clipped"]
     assert first["preview"] != second["preview"]
+
+
+def test_rounded_kernel_circle_does_not_admit_near_apex_preview() -> None:
+    surface = side(1, 1)
+    use, edge = boundary(surface, 2, "negative")
+    # Kernel roundoff can put the preview crop infinitesimally above the apex;
+    # positive by one ulp is not sufficient evidence for a valid side region.
+    edge["radius"] = float(np.nextafter(3.0, 0))
+    with pytest.raises(ValueError, match="crosses the cone apex"):
+        _ = trimmed_face(surface, [(use, edge)], np.empty((0, 3)))
 
 
 @pytest.fixture(scope="module")

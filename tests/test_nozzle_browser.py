@@ -1,17 +1,32 @@
 import json
+import subprocess
+import sys
+from io import BytesIO
 from pathlib import Path
 from threading import Thread
 from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from zipfile import ZipFile
 
 import pytest
-import rhino3dm
 
 from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.feature_graph import Recipe
 from experiments.nozzle_browser import Handler, NozzleServer
 from experiments.nozzle_session import NozzleWorkspace
+
+
+def test_fit_only_browser_import_does_not_load_cad_kernel() -> None:
+    """Numerical sessions do not pay native CAD startup or memory overhead."""
+    _ = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import experiments.nozzle_browser; assert not any(name == 'OCP' or name.startswith('OCP.') for name in sys.modules)",
+        ],
+        check=True,
+    )
 
 
 def test_surface_trims_module_is_a_served_browser_asset() -> None:
@@ -51,6 +66,8 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
                 headers={"Content-Type": "application/json", "X-Scansor-Request": "1"},
             )
             with urlopen(request, timeout=30) as response:
+                if path == "/api/export/cad":
+                    assert response.headers.get_content_type() == "application/zip"
                 return response.read()
 
         try:
@@ -108,7 +125,7 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
             assert snapshot["states"]["face"] == snapshot["states"]["edge"] == "ready"
             assert snapshot["results"]["face"]["bounded"]
             data = post(
-                "/api/export/rhino",
+                "/api/export/cad",
                 {
                     "token": snapshot["token"],
                     "target": "face",
@@ -117,14 +134,14 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
                     "include_mesh": False,
                 },
             )
-            rhino = cast(Any, rhino3dm)
-            model = rhino.File3dm.FromByteArray(data)
-            assert len(model.Objects) == 1
-            assert model.Objects[0].Geometry.IsValid
-            assert not model.Objects[0].Geometry.IsSolid
+            with ZipFile(BytesIO(data)) as bundle:
+                assert "model.step" in bundle.namelist()
+                assert bundle.read("model.step").startswith(b"ISO-10303-21;")
+                assert "metadata.json" in bundle.namelist()
+                assert not any(name.endswith(".ply") for name in bundle.namelist())
             with pytest.raises(HTTPError) as error:
                 _ = post(
-                    "/api/export/rhino",
+                    "/api/export/cad",
                     {
                         "token": snapshot["token"],
                         "target": "wall",

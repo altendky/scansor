@@ -296,7 +296,7 @@ must not become the owner of authoritative operation evaluation.
 ## Threefold rotational surface relationship
 
 The symmetry action defaults to **Match exported extents across symmetry copies**.
-For Rhino export, observations from all three selections are rotated into the
+For CAD export, observations from all three selections are rotated into the
 first copy’s frame to bound one patch; that same patch is then rotated to each
 copy. This gives matching rectangular plane patches and matching cylinder/cone
 spans. Disable the option in the symmetry action’s properties for independent

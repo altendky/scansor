@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = "MIT OR Apache-2.0"
 dependencies = [
+  "cadquery-ocp-novtk==8.0.1.0.0",
   "cyclopts>=4.0",
   "defusedxml>=0.7.1",
   "duckdb>=1.5.5",
@@ -13,7 +14,6 @@ dependencies = [
   "psutil>=7.2.2",
   "pyarrow>=25.0.1",
   "pydantic>=2.11",
-  "rhino3dm>=8.17,<9",
   "structlog>=25.4",
 ]
 
@@ -23,6 +23,7 @@ scansor = "scansor.cli:main"
 [dependency-groups]
 dev = [
   "basedpyright>=1.31",
+  "cadquery-ocp-stubs==8.0.1.0.0",
   "pytest>=8.4",
   "pytest-cov>=7.0",
   "ruff>=0.12",

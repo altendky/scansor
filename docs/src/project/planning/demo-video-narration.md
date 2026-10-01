@@ -154,7 +154,7 @@ display placement.
 
 ## 13 — Export boundary
 
-**Focus:** Open Rhino export and inspect the chosen transform and units.
+**Focus:** Open CAD export and inspect the chosen transform and units.
 
 **Narration:**
 
