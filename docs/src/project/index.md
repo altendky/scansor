@@ -37,7 +37,12 @@ outside the intended boundary.
     cone/cylinder-and-plane solving, residual display, explicit coordinate Frame
     construction, uniform Scale derivation from multiple point distances, and an
     editable Transform composing those features for the model view and Rhino
-    export;
+    export; explicit circular plane–cylinder/cone intersections and manually
+    bounded planar/lateral faces with shared boundary declarations, plus reviewed
+    batch face proposals with inspectable generated children and manual-feature
+    reuse, persisted adjacency review, and explicit face scopes separate from
+    fitting support; general intersections, face sewing, and solid construction
+    remain deferred;
     frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)

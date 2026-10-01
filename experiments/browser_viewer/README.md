@@ -119,6 +119,36 @@ Restore example graph reloads the retained-selection starting graph from disk.
 
 Creation buttons stay in the top toolbar; fit, relationship, and joint creation
 open dialogs.
+
+Action and group headers have reorder grips supporting drag-and-drop or Up/Down
+keys. Moving an organizational group includes its member actions and their
+generated outputs; moving a managed owner such as Build faces includes its whole
+generated subtree. Generated subgroups move only among siblings within their
+owner, and individual generated actions remain locked. Moves preserve membership
+and ownership and are rejected when an input would come after its consumer.
+Empty organizational groups have no action position and cannot be reordered.
+
+The action list retains authoring order, but evaluation first compiles a complete
+execution graph. Connected axis/point solves and connected plane relationships
+wait for all of their inputs, including fits added later through another
+relationship. Frames, scales, reusable regions, and physical boundaries wait for
+their resolved geometry providers. Connected plane groups are solved once and
+publish every relationship result together. Targeted evaluation selects a
+dependency closure from this compiled graph; it does not execute the list as a
+sequence of provisional results.
+
+Preliminary growth fits and datum initializers remain separate from resolved
+geometry. Feature-reuse membership transfer uses source geometry before radius
+or plane relationships that depend on the transferred fits; those final
+relationships cannot feed back into the transfer that created their inputs.
+If a final group extends an existing source-only group, a reuse-local solve
+retains those original source constraints rather than dropping the whole group.
+Genuine resolved-geometry feedback cycles
+are rejected before fitting, with the involved action names. Switching between
+automatic axis resolution and an explicit joint invalidates cached resolved
+consumers; raw initializer values are retained. This remains the bounded
+adapter's request-local joint precedence, not a general solve-activation contract.
+
 The left column has two independently scrollable areas: features above, selected
 feature information/properties and results below. Selection editing appears only
 for a selected selection. Save actions, Load actions and Restore example are in
@@ -407,10 +437,108 @@ spans. Disable the option in the symmetry action’s properties for independent
 bounds. It changes exported extents, not selection membership or the fitting
 objective; viewport guides still use their existing bounds.
 
+## Explicit physical face boundaries
+
+**Implemented bounded experiment.** The **Faces** toolbar offers **Surface
+intersection** and **Trimmed face**. These declarations describe physical output
+regions, not selection volumes, fitting support, or an output coordinate Frame.
+
+1. Create a surface intersection by choosing a plane and a cylinder or cone.
+   The first slice computes a circle when their plane normal and revolution axis
+   are parallel, within a numerical angular tolerance of `1e-10`. An oblique cut
+   is diagnosed as unsupported, not approximated by a circular edge.
+2. Create a trimmed face, choosing its underlying surface and adding shared
+   intersection features. For a plane, keep inside or outside each circle; for
+   a cylinder/cone, keep the positive or negative side of each cutting plane,
+   following that plane's oriented normal.
+3. Edit those declarations in the properties panel. Boundaries recompute after
+   upstream changes; no scan IDs, weights, residual rows, or fitting support are
+   changed by a trim.
+
+For the original boss in the retained demo, intersect **shoulder fit** with
+**outer fit** and separately with **bore fit**. Create a face on **shoulder fit**,
+keeping inside the outer circle and outside the bore circle. This represents the
+ideal annular portion only; the fixture's clocking flat requires additional trim
+types and is not represented by this circular slice. Reused standalone fits may
+need exact relationships before their intersections are circular.
+
+Surface references identify both the feature and, for an explicit joint or
+relationship result, its member fit. A face and its boundary must use exactly
+the same reference: independently fitted and jointly solved geometry cannot be
+silently substituted. Direct geometry on an axis with an explicit shared-axis
+joint is ambiguous under the existing evaluator's context rules and is rejected;
+choose the member in that named joint. Referencing its solved datum members is
+not implemented yet.
+
+The first face regions are concentric disks/annuli and full-revolution lateral
+faces between perpendicular cuts. A single lateral cut or an outside-only plane
+region remains unbounded. Its missing physical limit stays null; observation
+coverage crops the preview only, and bounded-face export refuses it. The viewer
+uses 96-segment display tessellation, while intersections and export remain
+analytic. Empty regions, nonconcentric boundaries, apex crossings, and context
+mismatches are diagnosed.
+
+### Reviewed batch face building
+
+**Faces → Build faces…** replaces repetitive circle/face authoring with a
+reviewable batch. Select adjoining plane/cylinder/cone surface references,
+then **Preview**. **Add all fitted surfaces** extends the current selection with
+available plane/cylinder/cone fits, excluding construction/reference planes.
+It prefers direct geometry, preserves already-selected contexts, and uses a named
+solve context only when unambiguous; otherwise choose the context manually.
+There is no fixed surface-count cap. Preview work is bounded to one million pair
+checks and 1,024 generated regions; oversized work is rejected rather than
+silently truncating surfaces or proposals. The separate 100-action recipe limit
+still applies when saving generated children.
+Supported intersections partition each surface into candidate
+regions. The original selected observations suggest a region only when their
+strict-interior evidence occupies one candidate, projections are defined, and
+no unsupported cuts remain. Mixed, boundary-only, or absent evidence requires
+an explicit choice. These suggestions do not prove adjacency or scan coverage;
+all observations, fitting weights, and residuals remain unchanged.
+
+The adjacency table separates mathematical intersections from physical neighbours.
+Confirm or reject candidate pairs explicitly. Proven-empty pairs are rejected;
+unsupported unreviewed pairs require review but do not declare both surfaces
+unusable. A confirmed boundary that cannot be constructed blocks the affected
+face. Accepting a region confirms its boundary pairs. Decisions persist on the
+Build faces action and are restored by **Review / update**.
+
+Each surface can optionally be scoped to a union of existing trimmed faces in
+that exact geometry context. This rejects intersections proved outside those
+declared domains; it does not automatically clip a new proposed face to them.
+Leave the scope empty to consider the whole fitted surface. Observation bounds
+and gaps are review hints, never proof that surfaces are physically separate.
+
+Review the retained-region choices, evidence, warnings, and colored model
+overlays before **Apply faces**. Open regions remain explicitly unbounded and
+cannot be exported as bounded faces. Unsupported preview regions cannot be
+applied. For the original boss, select **shoulder fit**, **outer fit**, **bore
+fit**, and **plate top fit**; review the shoulder annulus and lateral intervals.
+The clocking flat is still outside this circular-trim slice.
+
+Apply creates a persistent **Build faces** action with ordinary, inspectable
+intersection/face children. Equivalent existing faces and intersections are
+reused unchanged, without taking ownership. **Review / update** on the owning
+action updates only its generated outputs, retaining their IDs when possible;
+removal is refused if another action consumes an obsolete output. Saved recipes
+replay the explicit boundaries, not a fresh automatic region guess. New batch
+actions preserve an existing output Transform. A changed recipe or resolved
+geometry requires another preview before applying.
+
+This is not face sewing or solid construction. Shared edges are declarations in
+the Scansor graph; exported faces remain independent. Automatic adjacency,
+arbitrary intersection branches, fillets/chamfers, material orientation, and
+closed-shell validation are deferred.
+
+OCP is the selected backend for the next general-intersection and topology
+integration, with licensing accepted. It is not yet used by this bounded slice.
+
 ## Experimental Rhino export
 
-**Export Rhino…** evaluates a chosen standalone fit, shared-axis joint, or legacy
-joint and downloads one Rhino 8 `.3dm` containing named analytic surface bodies
+**Export Rhino…** evaluates a chosen standalone fit, shared-axis joint, legacy
+joint, or bounded trimmed face and downloads one Rhino 8 `.3dm` containing named
+analytic surface bodies
 and, optionally, the loaded original reference mesh on a separate layer. It uses
 `rhino3dm` (MIT,
 including the underlying openNURBS library); Rhino is not required locally.
@@ -432,7 +560,8 @@ and legacy axis-up/origin placement are mutually exclusive. The export embeds
 the current recipe and coordinate transform as file metadata; it does not modify
 the session or introduce change history.
 
-Plane patches use projected rectangular selection bounds with 5% padding.
+Legacy fit exports still use observation-bounded patches, not the new face
+declarations. Plane patches use projected rectangular selection bounds with 5% padding.
 Cone/cylinder patches use full 360-degree sides over the selected axial span,
 with 5% padding clipped to the declared support. Sphere fits export as complete
 analytic spheres because a spherical trim footprint is not yet modeled. Plane
@@ -440,6 +569,13 @@ and lateral patches are independent open surfaces, not reconstructed trim
 boundaries or a sewn solid. The reference mesh retains its vertices and triangle
 connectivity, using double-precision storage; no decimation or conversion of
 mesh triangles into CAD faces is performed.
+
+Exporting a **Trimmed face** instead uses its explicit physical limits, with no
+observation padding or implicit capping. Disks use a circularly trimmed plane;
+annuli use a planar radial-line revolution with a periodic angular domain (not
+separate outer/hole trim loops on a PlaneSurface). Cylinder/cone sides use an
+exact bounded revolution. Source references and boundary uses are retained as
+metadata; no Rhino shared-edge topology, sewn shell, or solid is claimed.
 
 Local checks reopen the exported file and verify analytic surface recognition,
 mesh coordinates and topology, unit metadata, common orientation, and rejection

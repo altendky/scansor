@@ -185,7 +185,7 @@ function nodeType(node) {
   if (solveOperations.has(node.operation)) return 'solve';
   if (['point', 'axis', 'reference_plane', 'frame'].includes(node.operation)) return 'datum';
   if (node.operation === 'fit') return 'fit';
-  if (node.operation === 'feature_reuse') return 'reuse';
+  if (['feature_reuse', 'build_faces'].includes(node.operation)) return 'reuse';
   if (selectionDetailOperations.has(node.operation)) return 'selection';
   return 'operation';
 }
