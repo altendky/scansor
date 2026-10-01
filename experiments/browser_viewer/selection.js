@@ -158,6 +158,12 @@ export function featureVertexIds(nodes, memberships, featureId) {
     seen.add(id);
     const node = byId.get(id);
     if (!node) return;
+    if (['surface_intersection', 'trimmed_face', 'build_faces'].includes(node.operation)) {
+      const references = node.operation === 'surface_intersection'
+        ? [node.first, node.second] : node.operation === 'build_faces' ? node.surfaces : [node.surface];
+      references.forEach((reference) => visit(reference.surface || reference.feature));
+      return;
+    }
     if (
       node.operation === 'selection' ||
       node.operation === 'growth' ||

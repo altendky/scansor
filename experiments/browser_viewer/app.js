@@ -12,6 +12,14 @@ import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
 import { residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
+import {
+  surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
+  geometryAppendOutput, sameSurfaceReference, validGeometryPreview,
+  initialBuildFaceRegion, buildFaceChoices, faceEvidenceSummary,
+  validBuildFaceRegion,
+  addFittedSurfaceReferences,
+  adjacencyPairKey, buildAdjacencyDecisions, faceScopeChoices, buildFaceScopes,
+} from './surface-trims.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
 import { viewPlaneAnchor } from './navigation-math.js';
@@ -38,6 +46,10 @@ let graphState, selectedFeatureId, editingGroupId = null;
 let selectedFeatureIds = new Set();
 let workspaceView = 'model', resizeViewport = null;
 let displayTransformKey = 'identity';
+let buildFacesProposal = null, buildFacesOwnerId = null, buildFacesRequest = 0;
+let buildFacesReview = new Map(), buildFacesOverlays;
+let buildFacesAdjacencyDraft = [], buildFacesScopeDraft = [];
+let buildFacesApplying = false;
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -93,6 +105,273 @@ function clearGuides() {
     child.geometry.dispose();
     child.material.dispose();
   }
+}
+function clearBuildFacesPreview() {
+  if (buildFacesOverlays) {
+    for (const child of [...buildFacesOverlays.children]) {
+      buildFacesOverlays.remove(child);
+      child.geometry.dispose();
+      child.material.dispose();
+    }
+  }
+}
+function invalidateBuildFaces(message = '', keepAdjacencyReview = false) {
+  buildFacesRequest++;
+  buildFacesProposal = null;
+  buildFacesReview = new Map();
+  clearBuildFacesPreview();
+  $('apply-build-faces').disabled = true;
+  $('build-faces-review').replaceChildren();
+  if (!keepAdjacencyReview) $('build-faces-adjacencies').replaceChildren();
+  $('build-faces-diagnostics').replaceChildren();
+  $('build-faces-policy').textContent = '';
+  $('build-faces-error').textContent = message;
+  draw();
+}
+function buildFacesSelectedSurfaces() {
+  return chosen('build-faces-surfaces').map((value) => JSON.parse(value));
+}
+function renderBuildFacesScopes() {
+  const surfaces = buildFacesSelectedSurfaces();
+  const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
+  const rows = surfaces.map((surface) => {
+    const row = document.createElement('div');
+    row.className = 'build-face-row';
+    const label = document.createElement('label');
+    label.textContent = options.find((choice) => sameSurfaceReference(choice.reference, surface))?.label || surface.feature;
+    const select = document.createElement('select');
+    select.multiple = true;
+    select.size = 3;
+    select.setAttribute('aria-label', `Declared face scope for ${label.textContent}`);
+    const existing = faceScopeChoices(graphState.recipe.nodes, surface, buildFacesOwnerId);
+    const selected = buildFacesScopeDraft.filter((scope) => sameSurfaceReference(scope.surface, surface))
+      .flatMap((scope) => scope.faces);
+    for (const face of existing) {
+      const option = new Option(face.label, face.id);
+      option.selected = selected.includes(face.id);
+      select.append(option);
+    }
+    select.disabled = !existing.length;
+    const detail = document.createElement('p');
+    detail.className = 'hint';
+    detail.textContent = selected.length
+      ? `Declared scope: union of ${selected.length} faces. Filters boundary candidates; does not clip proposed faces or use observation bounds.`
+      : 'Unscoped: whole fitted surface, not bounded by selected observations.';
+    const unavailable = selected.filter((id) => !existing.some((face) => face.id === id));
+    if (unavailable.length) {
+      detail.classList.add('build-face-warning');
+      detail.textContent = 'A previously selected face is unavailable or depends on this batch. ' +
+        'Select a new scope or explicitly use the whole surface before previewing.';
+    }
+    select.onchange = () => {
+      buildFacesScopeDraft = buildFacesScopeDraft.filter((scope) => !sameSurfaceReference(scope.surface, surface));
+      const faces = [...select.selectedOptions].map((option) => option.value);
+      if (faces.length) buildFacesScopeDraft.push({ surface, faces });
+      invalidateBuildFaces('Face scope changed. Preview again before reviewing faces.', true);
+      renderBuildFacesScopes();
+    };
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.textContent = 'Use whole surface';
+    clear.disabled = !selected.length;
+    clear.onclick = () => {
+      buildFacesScopeDraft = buildFacesScopeDraft.filter((scope) => !sameSurfaceReference(scope.surface, surface));
+      invalidateBuildFaces('Face scope changed. Preview again before reviewing faces.', true);
+      renderBuildFacesScopes();
+    };
+    label.append(select);
+    row.append(label, detail, clear);
+    return row;
+  });
+  $('build-faces-scopes').replaceChildren(...rows);
+}
+function buildFacesScopeError(surfaces) {
+  for (const surface of surfaces) {
+    const available = new Set(faceScopeChoices(graphState.recipe.nodes, surface, buildFacesOwnerId)
+      .map((face) => face.id));
+    if (buildFacesScopeDraft.some((scope) => sameSurfaceReference(scope.surface, surface) &&
+        scope.faces.some((id) => !available.has(id))))
+      return 'A selected declared face scope is unavailable. Choose replacement faces or explicitly use the whole surface.';
+  }
+  return null;
+}
+function renderBuildFacesAdjacencies() {
+  const rows = (buildFacesProposal.adjacencies || []).map((adjacency) => {
+    const row = document.createElement('div');
+    row.className = 'build-face-row';
+    const label = document.createElement('label');
+    label.textContent = adjacency.label;
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Physical adjacency for ${adjacency.label}`);
+    select.append(new Option('Unreviewed / proposed', 'proposed'),
+      new Option('Confirmed physical adjacency', 'confirmed'), new Option('Rejected physical adjacency', 'rejected'));
+    const provenEmpty = adjacency.mathematical.status === 'proven_empty';
+    select.value = provenEmpty ? 'rejected'
+      : ['confirmed', 'rejected'].includes(adjacency.state) ? adjacency.state : 'proposed';
+    select.disabled = provenEmpty;
+    const math = document.createElement('p');
+    math.className = 'hint';
+    math.textContent = `${adjacency.mathematical.status.replaceAll('_', ' ')} · ` +
+      `${adjacency.mathematical.category}: ${adjacency.mathematical.reason}`;
+    const reason = document.createElement('p');
+    reason.className = 'hint';
+    reason.textContent = adjacency.reason;
+    const evidence = document.createElement('p');
+    evidence.className = 'hint';
+    const gap = adjacency.evidence?.observation_bounds_gap;
+    evidence.textContent = Number.isFinite(gap)
+      ? `Observation bounding-box gap: ${gap.toPrecision(5)}. Observation separation is not proof that these surfaces are disjoint.`
+      : 'Observation separation unavailable. Selected observations do not define physical extents or prove disjointness.';
+    const support = document.createElement('p');
+    support.className = 'hint';
+    support.textContent = provenEmpty ? 'Mathematical disjointness proof: adjacency is rejected.'
+      : adjacency.state === 'rejected' ? 'Rejected adjacency: this pair contributes no shared boundary.'
+      : adjacency.supported ? 'A supported mathematical intersection does not establish physical adjacency.'
+      : 'Intersection construction is not supported yet. Confirming adjacency blocks affected faces until construction is supported; rejection is an explicit modeling decision.';
+    select.onchange = () => {
+      const key = adjacencyPairKey(adjacency.first, adjacency.second);
+      buildFacesAdjacencyDraft = buildFacesAdjacencyDraft.filter((decision) =>
+        adjacencyPairKey(decision.first, decision.second) !== key);
+      if (['confirmed', 'rejected'].includes(select.value))
+        buildFacesAdjacencyDraft.push({ first: adjacency.first, second: adjacency.second, state: select.value });
+      invalidateBuildFaces('Adjacency decision changed. Preview again before reviewing faces.', true);
+    };
+    label.append(select);
+    row.append(label, math, reason, evidence, support);
+    return row;
+  });
+  $('build-faces-adjacencies').replaceChildren(...rows);
+}
+function openBuildFaces(owner = null) {
+  if (buildFacesApplying) {
+    status('Wait for the current face batch to finish applying.', true);
+    return;
+  }
+  invalidateBuildFaces();
+  buildFacesOwnerId = owner?.id || null;
+  buildFacesAdjacencyDraft = structuredClone(owner?.adjacencies || []);
+  buildFacesScopeDraft = structuredClone(owner?.face_scopes || []);
+  $('build-faces-label').value = owner?.label || nextFeatureLabel('Build faces');
+  const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
+  const selected = owner?.surfaces || options.filter((choice) =>
+    selectedFeatureIds.has(choice.reference.feature) || selectedFeatureIds.has(choice.reference.surface))
+    .map((choice) => choice.reference);
+  $('build-faces-surfaces').replaceChildren(...options.map((choice) => {
+    const option = document.createElement('option');
+    option.value = JSON.stringify(choice.reference);
+    option.textContent = choice.label;
+    option.selected = selected.some((reference) => sameSurfaceReference(reference, choice.reference));
+    return option;
+  }));
+  $('build-faces-title').textContent = owner ? 'Review / update faces' : 'Build faces';
+  renderBuildFacesScopes();
+  if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
+  $('build-faces-surfaces').focus();
+}
+function buildFacesPreviewGeometry(preview, color, edge = false) {
+  if (!validGeometryPreview(preview) || !preview.positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(preview.positions, 3));
+  if (edge) {
+    buildFacesOverlays.add(new THREE.LineLoop(geometry,
+      new THREE.LineBasicMaterial({ color, depthTest: false })));
+  } else {
+    geometry.setIndex(preview.indices);
+    geometry.computeVertexNormals();
+    buildFacesOverlays.add(new THREE.Mesh(geometry,
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true,
+        opacity: 0.5, depthWrite: false })));
+  }
+}
+function paintBuildFacesPreview() {
+  clearBuildFacesPreview();
+  if (!buildFacesProposal) return;
+  const edges = new Map(buildFacesProposal.intersections.map((edge) => [edge.key, edge]));
+  const drawnEdges = new Set();
+  buildFacesProposal.faces.forEach((face, index) => {
+    const review = buildFacesReview.get(face.key);
+    const region = face.regions.find((candidate) => candidate.key === review?.region_key);
+    if (!review?.accepted || !region) return;
+    const color = palette[index % palette.length];
+    buildFacesPreviewGeometry(region.preview, color);
+    for (const boundary of region.boundaries) {
+      if (drawnEdges.has(boundary.intersection_key)) continue;
+      drawnEdges.add(boundary.intersection_key);
+      buildFacesPreviewGeometry(edges.get(boundary.intersection_key)?.geometry?.preview, color, true);
+    }
+  });
+  $('apply-build-faces').disabled = !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
+  draw();
+}
+function renderBuildFacesReview() {
+  $('build-faces-policy').textContent = buildFacesProposal.policy;
+  renderBuildFacesAdjacencies();
+  const rows = buildFacesProposal.faces.map((face) => {
+    const initial = initialBuildFaceRegion(face);
+    const review = { accepted: !!initial, region_key: initial };
+    buildFacesReview.set(face.key, review);
+    const row = document.createElement('div');
+    row.className = 'build-face-row';
+    const title = document.createElement('label');
+    title.className = 'check';
+    const accept = document.createElement('input');
+    accept.type = 'checkbox';
+    accept.checked = review.accepted;
+    accept.disabled = !!face.blocked_by_adjacency || !face.regions.some(validBuildFaceRegion);
+    title.append(accept, document.createTextNode(`${face.label} — ${face.status.replaceAll('_', ' ')}`));
+    row.append(title);
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Retained region for ${face.label}`);
+    select.append(new Option('Choose retained region…', ''));
+    for (const region of face.regions) {
+      const disposition = region.existing_face_id ? ' — existing face; reused unchanged'
+        : region.owned_face_id ? ' — previously applied' : '';
+      const option = new Option(`${region.label}${region.bounded ? '' : ' — OPEN; preview only'}${disposition}` +
+        (validBuildFaceRegion(region) ? '' : ' — unavailable; resolve diagnostics'), region.key);
+      option.disabled = !validBuildFaceRegion(region);
+      select.append(option);
+    }
+    select.value = initial || '';
+    select.disabled = !!face.blocked_by_adjacency || !face.regions.some(validBuildFaceRegion);
+    const detail = document.createElement('p');
+    detail.className = 'hint';
+    const update = () => {
+      review.region_key = select.value || null;
+      const region = face.regions.find((candidate) => candidate.key === review.region_key);
+      review.accepted = !face.blocked_by_adjacency && accept.checked && validBuildFaceRegion(region);
+      detail.textContent = region ? faceEvidenceSummary(region.evidence) +
+        (region.bounded ? ' · Bounded face, not a solid.' : ' · Open face: missing limits; cannot export as a bounded face.')
+        : 'Choose a region explicitly before including this face.';
+      paintBuildFacesPreview();
+    };
+    accept.onchange = update;
+    select.onchange = () => { accept.checked = !!select.value; update(); };
+    row.append(select, detail);
+    if (face.blocked_by_adjacency || face.status === 'requires_adjacency_review') {
+      const warning = document.createElement('p');
+      warning.className = 'hint build-face-warning';
+      warning.textContent = face.blocked_by_adjacency
+        ? 'Blocked by a confirmed adjacency whose intersection cannot be constructed. Review the pair above; no partial face can be applied as a substitute.'
+        : 'Physical adjacency is unresolved. Review the pairs above; any partial face requires an explicit region choice.';
+      row.append(warning);
+    }
+    for (const message of face.diagnostics) {
+      const warning = document.createElement('p');
+      warning.className = 'hint build-face-warning';
+      warning.textContent = message;
+      row.append(warning);
+    }
+    update();
+    return row;
+  });
+  $('build-faces-review').replaceChildren(...rows);
+  $('build-faces-diagnostics').replaceChildren(...buildFacesProposal.diagnostics.map((diagnostic) => {
+    const warning = document.createElement('p');
+    warning.className = 'build-face-warning';
+    warning.textContent = diagnostic.message;
+    return warning;
+  }));
+  paintBuildFacesPreview();
 }
 function clearReuseVolumes() {
   for (const child of [...reuseVolumes.children]) {
@@ -305,6 +584,81 @@ function choices(id, nodes, selected = []) {
   $(id).replaceChildren(
     ...nodes.map((n) => new Option(n.label, n.id, false, selected.includes(n.id))),
   );
+}
+function populateSurfaceReferences(id, nodes, selected = null) {
+  const select = $(id);
+  select.replaceChildren(new Option('Choose surface and geometry context…', ''));
+  for (const choice of surfaceReferenceChoices(nodes, graphState.results, graphState.recipe.nodes)) {
+    select.add(new Option(choice.label, JSON.stringify(choice.reference), false,
+      sameSurfaceReference(choice.reference, selected)));
+  }
+}
+function readSurfaceReference(id) {
+  if (!$(id).value) throw new Error('Choose a surface and its geometry context.');
+  return JSON.parse($(id).value);
+}
+function faceEditorNodes(prefix) {
+  return prefix === 'face'
+    ? graphState.recipe.nodes.slice(0, graphState.recipe.nodes.findIndex((node) => node.id === selectedFeatureId))
+    : graphState.recipe.nodes;
+}
+function readFaceBoundaries(prefix) {
+  return [...$(`${prefix}-boundary-rows`).children].map((row) => ({
+    intersection: row.querySelector('[data-boundary-intersection]').value,
+    keep: row.querySelector('[data-boundary-keep]').value,
+  }));
+}
+function renderFaceBoundaries(prefix, nodes, boundaries = []) {
+  const container = $(`${prefix}-boundary-rows`);
+  container.replaceChildren();
+  const selected = $(`${prefix}-surface`).value;
+  if (!selected) return;
+  const reference = JSON.parse(selected);
+  const choice = surfaceReferenceChoices(nodes, graphState.results, graphState.recipe.nodes)
+    .find((candidate) => sameSurfaceReference(candidate.reference, reference));
+  const intersections = eligibleIntersections(nodes, reference);
+  for (const boundary of boundaries) {
+    const row = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = 'Shared intersection';
+    const select = document.createElement('select');
+    select.dataset.boundaryIntersection = '';
+    select.required = true;
+    select.add(new Option('Choose shared intersection…', ''));
+    for (const node of intersections)
+      select.add(new Option(node.label, node.id, false, node.id === boundary.intersection));
+    label.append(select);
+    const sideLabel = document.createElement('label');
+    sideLabel.textContent = 'Retain';
+    const keep = document.createElement('select');
+    keep.dataset.boundaryKeep = '';
+    for (const option of boundaryKeepOptions(choice?.kind))
+      keep.add(new Option(option.label, option.value, false, option.value === boundary.keep));
+    sideLabel.append(keep);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove boundary';
+    remove.onclick = () => row.remove();
+    row.append(label, sideLabel, remove);
+    container.append(row);
+  }
+}
+function addFaceBoundary(prefix) {
+  try {
+    const nodes = faceEditorNodes(prefix);
+    const reference = readSurfaceReference(`${prefix}-surface`);
+    const available = eligibleIntersections(nodes, reference);
+    const boundaries = readFaceBoundaries(prefix);
+    const unused = available.find((node) => !boundaries.some((boundary) => boundary.intersection === node.id));
+    if (!unused) throw new Error('Create another shared intersection for this exact surface and geometry context first.');
+    const kind = surfaceReferenceChoices(nodes, graphState.results, graphState.recipe.nodes)
+      .find((choice) => sameSurfaceReference(choice.reference, reference)).kind;
+    boundaries.push({ intersection: unused.id, keep: boundaryKeepOptions(kind)[0].value });
+    renderFaceBoundaries(prefix, nodes, boundaries);
+  } catch (error) {
+    status(error.message, true);
+    if (prefix === 'new-face') $('trimmed-face-error').textContent = error.message;
+  }
 }
 function frameGeometry(nodes) {
   return {
@@ -666,11 +1020,13 @@ async function replaceRecipe(recipe, autoEvaluate = true) {
     return false;
   }
 }
-async function appendActions(nodes, autoEvaluate = true) {
+async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput = false) {
   const recipe = structuredClone(graphState.recipe);
+  const nextId = nodes.at(-1).id;
+  recipe.output = preserveTransformOutput
+    ? geometryAppendOutput(recipe.nodes, recipe.output, nextId) : nextId;
   recipe.nodes.push(...nodes);
-  recipe.output = nodes.at(-1).id;
-  selectOnly(recipe.output);
+  selectOnly(nextId);
   const saved = await replaceRecipe(recipe, autoEvaluate);
   if (saved)
     $('action-list')
@@ -679,6 +1035,8 @@ async function appendActions(nodes, autoEvaluate = true) {
   return saved;
 }
 function acceptGraph(state) {
+  if (buildFacesProposal && state.token !== buildFacesProposal.token)
+    invalidateBuildFaces('Actions changed. Preview again before applying faces.');
   graphState = state;
   selectedFeatureIds = new Set(
     [...selectedFeatureIds].filter((id) => state.recipe.nodes.some((node) => node.id === id)),
@@ -821,8 +1179,23 @@ function showProperties() {
     ['mirror-properties', node.operation === 'mirror_symmetry'],
     ['parallel-properties', node.operation === 'parallel'],
     ['equal-properties', node.operation === 'equal'],
+    ['surface-intersection-properties', node.operation === 'surface_intersection'],
+    ['trimmed-face-properties', node.operation === 'trimmed_face'],
+    ['build-faces-properties', node.operation === 'build_faces'],
   ])
     $(id).hidden = !enabled;
+  for (const id of ['surface-intersection-properties', 'trimmed-face-properties'])
+    for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
+  if (node.operation === 'surface_intersection') {
+    populateSurfaceReferences('intersection-first', earlier, node.first);
+    populateSurfaceReferences('intersection-second', earlier, node.second);
+  } else if (node.operation === 'trimmed_face') {
+    populateSurfaceReferences('face-surface', earlier, node.surface);
+    renderFaceBoundaries('face', earlier, node.boundaries);
+  } else if (node.operation === 'build_faces') {
+    $('build-faces-inputs').textContent = `${node.surfaces.length} selected surfaces. Review proposals to change inputs or retained regions.`;
+    $('review-build-faces').onclick = () => openBuildFaces(node);
+  }
   if (node.operation === 'fit') {
     $('surface-kind').value = node.kind;
     choices(
@@ -1510,6 +1883,27 @@ function fitGuide(node, fitted, color) {
     fitted.ids,
   );
 }
+function physicalGeometryGuide(node, fitted, color = '#66dbe9') {
+  if (graphState.states[node.id] !== 'ready') return;
+  if (!validGeometryPreview(fitted.preview) || !fitted.preview.positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(fitted.preview.positions, 3));
+  if (node.operation === 'surface_intersection') {
+    overlays.add(new THREE.LineLoop(geometry,
+      new THREE.LineBasicMaterial({ color, depthTest: false })));
+  } else {
+    geometry.setIndex(fitted.preview.indices);
+    geometry.computeVertexNormals();
+    overlays.add(new THREE.Mesh(geometry,
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide,
+        transparent: true, opacity: 0.32, depthWrite: false })));
+    for (const id of fitted.boundary_ids || []) {
+      const intersection = graphNode(id);
+      const boundary = graphState.results[id];
+      if (intersection && boundary) physicalGeometryGuide(intersection, boundary, color);
+    }
+  }
+}
 function showAvailableGuides() {
   if (!$('all-guides').checked) return;
   const selected = graphNode(selectedFeatureId);
@@ -1537,6 +1931,9 @@ function showAvailableGuides() {
       transformGuide(fitted);
     } else if (node.operation === 'fit' && fitted) {
       fitGuide(node, fitted, palette[colorIndex++ % palette.length]);
+    } else if (['surface_intersection', 'trimmed_face'].includes(node.operation) && fitted &&
+               graphState.states[node.id] === 'ready') {
+      physicalGeometryGuide(node, fitted, palette[colorIndex++ % palette.length]);
     }
   }
 }
@@ -1633,7 +2030,34 @@ function showResult() {
   }
   const node = graphNode(selectedFeatureId),
     values = {};
-  if (node.operation === 'fit') {
+  if (node.operation === 'surface_intersection') {
+    physicalGeometryGuide(node, result);
+    values['Boundary'] = 'Shared analytic circle';
+    values['Radius'] = result.radius.toFixed(5);
+    values['Center'] = result.center_display.map((value) => value.toFixed(5)).join(', ');
+  } else if (node.operation === 'build_faces') {
+    const faces = [...(result.generated_faces || []), ...(result.reused_faces || [])];
+    for (const [index, id] of faces.entries()) {
+      const face = graphNode(id), fitted = graphState.results[id];
+      if (face && fitted) physicalGeometryGuide(face, fitted, palette[index % palette.length]);
+    }
+    values['Selected surfaces'] = node.surfaces.length;
+    values['Generated faces'] = result.generated_faces?.length || 0;
+    values['Reused existing faces'] = result.reused_faces?.length || 0;
+    values['Shared intersections'] = (result.generated_intersections?.length || 0) +
+      (result.reused_intersections?.length || 0);
+    values['Output'] = 'Reviewed faces — not a sewn solid';
+  } else if (node.operation === 'trimmed_face') {
+    physicalGeometryGuide(node, result);
+    values['Surface'] = result.surface_kind;
+    values['Shared boundaries'] = result.boundary_ids.length;
+    values['Physical extent'] = result.bounded ? 'Bounded face (not a solid)' : 'Unbounded — preview only';
+    for (const [kind, bounds] of Object.entries(result.bounds))
+      values[`${kind === 'axial' ? 'Axial' : 'Radial'} bounds`] = bounds
+        .map((value) => value === null ? 'unbounded' : value.toFixed(5)).join(' → ');
+    values['Preview'] = result.preview_clipped
+      ? 'Observation coverage limits display only' : 'Declared physical bounds';
+  } else if (node.operation === 'fit') {
     fitGuide(node, result, '#66dbe9');
     values['Weighted RMS'] = result.weighted_rms.toFixed(5);
     // Some constrained solves replace an earlier fit result with an exact
@@ -2173,6 +2597,8 @@ async function start() {
   reuseVolumes = new THREE.Group();
   reuseVolumes.userData.volumeCount = 0;
   modelRoot.add(reuseVolumes);
+  buildFacesOverlays = new THREE.Group();
+  modelRoot.add(buildFacesOverlays);
   const resize = () => {
     if (viewport.hidden || !viewport.clientWidth || !viewport.clientHeight) return;
     renderer.setSize(viewport.clientWidth, viewport.clientHeight);
@@ -2217,6 +2643,150 @@ async function start() {
     $('new-relationship-label').focus();
     $('new-relationship-label').select();
   };
+  $('new-build-faces').onclick = () => {
+    const node = graphNode(selectedFeatureId);
+    openBuildFaces(node?.operation === 'build_faces' ? node : null);
+  };
+  $('build-faces-surfaces').onchange = () => {
+    invalidateBuildFaces('Surface inputs changed. Preview again.');
+    renderBuildFacesScopes();
+  };
+  $('add-all-fitted-surfaces').onclick = () => {
+    const select = $('build-faces-surfaces'),
+      choices = [...select.options].map((option) => ({ reference: JSON.parse(option.value) })),
+      { references, ambiguous } = addFittedSurfaceReferences(
+        graphState.recipe.nodes, choices, buildFacesSelectedSurfaces());
+    for (const option of select.options)
+      option.selected = references.some((reference) => sameSurfaceReference(reference, JSON.parse(option.value)));
+    const messages = [];
+    if (ambiguous.length) messages.push(`Choose a geometry context manually for: ${ambiguous.join(', ')}.`);
+    invalidateBuildFaces(messages.join(' '));
+    renderBuildFacesScopes();
+  };
+  $('build-faces-dialog').addEventListener('close', () => invalidateBuildFaces());
+  $('build-faces-dialog').addEventListener('cancel', () => invalidateBuildFaces());
+  $('preview-build-faces').onclick = async () => {
+    invalidateBuildFaces('', true);
+    const surfaces = buildFacesSelectedSurfaces();
+    if (surfaces.length < 2) {
+      $('build-faces-error').textContent = 'Choose at least two adjoining surfaces.';
+      return;
+    }
+    const scopeError = buildFacesScopeError(surfaces);
+    if (scopeError) {
+      $('build-faces-error').textContent = scopeError;
+      return;
+    }
+    const token = graphState.token, requestId = buildFacesRequest;
+    $('preview-build-faces').disabled = true;
+    try {
+      const proposal = await request('/api/graph/build-faces/preview', {
+        token, owner_id: buildFacesOwnerId, surfaces,
+        adjacencies: buildAdjacencyDecisions(buildFacesAdjacencyDraft, surfaces),
+        face_scopes: buildFaceScopes(buildFacesScopeDraft, surfaces, graphState.recipe.nodes, buildFacesOwnerId),
+      });
+      if (requestId !== buildFacesRequest || !$('build-faces-dialog').open) return;
+      if (token !== graphState.token) {
+        invalidateBuildFaces('Actions changed. Preview again before applying faces.');
+        return;
+      }
+      buildFacesProposal = proposal;
+      buildFacesScopeDraft = [
+        ...buildFacesScopeDraft.filter((scope) => !surfaces.some((surface) => sameSurfaceReference(scope.surface, surface))),
+        ...(proposal.face_scopes || []),
+      ];
+      renderBuildFacesScopes();
+      renderBuildFacesReview();
+    } catch (error) {
+      if (requestId === buildFacesRequest) $('build-faces-error').textContent = error.message;
+    } finally { $('preview-build-faces').disabled = false; }
+  };
+  $('build-faces-form').onsubmit = async (event) => {
+    event.preventDefault();
+    if (!buildFacesProposal || buildFacesApplying) return;
+    const choices = buildFaceChoices(buildFacesProposal, buildFacesReview);
+    if (!choices.length) return;
+    buildFacesApplying = true;
+    const disabledControls = [...$('build-faces-form').querySelectorAll('input, select, button')]
+      .map((control) => ({ control, disabled: control.disabled }));
+    for (const { control } of disabledControls) control.disabled = true;
+    try {
+      const state = await request('/api/graph/build-faces/apply', {
+        token: buildFacesProposal.token, proposal_token: buildFacesProposal.proposal_token,
+        owner_id: buildFacesOwnerId, label: $('build-faces-label').value.trim(),
+        surfaces: buildFacesSelectedSurfaces(), choices,
+        adjacencies: buildAdjacencyDecisions(buildFacesAdjacencyDraft, buildFacesSelectedSurfaces()),
+        face_scopes: buildFaceScopes(buildFacesScopeDraft, buildFacesSelectedSurfaces(), graphState.recipe.nodes, buildFacesOwnerId),
+      });
+      const ownerId = buildFacesOwnerId || state.recipe.nodes.find((node) =>
+        node.operation === 'build_faces' && !graphState.recipe.nodes.some((before) => before.id === node.id))?.id;
+      if (ownerId) selectOnly(ownerId);
+      acceptGraph(state);
+      $('build-faces-dialog').close();
+      status('Reviewed faces applied. Existing manual geometry retained.');
+      if ($('auto-evaluate').checked) setTimeout(() => void evaluateAll(), 0);
+    } catch (error) {
+      const message = error.message;
+      try {
+        acceptGraph(await request('/api/graph'));
+        $('build-faces-error').textContent = message;
+        if (buildFacesProposal) paintBuildFacesPreview();
+      } catch (recoveryError) {
+        invalidateBuildFaces(`${message} Unable to refresh actions: ${recoveryError.message}. ` +
+          'Preview again once the server is reachable; check current actions before retrying Apply.');
+      }
+    } finally {
+      buildFacesApplying = false;
+      for (const { control, disabled } of disabledControls) control.disabled = disabled;
+      $('preview-build-faces').disabled = false;
+      $('apply-build-faces').disabled = !buildFacesProposal ||
+        !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
+    }
+  };
+  $('new-surface-intersection').onclick = () => {
+    const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
+    const selected = options.filter((choice) => selectedFeatureIds.has(choice.reference.feature));
+    populateSurfaceReferences('new-intersection-first', graphState.recipe.nodes, selected[0]?.reference);
+    populateSurfaceReferences('new-intersection-second', graphState.recipe.nodes, selected[1]?.reference);
+    $('surface-intersection-error').textContent = '';
+    showCreateDialog('surface-intersection-dialog', 'new-surface-intersection-label', 'Surface intersection');
+  };
+  $('new-trimmed-face').onclick = () => {
+    const node = graphNode(selectedFeatureId);
+    const selected = node?.operation === 'surface_intersection' ? node.first
+      : surfaceReferenceChoices(graphState.recipe.nodes, graphState.results)
+        .find((choice) => choice.reference.feature === selectedFeatureId)?.reference;
+    populateSurfaceReferences('new-face-surface', graphState.recipe.nodes, selected);
+    renderFaceBoundaries('new-face', graphState.recipe.nodes,
+      node?.operation === 'surface_intersection'
+        ? [{ intersection: node.id, keep: 'inside' }] : []);
+    $('trimmed-face-error').textContent = '';
+    showCreateDialog('trimmed-face-dialog', 'new-trimmed-face-label', 'Trimmed face');
+  };
+  for (const prefix of ['face', 'new-face']) {
+    $(`${prefix}-surface`).onchange = () => renderFaceBoundaries(prefix, faceEditorNodes(prefix));
+    $(prefix === 'face' ? 'add-face-boundary' : 'add-new-face-boundary').onclick = () => addFaceBoundary(prefix);
+  }
+  $('add-surface-intersection-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      const node = { id: uid('intersection'), label: submittedFeatureLabel('new-surface-intersection-label'),
+        operation: 'surface_intersection', first: readSurfaceReference('new-intersection-first'),
+        second: readSurfaceReference('new-intersection-second') };
+      if (await appendActions([node], true, true)) $('surface-intersection-dialog').close();
+      else $('surface-intersection-error').textContent = $('status').textContent;
+    } catch (error) { $('surface-intersection-error').textContent = error.message; }
+  };
+  $('add-trimmed-face-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      const node = { id: uid('face'), label: submittedFeatureLabel('new-trimmed-face-label'),
+        operation: 'trimmed_face', surface: readSurfaceReference('new-face-surface'),
+        boundaries: readFaceBoundaries('new-face') };
+      if (await appendActions([node], true, true)) $('trimmed-face-dialog').close();
+      else $('trimmed-face-error').textContent = $('status').textContent;
+    } catch (error) { $('trimmed-face-error').textContent = error.message; }
+  };
   $('inspect-overlap').onclick = () => {
     selectOnly(activeOverlap);
     renderActions();
@@ -2256,8 +2826,10 @@ async function start() {
   $('export-axis-up').onchange = updateExportPlanes;
   $('export-transform').onchange = updateExportPlanes;
   $('export-rhino').onclick = () => {
+    $('export-target').parentElement.firstChild.textContent = 'Fit, joint, or bounded face';
+    $('export-title').textContent = 'Export surfaces or a bounded face';
     const targets = graphState.recipe.nodes.filter((n) =>
-      ['fit', 'joint_fit', 'axis_solve'].includes(n.operation),
+      ['fit', 'joint_fit', 'axis_solve', 'trimmed_face'].includes(n.operation),
     );
     choices('export-target', targets, [
       targets.find((n) => n.id === selectedFeatureId)?.id ||
@@ -3387,6 +3959,14 @@ async function start() {
     }
     node.label = $('action-label').value;
     node.group_id = $('action-group').value || null;
+    if (node.operation === 'surface_intersection') {
+      node.first = readSurfaceReference('intersection-first');
+      node.second = readSurfaceReference('intersection-second');
+    }
+    if (node.operation === 'trimmed_face') {
+      node.surface = readSurfaceReference('face-surface');
+      node.boundaries = readFaceBoundaries('face');
+    }
     if (node.operation === 'fit') {
       node.kind = $('surface-kind').value;
       node.selections = chosen('fit-inputs');

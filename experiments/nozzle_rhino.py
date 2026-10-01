@@ -105,6 +105,79 @@ def surface_brep(surface: dict[str, Any], positions: Any) -> Any:
     return brep
 
 
+def trimmed_face_brep(face: dict[str, Any]) -> Any:
+    """Export one exact bounded face, without sewing shared graph boundaries."""
+    if not face.get("bounded", False):
+        raise ValueError("trimmed face export requires finite explicit bounds")
+    geometry = face["geometry"]
+    origin = np.asarray(geometry["origin"], dtype=float)
+    axis = np.asarray(geometry["axis"], dtype=float)
+    radial = np.asarray(geometry["basis_u"], dtype=float)
+    second = np.asarray(geometry["basis_v"], dtype=float)
+    if (
+        any(value.shape != (3,) for value in (origin, axis, radial, second))
+        or not all(np.isfinite(value).all() for value in (origin, axis, radial, second))
+        or not np.allclose(
+            np.stack([axis, radial, second]) @ np.stack([axis, radial, second]).T,
+            np.eye(3),
+            atol=1e-10,
+            rtol=0,
+        )
+    ):
+        raise ValueError("trimmed face requires finite orthonormal geometry")
+    kind = face["surface_kind"]
+    bounds = face["bounds"]
+    if kind == "plane":
+        interval = bounds.get("radial")
+        if interval is None or len(interval) != 2 or interval[1] is None:
+            raise ValueError("trimmed plane requires finite radial bounds")
+        lo, hi = map(float, interval)
+        if not np.isfinite([lo, hi]).all() or lo < 0 or hi <= lo:
+            raise ValueError("trimmed plane requires ordered nonnegative radial bounds")
+        if lo == 0:
+            plane = rhino.Plane(point(origin), vector(axis))
+            circle = rhino.Circle(hi)
+            circle.Plane = plane
+            brep = rhino.Brep.CreateTrimmedPlane(plane, circle.ToNurbsCurve())
+        else:
+            curve = rhino.LineCurve(
+                point(origin + lo * radial), point(origin + hi * radial)
+            )
+            rev = rhino.RevSurface.Create(
+                curve, rhino.Line(point(origin), point(origin + axis)), 0.0, 2 * np.pi
+            )
+            brep = rhino.Brep.CreateFromRevSurface(rev, False, False)
+    elif kind in ("cylinder", "cone"):
+        interval = bounds.get("axial")
+        if interval is None or len(interval) != 2 or any(v is None for v in interval):
+            raise ValueError("trimmed lateral face requires finite axial bounds")
+        lo, hi = map(float, interval)
+        radius, slope = float(geometry["radius"]), float(geometry["slope"])
+        radii = radius + slope * np.array([lo, hi])
+        if (
+            not np.isfinite([lo, hi, radius, slope]).all()
+            or hi <= lo
+            or np.any(radii <= 0)
+            or (kind == "cylinder" and slope != 0)
+        ):
+            raise ValueError(
+                "trimmed lateral bounds must be ordered and avoid the apex"
+            )
+        curve = rhino.LineCurve(
+            point(origin + lo * axis + radii[0] * radial),
+            point(origin + hi * axis + radii[1] * radial),
+        )
+        rev = rhino.RevSurface.Create(
+            curve, rhino.Line(point(origin), point(origin + axis)), 0.0, 2 * np.pi
+        )
+        brep = rhino.Brep.CreateFromRevSurface(rev, False, False)
+    else:
+        raise ValueError("unsupported trimmed surface type")
+    if brep is None or not brep.IsValid or brep.IsSolid:
+        raise ValueError("Rhino could not construct a valid open trimmed face")
+    return brep
+
+
 def joint_breps(
     result: dict[str, Any], constraints: list[dict[str, Any]], positions: Any
 ) -> dict[str, Any]:
@@ -189,12 +262,21 @@ def export_rhino(
         raise StaleGraph("graph changed before export; refresh and export again")
     nodes = {n["id"]: n for n in snapshot["recipe"]["nodes"]}
     node = nodes.get(request.target)
-    if node is None or node["operation"] not in ("fit", "joint_fit", "axis_solve"):
-        raise ValueError("select a fit or solve to export")
+    if node is None or node["operation"] not in (
+        "fit",
+        "joint_fit",
+        "axis_solve",
+        "trimmed_face",
+    ):
+        raise ValueError("select a fit, solve, or trimmed face to export")
     if snapshot["states"].get(request.target) != "ready":
         raise ValueError("evaluate the selected fit or solve before export")
     result = snapshot["results"][request.target]
-    if node["operation"] in ("joint_fit", "axis_solve"):
+    if node["operation"] == "trimmed_face":
+        surfaces = {request.target: result}
+        axis = np.asarray(result["geometry"]["axis"], dtype=float)
+        anchor = np.asarray(result["geometry"]["origin"], dtype=float)
+    elif node["operation"] in ("joint_fit", "axis_solve"):
         surfaces = result["surfaces"]
         axis = np.asarray(result["axis_display"], dtype=float)
         anchor = np.asarray(result["point_display"], dtype=float)
@@ -303,6 +385,8 @@ def export_rhino(
     patches = (
         joint_breps(result, relationships, workspace.local)
         if node["operation"] in ("joint_fit", "axis_solve")
+        else {request.target: trimmed_face_brep(result)}
+        if node["operation"] == "trimmed_face"
         else {
             id: surface_brep(surface, workspace.local)
             for id, surface in surfaces.items()
@@ -316,7 +400,16 @@ def export_rhino(
         attributes.Name = nodes[id]["label"]
         attributes.LayerIndex = 0
         _ = attributes.SetUserString("scansor_fit_id", id)
-        _ = attributes.SetUserString("scansor_surface_type", fitted["kind"])
+        _ = attributes.SetUserString(
+            "scansor_surface_type", fitted.get("surface_kind", fitted["kind"])
+        )
+        if node["operation"] == "trimmed_face":
+            _ = attributes.SetUserString(
+                "scansor_source_surface", json.dumps(node["surface"])
+            )
+            _ = attributes.SetUserString(
+                "scansor_boundary_uses", json.dumps(node["boundaries"])
+            )
         _ = model.Objects.AddBrep(brep, attributes)
     if request.include_mesh:
         mesh = rhino.Mesh()

@@ -14,6 +14,13 @@ from typing import Any, ClassVar, cast, override
 
 from pydantic import ValidationError
 
+from experiments.face_builder import (
+    FacesApplyRequest,
+    FacesPreviewRequest,
+    apply_faces,
+    preview_faces,
+)
+from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.feature_graph import (
     FeatureGraph,
     GraphRequest,
@@ -126,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
         "/feature-names.js": ("feature-names.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
+        "/surface-trims.js": ("surface-trims.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
@@ -177,7 +185,16 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         if self.path == "/api/meta":
-            self.json_reply(200, self.app.workspace.metadata())
+            self.json_reply(
+                200,
+                {
+                    **self.app.workspace.metadata(),
+                    "face_building_limits": {
+                        "max_pair_checks": MAX_PAIRS,
+                        "max_regions": MAX_REGIONS,
+                    },
+                },
+            )
         elif self.path == "/api/graph/example":
             self.json_reply(200, self.app.example_recipe.model_dump())
         elif self.path == "/api/graph":
@@ -227,6 +244,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/fit",
             "/api/graph",
             "/api/graph/evaluate",
+            "/api/graph/build-faces/preview",
+            "/api/graph/build-faces/apply",
             "/api/export/rhino",
         ):
             self.json_reply(404, {"error": "not found"})
@@ -243,6 +262,31 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected a session under 1 MB")
             self.connection.settimeout(5)
             body = self.rfile.read(length)
+            if self.path in (
+                "/api/graph/build-faces/preview",
+                "/api/graph/build-faces/apply",
+            ):
+                with self.app.lock:
+                    if self.app.graph_job is not None and not self.app.graph_job.done():
+                        self.json_reply(
+                            409,
+                            {
+                                "error": "wait for graph evaluation before building faces"
+                            },
+                        )
+                        return
+                    state = (
+                        preview_faces(
+                            self.app.graph,
+                            FacesPreviewRequest.model_validate_json(body),
+                        )
+                        if self.path.endswith("/preview")
+                        else apply_faces(
+                            self.app.graph, FacesApplyRequest.model_validate_json(body)
+                        )
+                    )
+                self.json_reply(200, state)
+                return
             if self.path == "/api/export/rhino":
                 export_request = RhinoExportRequest.model_validate_json(body)
                 snapshot = cast(dict[str, Any], self.app.graph.snapshot())

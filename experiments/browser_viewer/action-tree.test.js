@@ -38,6 +38,48 @@ assert.ok(actionMove(nodes, 'a', 5).error);
 assert.deepEqual(nodes, [source, a, b, fit]);
 assert.equal(actionMove(nodes, 'b', 4).nodes[3], b);
 
+// Groups are stable blocks, including the full subtree of each managed owner.
+const facesOwner = { id: 'faces-owner', label: 'Build faces', operation: 'build_faces',
+  surfaces: [{ feature: 'fit' }], group_id: 'face-group' };
+const edge = { id: 'edge', label: 'Circular edge', operation: 'surface_intersection',
+  first: { feature: 'fit' }, second: { feature: 'fit' },
+  managed_by: 'faces-owner', managed_key: 'edge' };
+const face = { id: 'face', label: 'Trimmed face', operation: 'trimmed_face',
+  surface: { feature: 'fit' }, boundaries: [{ intersection: 'edge' }],
+  managed_by: 'faces-owner', managed_key: 'face' };
+const loose = { id: 'loose', label: 'Independent point', operation: 'point' };
+const faceNodes = [source, a, fit, facesOwner, edge, face, loose];
+assert.deepEqual(nodeReferences({ ...facesOwner,
+  face_scopes: [{ surface: { feature: 'fit' }, faces: ['manual-face'] }],
+}), ['fit', 'manual-face']);
+const movedFaces = actionMove(faceNodes, 'faces-owner', faceNodes.length);
+assert.deepEqual(ids(movedFaces), ['source', 'a', 'fit', 'loose', 'faces-owner', 'edge', 'face']);
+assert.equal(movedFaces.nodes[4], facesOwner);
+assert.equal(movedFaces.nodes[5], edge);
+assert.equal(movedFaces.nodes[6], face);
+assert.deepEqual(ids(actionMove(movedFaces.nodes, 'faces-owner', 3)), faceNodes.map((n) => n.id));
+assert.equal(actionMove(faceNodes, 'faces-owner', 4).changed, false);
+assert.match(actionMove(faceNodes, 'faces-owner', 2).error, /Build faces needs Cylinder earlier/);
+const usesFace = { id: 'uses-face', label: 'Face consumer', operation: 'joint_fit', constraints: ['face'] };
+assert.match(actionMove([...faceNodes, usesFace], 'faces-owner', 8).error, /Face consumer needs Trimmed face earlier/);
+assert.match(actionMove(faceNodes, ['edge', 'face'], 7).error, /within their owner/);
+assert.match(actionMove(faceNodes, ['edge', 'face'], 3).error, /within their owner/);
+assert.deepEqual(faceNodes, [source, a, fit, facesOwner, edge, face, loose]);
+assert.ok(actionMove(faceNodes, [], 4).error);
+assert.ok(actionMove(faceNodes, ['faces-owner', 'missing'], 4).error);
+// Multiple and noncontiguous members coalesce without changing memberships.
+assert.deepEqual(ids(actionMove(faceNodes, ['fit', 'faces-owner'], 7)),
+  ['source', 'a', 'loose', 'fit', 'faces-owner', 'edge', 'face']);
+const noncontiguous = [source, a, loose, b, fit];
+assert.deepEqual(ids(actionMove(noncontiguous, ['a', 'b'], 1)), ['source', 'a', 'b', 'loose', 'fit']);
+assert.match(actionMove(noncontiguous, ['a', 'b'], 5).error, /Cylinder needs Side earlier/);
+// Independent generated siblings may swap, but stay inside their owner.
+const otherEdge = { ...edge, id: 'other-edge', label: 'Other edge', managed_key: 'other-edge' };
+const siblingNodes = [source, a, fit, facesOwner, edge, otherEdge, face, loose];
+assert.deepEqual(ids(actionMove(siblingNodes, ['other-edge'], 4)),
+  ['source', 'a', 'fit', 'faces-owner', 'other-edge', 'edge', 'face', 'loose']);
+assert.match(actionMove(siblingNodes, ['edge'], 7).error, /Trimmed face needs Circular edge earlier/);
+
 const axis = { id: 'axis', label: 'Axis', operation: 'axis', source_fit: 'fit' };
 const manualAxis = {
   id: 'manual-axis',
@@ -362,3 +404,13 @@ const blocked = reconcileFeatureReuse(
   (prefix) => `${prefix}-blocked`,
 );
 assert.match(blocked.error, /Dependent axis/);
+
+const legacyOwnerNodes = [source, a, b, c, fit, reuse, reusedSelection, inferredFit, loose];
+assert.deepEqual(ids(actionMove(legacyOwnerNodes, 'reuse', legacyOwnerNodes.length)),
+  ['source', 'a', 'b', 'c', 'fit', 'loose', 'reuse', 'reused-selection', 'reused-fit']);
+assert.equal(managedOwnerId(inferredFit, actionMove(legacyOwnerNodes, 'reuse', 9).nodes), 'reuse');
+const secondOwner = { ...facesOwner, id: 'second-owner', label: 'Other faces' },
+  secondEdge = { ...edge, id: 'second-edge', managed_by: 'second-owner' },
+  twoOwners = [...faceNodes.slice(0, -1), secondOwner, secondEdge, loose];
+assert.deepEqual(ids(actionMove(twoOwners, ['faces-owner', 'second-owner'], twoOwners.length)),
+  ['source', 'a', 'fit', 'loose', 'faces-owner', 'edge', 'face', 'second-owner', 'second-edge']);

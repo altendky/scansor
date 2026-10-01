@@ -1,5 +1,6 @@
 """Rhino round trips preserve analytic surfaces, mesh topology, and alignment."""
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -9,10 +10,114 @@ import pytest
 import rhino3dm
 
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
-from experiments.nozzle_rhino import RhinoExportRequest, export_rhino, surface_brep
+from experiments.nozzle_rhino import (
+    RhinoExportRequest,
+    export_rhino,
+    surface_brep,
+    trimmed_face_brep,
+)
 from experiments.nozzle_session import NozzleWorkspace
 
 rhino: Any = rhino3dm
+
+
+def trimmed_face(kind: str, lo: float, hi: float) -> dict[str, Any]:
+    return {
+        "kind": "trimmed_face",
+        "surface_kind": kind,
+        "geometry": {
+            "origin": [1.0, -2.0, 3.0],
+            "axis": [0.0, 0.0, 1.0],
+            "basis_u": [1.0, 0.0, 0.0],
+            "basis_v": [0.0, 1.0, 0.0],
+            "radius": 2.0,
+            "slope": 0.2 if kind == "cone" else 0.0,
+        },
+        "bounds": {"radial" if kind == "plane" else "axial": [lo, hi]},
+        "bounded": True,
+        "boundary_ids": ["first", "second"],
+        "boundary_uses": [
+            {"intersection": "first", "keep": "outside"},
+            {"intersection": "second", "keep": "inside"},
+        ],
+    }
+
+
+@pytest.mark.parametrize("inner", [0.0, 1.0])
+def test_explicit_trimmed_plane_is_exact_disk_or_annulus(inner: float) -> None:
+    face = trimmed_face("plane", inner, 3.0)
+    brep = trimmed_face_brep(face)
+    assert brep.IsValid and not brep.IsSolid
+    assert len(brep.Faces) == 1 and brep.Faces[0].IsPlanar(1e-9)
+    circles = [edge for edge in brep.Edges if edge.IsCircle(1e-9)]
+    expected = [3.0] if inner == 0 else [inner, 3.0]
+    assert len(circles) == len(expected)
+    radii = sorted(
+        np.linalg.norm(
+            np.array([edge.PointAtStart.X, edge.PointAtStart.Y, edge.PointAtStart.Z])
+            - np.array(face["geometry"]["origin"])
+        )
+        for edge in circles
+    )
+    np.testing.assert_allclose(radii, expected, atol=1e-10, rtol=0)
+    if inner > 0:
+        # The angular/radial parametrization has a real hole, not a filled disk.
+        surface = brep.Faces[0]
+        for u in np.linspace(surface.Domain(0).T0, surface.Domain(0).T1, 13):
+            for v in np.linspace(surface.Domain(1).T0, surface.Domain(1).T1, 7):
+                xyz = surface.PointAt(u, v)
+                radius = np.linalg.norm([xyz.X - 1, xyz.Y + 2])
+                assert inner - 1e-10 <= radius <= 3 + 1e-10
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
+def test_explicit_trimmed_lateral_face_has_exact_end_circles(kind: str) -> None:
+    face = trimmed_face(kind, -1.0, 2.0)
+    brep = trimmed_face_brep(face)
+    assert brep.IsValid and not brep.IsSolid and len(brep.Faces) == 1
+    assert (
+        brep.Surfaces[0].IsCylinder()
+        if kind == "cylinder"
+        else brep.Surfaces[0].IsCone()
+    )
+    circles = [edge for edge in brep.Edges if edge.IsCircle(1e-9)]
+    assert len(circles) == 2
+    actual = sorted(
+        (
+            edge.PointAtStart.Z,
+            np.linalg.norm([edge.PointAtStart.X - 1, edge.PointAtStart.Y + 2]),
+        )
+        for edge in circles
+    )
+    slope = face["geometry"]["slope"]
+    np.testing.assert_allclose(
+        actual, [[2, 2 - slope], [5, 2 + 2 * slope]], atol=1e-10, rtol=0
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "updates", "error"),
+    [
+        ("plane", {"bounded": False}, "finite explicit"),
+        ("plane", {"bounds": {"radial": [1, None]}}, "finite radial"),
+        ("plane", {"bounds": {"radial": [3, 1]}}, "ordered"),
+        ("cylinder", {"bounds": {"axial": [None, 1]}}, "finite axial"),
+        ("cone", {"bounds": {"axial": [-20, 1]}}, "apex"),
+    ],
+)
+def test_explicit_trimmed_face_rejects_invalid_bounds(
+    kind: str, updates: dict[str, Any], error: str
+) -> None:
+    face = {**trimmed_face(kind, 1, 3), **updates}
+    with pytest.raises(ValueError, match=error):
+        _ = trimmed_face_brep(face)
+
+
+def test_explicit_trimmed_face_rejects_invalid_frame() -> None:
+    face = trimmed_face("plane", 1, 3)
+    face["geometry"]["axis"] = [0, 0, 2]
+    with pytest.raises(ValueError, match="orthonormal"):
+        _ = trimmed_face_brep(face)
 
 
 @pytest.fixture(scope="module")
@@ -26,6 +131,76 @@ def evaluated() -> tuple[NozzleWorkspace, dict[str, Any]]:
     return workspace, cast(
         dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]))
     )
+
+
+@pytest.mark.parametrize("mode", ["source", "axis_up", "explicit"])
+def test_trimmed_annulus_export_roundtrip_metadata_and_transform(
+    evaluated: tuple[NozzleWorkspace, dict[str, Any]], mode: str
+) -> None:
+    workspace, original = evaluated
+    snapshot = deepcopy(original)
+    face = trimmed_face("plane", 1, 3)
+    declaration = {
+        "id": "shoulder_face",
+        "label": "Shoulder face",
+        "operation": "trimmed_face",
+        "surface": {"feature": "fit", "surface": "end"},
+        "boundaries": face["boundary_uses"],
+    }
+    snapshot["recipe"]["nodes"].append(declaration)
+    snapshot["states"]["shoulder_face"] = "ready"
+    snapshot["results"]["shoulder_face"] = face
+    transform = None
+    if mode == "explicit":
+        transform = "explicit_output"
+        snapshot["recipe"]["nodes"].append(
+            {"id": transform, "operation": "transform", "label": "Explicit output"}
+        )
+        snapshot["states"][transform] = "ready"
+        snapshot["results"][transform] = {
+            "matrix": [[2, 0, 0, 4], [0, 2, 0, -3], [0, 0, 2, 1], [0, 0, 0, 1]]
+        }
+    request = RhinoExportRequest(
+        token=snapshot["token"],
+        target="shoulder_face",
+        units="Millimeters",
+        axis_up=mode == "axis_up",
+        transform=transform,
+    )
+    model = rhino.File3dm.FromByteArray(export_rhino(workspace, snapshot, request))
+    obj = next(obj for obj in model.Objects if isinstance(obj.Geometry, rhino.Brep))
+    brep = obj.Geometry
+    assert brep.IsValid and not brep.IsSolid and len(brep.Faces) == 1
+    assert brep.Faces[0].IsPlanar(1e-9)
+    assert obj.Attributes.GetUserString("scansor_surface_type") == "plane"
+    assert (
+        json.loads(obj.Attributes.GetUserString("scansor_source_surface"))
+        == declaration["surface"]
+    )
+    assert (
+        json.loads(obj.Attributes.GetUserString("scansor_boundary_uses"))
+        == declaration["boundaries"]
+    )
+    matrix = np.array(json.loads(model.Strings["scansor_transform_local_to_export"]))
+    center = (matrix @ np.array([1, -2, 3, 1]))[:3]
+    scale = np.linalg.norm(matrix[:3, 0])
+    circles = [edge for edge in brep.Edges if edge.IsCircle(1e-9)]
+    assert len(circles) == 2
+    radii = sorted(
+        np.linalg.norm(
+            np.array([edge.PointAtStart.X, edge.PointAtStart.Y, edge.PointAtStart.Z])
+            - center
+        )
+        for edge in circles
+    )
+    np.testing.assert_allclose(radii, scale * np.array([1, 3]), atol=1e-9, rtol=0)
+    mesh = next(
+        obj.Geometry for obj in model.Objects if isinstance(obj.Geometry, rhino.Mesh)
+    )
+    actual = np.array([[p.X, p.Y, p.Z] for p in mesh.Vertices.ToPoint3dArray()])
+    expected = workspace.local @ matrix[:3, :3].T + matrix[:3, 3]
+    np.testing.assert_allclose(actual, expected, atol=1e-10, rtol=0)
+    assert model.Settings.ModelUnitSystem == rhino.UnitSystem.Millimeters
 
 
 def test_sphere_fit_exports_as_an_exact_sphere() -> None:

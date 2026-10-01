@@ -29,6 +29,9 @@ const paths = {
   equal: 'M5 9h14M5 15h14',
   equal_radii: 'M5 7h14M5 12h14M5 17h14',
   plane_relationship: 'M4 8h16M4 16h16',
+  surface_intersection: 'M3 12h18M12 3v18M6 6l12 12',
+  trimmed_face: 'M4 4h16v16H4Zm4 4h8v8H8Z',
+  build_faces: 'M3 3h8v8H3Zm10 10h8v8h-8ZM7 13v4h4m2-10h4v4',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -61,6 +64,9 @@ const operations = {
   equal: 'Numeric equality',
   equal_radii: 'All equal radii',
   plane_relationship: 'Plane relationship',
+  surface_intersection: 'Surface intersection',
+  trimmed_face: 'Trimmed face',
+  build_faces: 'Build faces',
   joint_fit: 'Legacy joint fit',
 };
 const states = {
@@ -77,6 +83,15 @@ export function actionDescription(node, state, error) {
   return `${kind || node.operation} · ${states[state] || state}${error ? ` · ${error}` : ''}`;
 }
 export function nodeReferences(node) {
+  if (node.operation === 'build_faces')
+    return [...new Set([...node.surfaces.map((reference) => reference.feature),
+      ...(node.reused_faces || []), ...(node.reused_intersections || []),
+      ...(node.face_scopes || []).flatMap((scope) => scope.faces)])];
+  if (node.operation === 'surface_intersection')
+    return [...new Set([node.first.feature, node.second.feature, ...(node.managed_by ? [node.managed_by] : [])])];
+  if (node.operation === 'trimmed_face')
+    return [...new Set([node.surface.feature, ...node.boundaries.map((boundary) => boundary.intersection),
+      ...(node.managed_by ? [node.managed_by] : [])])];
   if (node.operation === 'selection') return [node.source];
   if (node.operation === 'fit')
     return [
@@ -421,15 +436,29 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
 }
 // Slot is a boundary in the original list: 0 before the first, length after the last.
 export function actionMove(nodes, id, slot) {
-  const from = nodes.findIndex((node) => node.id === id);
-  if (from < 0 || !Number.isInteger(slot) || slot < 0 || slot > nodes.length)
+  const ids = Array.isArray(id) ? id : [id];
+  if (!ids.length || ids.some((key) => !nodes.some((node) => node.id === key)) ||
+      !Number.isInteger(slot) || slot < 0 || slot > nodes.length)
     return { error: 'This feature is no longer available.' };
-  const candidate = [...nodes];
-  const [node] = candidate.splice(from, 1);
-  candidate.splice(slot > from ? slot - 1 : slot, 0, node);
+  const moving = new Set(ids.flatMap((key) => [...managedSubtreeIds(key, nodes)])),
+    block = nodes.filter((node) => moving.has(node.id)),
+    candidate = nodes.filter((node) => !moving.has(node.id)),
+    insertion = nodes.slice(0, slot).filter((node) => !moving.has(node.id)).length;
+  const owners = new Set(ids.map((key) => managedOwnerId(nodes.find((node) => node.id === key), nodes)));
+  if (owners.size === 1 && !owners.has(null)) {
+    const owner = [...owners][0];
+    if (!moving.has(owner)) {
+      const family = managedSubtreeIds(owner, nodes),
+        positions = nodes.flatMap((node, index) => family.has(node.id) ? [index] : []);
+      if (slot <= Math.min(...positions) || slot > Math.max(...positions) + 1)
+        return { error: 'Generated outputs must stay within their owner group.' };
+    }
+  }
+  candidate.splice(insertion, 0, ...block);
   const seen = new Set();
   for (const item of candidate) {
-    for (const input of nodeReferences(item)) {
+    const owner = managedOwnerId(item, nodes);
+    for (const input of [...nodeReferences(item), ...(owner ? [owner] : [])]) {
       if (!seen.has(input))
         return {
           error: `${item.label} needs ${nodes.find((n) => n.id === input)?.label || input} earlier.`,
@@ -483,15 +512,15 @@ export function renderActionTree(
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
   function clearDrop() {
     dropSlot = null;
-    for (const row of list.querySelectorAll('.action-row'))
+    for (const row of list.querySelectorAll('.action-drop-target'))
       row.classList.remove('drop-before', 'drop-after', 'drop-invalid');
   }
-  async function commit(id, slot, focusHandle = false) {
+  async function commit(block, slot, focusHandle = false) {
     if (unavailable()) {
       announce('Wait for the current edit or evaluation to finish.', true);
       return;
     }
-    const candidate = actionMove(nodes, id, slot);
+    const candidate = actionMove(nodes, block.ids, slot);
     if (candidate.error) {
       announce(candidate.error, true);
       return;
@@ -500,16 +529,83 @@ export function renderActionTree(
     list.setAttribute('aria-busy', 'true');
     try {
       if (await move(candidate.nodes)) {
-        announce(`Moved ${nodes.find((n) => n.id === id).label}.`);
+        announce(`Moved ${block.label}.`);
         if (focusHandle) {
           [...list.querySelectorAll('.action-grip')]
-            .find((button) => button.dataset.actionId === id)
+            .find((button) => button.dataset.reorderKey === block.key)
             ?.focus();
         }
       }
     } finally {
       list.removeAttribute('aria-busy');
     }
+  }
+  function reorderHandle(row, ids, key, label, scope = null) {
+    const grip = document.createElement('button'),
+      moving = new Set(ids.flatMap((id) => [...managedSubtreeIds(id, nodes)])),
+      indices = nodes.flatMap((node, index) => moving.has(node.id) ? [index] : []),
+      start = Math.min(...indices), end = Math.max(...indices) + 1,
+      block = { ids, key, label, scope };
+    grip.type = 'button';
+    grip.className = 'action-grip';
+    grip.dataset.reorderKey = key;
+    grip.append(icon('grip'));
+    grip.disabled = !ids.length;
+    grip.draggable = !!ids.length;
+    grip.title = `Drag to reorder ${label} with its actions; or focus here and use the arrow keys.`;
+    grip.setAttribute('aria-label', `Reorder ${label}. Use Up or Down arrow keys.`);
+    if (!ids.length) {
+      grip.title = 'Empty groups have no actions to reorder.';
+      return grip;
+    }
+    row.classList.add('action-drop-target');
+    row.dataset.dropStart = start;
+    row.dataset.dropEnd = end;
+    row.dataset.dropScope = scope || '';
+    grip.onclick = (event) => { event.preventDefault(); event.stopPropagation(); };
+    grip.onpointerdown = () => grip.focus();
+    grip.onkeydown = (event) => {
+      if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (scope) {
+        const siblings = [...list.querySelectorAll('.action-drop-target')]
+          .filter((target) => target.dataset.dropScope === scope && target !== row),
+          up = event.key === 'ArrowUp',
+          adjacent = siblings.filter((target) => up
+            ? Number(target.dataset.dropEnd) <= start
+            : Number(target.dataset.dropStart) >= end)
+            .sort((a, b) => up
+              ? Number(b.dataset.dropEnd) - Number(a.dataset.dropEnd)
+              : Number(a.dataset.dropStart) - Number(b.dataset.dropStart))[0];
+        if (adjacent) void commit(block, Number(up ? adjacent.dataset.dropStart : adjacent.dataset.dropEnd), true);
+        return;
+      }
+      const up = event.key === 'ArrowUp', adjacent = nodes[up ? start - 1 : end];
+      if (!adjacent) return;
+      let owner = adjacent;
+      while (ownerById.get(owner.id)) owner = byId.get(ownerById.get(owner.id));
+      const peers = owner.group_id && !ids.some((id) => byId.get(id).group_id === owner.group_id)
+        ? nodes.filter((node) => node.group_id === owner.group_id).map((node) => node.id)
+        : [owner.id],
+        adjacentIds = new Set(peers.flatMap((id) => [...managedSubtreeIds(id, nodes)])),
+        positions = nodes.flatMap((node, index) => adjacentIds.has(node.id) ? [index] : []);
+      void commit(block, up ? Math.min(...positions) : Math.max(...positions) + 1, true);
+    };
+    grip.ondragstart = (event) => {
+      if (unavailable()) { event.preventDefault(); return; }
+      dragged = block;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', key);
+      row.classList.add('dragging');
+      event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
+    };
+    grip.ondragend = () => {
+      dragged = null;
+      clearDrop();
+      row.classList.remove('dragging');
+    };
+    return grip;
   }
   function stateFor(items) {
     for (const state of ['failed', 'running', 'stale', 'unevaluated'])
@@ -521,52 +617,17 @@ export function renderActionTree(
       item = document.createElement('li'),
       row = document.createElement('div'),
       owned = managed.get(node.id) || [],
-      grip = document.createElement('button');
+      grip = generated ? document.createElement('button') : reorderHandle(row, [node.id], node.id, node.label);
     item.className = 'action-entry';
-    row.className = 'action-row';
+    row.classList.add('action-row');
     row.dataset.actionIndex = index;
     if (generated) row.dataset.managed = 'true';
-    if (generated || owned.length) {
+    if (generated) {
       grip.className = 'action-grip action-grip-placeholder';
       grip.disabled = true;
       grip.tabIndex = -1;
-      grip.title = generated
-        ? `Managed by ${byId.get(ownerById.get(node.id))?.label || ownerById.get(node.id)}`
-        : 'This feature moves with its managed outputs.';
-      grip.append(icon(generated ? 'feature_reuse' : 'grip'));
-    } else {
-      grip.className = 'action-grip';
-      grip.dataset.actionId = node.id;
-      grip.append(icon('grip'));
-      grip.draggable = true;
-      grip.title = `Drag to reorder ${node.label}; or focus here and use the arrow keys.`;
-      grip.setAttribute('aria-label', `Reorder ${node.label}. Use Up or Down arrow keys.`);
-      grip.onpointerdown = () => grip.focus();
-      grip.onkeydown = (event) => {
-        if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-        event.preventDefault();
-        void commit(
-          node.id,
-          event.key === 'ArrowUp' ? Math.max(0, index - 1) : Math.min(nodes.length, index + 2),
-          true,
-        );
-      };
-      grip.ondragstart = (event) => {
-        if (unavailable()) {
-          event.preventDefault();
-          return;
-        }
-        dragged = node.id;
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', node.id);
-        row.classList.add('dragging');
-        event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
-      };
-      grip.ondragend = () => {
-        dragged = null;
-        clearDrop();
-        row.classList.remove('dragging');
-      };
+      grip.title = `Managed by ${byId.get(ownerById.get(node.id))?.label || ownerById.get(node.id)}`;
+      grip.append(icon('feature_reuse'));
     }
     const button = document.createElement('button');
     button.className = 'action-select';
@@ -635,6 +696,7 @@ export function renderActionTree(
         select(node.id);
       };
       summary.append(
+        reorderHandle(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null),
         icon('group', 'group-icon'),
         label,
         edit,
@@ -673,6 +735,7 @@ export function renderActionTree(
         targetBadge.className = 'managed-badge';
         targetBadge.textContent = 'Generated';
         targetSummary.append(
+          reorderHandle(targetSummary, children.map((child) => child.id), targetKey, targetLabel.textContent, node.id),
           icon('group', 'group-icon'),
           targetLabel,
           targetBadge,
@@ -718,7 +781,8 @@ export function renderActionTree(
       event.preventDefault();
       removeGroup(group.id);
     };
-    summary.append(icon('group', 'group-icon'), label, edit, remove);
+    summary.append(reorderHandle(summary, members.map((node) => node.id), group.id, group.label),
+      icon('group', 'group-icon'), label, edit, remove);
     details.ontoggle = () => {
       if (details.open) collapsedGroups.delete(group.id);
       else collapsedGroups.add(group.id);
@@ -750,14 +814,17 @@ export function renderActionTree(
     if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
   list.replaceChildren(...items);
   list.ondragover = (event) => {
-    if (!dragged || unavailable()) return;
-    const row = event.target.closest('.action-row');
-    if (!row || row.dataset.managed === 'true') return;
-    event.preventDefault();
+    if (!dragged || unavailable()) {
+      clearDrop();
+      return;
+    }
+    const row = event.target.closest('.action-drop-target');
     clearDrop();
+    if (!row || (row.dataset.dropScope || null) !== dragged.scope) return;
+    event.preventDefault();
     const after = event.clientY > row.getBoundingClientRect().top + row.clientHeight / 2,
-      slot = Number(row.dataset.actionIndex) + Number(after),
-      candidate = actionMove(nodes, dragged, slot);
+      slot = Number(after ? row.dataset.dropEnd : row.dataset.dropStart),
+      candidate = actionMove(nodes, dragged.ids, slot);
     dropSlot = slot;
     row.classList.add(after ? 'drop-after' : 'drop-before');
     row.classList.toggle('drop-invalid', !!candidate.error);
