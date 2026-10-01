@@ -210,10 +210,50 @@ def test_translated_domain_exclusion_accounts_for_coordinate_precision(
     assert circle_in_face_domains(edge, [domain]) is not False
 
 
-def test_nearly_parallel_circle_and_domain_cannot_prove_exclusion() -> None:
+def test_nearly_parallel_circle_is_provably_outside_a_finite_axial_slab() -> None:
     edge = circle(z=100)
     edge["axis_display"] = [1e-12, 0, 1]
-    assert circle_in_face_domains(edge, [axial(0, 2)]) is None
+    assert circle_in_face_domains(edge, [axial(0, 2)]) is False
+
+
+@pytest.mark.parametrize("opposite", [False, True])
+def test_one_ulp_axis_difference_preserves_well_separated_axial_exclusion(
+    opposite: bool,
+) -> None:
+    axis = np.array([np.sin(0.3), 0, np.cos(0.3)])
+    edge, domain = circle(z=2), axial(0, 1)
+    edge["center_display"] = (2 * axis).tolist()
+    edge["axis_display"] = (-axis if opposite else axis).tolist()
+    domain["geometry"]["axis"] = axis.tolist()
+    domain["geometry"]["axis"][0] = float(np.nextafter(axis[0], np.inf))
+    assert circle_in_face_domains(edge, [domain]) is False
+
+
+@pytest.mark.parametrize(
+    "height,expected", [(3, False), (1.5, None), (2, None), (2 + 1e-12, None)]
+)
+def test_tilted_circle_exclusion_uses_the_entire_axial_envelope(
+    height: float, expected: bool | None
+) -> None:
+    edge = circle(z=height)
+    edge["axis_display"] = [0.5, 0, np.sqrt(0.75)]
+    assert circle_in_face_domains(edge, [axial(0, 1)]) is expected
+
+
+def test_tilted_axial_exclusion_respects_open_bounds_and_domain_unions() -> None:
+    edge = circle(z=3)
+    edge["axis_display"] = [0.5, 0, np.sqrt(0.75)]
+    assert circle_in_face_domains(edge, [axial(None, 1)]) is False
+    assert circle_in_face_domains(edge, [axial(5, None)]) is False
+    assert circle_in_face_domains(edge, [axial(0, 1), axial(2, 4)]) is None
+
+
+def test_unrepresentable_axial_envelope_is_unknown_not_excluded() -> None:
+    edge, domain = circle(1e308, z=1e308), axial(0, 1)
+    domain["geometry"]["radius"] = 1e308
+    edge["axis_display"] = [1, 0, 0]
+    with np.errstate(over="ignore"):
+        assert circle_in_face_domains(edge, [domain]) is None
 
 
 def test_unrepresentable_radial_range_is_unknown_not_excluded() -> None:

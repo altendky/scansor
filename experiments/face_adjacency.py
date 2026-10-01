@@ -315,6 +315,8 @@ def circle_in_face_domains(
     Caller verifies every domain's exact owning surface context. False proves
     exclusion from every supplied domain; an empty/unsupported union is unknown.
     Unbounded endpoints remain open. No observation or fit-support bounds apply.
+    Lateral slab exclusion bounds the whole circle, without assuming parallel
+    axes. Nonparallel membership and near-boundary exclusions remain unknown.
     """
     if edge.get("kind") != "circle" or not domains:
         return None
@@ -333,13 +335,11 @@ def circle_in_face_domains(
         origin = _vector(geometry["origin"], "face origin")
         axis = _axis(geometry["axis"])
         tolerance = _tolerance(radius, center, origin)
-        if not _parallel(_exact(normal), _exact(axis)):
-            unknown = True
-            continue
+        parallel = _parallel(_exact(normal), _exact(axis))
         delta = center - origin
         axial = float(delta @ axis)
         if kind == "plane":
-            if abs(axial) > tolerance:
+            if not parallel or abs(axial) > tolerance:
                 unknown = True
                 continue
             distance = float(np.linalg.norm(delta - axial * axis))
@@ -347,7 +347,11 @@ def circle_in_face_domains(
             interval = face.get("bounds", {}).get("radial")
         else:
             interval = face.get("bounds", {}).get("axial")
-            lower_value = upper_value = axial
+            # Every point of this finite circle lies in this axial envelope.
+            # A tiny axis mismatch must not erase a well-separated exclusion,
+            # nor may snapping it to zero hide a tilted circle reaching a face.
+            half_span = radius * float(np.linalg.norm(np.cross(normal, axis)))
+            lower_value, upper_value = axial - half_span, axial + half_span
             distance = float(np.linalg.norm(delta - axial * axis))
             expected = (
                 _number(geometry["radius"], "face radius")
@@ -378,6 +382,9 @@ def circle_in_face_domains(
         if (lower is not None and upper_value < lower - tolerance) or (
             upper is not None and lower_value > upper + tolerance
         ):
+            continue
+        if not parallel:
+            unknown = True
             continue
         if (lower is None or upper_value >= lower) and (
             upper is None or lower_value <= upper

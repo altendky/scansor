@@ -211,7 +211,10 @@ def test_adjacency_pair_identity_and_evidence_are_permutation_stable() -> None:
         }
 
 
-def test_rigid_rotation_preserves_exclusion_and_region_evidence() -> None:
+@pytest.mark.parametrize("axis_roundoff", [False, True])
+def test_rigid_rotation_preserves_exclusion_and_region_evidence(
+    axis_roundoff: bool,
+) -> None:
     side, shoulder = wall(), plane()
     side["face_domains"] = [domain(side, 0, 1)]
     baseline = propose_faces([side, shoulder])
@@ -231,6 +234,8 @@ def test_rigid_rotation_preserves_exclusion_and_region_evidence() -> None:
         source["observations"] = source["observations"] @ rotation.T
     for scope in side["face_domains"]:
         scope["geometry"]["axis"] = axis.tolist()
+        if axis_roundoff:
+            scope["geometry"]["axis"][0] = float(np.nextafter(axis[0], np.inf))
     result = propose_faces([side, shoulder])
     assert (
         adjacency(result, side, shoulder)["state"]
