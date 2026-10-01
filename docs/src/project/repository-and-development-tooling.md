@@ -68,13 +68,23 @@ Its blocking scope includes:
 Run the Python gates directly through uv:
 
 ```console
-uv run --locked --python 3.12.13 ruff format --check .
-uv run --locked --python 3.12.13 ruff check .
-uv run --locked --python 3.12.13 basedpyright
-uv run --locked --python 3.12.13 pytest
-uv run --locked --python 3.12.13 pytest --cov=scansor --cov-report=term-missing
-uv run --locked --python 3.13.15 pytest
+uv run --locked --python 3.12.14 ruff format --check .
+uv run --locked --python 3.12.14 ruff check .
+uv run --locked --python 3.12.14 basedpyright
+uv run --locked --python 3.12.14 pytest tests/test_mesh*.py
+uv run --locked --python 3.12.14 pytest --ignore-glob='tests/test_mesh*.py'
+uv run --locked --python 3.13.15 pytest tests/test_mesh*.py
+uv run --locked --python 3.13.15 pytest --ignore-glob='tests/test_mesh*.py'
 ```
+
+Mesh and remaining tests run in separate processes in CI. The CAD kernel stays
+resident after loading; collecting/running CAD tests in the same process can
+exhaust the mesh tests' explicitly budgeted 512 MiB baseline, and process-lifetime
+peak RSS also carries across tests. This separation does not increase budgets,
+skip tests, or change runtime resource enforcement. For coverage, add
+`--cov=scansor --cov-report=term-missing` to both 3.12 invocations and
+`--cov-append` to the second to retain combined terminal coverage. The unpartitioned
+suite remains useful for diagnosis but is not equivalent resource isolation.
 
 Ruff checks every applicable Python file under the repository root. Basedpyright
 analyzes `src`, `tests`, and `experiments`; the committed baseline records the

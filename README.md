@@ -17,7 +17,7 @@ The current local browser prototype demonstrates:
 - exact relationships, rotational and mirror symmetry, and joint solving;
 - reusable selection volumes that seed fresh local fits on repeated features;
 - signed residual inspection with a numeric color scale; and
-- measured output scale, coordinate transforms, and Rhino export.
+- measured output scale, coordinate transforms, and STEP export bundles.
 
 ![Signed residuals on fitted nozzle surfaces with the residual color scale and display controls](docs/assets/readme/nozzle-fitted-surfaces-and-residual-scale.jpg)
 

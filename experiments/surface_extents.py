@@ -12,73 +12,21 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from experiments.surface_primitives import basis as basis
+from experiments.surface_primitives import primitive as primitive
+from experiments.surface_primitives import unit as unit
+from experiments.surface_primitives import vector as vector
+
 Array = NDArray[np.float64]
 ANGULAR_TOLERANCE = 1e-10
 PREVIEW_SEGMENTS = 96
 
 
-def vector(value: object, name: str) -> Array:
-    result = np.asarray(value, dtype=float)
-    if result.shape != (3,) or not np.isfinite(result).all():
-        raise ValueError(f"{name} must contain three finite coordinates")
-    return result
-
-
-def unit(value: object, name: str) -> Array:
-    result = vector(value, name)
-    length = float(np.linalg.norm(result))
-    if not np.isfinite(length) or length <= 0:
-        raise ValueError(f"{name} must be nonzero and normalizable")
-    return result / length
-
-
-def basis(axis: Array) -> tuple[Array, Array]:
-    reference = np.eye(3)[int(np.argmin(np.abs(axis)))]
-    u = unit(np.cross(reference, axis), "surface basis")
-    return u, np.cross(axis, u)
-
-
-def primitive(surface: dict[str, Any]) -> dict[str, Any]:
-    """Adapt existing fit charts without modifying or filtering any observations."""
-    kind = surface.get("kind", "plane" if "plane_equation" in surface else None)
-    p = np.asarray(surface.get("parameters", []), dtype=float)
-    if kind == "plane":
-        equation = np.asarray(surface.get("plane_equation", []), dtype=float)
-        if equation.size == 0:
-            if p.shape == (7,):
-                equation = np.r_[unit([p[2], p[3], 1.0], "plane normal"), p[5]]
-            else:
-                equation = p
-        if equation.shape != (4,) or not np.isfinite(equation).all():
-            raise ValueError("plane equation must contain four finite values")
-        length = float(np.linalg.norm(equation[:3]))
-        normal = unit(equation[:3], "plane normal")
-        return {
-            "kind": kind,
-            "axis": normal.tolist(),
-            "offset": float(equation[3] / length),
-        }
-    if kind not in ("cylinder", "cone"):
-        raise ValueError(
-            "circular extents currently require a plane and cylinder or cone"
-        )
-    if p.shape != (7,) or not np.isfinite(p).all():
-        raise ValueError("revolution parameters must contain seven finite values")
-    if kind == "cylinder" and p[6] != 0:
-        raise ValueError("cylinder parameters must have zero taper")
-    axis = unit([p[2], p[3], 1.0], "revolution axis")
-    return {
-        "kind": kind,
-        "origin": [float(p[0]), float(p[1]), 0.0],
-        "axis": axis.tolist(),
-        "radius": float(p[4]),
-        "slope": float(p[6]),
-    }
-
-
 def circle_intersection(
     first: dict[str, Any], second: dict[str, Any]
 ) -> dict[str, Any]:
+    from experiments.ocp_geometry import circular_intersection
+
     geometries = [primitive(first), primitive(second)]
     planes = [g for g in geometries if g["kind"] == "plane"]
     sides = [g for g in geometries if g["kind"] in ("cylinder", "cone")]
@@ -94,28 +42,16 @@ def circle_intersection(
         )
     origin = np.asarray(side["origin"])
     t = (plane["offset"] - normal @ origin) / float(normal @ axis)
-    center = origin + t * axis
     radius = float(side["radius"] + side["slope"] * t)
-    if not np.isfinite(center).all() or not np.isfinite(radius) or radius <= 0:
+    if (
+        not np.isfinite(origin + t * axis).all()
+        or not np.isfinite(radius)
+        or radius <= 0
+    ):
         raise ValueError(
             "intersection has no positive finite circular radius (missing intersection or cone apex)"
         )
-    u, v = basis(normal)
-    angles = np.arange(PREVIEW_SEGMENTS) * (2 * np.pi / PREVIEW_SEGMENTS)
-    points = center + radius * (
-        np.cos(angles)[:, None] * u + np.sin(angles)[:, None] * v
-    )
-    if not np.isfinite(points).all():
-        raise ValueError("intersection preview coordinates overflow")
-    return {
-        "kind": "circle",
-        "center_display": center.tolist(),
-        "axis_display": normal.tolist(),
-        "basis_u_display": u.tolist(),
-        "basis_v_display": v.tolist(),
-        "radius": radius,
-        "preview": {"positions": points.ravel().tolist(), "indices": []},
-    }
+    return circular_intersection(plane, side, PREVIEW_SEGMENTS)
 
 
 def distance_tolerance(points: list[Array], scale: float) -> float:
@@ -127,42 +63,26 @@ def distance_tolerance(points: list[Array], scale: float) -> float:
 def face_preview(
     geometry: dict[str, Any], interval: tuple[float, float], planar: bool
 ) -> dict[str, Any]:
-    origin, axis = np.asarray(geometry["origin"]), np.asarray(geometry["axis"])
-    u, v = np.asarray(geometry["basis_u"]), np.asarray(geometry["basis_v"])
-    angles = np.arange(PREVIEW_SEGMENTS) * (2 * np.pi / PREVIEW_SEGMENTS)
-    radial = np.cos(angles)[:, None] * u + np.sin(angles)[:, None] * v
-    rings = [
-        origin + value * radial
-        if planar
-        else origin
-        + value * axis
-        + (geometry["radius"] + geometry["slope"] * value) * radial
-        for value in interval
-    ]
-    triangles: list[list[int]] = []
-    if planar and interval[0] == 0:
-        points = np.vstack([origin, rings[1]])
-        triangles = [
-            [0, i + 1, (i + 1) % PREVIEW_SEGMENTS + 1] for i in range(PREVIEW_SEGMENTS)
-        ]
+    from experiments.ocp_geometry import face_from_record, tessellate_face
+
+    if planar:
+        kind, scale = "plane", interval[1]
     else:
-        points = np.vstack(rings)
-        for i in range(PREVIEW_SEGMENTS):
-            j = (i + 1) % PREVIEW_SEGMENTS
-            triangles.extend(
-                [
-                    [i, j, j + PREVIEW_SEGMENTS],
-                    [i, j + PREVIEW_SEGMENTS, i + PREVIEW_SEGMENTS],
-                ]
-            )
-        if planar:
-            triangles = [triangle[::-1] for triangle in triangles]
-    if not np.isfinite(points).all():
-        raise ValueError("face preview coordinates overflow")
-    return {
-        "positions": points.ravel().tolist(),
-        "indices": np.asarray(triangles).ravel().tolist(),
-    }
+        kind = "cone" if geometry["slope"] else "cylinder"
+        scale = max(
+            geometry["radius"] + geometry["slope"] * value for value in interval
+        )
+    # This finite record exists only for constructing the display mesh. It never
+    # replaces the caller's physical record, whose missing endpoints remain null.
+    preview_face = face_from_record(
+        {
+            "bounded": True,
+            "surface_kind": kind,
+            "geometry": geometry,
+            "bounds": {"radial" if planar else "axial": list(interval)},
+        }
+    )
+    return tessellate_face(preview_face, scale)
 
 
 def trimmed_face(
@@ -270,7 +190,7 @@ def trimmed_face(
         radii = geometry["radius"] + geometry["slope"] * np.array(
             [preview_lower, preview_upper]
         )
-        if np.any(radii <= 0) or not np.isfinite(radii).all():
+        if np.any(radii <= tolerance) or not np.isfinite(radii).all():
             raise ValueError(
                 "face or preview crosses the cone apex; add a positive-radius boundary"
             )

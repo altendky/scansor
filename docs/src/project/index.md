@@ -36,8 +36,8 @@ outside the intended boundary.
     sphere/cylinder radius equality, fixed-axis fits, shared-axis
     cone/cylinder-and-plane solving, residual display, explicit coordinate Frame
     construction, uniform Scale derivation from multiple point distances, and an
-    editable Transform composing those features for the model view and Rhino
-    export; explicit circular plane–cylinder/cone intersections and manually
+    editable Transform composing those features for the model view and STEP
+    export bundles; OCP-backed circular plane–cylinder/cone intersections and manually
     bounded planar/lateral faces with shared boundary declarations, plus reviewed
     batch face proposals with inspectable generated children and manual-feature
     reuse, persisted adjacency review, and explicit face scopes separate from

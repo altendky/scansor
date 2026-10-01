@@ -58,10 +58,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --python ${{ matrix.python-version }}
 
-      - name: Run tests
+      # Native CAD libraries remain resident once loaded. Keep the mesh resource
+      # contracts in a fresh process, rather than changing their actual budgets.
+      - name: Run memory-budgeted mesh tests
         if: ${{ !matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --durations=30
+        run: uv run --locked --python ${{ matrix.python-version }} pytest tests/test_mesh*.py --durations=30
 
-      - name: Run tests with terminal coverage
+      - name: Run remaining tests
+        if: ${{ !matrix.coverage }}
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' --durations=30
+
+      - name: Run memory-budgeted mesh tests with terminal coverage
         if: ${{ matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --cov=scansor --cov-report=term-missing --durations=30
+        run: uv run --locked --python ${{ matrix.python-version }} pytest tests/test_mesh*.py --cov=scansor --cov-report=term-missing --durations=30
+
+      - name: Run remaining tests with combined terminal coverage
+        if: ${{ matrix.coverage }}
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' --cov=scansor --cov-append --cov-report=term-missing --durations=30

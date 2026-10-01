@@ -2825,7 +2825,7 @@ async function start() {
   $('export-target').onchange = updateExportPlanes;
   $('export-axis-up').onchange = updateExportPlanes;
   $('export-transform').onchange = updateExportPlanes;
-  $('export-rhino').onclick = () => {
+  $('export-cad').onclick = () => {
     $('export-target').parentElement.firstChild.textContent = 'Fit, joint, or bounded face';
     $('export-title').textContent = 'Export surfaces or a bounded face';
     const targets = graphState.recipe.nodes.filter((n) =>
@@ -2868,8 +2868,8 @@ async function start() {
         } while (state.evaluation_running);
         if (state.evaluation_error) throw new Error(state.evaluation_error);
       }
-      $('export-error').textContent = 'Preparing Rhino file…';
-      const response = await fetch('/api/export/rhino', {
+      $('export-error').textContent = 'Preparing STEP export bundle…';
+      const response = await fetch('/api/export/cad', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Scansor-Request': '1' },
         body: JSON.stringify({
@@ -2889,11 +2889,11 @@ async function start() {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'nozzle-fitted-surfaces.3dm';
+      link.download = 'scansor-cad.zip';
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       $('export-dialog').close();
-      status('Rhino export downloaded. Surfaces and mesh share the same orientation and units.');
+      status('CAD export downloaded: STEP surfaces, metadata, and optional reference mesh.');
     } catch (error) {
       $('export-error').textContent = error.message;
     } finally {

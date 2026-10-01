@@ -50,7 +50,7 @@ recipes must validate and complete **Evaluate all** without errors.
 | 3:20–3:42 | Inspect equal-radius and parallel-plane relationships, then show residuals | Distinguish independent local fits from optional exact relationships. |
 | 3:42–4:07 | Add sphere fits, point datums, directed axis, `Output frame`, and `Output scale` | Explain measurable landmarks, orientation, and multi-reading uniform scale. |
 | 4:07–4:30 | Select `Output transform`, switch to Top, and make one small view adjustment | Deliver the visible before/after alignment while preserving source-coordinate fit values. |
-| 4:30–4:50 | Open Rhino export and show Transform and units | Show the explicit handoff boundary without implying production CAD integration. |
+| 4:30–4:50 | Open CAD export and show Transform and units | Show the explicit STEP-bundle handoff boundary without implying production CAD integration. |
 | 4:50–5:15 | Closing card | Recap retained observations, primitives, relationships, reuse, and explicit output coordinates. |
 
 The cut must not remove rotational symmetry, the nozzle residual view, boss

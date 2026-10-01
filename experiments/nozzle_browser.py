@@ -30,7 +30,6 @@ from experiments.feature_graph import (
     StaleGraph,
     workspace_reference_sha256,
 )
-from experiments.nozzle_rhino import RhinoExportRequest, export_rhino
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 from scansor.selection_bundle import SelectionBundle
 
@@ -246,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/evaluate",
             "/api/graph/build-faces/preview",
             "/api/graph/build-faces/apply",
-            "/api/export/rhino",
+            "/api/export/cad",
         ):
             self.json_reply(404, {"error": "not found"})
             return
@@ -287,11 +286,14 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 self.json_reply(200, state)
                 return
-            if self.path == "/api/export/rhino":
-                export_request = RhinoExportRequest.model_validate_json(body)
+            if self.path == "/api/export/cad":
+                # Fit-only sessions do not need to load the native CAD kernel.
+                from experiments.nozzle_cad import CadExportRequest, export_cad
+
+                export_request = CadExportRequest.model_validate_json(body)
                 snapshot = cast(dict[str, Any], self.app.graph.snapshot())
-                exported = export_rhino(self.app.workspace, snapshot, export_request)
-                self.reply(200, exported, "application/octet-stream")
+                exported = export_cad(self.app.workspace, snapshot, export_request)
+                self.reply(200, exported, "application/zip")
                 return
             if self.path.startswith("/api/graph"):
                 payload = GraphRequest.model_validate_json(body)

@@ -228,7 +228,7 @@ an explanation.
    Evaluate the fit to inspect its own parameters, guide and residuals. Plane
    fits can have independent orientations and do not require a joint solve.
    Standalone sphere fits resolve an independent center and radius. A sphere may
-   instead reference a point datum. Sphere selection growth and exact Rhino
+   instead reference a point datum. Sphere selection growth and exact STEP
    export are implemented, while reuse volumes and axis-based relationships
    remain limited to the surface types documented for those operations.
 3. **Point** defaults to a manual XYZ initial value. Sphere fits referencing a
@@ -430,7 +430,7 @@ not physical accuracy or the user's chosen correspondence.
 [onshape]: https://www.onshape.com/en/resource-center/tech-tips/tech-tip-rotation-with-an-upright-vertical-axis
 
 The symmetry action defaults to **Match exported extents across symmetry copies**.
-For Rhino export, observations from all three selections are rotated into the
+For CAD export, observations from all three selections are rotated into the
 first copy’s frame to bound one patch; that same patch is then rotated to each
 copy. This gives matching rectangular plane patches and matching cylinder/cone
 spans. Disable the option in the symmetry action’s properties for independent
@@ -474,8 +474,9 @@ The first face regions are concentric disks/annuli and full-revolution lateral
 faces between perpendicular cuts. A single lateral cut or an outside-only plane
 region remains unbounded. Its missing physical limit stays null; observation
 coverage crops the preview only, and bounded-face export refuses it. The viewer
-uses 96-segment display tessellation, while intersections and export remain
-analytic. Empty regions, nonconcentric boundaries, apex crossings, and context
+uses OCP face tessellation for display, while circular intersections and export
+remain analytic. Display meshes are not fit evidence. Empty regions,
+nonconcentric boundaries, apex crossings, and context
 mismatches are diagnosed.
 
 ### Reviewed batch face building
@@ -531,20 +532,29 @@ the Scansor graph; exported faces remain independent. Automatic adjacency,
 arbitrary intersection branches, fillets/chamfers, material orientation, and
 closed-shell validation are deferred.
 
-OCP is the selected backend for the next general-intersection and topology
-integration, with licensing accepted. It is not yet used by this bounded slice.
+This bounded slice uses OCP for intersections, face construction, validation,
+tessellation, and CAD export. Licensing was explicitly accepted. The swap does
+not add general intersection branches, sewing, solids, or new retained-region
+types. Scansor still owns fit charts, explicit physical intent, review evidence,
+graph identity, and conservative disjointness/uncertainty policy.
 
-## Experimental Rhino export
+## Experimental STEP export
 
-**Export Rhino…** evaluates a chosen standalone fit, shared-axis joint, legacy
-joint, or bounded trimmed face and downloads one Rhino 8 `.3dm` containing named
-analytic surface bodies
-and, optionally, the loaded original reference mesh on a separate layer. It uses
-`rhino3dm` (MIT,
-including the underlying openNURBS library); Rhino is not required locally.
-This is a provisional export path, not a general CAD integration commitment.
-When updating rhino3dm, review its changelog and repeat geometry/file round-trip
-and Onshape import checks; its bundled type stubs currently omit runtime APIs.
+**Export CAD…** evaluates a chosen standalone fit, shared-axis joint, legacy
+joint, or bounded trimmed face and downloads a ZIP bundle. `model.step` contains
+named analytic CAD geometry, `metadata.json` preserves the recipe, export
+settings, source identity, and boundary declarations, and the optional reference
+mesh is a separate double-precision PLY. The files share output coordinates and
+units; the scan mesh is never converted into CAD faces. Rhino `.3dm` output and
+the `rhino3dm` dependency have been removed, without a compatibility path.
+
+The adapter uses [OCP](https://github.com/CadQuery/OCP), pinned through
+`cadquery-ocp-novtk`; the no-VTK wheel avoids an unused visualization dependency.
+The wrapper is Apache-2.0; underlying
+[OCCT is LGPL-2.1 with an additional exception](https://www.occt3d.com/dev/doc/overview/html/occt_public_license.html),
+explicitly accepted by the user. This is a provisional experiment, not a general
+CAD integration or production-stack commitment. Dependency updates require geometry/file
+round-trip checks. Actual downstream CAD import remains a separate verification.
 
 Choose units explicitly. When an evaluated **Transform** is applied, its Scale's
 known distances rescale the numerical coordinates, its Frame supplies output
@@ -556,8 +566,8 @@ the fitted joint axis (or standalone lateral axis / plane normal) onto +Z and
 applies the same rotation to every surface and mesh vertex. A standalone sphere
 has no orientation; axis-up only centers its centerline on Z. With axis-up off,
 geometry is restored to the original scan coordinate frame. Explicit Transform
-and legacy axis-up/origin placement are mutually exclusive. The export embeds
-the current recipe and coordinate transform as file metadata; it does not modify
+and legacy axis-up/origin placement are mutually exclusive. The export retains
+the current recipe and coordinate transform in bundle metadata; it does not modify
 the session or introduce change history.
 
 Legacy fit exports still use observation-bounded patches, not the new face
@@ -571,16 +581,15 @@ connectivity, using double-precision storage; no decimation or conversion of
 mesh triangles into CAD faces is performed.
 
 Exporting a **Trimmed face** instead uses its explicit physical limits, with no
-observation padding or implicit capping. Disks use a circularly trimmed plane;
-annuli use a planar radial-line revolution with a periodic angular domain (not
-separate outer/hole trim loops on a PlaneSurface). Cylinder/cone sides use an
-exact bounded revolution. Source references and boundary uses are retained as
-metadata; no Rhino shared-edge topology, sewn shell, or solid is claimed.
+observation padding or implicit capping. Disks and annuli use circularly bounded
+planes, with an inner hole for an annulus. Cylinder/cone sides use exact bounded
+analytic surfaces. Source references and boundary uses are retained as metadata;
+no sewn shell or solid is claimed.
 
-Local checks reopen the exported file and verify analytic surface recognition,
+Local checks reopen the exported STEP and verify analytic surface recognition,
 mesh coordinates and topology, unit metadata, common orientation, and rejection
-of stale results. Onshape documentation lists Rhino surface and mesh import, but
-this experiment's combined-file import still needs an actual Onshape check.
+of stale results. They do not establish downstream import support for the bundle
+or replace an actual CAD application check.
 
 Axis-up export also translates the fitted axis onto the Z axis. It preserves
 rotated axial heights and applies the same rigid transform to the reference mesh
