@@ -1098,6 +1098,65 @@ def test_replay_scope_reuses_sibling_cells_but_revalidates_each_selector(
     assert calls == 2
 
 
+@pytest.mark.parametrize("kind", ["plane", "cylinder", "cone"])
+def test_local_arranged_domains_reuse_source_frame_and_revalidate_selectors(
+    monkeypatch: MonkeyPatch, kind: str
+):
+    if kind == "plane":
+        surface = plane()
+        cuts = [cutter("outer", cylinder()), cutter("hole", cylinder(0.2))]
+        signs = {"outer": "negative", "hole": "positive"}
+    else:
+        surface = {**cylinder(), "kind": kind, "slope": 0.2 if kind == "cone" else 0}
+        cuts = [cutter("bottom", plane()), cutter("top", plane(offset=3))]
+        signs = {"bottom": "positive", "top": "negative"}
+    record = region(arrange_faces(surface, cuts), signs)
+    expected_area = area(record)
+    before = deepcopy(record)
+    original = vars(face_arrangement)["_split"]
+    calls = 0
+
+    def measured(intent: dict[str, Any]) -> Any:
+        nonlocal calls
+        calls += 1
+        return original(intent)
+
+    monkeypatch.setattr(face_arrangement, "_split", measured)
+    local_domain = vars(face_arrangement)["_local_domain"]
+    with native_replay_scope():
+        for center, scale in (
+            (np.zeros(3), 1.0),
+            (np.array([1000, -400, 23]), 0.1),
+            (np.array([-200, 17, 50]), 1e4),
+        ):
+            first = local_domain(record, center, scale)
+            second = local_domain(record, center, scale)
+            assert not first.IsSame(second)
+            assert BRepCheck_Analyzer(first).IsValid()
+            properties = GProp_GProps()
+            BRepGProp.SurfaceProperties_s(first, properties)
+            assert properties.Mass() * scale**2 == pytest.approx(
+                expected_area, rel=1e-8
+            )
+        assert calls == 1
+        invalid = deepcopy(record)
+        invalid["bounds"]["arrangement"]["selector"]["witness_chart"] = [100, 100]
+        with pytest.raises(ValueError, match="witness crossed"):
+            _ = local_domain(invalid, np.zeros(3), 1.0)
+        changed_components = deepcopy(record)
+        changed_components["bounds"]["arrangement"]["selector"]["component_count"] += 1
+        with pytest.raises(ValueError, match="component"):
+            _ = local_domain(changed_components, np.zeros(3), 1.0)
+        open_record = deepcopy(record)
+        open_record["bounded"] = False
+        with pytest.raises(ValueError, match="display-envelope boundaries"):
+            _ = local_domain(open_record, np.zeros(3), 1.0)
+        assert calls == 1
+    assert record == before
+    _ = local_domain(record, np.zeros(3), 1.0)
+    assert calls == 2
+
+
 def test_replay_scope_reuses_prepared_arrangements_without_exposing_mutable_records(
     monkeypatch: MonkeyPatch,
 ):
@@ -1119,6 +1178,65 @@ def test_replay_scope_reuses_prepared_arrangements_without_exposing_mutable_reco
         second = prepare_faces(plane(), [cutter("outer", cylinder())])
         assert second.records() == expected
         assert calls == 1
+
+
+def test_local_arranged_domain_identity_copy_isolates_native_tolerances():
+    from OCP.BRep import BRep_Builder, BRep_Tool
+    from OCP.TopAbs import TopAbs_VERTEX
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    record = region(
+        arrange_faces(plane(), [cutter("outer", cylinder())]), {"outer": "negative"}
+    )
+    intent = record["bounds"]["arrangement"]
+    selected = vars(face_arrangement)["_selected"]
+    local_domain = vars(face_arrangement)["_local_domain"]
+
+    def vertices(face: Any) -> list[Any]:
+        result: list[Any] = []
+        explorer = TopExp_Explorer(face, TopAbs_VERTEX)
+        while explorer.More():
+            result.append(TopoDS.Vertex(explorer.Current()))
+            explorer.Next()
+        return result
+
+    with native_replay_scope():
+        cell, center, scale = selected(intent, intent["selector"])
+        source = cell["face"]
+        source_edges = vars(face_arrangement)["_edges"](source)
+        source_vertices = vertices(source)
+        originals = [source, *source_edges, *source_vertices]
+        tolerances = [BRep_Tool.Tolerance_s(shape) for shape in originals]
+        copied = local_domain(record, center, scale)
+        copied_edges = vars(face_arrangement)["_edges"](copied)
+        copied_vertices = vertices(copied)
+        assert not copied.IsSame(source)
+        assert len(copied_edges) == len(source_edges)
+        assert len(copied_vertices) == len(source_vertices)
+        assert all(
+            not edge.IsSame(original)
+            for edge in copied_edges
+            for original in source_edges
+        )
+        assert all(
+            not vertex.IsSame(original)
+            for vertex in copied_vertices
+            for original in source_vertices
+        )
+        builder = BRep_Builder()
+        builder.UpdateFace(copied, 1e-3)
+        for edge in copied_edges:
+            builder.UpdateEdge(edge, 1e-3)
+        for vertex in copied_vertices:
+            builder.UpdateVertex(vertex, 1e-3)
+        assert all(
+            BRep_Tool.Tolerance_s(shape) >= 1e-3
+            for shape in [copied, *copied_edges, *copied_vertices]
+        )
+        assert [BRep_Tool.Tolerance_s(shape) for shape in originals] == tolerances
+        assert BRepCheck_Analyzer(source).IsValid()
+        assert selected(intent, intent["selector"])[0] is cell
 
 
 @pytest.mark.parametrize(

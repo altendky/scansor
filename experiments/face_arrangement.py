@@ -321,6 +321,15 @@ def _local_record(
 
 
 def _local_domain(record: dict[str, Any], center: Array, scale: float) -> TopoDS_Face:
+    if "arrangement" in record["bounds"]:
+        if not record.get("bounded"):
+            raise ValueError(
+                "display-envelope boundaries are not physical caps; this arrangement cell cannot be exported"
+            )
+        # Replay in the declaration's own normalized frame; recentering the
+        # intent for each consumer defeats exact-input reuse and rebuilds all
+        # nested domains. Transform a copy directly into the consumer's frame.
+        return _comparison_domain(record, center, scale)
     return _domain_shape(_local_record(record, center, scale))
 
 
