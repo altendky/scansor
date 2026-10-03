@@ -702,6 +702,10 @@ face identity and selectors, source boundaries, retained sides, and whether the
 check requires complete coverage. Changed inputs invalidate the review; unrelated
 edits preserve it. These entries contain no native shapes, and validation from an
 outdated graph epoch cannot publish into the current graph.
+Evaluation copies only the physical face records needed by each owner's review.
+Body readiness checks likewise read only the relevant states and owner summaries;
+neither operation makes a full graph snapshot per owner or body. The returned
+snapshot remains an isolated copy of the complete results.
 
 Face-equivalence checks copy validated arrangement cells directly from their
 canonical local frames into one pair-normalized frame, without resplitting the

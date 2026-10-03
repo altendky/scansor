@@ -4754,8 +4754,7 @@ class FeatureGraph:
                 or owner.id not in order
             ):
                 continue
-            reviewed = cast(dict[str, Any], self.snapshot())
-            if owner.target is None or reviewed["states"].get(owner.id) != "ready":
+            if owner.target is None:
                 continue
             faces = list(
                 dict.fromkeys(
@@ -4770,27 +4769,30 @@ class FeatureGraph:
                     ]
                 )
             )
-            pending = [
-                face_id
-                for face_id in faces
-                if reviewed["states"].get(face_id) != "ready"
-            ]
-            if pending:
-                with self.lock:
-                    if epoch != self._epoch:
-                        raise StaleGraph("graph changed during shared-boundary review")
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during shared-boundary review")
+                if self._states.get(owner.id) != "ready":
+                    continue
+                pending = [
+                    face_id for face_id in faces if self._states.get(face_id) != "ready"
+                ]
+                if pending:
                     self._derived[owner.id]["shared_boundary_review"] = {
                         "complete": False,
                         "pending_faces": pending,
                     }
-                continue
+                    continue
+                # Physical faces have no solver overlays. Copy only the owner
+                # inputs, not every face preview/result in the entire graph.
+                face_records = [deepcopy(self._derived[face_id]) for face_id in faces]
             try:
                 review = self._shared_boundary_review(
                     owner.id,
                     epoch,
                     SharedBoundaryInputs(
                         faces,
-                        [reviewed["results"][face_id] for face_id in faces],
+                        face_records,
                         owner.target.model_dump(),
                         boundary_source_records(owner.boundary_sources),
                         referenced_surface(owner.target),
@@ -4837,27 +4839,28 @@ class FeatureGraph:
             from experiments.body_geometry import BodyAssemblyError, assemble_body
 
             try:
-                reviewed = cast(dict[str, Any], self.snapshot())
                 owners = {
                     face.managed_by
                     for face_id in body.faces
                     if (face := nodes[face_id]).managed_by is not None
                     and isinstance(nodes.get(face.managed_by), BuildFaces)
                 }
-                unavailable = [
-                    ref
-                    for ref in [*body.faces, *sorted(owners)]
-                    if reviewed["states"].get(ref) != "ready"
-                ]
-                incomplete = [
-                    owner_id
-                    for owner_id in sorted(owners)
-                    if cast(BuildFaces, nodes[owner_id]).boundary_sources
-                    and not reviewed["results"]
-                    .get(owner_id, {})
-                    .get("shared_boundary_review", {})
-                    .get("complete")
-                ]
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph("graph changed during body assembly")
+                    unavailable = [
+                        ref
+                        for ref in [*body.faces, *sorted(owners)]
+                        if self._states.get(ref) != "ready"
+                    ]
+                    incomplete = [
+                        owner_id
+                        for owner_id in sorted(owners)
+                        if cast(BuildFaces, nodes[owner_id]).boundary_sources
+                        and not self._derived.get(owner_id, {})
+                        .get("shared_boundary_review", {})
+                        .get("complete")
+                    ]
                 if unavailable or incomplete:
                     causes = list(dict.fromkeys([*unavailable, *incomplete]))
                     error = ValueError(

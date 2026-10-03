@@ -219,15 +219,31 @@ def test_body_waits_for_owner_aggregate_review(monkeypatch: pytest.MonkeyPatch) 
     reviews: list[bool] = []
 
     def review(*args: Any) -> dict[str, Any]:
-        assert not calls
+        if not reviews:
+            assert not calls
         reviews.append(args[-1])
         return {"complete": True}
 
     monkeypatch.setattr(graph, "_shared_boundary_review", review)
-    ready = cast(dict[str, Any], graph.evaluate(snapshot(graph)["token"]))
+    token = snapshot(graph)["token"]
+    original_snapshot = graph.snapshot
+    snapshots = 0
+
+    def counted_snapshot() -> dict[str, object]:
+        nonlocal snapshots
+        snapshots += 1
+        return original_snapshot()
+
+    monkeypatch.setattr(graph, "snapshot", counted_snapshot)
+    ready = cast(dict[str, Any], graph.evaluate(token))
+    assert snapshots == 1
     assert reviews == [True]
     assert ready["states"]["body"] == "ready" and len(calls) == 1
     assert ready["results"]["owner"]["shared_boundary_review"]["complete"]
+    snapshots = 0
+    assert graph.evaluate(token) == ready
+    assert snapshots == 1
+    assert len(calls) == 1
 
 
 def test_owner_review_failure_blocks_body_even_when_previously_ready(
