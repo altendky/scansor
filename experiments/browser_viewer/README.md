@@ -695,6 +695,11 @@ cells and recursive boundary checks. The cache includes geometry, scope,
 observations, and nested selectors; each cell's selector is still validated on
 every replay. Cache references are discarded after the pass (including failures)
 and are not shared across threads or later evaluations.
+An arranged face used as a finite cutter or physical scope replays in its own
+normalized frame. Independent native copies transform directly into the consuming
+arrangement's frame, retaining source precision without rebuilding nested
+arrangements for each frame. Manual face declarations still recenter before
+native construction to avoid large-coordinate round trips.
 
 Separately, the graph retains successful shared-boundary validation summaries
 across requests. Their fingerprints include exact resolved analytic geometry,
