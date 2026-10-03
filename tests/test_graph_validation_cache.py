@@ -158,6 +158,12 @@ def test_ready_ensure_is_noop_and_explicit_evaluation_reuses_validation(
     assert graph.ensure_current(before["token"], [owner]) == before
     assert snapshots == 1
     snapshots = 0
+    assert graph.evaluate(before["token"], target=owner) == before
+    assert snapshots == 1
+    snapshots = 0
+    assert graph.evaluate(before["token"], all_actions=True) == before
+    assert snapshots == 1
+    snapshots = 0
     needed, current = graph.readiness_status(before["token"], [owner])
     assert not needed and current is not None and current["required_failures"] == []
     assert snapshots == 1
