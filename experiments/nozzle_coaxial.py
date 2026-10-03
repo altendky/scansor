@@ -112,7 +112,10 @@ def fit_group(
             raise ValueError("reference-plane factors must be plane fits")
         if any(len(surface.ids) < 3 for surface in group.surfaces):
             raise ValueError("each reference-plane fit needs at least three vertices")
-        if observations_for_plane.size:
+        if observations_for_plane.construction != "perpendicular_to_axis":
+            assert observations_for_plane.angle_radians is not None
+            initial.append(observations_for_plane.angle_radians)
+        if observations_for_plane.construction != "contains_axis":
             normal = axis_plane_frame(observations_for_plane, seed)[2]
             initial.append(
                 float(
@@ -262,11 +265,12 @@ def fit_group(
             "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
         }
     reference_planes: dict[str, dict[str, object]] = {}
-    for group, equation, basis_u, basis_v, residual in zip(
+    for group, equation, basis_u, basis_v, angle, residual in zip(
         reference_plane_groups,
         fitted.axis_plane_equations,
         fitted.axis_plane_basis_u,
         fitted.axis_plane_basis_v,
+        fitted.axis_plane_angles,
         fitted.axis_plane_residuals,
         strict=True,
     ):
@@ -299,7 +303,7 @@ def fit_group(
             "radial_display": basis_v.tolist(),
             "normal_display": normal.tolist(),
             "plane_equation": equation.tolist(),
-            "angle_degrees": group.angle_degrees,
+            "angle_degrees": None if angle is None else float(np.degrees(angle)),
             "offset": float(equation[3] - normal @ point),
             "construction": group.construction,
         }

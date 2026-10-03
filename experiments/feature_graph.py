@@ -19,6 +19,7 @@ from experiments.feature_reuse import (
     surface_region_frame,
     transformed_fit_seed,
 )
+from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
     FitSelection,
     ReferencePlaneGroup,
@@ -37,11 +38,21 @@ from experiments.selection_region import (
     build_selection_region,
     datum_frame,
 )
-from experiments.surface_extents import circle_intersection, trimmed_face
+from experiments.surface_extents import surface_intersection, trimmed_face
+
+MAX_RECIPE_ACTIONS = 10_000
 
 
 class Record(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+
+class ReusePlacement(Record):
+    """Initialize an occurrence datum from resolved source geometry and its match."""
+
+    reuse: str
+    source: str
+    target_selection: str
 
 
 class Node(Record):
@@ -206,6 +217,7 @@ class AxisDefinition(Node):
     source_points: tuple[str, str] | None = None
     initial_parameters: tuple[float, float, float, float] | None = None
     direction_reversed: bool = False
+    placement: ReusePlacement | None = None
 
     @model_validator(mode="after")
     def exactly_one_initializer(self) -> AxisDefinition:
@@ -309,6 +321,7 @@ class PlaneDefinition(Node):
     ] = "contains_axis"
     initial_angle_degrees: float | None = Field(default=0.0, allow_inf_nan=False)
     offset: float = Field(default=0.0, allow_inf_nan=False)
+    placement: ReusePlacement | None = None
 
     @model_validator(mode="after")
     def construction_parameters(self) -> PlaneDefinition:
@@ -427,7 +440,29 @@ class FaceBoundary(Record):
 class TrimmedFace(Node):
     operation: Literal["trimmed_face"]
     surface: SurfaceReference
-    boundaries: list[FaceBoundary] = Field(min_length=1, max_length=16)
+    boundaries: list[FaceBoundary] = Field(min_length=1)
+    boundary_sources: list[str] = Field(default_factory=list)
+
+
+class RegionSelector(Record):
+    """Reviewed connected cell identity, never a kernel enumeration index."""
+
+    signs: dict[str, Literal["positive", "negative"]]
+    finite_sides: dict[str, list[Literal["positive", "negative"]]] = Field(
+        default_factory=dict
+    )
+    component_count: int = Field(ge=1)
+    witness_chart: list[float] = Field(min_length=2, max_length=2)
+
+
+class ArrangedFace(Node):
+    operation: Literal["arranged_face"]
+    surface: SurfaceReference
+    cutters: list[SurfaceReference] = Field(min_length=1)
+    domains: list[str] = Field(default_factory=list)
+    selector: RegionSelector
+    boundary_sources: list[str] = Field(default_factory=list)
+    finite_boundary_sources: list[str] = Field(default_factory=list)
 
 
 class BuildFaces(Node):
@@ -435,10 +470,26 @@ class BuildFaces(Node):
 
     operation: Literal["build_faces"]
     surfaces: list[SurfaceReference] = Field(min_length=2)
+    target: SurfaceReference | None = None
+    boundary_sources: list[str] = Field(default_factory=list)
     reused_faces: list[str] = Field(default_factory=list)
     reused_intersections: list[str] = Field(default_factory=list)
     adjacencies: list[AdjacencyChoice] = Field(default_factory=list)
     face_scopes: list[FaceScope] = Field(default_factory=list)
+
+
+class Body(Node):
+    """An explicitly selected collection of faces forming one validated solid."""
+
+    operation: Literal["body"]
+    faces: list[str] = Field(min_length=1, max_length=MAX_RECIPE_ACTIONS)
+    sewing_tolerance: float = Field(default=1e-7, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def unique_faces(self) -> Body:
+        if len(set(self.faces)) != len(self.faces):
+            raise ValueError("body face references must be unique")
+        return self
 
 
 Feature = Annotated[
@@ -468,14 +519,16 @@ Feature = Annotated[
     | AxisSolve
     | SurfaceIntersection
     | TrimmedFace
-    | BuildFaces,
+    | ArrangedFace
+    | BuildFaces
+    | Body,
     Field(discriminator="operation"),
 ]
 
 
 class Recipe(Record):
     schema_version: Literal[2] = 2
-    nodes: list[Feature] = Field(min_length=1, max_length=100)
+    nodes: list[Feature] = Field(min_length=1, max_length=MAX_RECIPE_ACTIONS)
     groups: list[FeatureGroup] = Field(default_factory=list, max_length=100)
     output: str
 
@@ -564,9 +617,26 @@ class GraphRequest(Record):
     recipe: Recipe | None = None
     target: str | None = None
     all_actions: bool = False
+    targets: list[str] | None = Field(
+        default=None, min_length=1, max_length=MAX_RECIPE_ACTIONS
+    )
 
 
 def dependencies(node: Feature) -> list[str]:
+    if isinstance(node, Body):
+        return node.faces
+    if isinstance(node, ArrangedFace):
+        return list(
+            dict.fromkeys(
+                [
+                    node.surface.feature,
+                    *(ref.feature for ref in node.cutters),
+                    *node.domains,
+                    *node.boundary_sources,
+                    *([node.managed_by] if node.managed_by else []),
+                ]
+            )
+        )
     if isinstance(node, SurfaceIntersection):
         return list(
             dict.fromkeys(
@@ -583,6 +653,7 @@ def dependencies(node: Feature) -> list[str]:
                 [
                     node.surface.feature,
                     *(b.intersection for b in node.boundaries),
+                    *node.boundary_sources,
                     *([node.managed_by] if node.managed_by else []),
                 ]
             )
@@ -592,6 +663,7 @@ def dependencies(node: Feature) -> list[str]:
             dict.fromkeys(
                 [
                     *(ref.feature for ref in node.surfaces),
+                    *node.boundary_sources,
                     *node.reused_faces,
                     *node.reused_intersections,
                     *(face for scope in node.face_scopes for face in scope.faces),
@@ -631,6 +703,12 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, JointFit):
         return node.constraints
     if isinstance(node, AxisDefinition):
+        if node.placement is not None:
+            return [
+                node.placement.reuse,
+                node.placement.source,
+                node.placement.target_selection,
+            ]
         if node.source_fit is not None:
             return [node.source_fit]
         return list(node.source_points or ())
@@ -660,7 +738,18 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, TransformDefinition):
         return [node.frame, node.scale]
     if isinstance(node, PlaneDefinition):
-        return [node.axis]
+        return [
+            node.axis,
+            *(
+                [
+                    node.placement.reuse,
+                    node.placement.source,
+                    node.placement.target_selection,
+                ]
+                if node.placement
+                else []
+            ),
+        ]
     if isinstance(node, MirrorSymmetry):
         return [node.plane, *node.surfaces]
     if isinstance(node, ParallelToPlane):
@@ -752,7 +841,7 @@ def validate_face_review_references(
             raise ValueError("duplicate face in physical scope")
         for face_id in scope.faces:
             face = nodes.get(face_id)
-            if not isinstance(face, TrimmedFace):
+            if not isinstance(face, (TrimmedFace, ArrangedFace)):
                 raise ValueError(
                     "physical scope must reference an existing trimmed face"
                 )
@@ -1036,7 +1125,12 @@ def compile_execution_plan(
             providers.setdefault(plane.id, set()).update(relation_ids)
 
     for node in recipe.nodes:
-        if isinstance(node, (FrameDefinition, ScaleDefinition, TransformDefinition)):
+        if (
+            isinstance(node, (AxisDefinition, PlaneDefinition))
+            and node.placement is not None
+        ):
+            reads[node.id] = {node.placement.source}
+        elif isinstance(node, (FrameDefinition, ScaleDefinition, TransformDefinition)):
             reads[node.id] = set(dependencies(node))
         elif isinstance(node, AxisDefinition) and node.source_points is not None:
             reads[node.id] = set(node.source_points)
@@ -1059,6 +1153,11 @@ def compile_execution_plan(
             reads[node.id] = {node.first.feature, node.second.feature}
         elif isinstance(node, TrimmedFace):
             reads[node.id] = {node.surface.feature}
+        elif isinstance(node, ArrangedFace):
+            reads[node.id] = {
+                node.surface.feature,
+                *(ref.feature for ref in node.cutters),
+            }
         elif isinstance(node, BuildFaces):
             reads[node.id] = {reference.feature for reference in node.surfaces}
         elif isinstance(node, AxisSolve):
@@ -1256,6 +1355,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
         ParallelToPlane,
         EqualQuantities,
         EqualRadii,
+        PlaneRelationship,
         AxisSolve,
     )
 
@@ -1458,6 +1558,18 @@ def directed_axis_result(
         "point_display": point.tolist(),
         "direction_reversed": node.direction_reversed,
     }
+
+
+def initialized_axis(node: AxisDefinition, result: dict[str, Any]) -> AxisDefinition:
+    if node.placement is not None and "direction_reversed" in result:
+        return node.model_copy(
+            update={"direction_reversed": result["direction_reversed"]}
+        )
+    return node
+
+
+def initialized_plane(node: PlaneDefinition, result: dict[str, Any]) -> PlaneDefinition:
+    return node.model_copy(update=result.get("reuse_initializer", {}))
 
 
 def reference_plane_result(
@@ -2070,6 +2182,15 @@ def constrained_mirror_radii(
     return tuple(radius_sources)
 
 
+@dataclass
+class SharedBoundaryInputs:
+    face_ids: list[str]
+    faces: list[dict[str, Any]]
+    target: dict[str, Any]
+    sources: list[dict[str, Any]]
+    geometry: dict[str, Any]
+
+
 @final
 class FeatureGraph:
     def __init__(self, workspace: NozzleWorkspace, recipe: Recipe) -> None:
@@ -2088,6 +2209,10 @@ class FeatureGraph:
         self._errors: dict[str, str] = {}
         self._diagnostics: dict[str, dict[str, Any]] = {}
         self._epoch = 0  # In-flight invalidation only; no retained previous states.
+        # One lightweight successful validation per task; no retained BReps.
+        self._validation_reviews: dict[
+            tuple[str, bool], tuple[str, dict[str, Any]]
+        ] = {}
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
@@ -2107,6 +2232,81 @@ class FeatureGraph:
                     )
             seen.add(node.id)
         for node in nodes.values():
+            if (
+                isinstance(node, (AxisDefinition, PlaneDefinition))
+                and node.placement is not None
+            ):
+                placement = node.placement
+                reuse = nodes[placement.reuse]
+                source = nodes[placement.source]
+                if (
+                    not isinstance(reuse, FeatureReuse)
+                    or placement.target_selection not in reuse.target_selections
+                ):
+                    raise ValueError("datum placement requires a declared reuse target")
+                if type(source) is not type(node) or source.id not in reuse.lineage:
+                    raise ValueError(
+                        "datum placement requires a same-kind source in the reuse lineage"
+                    )
+                if node.managed_by != reuse.id:
+                    raise ValueError("placed datums must belong to their reuse action")
+                if isinstance(node, AxisDefinition) and (
+                    node.initial_parameters is None
+                    or node.source_fit is not None
+                    or node.source_points is not None
+                ):
+                    raise ValueError(
+                        "match placement currently initializes manually declared free axes"
+                    )
+                if (
+                    isinstance(node, PlaneDefinition)
+                    and node.construction != cast(PlaneDefinition, source).construction
+                ):
+                    raise ValueError(
+                        "placed planes must retain their source construction"
+                    )
+            if isinstance(node, (TrimmedFace, ArrangedFace, BuildFaces)):
+                if isinstance(node, ArrangedFace) and (
+                    len(set(node.finite_boundary_sources))
+                    != len(node.finite_boundary_sources)
+                    or not set(node.finite_boundary_sources)
+                    <= set(node.boundary_sources)
+                ):
+                    raise ValueError(
+                        "finite cutter sources must be unique approved boundary sources"
+                    )
+                if len(set(node.boundary_sources)) != len(node.boundary_sources):
+                    raise ValueError("approved boundary source faces must be unique")
+                target = node.target if isinstance(node, BuildFaces) else node.surface
+                if node.boundary_sources and target is None:
+                    raise ValueError(
+                        "approved boundary sources require a guided target"
+                    )
+                for source_id in node.boundary_sources:
+                    source_face = nodes[source_id]
+                    if not isinstance(source_face, (TrimmedFace, ArrangedFace)):
+                        raise ValueError(
+                            "approved boundary sources must reference faces"
+                        )
+                    if source_face.surface == target:
+                        raise ValueError(
+                            "approved boundary source must be an adjoining surface, not the target"
+                        )
+                    if (
+                        isinstance(node, ArrangedFace)
+                        and source_id in node.finite_boundary_sources
+                        and source_face.surface not in node.cutters
+                    ):
+                        raise ValueError(
+                            "finite cutter source must belong to a selected cutter"
+                        )
+                    if (
+                        isinstance(node, BuildFaces)
+                        and source_face.surface not in node.surfaces
+                    ):
+                        raise ValueError(
+                            "approved boundary source must belong to a selected neighbor"
+                        )
             if isinstance(node, Source):
                 if (
                     node.source_sha256 != self.workspace.default.source_sha256
@@ -2174,10 +2374,41 @@ class FeatureGraph:
                     surface_reference_kind(ref, nodes)
                     for ref in (node.first, node.second)
                 ]
-                if sorted(kinds) not in (["cylinder", "plane"], ["cone", "plane"]):
+                if sorted(kinds) not in (
+                    ["cylinder", "plane"],
+                    ["cone", "plane"],
+                    ["plane", "plane"],
+                ):
                     raise ValueError(
-                        "circular extents require a plane and cylinder or cone"
+                        "boundaries require two planes, or a plane and cylinder or cone"
                     )
+            elif isinstance(node, ArrangedFace):
+                references = [node.surface, *node.cutters]
+                if len({ref.model_dump_json() for ref in references}) != len(
+                    references
+                ):
+                    raise ValueError(
+                        "arrangement surface and cutter references must be unique"
+                    )
+                if any(
+                    surface_reference_kind(ref, nodes)
+                    not in ("plane", "cylinder", "cone")
+                    for ref in references
+                ):
+                    raise ValueError("arrangements require planes, cylinders, or cones")
+                if len(set(node.domains)) != len(node.domains):
+                    raise ValueError("arrangement domain faces must be unique")
+                for domain_id in node.domains:
+                    domain = nodes[domain_id]
+                    if (
+                        not isinstance(domain, (TrimmedFace, ArrangedFace))
+                        or domain.surface != node.surface
+                    ):
+                        raise ValueError(
+                            "arrangement domains must be faces in the same exact surface context"
+                        )
+                if not np.isfinite(node.selector.witness_chart).all():
+                    raise ValueError("arrangement witness must be finite")
             elif isinstance(node, TrimmedFace):
                 kind = surface_reference_kind(node.surface, nodes)
                 if len({b.intersection for b in node.boundaries}) != len(
@@ -2197,13 +2428,35 @@ class FeatureGraph:
                     choices = (
                         ("inside", "outside")
                         if kind == "plane"
+                        and all(
+                            surface_reference_kind(ref, nodes) != "plane"
+                            for ref in (edge.first, edge.second)
+                            if ref != node.surface
+                        )
                         else ("positive", "negative")
                     )
                     if boundary.keep not in choices:
                         raise ValueError(
                             "face boundary keep choice does not match surface kind"
                         )
+            elif isinstance(node, Body):
+                if any(
+                    not isinstance(nodes[face_id], (TrimmedFace, ArrangedFace))
+                    for face_id in node.faces
+                ):
+                    raise ValueError("body inputs must be physical face actions")
+                if node.managed_by is not None:
+                    raise ValueError("bodies cannot be managed face outputs")
             elif isinstance(node, BuildFaces):
+                if node.target is not None and node.target not in node.surfaces:
+                    raise ValueError("guided face target must be a selected surface")
+                if node.target is not None and any(
+                    node.target not in (choice.first, choice.second)
+                    for choice in node.adjacencies
+                ):
+                    raise ValueError(
+                        "guided adjacency choices must involve the target surface"
+                    )
                 validate_face_review_references(
                     node.surfaces, node.adjacencies, node.face_scopes, nodes
                 )
@@ -2220,7 +2473,7 @@ class FeatureGraph:
                             "build faces currently supports planes, cylinders, and cones"
                         )
                 for ref, kind in [
-                    *((ref, TrimmedFace) for ref in node.reused_faces),
+                    *((ref, (TrimmedFace, ArrangedFace)) for ref in node.reused_faces),
                     *((ref, SurfaceIntersection) for ref in node.reused_intersections),
                 ]:
                     if (
@@ -2622,6 +2875,14 @@ class FeatureGraph:
                 mirror_factors = [
                     factor for factor in factors if isinstance(factor, MirrorSymmetry)
                 ]
+                if {
+                    factor.reference_plane
+                    for factor in typed_factors
+                    if factor.reference_plane is not None
+                } & {factor.plane for factor in mirror_factors}:
+                    raise ValueError(
+                        "a joint cannot yet share one clocking plane between mirror and reference-bound fit factors"
+                    )
                 if len({factor.plane for factor in mirror_factors}) != len(
                     mirror_factors
                 ):
@@ -2688,7 +2949,8 @@ class FeatureGraph:
                 axis = deepcopy(self._derived.get(axis_id, {}))
                 axis.update(
                     directed_axis_result(
-                        axis_node, parameters=solve["fit"]["parameters"]
+                        initialized_axis(axis_node, axis),
+                        parameters=solve["fit"]["parameters"],
                     )
                 )
                 axis["resolved_by"] = "connected_fits"
@@ -2701,7 +2963,10 @@ class FeatureGraph:
                     if isinstance(node, PlaneDefinition) and node.axis == axis_id:
                         resolved[node.id] = deepcopy(
                             solved_planes.get(node.id)
-                            or reference_plane_result(axis, node)
+                            or reference_plane_result(
+                                axis,
+                                initialized_plane(node, self._derived.get(node.id, {})),
+                            )
                         )
             for point_id, solve in self._connected_point_solves.items():
                 point = deepcopy(self._derived.get(point_id, {}))
@@ -2900,10 +3165,287 @@ class FeatureGraph:
             }
             self._recipe = recipe
             self._epoch += 1
+            self._validation_reviews = {
+                key: value
+                for key, value in self._validation_reviews.items()
+                if key[0] in after_nodes and key[0] not in affected
+            }
             return self.snapshot()
 
+    @staticmethod
+    def _review_signature(inputs: SharedBoundaryInputs, complete: bool) -> str:
+        from experiments.surface_primitives import primitive
+
+        def geometry_record(record: dict[str, Any]) -> dict[str, Any]:
+            # Validation output must not become its own input dependency.
+            return {
+                key: value
+                for key, value in record.items()
+                if key != "shared_boundary_review"
+            }
+
+        value = {
+            "face_ids": inputs.face_ids,
+            "faces": [geometry_record(record) for record in inputs.faces],
+            "target": inputs.target,
+            "sources": [
+                {**source, "record": geometry_record(source["record"])}
+                for source in inputs.sources
+            ],
+            # Strip numerical diagnostics/residuals by using the exact analytic
+            # primitive consumed by the kernel, without rounding coordinates.
+            "geometry": inputs.geometry
+            if "axis" in inputs.geometry
+            else primitive(inputs.geometry),
+            "require_complete": complete,
+        }
+        return hashlib.sha256(
+            json.dumps(
+                value, sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode()
+        ).hexdigest()
+
+    def _shared_boundary_review(
+        self, task_id: str, epoch: int, inputs: SharedBoundaryInputs, complete: bool
+    ) -> dict[str, Any]:
+        signature = self._review_signature(inputs, complete)
+        key = (task_id, complete)
+        with self.lock:
+            if epoch != self._epoch:
+                raise StaleGraph("graph changed during shared-boundary review")
+            cached = self._validation_reviews.get(key)
+            if cached is not None and cached[0] == signature:
+                return deepcopy(cached[1])
+        from experiments.shared_face_boundaries import check_shared_boundaries
+
+        review = check_shared_boundaries(
+            inputs.faces,
+            inputs.target,
+            inputs.sources,
+            inputs.geometry,
+            require_complete=complete,
+        )
+        with self.lock:
+            if epoch != self._epoch:
+                raise StaleGraph("graph changed during shared-boundary review")
+            self._validation_reviews[key] = (signature, deepcopy(review))
+        return review
+
+    @staticmethod
+    def _owner_review_inputs(
+        owner: BuildFaces, snapshot: dict[str, Any], nodes: dict[str, Feature]
+    ) -> SharedBoundaryInputs:
+        assert owner.target is not None
+        faces = list(
+            dict.fromkeys(
+                [
+                    *owner.reused_faces,
+                    *(
+                        node.id
+                        for node in nodes.values()
+                        if node.managed_by == owner.id
+                        and isinstance(node, (TrimmedFace, ArrangedFace))
+                    ),
+                ]
+            )
+        )
+        raw = snapshot["results"][owner.target.feature]
+        geometry = (
+            raw
+            if owner.target.surface is None
+            else raw["surfaces"][owner.target.surface]
+        )
+        return SharedBoundaryInputs(
+            faces,
+            [snapshot["results"][key] for key in faces],
+            owner.target.model_dump(),
+            FeatureGraph._boundary_review_sources(
+                snapshot, nodes, owner.boundary_sources
+            ),
+            geometry,
+        )
+
+    @staticmethod
+    def _boundary_review_sources(
+        snapshot: dict[str, Any], nodes: dict[str, Feature], face_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+        for face_id in face_ids:
+            node = nodes[face_id]
+            assert isinstance(node, (TrimmedFace, ArrangedFace))
+            sources.append(
+                {
+                    "id": face_id,
+                    "record": snapshot["results"][face_id],
+                    "boundary_uses": [
+                        {
+                            "intersection": snapshot["results"][boundary.intersection],
+                            "keep": boundary.keep,
+                        }
+                        for boundary in node.boundaries
+                    ]
+                    if isinstance(node, TrimmedFace)
+                    else [],
+                }
+            )
+        return sources
+
+    def evaluation_roots(
+        self, token: str, targets: list[str] | None, all_actions: bool
+    ) -> frozenset[str]:
+        """Canonical request identity without building a geometry snapshot."""
+        with self.lock:
+            if token != self._token():
+                raise StaleGraph("graph changed before evaluation")
+            nodes = {node.id for node in self._recipe.nodes}
+            if all_actions and targets is not None:
+                raise ValueError("ensure all cannot also specify targets")
+            roots = (
+                nodes
+                if all_actions
+                else set([self._recipe.output] if targets is None else targets)
+            )
+            if not roots or not roots <= nodes:
+                raise ValueError("evaluation targets must name existing actions")
+            return frozenset(roots)
+
+    def _ensure_plan(
+        self, token: str, targets: list[str] | None, all_actions: bool
+    ) -> ExecutionPlan:
+        roots = set(self.evaluation_roots(token, targets, all_actions))
+        nodes = {node.id: node for node in self._recipe.nodes}
+        return compile_execution_plan(
+            self._recipe,
+            roots,
+            automatic_axis_components(nodes),
+            automatic_point_components(nodes),
+            automatic_plane_relationship_components(nodes),
+        )
+
+    def readiness_snapshot(
+        self, token: str, targets: list[str] | None = None, all_actions: bool = False
+    ) -> dict[str, object]:
+        """Report failures in the requested closure, including managed children."""
+        with self.lock:
+            plan = self._ensure_plan(token, targets, all_actions)
+            return {
+                **self.snapshot(),
+                "required_failures": [
+                    key
+                    for key in plan.order
+                    if self._states.get(key) in {"failed", "blocked"}
+                ],
+            }
+
+    def needs_evaluation(
+        self, token: str, targets: list[str] | None = None, all_actions: bool = False
+    ) -> bool:
+        """Check requested outputs, geometry providers and validation together."""
+        return self._readiness(token, targets, all_actions)[0]
+
+    def readiness_status(
+        self, token: str, targets: list[str] | None = None, all_actions: bool = False
+    ) -> tuple[bool, dict[str, object] | None]:
+        """Reuse the inspected snapshot when returning settled outputs."""
+        with self.lock:
+            needed, snapshot = self._readiness(token, targets, all_actions)
+            if needed:
+                return True, None
+            plan = self._ensure_plan(token, targets, all_actions)
+            return False, {
+                **(snapshot if snapshot is not None else self.snapshot()),
+                "required_failures": [
+                    key
+                    for key in plan.order
+                    if self._states.get(key) in {"failed", "blocked"}
+                ],
+            }
+
+    def _readiness(
+        self, token: str, targets: list[str] | None, all_actions: bool
+    ) -> tuple[bool, dict[str, Any] | None]:
+        with self.lock:
+            plan = self._ensure_plan(token, targets, all_actions)
+            nodes = {node.id: node for node in self._recipe.nodes}
+            if any(
+                self._states[key] not in {"ready", "failed", "blocked"}
+                for key in plan.order
+                if key in nodes
+            ):
+                return True, None
+            for task, (kind, identifier) in plan.solves.items():
+                if task not in plan.order:
+                    continue
+                members = plan.aliases[task]
+                if any(self._states[key] in {"failed", "blocked"} for key in members):
+                    continue
+                if kind == "axis" and identifier not in self._connected_solves:
+                    return True, None
+                if kind == "point" and identifier not in self._connected_point_solves:
+                    return True, None
+            if any(axis in self._connected_solves for axis in plan.explicit_axes):
+                return True, None
+            snapshot: dict[str, Any] | None = None
+            for key in plan.order:
+                node = nodes.get(key)
+                if (
+                    not isinstance(node, BuildFaces)
+                    or not node.boundary_sources
+                    or node.target is None
+                    or self._states[key] != "ready"
+                ):
+                    continue
+                if snapshot is None:
+                    snapshot = cast(dict[str, Any], self.snapshot())
+                faces = [
+                    *node.reused_faces,
+                    *(
+                        child.id
+                        for child in nodes.values()
+                        if child.managed_by == key
+                        and isinstance(child, (TrimmedFace, ArrangedFace))
+                    ),
+                ]
+                if any(self._states[face] in {"failed", "blocked"} for face in faces):
+                    continue
+                try:
+                    inputs = self._owner_review_inputs(node, snapshot, nodes)
+                except KeyError:
+                    return True, None
+                if any(self._states[face] != "ready" for face in inputs.face_ids):
+                    continue
+                cached = self._validation_reviews.get((key, True))
+                if (
+                    not self._derived[key]
+                    .get("shared_boundary_review", {})
+                    .get("complete")
+                    or cached is None
+                    or cached[0] != self._review_signature(inputs, True)
+                ):
+                    return True, None
+            return False, snapshot
+
+    def ensure_current(
+        self, token: str, targets: list[str] | None = None, all_actions: bool = False
+    ) -> dict[str, object]:
+        """Reuse current results; unchanged failures require an explicit retry."""
+        with self.lock:
+            needed, snapshot = self._readiness(token, targets, all_actions)
+            if not needed:
+                return snapshot if snapshot is not None else self.snapshot()
+        return self.evaluate(
+            token, all_actions=all_actions, targets=targets, retry_failed=False
+        )
+
+    @native_replay_scope()
     def evaluate(
-        self, token: str, target: str | None = None, all_actions: bool = False
+        self,
+        token: str,
+        target: str | None = None,
+        all_actions: bool = False,
+        *,
+        targets: list[str] | None = None,
+        retry_failed: bool = True,
     ) -> dict[str, object]:
         with self.lock:
             if token != self._token():
@@ -2915,7 +3457,15 @@ class FeatureGraph:
             plane_relationship_components = automatic_plane_relationship_components(
                 nodes
             )
-            if all_actions:
+            if targets is not None:
+                if target is not None or all_actions:
+                    raise ValueError(
+                        "evaluation targets cannot also specify a target or all actions"
+                    )
+                roots = set(targets)
+                if not roots or not roots <= nodes.keys():
+                    raise ValueError("evaluation targets must name existing actions")
+            elif all_actions:
                 if target is not None:
                     raise ValueError("evaluate all cannot also specify a target")
                 roots = set(nodes)
@@ -2944,11 +3494,13 @@ class FeatureGraph:
                         PlaneRelationship,
                         SurfaceIntersection,
                         TrimmedFace,
+                        ArrangedFace,
                         BuildFaces,
+                        Body,
                     ),
                 ):
                     raise ValueError(
-                        "evaluation target must be a source, selection, reuse, region, fit, point, axis, plane, frame, scale, transform, solve, or growth action"
+                        "evaluation target must be a source, selection, reuse, region, fit, point, axis, plane, frame, scale, transform, solve, face, body, or growth action"
                     )
                 roots = {target}
             plan = compile_execution_plan(
@@ -2974,6 +3526,28 @@ class FeatureGraph:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during evaluation")
                 return deepcopy(self._derived[node_id])
+
+        def boundary_source_records(face_ids: list[str]) -> list[dict[str, Any]]:
+            sources: list[dict[str, Any]] = []
+            for source_id in face_ids:
+                source_face = nodes[source_id]
+                assert isinstance(source_face, (TrimmedFace, ArrangedFace))
+                sources.append(
+                    {
+                        "id": source_id,
+                        "record": derived_result(source_id),
+                        "boundary_uses": [
+                            {
+                                "intersection": derived_result(boundary.intersection),
+                                "keep": boundary.keep,
+                            }
+                            for boundary in source_face.boundaries
+                        ]
+                        if isinstance(source_face, TrimmedFace)
+                        else [],
+                    }
+                )
+            return sources
 
         def resolved_result(
             node_id: str, excluded: set[str] | None = None
@@ -3004,7 +3578,8 @@ class FeatureGraph:
                 if solve is not None and isinstance(node, AxisDefinition):
                     value.update(
                         directed_axis_result(
-                            node, parameters=solve["fit"]["parameters"]
+                            initialized_axis(node, value),
+                            parameters=solve["fit"]["parameters"],
                         )
                     )
                     value["resolved_by"] = "connected_fits"
@@ -3016,11 +3591,15 @@ class FeatureGraph:
                         axis_value = deepcopy(self._derived[node.axis])
                         axis_value.update(
                             directed_axis_result(
-                                cast(AxisDefinition, nodes[node.axis]),
+                                initialized_axis(
+                                    cast(AxisDefinition, nodes[node.axis]), axis_value
+                                ),
                                 parameters=solve["fit"]["parameters"],
                             )
                         )
-                        value = reference_plane_result(axis_value, node)
+                        value = reference_plane_result(
+                            axis_value, initialized_plane(node, value)
+                        )
                 elif solve is not None and isinstance(node, SurfaceFit):
                     surface = solve.get("surfaces", {}).get(node_id)
                     if surface is not None:
@@ -3097,6 +3676,30 @@ class FeatureGraph:
             if conflicts:
                 raise SelectionOverlap(conflicts)
 
+        def solver_plane_phase(reference_id: str) -> float | None:
+            plane = initialized_plane(
+                cast(PlaneDefinition, nodes[reference_id]), derived_result(reference_id)
+            )
+            axis = derived_result(plane.axis)
+            if (
+                not axis.get("direction_reversed")
+                or plane.initial_angle_degrees is None
+            ):
+                return plane.initial_angle_degrees
+            # Solver charts use positive Z; datum frames retain directed axes.
+            from experiments.feature_reuse import transformed_plane_initial
+
+            parameters = axis["parameters"]
+            direction = np.asarray([parameters[2], parameters[3], 1.0])
+            direction /= np.linalg.norm(direction)
+            initializer = transformed_plane_initial(
+                derived_result(reference_id),
+                np.eye(3),
+                np.zeros(3),
+                {**axis, "axis_display": direction.tolist()},
+            )
+            return initializer["initial_angle_degrees"]
+
         def solve_connected_axis(
             axis_id: str, fitted_factors: list[SurfaceFit]
         ) -> SessionFit:
@@ -3125,7 +3728,7 @@ class FeatureGraph:
                     reference_id,
                     tuple(selected(factor) for factor in group),
                     cast(PlaneDefinition, nodes[reference_id]).construction,
-                    cast(PlaneDefinition, nodes[reference_id]).initial_angle_degrees,
+                    solver_plane_phase(reference_id),
                 )
                 for reference_id, group in referenced_plane_factors.items()
             )
@@ -3196,8 +3799,12 @@ class FeatureGraph:
                             self._states[task] = "stale"
                         _ = self._derived.pop(task, None)
                         _ = self._results.pop(task, None)
-                        _ = self._errors.pop(task, None)
-                        _ = self._diagnostics.pop(task, None)
+                        # A later independent provider can invalidate these
+                        # same consumers. Keep failure provenance until their
+                        # own task succeeds or their recipe inputs are edited.
+                        if self._states[task] not in {"failed", "blocked"}:
+                            _ = self._errors.pop(task, None)
+                            _ = self._diagnostics.pop(task, None)
                     elif task in plan.solves:
                         kind, identifier = plan.solves[task]
                         if kind == "axis":
@@ -3286,7 +3893,112 @@ class FeatureGraph:
                     invalidate_resolved_consumers(outputs, set())
                     _ = self._connected_solves.pop(axis, None)
         prior_surfaces: dict[str, dict[str, dict[str, Any]]] = {}
+        # Native cells are shared only within this evaluation epoch. Multiple
+        # reviewed patches on one carrier must not repeat the same split.
+        arrangements: dict[str, Any] = {}
+        failures: dict[str, set[str]] = {}
+        evaluation_errors: list[Exception] = []
+
+        def note_failure(task: str, error: Exception, causes: set[str]) -> None:
+            """Keep independent branches running; discard dependent geometry."""
+            if isinstance(error, StaleGraph):
+                raise error
+            evaluation_errors.append(error)
+            failures[task] = set(causes)
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during evaluation")
+                for cause in causes:
+                    if self._states.get(cause) == "failed":
+                        failures.setdefault(cause, set()).update(causes)
+                        _ = self._derived.pop(cause, None)
+                        _ = self._results.pop(cause, None)
+                        _ = self._connected_solves.pop(cause, None)
+                        _ = self._connected_point_solves.pop(cause, None)
+                changed = True
+                while changed:
+                    changed = False
+                    for dependent, prerequisites in plan.dependencies.items():
+                        blocked_by = set().union(
+                            *(failures[ref] for ref in prerequisites if ref in failures)
+                        )
+                        if not blocked_by or blocked_by <= failures.get(
+                            dependent, set()
+                        ):
+                            continue
+                        failures.setdefault(dependent, set()).update(blocked_by)
+                        changed = True
+                        names = [
+                            node.label for node in recipe.nodes if node.id in blocked_by
+                        ]
+                        message = "Blocked by " + ", ".join(names or [str(error)])
+                        affected = plan.aliases.get(dependent, set()) | (
+                            {dependent} if dependent in nodes else set()
+                        )
+                        for affected_id in affected:
+                            # A real failure takes precedence over a downstream
+                            # blocked state, including aliases of failed solves.
+                            if (
+                                affected_id in blocked_by
+                                and self._states[affected_id] == "failed"
+                            ):
+                                continue
+                            self._states[affected_id] = "blocked"
+                            self._errors[affected_id] = message
+                            self._diagnostics[affected_id] = {
+                                "blocked_by": [
+                                    node.id
+                                    for node in recipe.nodes
+                                    if node.id in blocked_by
+                                ]
+                            }
+                            _ = self._derived.pop(affected_id, None)
+                            _ = self._results.pop(affected_id, None)
+                            _ = self._connected_solves.pop(affected_id, None)
+                            _ = self._connected_point_solves.pop(affected_id, None)
+
+        if not retry_failed:
+            # Preserve failed/blocked results until an explicit retry or edit;
+            # still execute independent stale branches in the requested plan.
+            for key in order:
+                if key in nodes and self._states[key] == "failed":
+                    note_failure(
+                        key,
+                        ValueError(self._errors.get(key, "evaluation failed")),
+                        {key},
+                    )
+            # Synthetic providers do not depend on their own published aliases.
+            # Their failure identities must therefore be seeded explicitly.
+            for task in order:
+                failed_outputs = (
+                    plan.aliases.get(task, set())
+                    if task in plan.solves
+                    else {
+                        consumer.id
+                        for consumer in recipe.nodes
+                        if isinstance(consumer, ReuseSelection)
+                        and task in plan.dependencies[consumer.id]
+                    }
+                    if task in plan.prior_solves
+                    else set()
+                ) & failures.keys()
+                if failed_outputs:
+                    causes = set().union(*(failures[key] for key in failed_outputs))
+                    note_failure(
+                        task,
+                        ValueError(
+                            self._errors.get(next(iter(causes)), "evaluation failed")
+                        ),
+                        causes,
+                    )
+
         for key in order:
+            if key in failures:
+                continue
+            if isinstance(nodes.get(key), Body):
+                # Face owners are reviewed after all generated children. Bodies
+                # must not observe provisional faces before that final review.
+                continue
             if key in plan.prior_solves:
                 stage = plan.prior_solves[key]
                 try:
@@ -3304,6 +4016,9 @@ class FeatureGraph:
                             self.workspace, stage.planes, stage.surfaces, inputs, ids
                         )
                 except Exception as error:
+                    if isinstance(error, StaleGraph):
+                        raise
+                    failed_consumers: set[str] = set()
                     with self.lock:
                         if epoch == self._epoch:
                             for consumer in recipe.nodes:
@@ -3315,11 +4030,27 @@ class FeatureGraph:
                                     self._errors[consumer.id] = (
                                         f"prior source geometry: {error}"
                                     )
-                    raise
+                                    failed_consumers.add(consumer.id)
+                    note_failure(key, error, failed_consumers)
+                    continue
                 prior_surfaces.setdefault(stage.reuse, {}).update(prior["surfaces"])
                 continue
             if key in plan.solves:
-                resolve_component(key)
+                try:
+                    resolve_component(key)
+                except Exception as error:
+                    kind, identifier = plan.solves[key]
+                    causes = (
+                        connected_components[identifier][1]
+                        if kind == "axis"
+                        else point_components[identifier][1]
+                        if kind == "point"
+                        else {
+                            relation.id
+                            for relation in plane_relationship_components[identifier][0]
+                        }
+                    )
+                    note_failure(key, error, causes)
                 continue
             node = nodes[key]
             with self.lock:
@@ -3334,12 +4065,74 @@ class FeatureGraph:
                 result = None
                 derived = None
                 if isinstance(node, SurfaceIntersection):
-                    derived = circle_intersection(
+                    derived = surface_intersection(
                         referenced_surface(node.first), referenced_surface(node.second)
                     )
                     derived.update(
                         first=node.first.model_dump(), second=node.second.model_dump()
                     )
+                elif isinstance(node, ArrangedFace):
+                    from experiments.face_arrangement import prepare_faces
+                    from experiments.face_proposals import reference_key
+
+                    surface = referenced_surface(node.surface)
+                    cutters: list[dict[str, Any]] = [
+                        {
+                            "key": reference_key(ref.model_dump()),
+                            "geometry": referenced_surface(ref),
+                            **(
+                                {
+                                    "face_domains": [
+                                        derived_result(source_id)
+                                        for source_id in node.finite_boundary_sources
+                                        if cast(
+                                            TrimmedFace | ArrangedFace, nodes[source_id]
+                                        ).surface
+                                        == ref
+                                    ]
+                                }
+                                if any(
+                                    cast(
+                                        TrimmedFace | ArrangedFace, nodes[source_id]
+                                    ).surface
+                                    == ref
+                                    for source_id in node.finite_boundary_sources
+                                )
+                                else {}
+                            ),
+                        }
+                        for ref in node.cutters
+                    ]
+                    domains = [
+                        derived_result(face_id) for face_id in node.domains
+                    ] or None
+                    intent_key = json.dumps(
+                        [node.surface.model_dump(), surface, cutters, domains],
+                        sort_keys=True,
+                        allow_nan=False,
+                    )
+                    if intent_key not in arrangements:
+                        arrangements[intent_key] = prepare_faces(
+                            surface,
+                            cutters,
+                            domains=domains,
+                            observations=self.workspace.local[surface.get("ids", [])],
+                            coverage=np.concatenate(
+                                [
+                                    self.workspace.local[surface.get("ids", [])],
+                                    *(
+                                        self.workspace.local[
+                                            cutter["geometry"].get("ids", [])
+                                        ]
+                                        for cutter in cutters
+                                    ),
+                                ]
+                            ),
+                        )
+                    derived = arrangements[intent_key].select(
+                        node.selector.model_dump()
+                    )
+                    derived["surface"] = node.surface.model_dump()
                 elif isinstance(node, TrimmedFace):
                     surface = referenced_surface(node.surface)
                     derived = trimmed_face(
@@ -3357,6 +4150,10 @@ class FeatureGraph:
                 elif isinstance(node, BuildFaces):
                     derived = {
                         "kind": "build_faces",
+                        "target": node.target.model_dump()
+                        if node.target is not None
+                        else None,
+                        "boundary_sources": node.boundary_sources,
                         "surface_references": [
                             ref.model_dump() for ref in node.surfaces
                         ],
@@ -3364,7 +4161,7 @@ class FeatureGraph:
                             child.id
                             for child in recipe.nodes
                             if child.managed_by == node.id
-                            and isinstance(child, TrimmedFace)
+                            and isinstance(child, (TrimmedFace, ArrangedFace))
                         ],
                         "generated_intersections": [
                             child.id
@@ -3473,7 +4270,25 @@ class FeatureGraph:
                                 parameters[5],
                             ]
                 elif isinstance(node, AxisDefinition):
-                    if node.source_fit is not None:
+                    if node.placement is not None:
+                        from experiments.feature_reuse import transformed_axis_initial
+
+                        placement = node.placement
+                        match = derived_result(placement.reuse)["matches"][
+                            placement.target_selection
+                        ]
+                        parameters, reversed_direction = transformed_axis_initial(
+                            resolved_result(placement.source),
+                            np.asarray(match["rotation"], dtype=float),
+                            np.asarray(match["translation"], dtype=float),
+                        )
+                        derived = directed_axis_result(
+                            node.model_copy(
+                                update={"direction_reversed": reversed_direction}
+                            ),
+                            parameters=[*parameters, 0.0, 0.0, 0.0],
+                        )
+                    elif node.source_fit is not None:
                         source = derived_result(node.source_fit)
                         parameters = list(source["parameters"])
                         derived = directed_axis_result(node, parameters=parameters)
@@ -3522,7 +4337,30 @@ class FeatureGraph:
                         resolved_result(node.scale),
                     )
                 elif isinstance(node, PlaneDefinition):
-                    derived = reference_plane_result(derived_result(node.axis), node)
+                    axis_result = derived_result(node.axis)
+                    initializer = {}
+                    if node.placement is not None:
+                        from experiments.feature_reuse import transformed_plane_initial
+
+                        placement = node.placement
+                        match = derived_result(placement.reuse)["matches"][
+                            placement.target_selection
+                        ]
+                        initializer = transformed_plane_initial(
+                            resolved_result(placement.source),
+                            np.asarray(match["rotation"], dtype=float),
+                            np.asarray(match["translation"], dtype=float),
+                            axis_result,
+                            refine_axis=cast(
+                                AxisDefinition, nodes[node.axis]
+                            ).source_fit
+                            is not None,
+                        )
+                    derived = reference_plane_result(
+                        axis_result, node.model_copy(update=initializer)
+                    )
+                    if initializer:
+                        derived["reuse_initializer"] = initializer
                 elif isinstance(node, Growth):
                     fitted = nodes[node.seed_fit]
                     assert isinstance(fitted, SurfaceFit)
@@ -3750,9 +4588,7 @@ class FeatureGraph:
                             reference_id,
                             tuple(selected(factor) for factor in group),
                             cast(PlaneDefinition, nodes[reference_id]).construction,
-                            cast(
-                                PlaneDefinition, nodes[reference_id]
-                            ).initial_angle_degrees,
+                            solver_plane_phase(reference_id),
                         )
                         for reference_id, group in referenced_plane_factors.items()
                     )
@@ -3774,9 +4610,7 @@ class FeatureGraph:
                             np.radians(
                                 cast(
                                     float,
-                                    cast(
-                                        PlaneDefinition, nodes[mirror.plane]
-                                    ).initial_angle_degrees,
+                                    solver_plane_phase(mirror.plane),
                                 )
                             )
                             for mirror in mirrors
@@ -3863,6 +4697,27 @@ class FeatureGraph:
                                 "weighted_rms": result["fit"]["plane_weighted_rms"],
                             },
                         }
+                if (
+                    isinstance(node, (TrimmedFace, ArrangedFace))
+                    and derived is not None
+                ):
+                    face_derived = cast(dict[str, Any], derived)
+                    face_derived["boundary_sources"] = node.boundary_sources
+                    if node.boundary_sources:
+                        face_derived["shared_boundary_review"] = (
+                            self._shared_boundary_review(
+                                key,
+                                epoch,
+                                SharedBoundaryInputs(
+                                    [key],
+                                    [face_derived],
+                                    node.surface.model_dump(),
+                                    boundary_source_records(node.boundary_sources),
+                                    referenced_surface(node.surface),
+                                ),
+                                False,
+                            )
+                        )
             except Exception as error:
                 with self.lock:
                     if epoch == self._epoch:
@@ -3872,7 +4727,8 @@ class FeatureGraph:
                             self._diagnostics[key] = error.diagnostic
                         else:
                             _ = self._diagnostics.pop(key, None)
-                raise
+                note_failure(key, error, {key})
+                continue
             with self.lock:
                 if epoch != self._epoch:
                     raise StaleGraph(
@@ -3889,6 +4745,159 @@ class FeatureGraph:
                             plan.aliases[node.id], {node.id}, node.id
                         )
                     self._derived[key] = derived
+        # Owners precede their generated children in the DAG. Check their
+        # aggregate coverage only after evaluation, without adding a cycle.
+        for owner in recipe.nodes:
+            if (
+                not isinstance(owner, BuildFaces)
+                or not owner.boundary_sources
+                or owner.id not in order
+            ):
+                continue
+            reviewed = cast(dict[str, Any], self.snapshot())
+            if owner.target is None or reviewed["states"].get(owner.id) != "ready":
+                continue
+            faces = list(
+                dict.fromkeys(
+                    [
+                        *owner.reused_faces,
+                        *(
+                            child.id
+                            for child in recipe.nodes
+                            if child.managed_by == owner.id
+                            and isinstance(child, (TrimmedFace, ArrangedFace))
+                        ),
+                    ]
+                )
+            )
+            pending = [
+                face_id
+                for face_id in faces
+                if reviewed["states"].get(face_id) != "ready"
+            ]
+            if pending:
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph("graph changed during shared-boundary review")
+                    self._derived[owner.id]["shared_boundary_review"] = {
+                        "complete": False,
+                        "pending_faces": pending,
+                    }
+                continue
+            try:
+                review = self._shared_boundary_review(
+                    owner.id,
+                    epoch,
+                    SharedBoundaryInputs(
+                        faces,
+                        [reviewed["results"][face_id] for face_id in faces],
+                        owner.target.model_dump(),
+                        boundary_source_records(owner.boundary_sources),
+                        referenced_surface(owner.target),
+                    ),
+                    True,
+                )
+            except Exception as error:
+                if isinstance(error, StaleGraph):
+                    raise
+                with self.lock:
+                    if epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during shared-boundary review"
+                        ) from error
+                    failed_ids = {
+                        owner.id,
+                        *(
+                            face_id
+                            for face_id in faces
+                            if nodes[face_id].managed_by == owner.id
+                        ),
+                    }
+                    for failed_id in failed_ids:
+                        self._states[failed_id] = "failed"
+                        self._errors[failed_id] = str(error)
+                        self._derived[failed_id].pop("shared_boundary_review", None)
+                for failed_id in failed_ids:
+                    note_failure(failed_id, error, failed_ids)
+                continue
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during shared-boundary review")
+                self._derived[owner.id]["shared_boundary_review"] = review
+        for key in order:
+            body = nodes.get(key)
+            if not isinstance(body, Body) or key in failures:
+                continue
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during body assembly")
+                already_ready = self._states[key] == "ready"
+                if not already_ready:
+                    self._states[key] = "running"
+            from experiments.body_geometry import BodyAssemblyError, assemble_body
+
+            try:
+                reviewed = cast(dict[str, Any], self.snapshot())
+                owners = {
+                    face.managed_by
+                    for face_id in body.faces
+                    if (face := nodes[face_id]).managed_by is not None
+                    and isinstance(nodes.get(face.managed_by), BuildFaces)
+                }
+                unavailable = [
+                    ref
+                    for ref in [*body.faces, *sorted(owners)]
+                    if reviewed["states"].get(ref) != "ready"
+                ]
+                incomplete = [
+                    owner_id
+                    for owner_id in sorted(owners)
+                    if cast(BuildFaces, nodes[owner_id]).boundary_sources
+                    and not reviewed["results"]
+                    .get(owner_id, {})
+                    .get("shared_boundary_review", {})
+                    .get("complete")
+                ]
+                if unavailable or incomplete:
+                    causes = list(dict.fromkeys([*unavailable, *incomplete]))
+                    error = ValueError(
+                        "Blocked by " + ", ".join(nodes[ref].label for ref in causes)
+                    )
+                    with self.lock:
+                        if epoch != self._epoch:
+                            raise StaleGraph("graph changed during body assembly")
+                        self._states[key] = "blocked"
+                        self._errors[key] = str(error)
+                        self._diagnostics[key] = {"blocked_by": causes}
+                        _ = self._derived.pop(key, None)
+                    note_failure(key, error, set(causes))
+                    continue
+                if already_ready:
+                    continue
+                derived_body = assemble_body(
+                    {face_id: derived_result(face_id) for face_id in body.faces},
+                    body.sewing_tolerance,
+                )
+            except Exception as error:
+                with self.lock:
+                    if epoch == self._epoch:
+                        self._states[key] = "failed"
+                        self._errors[key] = str(error)
+                        if isinstance(error, BodyAssemblyError):
+                            self._diagnostics[key] = deepcopy(error.diagnostic)
+                        else:
+                            _ = self._diagnostics.pop(key, None)
+                note_failure(key, error, {key})
+                continue
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during body assembly")
+                self._derived[key] = derived_body
+                self._states[key] = "ready"
+                _ = self._errors.pop(key, None)
+                _ = self._diagnostics.pop(key, None)
+        if evaluation_errors:
+            raise evaluation_errors[0]
         return self.snapshot()
 
 

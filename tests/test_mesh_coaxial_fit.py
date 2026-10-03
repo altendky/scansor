@@ -153,7 +153,7 @@ def test_additional_plane_influences_shared_axis() -> None:
 def test_axis_derived_plane_factors_move_the_shared_axis() -> None:
     sides, perpendicular_points, perpendicular_area = geometry()
     cylinder = sides[1]
-    truth = np.array([0.3, -0.4, 0.12, -0.08, 2.4, 2.1, -1.7])
+    truth = np.array([0.3, -0.4, 0.12, -0.08, 2.4, 2.1, np.radians(31), -1.7])
     perpendicular = AxisPlaneObservations(
         perpendicular_points,
         perpendicular_area,
@@ -178,7 +178,7 @@ def test_axis_derived_plane_factors_move_the_shared_axis() -> None:
         np.radians(31),
         0,
     )
-    initial = np.array([0.0, 0.0, 0.02, 0.01, 2.2, 1.8, -1.4])
+    initial = np.array([0.0, 0.0, 0.02, 0.01, 2.2, 1.8, 0.0, -1.4])
     result = fit_coaxial(
         [cylinder], None, None, initial, axis_planes=(perpendicular, parallel)
     )
@@ -188,6 +188,8 @@ def test_axis_derived_plane_factors_move_the_shared_axis() -> None:
         result.axis_plane_equations[1], [*normal, -1.7], atol=1e-8
     )
     assert result.weighted_rms < 1e-9
+    assert result.axis_plane_angles[0] is None
+    assert result.axis_plane_angles[1] == pytest.approx(np.radians(31), abs=1e-8)
 
     _, actual = residual_jacobian(
         [cylinder], None, truth, axis_planes=(perpendicular, parallel)

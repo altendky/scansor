@@ -44,7 +44,9 @@ def test_transfer_preserves_graph_and_surface_membership(
 
     assert transferred == transfer_recipe(original, baseline, dense, workspace)
     _ = FeatureGraph(workspace, transferred)
-    assert len(transferred.nodes) == len(original.nodes) == 59
+    assert [node.id for node in transferred.nodes] == [
+        node.id for node in original.nodes
+    ]
     assert transferred.output == original.output
     base_occ = np.load(baseline / "truth/occurrence-code.npy", allow_pickle=False)
     base_role = np.load(baseline / "truth/role-code.npy", allow_pickle=False)
@@ -108,4 +110,6 @@ def test_full_boss_workflow_completes(
 
     assert state["errors"] == {}
     assert set(cast(dict[str, str], state["states"]).values()) == {"ready"}
-    assert len(cast(dict[str, str], state["states"])) == 59
+    assert set(cast(dict[str, str], state["states"])) == {
+        node.id for node in recipe.nodes
+    }

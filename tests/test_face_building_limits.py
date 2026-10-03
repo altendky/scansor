@@ -91,7 +91,16 @@ def test_large_supported_nonpathological_batch_is_not_truncated(count: int) -> N
     }
     assert len(result["intersections"]) == count - 1
     assert sum(len(face["regions"]) for face in result["faces"]) == 3 * count - 2
-    assert all(face["status"] == "suggested" for face in result["faces"])
+    assert all(
+        face["status"] in ("suggested", "missing_boundaries")
+        for face in result["faces"]
+    )
+    assert all(
+        region["bounded"]
+        for face in result["faces"]
+        for region in face["regions"]
+        if region["key"] == face["suggested_region_key"]
+    )
     assert not result["diagnostics"]
 
 
@@ -103,7 +112,7 @@ def test_pair_budget_rejects_before_primitive_intersection_or_preview_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(face_proposals, "MAX_PAIRS", 2)
-    for name in ("primitive", "circle_intersection", "trimmed_face", "_evidence"):
+    for name in ("primitive", "surface_intersection", "trimmed_face", "_evidence"):
         monkeypatch.setattr(face_proposals, name, forbidden_geometry_work)
     with pytest.raises(ValueError, match="pair-check budget"):
         _ = propose_faces(inputs(3))

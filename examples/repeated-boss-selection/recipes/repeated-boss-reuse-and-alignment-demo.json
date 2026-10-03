@@ -576,6 +576,98 @@
       "target_selection": "selection_821448395f9c49c9b1713657508dd844"
     },
     {
+      "id": "reuse_selection_boss_d_outer",
+      "label": "boss-a outer reused",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
+      "source_selection": "boss-a-outer",
+      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+    },
+    {
+      "id": "reuse_selection_boss_d_clock",
+      "label": "boss-a clock reused",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
+      "source_selection": "boss-a-clock",
+      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+    },
+    {
+      "id": "reuse_selection_boss_d_bore",
+      "label": "boss-a bore reused",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
+      "source_selection": "boss-a-bore",
+      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+    },
+    {
+      "id": "axis_866b880ca149a1839f94c62eef91e2e2",
+      "label": "center at target 1",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_821448395f9c49c9b1713657508dd844/axis_b970d98ea84144dcbcda2d9331e79ab3",
+      "operation": "axis",
+      "source_fit": null,
+      "source_points": null,
+      "initial_parameters": [
+        0,
+        0,
+        -0.11770677985645683,
+        -0.13100357176492008
+      ],
+      "direction_reversed": false,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "axis_b970d98ea84144dcbcda2d9331e79ab3",
+        "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+      }
+    },
+    {
+      "id": "reference_plane_5dab1e2ee3bcbfb322d86440d4a2c340",
+      "label": "shoulder at target 1",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_821448395f9c49c9b1713657508dd844/reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+      "operation": "reference_plane",
+      "axis": "axis_866b880ca149a1839f94c62eef91e2e2",
+      "construction": "perpendicular_to_axis",
+      "initial_angle_degrees": null,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+        "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+      }
+    },
+    {
+      "id": "reference_plane_dfb6ac6dc3f0a2ae36d8d326a2404d84",
+      "label": "clock at target 1",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_821448395f9c49c9b1713657508dd844/reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+      "operation": "reference_plane",
+      "axis": "axis_866b880ca149a1839f94c62eef91e2e2",
+      "construction": "parallel_to_axis",
+      "initial_angle_degrees": 0,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+        "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+      }
+    },
+    {
       "id": "fit_boss_d_shoulder",
       "label": "shoulder 2 reused",
       "group_id": null,
@@ -592,19 +684,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_boss_d_outer",
-      "label": "boss-a outer reused",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
-      "source_selection": "boss-a-outer",
-      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+      "reference_plane": "reference_plane_5dab1e2ee3bcbfb322d86440d4a2c340"
     },
     {
       "id": "fit_boss_d_outer",
@@ -621,21 +701,9 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_866b880ca149a1839f94c62eef91e2e2",
       "point": null,
       "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_boss_d_clock",
-      "label": "boss-a clock reused",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
-      "source_selection": "boss-a-clock",
-      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
     },
     {
       "id": "fit_boss_d_clock",
@@ -654,19 +722,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_boss_d_bore",
-      "label": "boss-a bore reused",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_821448395f9c49c9b1713657508dd844/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
-      "source_selection": "boss-a-bore",
-      "target_selection": "selection_821448395f9c49c9b1713657508dd844"
+      "reference_plane": "reference_plane_dfb6ac6dc3f0a2ae36d8d326a2404d84"
     },
     {
       "id": "fit_boss_d_bore",
@@ -683,7 +739,7 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_866b880ca149a1839f94c62eef91e2e2",
       "point": null,
       "reference_plane": null
     },
@@ -698,6 +754,98 @@
       "fit": "fit_56e9d6f9a2a344629c52cba6931add0f",
       "source_selection": "boss-a-shoulder",
       "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+    },
+    {
+      "id": "reuse_selection_target_2_outer",
+      "label": "boss-a outer at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
+      "source_selection": "boss-a-outer",
+      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+    },
+    {
+      "id": "reuse_selection_target_2_clock",
+      "label": "boss-a clock at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
+      "source_selection": "boss-a-clock",
+      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+    },
+    {
+      "id": "reuse_selection_target_2_bore",
+      "label": "boss-a bore at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
+      "source_selection": "boss-a-bore",
+      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+    },
+    {
+      "id": "axis_0324d7838c41a22ab41e64f5f1036171",
+      "label": "center at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_a87fa25841a542eda2e4bb4d2a443b25/axis_b970d98ea84144dcbcda2d9331e79ab3",
+      "operation": "axis",
+      "source_fit": null,
+      "source_points": null,
+      "initial_parameters": [
+        0,
+        0,
+        -0.11770677985645683,
+        -0.13100357176492008
+      ],
+      "direction_reversed": false,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "axis_b970d98ea84144dcbcda2d9331e79ab3",
+        "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+      }
+    },
+    {
+      "id": "reference_plane_a65e12c0164e7c745ef8da70c93935e1",
+      "label": "shoulder at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_a87fa25841a542eda2e4bb4d2a443b25/reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+      "operation": "reference_plane",
+      "axis": "axis_0324d7838c41a22ab41e64f5f1036171",
+      "construction": "perpendicular_to_axis",
+      "initial_angle_degrees": null,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+        "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+      }
+    },
+    {
+      "id": "reference_plane_32160a21c7e6e107cc0f08c123487034",
+      "label": "clock at target 2",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_a87fa25841a542eda2e4bb4d2a443b25/reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+      "operation": "reference_plane",
+      "axis": "axis_0324d7838c41a22ab41e64f5f1036171",
+      "construction": "parallel_to_axis",
+      "initial_angle_degrees": 0,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+        "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+      }
     },
     {
       "id": "fit_target_2_shoulder",
@@ -716,19 +864,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_2_outer",
-      "label": "boss-a outer at target 2",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
-      "source_selection": "boss-a-outer",
-      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+      "reference_plane": "reference_plane_a65e12c0164e7c745ef8da70c93935e1"
     },
     {
       "id": "fit_target_2_outer",
@@ -745,21 +881,9 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_0324d7838c41a22ab41e64f5f1036171",
       "point": null,
       "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_2_clock",
-      "label": "boss-a clock at target 2",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
-      "source_selection": "boss-a-clock",
-      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
     },
     {
       "id": "fit_target_2_clock",
@@ -778,19 +902,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_2_bore",
-      "label": "boss-a bore at target 2",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_a87fa25841a542eda2e4bb4d2a443b25/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
-      "source_selection": "boss-a-bore",
-      "target_selection": "selection_a87fa25841a542eda2e4bb4d2a443b25"
+      "reference_plane": "reference_plane_32160a21c7e6e107cc0f08c123487034"
     },
     {
       "id": "fit_target_2_bore",
@@ -807,7 +919,7 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_0324d7838c41a22ab41e64f5f1036171",
       "point": null,
       "reference_plane": null
     },
@@ -822,6 +934,98 @@
       "fit": "fit_56e9d6f9a2a344629c52cba6931add0f",
       "source_selection": "boss-a-shoulder",
       "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+    },
+    {
+      "id": "reuse_selection_target_3_outer",
+      "label": "boss-a outer at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
+      "source_selection": "boss-a-outer",
+      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+    },
+    {
+      "id": "reuse_selection_target_3_clock",
+      "label": "boss-a clock at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
+      "source_selection": "boss-a-clock",
+      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+    },
+    {
+      "id": "reuse_selection_target_3_bore",
+      "label": "boss-a bore at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
+      "operation": "reuse_selection",
+      "reuse": "feature_reuse_boss_d",
+      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
+      "source_selection": "boss-a-bore",
+      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+    },
+    {
+      "id": "axis_0cff7c3a8599c3609ccc5c3b56be0f74",
+      "label": "center at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_97e9d0dadbf245f8814b4f6b5fa3256e/axis_b970d98ea84144dcbcda2d9331e79ab3",
+      "operation": "axis",
+      "source_fit": null,
+      "source_points": null,
+      "initial_parameters": [
+        0,
+        0,
+        -0.11770677985645683,
+        -0.13100357176492008
+      ],
+      "direction_reversed": false,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "axis_b970d98ea84144dcbcda2d9331e79ab3",
+        "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+      }
+    },
+    {
+      "id": "reference_plane_dd16985c2b22905adc0c642b0d1b5f0a",
+      "label": "shoulder at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_97e9d0dadbf245f8814b4f6b5fa3256e/reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+      "operation": "reference_plane",
+      "axis": "axis_0cff7c3a8599c3609ccc5c3b56be0f74",
+      "construction": "perpendicular_to_axis",
+      "initial_angle_degrees": null,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
+        "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+      }
+    },
+    {
+      "id": "reference_plane_e0c601d6a3f11b332def08e40143b2ae",
+      "label": "clock at target 3",
+      "group_id": null,
+      "managed_by": "feature_reuse_boss_d",
+      "managed_key": "datum/selection_97e9d0dadbf245f8814b4f6b5fa3256e/reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+      "operation": "reference_plane",
+      "axis": "axis_0cff7c3a8599c3609ccc5c3b56be0f74",
+      "construction": "parallel_to_axis",
+      "initial_angle_degrees": 0,
+      "offset": 0,
+      "placement": {
+        "reuse": "feature_reuse_boss_d",
+        "source": "reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
+        "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+      }
     },
     {
       "id": "fit_target_3_shoulder",
@@ -840,19 +1044,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_3_outer",
-      "label": "boss-a outer at target 3",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_6854e8ef6490471eac2deb01287f0ec4/boss-a-outer",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_6854e8ef6490471eac2deb01287f0ec4",
-      "source_selection": "boss-a-outer",
-      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+      "reference_plane": "reference_plane_dd16985c2b22905adc0c642b0d1b5f0a"
     },
     {
       "id": "fit_target_3_outer",
@@ -869,21 +1061,9 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_0cff7c3a8599c3609ccc5c3b56be0f74",
       "point": null,
       "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_3_clock",
-      "label": "boss-a clock at target 3",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_40e50a08a9674997924b0cd216b08bf4/boss-a-clock",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_40e50a08a9674997924b0cd216b08bf4",
-      "source_selection": "boss-a-clock",
-      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
     },
     {
       "id": "fit_target_3_clock",
@@ -902,19 +1082,7 @@
       ],
       "axis": null,
       "point": null,
-      "reference_plane": null
-    },
-    {
-      "id": "reuse_selection_target_3_bore",
-      "label": "boss-a bore at target 3",
-      "group_id": null,
-      "managed_by": "feature_reuse_boss_d",
-      "managed_key": "selection/selection_97e9d0dadbf245f8814b4f6b5fa3256e/fit_540fc24f8d5a4f01a93857292219918c/boss-a-bore",
-      "operation": "reuse_selection",
-      "reuse": "feature_reuse_boss_d",
-      "fit": "fit_540fc24f8d5a4f01a93857292219918c",
-      "source_selection": "boss-a-bore",
-      "target_selection": "selection_97e9d0dadbf245f8814b4f6b5fa3256e"
+      "reference_plane": "reference_plane_e0c601d6a3f11b332def08e40143b2ae"
     },
     {
       "id": "fit_target_3_bore",
@@ -931,7 +1099,7 @@
         -2,
         5
       ],
-      "axis": null,
+      "axis": "axis_0cff7c3a8599c3609ccc5c3b56be0f74",
       "point": null,
       "reference_plane": null
     },

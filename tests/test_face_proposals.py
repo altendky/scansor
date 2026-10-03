@@ -77,7 +77,15 @@ def test_annulus_and_open_walls_share_semantic_edges() -> None:
     assert annulus["bounds"] == {"radial": [1.0, 4.0]}
     assert annulus["bounded"]
     for name in ("inner", "outer"):
-        wall = selected(face(result, name))
+        target = face(result, name)
+        assert target["status"] == "missing_boundaries"
+        assert target["suggested_region_key"] is None
+        assert not target.get("suggested_region_keys")
+        wall = next(
+            region
+            for region in target["regions"]
+            if region["evidence"]["interior_count"]
+        )
         assert wall["bounds"] == {"axial": [None, 2.0]}
         assert not wall["bounded"]
         assert wall["boundaries"][0]["intersection_key"] in {
@@ -99,7 +107,7 @@ def test_axial_regions_and_normal_reversal(sign: int) -> None:
     "points,status",
     [
         ([[0.5, 0, 2]], "suggested"),
-        ([[5, 0, 2]], "suggested"),
+        ([[5, 0, 2]], "missing_boundaries"),
         ([[4, 0, 2]], "ambiguous"),
         ([[2, 0, 2], [5, 0, 2]], "ambiguous"),
     ],
@@ -118,6 +126,12 @@ def test_disk_exterior_boundary_and_mixed_evidence(
         assert all(
             region["evidence"]["boundary_count"] == 1 for region in target["regions"]
         )
+    if points == [[5, 0, 2]]:
+        assert "open regions omitted" in " ".join(target["diagnostics"])
+        assert (
+            sum(region["evidence"]["interior_count"] for region in target["regions"])
+            == 1
+        )
 
 
 def test_empty_observations_do_not_invent_caps() -> None:
@@ -133,13 +147,14 @@ def test_empty_observations_do_not_invent_caps() -> None:
     ]
 
 
-def test_nonconcentric_plane_is_not_silently_partitioned_by_one_boss() -> None:
+def test_nonconcentric_plane_keeps_each_separate_loop_candidate() -> None:
     other = side("other", 2)
     other["surface"]["parameters"][0] = 10
     target = face(propose_faces([plane(), side(), other]), "shoulder")
-    assert target["status"] == "unsupported"
-    assert not target["regions"]
-    assert any("Nonconcentric" in message for message in target["diagnostics"])
+    assert target["status"] == "suggested"
+    assert len(target["regions"]) == 3
+    assert sum(region["bounded"] for region in target["regions"]) == 2
+    assert selected(target)["bounded"]
 
 
 def test_coincident_distinct_cuts_require_edge_choice() -> None:
@@ -149,18 +164,42 @@ def test_coincident_distinct_cuts_require_edge_choice() -> None:
     assert "coincident" in " ".join(target["diagnostics"])
 
 
-def test_unsupported_cut_blocks_default_but_retains_supported_partial_regions() -> None:
+def test_generator_line_cuts_propose_complete_cylinder_cells() -> None:
     oblique = plane("oblique")
-    oblique["surface"]["plane_equation"] = [0.1, 0, 1, 2]
+    oblique["surface"]["plane_equation"] = [1, 0, 0, 2]
     result = propose_faces([side(), plane(), oblique])
     target = face(result, "wall")
-    assert target["status"] == "requires_adjacency_review"
+    assert target["status"] == "missing_boundaries"
     assert not target["blocked_by_adjacency"]
     assert target["regions"]
+    assert not target["suggested_region_keys"]
     assert target["suggested_region_key"] is None
-    assert any(
-        "oblique" in diagnostic["message"] for diagnostic in result["diagnostics"]
+    assert all(not region["bounded"] for region in target["regions"])
+    assert all("arrangement" in region for region in target["regions"])
+    assert (
+        sum(region["evidence"]["interior_count"] for region in target["regions"]) == 3
     )
+
+
+def test_native_arrangement_suggests_only_bounded_populated_regions() -> None:
+    oblique = plane("oblique")
+    oblique["surface"]["plane_equation"] = [1, 0, 0, 2]
+    wall = side(points=[[4, 0, 0], [4, 0, 2], [-4, 0, 3]])
+    target = face(
+        propose_faces([wall, plane("lower", 1), plane("upper", 5), oblique]),
+        "wall",
+    )
+    assert target["status"] == "suggested"
+    populated = [
+        region for region in target["regions"] if region["evidence"]["interior_count"]
+    ]
+    assert any(not region["bounded"] for region in populated)
+    assert target["suggested_region_keys"] == [
+        region["key"] for region in populated if region["bounded"]
+    ]
+    assert len(target["suggested_region_keys"]) == 2
+    assert sum(region["evidence"]["interior_count"] for region in populated) == 3
+    assert "open regions omitted" in " ".join(target["diagnostics"])
 
 
 def test_missing_boundaries_do_not_use_coverage_as_extents() -> None:
@@ -198,12 +237,15 @@ def test_cone_preview_failure_is_explicit_and_does_not_add_cap() -> None:
     assert target["regions"][0]["bounds"]["axial"][0] is None
 
 
-def test_unequal_coaxial_profiles_report_unsupported_circular_cut() -> None:
+def test_unequal_coaxial_profiles_use_native_arrangement() -> None:
     result = propose_faces([side("cylinder", 4), side("cone", 3, 1)])
-    assert result["diagnostics"]
-    assert all(
-        target["status"] == "requires_adjacency_review" for target in result["faces"]
-    )
+    assert not result["diagnostics"]
+    for target in result["faces"]:
+        assert target["status"] == "missing_boundaries"
+        assert not target["suggested_region_keys"]
+        assert target["suggested_region_key"] is None
+        assert len(target["regions"]) == 2
+        assert all(not region["bounded"] for region in target["regions"])
 
 
 def test_weights_are_normalized_without_overflow_or_row_filtering() -> None:

@@ -16,6 +16,7 @@ from experiments.face_builder import (
 from experiments.face_proposals import propose_faces
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
 from experiments.nozzle_session import NozzleWorkspace
+from tests.test_arranged_face_workflow import graph_with_diagonal, reviewed_plate
 
 REFERENCES = [
     {"feature": "fit", "surface": "side"},
@@ -62,7 +63,16 @@ def request(
     plan: dict[str, Any], *, members: tuple[str, ...] = ("side", "end")
 ) -> FacesApplyRequest:
     choices = [
-        {"surface": face["surface"], "region_key": face["suggested_region_key"]}
+        {
+            "surface": face["surface"],
+            # Exercise explicit legacy open-face authoring, not UI suggestions.
+            "region_key": face["suggested_region_key"]
+            or next(
+                region["key"]
+                for region in face["regions"]
+                if region["evidence"]["interior_count"]
+            ),
+        }
         for face in plan["faces"]
         if face["surface"]["surface"] in members
     ]
@@ -163,6 +173,36 @@ def test_owner_update_keeps_ids_and_inventory_changes_with_removed_face(
     assert all(
         node["id"] == first_outputs[key]["id"] for key, node in remaining.items()
     )
+
+
+def test_multiple_interval_regions_on_one_surface_are_not_overwritten(
+    graph: FeatureGraph,
+) -> None:
+    plan = preview(graph)
+    side = next(face for face in plan["faces"] if face["surface"]["surface"] == "side")
+    payload = request(plan, members=("side",)).model_dump()
+    payload["choices"] = [
+        {"surface": side["surface"], "region_key": region["key"]}
+        for region in side["regions"]
+    ]
+    applied = apply_faces(graph, FacesApplyRequest.model_validate(payload))
+    owner = owner_id(applied)
+    faces = [
+        node
+        for node in owned(applied, owner).values()
+        if node["operation"] == "trimmed_face"
+    ]
+    assert len(faces) == 2 and len({node["id"] for node in faces}) == 2
+    snapshot = evaluate(graph)
+    assert all(snapshot["states"][node["id"]] == "ready" for node in faces)
+    refreshed = preview(graph, owner)
+    payload.update(
+        token=refreshed["token"],
+        proposal_token=refreshed["proposal_token"],
+        owner_id=owner,
+    )
+    same = apply_faces(graph, FacesApplyRequest.model_validate(payload))
+    assert owned(same, owner) == owned(snapshot, owner)
 
 
 def test_manual_reversed_edge_and_identical_face_are_reused_unchanged(
@@ -302,9 +342,256 @@ def test_external_consumer_prevents_owned_face_removal(graph: FeatureGraph) -> N
     assert state(graph) == before
 
 
+def arranged_update(
+    graph: FeatureGraph, reviewed: FacesApplyRequest, owner: str
+) -> FacesApplyRequest:
+    plan = preview_faces(
+        graph,
+        FacesPreviewRequest(
+            token=state(graph)["token"], owner_id=owner, surfaces=reviewed.surfaces
+        ),
+    )
+    return reviewed.model_copy(
+        update={
+            "token": plan["token"],
+            "owner_id": owner,
+            "proposal_token": plan["proposal_token"],
+        }
+    )
+
+
+def test_arranged_cell_repair_retains_face_identity_and_stales_consumers() -> None:
+    graph = graph_with_diagonal()
+    _, reviewed = reviewed_plate(graph)
+    original, replacement = reviewed.choices
+    first = apply_faces(graph, reviewed.model_copy(update={"choices": [original]}))
+    owner = owner_id(first)
+    face = next(
+        node
+        for node in owned(first, owner).values()
+        if node["operation"] == "arranged_face"
+    )
+    payload = first["recipe"]
+    next(node for node in payload["nodes"] if node["id"] == face["id"])["label"] = (
+        "Named physical face"
+    )
+    payload["nodes"].append(
+        {
+            "id": "consumer",
+            "label": "Dependent faces",
+            "operation": "build_faces",
+            "surfaces": [ref.model_dump() for ref in reviewed.surfaces],
+            "reused_faces": [face["id"]],
+        }
+    )
+    _ = graph.replace(Recipe.model_validate(payload), first["token"])
+    before = evaluate(graph)
+    assert before["states"]["consumer"] == "ready"
+
+    update = arranged_update(graph, reviewed, owner).model_copy(
+        update={"choices": [replacement]}
+    )
+    repaired = apply_faces(graph, update)
+    current = next(
+        node
+        for node in owned(repaired, owner).values()
+        if node["operation"] == "arranged_face"
+    )
+    assert current["id"] == face["id"]
+    assert current["label"] == "Named physical face"
+    assert current["managed_key"].endswith("/" + replacement.region_key)
+    assert current["managed_key"] != face["managed_key"]
+    assert current["selector"] != face["selector"]
+    assert repaired["states"][face["id"]] == "stale"
+    assert repaired["states"]["consumer"] == "stale"
+    result = evaluate(graph)
+    assert result["states"]["consumer"] == "ready"
+    replay = FeatureGraph(graph.workspace, Recipe.model_validate(result["recipe"]))
+    assert evaluate(replay)["results"] == result["results"]
+    repeated = apply_faces(
+        graph,
+        arranged_update(graph, reviewed, owner).model_copy(
+            update={"choices": [replacement]}
+        ),
+    )
+    assert owned(repeated, owner) == owned(result, owner)
+
+    # The retained ID was originally hashed from the other cell. Adding that
+    # cell now must not collide with or replace the repaired output's ID.
+    expanded = apply_faces(graph, arranged_update(graph, reviewed, owner))
+    expanded_faces = [
+        node
+        for node in owned(expanded, owner).values()
+        if node["operation"] == "arranged_face"
+    ]
+    assert len(expanded_faces) == len({node["id"] for node in expanded_faces}) == 2
+    preserved = next(
+        node
+        for node in expanded_faces
+        if node["managed_key"].endswith("/" + replacement.region_key)
+    )
+    assert preserved["id"] == face["id"]
+    expanded_state = evaluate(graph)
+    repeated_expansion = apply_faces(graph, arranged_update(graph, reviewed, owner))
+    assert owned(repeated_expansion, owner) == owned(expanded_state, owner)
+
+
+@pytest.mark.parametrize("previous_count, next_count", [(2, 1), (1, 2)])
+def test_arranged_split_or_merge_does_not_guess_consumed_face_identity(
+    previous_count: int, next_count: int
+) -> None:
+    graph = graph_with_diagonal()
+    plan, reviewed = reviewed_plate(graph)
+    first = apply_faces(
+        graph,
+        reviewed.model_copy(update={"choices": reviewed.choices[:previous_count]}),
+    )
+    owner = owner_id(first)
+    faces = [
+        node
+        for node in owned(first, owner).values()
+        if node["operation"] == "arranged_face"
+    ]
+    payload = first["recipe"]
+    payload["nodes"].append(
+        {
+            "id": "consumer",
+            "label": "Dependent faces",
+            "operation": "build_faces",
+            "surfaces": [ref.model_dump() for ref in reviewed.surfaces],
+            "reused_faces": [face["id"] for face in faces],
+        }
+    )
+    _ = graph.replace(Recipe.model_validate(payload), first["token"])
+    _ = evaluate(graph)
+    previous_keys = {choice.region_key for choice in reviewed.choices[:previous_count]}
+    target = next(
+        face for face in plan["faces"] if face["surface"]["feature"] == "plate"
+    )
+    alternatives = [
+        region["key"]
+        for region in target["regions"]
+        if region["bounded"] and region["key"] not in previous_keys
+    ]
+    update = arranged_update(graph, reviewed, owner).model_dump()
+    update["choices"] = [
+        {"surface": target["surface"], "region_key": key}
+        for key in alternatives[:next_count]
+    ]
+    before = state(graph)
+    with pytest.raises(ValueError, match="used by 'Dependent faces'"):
+        _ = apply_faces(graph, FacesApplyRequest.model_validate(update))
+    assert state(graph) == before
+
+
+def test_arranged_repair_does_not_adopt_an_external_face_identity() -> None:
+    graph = graph_with_diagonal()
+    plan, reviewed = reviewed_plate(graph)
+    original, replacement = reviewed.choices
+    first = apply_faces(graph, reviewed.model_copy(update={"choices": [original]}))
+    owner = owner_id(first)
+    original_face = next(
+        node
+        for node in owned(first, owner).values()
+        if node["operation"] == "arranged_face"
+    )
+    target = next(
+        face for face in plan["faces"] if face["surface"]["feature"] == "plate"
+    )
+    region = next(
+        region
+        for region in target["regions"]
+        if region["key"] == replacement.region_key
+    )
+    external_face = deepcopy(original_face)
+    external_face.update(
+        id="external_face",
+        label="External physical face",
+        managed_by=None,
+        managed_key=None,
+        **region["arrangement"],
+    )
+    payload = first["recipe"]
+    payload["nodes"].extend(
+        [
+            external_face,
+            {
+                "id": "consumer",
+                "label": "Dependent faces",
+                "operation": "build_faces",
+                "surfaces": [ref.model_dump() for ref in reviewed.surfaces],
+                "reused_faces": [original_face["id"]],
+            },
+        ]
+    )
+    _ = graph.replace(Recipe.model_validate(payload), first["token"])
+    _ = evaluate(graph)
+    update = arranged_update(graph, reviewed, owner).model_copy(
+        update={"choices": [replacement]}
+    )
+    before = state(graph)
+    with pytest.raises(ValueError, match="used by 'Dependent faces'"):
+        _ = apply_faces(graph, update)
+    assert state(graph) == before
+
+
+def test_failed_arranged_witness_can_be_repaired_without_removing_its_id() -> None:
+    graph = graph_with_diagonal()
+    plan, reviewed = reviewed_plate(graph)
+    original, replacement = reviewed.choices
+    first = apply_faces(graph, reviewed.model_copy(update={"choices": [original]}))
+    owner = owner_id(first)
+    face = next(
+        node
+        for node in owned(first, owner).values()
+        if node["operation"] == "arranged_face"
+    )
+    target = next(
+        face for face in plan["faces"] if face["surface"]["feature"] == "plate"
+    )
+    replacement_region = next(
+        region
+        for region in target["regions"]
+        if region["key"] == replacement.region_key
+    )
+    payload = first["recipe"]
+    invalid_face = next(node for node in payload["nodes"] if node["id"] == face["id"])
+    invalid_face["selector"]["witness_chart"] = replacement_region["arrangement"][
+        "selector"
+    ]["witness_chart"]
+    payload["nodes"].append(
+        {
+            "id": "consumer",
+            "label": "Dependent faces",
+            "operation": "build_faces",
+            "surfaces": [ref.model_dump() for ref in reviewed.surfaces],
+            "reused_faces": [face["id"]],
+        }
+    )
+    _ = graph.replace(Recipe.model_validate(payload), first["token"])
+    try:
+        _ = evaluate(graph)
+    except ValueError as error:
+        assert "arrangement witness crossed" in str(error)
+    failed = state(graph)
+    assert "arrangement witness crossed" in failed["errors"][face["id"]]
+    repaired = apply_faces(
+        graph,
+        arranged_update(graph, reviewed, owner).model_copy(
+            update={"choices": [replacement]}
+        ),
+    )
+    assert any(node["id"] == face["id"] for node in owned(repaired, owner).values())
+    assert face["id"] not in repaired["errors"]
+    result = evaluate(graph)
+    assert result["states"][face["id"]] == result["states"]["consumer"] == "ready"
+
+
 def test_recipe_limit_rejects_whole_batch_without_partial_children(
     workspace: NozzleWorkspace,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(face_builder, "MAX_RECIPE_ACTIONS", 100)
     payload = recipe()
     for index in range(100 - len(payload["nodes"])):
         payload["nodes"].append(
@@ -320,7 +607,7 @@ def test_recipe_limit_rejects_whole_batch_without_partial_children(
     _ = evaluate(graph)
     reviewed = request(preview(graph))
     before = state(graph)
-    with pytest.raises(ValueError, match="100-action recipe limit"):
+    with pytest.raises(ValueError, match="100-action recipe resource budget"):
         _ = apply_faces(graph, reviewed)
     assert state(graph) == before
 

@@ -2,4 +2,4 @@
 
 # Bound pairwise geometry work independently of the number of fitted samples.
 MAX_PAIRS = 1_000_000
-MAX_REGIONS = 1024
+MAX_REGIONS = 10_000

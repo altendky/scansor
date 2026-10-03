@@ -1,6 +1,10 @@
 import {
   actionDescription,
   discoverReuseLineage,
+  featureDeletionPlan,
+  featureIcon,
+  featureTreePresentation,
+  renderIconPicker,
   managedOwnerId,
   managedSubtreeIds,
   nodeReferences as refs,
@@ -8,17 +12,34 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
-import { residualRange, resultResidualSurfaces } from './residual-display.js';
+import { exportInputIssues, exportScopePlan } from './cad-export.js';
+import { bodyEdgePaths, bodyFaceChoices, bodyFaceSelection, bodyInputs, bodyProblems, initialBodyTolerance } from './body-ui.js';
+import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
+import { faceEdgeLines } from './edge-highlight.js';
+import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
 import {
   surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
   geometryAppendOutput, sameSurfaceReference, validGeometryPreview,
-  initialBuildFaceRegion, buildFaceChoices, faceEvidenceSummary,
+  initialBuildFaceRegions, buildFaceChoices, buildFaceRegionGroups, boundedBuildFaceRegions,
+  changeBuildFaceRegionSelection, compactFaceRegionList,
+  faceEvidenceSummary,
   validBuildFaceRegion,
   addFittedSurfaceReferences,
   adjacencyPairKey, buildAdjacencyDecisions, faceScopeChoices, buildFaceScopes,
+  intersectionCurves, intersectionPreviewPaths, faceBoundaryPreviewPaths, physicalBoundsSummary,
+  initialGuidedFaceRegions, guidedCandidateSelected, guidedSurfaceInputs, guidedProposalFaces,
+  approvedNeighborPreviewPaths,
+  guidedSourceAvailable,
+  guidedRejectedDecisions, unavailableGuidedSources,
+  faceCandidatePresentation, fittedSurfacePresentation, completeFitSurfaceChoices,
+  unavailableRetainedFitReferences, surfaceFootprintState, guidedNeighborHighlights,
+  bindFaceContinuationPreview, appliedFaceContext, definedFaceContext,
+  faceContinuationPreview, previewedFaceContextIds, renderFaceDialogClose, unbuiltFaceNeighbors,
+  prepareFaceContinuation, faceDisplayEntries,
 } from './surface-trims.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
@@ -43,13 +64,28 @@ let metadata,
 let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
+let activeGraphEvaluation = null, faceContinuationPending = false;
+let constructedFaces, constructedFacesState = null;
+let bodyInspection;
+let fitQualityLimit = null, fitQualityStorageKey = null, fitQualityCache = null;
 let selectedFeatureIds = new Set();
+let featureDeletionReview = null, featureDeletionPending = false, featureContextAnchor = null;
 let workspaceView = 'model', resizeViewport = null;
 let displayTransformKey = 'identity';
 let buildFacesProposal = null, buildFacesOwnerId = null, buildFacesRequest = 0;
 let buildFacesReview = new Map(), buildFacesOverlays;
+let buildFacesRegionInspected = null;
 let buildFacesAdjacencyDraft = [], buildFacesScopeDraft = [];
 let buildFacesApplying = false;
+let buildFacesMode = 'guided', buildFacesTarget = null, buildFacesCandidates = null;
+let buildFacesCutters = [], buildFacesReviewDirty = false, buildFacesInspected = null;
+let buildFacesBoundarySources = [];
+let buildFacesSurfacePreview = null, buildFacesSurfaceHovered = false;
+let buildFacesContinuePreview = null, buildFacesAcceptedContext = [], buildFacesContext;
+let buildFacesContinueInteraction = { pointer: null, focus: null };
+let buildFacesContextCache = null;
+const buildFacesFootprints = new WeakMap();
+let buildFacesMeshTopology = null;
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -114,26 +150,300 @@ function clearBuildFacesPreview() {
       child.material.dispose();
     }
   }
+  updateFaceReviewDisplay();
+}
+function updateFaceReviewDisplay() {
+  if (!mesh || !overlays) return;
+  const reviewing = $('build-faces-dialog').open && buildFacesMode === 'guided';
+  const facesOnly = $('faces-only').checked;
+  if (reviewing || facesOnly) $('brush-cursor').hidden = true;
+  if (buildFacesContext) buildFacesContext.visible = reviewing && !facesOnly;
+  if (reviewing) paintBuildFacesContext();
+  mesh.material.opacity = reviewing ? 0.4 : 1;
+  mesh.material.transparent = reviewing;
+  for (const points of [selectedPoints, focusedPoints]) {
+    if (!points) continue;
+    points.material.opacity = reviewing ? 0.18 : 1;
+    points.material.transparent = reviewing;
+  }
+  mesh.visible = !facesOnly;
+  overlays.visible = $('guides').checked && !reviewing && !facesOnly;
+  constructedFaces.visible = facesOnly;
+  reuseVolumes.visible = $('reuse-volumes').checked && !facesOnly;
+  if (facesOnly) {
+    selectedPoints.visible = focusedPoints.visible = false;
+    overlapMarkers.visible = overlapHalo.visible = false;
+  }
 }
 function invalidateBuildFaces(message = '', keepAdjacencyReview = false) {
+  renderFaceDialogClose($('close-build-faces'), false);
   buildFacesRequest++;
   buildFacesProposal = null;
   buildFacesReview = new Map();
+  buildFacesRegionInspected = null;
+  buildFacesReviewDirty = false;
   clearBuildFacesPreview();
   $('apply-build-faces').disabled = true;
+  $('select-suggested-face-regions').disabled = true;
+  $('build-faces-region-tools').hidden = true;
   $('build-faces-review').replaceChildren();
   if (!keepAdjacencyReview) $('build-faces-adjacencies').replaceChildren();
   $('build-faces-diagnostics').replaceChildren();
-  $('build-faces-policy').textContent = '';
   $('build-faces-error').textContent = message;
+  $('build-faces-neighbors').open = true;
   draw();
 }
 function buildFacesSelectedSurfaces() {
+  if (buildFacesMode === 'guided') return guidedSurfaceInputs(buildFacesTarget, [
+    ...buildFacesCutters, ...guidedRejectedDecisions(buildFacesAdjacencyDraft, buildFacesTarget,
+      buildFacesCutters).flatMap((choice) => [choice.first, choice.second]),
+  ]);
   return chosen('build-faces-surfaces').map((value) => JSON.parse(value));
 }
+function buildFacesGeometry() {
+  const owner = graphNode(buildFacesOwnerId);
+  return completeFitSurfaceChoices(graphState.recipe.nodes, graphState.results,
+    [...(owner?.surfaces || []), ...(buildFacesTarget ? [buildFacesTarget] : [])], graphState.states);
+}
+function unavailableFitsMessage(unavailable) {
+  return unavailable.length ? `Unavailable fits: ${unavailable.map((fit) =>
+    `${fit.label} (${fit.reason.toLowerCase()})`).join(', ')}.` : '';
+}
+function unavailableSavedFaceInputsMessage() {
+  const missing = unavailableRetainedFitReferences(graphNode(buildFacesOwnerId)?.surfaces || [],
+    buildFacesGeometry().choices);
+  return missing.length ? `Saved inputs unavailable: ${missing.map((reference) =>
+    fittedSurfacePresentation(reference, graphState.recipe.nodes).name).join(', ')}. Restore or update these inputs before previewing.` : '';
+}
+function fittedFaceCandidatePresentation(candidate) {
+  return { ...faceCandidatePresentation(candidate, graphState.recipe.nodes),
+    ...fittedSurfacePresentation(candidate.reference, graphState.recipe.nodes) };
+}
+
+function canDiscardFaceReview() {
+  return !buildFacesReviewDirty || confirm('Discard unapplied retained-cell choices and change the review inputs?');
+}
+function setBuildFacesModeDisplay() {
+  $('build-faces-mode').value = buildFacesMode;
+  $('build-faces-guided').hidden = buildFacesMode !== 'guided';
+  $('build-faces-batch').hidden = buildFacesMode === 'guided';
+  $('build-faces-surfaces').required = buildFacesMode === 'batch';
+  $('build-faces-target-options').hidePopover();
+  const result = graphState.results[buildFacesTarget?.feature];
+  const target = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
+  $('focus-face-target').disabled = !target?.ids?.length;
+  $('select-suggested-face-regions').hidden = false;
+  $('build-faces-adjacency-details').hidden = buildFacesMode === 'guided';
+}
+function inspectFaceCandidate(candidate) {
+  buildFacesInspected = candidate;
+  paintBuildFacesPreview();
+}
+function filterFaceCandidates() {
+  const filter = $('build-faces-neighbor-filter').value.trim().toLowerCase();
+  for (const row of $('build-faces-candidates').children)
+    row.hidden = !row.dataset.search.includes(filter);
+}
+function updateFaceNeighborSummary() {
+  $('build-faces-neighbor-summary').textContent = `Neighbors · ${buildFacesCutters.length} selected`;
+}
+function renderFaceCandidates(previous = null, exact = false) {
+  const candidates = buildFacesCandidates?.candidates || [];
+  buildFacesCutters = candidates.filter((candidate) => guidedCandidateSelected(candidate, previous, exact))
+    .map((candidate) => candidate.reference);
+  const rows = candidates.map((candidate) => {
+    const row = document.createElement('details');
+    row.className = 'face-candidate';
+    const heading = document.createElement('summary');
+    const presentation = fittedFaceCandidatePresentation(candidate);
+    row.dataset.search = presentation.label.toLowerCase();
+    const label = document.createElement('label');
+    label.className = 'check';
+    const include = document.createElement('input');
+    include.type = 'checkbox';
+    include.checked = buildFacesCutters.some((ref) => sameSurfaceReference(ref, candidate.reference));
+    include.disabled = !candidate.supported || candidate.mathematical?.status === 'proven_empty';
+    include.setAttribute('aria-label', presentation.label);
+    label.title = presentation.label;
+    const text = document.createElement('span');
+    text.className = 'face-candidate-text';
+    const name = document.createElement('span');
+    name.className = 'face-candidate-name';
+    name.textContent = presentation.name;
+    const context = document.createElement('span');
+    context.className = 'face-candidate-kind';
+    context.textContent = presentation.detail;
+    context.title = presentation.detail;
+    text.append(name, context);
+    label.append(include, featureIcon(presentation.icon, 'action-type'), text);
+    const badge = document.createElement('span');
+    badge.className = `face-badge${candidate.conflict || !candidate.supported ? ' warning' : ''}`;
+    badge.textContent = presentation.status;
+    row.onpointerenter = () => inspectFaceCandidate(candidate);
+    row.onpointerleave = () => {
+      if (!row.contains(document.activeElement) && buildFacesInspected === candidate) inspectFaceCandidate(null);
+    };
+    row.addEventListener('focusin', () => inspectFaceCandidate(candidate));
+    row.addEventListener('focusout', (event) => {
+      if (!row.contains(event.relatedTarget) && !row.matches(':hover') &&
+          buildFacesInspected === candidate) inspectFaceCandidate(null);
+    });
+    include.onchange = () => {
+      if (!canDiscardFaceReview()) { include.checked = !include.checked; return; }
+      buildFacesCutters = buildFacesCutters.filter((ref) => !sameSurfaceReference(ref, candidate.reference));
+      if (include.checked && !include.disabled) buildFacesCutters.push(candidate.reference);
+      const allSources = (candidate.shared_faces || []).map((face) => face.id);
+      buildFacesBoundarySources = buildFacesBoundarySources.filter((id) => !allSources.includes(id));
+      if (include.checked) {
+        buildFacesBoundarySources.push(...(candidate.shared_faces || []).filter(guidedSourceAvailable).map((face) => face.id));
+        buildFacesAdjacencyDraft = buildFacesAdjacencyDraft.filter((choice) =>
+          adjacencyPairKey(choice.first, choice.second) !== adjacencyPairKey(buildFacesTarget, candidate.reference));
+      }
+      for (const honor of row.querySelectorAll('[data-approved-edge]')) {
+        honor.disabled = !include.checked || include.disabled || honor.dataset.unavailable === 'true';
+        honor.checked = include.checked && !honor.disabled;
+      }
+      invalidateBuildFaces('Boundaries changed. Preview again.', true);
+      updateFaceNeighborSummary();
+      renderBuildFacesScopes();
+      renderUnavailableFaceGuidance();
+      inspectFaceCandidate(candidate);
+    };
+    heading.append(label, badge);
+    if (candidate.shared_faces?.length) {
+      const edges = document.createElement('span');
+      edges.className = 'face-badge';
+      edges.textContent = `Edges ${candidate.shared_faces.length}`;
+      heading.append(edges);
+    }
+    const detail = document.createElement('div');
+    detail.className = 'face-candidate-detail';
+    const contextDetail = document.createElement('p');
+    contextDetail.className = 'hint';
+    contextDetail.textContent = presentation.context || presentation.type;
+    const reason = document.createElement('p');
+    reason.className = 'hint';
+    reason.textContent = candidate.reason || candidate.mathematical?.reason || '';
+    if (candidate.conflict) {
+      const warning = document.createElement('p');
+      warning.className = 'build-face-warning';
+      warning.textContent = 'Conflicting adjacency decisions. Review before including.';
+      detail.append(warning);
+    }
+    detail.append(contextDetail, reason);
+    const proximity = document.createElement('p');
+    proximity.className = 'hint';
+    const gap = candidate.evidence?.observation_bounds_gap;
+    proximity.textContent = Number.isFinite(gap)
+      ? `Scan gap: ${gap.toPrecision(5)}` : 'Scan gap unavailable';
+    detail.append(proximity);
+    for (const source of candidate.shared_faces || []) {
+      const sourceLabel = document.createElement('label');
+      sourceLabel.className = 'check';
+      const honor = document.createElement('input');
+      honor.type = 'checkbox';
+      honor.dataset.approvedEdge = source.id;
+      honor.dataset.unavailable = String(!guidedSourceAvailable(source));
+      honor.checked = buildFacesBoundarySources.includes(source.id);
+      honor.disabled = !include.checked || include.disabled || !guidedSourceAvailable(source);
+      sourceLabel.append(honor, document.createTextNode(`Honor approved edge from ${source.label}`));
+      honor.onchange = () => {
+        if (!canDiscardFaceReview()) { honor.checked = !honor.checked; return; }
+        buildFacesBoundarySources = buildFacesBoundarySources.filter((id) => id !== source.id);
+        if (honor.checked) buildFacesBoundarySources.push(source.id);
+        invalidateBuildFaces('Edge guidance changed. Preview again.', true);
+        inspectFaceCandidate(candidate);
+        renderUnavailableFaceGuidance();
+      };
+      detail.append(sourceLabel);
+      if (!guidedSourceAvailable(source)) {
+        const unavailable = document.createElement('p');
+        unavailable.className = 'hint build-face-warning';
+        unavailable.textContent = `Edge unavailable: ${source.diagnostic || 'no finite boundary'}`;
+        detail.append(unavailable);
+      }
+    }
+    row.append(heading, detail);
+    return row;
+  });
+  $('build-faces-candidates').replaceChildren(...rows);
+  updateFaceNeighborSummary();
+  filterFaceCandidates();
+  $('build-faces-candidate-status').textContent = '';
+  renderBuildFacesScopes();
+  renderUnavailableFaceGuidance();
+  paintBuildFacesPreview();
+}
+function renderUnavailableFaceGuidance() {
+  const unavailable = unavailableGuidedSources(buildFacesBoundarySources,
+    buildFacesCandidates?.candidates || [], buildFacesCutters);
+  const container = $('build-faces-unavailable-guidance');
+  container.replaceChildren();
+  if (!unavailable.length) return;
+  const warning = document.createElement('p');
+  warning.className = 'hint build-face-warning';
+  const names = unavailable.map((id) => graphState.recipe.nodes.find((node) => node.id === id)?.label || id);
+  warning.textContent = `Missing edge guidance: ${names.join(', ')}. Restore or discard to preview.`;
+  const discard = document.createElement('button');
+  discard.type = 'button';
+  discard.textContent = 'Discard unavailable guidance';
+  discard.onclick = () => {
+    if (!canDiscardFaceReview()) return;
+    buildFacesBoundarySources = buildFacesBoundarySources.filter((id) => !unavailable.includes(id));
+    invalidateBuildFaces('Guidance discarded. Preview again.', true);
+    renderUnavailableFaceGuidance();
+    renderFaceCandidates(buildFacesCutters, true);
+  };
+  container.append(warning, discard);
+}
+async function loadFaceCandidates(previous = null, approvedSources = null, exact = false) {
+  const { choices, unavailable } = buildFacesGeometry();
+  invalidateBuildFaces(unavailableSavedFaceInputsMessage() || unavailableFitsMessage(unavailable));
+  buildFacesCandidates = null;
+  buildFacesInspected = null;
+  buildFacesCutters = [];
+  $('build-faces-candidates').replaceChildren();
+  $('build-faces-candidate-status').textContent = 'Finding candidate neighbors…';
+  if (!buildFacesTarget || buildFacesMode !== 'guided') {
+    if (!buildFacesTarget) $('build-faces-error').textContent ||= 'Target fit unavailable.';
+    $('build-faces-candidate-status').textContent = '';
+    return;
+  }
+  const token = graphState.token, requestId = buildFacesRequest;
+  const target = structuredClone(buildFacesTarget);
+  try {
+    const candidates = await request('/api/graph/build-faces/candidates', {
+      token, target, owner_id: buildFacesOwnerId,
+      surfaces: choices.map((choice) => choice.reference),
+    });
+    if (requestId !== buildFacesRequest || token !== graphState.token ||
+        !$('build-faces-dialog').open || buildFacesMode !== 'guided' ||
+        !sameSurfaceReference(target, buildFacesTarget)) return;
+    buildFacesCandidates = candidates;
+    const availableSources = [...new Set(candidates.candidates.filter((candidate) =>
+      guidedCandidateSelected(candidate, previous, exact)).flatMap((candidate) =>
+      (candidate.shared_faces || []).filter(guidedSourceAvailable).map((face) => face.id)))];
+    buildFacesBoundarySources = approvedSources === null ? availableSources
+      : [...approvedSources];
+    renderFaceCandidates(previous, exact);
+  } catch (error) {
+    if (requestId === buildFacesRequest) {
+      $('build-faces-candidate-status').textContent = 'Candidate discovery failed.';
+      $('build-faces-error').textContent = error.message;
+    }
+  }
+}
+
+function guidedAdjacencies() {
+  return buildFacesMode === 'guided' ? [
+    ...guidedRejectedDecisions(buildFacesAdjacencyDraft, buildFacesTarget, buildFacesCutters),
+    ...buildFacesCutters.map((second) => ({ first: buildFacesTarget, second, state: 'confirmed' })),
+  ] : buildAdjacencyDecisions(buildFacesAdjacencyDraft, buildFacesSelectedSurfaces());
+}
 function renderBuildFacesScopes() {
-  const surfaces = buildFacesSelectedSurfaces();
-  const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
+  const surfaces = buildFacesMode === 'guided' ? (buildFacesTarget ? [buildFacesTarget] : [])
+    : buildFacesSelectedSurfaces();
+  const options = buildFacesGeometry().choices;
   const rows = surfaces.map((surface) => {
     const row = document.createElement('div');
     row.className = 'build-face-row';
@@ -155,13 +465,11 @@ function renderBuildFacesScopes() {
     const detail = document.createElement('p');
     detail.className = 'hint';
     detail.textContent = selected.length
-      ? `Declared scope: union of ${selected.length} faces. Filters boundary candidates; does not clip proposed faces or use observation bounds.`
-      : 'Unscoped: whole fitted surface, not bounded by selected observations.';
+      ? `${selected.length} scope faces` : 'Whole surface';
     const unavailable = selected.filter((id) => !existing.some((face) => face.id === id));
     if (unavailable.length) {
       detail.classList.add('build-face-warning');
-      detail.textContent = 'A previously selected face is unavailable or depends on this batch. ' +
-        'Select a new scope or explicitly use the whole surface before previewing.';
+      detail.textContent = 'Scope unavailable. Replace it or use the whole surface.';
     }
     select.onchange = () => {
       buildFacesScopeDraft = buildFacesScopeDraft.filter((scope) => !sameSurfaceReference(scope.surface, surface));
@@ -204,7 +512,7 @@ function renderBuildFacesAdjacencies() {
     const select = document.createElement('select');
     select.setAttribute('aria-label', `Physical adjacency for ${adjacency.label}`);
     select.append(new Option('Unreviewed / proposed', 'proposed'),
-      new Option('Confirmed physical adjacency', 'confirmed'), new Option('Rejected physical adjacency', 'rejected'));
+      new Option('Confirmed', 'confirmed'), new Option('Rejected', 'rejected'));
     const provenEmpty = adjacency.mathematical.status === 'proven_empty';
     select.value = provenEmpty ? 'rejected'
       : ['confirmed', 'rejected'].includes(adjacency.state) ? adjacency.state : 'proposed';
@@ -213,21 +521,15 @@ function renderBuildFacesAdjacencies() {
     math.className = 'hint';
     math.textContent = `${adjacency.mathematical.status.replaceAll('_', ' ')} · ` +
       `${adjacency.mathematical.category}: ${adjacency.mathematical.reason}`;
-    const reason = document.createElement('p');
-    reason.className = 'hint';
-    reason.textContent = adjacency.reason;
     const evidence = document.createElement('p');
     evidence.className = 'hint';
     const gap = adjacency.evidence?.observation_bounds_gap;
     evidence.textContent = Number.isFinite(gap)
-      ? `Observation bounding-box gap: ${gap.toPrecision(5)}. Observation separation is not proof that these surfaces are disjoint.`
-      : 'Observation separation unavailable. Selected observations do not define physical extents or prove disjointness.';
-    const support = document.createElement('p');
-    support.className = 'hint';
-    support.textContent = provenEmpty ? 'Mathematical disjointness proof: adjacency is rejected.'
-      : adjacency.state === 'rejected' ? 'Rejected adjacency: this pair contributes no shared boundary.'
-      : adjacency.supported ? 'A supported mathematical intersection does not establish physical adjacency.'
-      : 'Intersection construction is not supported yet. Confirming adjacency blocks affected faces until construction is supported; rejection is an explicit modeling decision.';
+      ? `Scan gap: ${gap.toPrecision(5)}` : 'Scan gap unavailable';
+    const detail = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = adjacency.supported ? 'Details' : 'Unsupported intersection';
+    detail.append(summary, math, evidence);
     select.onchange = () => {
       const key = adjacencyPairKey(adjacency.first, adjacency.second);
       buildFacesAdjacencyDraft = buildFacesAdjacencyDraft.filter((decision) =>
@@ -237,25 +539,74 @@ function renderBuildFacesAdjacencies() {
       invalidateBuildFaces('Adjacency decision changed. Preview again before reviewing faces.', true);
     };
     label.append(select);
-    row.append(label, math, reason, evidence, support);
+    row.append(label, detail);
     return row;
   });
   $('build-faces-adjacencies').replaceChildren(...rows);
 }
-function openBuildFaces(owner = null) {
+function openBuildFaces(owner = null, target = null) {
   if (buildFacesApplying) {
     status('Wait for the current face batch to finish applying.', true);
     return;
   }
+  if ($('build-faces-dialog').open && !canDiscardFaceReview()) return;
   invalidateBuildFaces();
   buildFacesOwnerId = owner?.id || null;
   buildFacesAdjacencyDraft = structuredClone(owner?.adjacencies || []);
   buildFacesScopeDraft = structuredClone(owner?.face_scopes || []);
+  buildFacesMode = owner ? (owner.target ? 'guided' : 'batch') : 'guided';
+  buildFacesCandidates = null;
+  buildFacesInspected = null;
+  buildFacesCutters = [];
+  buildFacesBoundarySources = structuredClone(owner?.boundary_sources || []);
+  buildFacesSurfacePreview = null;
+  buildFacesSurfaceHovered = false;
+  buildFacesContinuePreview = null;
+  buildFacesContinueInteraction = { pointer: null, focus: null };
+  $('build-faces-neighbor-filter').value = '';
+  $('build-faces-options').open = false;
   $('build-faces-label').value = owner?.label || nextFeatureLabel('Build faces');
-  const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
+  buildFacesTarget = target || owner?.target || null;
+  const { choices: options, unavailable } = buildFacesGeometry();
+  $('build-faces-error').textContent = unavailableSavedFaceInputsMessage() || unavailableFitsMessage(unavailable);
   const selected = owner?.surfaces || options.filter((choice) =>
     selectedFeatureIds.has(choice.reference.feature) || selectedFeatureIds.has(choice.reference.surface))
     .map((choice) => choice.reference);
+  const requestedTarget = target || owner?.target;
+  buildFacesTarget = requestedTarget
+    ? options.find((choice) => sameSurfaceReference(choice.reference, requestedTarget))?.reference || null
+    : selected[0] || options[0]?.reference || null;
+  if (requestedTarget && !buildFacesTarget) $('build-faces-error').textContent = 'Target fit unavailable.';
+  renderIconPicker($('build-faces-target'), $('build-faces-target-options'), {
+    choices: options.map((choice) => ({
+      ...fittedSurfacePresentation(choice.reference, graphState.recipe.nodes),
+      value: JSON.stringify(choice.reference),
+    })),
+    value: JSON.stringify(buildFacesTarget),
+    locked: () => featureTreeLocked() || buildFacesApplying,
+    preview: (value) => {
+      buildFacesSurfacePreview = value ? JSON.parse(value) : null;
+      paintBuildFacesPreview();
+    },
+    change: (value) => {
+      if (!canDiscardFaceReview()) return;
+      const target = JSON.parse(value),
+        owner = graphState.recipe.nodes.find((node) => node.operation === 'build_faces' &&
+          node.target && sameSurfaceReference(node.target, target));
+      buildFacesReviewDirty = false;
+      openBuildFaces(owner || null, target);
+    },
+  });
+  $('build-faces-target').onpointerenter = () => {
+    buildFacesSurfaceHovered = true;
+    inspectFaceCandidate(null);
+  };
+  $('build-faces-target').onpointerleave = () => {
+    buildFacesSurfaceHovered = false;
+    paintBuildFacesPreview();
+  };
+  $('build-faces-target').onfocus = () => inspectFaceCandidate(null);
+  $('build-faces-target').onblur = () => paintBuildFacesPreview();
   $('build-faces-surfaces').replaceChildren(...options.map((choice) => {
     const option = document.createElement('option');
     option.value = JSON.stringify(choice.reference);
@@ -264,95 +615,278 @@ function openBuildFaces(owner = null) {
     return option;
   }));
   $('build-faces-title').textContent = owner ? 'Review / update faces' : 'Build faces';
+  $('build-faces-next-neighbors').hidden = true;
+  setBuildFacesModeDisplay();
   renderBuildFacesScopes();
   if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
-  $('build-faces-surfaces').focus();
+  if (buildFacesMode === 'guided') {
+    $('build-faces-target').focus();
+    void loadFaceCandidates(owner?.surfaces || null, owner ? owner.boundary_sources || [] : null);
+  } else $('build-faces-surfaces').focus();
 }
-function buildFacesPreviewGeometry(preview, color, edge = false) {
+function buildFacesPreviewGeometry(preview, color, edge = false, closed = true, emphasis = 'region', group = buildFacesOverlays) {
   if (!validGeometryPreview(preview) || !preview.positions.length) return;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(preview.positions, 3));
   if (edge) {
-    buildFacesOverlays.add(new THREE.LineLoop(geometry,
-      new THREE.LineBasicMaterial({ color, depthTest: false })));
+    group.add(...faceEdgeLines(preview.positions, color, closed, emphasis));
   } else {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(preview.positions, 3));
     geometry.setIndex(preview.indices);
     geometry.computeVertexNormals();
-    buildFacesOverlays.add(new THREE.Mesh(geometry,
+    const cell = new THREE.Mesh(geometry,
       new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true,
-        opacity: 0.5, depthWrite: false })));
+        opacity: 0.5, depthWrite: false }));
+    cell.renderOrder = 100;
+    group.add(cell);
+    return cell;
   }
+}
+function inspectFaceRegion(region) {
+  if (buildFacesRegionInspected?.faceKey === region?.faceKey &&
+      buildFacesRegionInspected?.regionKey === region?.regionKey) return;
+  buildFacesRegionInspected = region;
+  for (const row of $('build-faces-review').querySelectorAll('.face-region'))
+    row.classList.toggle('region-inspected', row.dataset.faceKey === region?.faceKey &&
+      row.dataset.regionKey === region?.regionKey);
+  paintBuildFacesPreview();
+}
+function updateFaceRegionTools() {
+  const faces = buildFacesMode === 'guided'
+    ? guidedProposalFaces(buildFacesProposal, buildFacesTarget) : buildFacesProposal?.faces || [];
+  const count = faces.reduce((sum, face) => sum +
+    (buildFacesReview.get(face.key)?.region_keys || []).length, 0);
+  $('build-faces-region-tools').hidden = !buildFacesProposal;
+  $('face-region-count').textContent = `${count} selected`;
+  $('clear-face-regions').disabled = buildFacesApplying || !count;
+  $('select-suggested-face-regions').disabled = buildFacesApplying || !faces.some((face) =>
+    changeBuildFaceRegionSelection(face, buildFacesReview.get(face.key)?.region_keys || [], 'suggested').changed);
+}
+function changeFaceRegionSelection(face, operation, regionKey = null) {
+  const next = changeBuildFaceRegionSelection(face,
+    buildFacesReview.get(face.key)?.region_keys || [], operation, regionKey);
+  if (!next.changed) return false;
+  buildFacesReview.set(face.key, { region_keys: next.region_keys });
+  buildFacesReviewDirty = true;
+  renderFaceDialogClose($('close-build-faces'), false);
+  return true;
 }
 function paintBuildFacesPreview() {
   clearBuildFacesPreview();
-  if (!buildFacesProposal) return;
+  updateFaceRegionTools();
+  if (buildFacesMode === 'guided' && (buildFacesTarget || buildFacesSurfacePreview) && $('build-faces-dialog').open) {
+    const { reference, prominent } = surfaceFootprintState(buildFacesTarget, buildFacesSurfacePreview,
+      buildFacesSurfaceHovered || document.activeElement === $('build-faces-target'), !!buildFacesInspected);
+    paintFaceFootprint(reference, prominent, '#78e2ff');
+    if (buildFacesContinuePreview) paintFaceFootprint(buildFacesContinuePreview, true, '#ffe45c');
+  }
+  $('build-faces-candidate-status').textContent = '';
+  if (buildFacesMode === 'guided') {
+    const targetResult = graphState.results[buildFacesTarget?.feature],
+      targetFit = buildFacesTarget?.surface ? targetResult?.surfaces?.[buildFacesTarget.surface] : targetResult;
+    for (const candidate of guidedNeighborHighlights(buildFacesCandidates?.candidates || [],
+      buildFacesCutters, buildFacesInspected)) {
+      const inspecting = sameSurfaceReference(candidate.reference, buildFacesInspected?.reference);
+      const sources = inspecting ? candidate.shared_faces || []
+        : (candidate.shared_faces || []).filter((source) => buildFacesBoundarySources.includes(source.id));
+      const approved = approvedNeighborPreviewPaths({ ...candidate, shared_faces: sources }, graphState.results,
+        buildFacesCandidates?.target_key);
+      const paths = approved.length ? approved : intersectionPreviewPaths(candidate.geometry,
+        { ids: targetFit?.ids, positions });
+      for (const path of paths) buildFacesPreviewGeometry(path.preview,
+        inspecting ? '#ffe45c' : '#78c5ff', true, path.closed, inspecting ? 'inspected' : 'neighbor');
+      if (inspecting) $('build-faces-candidate-status').textContent =
+        `${fittedFaceCandidatePresentation(candidate).name} · ${approved.length ? 'approved edge'
+          : paths.length > 1 ? `${paths.length} branches` : paths.length ? 'intersection' : 'no curve'}`;
+    }
+  }
+  if (!buildFacesProposal) { draw(); return; }
   const edges = new Map(buildFacesProposal.intersections.map((edge) => [edge.key, edge]));
   const drawnEdges = new Set();
-  buildFacesProposal.faces.forEach((face, index) => {
+  const faces = buildFacesMode === 'guided'
+    ? guidedProposalFaces(buildFacesProposal, buildFacesTarget) : buildFacesProposal.faces;
+  faces.forEach((face, index) => {
     const review = buildFacesReview.get(face.key);
-    const region = face.regions.find((candidate) => candidate.key === review?.region_key);
-    if (!review?.accepted || !region) return;
+    const selected = new Set(review?.region_keys || []);
+    if (face.blocked_by_adjacency || face.blocked_by_geometry) return;
     const color = palette[index % palette.length];
-    buildFacesPreviewGeometry(region.preview, color);
-    for (const boundary of region.boundaries) {
-      if (drawnEdges.has(boundary.intersection_key)) continue;
-      drawnEdges.add(boundary.intersection_key);
-      buildFacesPreviewGeometry(edges.get(boundary.intersection_key)?.geometry?.preview, color, true);
+    for (const region of boundedBuildFaceRegions(face).filter((candidate) =>
+      validBuildFaceRegion(candidate) && (buildFacesMode === 'guided' || selected.has(candidate.key)))) {
+      const inspecting = buildFacesRegionInspected?.faceKey === face.key &&
+        buildFacesRegionInspected?.regionKey === region.key;
+      const cell = buildFacesPreviewGeometry(region.preview, inspecting ? '#ffe45c'
+        : selected.has(region.key) ? color : '#94a6b8');
+      if (cell && buildFacesMode === 'guided') {
+        cell.material.opacity = inspecting ? 0.65 : selected.has(region.key) ? 0.6 : 0.10;
+        cell.userData = { faceKey: face.key, regionKey: region.key };
+      }
+      if (!selected.has(region.key) && !inspecting) continue;
+      const loopPaths = faceBoundaryPreviewPaths(region.bounds, region.loops);
+      for (const path of loopPaths) buildFacesPreviewGeometry(path.preview,
+        inspecting ? '#ffe45c' : color, true, path.closed, inspecting ? 'inspected' : 'region');
+      for (const boundary of region.boundaries || []) {
+        if (drawnEdges.has(boundary.intersection_key)) continue;
+        drawnEdges.add(boundary.intersection_key);
+        if (loopPaths.length) continue;
+        for (const path of intersectionPreviewPaths(edges.get(boundary.intersection_key)?.geometry))
+          buildFacesPreviewGeometry(path.preview, inspecting ? '#ffe45c' : color,
+            true, path.closed, inspecting ? 'inspected' : 'region');
+      }
     }
   });
-  $('apply-build-faces').disabled = !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
+  $('apply-build-faces').disabled = buildFacesApplying || !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
   draw();
 }
-function renderBuildFacesReview() {
-  $('build-faces-policy').textContent = buildFacesProposal.policy;
+function paintFaceFootprint(reference, prominent, color) {
+  const result = graphState.results[reference?.feature];
+  const fitted = reference?.surface ? result?.surfaces?.[reference.surface] : result;
+  if (fitted && graphState.states[reference.feature] === 'ready') {
+    const indices = mesh.geometry.index?.array;
+    if (!buildFacesMeshTopology || buildFacesMeshTopology.positions !== positions ||
+        buildFacesMeshTopology.indices !== indices) {
+      buildFacesMeshTopology = { positions, indices,
+        topology: buildFootprintTopology(indices, positions.length / 3) };
+    }
+    const topology = buildFacesMeshTopology.topology;
+    let cached = buildFacesFootprints.get(fitted);
+    if (!cached || cached.positions !== positions || cached.topology !== topology) {
+      cached = { positions, topology, paths: fittedSelectionFootprint(fitted, positions, topology) };
+      buildFacesFootprints.set(fitted, cached);
+    }
+    for (const path of cached.paths) {
+      const lines = faceEdgeLines(path.preview.positions, color, path.closed,
+        prominent ? 'footprint' : 'footprint-context');
+      buildFacesOverlays.add(...lines);
+    }
+  }
+}
+function paintBuildFacesContext() {
+  if (!graphState || !buildFacesContext) return;
+  const excluded = previewedFaceContextIds(buildFacesProposal, buildFacesTarget),
+    key = excluded.sort().join('|');
+  if (buildFacesContextCache?.state === graphState && buildFacesContextCache.bridges === buildFacesAcceptedContext &&
+      buildFacesContextCache.key === key) return;
+  buildFacesContextCache = { state: graphState, bridges: buildFacesAcceptedContext, key };
+  for (const child of [...buildFacesContext.children]) {
+    buildFacesContext.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  const faces = definedFaceContext(graphState, buildFacesAcceptedContext, excluded);
+  buildFacesContext.userData.faceCount = faces.length;
+  for (const { result: face } of faces) {
+    const cell = buildFacesPreviewGeometry(face.preview, '#98aeb9', false, true, 'region', buildFacesContext);
+    cell.material.opacity = 0.22;
+    cell.material.depthTest = false;
+    cell.renderOrder = 90;
+    let paths = faceBoundaryPreviewPaths(face.bounds, face.loops);
+    if (!paths.length) paths = (face.boundary_ids || []).flatMap((id) =>
+      graphState.states[id] === 'ready' ? intersectionPreviewPaths(graphState.results[id]).filter((path) => path.closed) : []);
+    for (const path of paths) buildFacesPreviewGeometry(path.preview, '#87a8b5', true,
+      path.closed, 'defined-face', buildFacesContext);
+  }
+}
+function renderBuildFacesReview(preserveReview = false) {
+  renderFaceDialogClose($('close-build-faces'), false);
   renderBuildFacesAdjacencies();
-  const rows = buildFacesProposal.faces.map((face) => {
-    const initial = initialBuildFaceRegion(face);
-    const review = { accepted: !!initial, region_key: initial };
+  const expanded = new Set([...$('build-faces-review').querySelectorAll('.face-region-list[open]')]
+    .map((list) => list.dataset.faceKey));
+  const faces = buildFacesMode === 'guided'
+    ? guidedProposalFaces(buildFacesProposal, buildFacesTarget) : buildFacesProposal.faces;
+  const rows = faces.map((face) => {
+    const available = new Set(boundedBuildFaceRegions(face).filter(validBuildFaceRegion).map((region) => region.key));
+    const selected = new Set(preserveReview
+      ? (buildFacesReview.get(face.key)?.region_keys || []).filter((key) => available.has(key)) : buildFacesMode === 'guided'
+        ? initialGuidedFaceRegions(face) : initialBuildFaceRegions(face));
+    const review = { region_keys: [...selected] };
     buildFacesReview.set(face.key, review);
     const row = document.createElement('div');
     row.className = 'build-face-row';
-    const title = document.createElement('label');
-    title.className = 'check';
-    const accept = document.createElement('input');
-    accept.type = 'checkbox';
-    accept.checked = review.accepted;
-    accept.disabled = !!face.blocked_by_adjacency || !face.regions.some(validBuildFaceRegion);
-    title.append(accept, document.createTextNode(`${face.label} — ${face.status.replaceAll('_', ' ')}`));
+    const title = document.createElement('strong');
+    title.textContent = buildFacesMode === 'guided' ? 'Regions' : face.label;
     row.append(title);
-    const select = document.createElement('select');
-    select.setAttribute('aria-label', `Retained region for ${face.label}`);
-    select.append(new Option('Choose retained region…', ''));
-    for (const region of face.regions) {
-      const disposition = region.existing_face_id ? ' — existing face; reused unchanged'
-        : region.owned_face_id ? ' — previously applied' : '';
-      const option = new Option(`${region.label}${region.bounded ? '' : ' — OPEN; preview only'}${disposition}` +
-        (validBuildFaceRegion(region) ? '' : ' — unavailable; resolve diagnostics'), region.key);
-      option.disabled = !validBuildFaceRegion(region);
-      select.append(option);
+    if (!boundedBuildFaceRegions(face).length) {
+      const missing = document.createElement('p');
+      missing.className = 'hint';
+      missing.textContent = 'No bounded regions. Add boundary surfaces.';
+      row.append(missing);
     }
-    select.value = initial || '';
-    select.disabled = !!face.blocked_by_adjacency || !face.regions.some(validBuildFaceRegion);
-    const detail = document.createElement('p');
-    detail.className = 'hint';
-    const update = () => {
-      review.region_key = select.value || null;
-      const region = face.regions.find((candidate) => candidate.key === review.region_key);
-      review.accepted = !face.blocked_by_adjacency && accept.checked && validBuildFaceRegion(region);
-      detail.textContent = region ? faceEvidenceSummary(region.evidence) +
-        (region.bounded ? ' · Bounded face, not a solid.' : ' · Open face: missing limits; cannot export as a bounded face.')
-        : 'Choose a region explicitly before including this face.';
-      paintBuildFacesPreview();
+    const groups = buildFaceRegionGroups(face, [...selected]);
+    const renderRegion = (region, parent) => {
+      const regionRow = document.createElement('div');
+      regionRow.className = 'face-region';
+      regionRow.dataset.faceKey = face.key;
+      regionRow.dataset.regionKey = region.key;
+      regionRow.classList.toggle('region-inspected', buildFacesRegionInspected?.faceKey === face.key &&
+        buildFacesRegionInspected?.regionKey === region.key);
+      const label = document.createElement('label');
+      label.className = 'check';
+      const accept = document.createElement('input');
+      accept.type = 'checkbox';
+      accept.checked = selected.has(region.key);
+      accept.disabled = !!face.blocked_by_adjacency || !!face.blocked_by_geometry || !validBuildFaceRegion(region);
+      const disposition = region.existing_face_id ? ' · reused'
+        : region.owned_face_id ? ' · applied' : '';
+      accept.setAttribute('aria-label', region.label);
+      label.append(accept, document.createTextNode(`${region.label}${disposition}`));
+      const badge = document.createElement('span');
+      badge.className = `face-badge${region.bounded ? '' : ' warning'}`;
+      badge.textContent = !validBuildFaceRegion(region) ? 'Unavailable' : region.bounded ? 'Bounded' : 'Open';
+      badge.title = region.bounded ? 'Bounded face' : 'Open extent; preview only';
+      const disclosure = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Scan';
+      const detail = document.createElement('p');
+      detail.className = 'hint';
+      detail.textContent = faceEvidenceSummary(region.evidence);
+      disclosure.append(summary, detail);
+      accept.onchange = () => {
+        changeFaceRegionSelection(face, 'toggle', region.key);
+        paintBuildFacesPreview();
+      };
+      const inspect = () => inspectFaceRegion({ faceKey: face.key, regionKey: region.key });
+      regionRow.onpointerenter = (event) => { if (!event.buttons) inspect(); };
+      regionRow.onpointerleave = () => {
+        if (!regionRow.contains(document.activeElement)) inspectFaceRegion(null);
+      };
+      regionRow.addEventListener('focusin', inspect);
+      regionRow.addEventListener('focusout', (event) => {
+        if (!regionRow.contains(event.relatedTarget)) inspectFaceRegion(null);
+      });
+      regionRow.append(label, badge, disclosure);
+      parent.append(regionRow);
     };
-    accept.onchange = update;
-    select.onchange = () => { accept.checked = !!select.value; update(); };
-    row.append(select, detail);
+    if (buildFacesMode === 'guided' && compactFaceRegionList(face)) {
+      const folded = document.createElement('details'), summary = document.createElement('summary');
+      folded.className = 'face-region-list';
+      folded.dataset.faceKey = face.key;
+      folded.open = expanded.has(face.key);
+      summary.textContent = `Individual regions (${groups.primary.length + groups.other.length})`;
+      folded.append(summary);
+      for (const region of [...groups.primary, ...groups.other]) renderRegion(region, folded);
+      row.append(folded);
+    } else {
+      for (const region of groups.primary) renderRegion(region, row);
+    }
+    if (groups.other.length && !(buildFacesMode === 'guided' && compactFaceRegionList(face))) {
+      const folded = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = `Other regions (${groups.other.length})`;
+      folded.append(summary);
+      for (const region of groups.other) renderRegion(region, folded);
+      row.append(folded);
+    }
     if (face.blocked_by_adjacency || face.status === 'requires_adjacency_review') {
       const warning = document.createElement('p');
       warning.className = 'hint build-face-warning';
       warning.textContent = face.blocked_by_adjacency
-        ? 'Blocked by a confirmed adjacency whose intersection cannot be constructed. Review the pair above; no partial face can be applied as a substitute.'
-        : 'Physical adjacency is unresolved. Review the pairs above; any partial face requires an explicit region choice.';
+        ? 'Unsupported confirmed boundary. Review adjacency decisions.'
+        : 'Unresolved adjacency. Review decisions before selecting regions.';
+      row.append(warning);
+    }
+    if (face.blocked_by_geometry) {
+      const warning = document.createElement('p');
+      warning.className = 'hint build-face-warning';
+      warning.textContent = 'Invalid geometry. Resolve diagnostics before applying.';
       row.append(warning);
     }
     for (const message of face.diagnostics) {
@@ -361,7 +895,6 @@ function renderBuildFacesReview() {
       warning.textContent = message;
       row.append(warning);
     }
-    update();
     return row;
   });
   $('build-faces-review').replaceChildren(...rows);
@@ -372,6 +905,36 @@ function renderBuildFacesReview() {
     return warning;
   }));
   paintBuildFacesPreview();
+}
+function guidedFaceRegionAt(event) {
+  if (!buildFacesProposal || buildFacesApplying || !$('build-faces-dialog').open ||
+      buildFacesMode !== 'guided') return null;
+  const canvas = renderer.domElement, bounds = canvas.getBoundingClientRect();
+  camera.updateMatrixWorld();
+  modelRoot.updateMatrixWorld(true);
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(
+    (event.clientX - bounds.left) / bounds.width * 2 - 1,
+    1 - (event.clientY - bounds.top) / bounds.height * 2), camera);
+  const cells = buildFacesOverlays.children.filter((child) => child.userData.regionKey);
+  const hit = raycaster.intersectObjects(cells, false)[0];
+  if (!hit) return null;
+  const { faceKey, regionKey } = hit.object.userData;
+  const face = guidedProposalFaces(buildFacesProposal, buildFacesTarget).find((item) => item.key === faceKey);
+  if (!face || face.blocked_by_adjacency || face.blocked_by_geometry ||
+      !boundedBuildFaceRegions(face).some((region) => region.key === regionKey && validBuildFaceRegion(region))) return null;
+  return { faceKey, regionKey };
+}
+function pickGuidedFaceRegion(event) {
+  const hit = guidedFaceRegionAt(event);
+  if (!hit) return;
+  const face = guidedProposalFaces(buildFacesProposal, buildFacesTarget)
+    .find((item) => item.key === hit.faceKey);
+  if (!changeFaceRegionSelection(face, 'toggle', hit.regionKey)) return;
+  inspectFaceRegion(hit);
+  renderBuildFacesReview(true);
+  const count = buildFacesReview.get(face.key).region_keys.length;
+  status(`${count} retained region${count === 1 ? '' : 's'} on ${face.label}. Apply to save the face.`);
 }
 function clearReuseVolumes() {
   for (const child of [...reuseVolumes.children]) {
@@ -474,8 +1037,7 @@ function renderGraphView() {
   if (!graphState) return;
   const graph = renderFeatureGraph($('feature-graph-canvas'), {
     recipe: graphState.recipe,
-    states: graphState.states,
-    errors: graphState.errors,
+    ...featureTreePresentation(graphState.recipe.nodes, graphState.states, graphState.errors),
     selected: selectedFeatureIds,
     options: featureGraphOptions(),
     onSelect: (id, { clear = false } = {}) => {
@@ -520,6 +1082,7 @@ function nextGroupLabel(base) {
   return uniqueFeatureLabel(base, graphState?.recipe.groups || []);
 }
 function openFeatureGroup(groupId = null) {
+  if (featureTreeLocked()) return;
   editingGroupId = groupId;
   const group = (graphState.recipe.groups || []).find((candidate) => candidate.id === groupId),
     members = graphState.recipe.nodes.filter(
@@ -543,6 +1106,7 @@ function openFeatureGroup(groupId = null) {
   $('feature-group-label').select();
 }
 async function removeFeatureGroup(groupId) {
+  if (featureTreeLocked()) return;
   const recipe = structuredClone(graphState.recipe);
   recipe.groups = (recipe.groups || []).filter((group) => group.id !== groupId);
   for (const node of recipe.nodes)
@@ -555,6 +1119,81 @@ function showCreateDialog(dialogId, labelId, defaultLabel) {
   $(dialogId).showModal();
   input.focus();
   input.select();
+}
+function clearBodyInspection() {
+  if (!bodyInspection) return;
+  for (const child of [...bodyInspection.children]) {
+    bodyInspection.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+}
+function inspectBodyFace(id) {
+  clearBodyInspection();
+  const node = graphNode(id), fitted = graphState.results[id];
+  if (node && fitted) physicalGeometryGuide(node, fitted, '#ffe45c', bodyInspection);
+  draw();
+}
+function bodyCheckedFaces(container) {
+  return [...$(container).querySelectorAll('input:checked')].map((input) => input.value);
+}
+function renderBodyFaces(container, selected) {
+  const included = new Set(selected), countId = container === 'new-body-face-choices'
+    ? 'new-body-face-count' : 'body-face-count';
+  const updateCount = () => { $(countId).textContent = ` · ${bodyCheckedFaces(container).length} selected`; };
+  $(container).replaceChildren(...bodyFaceChoices(graphState).map(({ node, state, open }) => {
+    const row = document.createElement('label'), input = document.createElement('input'),
+      name = document.createElement('span'), readiness = document.createElement('span');
+    input.type = 'checkbox';
+    input.value = node.id;
+    input.checked = included.has(node.id);
+    input.onchange = updateCount;
+    name.textContent = node.label;
+    readiness.className = 'hint';
+    readiness.textContent = open ? 'Open' : state === 'ready' ? '' : state;
+    row.append(input, featureIcon(node.operation), name, readiness);
+    row.onpointerenter = row.onfocusin = () => inspectBodyFace(node.id);
+    row.onpointerleave = row.onfocusout = () => { clearBodyInspection(); draw(); };
+    return row;
+  }));
+  updateCount();
+}
+function showBodyDiagnostics(diagnostic) {
+  const container = $('body-diagnostics');
+  container.replaceChildren();
+  container.hidden = diagnostic?.kind !== 'body';
+  if (container.hidden) return;
+  const paintEdges = (record = diagnostic) => {
+    clearBodyInspection();
+    for (const edge of bodyEdgePaths(record))
+      bodyInspection.add(...faceEdgeLines(edge.positions, '#ff725d', false, 'inspected'));
+    draw();
+  };
+  paintEdges();
+  for (const problem of bodyProblems(diagnostic, graphState.recipe.nodes)) {
+    const button = document.createElement('button'), names = document.createElement('span');
+    button.type = 'button';
+    button.textContent = problem.message;
+    names.className = 'hint';
+    names.textContent = problem.sourceNames.join(' · ');
+    button.append(names);
+    const inspect = () => {
+      const edges = bodyEdgePaths(diagnostic).filter((edge) =>
+        edge.source_faces?.some((id) => problem.source_faces?.includes(id)));
+      if (edges.length) paintEdges({ preview: { edges } });
+      else {
+        clearBodyInspection();
+        for (const id of problem.source_faces || []) {
+          const node = graphNode(id), face = graphState.results[id];
+          if (node && face) physicalGeometryGuide(node, face, '#ff725d', bodyInspection);
+        }
+        draw();
+      }
+    };
+    button.onpointerenter = button.onfocus = inspect;
+    button.onpointerleave = button.onblur = () => paintEdges();
+    container.append(button);
+  }
 }
 function factorAxis(node) {
   if (node?.operation === 'fit')
@@ -632,8 +1271,13 @@ function renderFaceBoundaries(prefix, nodes, boundaries = []) {
     sideLabel.textContent = 'Retain';
     const keep = document.createElement('select');
     keep.dataset.boundaryKeep = '';
-    for (const option of boundaryKeepOptions(choice?.kind))
-      keep.add(new Option(option.label, option.value, false, option.value === boundary.keep));
+    const updateKeepOptions = (selectedKeep) => {
+      keep.replaceChildren();
+      for (const option of boundaryKeepOptions(choice?.kind, graphState.results[select.value]))
+        keep.add(new Option(option.label, option.value, false, option.value === selectedKeep));
+    };
+    updateKeepOptions(boundary.keep);
+    select.onchange = () => updateKeepOptions(keep.value);
     sideLabel.append(keep);
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -653,7 +1297,8 @@ function addFaceBoundary(prefix) {
     if (!unused) throw new Error('Create another shared intersection for this exact surface and geometry context first.');
     const kind = surfaceReferenceChoices(nodes, graphState.results, graphState.recipe.nodes)
       .find((choice) => sameSurfaceReference(choice.reference, reference)).kind;
-    boundaries.push({ intersection: unused.id, keep: boundaryKeepOptions(kind)[0].value });
+    boundaries.push({ intersection: unused.id,
+      keep: boundaryKeepOptions(kind, graphState.results[unused.id])[0].value });
     renderFaceBoundaries(prefix, nodes, boundaries);
   } catch (error) {
     status(error.message, true);
@@ -988,10 +1633,10 @@ function showReferencePlaneFields(prefix = '') {
     ? 'Axial offset from axis origin'
     : 'Signed normal offset from axis';
   hint.textContent = contains
-    ? 'Contains the entire axis. Clocking sets its orientation around the axis; mirror symmetry may refine it in a joint.'
+    ? 'Contains the axis. Connected fits on a free axis refine its clocking; a mirror joint can also refine it.'
     : perpendicular
       ? 'Normal to the axis. Offset moves it along the axis from the axis point at local Z=0.'
-      : 'Parallel to, but not necessarily containing, the axis. Clocking sets orientation and offset sets signed separation.';
+      : 'Parallel to the axis. Connected fits on a free axis refine clocking and offset.';
 }
 const chosen = (id) => [...$(id).selectedOptions].map((o) => o.value);
 const uid = (prefix) => prefix + '_' + crypto.randomUUID().replaceAll('-', '');
@@ -1008,11 +1653,11 @@ async function change(next, region, depth) {
   node.depth = depth;
   await replaceRecipe(recipe);
 }
-async function replaceRecipe(recipe, autoEvaluate = true) {
+async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphState.token) {
   try {
-    acceptGraph(await request('/api/graph', { token: graphState.token, recipe }));
+    acceptGraph(await request('/api/graph', { token: expectedToken, recipe }));
     status('Actions updated. Evaluate to refresh dependent results.');
-    if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void evaluateAll(), 0);
+    if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
     return true;
   } catch (error) {
     acceptGraph(await request('/api/graph'));
@@ -1035,14 +1680,34 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
-  if (buildFacesProposal && state.token !== buildFacesProposal.token)
+  if ((buildFacesProposal && state.token !== buildFacesProposal.token) ||
+      (buildFacesCandidates && state.token !== buildFacesCandidates.token) ||
+      (graphState && state.token !== graphState.token && $('build-faces-dialog').open && buildFacesMode === 'guided')) {
     invalidateBuildFaces('Actions changed. Preview again before applying faces.');
+    buildFacesCandidates = null;
+    buildFacesInspected = null;
+    $('build-faces-candidates').replaceChildren();
+    $('build-faces-candidate-status').textContent = 'Actions changed. Find candidate neighbors again before previewing.';
+  }
   graphState = state;
+  buildFacesAcceptedContext = buildFacesAcceptedContext.filter((saved) => saved.token === state.token &&
+    state.recipe.nodes.some((node) => node.id === saved.id) && !['ready', 'failed', 'blocked'].includes(state.states[saved.id]));
+  const sourceHash = state.recipe.nodes.find((node) => node.operation === 'source')?.source_sha256,
+    qualityKey = sourceHash ? `scansor.rmsLimit.${sourceHash}` : null;
+  if (qualityKey !== fitQualityStorageKey) {
+    fitQualityStorageKey = qualityKey;
+    let saved = null;
+    try { if (qualityKey) saved = localStorage.getItem(qualityKey); }
+    catch { /* Fit quality remains available without preference storage. */ }
+    fitQualityLimit = parseRmsLimit(saved);
+    $('fit-quality-limit').value = fitQualityLimit === null ? '' : String(fitQualityLimit);
+    $('fit-quality-limit').setCustomValidity('');
+    $('fit-quality-limit').removeAttribute('aria-invalid');
+  }
   selectedFeatureIds = new Set(
     [...selectedFeatureIds].filter((id) => state.recipe.nodes.some((node) => node.id === id)),
   );
-  if (!selectedFeatureIds.size) selectOnly(state.recipe.output);
-  else selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
+  selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
   session = Object.fromEntries(
     state.recipe.nodes.filter((n) => n.operation === 'selection').map((n) => [n.id, n.ids]),
   );
@@ -1086,7 +1751,101 @@ function acceptGraph(state) {
   showResult();
   showReuseVolumes();
   paint();
+  if ($('build-faces-dialog').open) paintBuildFacesPreview();
   if (transformChanged) home('oblique');
+}
+function featureTreeLocked() {
+  return busy || selectionDrawing || selectionPending || graphState.evaluation_running ||
+    featureDeletionPending;
+}
+function focusContextFeature() {
+  const target = [...$('action-list').querySelectorAll('.action-select, .managed-owner-summary')]
+    .find((element) => element.dataset.actionId === featureContextAnchor);
+  (target || $('features-panel')).focus();
+}
+function openFeatureContextMenu(id, { x, y }) {
+  if (featureTreeLocked()) return;
+  if (!selectedFeatureIds.has(id)) {
+    selectOnly(id);
+    refreshFeatureSelection(true);
+  }
+  featureContextAnchor = id;
+  const plan = featureDeletionPlan(graphState.recipe, selectedFeatureIds),
+    menu = $('feature-context-menu'), button = $('delete-selected-features');
+  button.textContent = `Delete ${selectedFeatureIds.size} selected…`;
+  button.disabled = !!plan.error;
+  $('feature-context-error').textContent = plan.error || '';
+  menu.showPopover();
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, innerWidth - bounds.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, innerHeight - bounds.height - 4))}px`;
+  (button.disabled ? menu : button).focus();
+}
+function updateFeatureDeletionButton() {
+  const review = featureDeletionReview;
+  $('confirm-delete-features').disabled = !review || featureTreeLocked() ||
+    review.token !== graphState.token ||
+    (!!review.dependents.length && !$('delete-feature-dependents').checked);
+}
+function reviewFeatureDeletion() {
+  if (featureTreeLocked()) return;
+  const plan = featureDeletionPlan(graphState.recipe, selectedFeatureIds);
+  if (plan.error) { status(plan.error, true); return; }
+  featureDeletionReview = { ...plan, token: graphState.token };
+  $('feature-context-menu').hidePopover();
+  for (const [kind, heading] of [['selected', 'Selected'], ['managed', 'Generated outputs'],
+    ['dependents', 'Additional dependents']]) {
+    const section = $(`delete-feature-list-${kind}`);
+    section.hidden = !plan[kind].length;
+    section.querySelector('summary').textContent = `${heading} · ${plan[kind].length}`;
+    section.querySelector('ul').replaceChildren(...plan[kind].map((node) => {
+      const item = document.createElement('li');
+      item.textContent = node.label;
+      item.title = node.id;
+      return item;
+    }));
+  }
+  $('delete-feature-dependents-row').hidden = !plan.dependents.length;
+  $('delete-feature-dependents').checked = false;
+  $('delete-feature-dependent-label').textContent =
+    `Also delete ${plan.dependents.length} dependent features`;
+  $('delete-features-title').textContent = `Delete ${plan.removed.length} features?`;
+  $('delete-features-error').textContent = '';
+  updateFeatureDeletionButton();
+  $('delete-features-dialog').showModal();
+}
+async function confirmFeatureDeletion() {
+  const review = featureDeletionReview;
+  updateFeatureDeletionButton();
+  if ($('confirm-delete-features').disabled) return;
+  featureDeletionPending = true;
+  const panels = [document.querySelector('main'), $('creation-toolbar'), $('project-toolbar')],
+    previousInert = panels.map((panel) => panel.inert);
+  panels.forEach((panel) => { panel.inert = true; });
+  $('cancel-delete-features').disabled = true;
+  updateFeatureDeletionButton();
+  try {
+    if (await replaceRecipe(review.recipe, true, review.token)) {
+      $('delete-features-dialog').close();
+      status(`Deleted ${review.removed.length} features.`);
+    } else $('delete-features-error').textContent = $('status').textContent;
+  } catch (error) {
+    $('delete-features-error').textContent = error.message;
+  } finally {
+    featureDeletionPending = false;
+    panels.forEach((panel, index) => { panel.inert = previousInert[index]; });
+    $('cancel-delete-features').disabled = false;
+    updateFeatureDeletionButton();
+    if (!$('delete-features-dialog').open) focusContextFeature();
+  }
+}
+function currentFitQualities() {
+  if (fitQualityCache?.state !== graphState || fitQualityCache?.limit !== fitQualityLimit) {
+    fitQualityCache = { state: graphState, limit: fitQualityLimit,
+      values: fitQualities(graphState.recipe, graphState.states, graphState.results,
+        fitQualityLimit, graphState.errors) };
+  }
+  return fitQualityCache.values;
 }
 function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
@@ -1097,9 +1856,9 @@ function renderActions() {
     selected: selectedFeatureIds,
     states: graphState.states,
     errors: graphState.errors,
-    locked: () => busy || selectionDrawing || selectionPending || graphState.evaluation_running,
+    locked: featureTreeLocked,
     select: (id, { exclusive = false } = {}) => {
-      if (selectionDrawing || selectionPending) return;
+      if (selectionDrawing || selectionPending || featureDeletionPending) return;
       if (exclusive) selectOnly(id);
       else toggleFeatureSelection(id);
       refreshFeatureSelection(true);
@@ -1111,6 +1870,8 @@ function renderActions() {
     },
     editGroup: openFeatureGroup,
     removeGroup: (groupId) => void removeFeatureGroup(groupId),
+    contextMenu: openFeatureContextMenu,
+    qualities: currentFitQualities(),
   });
   renderGraphView();
 }
@@ -1140,8 +1901,9 @@ function showProperties() {
   ].includes(node.operation);
   if (node.operation === 'selection') $('selection-depth').value = node.depth;
   $('properties-title').textContent = node.label;
+  const presentation = featureTreePresentation(graphState.recipe.nodes, graphState.states, graphState.errors);
   $('feature-state').textContent = actionDescription(
-    node, graphState.states[node.id], graphState.errors[node.id],
+    node, presentation.states[node.id], presentation.errors[node.id],
   );
   $('action-label').value = node.label;
   choices(
@@ -1181,17 +1943,36 @@ function showProperties() {
     ['equal-properties', node.operation === 'equal'],
     ['surface-intersection-properties', node.operation === 'surface_intersection'],
     ['trimmed-face-properties', node.operation === 'trimmed_face'],
+    ['arranged-face-properties', node.operation === 'arranged_face'],
     ['build-faces-properties', node.operation === 'build_faces'],
+    ['body-properties', node.operation === 'body'],
   ])
     $(id).hidden = !enabled;
   for (const id of ['surface-intersection-properties', 'trimmed-face-properties'])
     for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
+  for (const input of $('body-properties').querySelectorAll('input'))
+    input.disabled = $('body-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
+  } else if (node.operation === 'body') {
+    renderBodyFaces('body-face-choices', node.faces);
+    $('body-tolerance').value = node.sewing_tolerance;
   } else if (node.operation === 'trimmed_face') {
     populateSurfaceReferences('face-surface', earlier, node.surface);
     renderFaceBoundaries('face', earlier, node.boundaries);
+  } else if (node.operation === 'arranged_face') {
+    const referenceLabel = (reference) => {
+      const feature = graphNode(reference.feature)?.label || reference.feature;
+      return reference.surface ? `${feature} → ${graphNode(reference.surface)?.label || reference.surface}`
+        : feature;
+    };
+    $('arranged-face-context').textContent = JSON.stringify({
+      surface: referenceLabel(node.surface),
+      cutters: node.cutters.map(referenceLabel),
+      declared_domains: node.domains.map((id) => graphNode(id)?.label || id),
+      selector: node.selector,
+    }, null, 2);
   } else if (node.operation === 'build_faces') {
     $('build-faces-inputs').textContent = `${node.surfaces.length} selected surfaces. Review proposals to change inputs or retained regions.`;
     $('review-build-faces').onclick = () => openBuildFaces(node);
@@ -1551,12 +2332,6 @@ function showProperties() {
       ),
     );
   }
-  const removalIds = managedSubtreeIds(node.id, graphState.recipe.nodes),
-    dependents = graphState.recipe.nodes.filter(
-      (candidate) =>
-        !removalIds.has(candidate.id) &&
-        refs(candidate).some((reference) => removalIds.has(reference)),
-    );
   const ownerId = managedOwnerId(node, graphState.recipe.nodes),
     managed = !!ownerId,
     owner = graphNode(ownerId);
@@ -1582,15 +2357,11 @@ function showProperties() {
       delete control.dataset.managedDisabled;
     }
   }
-  $('delete-action').disabled =
-    managed || !!dependents.length || graphState.recipe.nodes.length === 1;
+  $('delete-action').disabled = managed || node.operation === 'source';
   $('delete-action').title = managed
     ? `Managed by ${owner?.label || ownerId}`
-    : dependents.length
-      ? 'Referenced by ' + dependents.map((n) => n.label).join(', ')
-      : removalIds.size > 1
-        ? `Delete this action and ${removalIds.size - 1} managed outputs`
-        : 'Delete this unused action';
+    : node.operation === 'source' ? 'The source mesh cannot be deleted.'
+      : 'Review deletion of this feature and its dependent features';
   $('fit').textContent = 'Evaluate ' + node.label;
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
@@ -1883,26 +2654,68 @@ function fitGuide(node, fitted, color) {
     fitted.ids,
   );
 }
-function physicalGeometryGuide(node, fitted, color = '#66dbe9') {
+function physicalGeometryGuide(node, fitted, color = '#66dbe9', group = overlays, solid = false) {
   if (graphState.states[node.id] !== 'ready') return;
+  if (node.operation === 'surface_intersection') {
+    for (const path of intersectionPreviewPaths(fitted)) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(path.preview.positions, 3));
+      const Line = path.closed ? THREE.LineLoop : THREE.Line;
+      group.add(new Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: solid })));
+    }
+    return;
+  }
   if (!validGeometryPreview(fitted.preview) || !fitted.preview.positions.length) return;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(fitted.preview.positions, 3));
-  if (node.operation === 'surface_intersection') {
-    overlays.add(new THREE.LineLoop(geometry,
-      new THREE.LineBasicMaterial({ color, depthTest: false })));
-  } else {
-    geometry.setIndex(fitted.preview.indices);
-    geometry.computeVertexNormals();
-    overlays.add(new THREE.Mesh(geometry,
-      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.32, depthWrite: false })));
-    for (const id of fitted.boundary_ids || []) {
-      const intersection = graphNode(id);
-      const boundary = graphState.results[id];
-      if (intersection && boundary) physicalGeometryGuide(intersection, boundary, color);
+  geometry.setIndex(fitted.preview.indices);
+  geometry.computeVertexNormals();
+  group.add(new THREE.Mesh(geometry, solid
+    ? new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.75,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
+    : new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide,
+      transparent: true, opacity: 0.32, depthWrite: false })));
+  if (node.operation === 'body') {
+    for (const edge of bodyEdgePaths(fitted)) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(edge.positions, 3));
+      group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({
+        color: solid ? '#243641' : color, depthTest: solid })));
     }
+    return;
   }
+  const loopPaths = faceBoundaryPreviewPaths(fitted.bounds, fitted.loops);
+  for (const path of loopPaths) {
+    const loop = new THREE.BufferGeometry();
+    loop.setAttribute('position', new THREE.Float32BufferAttribute(path.preview.positions, 3));
+    const Line = path.closed ? THREE.LineLoop : THREE.Line;
+    group.add(new Line(loop, new THREE.LineBasicMaterial({ color: solid ? '#243641' : color, depthTest: solid })));
+  }
+  if (loopPaths.length) return;
+  for (const id of fitted.boundary_ids || []) {
+    const intersection = graphNode(id);
+    const boundary = graphState.results[id];
+    if (intersection && boundary) physicalGeometryGuide(intersection, boundary,
+      solid ? '#243641' : color, group, solid);
+  }
+}
+function showConstructedFaces() {
+  if (!$('faces-only').checked || constructedFacesState === graphState) return;
+  constructedFacesState = graphState;
+  for (const child of [...constructedFaces.children]) {
+    constructedFaces.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  const faces = faceDisplayEntries(graphState);
+  const bodies = graphState.recipe.nodes.filter((node) => node.operation === 'body' &&
+    graphState.states[node.id] === 'ready' && graphState.results[node.id]?.valid === true);
+  const bodyFaces = new Set(bodies.flatMap((node) => node.faces));
+  constructedFaces.userData.faceCount = faces.length;
+  for (const { node, result } of faces)
+    if (!bodyFaces.has(node.id)) physicalGeometryGuide(node, result, '#a8c2cf', constructedFaces, true);
+  for (const node of bodies)
+    physicalGeometryGuide(node, graphState.results[node.id], '#a8c2cf', constructedFaces, true);
 }
 function showAvailableGuides() {
   if (!$('all-guides').checked) return;
@@ -1931,7 +2744,7 @@ function showAvailableGuides() {
       transformGuide(fitted);
     } else if (node.operation === 'fit' && fitted) {
       fitGuide(node, fitted, palette[colorIndex++ % palette.length]);
-    } else if (['surface_intersection', 'trimmed_face'].includes(node.operation) && fitted &&
+    } else if (['surface_intersection', 'trimmed_face', 'arranged_face'].includes(node.operation) && fitted &&
                graphState.states[node.id] === 'ready') {
       physicalGeometryGuide(node, fitted, palette[colorIndex++ % palette.length]);
     }
@@ -1983,6 +2796,9 @@ function showOverlap() {
   }
 }
 function showResult() {
+  showConstructedFaces();
+  clearBodyInspection();
+  $('body-diagnostics').hidden = true;
   if (selectedFeatureIds.size !== 1) {
     result = null;
     clearGuides();
@@ -1994,6 +2810,8 @@ function showResult() {
   clearGuides();
   showAvailableGuides();
   $('metrics').replaceChildren();
+  if (graphNode(selectedFeatureId)?.operation === 'body')
+    showBodyDiagnostics(graphState.diagnostics?.[selectedFeatureId]);
   if (!result) {
     const node = graphNode(selectedFeatureId);
     if (node.operation === 'axis') {
@@ -2030,11 +2848,26 @@ function showResult() {
   }
   const node = graphNode(selectedFeatureId),
     values = {};
-  if (node.operation === 'surface_intersection') {
+  if (node.operation === 'body') {
     physicalGeometryGuide(node, result);
-    values['Boundary'] = 'Shared analytic circle';
-    values['Radius'] = result.radius.toFixed(5);
-    values['Center'] = result.center_display.map((value) => value.toFixed(5)).join(', ');
+    values['Solid'] = result.valid === true ? 'Closed and validated' : 'Invalid';
+    values['Faces'] = result.face_count;
+    values['Volume'] = Number(result.volume).toPrecision(8);
+    values['Sewing tolerance'] = node.sewing_tolerance;
+  } else if (node.operation === 'surface_intersection') {
+    physicalGeometryGuide(node, result);
+    const curves = intersectionCurves(result);
+    values['Shared curves'] = curves.length;
+    values['Curve kinds'] = curves.map((curve) => curve.kind).join(', ') || 'None';
+    if (curves.length === 1) {
+      const curve = curves[0];
+      values['Boundary'] = (curve.closed ?? ['circle', 'ellipse'].includes(curve.kind))
+        ? 'Closed analytic boundary' : 'Open analytic boundary';
+      if (Number.isFinite(curve.radius)) values['Radius'] = curve.radius.toFixed(5);
+      if (Array.isArray(curve.center_display))
+        values['Center'] = curve.center_display.map((value) => value.toFixed(5)).join(', ');
+    }
+    if (result.diagnostics?.length) values['Diagnostics'] = result.diagnostics.join('; ');
   } else if (node.operation === 'build_faces') {
     const faces = [...(result.generated_faces || []), ...(result.reused_faces || [])];
     for (const [index, id] of faces.entries()) {
@@ -2047,19 +2880,24 @@ function showResult() {
     values['Shared intersections'] = (result.generated_intersections?.length || 0) +
       (result.reused_intersections?.length || 0);
     values['Output'] = 'Reviewed faces — not a sewn solid';
-  } else if (node.operation === 'trimmed_face') {
+  } else if (['trimmed_face', 'arranged_face'].includes(node.operation)) {
     physicalGeometryGuide(node, result);
     values['Surface'] = result.surface_kind;
-    values['Shared boundaries'] = result.boundary_ids.length;
+    if (node.operation === 'arranged_face') {
+      values['Arrangement cutters'] = node.cutters.length;
+      values['Declared domains'] = node.domains.length;
+      values['Reviewed component count'] = node.selector.component_count;
+      values['Boundary loops'] = (result.loops || result.bounds?.loops || []).length;
+    } else values['Shared boundaries'] = result.boundary_ids.length;
     values['Physical extent'] = result.bounded ? 'Bounded face (not a solid)' : 'Unbounded — preview only';
-    for (const [kind, bounds] of Object.entries(result.bounds))
-      values[`${kind === 'axial' ? 'Axial' : 'Radial'} bounds`] = bounds
-        .map((value) => value === null ? 'unbounded' : value.toFixed(5)).join(' → ');
+    for (const [label, value] of physicalBoundsSummary(result.bounds)) values[label] = value;
     values['Preview'] = result.preview_clipped
-      ? 'Observation coverage limits display only' : 'Declared physical bounds';
+      ? 'Finite display crop only; not a physical cap' : 'Declared physical bounds';
   } else if (node.operation === 'fit') {
     fitGuide(node, result, '#66dbe9');
     values['Weighted RMS'] = result.weighted_rms.toFixed(5);
+    const quality = currentFitQualities()[node.id];
+    if (quality?.peak !== undefined) values['Worst residual'] = quality.peak.toPrecision(6);
     // Some constrained solves replace an earlier fit result with an exact
     // relationship result. Those results retain residuals but do not always
     // have a standalone-fit condition estimate.
@@ -2187,8 +3025,11 @@ function paint() {
     residualMode = $('colors').value === 'residual',
     selectedNode = graphNode(selectedFeatureId),
     allResiduals = $('all-residuals').checked,
+    facesOnly = $('faces-only').checked,
     residualSurfaces = [];
-  $('all-residuals').disabled = !residualMode;
+  $('all-residuals').disabled = !residualMode || facesOnly;
+  for (const id of ['colors', 'guides', 'all-guides', 'points', 'reuse-volumes'])
+    $(id).disabled = facesOnly;
   $('residual-scale').hidden = true;
   if (residualMode && allResiduals) {
     for (const node of graphState.recipe.nodes)
@@ -2257,6 +3098,10 @@ function paint() {
     $('legend').textContent += reuseVolumes.userData.volumeCount
       ? ' Translucent overlays show evaluated reuse envelopes; normal-angle filtering still applies.'
       : ' No evaluated reuse envelopes are available.';
+  if (facesOnly) {
+    $('legend').textContent = `${constructedFaces.userData.faceCount || 0} created faces`;
+    $('residual-scale').hidden = true;
+  }
   showOverlap();
   const overlap = overlapDiagnostic();
   if (overlap) {
@@ -2306,10 +3151,11 @@ function paint() {
   );
   selectedPoints.visible = $('points').checked;
   overlays.visible = $('guides').checked;
+  updateFaceReviewDisplay();
   $('counts').textContent = activeSelection()
     ? `${session[selectedFeatureId].length.toLocaleString()} selected vertices`
     : '';
-  renderer.domElement.style.cursor = activeSelection() && $('tool').value !== 'orbit'
+  renderer.domElement.style.cursor = !facesOnly && activeSelection() && $('tool').value !== 'orbit'
     ? 'crosshair' : 'default';
   if (!activeSelection()) $('brush-cursor').hidden = true;
   $('fit').disabled =
@@ -2328,6 +3174,11 @@ function paint() {
   $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
   $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
   $('use-growth').disabled = busy || !graphState.results[selectedFeatureId];
+  const evaluationLocked = busy || graphState.evaluation_running;
+  $('action-property-fields').disabled = evaluationLocked;
+  $('selection-edit-fields').disabled = evaluationLocked;
+  $('delete-action').disabled = evaluationLocked || !selectedNode ||
+    selectedNode.operation === 'source' || !!managedOwnerId(selectedNode, graphState.recipe.nodes);
   draw();
 }
 async function fit() {
@@ -2336,25 +3187,45 @@ async function fit() {
 async function evaluateAll() {
   return evaluateGraph(true);
 }
-async function evaluateGraph(allActions, target = null) {
+async function ensureAll() {
+  return evaluateGraph(true, null, false);
+}
+async function evaluateGraph(allActions, target = null, retry = true) {
+  while (activeGraphEvaluation) await activeGraphEvaluation;
   if (busy) return;
+  activeGraphEvaluation = runGraphEvaluation(allActions, target, retry);
+  try { await activeGraphEvaluation; }
+  finally { activeGraphEvaluation = null; }
+}
+async function ensureCurrent(targets, { token = graphState.token, isCurrent } = {}) {
+  return ensureGraphCurrent({ targets, token, request, acceptState: acceptGraph, isCurrent });
+}
+async function runGraphEvaluation(allActions, target, retry) {
   busy = true;
-  document.querySelector('aside').inert = true;
   $('creation-toolbar').inert = true;
   $('project-toolbar').inert = true;
+  renderActions();
   paint();
   status(allActions ? 'Evaluating all actions…' : 'Evaluating action and earlier inputs…');
   try {
-    await request('/api/graph/evaluate', {
-      token: graphState.token,
-      ...(allActions ? { all_actions: true } : { target }),
-    });
-    let state;
-    do {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      state = await request('/api/graph');
-      acceptGraph(state);
-    } while (state.evaluation_running);
+    const token = graphState.token;
+    if (retry) {
+      // Evaluate buttons are the explicit retry path; Auto and output consumers
+      // only ensure current work, preserving failures until inputs change.
+      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph });
+      await request('/api/graph/evaluate', {
+        token, ...(allActions ? { all_actions: true } : { target }),
+      });
+      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph });
+    }
+    const state = await ensureCurrent(allActions ? graphState.recipe.nodes.map((node) => node.id) : [target]);
+    const failed = Object.values(state.states).filter((value) => value === 'failed').length,
+      blocked = Object.values(state.states).filter((value) => value === 'blocked').length;
+    if (failed || blocked) {
+      status(`Evaluation finished: ${failed} failed · ${blocked} blocked. Inspect marked features for details.` +
+        (state.evaluation_error ? ` ${state.evaluation_error}` : ''), true);
+      return;
+    }
     if (state.evaluation_error) throw new Error(state.evaluation_error);
     status(
       allActions
@@ -2365,9 +3236,9 @@ async function evaluateGraph(allActions, target = null) {
     status(error.message, true);
   } finally {
     busy = false;
-    document.querySelector('aside').inert = false;
     $('creation-toolbar').inert = false;
     $('project-toolbar').inert = false;
+    renderActions();
     paint();
   }
 }
@@ -2397,6 +3268,41 @@ function home(direction = null) {
   camera.position.copy(sphere.center).addScaledVector(vector.normalize(), distance);
   camera.near = Math.max(0.001, sphere.radius / 1000);
   camera.far = sphere.radius * 1000;
+  camera.updateProjectionMatrix();
+  controls.update();
+  draw();
+}
+function focusFaceTarget() {
+  const result = graphState.results[buildFacesTarget?.feature];
+  const target = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
+  if (!target?.ids?.length) return;
+  modelRoot.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  const box = new THREE.Box3(), point = new THREE.Vector3();
+  for (const id of target.ids) box.expandByPoint(point.fromArray(positions, id * 3).applyMatrix4(modelRoot.matrixWorld));
+  for (const face of guidedProposalFaces(buildFacesProposal, buildFacesTarget)) {
+    const selected = new Set(buildFacesReview.get(face.key)?.region_keys || []);
+    for (const region of face.regions.filter((region) => selected.has(region.key) && region.bounded && validBuildFaceRegion(region))) {
+      for (let offset = 0; offset < region.preview.positions.length; offset += 3)
+        box.expandByPoint(point.fromArray(region.preview.positions, offset).applyMatrix4(modelRoot.matrixWorld));
+    }
+  }
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const canvas = renderer.domElement.getBoundingClientRect();
+  const panel = $('build-faces-dialog').getBoundingClientRect();
+  const visibleWidth = Math.max(1, Math.min(canvas.width, panel.left - canvas.left));
+  const tangent = Math.tan(camera.fov * Math.PI / 360);
+  const halfAngle = Math.min(camera.fov * Math.PI / 360,
+    Math.atan(tangent * camera.aspect * visibleWidth / canvas.width));
+  const radius = Math.max(sphere.radius, 0.001);
+  const distance = radius / Math.sin(halfAngle) * 1.18;
+  const direction = camera.getWorldDirection(new THREE.Vector3()).negate();
+  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  controls.target.copy(sphere.center).addScaledVector(right,
+    distance * tangent * camera.aspect * (1 - visibleWidth / canvas.width));
+  camera.position.copy(controls.target).addScaledVector(direction, distance);
+  camera.near = Math.max(0.0001, radius / 1000);
+  camera.far = Math.max(radius * 1000, distance + radius * 4);
   camera.updateProjectionMatrix();
   controls.update();
   draw();
@@ -2489,7 +3395,7 @@ async function start() {
     if (!mesh) return null;
     const bounds = renderer.domElement.getBoundingClientRect();
     camera.updateMatrixWorld();
-    mesh.updateMatrixWorld();
+    modelRoot.updateMatrixWorld(true);
     raycaster.near = camera.near;
     raycaster.far = camera.far;
     raycaster.setFromCamera(
@@ -2499,7 +3405,9 @@ async function start() {
       ),
       camera,
     );
-    const hit = raycaster.intersectObject(mesh, false)[0];
+    const hit = $('faces-only').checked
+      ? raycaster.intersectObjects(constructedFaces.children.filter((child) => child.isMesh), false)[0]
+      : raycaster.intersectObject(mesh, false)[0];
     return (
       hit?.point ?? (fallback ? viewPlaneAnchor(raycaster.ray, camera, controls.target) : null)
     );
@@ -2594,11 +3502,19 @@ async function start() {
   scene.add(light);
   overlays = new THREE.Group();
   modelRoot.add(overlays);
+  bodyInspection = new THREE.Group();
+  modelRoot.add(bodyInspection);
+  constructedFaces = new THREE.Group();
+  constructedFaces.visible = false;
+  modelRoot.add(constructedFaces);
   reuseVolumes = new THREE.Group();
   reuseVolumes.userData.volumeCount = 0;
   modelRoot.add(reuseVolumes);
   buildFacesOverlays = new THREE.Group();
   modelRoot.add(buildFacesOverlays);
+  buildFacesContext = new THREE.Group();
+  buildFacesContext.visible = false;
+  modelRoot.add(buildFacesContext);
   const resize = () => {
     if (viewport.hidden || !viewport.clientWidth || !viewport.clientHeight) return;
     renderer.setSize(viewport.clientWidth, viewport.clientHeight);
@@ -2617,11 +3533,25 @@ async function start() {
   $('fit').onclick = fit;
   $('evaluate-all').onclick = evaluateAll;
   $('auto-evaluate').onchange = () => {
-    if ($('auto-evaluate').checked) void evaluateAll();
+    if ($('auto-evaluate').checked) void ensureAll();
   };
   $('clear-feature-selection').onclick = () => {
     selectOnly(null);
     refreshFeatureSelection();
+  };
+  $('fit-quality-limit').oninput = () => {
+    const input = $('fit-quality-limit');
+    fitQualityLimit = parseRmsLimit(input.value);
+    const invalid = input.validity.badInput || (input.value !== '' && fitQualityLimit === null);
+    input.setCustomValidity(invalid ? 'Enter a positive finite RMS limit, or leave it blank.' : '');
+    input.setAttribute('aria-invalid', String(invalid));
+    try {
+      if (fitQualityStorageKey && !invalid) {
+        if (fitQualityLimit === null) localStorage.removeItem(fitQualityStorageKey);
+        else localStorage.setItem(fitQualityStorageKey, String(fitQualityLimit));
+      }
+    } catch { /* A session-only threshold is still useful. */ }
+    renderActions();
   };
   $('action-list').onclick = (event) => {
     if (event.target !== $('action-list')) return;
@@ -2651,23 +3581,65 @@ async function start() {
     invalidateBuildFaces('Surface inputs changed. Preview again.');
     renderBuildFacesScopes();
   };
+  $('build-faces-mode').onchange = () => {
+    if (!canDiscardFaceReview()) { $('build-faces-mode').value = buildFacesMode; return; }
+    buildFacesMode = $('build-faces-mode').value;
+    // A different construction mode is a new owner, not permission to delete
+    // a previously approved owner's other faces.
+    buildFacesOwnerId = null;
+    $('build-faces-label').value = nextFeatureLabel('Build faces');
+    invalidateBuildFaces('Review mode changed. Preview again.');
+    buildFacesCandidates = null;
+    buildFacesInspected = null;
+    setBuildFacesModeDisplay();
+    renderBuildFacesScopes();
+    if (buildFacesMode === 'guided') void loadFaceCandidates();
+  };
+  $('refresh-face-candidates').onclick = () => {
+    if (canDiscardFaceReview()) void loadFaceCandidates(buildFacesCutters, buildFacesBoundarySources, true);
+  };
+  $('build-faces-neighbor-filter').oninput = filterFaceCandidates;
+  $('build-faces-label').oninput = () => renderFaceDialogClose($('close-build-faces'), false);
+  $('build-faces-neighbor-filter').onkeydown = (event) => {
+    if (event.key === 'Enter') event.preventDefault();
+  };
+  $('focus-face-target').onclick = focusFaceTarget;
   $('add-all-fitted-surfaces').onclick = () => {
     const select = $('build-faces-surfaces'),
       choices = [...select.options].map((option) => ({ reference: JSON.parse(option.value) })),
-      { references, ambiguous } = addFittedSurfaceReferences(
+      { references } = addFittedSurfaceReferences(
         graphState.recipe.nodes, choices, buildFacesSelectedSurfaces());
     for (const option of select.options)
       option.selected = references.some((reference) => sameSurfaceReference(reference, JSON.parse(option.value)));
-    const messages = [];
-    if (ambiguous.length) messages.push(`Choose a geometry context manually for: ${ambiguous.join(', ')}.`);
-    invalidateBuildFaces(messages.join(' '));
+    invalidateBuildFaces(unavailableFitsMessage(buildFacesGeometry().unavailable));
     renderBuildFacesScopes();
   };
-  $('build-faces-dialog').addEventListener('close', () => invalidateBuildFaces());
-  $('build-faces-dialog').addEventListener('cancel', () => invalidateBuildFaces());
+  for (const event of ['close', 'cancel']) $('build-faces-dialog').addEventListener(event, () => {
+    buildFacesContinuePreview = null;
+    buildFacesContinueInteraction = { pointer: null, focus: null };
+    $('build-faces-target-options').hidePopover();
+    invalidateBuildFaces();
+  });
+  window.addEventListener('resize', () => $('build-faces-target-options').hidePopover());
+  $('build-faces-dialog').querySelector('.face-panel-body').addEventListener('scroll', () =>
+    $('build-faces-target-options').hidePopover());
   $('preview-build-faces').onclick = async () => {
     invalidateBuildFaces('', true);
+    const unavailableInputs = unavailableSavedFaceInputsMessage();
+    if (unavailableInputs) {
+      $('build-faces-error').textContent = unavailableInputs;
+      return;
+    }
     const surfaces = buildFacesSelectedSurfaces();
+    if (buildFacesMode === 'guided' && !buildFacesCandidates) {
+      $('build-faces-error').textContent = 'Find candidate neighbors before previewing.';
+      return;
+    }
+    if (buildFacesMode === 'guided' && unavailableGuidedSources(buildFacesBoundarySources,
+      buildFacesCandidates.candidates, buildFacesCutters).length) {
+      $('build-faces-error').textContent = 'Restore or explicitly discard unavailable approved-edge guidance before previewing.';
+      return;
+    }
     if (surfaces.length < 2) {
       $('build-faces-error').textContent = 'Choose at least two adjoining surfaces.';
       return;
@@ -2680,10 +3652,18 @@ async function start() {
     const token = graphState.token, requestId = buildFacesRequest;
     $('preview-build-faces').disabled = true;
     try {
+      const scopes = buildFaceScopes(buildFacesScopeDraft, surfaces, graphState.recipe.nodes, buildFacesOwnerId);
+      await ensureCurrent([
+        ...surfaces.flatMap((surface) => [surface.feature, surface.surface]),
+        ...buildFacesBoundarySources,
+        ...scopes.flatMap((scope) => scope.faces),
+      ], { token, isCurrent: () => requestId === buildFacesRequest && $('build-faces-dialog').open });
       const proposal = await request('/api/graph/build-faces/preview', {
         token, owner_id: buildFacesOwnerId, surfaces,
-        adjacencies: buildAdjacencyDecisions(buildFacesAdjacencyDraft, surfaces),
-        face_scopes: buildFaceScopes(buildFacesScopeDraft, surfaces, graphState.recipe.nodes, buildFacesOwnerId),
+        target: buildFacesMode === 'guided' ? buildFacesTarget : null,
+        adjacencies: guidedAdjacencies(),
+        boundary_sources: buildFacesMode === 'guided' ? buildFacesBoundarySources : undefined,
+        face_scopes: scopes,
       });
       if (requestId !== buildFacesRequest || !$('build-faces-dialog').open) return;
       if (token !== graphState.token) {
@@ -2697,6 +3677,8 @@ async function start() {
       ];
       renderBuildFacesScopes();
       renderBuildFacesReview();
+      if (buildFacesMode === 'guided') $('build-faces-neighbors').open = false;
+      $('build-faces-dialog').querySelector('.face-panel-body').scrollTop = 0;
     } catch (error) {
       if (requestId === buildFacesRequest) $('build-faces-error').textContent = error.message;
     } finally { $('preview-build-faces').disabled = false; }
@@ -2707,6 +3689,17 @@ async function start() {
     const choices = buildFaceChoices(buildFacesProposal, buildFacesReview);
     if (!choices.length) return;
     buildFacesApplying = true;
+    $('build-faces-target-options').hidePopover();
+    const selectedRegions = buildFacesProposal.faces.flatMap((face) => face.regions.filter((region) =>
+      choices.some((choice) => sameSurfaceReference(choice.surface, face.surface) && choice.region_key === region.key)));
+    const boundaryKeys = new Set(selectedRegions.flatMap((region) => region.boundary_keys || []));
+    const boundaryIntersections = new Set(selectedRegions.flatMap((region) =>
+      (region.boundaries || []).map((boundary) => boundary.intersection_key)));
+    const actualNeighbors = buildFacesProposal.intersections.filter((edge) => boundaryIntersections.has(edge.key))
+      .flatMap((edge) => [edge.first, edge.second]);
+    const nextNeighbors = buildFacesMode === 'guided' ? (buildFacesCandidates?.candidates || [])
+      .filter((candidate) => boundaryKeys.has(candidate.key) ||
+        actualNeighbors.some((ref) => sameSurfaceReference(ref, candidate.reference))) : [];
     const disabledControls = [...$('build-faces-form').querySelectorAll('input, select, button')]
       .map((control) => ({ control, disabled: control.disabled }));
     for (const { control } of disabledControls) control.disabled = true;
@@ -2715,16 +3708,66 @@ async function start() {
         token: buildFacesProposal.token, proposal_token: buildFacesProposal.proposal_token,
         owner_id: buildFacesOwnerId, label: $('build-faces-label').value.trim(),
         surfaces: buildFacesSelectedSurfaces(), choices,
-        adjacencies: buildAdjacencyDecisions(buildFacesAdjacencyDraft, buildFacesSelectedSurfaces()),
+        target: buildFacesMode === 'guided' ? buildFacesTarget : null,
+        adjacencies: guidedAdjacencies(),
+        boundary_sources: buildFacesMode === 'guided' ? buildFacesBoundarySources : undefined,
         face_scopes: buildFaceScopes(buildFacesScopeDraft, buildFacesSelectedSurfaces(), graphState.recipe.nodes, buildFacesOwnerId),
       });
       const ownerId = buildFacesOwnerId || state.recipe.nodes.find((node) =>
         node.operation === 'build_faces' && !graphState.recipe.nodes.some((before) => before.id === node.id))?.id;
       if (ownerId) selectOnly(ownerId);
+      buildFacesAcceptedContext = appliedFaceContext(state, ownerId, buildFacesProposal, choices);
       acceptGraph(state);
-      $('build-faces-dialog').close();
+      if (buildFacesMode === 'guided') {
+        buildFacesOwnerId = ownerId;
+        const remainingNeighbors = unbuiltFaceNeighbors(nextNeighbors, state.recipe.nodes);
+        $('build-faces-next-buttons').replaceChildren(...remainingNeighbors.map((candidate) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          const presentation = fittedFaceCandidatePresentation(candidate);
+          button.append(featureIcon(presentation.icon, 'action-type'), document.createTextNode(presentation.name));
+          button.title = presentation.label;
+          bindFaceContinuationPreview(button, candidate.reference, (reference, active, interaction) => {
+            buildFacesContinueInteraction = faceContinuationPreview(buildFacesContinueInteraction, reference, active, interaction);
+            buildFacesContinuePreview = buildFacesContinueInteraction.pointer || buildFacesContinueInteraction.focus;
+            paintBuildFacesPreview();
+          });
+          button.onclick = async () => {
+            if (faceContinuationPending || buildFacesApplying || (busy && !activeGraphEvaluation)) return;
+            if (graphState.token !== state.token) {
+              $('build-faces-error').textContent = 'Actions changed. Review the current faces again.';
+              return;
+            }
+            faceContinuationPending = true;
+            button.disabled = true;
+            status('Preparing the next face…');
+            const requestId = buildFacesRequest, appliedOwnerId = buildFacesOwnerId;
+            try {
+              await prepareFaceContinuation({
+                target: candidate.reference, appliedOwnerId, getState: () => graphState,
+                ensureCurrent,
+                isCurrent: () => $('build-faces-dialog').open && requestId === buildFacesRequest,
+              });
+              if (!$('build-faces-dialog').open || requestId !== buildFacesRequest) return;
+              const owner = graphState.recipe.nodes.find((node) => node.operation === 'build_faces' &&
+                node.target && sameSurfaceReference(node.target, candidate.reference));
+              openBuildFaces(owner || null, candidate.reference);
+            } catch (error) {
+              if ($('build-faces-dialog').open && requestId === buildFacesRequest)
+                $('build-faces-error').textContent = error.message;
+            } finally {
+              faceContinuationPending = false;
+              button.disabled = false;
+            }
+          };
+          return button;
+        }));
+        $('build-faces-next-neighbors').hidden = !remainingNeighbors.length;
+        $('build-faces-error').textContent = '';
+        renderFaceDialogClose($('close-build-faces'), true);
+      } else $('build-faces-dialog').close();
       status('Reviewed faces applied. Existing manual geometry retained.');
-      if ($('auto-evaluate').checked) setTimeout(() => void evaluateAll(), 0);
+      if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
     } catch (error) {
       const message = error.message;
       try {
@@ -2742,6 +3785,20 @@ async function start() {
       $('apply-build-faces').disabled = !buildFacesProposal ||
         !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
     }
+  };
+  $('select-suggested-face-regions').onclick = () => {
+    if (!buildFacesProposal || buildFacesApplying) return;
+    const faces = buildFacesMode === 'guided'
+      ? guidedProposalFaces(buildFacesProposal, buildFacesTarget) : buildFacesProposal.faces;
+    for (const face of faces) changeFaceRegionSelection(face, 'suggested');
+    renderBuildFacesReview(true);
+  };
+  $('clear-face-regions').onclick = () => {
+    if (!buildFacesProposal || buildFacesApplying) return;
+    const faces = buildFacesMode === 'guided'
+      ? guidedProposalFaces(buildFacesProposal, buildFacesTarget) : buildFacesProposal.faces;
+    for (const face of faces) changeFaceRegionSelection(face, 'clear');
+    renderBuildFacesReview(true);
   };
   $('new-surface-intersection').onclick = () => {
     const options = surfaceReferenceChoices(graphState.recipe.nodes, graphState.results);
@@ -2762,6 +3819,32 @@ async function start() {
         ? [{ intersection: node.id, keep: 'inside' }] : []);
     $('trimmed-face-error').textContent = '';
     showCreateDialog('trimmed-face-dialog', 'new-trimmed-face-label', 'Trimmed face');
+  };
+  $('new-body').onclick = () => {
+    $('new-body-label').value = nextFeatureLabel('Body');
+    $('new-body-tolerance').value = initialBodyTolerance(positions);
+    $('body-error').textContent = '';
+    const selected = bodyFaceSelection(graphState, selectedFeatureIds);
+    renderBodyFaces('new-body-face-choices', selected.length ? selected : bodyFaceSelection(graphState));
+    if (!$('body-dialog').open) $('body-dialog').show();
+    $('new-body-label').focus();
+    $('new-body-label').select();
+  };
+  $('body-add-all').onclick = () => renderBodyFaces('new-body-face-choices', bodyFaceSelection(graphState));
+  $('body-add-selected').onclick = () => renderBodyFaces('new-body-face-choices',
+    [...new Set([...bodyCheckedFaces('new-body-face-choices'), ...bodyFaceSelection(graphState, selectedFeatureIds)])]);
+  $('body-clear').onclick = () => renderBodyFaces('new-body-face-choices', []);
+  $('body-dialog').addEventListener('close', () => { clearBodyInspection(); showResult(); draw(); });
+  $('add-body-form').onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      const inputs = bodyInputs(bodyCheckedFaces('new-body-face-choices'), $('new-body-tolerance').value);
+      $('create-body').disabled = true;
+      const node = { id: uid('body'), label: submittedFeatureLabel('new-body-label'), operation: 'body', ...inputs };
+      if (await appendActions([node], true, true)) $('body-dialog').close();
+      else $('body-error').textContent = $('status').textContent;
+    } catch (error) { $('body-error').textContent = error.message; }
+    finally { $('create-body').disabled = false; }
   };
   for (const prefix of ['face', 'new-face']) {
     $(`${prefix}-surface`).onchange = () => renderFaceBoundaries(prefix, faceEditorNodes(prefix));
@@ -2798,6 +3881,7 @@ async function start() {
   const updateExportPlanes = () => {
     const nodes = graphState.recipe.nodes;
     const explicitTransform = $('export-transform').value;
+    const collection = $('export-scope').value !== 'target';
     const target = nodes.find((n) => n.id === $('export-target').value);
     const ids = new Set([target?.id]);
     for (const id of target?.factors || []) {
@@ -2819,30 +3903,58 @@ async function start() {
       select.add(new Option(node.label, node.id));
     }
     select.value = [...select.options].some((o) => o.value === previous) ? previous : '';
-    $('export-legacy-frame').hidden = !!explicitTransform;
-    select.disabled = !!explicitTransform || !$('export-axis-up').checked;
+    $('export-legacy-frame').hidden = collection || !!explicitTransform;
+    select.disabled = collection || !!explicitTransform || !$('export-axis-up').checked;
   };
-  $('export-target').onchange = updateExportPlanes;
+  const updateExportScope = () => {
+    const scope = $('export-scope').value, collection = scope !== 'target';
+    const needsTarget = ['target', 'body'].includes(scope);
+    $('export-target-field').hidden = !needsTarget;
+    $('export-target').disabled = !needsTarget;
+    $('export-target').required = needsTarget;
+    $('export-target-label').textContent = scope === 'body' ? 'Body' : 'Fit or joint';
+    $('export-error').textContent = '';
+    try {
+      const plan = exportScopePlan(graphState, { scope, selected: selectedFeatureIds, target: $('export-target').value });
+      const issues = exportInputIssues(graphState, plan);
+      const pendingFaces = plan.faceIds.filter((id) => !['ready', 'failed', 'blocked'].includes(graphState.states[id])).length;
+      $('export-summary').textContent = scope === 'body'
+        ? `${graphState.states[plan.roots[0]] === 'ready' ? 'Validated solid' : 'Body needs evaluation'}${issues.length ? `. Unavailable: ${issues.join(', ')}.` : ''}`
+        : collection
+        ? `${plan.faceIds.length} ${plan.faceIds.length === 1 ? 'face' : 'faces'}${pendingFaces ? ` · ${pendingFaces} need evaluation` : ''}${issues.length ? `. Unavailable: ${issues.join(', ')}.` : ''}`
+        : 'Observation-bounded fitted patches, not built face boundaries.';
+      $('export-download').disabled = !!issues.length;
+      if (!collection && issues.length) $('export-error').textContent = `Unavailable: ${issues.join(', ')}.`;
+    } catch (error) {
+      $('export-summary').textContent = error.message;
+      $('export-download').disabled = true;
+    }
+    updateExportPlanes();
+  };
+  const populateExportTargets = () => {
+    const body = $('export-scope').value === 'body', previous = $('export-target').value;
+    const targets = graphState.recipe.nodes.filter((node) => body
+      ? node.operation === 'body' : ['fit', 'joint_fit', 'axis_solve'].includes(node.operation));
+    choices('export-target', targets, [targets.find((node) => node.id === previous)?.id ||
+      targets.find((node) => node.id === selectedFeatureId)?.id ||
+      targets.find((node) => ['axis_solve', 'joint_fit'].includes(node.operation))?.id || targets[0]?.id]);
+  };
+  $('export-scope').onchange = () => { populateExportTargets(); updateExportScope(); };
+  $('export-target').onchange = updateExportScope;
   $('export-axis-up').onchange = updateExportPlanes;
   $('export-transform').onchange = updateExportPlanes;
   $('export-cad').onclick = () => {
-    $('export-target').parentElement.firstChild.textContent = 'Fit, joint, or bounded face';
-    $('export-title').textContent = 'Export surfaces or a bounded face';
-    const targets = graphState.recipe.nodes.filter((n) =>
-      ['fit', 'joint_fit', 'axis_solve', 'trimmed_face'].includes(n.operation),
-    );
-    choices('export-target', targets, [
-      targets.find((n) => n.id === selectedFeatureId)?.id ||
-        targets.find((n) => ['axis_solve', 'joint_fit'].includes(n.operation))?.id,
-    ]);
+    $('export-scope').value = graphNode(selectedFeatureId)?.operation === 'body' ? 'body' : 'all_faces';
+    populateExportTargets();
     choices(
       'export-transform',
       [
-        { id: '', label: 'No explicit transform' },
+        { id: '', label: 'Original scan coordinates' },
         ...graphState.recipe.nodes.filter((node) => node.operation === 'transform'),
       ],
+      [activeDisplayTransform(graphState, selectedFeatureIds)?.id || ''],
     );
-    updateExportPlanes();
+    updateExportScope();
     $('export-error').textContent = '';
     $('export-dialog').showModal();
   };
@@ -2850,37 +3962,28 @@ async function start() {
     event.preventDefault();
     if (busy || selectionDrawing || selectionPending) return;
     busy = true;
+    $('export-fields').disabled = true;
     $('export-download').disabled = true;
-    $('export-error').textContent = 'Evaluating surfaces…';
-    const target = $('export-target').value,
+    $('export-error').textContent = 'Checking export inputs…';
+    const scope = $('export-scope').value,
       transform = $('export-transform').value || null;
     try {
-      let state;
-      for (const evaluationTarget of [...new Set([transform, target].filter(Boolean))]) {
-        await request('/api/graph/evaluate', {
-          token: graphState.token,
-          target: evaluationTarget,
-        });
-        do {
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          state = await request('/api/graph');
-          acceptGraph(state);
-        } while (state.evaluation_running);
-        if (state.evaluation_error) throw new Error(state.evaluation_error);
-      }
+      const plan = exportScopePlan(graphState, { scope, selected: selectedFeatureIds, target: $('export-target').value });
+      const issues = exportInputIssues(graphState, plan);
+      if (issues.length) throw new Error(`Cannot export: ${issues.join(', ')}. Repair these features first.`);
+      const originPlane = scope === 'target' && !transform && $('export-axis-up').checked
+        ? $('export-origin-plane').value || null : null;
+      const state = await ensureCurrent([...plan.roots, transform, originPlane]);
       $('export-error').textContent = 'Preparing STEP export bundle…';
       const response = await fetch('/api/export/cad', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Scansor-Request': '1' },
         body: JSON.stringify({
           token: state.token,
-          target,
+          ...plan.payload,
           units: $('export-units').value,
-          axis_up: transform ? false : $('export-axis-up').checked,
-          origin_plane:
-            !transform && $('export-axis-up').checked
-              ? $('export-origin-plane').value || null
-              : null,
+          axis_up: scope === 'target' && !transform && $('export-axis-up').checked,
+          origin_plane: originPlane,
           transform,
           include_mesh: $('export-mesh').checked,
         }),
@@ -2893,11 +3996,12 @@ async function start() {
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       $('export-dialog').close();
-      status('CAD export downloaded: STEP surfaces, metadata, and optional reference mesh.');
+      status(`CAD export downloaded: ${scope === 'body' ? 'solid, ' : plan.faceIds.length ? `${plan.faceIds.length} faces, ` : ''}STEP, metadata, and optional reference mesh.`);
     } catch (error) {
       $('export-error').textContent = error.message;
     } finally {
       busy = false;
+      $('export-fields').disabled = false;
       $('export-download').disabled = false;
       paint();
     }
@@ -3402,7 +4506,6 @@ async function start() {
       return;
     }
     const label = submittedFeatureLabel('new-feature-reuse-label'),
-      reserved = [label],
       reuse = {
         id: uid('feature_reuse'),
         label,
@@ -3417,60 +4520,13 @@ async function start() {
         equal_corresponding_dimensions:
           $('new-feature-reuse-equal-dimensions').checked,
       },
-      generated = [reuse],
-      copiedFits = new Map(fitIds.map((fitId) => [fitId, []]));
-    for (const targetSelection of targetSelections) {
-      const targetLabel = graphNode(targetSelection).label;
-      for (const fitId of fitIds) {
-        const sourceFit = graphNode(fitId),
-          generatedSelections = [];
-        for (const sourceSelection of sourceFit.selections) {
-          const selection = graphNode(sourceSelection),
-            target = {
-              id: uid('reuse_selection'),
-              label: reserveFeatureLabel(
-                `${selection.label} at ${targetLabel}`,
-                reserved,
-              ),
-              operation: 'reuse_selection',
-              reuse: reuse.id,
-              fit: fitId,
-              source_selection: sourceSelection,
-              target_selection: targetSelection,
-              managed_by: reuse.id,
-              managed_key: `selection/${targetSelection}/${fitId}/${sourceSelection}`,
-            };
-          generated.push(target);
-          generatedSelections.push(target.id);
-        }
-        const copiedFit = {
-          id: uid('fit'),
-          label: reserveFeatureLabel(`${sourceFit.label} at ${targetLabel}`, reserved),
-          operation: 'fit',
-          selections: generatedSelections,
-          kind: sourceFit.kind,
-          axial_domain: [...sourceFit.axial_domain],
-          managed_by: reuse.id,
-          managed_key: `fit/${targetSelection}/${fitId}`,
-        };
-        generated.push(copiedFit);
-        copiedFits.get(fitId).push(copiedFit.id);
-      }
+      reconciled = reconcileFeatureReuse([...graphState.recipe.nodes, reuse], reuse.id, {}, uid);
+    if (reconciled.error) {
+      $('feature-reuse-error').textContent = reconciled.error;
+      return;
     }
-    if (reuse.equal_corresponding_dimensions)
-      for (const fitId of fitIds) {
-        const sourceFit = graphNode(fitId);
-        if (sourceFit.kind !== 'cylinder') continue;
-        generated.push({
-          id: uid('equal_radii'),
-          label: reserveFeatureLabel(`${sourceFit.label} radii all equal`, reserved),
-          operation: 'equal_radii',
-          surfaces: [fitId, ...copiedFits.get(fitId)],
-          managed_by: reuse.id,
-          managed_key: `equal-radius/${fitId}`,
-        });
-      }
-    const saved = await appendActions(generated);
+    const existingIds = new Set(graphState.recipe.nodes.map((node) => node.id));
+    const saved = await appendActions(reconciled.nodes.filter((node) => !existingIds.has(node.id)));
     if (saved) $('feature-reuse-dialog').close();
     else $('feature-reuse-error').textContent = $('status').textContent;
   };
@@ -3959,6 +5015,11 @@ async function start() {
     }
     node.label = $('action-label').value;
     node.group_id = $('action-group').value || null;
+    if (node.operation === 'body') {
+      try {
+        Object.assign(node, bodyInputs(bodyCheckedFaces('body-face-choices'), $('body-tolerance').value));
+      } catch (error) { status(error.message, true); return; }
+    }
     if (node.operation === 'surface_intersection') {
       node.first = readSurfaceReference('intersection-first');
       node.second = readSurfaceReference('intersection-second');
@@ -4159,13 +5220,30 @@ async function start() {
     }
     await replaceRecipe(recipe);
   };
-  $('delete-action').onclick = async () => {
-    const recipe = structuredClone(graphState.recipe);
-    const removalIds = managedSubtreeIds(selectedFeatureId, recipe.nodes);
-    recipe.nodes = recipe.nodes.filter((node) => !removalIds.has(node.id));
-    if (removalIds.has(recipe.output)) recipe.output = recipe.nodes.at(-1).id;
-    selectOnly(recipe.output);
-    await replaceRecipe(recipe);
+  $('delete-action').onclick = () => {
+    featureContextAnchor = selectedFeatureId;
+    reviewFeatureDeletion();
+  };
+  $('delete-selected-features').onclick = reviewFeatureDeletion;
+  $('delete-feature-dependents').onchange = updateFeatureDeletionButton;
+  $('confirm-delete-features').onclick = () => void confirmFeatureDeletion();
+  $('feature-context-menu').onkeydown = (event) => {
+    if (event.key !== 'Escape' && event.key !== 'Tab') return;
+    $('feature-context-menu').hidePopover();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusContextFeature();
+    }
+  };
+  $('features-panel').addEventListener('wheel', () => $('feature-context-menu').hidePopover(),
+    { passive: true });
+  $('delete-features-dialog').oncancel = (event) => {
+    if (featureDeletionPending) event.preventDefault();
+  };
+  $('delete-features-dialog').onclose = () => {
+    featureDeletionReview = null;
+    focusContextFeature();
   };
   $('add-selection').onclick = async () => {
     const node = {
@@ -4283,6 +5361,10 @@ async function start() {
   $('side').onclick = () => home('side');
   $('top').onclick = () => home('top');
   for (const name of ['colors', 'all-residuals', 'guides', 'points']) $(name).onchange = paint;
+  $('faces-only').onchange = () => {
+    showConstructedFaces();
+    paint();
+  };
   $('all-guides').onchange = () => {
     showResult();
     paint();
@@ -4325,6 +5407,8 @@ async function start() {
       diameter = Number($('brush-size').value),
       point = xy(event);
     brush.hidden =
+      $('faces-only').checked ||
+      ($('build-faces-dialog').open && buildFacesMode === 'guided') ||
       !activeSelection() || busy || selectionPending ||
       $('selection-shape').value !== 'paint' ||
       $('tool').value === 'orbit' ||
@@ -4402,7 +5486,16 @@ async function start() {
     }
   };
   canvas.addEventListener('pointerdown', (event) => {
+    if (event.button === 0 && $('build-faces-dialog').open && buildFacesMode === 'guided') {
+      cancelStroke();
+      event.preventDefault();
+      canvas.focus();
+      pickGuidedFaceRegion(event);
+      return;
+    }
+    if ($('faces-only').checked) return;
     if (event.button !== 0) {
+      inspectFaceRegion(null);
       cancelStroke();
       return;
     }
@@ -4464,10 +5557,15 @@ async function start() {
   });
   canvas.addEventListener('pointermove', (event) => {
     cursor(event);
+    if ($('build-faces-dialog').open && buildFacesMode === 'guided') {
+      inspectFaceRegion(event.buttons ? null : guidedFaceRegionAt(event));
+      return;
+    }
     if (stroke && stroke.pointerId === event.pointerId) extend(xy(event));
   });
   canvas.addEventListener('pointerleave', () => {
     $('brush-cursor').hidden = true;
+    inspectFaceRegion(null);
   });
   canvas.addEventListener('pointerup', async (event) => {
     if (!stroke || stroke.pointerId !== event.pointerId || event.button !== 0) return;
@@ -4543,6 +5641,6 @@ async function start() {
   setWorkspaceView(location.hash === '#graph' ? 'graph' : 'model');
   $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');
-  if ($('auto-evaluate').checked) await evaluateAll();
+  if ($('auto-evaluate').checked) await ensureAll();
 }
 await start();

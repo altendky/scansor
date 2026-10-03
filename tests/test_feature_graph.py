@@ -852,6 +852,125 @@ def test_connected_fits_drive_their_free_axis_and_plane_without_a_joint(
     assert states["plane_factor"] == "stale"
 
 
+@pytest.mark.parametrize("construction", ["contains_axis", "parallel_to_axis"])
+@pytest.mark.parametrize("explicit_joint", [False, True])
+def test_axial_plane_fit_drives_clocking_and_publishes_resolved_datum(
+    graph: FeatureGraph, construction: str, explicit_joint: bool
+) -> None:
+    from experiments.mesh_coaxial_fit import AxisPlaneObservations, axis_plane_frame
+
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    by_id = {node["id"]: node for node in payload["nodes"]}
+    by_id["reference_axis"]["initial_parameters"] = [0.0, 0.0, 0.02, 0.01]
+    plane_fit = by_id["plane_factor"]
+    plane_fit.update(axis=None, reference_plane="clock_datum")
+    index = payload["nodes"].index(plane_fit)
+    payload["nodes"].insert(
+        index,
+        {
+            "id": "clock_datum",
+            "label": "Clock datum",
+            "operation": "reference_plane",
+            "axis": "reference_axis",
+            "construction": construction,
+            "initial_angle_degrees": 0.0,
+            "offset": 0.0,
+        },
+    )
+    truth = np.array([0.3, -0.4, 0.12, -0.08, 2.4])
+    empty_plane = AxisPlaneObservations(
+        np.empty((0, 3)), np.empty(0), construction, np.radians(37), 1
+    )
+    axis, radial, normal = axis_plane_frame(empty_plane, truth)
+    anchor = np.array([*truth[:2], 0.0])
+    side_ids = by_id["outer_band"]["ids"]
+    theta = np.linspace(0.0, 2 * np.pi, len(side_ids), endpoint=False)
+    axial = np.linspace(-2, 2, 7)[np.arange(len(side_ids)) % 7]
+    graph.workspace.local[side_ids] = (
+        anchor
+        + axial[:, None] * axis
+        + 2.4 * (np.cos(theta)[:, None] * radial + np.sin(theta)[:, None] * normal)
+    )
+    plane_ids = by_id["top_face"]["ids"]
+    along = np.linspace(-2, 2, len(plane_ids))
+    across = np.linspace(-2, 2, 7)[np.arange(len(plane_ids)) % 7]
+    distance = 0.0 if construction == "contains_axis" else -1.7
+    graph.workspace.local[plane_ids] = (
+        anchor + distance * normal + along[:, None] * axis + across[:, None] * radial
+    )
+    if not explicit_joint:
+        payload["nodes"] = [
+            node for node in payload["nodes"] if node["id"] != "shared_axis"
+        ]
+        payload["nodes"].extend(
+            [
+                {
+                    "id": "frame_origin",
+                    "label": "Frame origin",
+                    "operation": "point",
+                    "initial_coordinates": [0.0, 0.0, 0.0],
+                },
+                {
+                    "id": "clock_frame",
+                    "label": "Clock frame",
+                    "operation": "frame",
+                    "origin_point": "frame_origin",
+                    "primary_reference": "reference_axis",
+                    "primary_output_axis": "+Z",
+                    "secondary_reference": "clock_datum",
+                    "secondary_output_axis": "+X",
+                },
+            ]
+        )
+    payload["output"] = "shared_axis" if explicit_joint else "clock_frame"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    state = graph.evaluate(token(graph))
+    assert not state["errors"]
+    results = cast(dict[str, dict[str, Any]], state["results"])
+    context = results["shared_axis"] if explicit_joint else results
+    datum = (
+        context["reference_planes"]["clock_datum"]
+        if explicit_joint
+        else context["clock_datum"]
+    )
+    fitted = (
+        context["surfaces"]["plane_factor"]
+        if explicit_joint
+        else context["plane_factor"]
+    )
+    np.testing.assert_allclose(datum["normal_display"], normal, atol=1e-8)
+    np.testing.assert_allclose(
+        datum["plane_equation"], fitted["plane_equation"], atol=1e-12
+    )
+    assert datum["angle_degrees"] == pytest.approx(37.0, abs=1e-6)
+    assert fitted["weighted_rms"] < 1e-8
+    assert fitted["ids"] == plane_ids
+    assert cast(Any, state["recipe"])["nodes"][index]["initial_angle_degrees"] == 0.0
+    if not explicit_joint:
+        axis_result = results["reference_axis"]
+        np.testing.assert_allclose(
+            results["clock_frame"]["x_axis_display"], normal, atol=1e-8
+        )
+        assert np.asarray(datum["normal_display"]) @ np.asarray(
+            axis_result["axis_display"]
+        ) == pytest.approx(0.0, abs=1e-12)
+        updated = graph.replace(
+            changed(graph, "top_face", ids=plane_ids[::2]), token(graph)
+        )
+        assert cast(Any, updated["states"])["clock_datum"] == "stale"
+        assert cast(Any, updated["states"])["clock_frame"] == "stale"
+        again = graph.evaluate(token(graph), target="clock_frame")
+        assert not again["errors"]
+        assert cast(Any, again["results"])["clock_datum"][
+            "angle_degrees"
+        ] == pytest.approx(37.0, abs=1e-6)
+        np.testing.assert_allclose(
+            cast(Any, again["results"])["clock_frame"]["x_axis_display"],
+            normal,
+            atol=1e-8,
+        )
+
+
 def test_fitted_selection_region_replays_in_an_explicit_datum_frame(
     graph: FeatureGraph,
 ) -> None:
@@ -1246,6 +1365,27 @@ def test_mirror_symmetry_references_two_same_type_standalone_fits(
         _ = graph.replace(Recipe.model_validate(invalid), token(graph))
 
 
+def test_joint_rejects_two_independent_clocking_parameters_for_one_datum(
+    graph: FeatureGraph,
+) -> None:
+    payload = arch_relationship_recipe(graph).model_dump()
+    solve = payload["nodes"].pop()
+    payload["nodes"].append(
+        {
+            "id": "datum_plane_factor",
+            "label": "Datum plane factor",
+            "operation": "fit",
+            "kind": "plane",
+            "selections": ["top_face"],
+            "reference_plane": "arch_midplane",
+        }
+    )
+    solve["factors"].append("datum_plane_factor")
+    payload["nodes"].append(solve)
+    with pytest.raises(ValueError, match="share one clocking plane"):
+        _ = graph.replace(Recipe.model_validate(payload), token(graph))
+
+
 def arch_relationship_recipe(graph: FeatureGraph) -> Recipe:
     payload = explicit_axis_recipe(graph, free=True).model_dump()
     payload["nodes"] = [
@@ -1597,6 +1737,155 @@ def test_failure_status_is_authoritative(graph: FeatureGraph) -> None:
         _ = graph.evaluate(token(graph))
     assert cast(dict[str, str], graph.snapshot()["states"])["end"] == "failed"
     assert graph.snapshot()["result"] is None
+
+
+def test_evaluate_all_isolates_failures_and_recovers_dependents(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    original_ids = next(n for n in payload["nodes"] if n["id"] == "top_face")["ids"]
+    next(n for n in payload["nodes"] if n["id"] == "top_face")["ids"] = []
+    payload["nodes"].append(
+        {
+            "id": "independent",
+            "label": "Independent result",
+            "operation": "point",
+            "initial_coordinates": [1, 2, 3],
+        }
+    )
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    for _attempt in range(2):
+        with pytest.raises(ValueError, match="at least"):
+            _ = graph.evaluate(token(graph), all_actions=True)
+        state = cast(dict[str, Any], graph.snapshot())
+        assert state["states"]["end"] == "failed"
+        assert state["states"]["fit"] == "blocked"
+        assert state["diagnostics"]["fit"]["blocked_by"] == ["end"]
+        assert "End surface" in state["errors"]["fit"]
+        assert state["states"]["independent"] == "ready"
+        assert "fit" not in state["results"]
+        assert "running" not in state["states"].values()
+    _ = graph.replace(changed(graph, "top_face", ids=original_ids), token(graph))
+    repaired = cast(dict[str, Any], graph.evaluate(token(graph), all_actions=True))
+    assert all(status == "ready" for status in repaired["states"].values())
+    assert not repaired["errors"]
+    assert "fit" not in repaired["diagnostics"]
+
+
+def test_multiple_independent_failures_keep_distinct_downstream_causes(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    for node in payload["nodes"]:
+        if node["id"] in {"outer_band", "top_face"}:
+            node["ids"] = []
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    with pytest.raises(ValueError, match="at least"):
+        _ = graph.evaluate(token(graph), all_actions=True)
+    state = cast(dict[str, Any], graph.snapshot())
+    assert state["states"]["side"] == state["states"]["end"] == "failed"
+    assert state["states"]["fit"] == "blocked"
+    assert state["diagnostics"]["fit"]["blocked_by"] == ["side", "end"]
+    assert "Outer surface" in state["errors"]["fit"]
+    assert "End surface" in state["errors"]["fit"]
+
+
+def test_failed_virtual_axis_solve_blocks_raw_and_resolved_consumers(
+    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = explicit_axis_recipe(graph, free=True).model_dump()
+    payload["nodes"] = [
+        node for node in payload["nodes"] if node["id"] != "shared_axis"
+    ]
+    payload["nodes"].extend(
+        [
+            {
+                "id": "extra_plane",
+                "label": "Unused datum plane",
+                "operation": "reference_plane",
+                "axis": "reference_axis",
+                "construction": "perpendicular_to_axis",
+                "initial_angle_degrees": None,
+                "offset": 0,
+            },
+            {
+                "id": "consumer",
+                "label": "Resolved geometry consumer",
+                "operation": "build_faces",
+                "surfaces": [
+                    {"feature": "side_factor"},
+                    {"feature": "plane_factor"},
+                ],
+            },
+            {
+                "id": "independent",
+                "label": "Independent point",
+                "operation": "point",
+                "initial_coordinates": [1, 2, 3],
+            },
+        ]
+    )
+    payload["output"] = "consumer"
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+
+    def broken_solve(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("forced connected solve failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("experiments.feature_graph.fit_group", broken_solve)
+        with pytest.raises(ValueError, match="forced connected"):
+            _ = graph.evaluate(token(graph), all_actions=True)
+    failed = cast(dict[str, Any], graph.snapshot())
+    for key in ("reference_axis", "side_factor", "plane_factor"):
+        assert failed["states"][key] == "failed"
+        assert key not in failed["results"]
+    for key in ("extra_plane", "consumer"):
+        assert failed["states"][key] == "blocked"
+        assert "reference_axis" in failed["diagnostics"][key]["blocked_by"]
+        assert key not in failed["results"]
+    assert failed["states"]["independent"] == "ready"
+    repaired = cast(dict[str, Any], graph.evaluate(token(graph), all_actions=True))
+    assert not repaired["errors"]
+    assert all(state == "ready" for state in repaired["states"].values())
+
+
+def test_later_radius_provider_keeps_existing_blocked_provenance(
+    graph: FeatureGraph,
+) -> None:
+    payload = cast(dict[str, Any], graph.snapshot()["recipe"])
+    next(node for node in payload["nodes"] if node["id"] == "top_face")["ids"] = []
+    next(node for node in payload["nodes"] if node["id"] == "side")["kind"] = "cylinder"
+    payload["nodes"].extend(
+        [
+            {
+                "id": "other_cylinder",
+                "label": "Other cylinder",
+                "operation": "fit",
+                "kind": "cylinder",
+                "selections": ["outer_band"],
+            },
+            {
+                "id": "radii",
+                "label": "Later radius provider",
+                "operation": "equal_radii",
+                "surfaces": ["side", "other_cylinder"],
+            },
+            {
+                "id": "consumer",
+                "label": "Blocked physical faces",
+                "operation": "build_faces",
+                "surfaces": [{"feature": "side"}, {"feature": "end"}],
+            },
+        ]
+    )
+    _ = graph.replace(Recipe.model_validate(payload), token(graph))
+    with pytest.raises(ValueError, match="at least"):
+        _ = graph.evaluate(token(graph), all_actions=True)
+    state = cast(dict[str, Any], graph.snapshot())
+    assert state["states"]["radii"] == "ready"
+    assert state["states"]["consumer"] == "blocked"
+    assert state["diagnostics"]["consumer"]["blocked_by"] == ["end"]
+    assert state["errors"]["consumer"] == "Blocked by End surface"
 
 
 def test_stale_worker_cannot_publish_after_edit(

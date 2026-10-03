@@ -38,7 +38,12 @@ from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.XCAFDoc import XCAFDoc_DocumentTool
 
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
-from experiments.nozzle_cad import CadExportRequest, export_cad, joint_shapes
+from experiments.nozzle_cad import (
+    CadExportRequest,
+    export_cad,
+    export_face_targets,
+    joint_shapes,
+)
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.ocp_geometry import face_from_record, surface_patch
 from scansor._plyio import Reader, build_layout, read_header
@@ -168,6 +173,477 @@ def evaluated() -> tuple[NozzleWorkspace, dict[str, Any]]:
     return workspace, cast(
         dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]))
     )
+
+
+@pytest.fixture
+def collection(
+    evaluated: tuple[NozzleWorkspace, dict[str, Any]],
+) -> tuple[NozzleWorkspace, dict[str, Any]]:
+    workspace, original = evaluated
+    snapshot = deepcopy(original)
+    for key in ("first", "second"):
+        snapshot["recipe"]["nodes"].append(
+            {
+                "id": key,
+                "label": f"Boundary {key}",
+                "operation": "surface_intersection",
+                "first": {"feature": "fit", "surface": "end"},
+                "second": {"feature": "fit", "surface": "side"},
+            }
+        )
+        snapshot["states"][key] = "ready"
+        snapshot["results"][key] = {"kind": "circle"}
+    for key, kind, lo, hi in (
+        ("shoulder_face", "plane", 1.0, 3.0),
+        ("outer_face", "cylinder", -1.0, 2.0),
+        ("other_face", "plane", 0.0, 1.0),
+    ):
+        record = trimmed_face(kind, lo, hi)
+        if key == "other_face":
+            record["geometry"]["origin"] = [-4.0, 2.0, 1.0]
+        snapshot["recipe"]["nodes"].append(
+            {
+                "id": key,
+                "label": key.replace("_", " ").title(),
+                "operation": "trimmed_face",
+                "surface": {
+                    "feature": "fit",
+                    "surface": "end" if kind == "plane" else "side",
+                },
+                "boundaries": record["boundary_uses"],
+            }
+        )
+        snapshot["states"][key] = "ready"
+        snapshot["results"][key] = record
+    _ = Recipe.model_validate(snapshot["recipe"])
+    return workspace, snapshot
+
+
+@pytest.mark.parametrize(
+    "units,step_unit",
+    [
+        ("Millimeters", "SI_UNIT(.MILLI.,.METRE.)"),
+        ("Centimeters", "SI_UNIT(.CENTI.,.METRE.)"),
+        ("Meters", "SI_UNIT($,.METRE.)"),
+    ],
+)
+@pytest.mark.parametrize("explicit_transform", [False, True])
+def test_all_faces_named_step_mesh_units_and_common_transform(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    units: Any,
+    step_unit: str,
+    explicit_transform: bool,
+    tmp_path: Path,
+) -> None:
+    workspace, snapshot = collection
+    transform = None
+    if explicit_transform:
+        transform = "output_transform"
+        # A valid authoring chain whose numeric results are already retained.
+        for node in (
+            {
+                "id": "p0",
+                "label": "Origin",
+                "operation": "point",
+                "initial_coordinates": [0, 0, 0],
+            },
+            {
+                "id": "p1",
+                "label": "Scale point",
+                "operation": "point",
+                "initial_coordinates": [1, 0, 0],
+            },
+            {"id": "a0", "label": "Z", "operation": "axis", "source_fit": "side"},
+            {
+                "id": "a1",
+                "label": "X",
+                "operation": "axis",
+                "source_points": ["p0", "p1"],
+            },
+            {
+                "id": "frame",
+                "label": "Frame",
+                "operation": "frame",
+                "origin_point": "p0",
+                "primary_reference": "a0",
+                "primary_output_axis": "+Z",
+                "secondary_reference": "a1",
+                "secondary_output_axis": "+X",
+            },
+            {
+                "id": "scale",
+                "label": "Scale",
+                "operation": "scale",
+                "distances": [
+                    {"first_point": "p0", "second_point": "p1", "known_distance": 2.0}
+                ],
+            },
+            {
+                "id": transform,
+                "label": "Output transform",
+                "operation": "transform",
+                "frame": "frame",
+                "scale": "scale",
+            },
+        ):
+            snapshot["recipe"]["nodes"].append(node)
+            snapshot["states"][node["id"]] = "ready"
+        snapshot["results"][transform] = {
+            "matrix": [[0, -2, 0, 7], [2, 0, 0, -3], [0, 0, 2, 5], [0, 0, 0, 1]]
+        }
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="all_faces",
+        units=units,
+        axis_up=False,
+        transform=transform,
+    )
+    metadata, shapes, mesh, step = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    expected_ids = ["shoulder_face", "outer_face", "other_face"]
+    assert [obj["feature"] for obj in metadata["objects"]] == expected_ids
+    assert set(shapes) == {"Shoulder Face", "Outer Face", "Other Face"}
+    assert step_unit in step
+    assert metadata["geometry_mode"] == "separate_faces"
+    assert metadata["sewn"] is False and metadata["solid"] is False
+    matrix = np.asarray(metadata["transform_local_to_export"])
+    if not explicit_transform:
+        np.testing.assert_array_equal(matrix[:3, :3], workspace.frame)
+        np.testing.assert_array_equal(matrix[:3, 3], workspace.origin)
+    assert mesh is not None
+    np.testing.assert_array_equal(
+        mesh[0], workspace.local @ matrix[:3, :3].T + matrix[:3, 3]
+    )
+    np.testing.assert_array_equal(mesh[1], workspace.data.triangles)
+    from experiments.ocp_geometry import transform_shape
+
+    for obj in metadata["objects"]:
+        key = obj["feature"]
+        shape = shapes[obj["name"]]
+        assert len(faces(shape)) == 1 and BRepCheck_Analyzer(shape).IsValid()
+        assert not TopExp_Explorer(shape, TopAbs_SOLID).More()
+        assert obj["extent_authority"] == "declared_boundaries"
+        assert (
+            obj["source_surface"]
+            == next(n for n in snapshot["recipe"]["nodes"] if n["id"] == key)["surface"]
+        )
+        np.testing.assert_allclose(
+            bounds(shape),
+            bounds(transform_shape(face_from_record(snapshot["results"][key]), matrix)),
+            atol=1e-8,
+            rtol=0,
+        )
+
+
+def test_selected_faces_deduplicated_recipe_order_no_sources_exported(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    workspace, snapshot = collection
+    snapshot["states"]["other_face"] = "failed"
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="selected_faces",
+        targets=["outer_face", "shoulder_face", "outer_face"],
+        units="Millimeters",
+        axis_up=False,
+        include_mesh=False,
+    )
+    assert export_face_targets(snapshot, request) == ["shoulder_face", "outer_face"]
+    metadata, shapes, mesh, _ = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    assert [obj["feature"] for obj in metadata["objects"]] == [
+        "shoulder_face",
+        "outer_face",
+    ]
+    assert set(shapes) == {"Shoulder Face", "Outer Face"} and mesh is None
+
+
+def test_arranged_siblings_export_independent_faces_with_one_native_replay(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from experiments import face_arrangement
+
+    workspace, snapshot = collection
+    snapshot["recipe"]["nodes"].extend(
+        [
+            {"id": "axis", "label": "Axis", "operation": "axis", "source_fit": "side"},
+            {
+                "id": "clock",
+                "label": "Clock",
+                "operation": "reference_plane",
+                "axis": "axis",
+                "construction": "parallel_to_axis",
+                "offset": 1.0,
+            },
+        ]
+    )
+    snapshot["states"].update({"axis": "ready", "clock": "ready"})
+    records = face_arrangement.arrange_faces(
+        {"kind": "plane", "axis": [0, 0, 1], "offset": 0},
+        [
+            {
+                "key": "outer",
+                "geometry": {
+                    "kind": "cylinder",
+                    "axis": [0, 0, 1],
+                    "origin": [0, 0, 0],
+                    "radius": 2,
+                    "slope": 0,
+                },
+            },
+            {
+                "key": "clock",
+                "geometry": {"kind": "plane", "axis": [1, 0, 0], "offset": 1},
+            },
+        ],
+    )
+    retained = [record for record in records if record["bounded"]]
+    assert len(retained) == 2
+    ids: list[str] = []
+    for index, record in enumerate(retained):
+        key = f"arranged_{index}"
+        ids.append(key)
+        snapshot["recipe"]["nodes"].append(
+            {
+                "id": key,
+                "label": f"Arranged {index}",
+                "operation": "arranged_face",
+                "surface": {"feature": "fit", "surface": "end"},
+                "cutters": [
+                    {"feature": "fit", "surface": "side"},
+                    {"feature": "clock"},
+                ],
+                "domains": [],
+                "selector": record["bounds"]["arrangement"]["selector"],
+            }
+        )
+        snapshot["states"][key] = "ready"
+        snapshot["results"][key] = record
+    split = cast(Callable[[dict[str, Any]], Any], vars(face_arrangement)["_split"])
+    calls = 0
+
+    def counted(intent: dict[str, Any]) -> Any:
+        nonlocal calls
+        calls += 1
+        return split(intent)
+
+    monkeypatch.setattr(face_arrangement, "_split", counted)
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="selected_faces",
+        targets=ids,
+        units="Millimeters",
+        axis_up=False,
+        include_mesh=False,
+    )
+    metadata, shapes, mesh, _ = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    assert calls == 1 and mesh is None
+    assert set(shapes) == {"Arranged 0", "Arranged 1"}
+    total_area = 0.0
+    for shape in shapes.values():
+        properties = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(shape, properties)
+        total_area += properties.Mass()
+        assert BRepCheck_Analyzer(shape).IsValid()
+    assert total_area == pytest.approx(4 * np.pi, rel=1e-8)
+    assert all(
+        obj["cutters"] == [{"feature": "fit", "surface": "side"}, {"feature": "clock"}]
+        for obj in metadata["objects"]
+    )
+
+
+@pytest.mark.parametrize("scope", ["all_faces", "selected_faces"])
+@pytest.mark.parametrize(
+    "change,message",
+    [
+        ({"state": "stale"}, "Outer Face.*stale"),
+        ({"state": "failed", "error": "bad cutter"}, "Outer Face.*failed.*bad cutter"),
+        ({"state": "blocked"}, "Outer Face.*blocked"),
+        ({"bounded": False}, "Outer Face.*open region"),
+        ({"dependency": "stale"}, "Boundary first.*stale"),
+        ({"owner": "failed"}, "Face review.*failed"),
+        ({"complete": False}, "Face review.*shared-boundary review is incomplete"),
+    ],
+)
+def test_face_collection_preflight_before_kernel(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    scope: Any,
+    change: dict[str, Any],
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, snapshot = collection
+    if "state" in change:
+        snapshot["states"]["outer_face"] = change["state"]
+        snapshot["errors"]["outer_face"] = change.get("error", "")
+    if "bounded" in change:
+        snapshot["results"]["outer_face"]["bounded"] = False
+    if "dependency" in change:
+        snapshot["states"]["first"] = change["dependency"]
+    if "owner" in change or "complete" in change:
+        snapshot["recipe"]["nodes"].insert(
+            next(
+                i
+                for i, n in enumerate(snapshot["recipe"]["nodes"])
+                if n["id"] == "outer_face"
+            ),
+            {
+                "id": "review",
+                "label": "Face review",
+                "operation": "build_faces",
+                "surfaces": [
+                    {"feature": "fit", "surface": "end"},
+                    {"feature": "fit", "surface": "side"},
+                ],
+                "target": {"feature": "fit", "surface": "side"},
+                "boundary_sources": ["shoulder_face"],
+            },
+        )
+        next(n for n in snapshot["recipe"]["nodes"] if n["id"] == "outer_face")[
+            "managed_by"
+        ] = "review"
+        next(n for n in snapshot["recipe"]["nodes"] if n["id"] == "outer_face")[
+            "managed_key"
+        ] = "outer"
+        snapshot["states"]["review"] = change.get("owner", "ready")
+        snapshot["derived"]["review"] = {
+            "shared_boundary_review": {"complete": change.get("complete", True)}
+        }
+
+    def no_native(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("kernel construction must not happen before preflight")
+
+    monkeypatch.setattr("experiments.nozzle_cad.face_from_record", no_native)
+    monkeypatch.setattr("experiments.nozzle_cad.transform_shape", no_native)
+    monkeypatch.setattr("experiments.nozzle_cad._step_bytes", no_native)
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope=scope,
+        targets=["outer_face"] if scope == "selected_faces" else None,
+        units="Millimeters",
+        axis_up=False,
+    )
+    with pytest.raises(ValueError, match=message):
+        _ = export_cad(workspace, snapshot, request)
+
+
+@pytest.mark.parametrize(
+    "updates,message",
+    [
+        ({"scope": "all_faces", "target": "fit"}, "cannot include a target"),
+        (
+            {"scope": "all_faces", "targets": ["outer_face"]},
+            "cannot include a targets list",
+        ),
+        ({"scope": "selected_faces", "targets": []}, "at least one"),
+        ({"scope": "selected_faces", "targets": ["missing"]}, "unknown export face"),
+        ({"scope": "selected_faces", "targets": ["fit"]}, "not a built face"),
+        ({"scope": "all_faces", "axis_up": True}, "axis_up=false"),
+        ({"scope": "all_faces", "origin_plane": "end"}, "no origin plane"),
+        (
+            {"scope": "target", "target": "fit", "targets": ["outer_face"]},
+            "no targets list",
+        ),
+        ({"scope": "target"}, "requires one target"),
+        (
+            {"scope": "all_faces", "review_owners": ["fit"]},
+            "only valid for selected faces",
+        ),
+        (
+            {"scope": "target", "target": "fit", "review_owners": ["fit"]},
+            "only valid for selected faces",
+        ),
+        (
+            {
+                "scope": "selected_faces",
+                "targets": ["shoulder_face"],
+                "review_owners": ["missing"],
+            },
+            "unknown export face review",
+        ),
+        (
+            {
+                "scope": "selected_faces",
+                "targets": ["shoulder_face"],
+                "review_owners": ["fit"],
+            },
+            "not a face review",
+        ),
+    ],
+)
+def test_collection_scope_validation(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    updates: dict[str, Any],
+    message: str,
+) -> None:
+    workspace, snapshot = collection
+    request = CadExportRequest.model_validate(
+        {
+            "token": snapshot["token"],
+            "units": "Millimeters",
+            "axis_up": False,
+            **updates,
+        }
+    )
+    with pytest.raises(ValueError, match=message):
+        _ = export_cad(workspace, snapshot, request)
+
+
+def test_all_faces_empty_and_reused_only_review_failure(
+    evaluated: tuple[NozzleWorkspace, dict[str, Any]],
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    workspace, empty = evaluated
+    request = CadExportRequest(
+        token=empty["token"], scope="all_faces", units="Millimeters", axis_up=False
+    )
+    with pytest.raises(ValueError, match="at least one"):
+        _ = export_cad(workspace, empty, request)
+    _, snapshot = collection
+    snapshot["recipe"]["nodes"].append(
+        {
+            "id": "review",
+            "label": "Reused-only review",
+            "operation": "build_faces",
+            "surfaces": [
+                {"feature": "fit", "surface": "end"},
+                {"feature": "fit", "surface": "side"},
+            ],
+            "reused_faces": ["shoulder_face"],
+        }
+    )
+    snapshot["states"]["review"] = "failed"
+    with pytest.raises(ValueError, match=r"Reused-only review.*failed"):
+        _ = export_cad(workspace, snapshot, request)
+    selected = request.model_copy(
+        update={"scope": "selected_faces", "targets": ["shoulder_face"]}
+    )
+    metadata, shapes, _, _ = roundtrip(
+        export_cad(workspace, snapshot, selected), tmp_path
+    )
+    assert set(shapes) == {"Shoulder Face"}
+    assert metadata["export"]["review_owners"] == []
+    with pytest.raises(ValueError, match=r"Reused-only review.*failed"):
+        _ = export_cad(
+            workspace,
+            snapshot,
+            selected.model_copy(update={"review_owners": ["review"]}),
+        )
+    snapshot["states"]["review"] = "ready"
+    contextual = selected.model_copy(update={"review_owners": ["review"]})
+    metadata, shapes, _, _ = roundtrip(
+        export_cad(workspace, snapshot, contextual), tmp_path
+    )
+    assert set(shapes) == {"Shoulder Face"}
+    assert metadata["export"]["review_owners"] == ["review"]
 
 
 @pytest.mark.parametrize("inner", [0.0, 1.0])
@@ -364,6 +840,208 @@ def test_joint_export_geometry_units_mesh_and_names(
     assert metadata["export"] == request.model_dump(mode="json")
     assert metadata["source_sha256"] == workspace.default.source_sha256
     np.testing.assert_array_equal(workspace.local, before)
+
+
+@pytest.fixture
+def assembled_body(
+    collection: tuple[NozzleWorkspace, dict[str, Any]],
+) -> tuple[NozzleWorkspace, dict[str, Any]]:
+    from experiments.body_geometry import assemble_body
+
+    workspace, snapshot = collection
+    records = {
+        "shoulder_face": trimmed_face("plane", 0, 2),
+        "outer_face": trimmed_face("cylinder", 0, 2),
+        "other_face": trimmed_face("plane", 0, 2),
+    }
+    records["other_face"]["geometry"]["origin"][2] += 2
+    snapshot["results"].update(records)
+    snapshot["recipe"]["nodes"].append(
+        {
+            "id": "body",
+            "label": "Closed cylinder",
+            "operation": "body",
+            "faces": list(records),
+            "sewing_tolerance": 1e-7,
+        }
+    )
+    snapshot["results"]["body"] = assemble_body(records, 1e-7)
+    snapshot["states"]["body"] = "ready"
+    return workspace, snapshot
+
+
+@pytest.mark.parametrize("units", ["Millimeters", "Centimeters", "Meters"])
+def test_body_step_roundtrip_is_one_valid_solid(
+    assembled_body: tuple[NozzleWorkspace, dict[str, Any]],
+    units: str,
+    tmp_path: Path,
+) -> None:
+    workspace, snapshot = assembled_body
+    request = CadExportRequest.model_validate(
+        dict(
+            token=snapshot["token"],
+            scope="body",
+            target="body",
+            units=units,
+            axis_up=False,
+            include_mesh=False,
+        )
+    )
+    metadata, shapes, mesh, _ = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    assert set(shapes) == {"Closed cylinder"}
+    shape = shapes["Closed cylinder"]
+    assert shape.ShapeType() == TopAbs_SOLID
+    assert BRepCheck_Analyzer(shape).IsValid()
+    assert len(faces(shape)) == 3
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape, props)
+    assert props.Mass() == pytest.approx(8 * np.pi)
+    assert mesh is None
+    assert metadata["solid"] and metadata["sewn"]
+    assert metadata["geometry_mode"] == "solid"
+    assert metadata["objects"][0]["source_faces"] == [
+        "shoulder_face",
+        "outer_face",
+        "other_face",
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["body_failed", "face_stale", "face_changed", "tolerance_changed", "unvalidated"],
+)
+def test_body_export_rejects_unavailable_or_changed_inputs_before_kernel(
+    assembled_body: tuple[NozzleWorkspace, dict[str, Any]],
+    failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import experiments.nozzle_cad as geometry
+
+    workspace, snapshot = assembled_body
+    if failure == "body_failed":
+        snapshot["states"]["body"] = "failed"
+    elif failure == "face_stale":
+        snapshot["states"]["outer_face"] = "stale"
+    elif failure == "face_changed":
+        snapshot["results"]["outer_face"] = deepcopy(snapshot["results"]["outer_face"])
+        snapshot["results"]["outer_face"]["bounds"]["axial"][1] = 3
+    elif failure == "tolerance_changed":
+        snapshot["recipe"]["nodes"][-1]["sewing_tolerance"] = 1e-6
+    else:
+        snapshot["results"]["body"]["valid"] = False
+
+    def unexpected_replay(_record: dict[str, Any], _faces: dict[str, Any]) -> None:
+        pytest.fail("invalid Body reached native replay")
+
+    monkeypatch.setattr(geometry, "body_from_record", unexpected_replay)
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="body",
+        target="body",
+        units="Millimeters",
+        axis_up=False,
+        include_mesh=False,
+    )
+    with pytest.raises(ValueError, match="cannot export Body"):
+        _ = export_cad(workspace, snapshot, request)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"target": "outer_face"},
+        {"target": None},
+        {"targets": ["outer_face"]},
+        {"axis_up": True},
+        {"origin_plane": "end"},
+        {"review_owners": ["fit"]},
+    ],
+)
+def test_body_export_scope_validation(
+    assembled_body: tuple[NozzleWorkspace, dict[str, Any]], overrides: dict[str, Any]
+) -> None:
+    _, snapshot = assembled_body
+    payload = dict(
+        token=snapshot["token"],
+        scope="body",
+        target="body",
+        units="Millimeters",
+        axis_up=False,
+    )
+    payload.update(overrides)
+    with pytest.raises(ValueError):
+        _ = export_face_targets(snapshot, CadExportRequest.model_validate(payload))
+
+
+def test_body_transform_scales_volume_and_reference_mesh_together(
+    assembled_body: tuple[NozzleWorkspace, dict[str, Any]], tmp_path: Path
+) -> None:
+    workspace, snapshot = assembled_body
+    declarations = [
+        dict(id="p0", label="Origin", operation="point", initial_coordinates=[0, 0, 0]),
+        dict(
+            id="p1",
+            label="Scale point",
+            operation="point",
+            initial_coordinates=[1, 0, 0],
+        ),
+        dict(id="a0", label="Z", operation="axis", source_fit="side"),
+        dict(id="a1", label="X", operation="axis", source_points=["p0", "p1"]),
+        dict(
+            id="frame",
+            label="Frame",
+            operation="frame",
+            origin_point="p0",
+            primary_reference="a0",
+            primary_output_axis="+Z",
+            secondary_reference="a1",
+            secondary_output_axis="+X",
+        ),
+        dict(
+            id="scale",
+            label="Scale",
+            operation="scale",
+            distances=[dict(first_point="p0", second_point="p1", known_distance=2)],
+        ),
+        dict(
+            id="output_transform",
+            label="Output",
+            operation="transform",
+            frame="frame",
+            scale="scale",
+        ),
+    ]
+    snapshot["recipe"]["nodes"].extend(declarations)
+    snapshot["states"].update({node["id"]: "ready" for node in declarations})
+    matrix = np.array(
+        [[0, -2, 0, 7], [2, 0, 0, -3], [0, 0, 2, 5], [0, 0, 0, 1]], dtype=float
+    )
+    snapshot["results"]["output_transform"] = {"matrix": matrix.tolist()}
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="body",
+        target="body",
+        units="Millimeters",
+        axis_up=False,
+        transform="output_transform",
+    )
+    metadata, shapes, mesh, _ = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    solid = shapes["Closed cylinder"]
+    assert solid.ShapeType() == TopAbs_SOLID and BRepCheck_Analyzer(solid).IsValid()
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(solid, props)
+    assert props.Mass() == pytest.approx(64 * np.pi)
+    assert metadata["objects"][0]["volume_local"] == pytest.approx(8 * np.pi)
+    np.testing.assert_array_equal(metadata["transform_local_to_export"], matrix)
+    assert mesh is not None
+    np.testing.assert_array_equal(
+        mesh[0], workspace.local @ matrix[:3, :3].T + matrix[:3, 3]
+    )
+    np.testing.assert_array_equal(mesh[1], workspace.data.triangles)
 
 
 def test_explicit_transform_geometry_and_mesh(

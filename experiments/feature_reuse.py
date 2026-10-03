@@ -356,3 +356,169 @@ def transformed_fit_seed(
         ],
         (float(moved_domain[0]), float(moved_domain[1])),
     )
+
+
+def _placement_values(
+    rotation: FloatArray, translation: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    rotation = np.asarray(rotation, dtype=np.float64)
+    translation = np.asarray(translation, dtype=np.float64)
+    if (
+        rotation.shape != (3, 3)
+        or translation.shape != (3,)
+        or not np.isfinite(rotation).all()
+        or not np.isfinite(translation).all()
+        or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-8, rtol=0)
+        or not np.isclose(np.linalg.det(rotation), 1.0, atol=1e-8, rtol=0)
+    ):
+        raise ValueError("reuse placement requires a finite proper rigid transform")
+    return rotation, translation
+
+
+def _axis_values(axis: dict[str, Any]) -> tuple[FloatArray, FloatArray]:
+    parameters = axis.get("parameters")
+    direction = axis.get("axis_display")
+    point = axis.get("point_display")
+    if parameters is not None:
+        parameters = np.asarray(parameters, dtype=np.float64)
+        if (
+            parameters.ndim != 1
+            or len(parameters) < 4
+            or not np.isfinite(parameters).all()
+        ):
+            raise ValueError("reuse axis parameters must contain four finite values")
+        if direction is None:
+            direction = [parameters[2], parameters[3], 1.0]
+            if axis.get("direction_reversed", False):
+                direction = [-value for value in direction]
+        if point is None:
+            point = [parameters[0], parameters[1], 0.0]
+    point = np.asarray(point, dtype=np.float64)
+    direction = np.asarray(direction, dtype=np.float64)
+    direction_length = float(np.linalg.norm(direction))
+    if (
+        point.shape != (3,)
+        or direction.shape != (3,)
+        or not np.isfinite(point).all()
+        or not np.isfinite(direction).all()
+        or direction_length == 0
+        or not np.isfinite(direction_length)
+    ):
+        raise ValueError("reuse axis requires a finite point and nonzero direction")
+    return point, np.asarray(direction / direction_length, dtype=np.float64)
+
+
+def transformed_axis_initial(
+    source_axis: dict[str, Any],
+    rotation: FloatArray,
+    translation: FloatArray,
+) -> tuple[list[float], bool]:
+    """Place a directed datum axis into the positive-Z fit parameter chart.
+
+    The returned reversal belongs to the target chart, not the source chart:
+    a rigid rotation may move the directed axis into the opposite hemisphere.
+    """
+    rotation, translation = _placement_values(rotation, translation)
+    point, direction = _axis_values(source_axis)
+    moved_point = point @ rotation + translation
+    moved_direction = direction @ rotation
+    if abs(float(moved_direction[2])) < 1e-6:
+        raise ValueError(
+            "reused datum axis is outside the current local Z parameter chart"
+        )
+    chart_direction = moved_direction / moved_direction[2]
+    chart_point = moved_point - chart_direction * moved_point[2]
+    return (
+        [
+            float(chart_point[0]),
+            float(chart_point[1]),
+            float(chart_direction[0]),
+            float(chart_direction[1]),
+        ],
+        bool(moved_direction[2] < 0),
+    )
+
+
+def transformed_plane_initial(
+    source_plane: dict[str, Any],
+    rotation: FloatArray,
+    translation: FloatArray,
+    target_axis: dict[str, Any],
+    *,
+    refine_axis: bool = False,
+) -> dict[str, float | None]:
+    """Express a placed reference plane in its target directed-axis frame.
+
+    A source-fit initialized occurrence can refine the placed axis before this
+    datum is initialized. In that case transport the plane's clock orientation
+    onto that axis, keeping its declared construction exact rather than making
+    the noisy independently fitted axis an additional rigid-placement demand.
+    """
+    rotation, translation = _placement_values(rotation, translation)
+    anchor, axis = _axis_values(target_axis)
+    equation = np.asarray(source_plane.get("plane_equation"), dtype=np.float64)
+    if (
+        equation.shape != (4,)
+        or not np.isfinite(equation).all()
+        or np.linalg.norm(equation[:3]) == 0
+    ):
+        raise ValueError("reuse plane requires a finite nonzero plane equation")
+    equation = equation / np.linalg.norm(equation[:3])
+    normal = equation[:3] @ rotation
+    offset = float(equation[3] + normal @ translation)
+    construction = source_plane.get("construction")
+    alignment = float(normal @ axis)
+    moved_plane_point = None
+    if refine_axis:
+        source_point = np.asarray(
+            source_plane.get("point_display", equation[:3] * equation[3]),
+            dtype=np.float64,
+        )
+        if source_point.shape != (3,) or not np.isfinite(source_point).all():
+            raise ValueError("reuse plane point must contain three finite values")
+        moved_plane_point = source_point @ rotation + translation
+    if construction == "perpendicular_to_axis":
+        if moved_plane_point is not None:
+            return {
+                "initial_angle_degrees": None,
+                "offset": float(axis @ (moved_plane_point - anchor)),
+            }
+        if not np.isclose(abs(alignment), 1.0, atol=1e-8, rtol=0):
+            raise ValueError("placed perpendicular plane does not match its axis")
+        # The target datum's directed axis defines its plane normal. Reversing
+        # the normal also reverses the global plane-equation offset.
+        oriented_offset = offset if alignment >= 0 else -offset
+        return {
+            "initial_angle_degrees": None,
+            "offset": float(oriented_offset - axis @ anchor),
+        }
+    if construction not in ("contains_axis", "parallel_to_axis"):
+        raise ValueError("unsupported reused reference-plane construction")
+    if moved_plane_point is not None:
+        radial_normal = normal - alignment * axis
+        length = float(np.linalg.norm(radial_normal))
+        if length < 1e-8:
+            raise ValueError(
+                "placed axial plane has an ill-conditioned clock orientation"
+            )
+        normal = radial_normal / length
+        offset = float(normal @ moved_plane_point)
+    elif abs(alignment) > 1e-8:
+        raise ValueError("placed axial plane is not parallel to its axis")
+    basis = np.eye(3)[int(np.argmin(np.abs(axis)))]
+    u = np.cross(axis, basis)
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    radial = np.cross(normal, axis)
+    angle = float(np.degrees(np.arctan2(radial @ v, radial @ u)))
+    relative_offset = float(offset - normal @ anchor)
+    if construction == "contains_axis":
+        tolerance = (
+            64
+            * np.finfo(float).eps
+            * max(1.0, abs(offset), float(np.linalg.norm(anchor)))
+        )
+        if moved_plane_point is None and abs(relative_offset) > tolerance:
+            raise ValueError("placed containing plane does not contain its axis")
+        relative_offset = 0.0
+    return {"initial_angle_degrees": angle, "offset": relative_offset}
