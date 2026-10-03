@@ -165,6 +165,8 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
       source_selection: 'a',
       target_selection: 'b',
     },
+    { id: 'arranged', operation: 'arranged_face', surface: { feature: 'side' },
+      cutters: [{ feature: 'plane' }], domains: ['reused'] },
   ];
   const memberships = {
     a: [1, 2],
@@ -190,6 +192,7 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, memberships, 'applied'), [20, 21]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'reuse'), [1, 2, 3, 8, 9, 10]);
   assert.deepEqual(featureVertexIds(nodes, memberships, 'reused'), [30, 31]);
+  assert.deepEqual(featureVertexIds(nodes, memberships, 'arranged'), [1, 2, 3]);
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 

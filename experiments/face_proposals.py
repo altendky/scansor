@@ -1,4 +1,4 @@
-"""Reviewable circular face proposals; observation evidence never changes fits."""
+"""Reviewable face proposals; observation evidence never changes fits."""
 
 from __future__ import annotations
 
@@ -13,22 +13,23 @@ from numpy.typing import NDArray
 from experiments.face_adjacency import circle_in_face_domains, classify_pair
 from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.surface_extents import (
-    circle_intersection,
     distance_tolerance,
     primitive,
+    surface_intersection,
     trimmed_face,
 )
 
 POLICY = (
     "Original selected observations suggest a region only when strictly interior "
-    "evidence occupies exactly one candidate, every projection is defined, and "
+    "evidence occupies candidate cells, every projection is defined and accounted for, and "
     "no unresolved adjacency remains. Mathematical intersections are candidates, "
     "not physical boundaries. Unsupported unreviewed pairs remain warnings; "
     "confirmed unsupported boundaries block their affected faces. Observation "
-    "bounds are hints, not physical caps or disjointness proofs. Boundary-only, mixed, or missing evidence does "
-    "not choose a region. Suggestions require confirmation and do not prove "
+    "bounds are hints, not physical caps or disjointness proofs. Boundary-only, undefined, or missing evidence does "
+    "not choose a region; disconnected arrangement cells may be reviewed together. Suggestions require confirmation and do not prove "
     "physical adjacency, sharp edges, or complete scan coverage. No observations "
-    "or fit weights are removed or changed. Open ends remain physically unbounded."
+    "or fit weights are removed or changed. Open ends remain physically unbounded "
+    "and open regions are not suggested."
 )
 
 
@@ -64,6 +65,28 @@ def region_key(reference: dict[str, Any], boundaries: list[dict[str, Any]]) -> s
             sorted((use["intersection_key"], use["keep"]) for use in boundaries),
         ]
     )
+
+
+def arrangement_region_key(
+    reference: dict[str, Any],
+    cutters: list[dict[str, Any]],
+    domains: list[str],
+    selector: dict[str, Any],
+    finite_boundary_sources: list[str] | None = None,
+) -> str:
+    identity: list[Any] = [
+        _reference(reference),
+        [_reference(cutter) for cutter in cutters],
+        domains,
+        {
+            key: value
+            for key, value in selector.items()
+            if key != "finite_sides" or value
+        },
+    ]
+    if finite_boundary_sources:
+        identity.append({"finite_boundary_sources": sorted(finite_boundary_sources)})
+    return _digest(identity)
 
 
 def _observation_bounds_gap(
@@ -148,12 +171,18 @@ def _evidence(
 
 
 def propose_faces(
-    inputs: list[dict[str, Any]], *, adjacencies: list[dict[str, Any]] | None = None
+    inputs: list[dict[str, Any]],
+    *,
+    adjacencies: list[dict[str, Any]] | None = None,
+    target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Partition supported cuts, expose uncertainty, and leave Apply to the user."""
     if not inputs:
         raise ValueError("select at least one surface")
-    if len(inputs) * (len(inputs) - 1) // 2 > MAX_PAIRS:
+    pair_count = (
+        len(inputs) - 1 if target is not None else len(inputs) * (len(inputs) - 1) // 2
+    )
+    if pair_count > MAX_PAIRS:
         raise ValueError("surface pair-check budget exceeded")
     prepared: list[dict[str, Any]] = []
     identities: set[str] = set()
@@ -205,9 +234,14 @@ def propose_faces(
                 "unresolved_adjacencies": [],
                 "blocked_by_adjacency": False,
                 "edges": [],
+                "cutters": [],
+                "requires_arrangement": False,
             }
         )
     prepared.sort(key=lambda item: item["key"])
+    target_key = reference_key(_reference(target)) if target is not None else None
+    if target_key is not None and target_key not in identities:
+        raise ValueError("guided face target must be a selected surface")
     intersections: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
     choices: dict[str, str] = {}
@@ -229,6 +263,8 @@ def propose_faces(
         choices[key] = choice["state"]
     reviewed: list[dict[str, Any]] = []
     for first, second in combinations(prepared, 2):
+        if target_key is not None and target_key not in (first["key"], second["key"]):
+            continue
         key = intersection_key(first["reference"], second["reference"])
         mathematical = (
             classify_pair(first["geometry"], second["geometry"])
@@ -244,7 +280,7 @@ def propose_faces(
         rejected = mathematical["status"] == "proven_empty"
         if not rejected and choices.get(key) != "rejected":
             try:
-                geometry = circle_intersection(first["surface"], second["surface"])
+                geometry = surface_intersection(first["surface"], second["surface"])
             except ValueError as error:
                 reason = str(error)
         if geometry is not None:
@@ -252,6 +288,7 @@ def propose_faces(
                 domains = item.get("face_domains")
                 if (
                     domains is not None
+                    and geometry["kind"] == "circle"
                     and circle_in_face_domains(geometry, domains) is False
                 ):
                     rejected = True
@@ -260,11 +297,28 @@ def propose_faces(
             raise ValueError(
                 "confirmed adjacency contradicts a proven empty intersection or physical scope"
             )
+        native_pair_supported = (
+            first["geometry"] is not None
+            and second["geometry"] is not None
+            and (
+                mathematical["status"] == "candidate"
+                or mathematical["category"]
+                in {
+                    "general_conic",
+                    "general_quadric_pair",
+                    "general_parallel_quadric_pair",
+                }
+            )
+        )
         state = (
             "rejected"
             if rejected
             else choices.get(key)
-            or ("proposed" if geometry is not None else "uncertain")
+            or (
+                "proposed"
+                if geometry is not None or native_pair_supported
+                else "uncertain"
+            )
         )
         pair = {
             "key": key,
@@ -274,7 +328,7 @@ def propose_faces(
             "state": state,
             "mathematical": mathematical,
             "reason": reason,
-            "supported": geometry is not None,
+            "supported": geometry is not None or native_pair_supported,
             "evidence": {
                 "observation_bounds_gap": _observation_bounds_gap(first, second)
             },
@@ -282,10 +336,39 @@ def propose_faces(
         reviewed.append(pair)
         if state == "rejected":
             continue
+        for item, other in ((first, second), (second, first)):
+            if other["geometry"] is not None and (
+                geometry is not None or native_pair_supported
+            ):
+                item["cutters"].append(
+                    {
+                        "key": other["key"],
+                        "reference": other["reference"],
+                        "geometry": other["geometry"],
+                        "observations": other["observations"],
+                        **(
+                            {
+                                "face_domains": other["cut_domains"],
+                                "finite_boundary_sources": other[
+                                    "finite_boundary_sources"
+                                ],
+                            }
+                            if other.get("cut_domains")
+                            else {}
+                        ),
+                    }
+                )
         if state in ("proposed", "uncertain"):
             first["pending_adjacencies"].append(key)
             second["pending_adjacencies"].append(key)
         if geometry is None:
+            if native_pair_supported:
+                pair["reason"] = (
+                    "Native arrangement required; a single standalone intersection curve is unavailable."
+                )
+                for item in (first, second):
+                    item["requires_arrangement"] = True
+                continue
             diagnostics.append({**pair, "message": reason})
             for item, other in ((first, second), (second, first)):
                 item["warnings"].append(f"With {other['label']}: {reason}")
@@ -309,6 +392,36 @@ def propose_faces(
     faces: list[dict[str, Any]] = []
     region_count = 0
     for item in prepared:
+        if target_key is not None and item["key"] != target_key:
+            continue
+        use_arrangement = bool(item["cutters"]) and (
+            any(cutter.get("face_domains") for cutter in item["cutters"])
+            or item["requires_arrangement"]
+            or bool(item["unresolved_adjacencies"])
+            or bool(item.get("face_domains"))
+            or any(edge["geometry"]["kind"] != "circle" for edge in item["edges"])
+        )
+        if (
+            item["geometry"] is not None
+            and item["geometry"]["kind"] == "cone"
+            and not use_arrangement
+        ):
+            # General cone curves can bound a planar cap, but this slice does
+            # not yet construct their periodic lateral topology. Retain only
+            # explicit circular partial regions, never substitute them for a
+            # confirmed unsupported boundary.
+            unsupported = [
+                edge for edge in item["edges"] if edge["geometry"]["kind"] != "circle"
+            ]
+            for edge in unsupported:
+                reason = "Oblique cone lateral boundaries require explicit branch and seam review; circular partial regions do not include this cut."
+                item["warnings"].append(reason)
+                if choices.get(edge["key"]) == "confirmed":
+                    item["blocked_by_adjacency"] = True
+                else:
+                    item["unresolved_adjacencies"].append(edge["key"])
+                diagnostics.append({"key": edge["key"], "message": reason})
+            item["edges"] = [edge for edge in item["edges"] if edge not in unsupported]
         face: dict[str, Any] = {
             "key": item["key"],
             "surface": item["reference"],
@@ -328,6 +441,16 @@ def propose_faces(
             "regions": [],
         }
         faces.append(face)
+        if item["geometry"] is not None and use_arrangement:
+            from experiments.arrangement_face_proposals import (
+                propose_regions as propose_arranged_regions,
+            )
+
+            propose_arranged_regions(
+                item, face, MAX_REGIONS - region_count, arrangement_region_key
+            )
+            region_count += len(face["regions"])
+            continue
         if not item["edges"] or item["geometry"] is None:
             if not item["edges"]:
                 face["diagnostics"].append(
@@ -336,6 +459,25 @@ def propose_faces(
             continue
         geometry = item["geometry"]
         planar = geometry["kind"] == "plane"
+        general = any(edge["geometry"]["kind"] != "circle" for edge in item["edges"])
+        if planar and not general:
+            positions = [
+                np.asarray(edge["geometry"]["center_display"]) for edge in item["edges"]
+            ]
+            tolerance = distance_tolerance(
+                positions, max(edge["geometry"]["radius"] for edge in item["edges"])
+            )
+            general = any(
+                np.linalg.norm(p - positions[0]) > tolerance for p in positions
+            )
+        if general:
+            from experiments.arrangement_face_proposals import propose_regions
+
+            propose_regions(
+                item, face, MAX_REGIONS - region_count, arrangement_region_key
+            )
+            region_count += len(face["regions"])
+            continue
         centers = [
             np.asarray(edge["geometry"]["center_display"]) for edge in item["edges"]
         ]
@@ -399,6 +541,7 @@ def propose_faces(
                 for use in boundaries
             ]
             label = f"{'Radial' if planar else 'Axial'} [{lower if lower is not None else 'open'}, {upper if upper is not None else 'open'}]"
+            preview: dict[str, Any]
             try:
                 preview = trimmed_face(item["surface"], uses, item["observations"])
             except ValueError as error:
@@ -416,6 +559,9 @@ def propose_faces(
                     "boundaries": boundaries,
                     "bounded": preview["bounded"],
                     "bounds": preview["bounds"],
+                    "geometry": preview.get("geometry"),
+                    "surface_kind": preview.get("surface_kind"),
+                    "loops": preview.get("loops", []),
                     "preview": preview["preview"],
                     "evidence": _evidence(
                         coordinates,
@@ -427,6 +573,11 @@ def propose_faces(
                         planar,
                     ),
                 }
+            )
+        open_count = sum(not region["bounded"] for region in face["regions"])
+        if open_count:
+            face["diagnostics"].append(
+                f"{open_count} open regions omitted from suggestions; add physical boundaries."
             )
         if item["errors"] or preview_failed or item["blocked_by_adjacency"]:
             face["status"] = "unsupported"
@@ -447,6 +598,9 @@ def propose_faces(
             region for region in face["regions"] if region["evidence"]["interior_count"]
         ]
         if len(populated) == 1 and bool(np.all(defined)):
+            if not populated[0]["bounded"]:
+                face["status"] = "missing_boundaries"
+                continue
             face["status"] = "suggested"
             face["suggested_region_key"] = populated[0]["key"]
             if (

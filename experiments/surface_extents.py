@@ -1,8 +1,9 @@
 """Explicit physical face boundaries, separate from observation/solver support.
 
-This bounded experiment handles circular plane/revolution intersections and
-concentric planar or axial side regions. It does not infer adjacency, sew faces,
-or construct solids. Preview tessellation is display-only, never fit evidence.
+This bounded experiment handles circular and single-branch general boundaries,
+including planar loops with holes and signed cylindrical plane cuts. It does not
+infer adjacency, sew faces, or construct solids. Preview tessellation is
+display-only, never fit evidence.
 """
 
 from __future__ import annotations
@@ -20,6 +21,25 @@ from experiments.surface_primitives import vector as vector
 Array = NDArray[np.float64]
 ANGULAR_TOLERANCE = 1e-10
 PREVIEW_SEGMENTS = 96
+
+
+def surface_intersection(
+    first: dict[str, Any], second: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve a shared boundary without silently selecting a curve branch."""
+    geometries = [primitive(first), primitive(second)]
+    planes = [g for g in geometries if g["kind"] == "plane"]
+    sides = [g for g in geometries if g["kind"] in ("cylinder", "cone")]
+    if (
+        len(planes) == 1
+        and len(sides) == 1
+        and np.linalg.norm(np.cross(planes[0]["axis"], sides[0]["axis"]))
+        <= ANGULAR_TOLERANCE
+    ):
+        return circle_intersection(first, second)
+    from experiments.general_face_geometry import intersection_record
+
+    return intersection_record(*geometries, segments=PREVIEW_SEGMENTS)
 
 
 def circle_intersection(
@@ -97,6 +117,19 @@ def trimmed_face(
     """
     geometry = primitive(surface)
     planar = geometry["kind"] == "plane"
+    if not boundaries:
+        raise ValueError("a face requires explicit physical boundaries")
+    general = any(edge["kind"] != "circle" for _, edge in boundaries)
+    if planar and not general:
+        centers = [np.asarray(edge["center_display"]) for _, edge in boundaries]
+        tolerance = distance_tolerance(
+            centers, max(float(edge["radius"]) for _, edge in boundaries)
+        )
+        general = any(np.linalg.norm(p - centers[0]) > tolerance for p in centers)
+    if general:
+        from experiments.general_face_geometry import face_from_boundaries
+
+        return face_from_boundaries(geometry, boundaries, observations)
     lower: float | None = 0.0 if planar else None
     upper: float | None = None
     centers = [vector(edge["center_display"], "edge center") for _, edge in boundaries]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -205,6 +206,120 @@ def test_derived_mesh_normalization_does_not_change_physical_face(scale: float) 
         atol=1e-15,
     )
     assert 100 < len(mesh["indices"]) < 100000
+
+
+@pytest.mark.parametrize("failed_attempts", [0, 1, 2])
+@pytest.mark.parametrize("done_without_triangles", [False, True])
+def test_display_meshing_retries_only_failed_or_empty_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    failed_attempts: int,
+    done_without_triangles: bool,
+) -> None:
+    import experiments.ocp_geometry as kernel
+
+    face = face_from_record(bounded_side(3, 0, 2, 5))
+    before = area(face)
+    original = vars(kernel)["BRepMesh_IncrementalMesh"]
+    attempts: list[float] = []
+    displays: list[TopoDS_Shape] = []
+
+    class FailedMesh:
+        def IsDone(self) -> bool:
+            return done_without_triangles
+
+        def GetStatusFlags(self) -> int:
+            return 0
+
+    def mesh(display: TopoDS_Shape, deflection: float, *args: Any) -> Any:
+        attempts.append(deflection)
+        displays.append(display)
+        if len(attempts) <= failed_attempts:
+            return FailedMesh()
+        return original(display, deflection, *args)
+
+    monkeypatch.setattr(kernel, "BRepMesh_IncrementalMesh", mesh)
+    preview = tessellate_face(face, 3)
+    assert attempts == [0.001, 0.0001, 0.00001][: failed_attempts + 1]
+    assert preview["indices"] and np.isfinite(preview["positions"]).all()
+    assert all(not first.IsSame(second) for first, second in pairwise(displays))
+    assert area(face) == before
+
+
+@pytest.mark.parametrize("done_without_triangles", [False, True])
+def test_display_meshing_exhaustion_never_returns_an_empty_success(
+    monkeypatch: pytest.MonkeyPatch, done_without_triangles: bool
+) -> None:
+    import experiments.ocp_geometry as kernel
+
+    face = face_from_record(bounded_side(3, 0, 2, 5))
+    before = area(face)
+    attempts: list[float] = []
+
+    class FailedMesh:
+        def IsDone(self) -> bool:
+            return done_without_triangles
+
+        def GetStatusFlags(self) -> int:
+            return 0
+
+    def mesh(_display: TopoDS_Shape, deflection: float, *_args: Any) -> FailedMesh:
+        attempts.append(deflection)
+        return FailedMesh()
+
+    monkeypatch.setattr(kernel, "BRepMesh_IncrementalMesh", mesh)
+    with pytest.raises(ValueError, match=r"preview (has no triangles|meshing failed)"):
+        _ = tessellate_face(face, 3)
+    assert attempts == [0.001, 0.0001, 0.00001]
+    assert area(face) == before
+
+
+@pytest.mark.parametrize("reported_status", ["first_failure", "all_failure", "reused"])
+def test_display_meshing_checks_failure_flags_even_with_positive_triangles(
+    monkeypatch: pytest.MonkeyPatch, reported_status: str
+) -> None:
+    from OCP.BRep import BRep_Tool
+    from OCP.IMeshData import IMeshData_Failure, IMeshData_Reused
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+
+    import experiments.ocp_geometry as kernel
+
+    face = face_from_record(bounded_side(3, 0, 2, 5))
+    before = area(face)
+    original = vars(kernel)["BRepMesh_IncrementalMesh"]
+    attempts: list[float] = []
+
+    class ReportedMesh:
+        def IsDone(self) -> bool:
+            return True
+
+        def GetStatusFlags(self) -> int:
+            return int(
+                IMeshData_Reused if reported_status == "reused" else IMeshData_Failure
+            )
+
+    def mesh(display: TopoDS_Shape, deflection: float, *args: Any) -> Any:
+        attempts.append(deflection)
+        actual = original(display, deflection, *args)
+        assert actual.IsDone()
+        triangulation = BRep_Tool.Triangulation_s(
+            TopoDS.Face(display), TopLoc_Location()
+        )
+        assert triangulation and triangulation.NbTriangles() > 0
+        if reported_status != "first_failure" or len(attempts) == 1:
+            return ReportedMesh()
+        return actual
+
+    monkeypatch.setattr(kernel, "BRepMesh_IncrementalMesh", mesh)
+    if reported_status == "all_failure":
+        with pytest.raises(ValueError, match="preview meshing failed"):
+            _ = tessellate_face(face, 3)
+        assert attempts == [0.001, 0.0001, 0.00001]
+    else:
+        preview = tessellate_face(face, 3)
+        assert preview["indices"]
+        assert attempts == ([0.001] if reported_status == "reused" else [0.001, 0.0001])
+    assert area(face) == before
 
 
 @pytest.mark.parametrize("reflection", [False, True])

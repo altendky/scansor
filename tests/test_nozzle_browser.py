@@ -33,6 +33,14 @@ def test_surface_trims_module_is_a_served_browser_asset() -> None:
     assert Handler.files["/surface-trims.js"] == ("surface-trims.js", "text/javascript")
 
 
+def test_cad_export_module_is_a_served_browser_asset() -> None:
+    assert Handler.files["/cad-export.js"] == ("cad-export.js", "text/javascript")
+
+
+def test_fit_footprint_module_is_a_served_browser_asset() -> None:
+    assert Handler.files["/fit-footprint.js"] == ("fit-footprint.js", "text/javascript")
+
+
 def test_reuse_volume_module_is_a_served_browser_asset() -> None:
     assert Handler.files["/reuse-volume.js"] == (
         "reuse-volume.js",
@@ -45,6 +53,24 @@ def test_residual_display_module_is_a_served_browser_asset() -> None:
         "residual-display.js",
         "text/javascript",
     )
+
+
+def test_face_edge_stroke_modules_are_served_without_cad_imports() -> None:
+    assert Handler.files["/edge-highlight.js"] == (
+        "edge-highlight.js",
+        "text/javascript",
+    )
+    for name in (
+        "Line2",
+        "LineGeometry",
+        "LineMaterial",
+        "LineSegments2",
+        "LineSegmentsGeometry",
+    ):
+        assert Handler.files[f"/vendor/lines/{name}.js"] == (
+            f"node_modules/three/examples/jsm/lines/{name}.js",
+            "text/javascript",
+        )
 
 
 def test_face_authoring_evaluation_and_export_http_workflow() -> None:
@@ -81,6 +107,8 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
                 assert b"new-surface-intersection" in response.read()
             with urlopen(base + "/surface-trims.js", timeout=10) as response:
                 assert b"surfaceReferenceChoices" in response.read()
+            with urlopen(base + "/fit-footprint.js", timeout=10) as response:
+                assert b"fittedSelectionFootprint" in response.read()
             payload = recipe.model_dump()
             plane = {"feature": "fit", "surface": "end"}
             payload["nodes"].extend(
@@ -124,6 +152,23 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
                 snapshot = json.load(response)
             assert snapshot["states"]["face"] == snapshot["states"]["edge"] == "ready"
             assert snapshot["results"]["face"]["bounded"]
+            neighbors = json.loads(
+                post(
+                    "/api/graph/build-faces/candidates",
+                    {
+                        "token": snapshot["token"],
+                        "target": plane,
+                        "surfaces": [plane, {"feature": "fit", "surface": "side"}],
+                    },
+                )
+            )
+            assert len(neighbors["candidates"]) == 1
+            shared = neighbors["candidates"][0]["shared_faces"]
+            assert shared[0]["id"] == "wall" and shared[0]["preview_paths"]
+            assert (
+                json.loads(json.dumps(server.graph.snapshot()["recipe"]))
+                == snapshot["recipe"]
+            )
             data = post(
                 "/api/export/cad",
                 {
@@ -139,6 +184,32 @@ def test_face_authoring_evaluation_and_export_http_workflow() -> None:
                 assert bundle.read("model.step").startswith(b"ISO-10303-21;")
                 assert "metadata.json" in bundle.namelist()
                 assert not any(name.endswith(".ply") for name in bundle.namelist())
+            # Face-set selection is explicit, deduplicated, and must not export
+            # its unbounded wall guidance as another CAD object.
+            collection = {
+                "token": snapshot["token"],
+                "scope": "selected_faces",
+                "targets": ["face", "face"],
+                "units": "Millimeters",
+                "axis_up": False,
+                "include_mesh": False,
+            }
+            data = post("/api/export/cad", collection)
+            with ZipFile(BytesIO(data)) as bundle:
+                exported = json.loads(bundle.read("metadata.json"))
+                assert [item["feature"] for item in exported["objects"]] == ["face"]
+                assert not exported["solid"] and not exported["sewn"]
+            with pytest.raises(HTTPError) as open_collection:
+                _ = post(
+                    "/api/export/cad",
+                    {
+                        **collection,
+                        "scope": "all_faces",
+                        "targets": None,
+                    },
+                )
+            assert open_collection.value.code == 422
+            assert b"open region" in open_collection.value.read()
             with pytest.raises(HTTPError) as error:
                 _ = post(
                     "/api/export/cad",

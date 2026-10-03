@@ -92,7 +92,16 @@ def request(plan: dict[str, Any], **kwargs: Any) -> FacesApplyRequest:
             "proposal_token": plan["proposal_token"],
             "label": "Reviewed physical faces",
             "choices": [
-                {"surface": face["surface"], "region_key": face["suggested_region_key"]}
+                {
+                    "surface": face["surface"],
+                    # Exercise explicit legacy open faces, not UI suggestions.
+                    "region_key": face["suggested_region_key"]
+                    or next(
+                        region["key"]
+                        for region in face["regions"]
+                        if region["evidence"]["interior_count"]
+                    ),
+                }
                 for face in plan["faces"]
             ],
             **kwargs,
@@ -251,7 +260,7 @@ def test_scoped_face_edit_invalidates_owner_and_old_proposal(
 
 
 @pytest.mark.parametrize("confirmed", [False, True])
-def test_unsupported_adjacency_only_blocks_apply_when_explicitly_confirmed(
+def test_oblique_adjacency_is_supported_with_or_without_prior_confirmation(
     graph: FeatureGraph, confirmed: bool
 ) -> None:
     refs = [*REFS, {"feature": "end"}]
@@ -268,7 +277,7 @@ def test_unsupported_adjacency_only_blocks_apply_when_explicitly_confirmed(
     )
     target = next(face for face in plan["faces"] if face["surface"] == REFS[0])
     assert target["regions"]
-    assert target["blocked_by_adjacency"] is confirmed
+    assert not target["blocked_by_adjacency"]
     reviewed = FacesApplyRequest.model_validate(
         {
             "token": plan["token"],
@@ -282,16 +291,11 @@ def test_unsupported_adjacency_only_blocks_apply_when_explicitly_confirmed(
         }
     )
     before = state(graph)
-    if confirmed:
-        with pytest.raises(ValueError):
-            _ = apply_faces(graph, reviewed)
-        assert state(graph) == before
-    else:
-        applied = apply_faces(graph, reviewed)
-        assert owner(applied)["surfaces"] == [
-            {"feature": ref["feature"], "surface": ref.get("surface")} for ref in refs
-        ]
-        assert state(graph)["results"]["fit"] == before["results"]["fit"]
+    applied = apply_faces(graph, reviewed)
+    assert owner(applied)["surfaces"] == [
+        {"feature": ref["feature"], "surface": ref.get("surface")} for ref in refs
+    ]
+    assert state(graph)["results"]["fit"] == before["results"]["fit"]
 
 
 def test_duplicate_and_unknown_adjacency_decisions_are_atomic(

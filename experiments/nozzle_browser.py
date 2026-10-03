@@ -30,6 +30,7 @@ from experiments.feature_graph import (
     StaleGraph,
     workspace_reference_sha256,
 )
+from experiments.guided_face_candidates import FaceCandidatesRequest, candidate_faces
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 from scansor.selection_bundle import SelectionBundle
 
@@ -98,6 +99,8 @@ class NozzleServer(ThreadingHTTPServer):
         self.example_recipe: Recipe = initial_recipe.model_copy(deep=True)
         self.graph: FeatureGraph = FeatureGraph(workspace, initial_recipe)
         self.graph_job_token: str = ""
+        self.graph_job_roots: frozenset[str] = frozenset()
+        self.graph_job_errors: dict[tuple[str, frozenset[str]], str] = {}
         self.job_id: str = ""
         self.buffers: dict[str, bytes] = {
             "/mesh/positions": workspace.local.astype("<f4").tobytes(),
@@ -128,11 +131,16 @@ class Handler(BaseHTTPRequestHandler):
         "/app.js": ("app.js", "text/javascript"),
         "/action-tree.js": ("action-tree.js", "text/javascript"),
         "/display-transform.js": ("display-transform.js", "text/javascript"),
+        "/cad-export.js": ("cad-export.js", "text/javascript"),
+        "/body-ui.js": ("body-ui.js", "text/javascript"),
         "/feature-graph-view.js": ("feature-graph-view.js", "text/javascript"),
         "/feature-names.js": ("feature-names.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/surface-trims.js": ("surface-trims.js", "text/javascript"),
+        "/graph-evaluation.js": ("graph-evaluation.js", "text/javascript"),
+        "/edge-highlight.js": ("edge-highlight.js", "text/javascript"),
+        "/fit-footprint.js": ("fit-footprint.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
@@ -148,6 +156,19 @@ class Handler(BaseHTTPRequestHandler):
             "text/javascript",
         ),
         "/vendor/LICENSE": ("node_modules/three/LICENSE", "text/plain"),
+        **{
+            f"/vendor/lines/{name}.js": (
+                f"node_modules/three/examples/jsm/lines/{name}.js",
+                "text/javascript",
+            )
+            for name in (
+                "Line2",
+                "LineGeometry",
+                "LineMaterial",
+                "LineSegments2",
+                "LineSegmentsGeometry",
+            )
+        },
     }
 
     def reply(self, status: int, body: bytes, content_type: str) -> None:
@@ -243,7 +264,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/fit",
             "/api/graph",
             "/api/graph/evaluate",
+            "/api/graph/ensure",
             "/api/graph/build-faces/preview",
+            "/api/graph/build-faces/candidates",
             "/api/graph/build-faces/apply",
             "/api/export/cad",
         ):
@@ -263,6 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             if self.path in (
                 "/api/graph/build-faces/preview",
+                "/api/graph/build-faces/candidates",
                 "/api/graph/build-faces/apply",
             ):
                 with self.app.lock:
@@ -274,24 +298,79 @@ class Handler(BaseHTTPRequestHandler):
                             },
                         )
                         return
-                    state = (
-                        preview_faces(
+                    if self.path.endswith("/candidates"):
+                        state = candidate_faces(
                             self.app.graph,
-                            FacesPreviewRequest.model_validate_json(body),
+                            FaceCandidatesRequest.model_validate_json(body),
                         )
-                        if self.path.endswith("/preview")
-                        else apply_faces(
-                            self.app.graph, FacesApplyRequest.model_validate_json(body)
+                    else:
+                        state = (
+                            preview_faces(
+                                self.app.graph,
+                                FacesPreviewRequest.model_validate_json(body),
+                            )
+                            if self.path.endswith("/preview")
+                            else apply_faces(
+                                self.app.graph,
+                                FacesApplyRequest.model_validate_json(body),
+                            )
                         )
-                    )
                 self.json_reply(200, state)
                 return
             if self.path == "/api/export/cad":
                 # Fit-only sessions do not need to load the native CAD kernel.
-                from experiments.nozzle_cad import CadExportRequest, export_cad
+                from experiments.nozzle_cad import (
+                    CadExportRequest,
+                    export_cad,
+                    export_face_targets,
+                )
 
                 export_request = CadExportRequest.model_validate_json(body)
                 snapshot = cast(dict[str, Any], self.app.graph.snapshot())
+                if export_request.scope != "target":
+                    with self.app.lock:
+                        if (
+                            self.app.graph_job is not None
+                            and not self.app.graph_job.done()
+                        ):
+                            raise ValueError(
+                                "wait for the current graph evaluation before exporting geometry"
+                            )
+                        roots = export_face_targets(snapshot, export_request)
+                        roots.extend(export_request.review_owners)
+                        if export_request.scope == "all_faces":
+                            roots.extend(
+                                node["id"]
+                                for node in snapshot["recipe"]["nodes"]
+                                if node["operation"] == "build_faces"
+                            )
+                        if export_request.transform is not None:
+                            roots.append(export_request.transform)
+                        needed, current = self.app.graph.readiness_status(
+                            export_request.token, roots
+                        )
+                        if needed or current is None:
+                            raise ValueError(
+                                "export inputs are not current; evaluate them before exporting geometry"
+                            )
+                        snapshot = cast(dict[str, Any], current)
+                        failed = snapshot["required_failures"]
+                        if failed:
+                            labels = {
+                                node["id"]: node["label"]
+                                for node in snapshot["recipe"]["nodes"]
+                            }
+                            raise ValueError(
+                                (
+                                    "cannot export Body: "
+                                    if export_request.scope == "body"
+                                    else "cannot export built faces: "
+                                )
+                                + "; ".join(
+                                    f"{labels.get(key, key)!r}: {snapshot['errors'].get(key, snapshot['states'][key])}"
+                                    for key in failed
+                                )
+                            )
                 exported = export_cad(self.app.workspace, snapshot, export_request)
                 self.reply(200, exported, "application/zip")
                 return
@@ -304,6 +383,88 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_reply(200, state)
                 else:
                     with self.app.lock:
+                        if self.path == "/api/graph/ensure":
+                            if payload.target is not None or payload.recipe is not None:
+                                raise ValueError(
+                                    "ensure expects targets, not a target or recipe"
+                                )
+                            needed, ready_state = self.app.graph.readiness_status(
+                                payload.token, payload.targets, payload.all_actions
+                            )
+                            roots = self.app.graph.evaluation_roots(
+                                payload.token, payload.targets, payload.all_actions
+                            )
+                            self.app.graph_job_errors = {
+                                key: error
+                                for key, error in self.app.graph_job_errors.items()
+                                if key[0] == payload.token
+                            }
+                            if (
+                                self.app.graph_job is not None
+                                and self.app.graph_job.done()
+                                and self.app.graph_job_token == payload.token
+                            ):
+                                error = self.app.graph_job.exception()
+                                if error is not None:
+                                    self.app.graph_job_errors[
+                                        (payload.token, self.app.graph_job_roots)
+                                    ] = str(error)
+                            job_error = self.app.graph_job_errors.get(
+                                (payload.token, roots)
+                            )
+                            if (
+                                not needed
+                                and ready_state is not None
+                                and not ready_state["required_failures"]
+                            ):
+                                # Another request may have repaired these outputs.
+                                _ = self.app.graph_job_errors.pop(
+                                    (payload.token, roots), None
+                                )
+                                job_error = None
+                            if (
+                                self.app.graph_job is not None
+                                and not self.app.graph_job.done()
+                            ):
+                                self.json_reply(
+                                    202,
+                                    {"status": "running", "evaluation_running": True},
+                                )
+                            elif not needed or job_error is not None:
+                                self.json_reply(
+                                    200,
+                                    {
+                                        **(
+                                            ready_state
+                                            if ready_state is not None
+                                            else self.app.graph.readiness_snapshot(
+                                                payload.token,
+                                                payload.targets,
+                                                payload.all_actions,
+                                            )
+                                        ),
+                                        "evaluation_running": False,
+                                        **(
+                                            {"evaluation_error": str(job_error)}
+                                            if job_error is not None
+                                            else {}
+                                        ),
+                                    },
+                                )
+                            else:
+                                self.app.graph_job_token = payload.token
+                                self.app.graph_job_roots = roots
+                                self.app.graph_job = self.app.worker.submit(
+                                    self.app.graph.ensure_current,
+                                    payload.token,
+                                    payload.targets,
+                                    payload.all_actions,
+                                )
+                                self.json_reply(
+                                    202,
+                                    {"status": "running", "evaluation_running": True},
+                                )
+                            return
                         if (
                             self.app.graph_job is not None
                             and not self.app.graph_job.done()
@@ -315,6 +476,12 @@ class Handler(BaseHTTPRequestHandler):
                         if payload.token != self.app.graph.snapshot()["token"]:
                             raise StaleGraph("graph changed before evaluation")
                         self.app.graph_job_token = payload.token
+                        self.app.graph_job_errors.clear()
+                        self.app.graph_job_roots = self.app.graph.evaluation_roots(
+                            payload.token,
+                            [payload.target] if payload.target is not None else None,
+                            payload.all_actions,
+                        )
                         self.app.graph_job = self.app.worker.submit(
                             self.app.graph.evaluate,
                             payload.token,

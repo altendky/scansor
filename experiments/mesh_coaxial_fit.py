@@ -60,7 +60,17 @@ class AxisPlaneObservations:
 
     @property
     def size(self) -> int:
-        return 0 if self.construction == "contains_axis" else 1
+        return int(self.construction != "perpendicular_to_axis") + int(
+            self.construction != "contains_axis"
+        )
+
+    def angle_index(self, start: int) -> int | None:
+        return None if self.construction == "perpendicular_to_axis" else start
+
+    def offset_index(self, start: int) -> int | None:
+        if self.construction == "contains_axis":
+            return None
+        return start + int(self.construction == "parallel_to_axis")
 
 
 @dataclass(frozen=True)
@@ -76,6 +86,7 @@ class CoaxialResult:
     axis_plane_equations: list[Array]
     axis_plane_basis_u: list[Array]
     axis_plane_basis_v: list[Array]
+    axis_plane_angles: list[float | None]
     axis_plane_residuals: list[Array]
     rotational_equations: list[list[Array]]
     rotational_domains: list[list[tuple[float, float]]]
@@ -133,7 +144,9 @@ def mirror_radius_parameter(
 
 
 def axis_plane_frame(
-    group: AxisPlaneObservations, parameters: Array
+    group: AxisPlaneObservations,
+    parameters: Array,
+    angle_index: int | None = None,
 ) -> tuple[Array, Array, Array]:
     raw = np.array([parameters[2], parameters[3], 1.0])
     axis = raw / np.linalg.norm(raw)
@@ -150,8 +163,9 @@ def axis_plane_frame(
         raise ValueError("unsupported reference-plane construction")
     if group.angle_radians is None:
         raise ValueError("an axial reference plane requires a clocking angle")
+    angle = group.angle_radians if angle_index is None else parameters[angle_index]
     radial = np.asarray(
-        np.cos(group.angle_radians) * u + np.sin(group.angle_radians) * v,
+        np.cos(angle) * u + np.sin(angle) * v,
         dtype=float,
     )
     normal = np.asarray(np.cross(axis, radial), dtype=float)
@@ -161,10 +175,13 @@ def axis_plane_frame(
 def axis_plane_residual_jacobian(
     group: AxisPlaneObservations,
     parameters: Array,
-    offset: int | None,
+    start: int,
     size: int,
 ) -> tuple[Array, Array]:
-    normal, derivative = axis_plane_normal(group, size)(parameters)
+    offset = group.offset_index(start)
+    normal, derivative = axis_plane_normal(group, size, group.angle_index(start))(
+        parameters
+    )
     anchor = np.array([parameters[0], parameters[1], 0.0])
     plane_offset = float(normal @ anchor) if offset is None else parameters[offset]
     residual = group.points @ normal - plane_offset
@@ -179,7 +196,9 @@ def axis_plane_residual_jacobian(
     return residual, jacobian
 
 
-def axis_plane_normal(group: AxisPlaneObservations, size: int) -> NormalCallback:
+def axis_plane_normal(
+    group: AxisPlaneObservations, size: int, angle_index: int | None = None
+) -> NormalCallback:
     """Differentiate the declared clocked frame, without world-origin steps."""
 
     def normal(parameters: Array) -> tuple[Array, Array]:
@@ -188,7 +207,7 @@ def axis_plane_normal(group: AxisPlaneObservations, size: int) -> NormalCallback
             # Retain frame validity checks even though only the normal is used.
             _ = axis_plane_frame(group, parameters)
             return axis, derivative
-        u, v, result = axis_plane_frame(group, parameters)
+        u, v, result = axis_plane_frame(group, parameters, angle_index)
         # For axial planes axis_plane_frame returns (axis, radial, normal).
         basis = np.eye(3)[group.basis_index]
         cross = np.cross(axis, basis)
@@ -200,10 +219,12 @@ def axis_plane_normal(group: AxisPlaneObservations, size: int) -> NormalCallback
         ) / cross_length
         dsecond = np.cross(derivative.T, transverse).T + np.cross(axis, dtransverse.T).T
         assert group.angle_radians is not None
-        dradial = (
-            np.cos(group.angle_radians) * dtransverse
-            + np.sin(group.angle_radians) * dsecond
-        )
+        angle = group.angle_radians if angle_index is None else parameters[angle_index]
+        dradial = np.cos(angle) * dtransverse + np.sin(angle) * dsecond
+        if angle_index is not None:
+            dradial[:, angle_index] += -np.sin(angle) * transverse + np.cos(
+                angle
+            ) * np.cross(axis, transverse)
         dnormal = np.asarray(
             np.cross(derivative.T, v).T + np.cross(u, dradial.T).T,
             dtype=np.float64,
@@ -215,13 +236,46 @@ def axis_plane_normal(group: AxisPlaneObservations, size: int) -> NormalCallback
 
 def axis_plane_parameter_offsets(
     start: int, groups: tuple[AxisPlaneObservations, ...]
-) -> tuple[list[int | None], int]:
-    offsets: list[int | None] = []
+) -> tuple[list[int], int]:
+    offsets: list[int] = []
     offset = start
     for group in groups:
-        offsets.append(None if group.size == 0 else offset)
+        offsets.append(offset)
         offset += group.size
     return offsets, offset
+
+
+def initialize_axis_plane(
+    group: AxisPlaneObservations, parameters: Array, start: int
+) -> None:
+    """Seed axial clocking from all evidence, avoiding a stationary worst plane."""
+    index = group.angle_index(start)
+    if index is None:
+        return
+    # Hold the transverse chart fixed. The smallest projected second moment
+    # gives the best axial normal for the current axis, not a fitted free normal.
+    zero_frame = AxisPlaneObservations(
+        group.points, group.area, group.construction, 0.0, group.basis_index
+    )
+    axis, u, _ = axis_plane_frame(zero_frame, parameters)
+    v = np.cross(axis, u)
+    weights = normalized_weights(group.area)
+    center = (
+        np.array([parameters[0], parameters[1], 0.0])
+        if group.construction == "contains_axis"
+        else group.points[0] + weights @ (group.points - group.points[0])
+    )
+    projected = (group.points - center) @ np.column_stack((u, v))
+    _, vectors = np.linalg.eigh(projected.T @ (weights[:, None] * projected))
+    normal = vectors[:, 0]
+    angle = float(np.arctan2(-normal[0], normal[1]))
+    # Plane orientation has period pi. Keep the sign nearest the declared seed.
+    seed = parameters[index]
+    parameters[index] = seed + (angle - seed + np.pi / 2) % np.pi - np.pi / 2
+    offset = group.offset_index(start)
+    if offset is not None:
+        fitted_normal = axis_plane_frame(group, parameters, index)[2]
+        parameters[offset] = float(center @ fitted_normal)
 
 
 def residual_jacobian(
@@ -362,6 +416,9 @@ def fit_coaxial(
             raise ValueError("areas must be finite and positive")
     if initial.shape != (size,) or not np.isfinite(initial).all():
         raise ValueError("invalid initial parameters")
+    initial = initial.copy()
+    for group, start in zip(axis_planes, axis_plane_offsets, strict=True):
+        initialize_axis_plane(group, initial, start)
     weights = np.concatenate(
         [
             *(s.area for s in sides),
@@ -396,9 +453,11 @@ def fit_coaxial(
         )
     ]
     global_planes.extend(
-        GlobalPlaneOffset(offset, axis_plane_normal(group, size))
-        for group, offset in zip(axis_planes, axis_plane_offsets, strict=True)
-        if offset is not None
+        GlobalPlaneOffset(
+            offset, axis_plane_normal(group, size, group.angle_index(start))
+        )
+        for group, start in zip(axis_planes, axis_plane_offsets, strict=True)
+        if (offset := group.offset_index(start)) is not None
     )
     relative_planes: list[RelativePlaneOffset] = []
     for i, group in enumerate(rotations):
@@ -451,8 +510,8 @@ def fit_coaxial(
             if not valid_cone_geometry(p, side.domain, side.points):
                 return False
         try:
-            for group in axis_planes:
-                _ = axis_plane_frame(group, parameters)
+            for group, start in zip(axis_planes, axis_plane_offsets, strict=True):
+                _ = axis_plane_frame(group, parameters, group.angle_index(start))
             for i, group in enumerate(rotations):
                 if group.kind == "plane":
                     continue
@@ -521,22 +580,31 @@ def fit_coaxial(
         axis_plane_equations=[
             np.array(
                 [
-                    *axis_plane_frame(group, parameters)[2],
+                    *axis_plane_frame(group, parameters, group.angle_index(start))[2],
                     (
-                        axis_plane_frame(group, parameters)[2]
+                        axis_plane_frame(group, parameters, group.angle_index(start))[2]
                         @ np.array([parameters[0], parameters[1], 0.0])
                         if offset is None
                         else parameters[offset]
                     ),
                 ]
             )
-            for group, offset in zip(axis_planes, axis_plane_offsets, strict=True)
+            for group, start in zip(axis_planes, axis_plane_offsets, strict=True)
+            for offset in (group.offset_index(start),)
         ],
         axis_plane_basis_u=[
-            axis_plane_frame(group, parameters)[0] for group in axis_planes
+            axis_plane_frame(group, parameters, group.angle_index(start))[0]
+            for group, start in zip(axis_planes, axis_plane_offsets, strict=True)
         ],
         axis_plane_basis_v=[
-            axis_plane_frame(group, parameters)[1] for group in axis_planes
+            axis_plane_frame(group, parameters, group.angle_index(start))[1]
+            for group, start in zip(axis_planes, axis_plane_offsets, strict=True)
+        ],
+        axis_plane_angles=[
+            None
+            if (index := group.angle_index(start)) is None
+            else float(parameters[index])
+            for group, start in zip(axis_planes, axis_plane_offsets, strict=True)
         ],
         axis_plane_residuals=blocks[
             axis_plane_block_offset : axis_plane_block_offset + len(axis_planes)

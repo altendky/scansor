@@ -37,12 +37,16 @@ outside the intended boundary.
     cone/cylinder-and-plane solving, residual display, explicit coordinate Frame
     construction, uniform Scale derivation from multiple point distances, and an
     editable Transform composing those features for the model view and STEP
-    export bundles; OCP-backed circular plane–cylinder/cone intersections and manually
-    bounded planar/lateral faces with shared boundary declarations, plus reviewed
-    batch face proposals with inspectable generated children and manual-feature
-    reuse, persisted adjacency review, and explicit face scopes separate from
-    fitting support; general intersections, face sewing, and solid construction
-    remain deferred;
+    export bundles; OCP-backed standalone circle/ellipse/line intersections,
+    reviewed plane/cylinder/cone arrangements with finite arcs, crossing cuts,
+    holes, and periodic lateral cells, plus
+    guided single-surface and batch face proposals with inspectable generated
+    children, manual-feature reuse, persistent neighboring-face boundary
+    guidance, and explicit face scopes separate from
+    fitting support; an explicit Body action conservatively sews selected faces,
+    validates one closed manifold shell, and exports a solid with inspectable
+    assembly failures; automatic physical adjacency inference, arbitrary surface
+    families, implicit unions, and nested-shell cavity assembly remain deferred;
     frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderActionTree } from './action-tree.js';
+import { actionDescription, featureIcon, featureTreePresentation, iconPickerIndex, renderIconPicker, renderActionTree } from './action-tree.js';
+import { fitQualities } from './residual-display.js';
 
 // This is deliberately just the DOM surface used by the tree renderer, not a
 // browser emulator. Native drag behavior still requires real-browser verification.
@@ -11,6 +12,7 @@ class Element {
     this.parentElement = null;
     this.attributes = new Map();
     this.classes = new Set();
+    this.style = {};
     this.dataset = new Proxy({}, { set(target, key, value) { target[key] = String(value); return true; } });
     this.classList = {
       add: (...names) => names.forEach((name) => this.classes.add(name)),
@@ -37,6 +39,7 @@ class Element {
   }
   replaceChildren(...children) { this.children = []; this.append(...children); }
   matches(selector) {
+    if (selector === ':popover-open') return !!this.popoverOpen;
     return selector.split(',').some((part) => {
       const value = part.trim();
       return value.startsWith('.') ? this.classes.has(value.slice(1)) : this.tagName === value;
@@ -51,8 +54,11 @@ class Element {
   contains(element) {
     return element === this || this.children.some((child) => child.contains(element));
   }
-  getBoundingClientRect() { return { top: 100 }; }
+  getBoundingClientRect() { return { top: 100, left: 20, bottom: 130, width: 280, height: 30 }; }
   focus() { globalThis.document.activeElement = this; }
+  showPopover() { this.popoverOpen = true; }
+  hidePopover() { this.popoverOpen = false; }
+  scrollIntoView(options) { this.scrollRequest = options; }
 }
 
 function event(target, options = {}) {
@@ -86,12 +92,17 @@ function fixture(nodes = base, groups = []) {
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
-  const state = { nodes, groups, moves: [], announcements: [], locked: false, list: new Element('ul') };
+  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupEdits: [], groupRemovals: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
+    list: new Element('ul') };
   state.render = () => renderActionTree(state.list, {
-    nodes: state.nodes, groups: state.groups, selected: new Set(), states: {}, errors: {},
-    locked: () => state.locked, select() {},
+    nodes: state.nodes, groups: state.groups, selected: state.selected, states: state.states, errors: state.errors,
+    qualities: state.qualities,
+    locked: () => state.locked, select: (id) => state.inspections.push(id),
     move: async (next) => { state.moves.push(next); state.nodes = next; state.render(); return true; },
     announce: (message, error) => state.announcements.push({ message, error }),
+    contextMenu: (id, position) => state.contexts.push({ id, position }),
+    editGroup: (id) => state.groupEdits.push(id),
+    removeGroup: (id) => state.groupRemovals.push(id),
   });
   state.grip = (key) => state.list.querySelectorAll('.action-grip')
     .find((element) => element.dataset.reorderKey === key);
@@ -100,6 +111,337 @@ function fixture(nodes = base, groups = []) {
   state.render();
   return state;
 }
+
+test('ordinary and managed-owner rows expose pointer and keyboard context menus', () => {
+  const state = fixture();
+  for (const id of ['wall', 'batch', 'edge']) {
+    const row = state.list.querySelectorAll('.action-select, .managed-owner-summary')
+      .find((element) => element.dataset.actionId === id),
+      pointer = event(row, { currentTarget: row, clientX: 50, clientY: 115 });
+    row.oncontextmenu(pointer);
+    assert.equal(pointer.prevented && pointer.stopped, true);
+    assert.deepEqual(state.contexts.at(-1), { id, position: { x: 50, y: 115 } });
+    for (const keys of [{ key: 'F10', shiftKey: true }, { key: 'ContextMenu' }]) {
+      const keyboard = event(row, { currentTarget: row, ...keys });
+      row.onkeydown(keyboard);
+      assert.equal(keyboard.prevented && keyboard.stopped, true);
+      assert.deepEqual(state.contexts.at(-1), { id, position: { x: 20, y: 130 } });
+    }
+  }
+});
+
+test('context menus are blocked while evaluation or a tree mutation is running', () => {
+  const state = fixture(),
+    row = state.list.querySelectorAll('.action-select')[0];
+  for (const ariaBusy of [false, true]) {
+    state.locked = !ariaBusy;
+    state.list.setAttribute('aria-busy', String(ariaBusy));
+    row.oncontextmenu(event(row));
+    row.onkeydown(event(row, { key: 'F10', shiftKey: true }));
+  }
+  assert.deepEqual(state.contexts, []);
+});
+
+test('evaluation locks mutation controls but leaves feature inspection and expansion available', async () => {
+  const state = fixture([...base, point('group-member', 'group')], [{ id: 'group', label: 'Group' }]);
+  state.locked = true;
+  state.render();
+  const controls = state.row('group').querySelectorAll('.group-action');
+  assert.equal(controls.every((control) => control.disabled), true);
+  assert.equal(state.grip('wall').disabled, true);
+  assert.equal(state.grip('wall').draggable, false);
+  const inspect = state.list.querySelectorAll('.action-select')
+    .find((element) => element.dataset.actionId === 'wall');
+  assert.notEqual(inspect.disabled, true);
+  inspect.onclick();
+  state.row('batch').querySelectorAll('.group-action')[0].onclick(event(state.row('batch')));
+  assert.deepEqual(state.inspections, ['wall', 'batch']);
+  const details = state.row('batch').parentElement;
+  details.open = true;
+  details.ontoggle();
+  state.render();
+  assert.equal(state.row('batch').parentElement.open, true);
+  for (const control of controls) control.onclick(event(control));
+  state.grip('wall').onkeydown(event(state.grip('wall'), { key: 'ArrowDown' }));
+  await settle();
+  assert.deepEqual(state.groupEdits, []);
+  assert.deepEqual(state.groupRemovals, []);
+  assert.deepEqual(state.moves, []);
+  state.locked = false;
+  state.render();
+  assert.equal(state.grip('wall').disabled, false);
+  assert.equal(state.grip('wall').draggable, true);
+  const unlocked = state.row('group').querySelectorAll('.group-action');
+  assert.equal(unlocked.every((control) => !control.disabled), true);
+  for (const control of unlocked) control.onclick(event(control));
+  assert.deepEqual(state.groupEdits, ['group']);
+  assert.deepEqual(state.groupRemovals, ['group']);
+});
+
+test('group mutation callbacks recheck locks even before their rows are repainted', () => {
+  const state = fixture([source, point('member', 'group')], [{ id: 'group', label: 'Group' }]),
+    controls = state.row('group').querySelectorAll('.group-action');
+  for (const ariaBusy of [false, true]) {
+    state.locked = !ariaBusy;
+    state.list.setAttribute('aria-busy', String(ariaBusy));
+    for (const control of controls) control.onclick(event(control));
+  }
+  assert.deepEqual(state.groupEdits, []);
+  assert.deepEqual(state.groupRemovals, []);
+});
+
+test('selected managed owners remain visibly and accessibly selected', () => {
+  const state = fixture();
+  state.selected.add('batch');
+  state.render();
+  assert.equal(state.row('batch').classList.contains('feature-selected'), true);
+  assert.match(state.row('batch').getAttribute('aria-label'), /Selected/);
+  state.selected.clear();
+  state.render();
+  assert.equal(state.row('batch').classList.contains('feature-selected'), false);
+  assert.doesNotMatch(state.row('batch').getAttribute('aria-label'), /Selected/);
+});
+
+test('managed owner and output subgroup expose child failure and causal details', () => {
+  const state = fixture();
+  state.states = Object.fromEntries(base.map((node) => [node.id, 'ready']));
+  state.states.face = 'failed';
+  state.errors.face = 'Region witness crossed a boundary; review again';
+  state.render();
+  assert.equal(state.states.batch, 'ready', 'presentation must not mutate execution state');
+  for (const key of ['batch', 'batch/']) {
+    const summary = state.row(key);
+    assert.equal(summary.querySelectorAll('.state-failed').length, 1);
+    assert.match(summary.title, /Wall face.*Region witness crossed/);
+    assert.match(summary.getAttribute('aria-label'), /Wall face.*Region witness crossed/);
+  }
+});
+
+test('nested managed outputs propagate failures through owners and organizational groups', () => {
+  const nested = { ...owner, id: 'nested', label: 'Nested build', managed_by: 'batch', group_id: null },
+    inner = { ...face, id: 'inner', label: 'Inner face', managed_by: 'nested' },
+    nodes = [source, cylinder, plane, { ...owner, group_id: 'group' }, nested, inner],
+    state = fixture(nodes, [{ id: 'group', label: 'Faces' }]);
+  state.states = Object.fromEntries(nodes.map((node) => [node.id, 'ready']));
+  state.states.inner = 'failed';
+  state.errors.inner = 'Bad region';
+  state.render();
+  for (const key of ['nested', 'batch', 'group']) {
+    assert.equal(state.row(key).querySelectorAll('.state-failed').length, 1);
+    assert.match(state.row(key).title, /Inner face.*Bad region/);
+  }
+});
+
+test('blocked outputs have a distinct marker and retain upstream causal errors', () => {
+  const state = fixture();
+  state.states = Object.fromEntries(base.map((node) => [node.id, 'ready']));
+  state.states.face = 'blocked';
+  state.errors.face = 'Blocked by Shoulder face: region needs review';
+  state.render();
+  assert.equal(state.row('batch').querySelectorAll('.state-blocked').length, 1);
+  assert.match(state.row('batch').title, /Blocked.*Shoulder face/);
+  const faceRow = state.list.querySelectorAll('.action-select').find((el) => el.dataset.actionId === 'face');
+  assert.match(faceRow.getAttribute('aria-label'), /Blocked.*Shoulder face/);
+  assert.equal(faceRow.querySelectorAll('.state-blocked').length, 1);
+});
+
+test('reused outputs affect owner presentation and recover without retained errors', () => {
+  const nodes = [source, cylinder, plane, owner, edge, face, { ...owner, id: 'reuse-owner', reused_faces: ['face'] }],
+    states = Object.fromEntries(nodes.map((node) => [node.id, 'ready']));
+  states.face = 'failed';
+  const failed = featureTreePresentation(nodes, states, { face: 'Invalid region' });
+  assert.equal(failed.states['reuse-owner'], 'failed');
+  assert.match(failed.errors['reuse-owner'], /Wall face.*Invalid region/);
+  states.face = 'ready';
+  const repaired = featureTreePresentation(nodes, states, {});
+  assert.equal(repaired.states.batch, 'ready');
+  assert.equal(repaired.states['reuse-owner'], 'ready');
+  assert.equal(repaired.errors.batch, undefined);
+});
+
+test('defined relationships do not hide failed or blocked execution', () => {
+  for (const operation of ['mirror_symmetry', 'parallel', 'equal']) {
+    const node = { id: operation, label: operation, operation }, state = fixture([node]);
+    for (const status of ['failed', 'blocked']) {
+      state.states = { [operation]: status };
+      state.errors = { [operation]: 'Upstream problem' };
+      state.render();
+      assert.equal(state.list.querySelectorAll(`.state-${status}`).length, 1);
+      assert.doesNotMatch(actionDescription(node, status, 'Upstream problem'), /Defined/);
+      assert.match(actionDescription(node, status, 'Upstream problem'), /Upstream problem/);
+    }
+  }
+});
+
+test('shared surface icons use the same paths as feature-tree rows', () => {
+  const state = fixture(),
+    button = state.list.querySelectorAll('.action-select')
+      .find((element) => element.dataset.actionId === 'wall'),
+    path = button.querySelectorAll('svg')[0].querySelectorAll('path')[0];
+  assert.equal(featureIcon('cylinder').querySelectorAll('path')[0].getAttribute('d'),
+    path.getAttribute('d'));
+  assert.notEqual(featureIcon('reference_plane').querySelectorAll('path')[0].getAttribute('d'),
+    featureIcon('plane').querySelectorAll('path')[0].getAttribute('d'));
+});
+
+test('quality badges summarize owned reused fits and organizational groups without double counting', () => {
+  const reuse = { id: 'reuse', label: 'Reuse', operation: 'feature_reuse', group_id: 'group' },
+    first = { id: 'first', label: 'First copy', operation: 'fit', kind: 'plane', selections: [],
+      managed_by: 'reuse', target_selection: 'target-a' },
+    second = { ...first, id: 'second', label: 'Second copy', target_selection: 'target-b' },
+    all = [source, cylinder, reuse, first, second],
+    state = fixture(all, [{ id: 'group', label: 'Copies' }]);
+  state.qualities = fitQualities({ nodes: all }, { wall: 'ready', first: 'ready', second: 'ready' }, {
+    wall: { weighted_rms: 9, ids: [1], residuals: [9] },
+    first: { weighted_rms: 0.4, ids: [2], residuals: [0.4] },
+    second: { weighted_rms: 0.1, ids: [3], residuals: [0.1] },
+    reuse: { matches: [{ rms: 100 }] },
+  }, 0.2);
+  state.render();
+  const ownerBadge = state.row('reuse').querySelectorAll('.fit-quality')[0],
+    groupBadge = state.row('group').querySelectorAll('.fit-quality')[0],
+    fitButton = state.list.querySelectorAll('.action-select').find((el) => el.dataset.actionId === 'first');
+  assert.equal(ownerBadge.textContent, 'max 0.400 · 1!');
+  assert.equal(groupBadge.textContent, ownerBadge.textContent);
+  assert.match(ownerBadge.title, /2\/2 current fits/);
+  assert.match(state.row('reuse').getAttribute('aria-label'), /max 0.400.*warning/);
+  assert.equal(state.row('reuse/target-a').querySelectorAll('.fit-quality')[0].textContent, 'max 0.400 · 1!');
+  assert.match(fitButton.getAttribute('aria-label'), /Generated.*RMS 0.400.*warning/);
+  assert.match(fitButton.querySelectorAll('.fit-quality')[0].title, /Generated by Reuse/);
+  assert.equal(fitButton.querySelectorAll('.generated-badge').length, 0);
+});
+
+const pickerChoices = [
+  { value: 'datum', name: 'Shoulder', detail: 'Reference plane', icon: 'reference_plane', label: 'Shoulder — Reference plane' },
+  { value: 'plane', name: 'Shoulder fit', detail: 'Plane fit', icon: 'plane', label: 'Shoulder fit — Plane fit' },
+  { value: 'outer', name: 'Outer', detail: 'Cylinder fit', icon: 'cylinder', label: 'Outer — Cylinder fit' },
+  { value: 'solved', name: 'Outer solved', detail: 'Cylinder fit · Joint', icon: 'cylinder', label: 'Outer solved — Cylinder fit · Joint' },
+];
+function pickerFixture(choices = pickerChoices) {
+  fixture();
+  globalThis.innerWidth = 800;
+  globalThis.innerHeight = 600;
+  const state = { button: new Element('button'), list: new Element('div'), choices,
+    changes: [], previews: [], locked: false };
+  state.list.id = 'surface-options';
+  renderIconPicker(state.button, state.list, {
+    choices, value: 'plane', change: (value) => state.changes.push(value), locked: () => state.locked,
+    preview: (value) => state.previews.push(value),
+  });
+  state.key = (key, options = {}) => {
+    const input = event(state.button, { key, ...options });
+    state.button.onkeydown(input);
+    return input;
+  };
+  return state;
+}
+
+test('icon picker options retain exact values, SVG icons, labels and selected state', () => {
+  const state = pickerFixture();
+  assert.equal(state.button.title, pickerChoices[1].label);
+  assert.equal(state.button.getAttribute('aria-expanded'), 'false');
+  for (const [i, option] of state.list.children.entries()) {
+    assert.equal(option.getAttribute('role'), 'option');
+    assert.equal(option.getAttribute('aria-selected'), String(i === 1));
+    assert.equal(option.getAttribute('aria-label'), pickerChoices[i].label);
+    assert.equal(option.querySelectorAll('svg').length, 1);
+  }
+  state.button.onclick();
+  state.list.children[3].onclick();
+  assert.deepEqual(state.changes, ['solved']);
+  assert.equal(state.list.popoverOpen, false);
+  assert.equal(document.activeElement, state.button);
+});
+
+test('icon picker keyboard navigation opens without changing the target and commits explicitly', () => {
+  const state = pickerFixture();
+  const down = state.key('ArrowDown');
+  assert.equal(down.prevented && down.stopped, true);
+  assert.equal(state.button.getAttribute('aria-expanded'), 'true');
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-1');
+  assert.deepEqual(state.changes, []);
+  state.key('End');
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-3');
+  assert.deepEqual(state.list.children[3].scrollRequest, { block: 'nearest' });
+  state.key('Home');
+  state.key('ArrowUp');
+  state.key('Enter');
+  assert.deepEqual(state.changes, ['solved']);
+  assert.equal(state.button.getAttribute('aria-activedescendant'), null);
+  assert.equal(iconPickerIndex('ArrowDown', 3, 4), 0);
+  assert.equal(iconPickerIndex('Home', 3, 0), -1);
+});
+
+test('picker hover and keyboard preview fits without committing and clear on dismissal', () => {
+  const state = pickerFixture();
+  state.button.onclick();
+  assert.deepEqual(state.previews, ['plane']);
+  state.key('End');
+  assert.equal(state.previews.at(-1), 'solved');
+  state.list.children[0].onpointermove({ movementX: 1, movementY: 0 });
+  assert.equal(state.previews.at(-1), 'datum');
+  assert.deepEqual(state.changes, []);
+  state.key('Escape');
+  assert.equal(state.previews.at(-1), null);
+  state.button.onclick();
+  state.list.hidePopover();
+  state.list.ontoggle();
+  assert.equal(state.previews.at(-1), null);
+});
+
+test('icon picker Escape, Tab and outside dismissal cancel without changing geometry', () => {
+  for (const key of ['Escape', 'Tab']) {
+    const state = pickerFixture();
+    state.button.onclick();
+    state.key('End');
+    const exit = state.key(key);
+    assert.equal(state.list.popoverOpen, false);
+    assert.equal(exit.prevented, key === 'Escape');
+    assert.deepEqual(state.changes, []);
+  }
+  const state = pickerFixture();
+  state.button.onclick();
+  state.list.hidePopover();
+  state.list.ontoggle();
+  assert.equal(state.button.getAttribute('aria-expanded'), 'false');
+});
+
+test('icon picker name typeahead and repeated initial letters cycle matching options', () => {
+  const state = pickerFixture();
+  state.key('o');
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-2');
+  state.key('o');
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-3');
+  state.key('u');
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-3');
+  state.key('Enter');
+  assert.deepEqual(state.changes, ['solved']);
+});
+
+test('a stationary pointer cannot override a keyboard-highlighted picker option', () => {
+  const state = pickerFixture();
+  state.key('End');
+  state.list.children[0].onpointermove({ movementX: 0, movementY: 0 });
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-3');
+  state.list.children[0].onpointermove({ movementX: 1, movementY: 0 });
+  assert.equal(state.button.getAttribute('aria-activedescendant'), 'surface-options-0');
+});
+
+test('empty or locked icon pickers cannot open or commit changes', () => {
+  const empty = pickerFixture([]);
+  empty.button.onclick();
+  assert.equal(empty.button.disabled, true);
+  assert.equal(!!empty.list.popoverOpen, false);
+  const state = pickerFixture();
+  state.locked = true;
+  state.button.onclick();
+  assert.equal(!!state.list.popoverOpen, false);
+  state.locked = false;
+  state.button.onclick();
+  state.locked = true;
+  state.list.children[3].onclick();
+  assert.deepEqual(state.changes, []);
+});
 
 test('managed and organizational headers expose whole-block drop bounds collapsed or expanded', () => {
   const state = fixture([...base.slice(0, 3), { ...owner, group_id: 'group' }, edge, face,

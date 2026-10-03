@@ -46,15 +46,22 @@ in package metadata when an implementation stack is selected.
 
 The user selected OCP and explicitly accepted underlying OCCT licensing as an
 exception to the dependency preference below. The current experiment uses the
-no-VTK OCP wheel for analytic geometry construction, circular intersections,
+no-VTK OCP wheel for analytic geometry construction, supported intersections,
 face validation, preview tessellation, and STEP publication. Rhino format
 compatibility is not required: CAD geometry, recipe/provenance metadata, and an
 optional reference mesh are retained in a STEP/JSON/PLY ZIP bundle instead.
 
-This is a backend replacement, not an expansion of supported geometry. Fitting,
-review evidence, explicit retained-region intent, graph identity, and
-conservative disjointness policy remain Scansor-owned. General intersections,
-sewing, and solids are deferred. See the
+The initial migration was a backend replacement. The following bounded slice
+adds reviewed native plane/cylinder/cone arrangements, including finite curve
+arcs, crossing boundaries, planar holes, and periodic lateral cells. Fitting, review evidence,
+explicit retained-region intent, graph identity, and conservative disjointness
+policy remain Scansor-owned. Connected cells replay from declared cutting
+surfaces, physical scopes, cutter-side signatures, and an intrinsic witness;
+opaque BReps and display envelopes are not recipe authority. Automatic physical
+adjacency inference and arbitrary surface families remain deferred. A subsequent
+explicit Body slice conservatively sews selected faces, validates one connected
+closed manifold shell, and exports a solid; implicit unions and nested-shell
+cavity assembly remain deferred. See the
 [browser experiment](../../../experiments/browser_viewer/README.md#experimental-step-export).
 
 ### Specify full-resolution external mesh import before integrating fitting

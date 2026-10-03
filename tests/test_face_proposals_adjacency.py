@@ -83,7 +83,7 @@ def domain(side: dict[str, Any], lower: float, upper: float) -> dict[str, Any]:
     )
 
 
-def test_unreviewed_unsupported_pair_does_not_destroy_supported_partial_regions() -> (
+def test_unreviewed_generator_pair_proposes_native_cells_without_confirming_adjacency() -> (
     None
 ):
     side, shoulder, vertical = wall(), plane(), clock()
@@ -91,19 +91,20 @@ def test_unreviewed_unsupported_pair_does_not_destroy_supported_partial_regions(
     target = face(plan, "outer")
     assert target["regions"]
     assert target["status"] != "unsupported"
-    assert target["status"] == "requires_adjacency_review"
+    assert target["status"] == "missing_boundaries"
     assert not target["blocked_by_adjacency"]
-    assert target["suggested_region_key"] is None
+    assert not target["suggested_region_keys"]
+    assert all(not region["bounded"] for region in target["regions"])
     pair = adjacency(plan, side, vertical)
-    assert pair["state"] == "uncertain"
-    assert not pair["supported"]
+    assert pair["state"] == "proposed"
+    assert pair["supported"]
     assert pair["mathematical"]["category"] == "generator_lines"
 
 
 def test_confirmed_unsupported_pair_blocks_default_but_preserves_review_evidence() -> (
     None
 ):
-    side, shoulder, vertical = wall(), plane(), clock()
+    side, shoulder, vertical = wall(), plane(), clock(4)
     plan = propose_faces(
         [side, shoulder, vertical], adjacencies=[decision(side, vertical, "confirmed")]
     )
@@ -176,8 +177,8 @@ def test_clock_plane_outside_bore_but_inside_outer_has_distinct_mathematical_res
     assert empty["state"] == "rejected"
     candidate = adjacency(plan, outer, vertical)
     assert candidate["mathematical"]["category"] == "generator_lines"
-    assert candidate["state"] == "uncertain"
-    assert not candidate["supported"]
+    assert candidate["state"] == "proposed"
+    assert candidate["supported"]
 
 
 @pytest.mark.parametrize("invalid", ["duplicate", "unknown", "self", "confirm_empty"])

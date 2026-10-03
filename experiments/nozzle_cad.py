@@ -1,7 +1,7 @@
-"""Experimental OCP STEP faces plus exact reference-mesh/provenance sidecars.
+"""Experimental OCP STEP geometry plus reference-mesh/provenance sidecars.
 
-The bundle does not sew faces or infer solids. Observation-bounded fitted patches
-remain display/export support; only declared trimmed-face bounds are physical.
+Face collection exports remain separate faces. Only an explicitly validated Body
+exports a solid; observation bounds never define its physical boundary.
 """
 
 from __future__ import annotations
@@ -25,12 +25,14 @@ from OCP.TDataStd import TDataStd_Name
 from OCP.TDocStd import TDocStd_Document
 from OCP.TopoDS import TopoDS_Shape
 from OCP.XCAFDoc import XCAFDoc_DocumentTool
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from experiments.feature_graph import StaleGraph
+from experiments.body_geometry import body_from_record, body_input_fingerprint
+from experiments.face_geometry import face_from_record
+from experiments.feature_graph import Recipe, StaleGraph, dependencies
+from experiments.native_replay import native_replay_scope
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.ocp_geometry import (
-    face_from_record,
     kernel_operation,
     surface_patch,
     transform_shape,
@@ -55,12 +57,156 @@ _UNITS = {
 class CadExportRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
     token: str
-    target: str
+    scope: Literal["all_faces", "selected_faces", "body", "target"] = "target"
+    target: str | None = None
+    targets: list[str] | None = None
+    review_owners: list[str] = Field(default_factory=list)
     units: Literal["Millimeters", "Centimeters", "Meters"]
     axis_up: bool = True
     include_mesh: bool = True
     origin_plane: str | None = None
     transform: str | None = None
+
+
+def export_face_targets(
+    snapshot: dict[str, Any], request: CadExportRequest
+) -> list[str]:
+    """Resolve an export selection without silently dropping unavailable faces."""
+    nodes = {node["id"]: node for node in snapshot["recipe"]["nodes"]}
+    if request.review_owners and request.scope != "selected_faces":
+        raise ValueError("review owners are only valid for selected faces export")
+    for key in request.review_owners:
+        node = nodes.get(key)
+        if node is None:
+            raise ValueError(f"unknown export face review {key!r}")
+        if node["operation"] != "build_faces":
+            raise ValueError(f"{node['label']!r} is not a face review")
+    if request.scope == "body":
+        if request.target is None or request.targets is not None:
+            raise ValueError("body export requires one Body and no targets list")
+        node = nodes.get(request.target)
+        if node is None or node["operation"] != "body":
+            raise ValueError("select a Body to export a solid")
+        if request.axis_up or request.origin_plane is not None:
+            raise ValueError(
+                "body export requires axis_up=false and no origin plane; use a Transform"
+            )
+        return [request.target]
+    if request.scope == "target":
+        if request.target is None or request.targets is not None:
+            raise ValueError("target export requires one target and no targets list")
+        return [request.target]
+    if request.target is not None:
+        raise ValueError("face collection export cannot include a target")
+    if request.axis_up or request.origin_plane is not None:
+        raise ValueError(
+            "face collection export requires axis_up=false and no origin plane; use a Transform for a common output frame"
+        )
+    if request.scope == "all_faces":
+        if request.targets is not None:
+            raise ValueError("all faces export cannot include a targets list")
+        selected = {
+            key
+            for key, node in nodes.items()
+            if node["operation"] in {"trimmed_face", "arranged_face"}
+        }
+    else:
+        selected = set(request.targets or [])
+        for key in selected:
+            node = nodes.get(key)
+            if node is None:
+                raise ValueError(f"unknown export face {key!r}")
+            if node["operation"] not in {"trimmed_face", "arranged_face"}:
+                raise ValueError(f"{node['label']!r} is not a built face")
+    if not selected:
+        raise ValueError("select at least one built face to export")
+    return [key for key in nodes if key in selected]
+
+
+def _preflight_faces(
+    snapshot: dict[str, Any],
+    targets: list[str],
+    nodes: dict[str, Any],
+    request: CadExportRequest,
+) -> None:
+    """Check retained physical outputs and all authoring inputs before replay."""
+    recipe = Recipe.model_validate(snapshot["recipe"])
+    typed = {node.id: node for node in recipe.nodes}
+    required = set(targets)
+    required.update(request.review_owners)
+    if request.scope == "all_faces":
+        required.update(
+            node.id for node in recipe.nodes if node.operation == "build_faces"
+        )
+    if request.transform is not None:
+        required.add(request.transform)
+    pending = list(required)
+    while pending:
+        key = pending.pop()
+        if key not in typed:
+            raise ValueError(f"missing export dependency {key!r}")
+        related = dependencies(typed[key])
+        if typed[key].operation == "build_faces":
+            related.extend(node.id for node in recipe.nodes if node.managed_by == key)
+        for dependency in related:
+            if dependency not in required:
+                required.add(dependency)
+                pending.append(dependency)
+    problems: list[str] = []
+    for node in recipe.nodes:
+        if node.id not in required:
+            continue
+        state = snapshot["states"].get(node.id, "unevaluated")
+        if state != "ready":
+            error = snapshot.get("errors", {}).get(node.id)
+            problems.append(
+                f"{node.label!r}: {state}" + (f" ({error})" if error else "")
+            )
+        raw = nodes[node.id]
+        if (
+            raw["operation"] == "build_faces"
+            and raw.get("boundary_sources")
+            and not (
+                snapshot.get("derived", {})
+                .get(node.id, {})
+                .get("shared_boundary_review", {})
+                .get("complete", False)
+            )
+        ):
+            problems.append(f"{node.label!r}: shared-boundary review is incomplete")
+    for key in targets:
+        node = nodes[key]
+        record = snapshot["results"].get(key)
+        if record is None:
+            problems.append(f"{node['label']!r}: no current geometry result")
+        elif node["operation"] == "body":
+            if record.get("valid") is not True or record.get("kind") != "body":
+                problems.append(f"{node['label']!r}: no validated solid")
+            if (
+                set(record.get("face_ids", [])) != set(node["faces"])
+                or len(record.get("face_ids", [])) != len(node["faces"])
+                or record.get("sewing_tolerance") != node.get("sewing_tolerance", 1e-7)
+                or record.get("input_fingerprint")
+                != body_input_fingerprint(
+                    {
+                        face_id: snapshot["results"].get(face_id)
+                        for face_id in node["faces"]
+                    },
+                    node.get("sewing_tolerance", 1e-7),
+                )
+            ):
+                problems.append(f"{node['label']!r}: assembly inputs are not current")
+        elif not record.get("bounded", False):
+            problems.append(f"{node['label']!r}: open region has no physical bounds")
+    if problems:
+        raise ValueError(
+            (
+                "cannot export Body: "
+                if request.scope == "body"
+                else "cannot export built faces: "
+            )
+            + "; ".join(dict.fromkeys(problems))
+        )
 
 
 def joint_shapes(
@@ -288,25 +434,39 @@ def _mesh_bytes(positions: np.ndarray, triangles: np.ndarray) -> bytes:
 
 
 @kernel_operation
+@native_replay_scope()
 def export_cad(
     workspace: NozzleWorkspace, snapshot: dict[str, Any], request: CadExportRequest
 ) -> bytes:
     if snapshot["token"] != request.token:
         raise StaleGraph("graph changed before export; refresh and export again")
     nodes = {n["id"]: n for n in snapshot["recipe"]["nodes"]}
-    node = nodes.get(request.target)
+    targets = export_face_targets(snapshot, request)
+    body = request.scope == "body"
+    collection = request.scope in {"all_faces", "selected_faces"}
+    if collection or body:
+        _preflight_faces(snapshot, targets, nodes, request)
+    target = targets[0]
+    node = nodes.get(target)
     if node is None or node["operation"] not in (
         "fit",
         "joint_fit",
         "axis_solve",
         "trimmed_face",
+        "arranged_face",
+        "body",
     ):
         raise ValueError("select a fit, solve, or trimmed face to export")
-    if snapshot["states"].get(request.target) != "ready":
+    if node["operation"] == "body" and not body:
+        raise ValueError("use Body export for a validated solid")
+    if snapshot["states"].get(target) != "ready":
         raise ValueError("evaluate the selected fit or solve before export")
-    result = snapshot["results"][request.target]
-    if node["operation"] == "trimmed_face":
-        surfaces = {request.target: result}
+    result = snapshot["results"][target]
+    if collection or body:
+        surfaces = {id: snapshot["results"][id] for id in targets}
+        axis, anchor = np.array([0.0, 0.0, 1.0]), np.zeros(3)
+    elif node["operation"] in ("trimmed_face", "arranged_face"):
+        surfaces = {target: result}
         axis = np.asarray(result["geometry"]["axis"], dtype=float)
         anchor = np.asarray(result["geometry"]["origin"], dtype=float)
     elif node["operation"] in ("joint_fit", "axis_solve"):
@@ -314,7 +474,7 @@ def export_cad(
         axis = np.asarray(result["axis_display"], dtype=float)
         anchor = np.asarray(result["point_display"], dtype=float)
     else:
-        surfaces = {request.target: result}
+        surfaces = {target: result}
         p = np.asarray(result.get("plane_equation", result["parameters"]), dtype=float)
         if node["kind"] == "plane":
             axis = p[:3] / np.linalg.norm(p[:3])
@@ -338,10 +498,19 @@ def export_cad(
         else []
     )
     patches = (
-        joint_shapes(result, relationships, workspace.local)
+        {
+            target: body_from_record(
+                result,
+                {face_id: snapshot["results"][face_id] for face_id in node["faces"]},
+            )
+        }
+        if body
+        else {id: face_from_record(surface) for id, surface in surfaces.items()}
+        if collection
+        else joint_shapes(result, relationships, workspace.local)
         if node["operation"] in ("joint_fit", "axis_solve")
-        else {request.target: face_from_record(result)}
-        if node["operation"] == "trimmed_face"
+        else {target: face_from_record(result)}
+        if node["operation"] in ("trimmed_face", "arranged_face")
         else {
             id: surface_patch(surface, workspace.local)
             for id, surface in surfaces.items()
@@ -353,27 +522,68 @@ def export_cad(
             "feature": id,
             "name": nodes[id]["label"],
             "surface_kind": fitted.get("surface_kind", fitted["kind"]),
-            "layer": "Fitted surfaces",
+            "layer": "Bodies" if body else "Fitted surfaces",
             "extent_authority": "declared_boundaries"
-            if node["operation"] == "trimmed_face"
+            if collection
+            or body
+            or node["operation"] in ("trimmed_face", "arranged_face")
             else "observation_bounded_patch",
             **(
                 {
-                    "source_surface": node["surface"],
-                    "boundary_uses": node["boundaries"],
+                    "source_surface": nodes[id]["surface"],
+                    "boundary_uses": nodes[id].get("boundaries", []),
+                    "boundary_sources": nodes[id].get("boundary_sources", []),
+                    "managed_by": nodes[id].get("managed_by"),
+                    **(
+                        {
+                            "cutters": nodes[id]["cutters"],
+                            "domains": nodes[id]["domains"],
+                            "region_selector": nodes[id]["selector"],
+                        }
+                        if nodes[id]["operation"] == "arranged_face"
+                        else {}
+                    ),
                     "bounds": fitted["bounds"],
                 }
-                if node["operation"] == "trimmed_face"
+                if collection or node["operation"] in ("trimmed_face", "arranged_face")
                 else {}
             ),
         }
         for id, fitted in surfaces.items()
     ]
+    if body:
+        objects = [
+            {
+                "feature": target,
+                "name": node["label"],
+                "layer": "Bodies",
+                "extent_authority": "declared_boundaries",
+                "source_faces": node["faces"],
+                "sewing_tolerance": result["sewing_tolerance"],
+                "volume_local": result["volume"],
+                "input_fingerprint": result["input_fingerprint"],
+                "faces": {
+                    face_id: {
+                        "name": nodes[face_id]["label"],
+                        "surface": nodes[face_id]["surface"],
+                        "boundary_uses": nodes[face_id].get("boundaries", []),
+                        "boundary_sources": nodes[face_id].get("boundary_sources", []),
+                        "cutters": nodes[face_id].get("cutters", []),
+                        "domains": nodes[face_id].get("domains", []),
+                        "region_selector": nodes[face_id].get("selector"),
+                    }
+                    for face_id in node["faces"]
+                },
+            }
+        ]
     metadata = {
         "revision": "scansor-cad-export-v1",
         "recipe": snapshot["recipe"],
         "export": request.model_dump(mode="json"),
         "units": request.units,
+        "geometry_mode": "solid" if body else "separate_faces",
+        "sewn": body,
+        "solid": body,
         "transform_local_to_export": matrix.tolist(),
         "source_sha256": workspace.default.source_sha256,
         "objects": objects,

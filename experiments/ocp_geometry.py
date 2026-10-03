@@ -36,6 +36,7 @@ from OCP.Geom import (
 )
 from OCP.GeomAPI import GeomAPI_IntSS
 from OCP.gp import gp_Ax2, gp_Ax3, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf
+from OCP.IMeshData import IMeshData_Failure
 from OCP.TopAbs import TopAbs_REVERSED
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Shape, TopoDS_Wire
@@ -159,6 +160,11 @@ def _checked_face(builder: BRepBuilderAPI_MakeFace) -> TopoDS_Face:
     return face
 
 
+# Shared kernel operations used by the interval and general-loop constructors.
+geometry_frame = _frame
+checked_face = _checked_face
+
+
 def _circle_wire(geometry: dict[str, Any], radius: float) -> TopoDS_Wire:
     frame = _frame(geometry)
     circle = gp_Circ(
@@ -240,15 +246,24 @@ def tessellate_face(face: TopoDS_Face, scale: float) -> dict[str, Any]:
     normalize = np.eye(4)
     normalize[:3, :3] /= scale
     normalize[:3, 3] = -center / scale
-    display = transform_shape(face, normalize)
-    mesh = BRepMesh_IncrementalMesh(display, 0.001, False, 0.1, False)
-    if not mesh.IsDone():
-        raise ValueError("OCP face preview meshing failed")
-    location = TopLoc_Location()
-    # A uniform transform of a face is still a face; use the binding's downcast.
-    triangulation = BRep_Tool.Triangulation_s(TopoDS.Face(display), location)
-    if not triangulation or triangulation.NbTriangles() == 0:
-        raise ValueError("OCP face preview has no triangles")
+    failure = "OCP face preview meshing failed"
+    for deflection in (0.001, 0.0001, 0.00001):
+        # Thin curved cells can collapse at the default display deflection.
+        # Retry only unsuccessful meshes, using a fresh derived copy so a failed
+        # triangulation cache cannot affect the next attempt or physical face.
+        display = transform_shape(face, normalize)
+        mesh = BRepMesh_IncrementalMesh(display, deflection, False, 0.1, False)
+        if not mesh.IsDone() or mesh.GetStatusFlags() & int(IMeshData_Failure):
+            failure = "OCP face preview meshing failed"
+            continue
+        location = TopLoc_Location()
+        # A uniform transform of a face is still a face; downcast for the binding.
+        triangulation = BRep_Tool.Triangulation_s(TopoDS.Face(display), location)
+        if triangulation and triangulation.NbTriangles() > 0:
+            break
+        failure = "OCP face preview has no triangles"
+    else:
+        raise ValueError(failure)
     transform = location.Transformation()
     points = [
         triangulation.Node(i).Transformed(transform)

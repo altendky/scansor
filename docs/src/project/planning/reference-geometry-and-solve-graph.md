@@ -71,7 +71,10 @@ reference plane, which fixes their normal parallel to the datum normal. In both
 cases the observations fit an independent offset. When the referenced axis is
 manually initialized and therefore free, its connected cone/cylinder and plane
 fits jointly resolve the axis and its derived planes without requiring a joint
-action. An axis sourced from an earlier fit is fixed, so downstream observations
+action. Axial reference-plane factors fit their clocking angle as well as any
+free offset; the entered angle initializes the solve rather than fixing that
+rotation. Axis parallelism (or containment) remains exact, and consumers use the
+resolved datum. An axis sourced from an earlier fit is fixed, so downstream observations
 do not move it. An explicit joint remains available to choose active factors or
 add relationships and takes precedence for its solve.
 

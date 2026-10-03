@@ -1,4 +1,5 @@
 import { uniqueFeatureLabel } from './feature-names.js';
+import { summarizeFitQuality } from './residual-display.js';
 
 // Small, locally drawn SVG symbols; no icon font or network assets required.
 const paths = {
@@ -31,13 +32,16 @@ const paths = {
   plane_relationship: 'M4 8h16M4 16h16',
   surface_intersection: 'M3 12h18M12 3v18M6 6l12 12',
   trimmed_face: 'M4 4h16v16H4Zm4 4h8v8H8Z',
+  arranged_face: 'M4 4h16v16H4ZM4 12h16M12 4v16',
   build_faces: 'M3 3h8v8H3Zm10 10h8v8h-8ZM7 13v4h4m2-10h4v4',
+  body: 'm12 2-9 5v10l9 5 9-5V7Zm0 10L3 7m9 5 9-5m-9 5v10',
   joint_fit: 'M3 3h6v6H3Zm12 0h6v6h-6ZM9 18h6v4H9ZM6 9v4h12V9m-6 4v5',
   ready: 'M22 12a10 10 0 1 1-5-8.66M7 12l3 3L21 4',
   unevaluated: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
   stale: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5',
   running: 'M12 2a10 10 0 0 1 10 10',
   failed: 'M12 3 2 21h20ZM12 9v5m0 3v.5',
+  blocked: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5Zm7 4v3',
   grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
 };
 const operations = {
@@ -66,7 +70,9 @@ const operations = {
   plane_relationship: 'Plane relationship',
   surface_intersection: 'Surface intersection',
   trimmed_face: 'Trimmed face',
+  arranged_face: 'Arranged face',
   build_faces: 'Build faces',
+  body: 'Solid body',
   joint_fit: 'Legacy joint fit',
 };
 const states = {
@@ -75,23 +81,63 @@ const states = {
   stale: 'Needs evaluation',
   running: 'Evaluating',
   failed: 'Failed',
+  blocked: 'Blocked',
 };
 export function actionDescription(node, state, error) {
   const kind = node.operation === 'fit' ? `${node.kind} fit` : operations[node.operation];
-  if (['mirror_symmetry', 'parallel', 'equal'].includes(node.operation))
+  if (['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&
+      !['failed', 'blocked'].includes(state))
     return `${kind || node.operation} · Defined${error ? ` · ${error}` : ''}`;
   return `${kind || node.operation} · ${states[state] || state}${error ? ` · ${error}` : ''}`;
 }
+// Presentation aggregates ownership without changing execution dependencies:
+// a generator can be ready while one of its generated outputs has failed.
+export function featureTreePresentation(nodes, featureStates, featureErrors = {}) {
+  const byId = new Map(nodes.map((node) => [node.id, node])), children = new Map(),
+    presentedStates = { ...featureStates }, presentedErrors = { ...featureErrors },
+    visited = new Set(), visiting = new Set();
+  for (const node of nodes) {
+    const owner = managedOwnerId(node, nodes);
+    if (!owner) continue;
+    if (!children.has(owner)) children.set(owner, []);
+    children.get(owner).push(node.id);
+  }
+  function visit(id) {
+    if (visited.has(id) || visiting.has(id)) return;
+    visiting.add(id);
+    const node = byId.get(id), outputs = [...new Set([
+      ...(children.get(id) || []), ...(node?.reused_faces || []),
+    ])].filter((child) => byId.has(child));
+    outputs.forEach(visit);
+    const members = [id, ...outputs];
+    for (const state of ['failed', 'blocked', 'running', 'stale', 'unevaluated', 'ready']) {
+      const cause = members.find((member) => (presentedStates[member] || 'unevaluated') === state);
+      if (cause === undefined) continue;
+      presentedStates[id] = state;
+      if (cause !== id) presentedErrors[id] = `${byId.get(cause).label} · ${presentedErrors[cause] || states[state]}`;
+      break;
+    }
+    visiting.delete(id);
+    visited.add(id);
+  }
+  nodes.forEach((node) => visit(node.id));
+  return { states: presentedStates, errors: presentedErrors };
+}
 export function nodeReferences(node) {
+  if (node.operation === 'body') return [...new Set(node.faces)];
   if (node.operation === 'build_faces')
     return [...new Set([...node.surfaces.map((reference) => reference.feature),
       ...(node.reused_faces || []), ...(node.reused_intersections || []),
-      ...(node.face_scopes || []).flatMap((scope) => scope.faces)])];
+      ...(node.face_scopes || []).flatMap((scope) => scope.faces), ...(node.boundary_sources || [])])];
   if (node.operation === 'surface_intersection')
     return [...new Set([node.first.feature, node.second.feature, ...(node.managed_by ? [node.managed_by] : [])])];
   if (node.operation === 'trimmed_face')
     return [...new Set([node.surface.feature, ...node.boundaries.map((boundary) => boundary.intersection),
+      ...(node.boundary_sources || []),
       ...(node.managed_by ? [node.managed_by] : [])])];
+  if (node.operation === 'arranged_face')
+    return [...new Set([node.surface.feature, ...node.cutters.map((reference) => reference.feature),
+      ...node.domains, ...(node.boundary_sources || []), ...(node.managed_by ? [node.managed_by] : [])])];
   if (node.operation === 'selection') return [node.source];
   if (node.operation === 'fit')
     return [
@@ -101,7 +147,11 @@ export function nodeReferences(node) {
       ...(node.reference_plane ? [node.reference_plane] : []),
     ];
   if (node.operation === 'axis')
-    return node.source_fit ? [node.source_fit] : [...(node.source_points || [])];
+    return [...new Set([
+      ...(node.source_fit ? [node.source_fit] : [...(node.source_points || [])]),
+      ...(node.placement
+        ? [node.placement.reuse, node.placement.source, node.placement.target_selection] : []),
+    ])];
   if (node.operation === 'point') return node.source_fit ? [node.source_fit] : [];
   if (node.operation === 'scale')
     return [...new Set([
@@ -110,7 +160,11 @@ export function nodeReferences(node) {
   if (node.operation === 'frame')
     return [...new Set([node.origin_point, node.primary_reference, node.secondary_reference])];
   if (node.operation === 'transform') return [node.frame, node.scale];
-  if (node.operation === 'reference_plane') return [node.axis];
+  if (node.operation === 'reference_plane') return [...new Set([
+    node.axis,
+    ...(node.placement
+      ? [node.placement.reuse, node.placement.source, node.placement.target_selection] : []),
+  ])];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];
   if (node.operation === 'selection_region')
@@ -181,6 +235,57 @@ export function managedSubtreeIds(ownerId, nodes) {
   return result;
 }
 
+// Plan one atomic deletion. Additional dependents require explicit UI approval;
+// generated features cannot be removed independently of their owning action.
+export function featureDeletionPlan(recipe, selected) {
+  const nodes = recipe.nodes,
+    byId = new Map(nodes.map((node) => [node.id, node])),
+    selectedIds = new Set(selected);
+  if (!selectedIds.size) return { error: 'Select features to delete.' };
+  if ([...selectedIds].some((id) => !byId.has(id)))
+    return { error: 'The selection changed. Select features again.' };
+  if ([...selectedIds].some((id) => byId.get(id).operation === 'source'))
+    return { error: 'The source mesh cannot be deleted.' };
+  const removalIds = new Set();
+  for (const id of selectedIds)
+    for (const child of managedSubtreeIds(id, nodes)) removalIds.add(child);
+  for (const id of selectedIds) {
+    const owner = managedOwnerId(byId.get(id), nodes);
+    if (owner && !removalIds.has(owner))
+      return { error: `Select ${byId.get(owner)?.label || owner} to delete its generated outputs.` };
+  }
+  const initialIds = new Set(removalIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      const owner = managedOwnerId(node, nodes);
+      if (!removalIds.has(node.id) &&
+          (removalIds.has(owner) || nodeReferences(node).some((id) => removalIds.has(id)))) {
+        removalIds.add(node.id);
+        changed = true;
+      }
+      // A dependent generated output brings its owner (and therefore siblings).
+      if (removalIds.has(node.id) && owner && !removalIds.has(owner)) {
+        removalIds.add(owner);
+        changed = true;
+      }
+    }
+  }
+  if (nodes.some((node) => removalIds.has(node.id) && node.operation === 'source'))
+    return { error: 'The source mesh cannot be deleted.' };
+  const remaining = nodes.filter((node) => !removalIds.has(node.id));
+  if (!remaining.length) return { error: 'Keep at least the source mesh.' };
+  return {
+    selected: nodes.filter((node) => selectedIds.has(node.id)),
+    managed: nodes.filter((node) => initialIds.has(node.id) && !selectedIds.has(node.id)),
+    dependents: nodes.filter((node) => removalIds.has(node.id) && !initialIds.has(node.id)),
+    removed: nodes.filter((node) => removalIds.has(node.id)),
+    recipe: { ...structuredClone(recipe), nodes: structuredClone(remaining),
+      output: removalIds.has(recipe.output) ? remaining.at(-1).id : recipe.output },
+  };
+}
+
 export function discoverReuseLineage(nodes, fitIds) {
   const byId = new Map(nodes.map((node) => [node.id, node])),
     selected = new Set(fitIds),
@@ -239,7 +344,8 @@ export function discoverReuseLineage(nodes, fitIds) {
 
 export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
   const next = structuredClone(nodes),
-    reuse = next.find((node) => node.id === reuseId);
+    reuse = next.find((node) => node.id === reuseId),
+    byId = new Map(next.map((node) => [node.id, node]));
   if (reuse?.operation !== 'feature_reuse')
     return { error: 'This feature reuse action is no longer available.' };
   Object.assign(reuse, patch);
@@ -248,15 +354,31 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
   if (reuse.target_selections.includes(reuse.reference_selection))
     return { error: 'The reference selection cannot also be a target.' };
   reuse.lineage = discoverReuseLineage(next, reuse.fits);
+  const selected = new Set(reuse.fits),
+    relationshipOperations = new Set([
+      'perpendicular', 'coaxial', 'rotational_symmetry', 'joint_fit',
+      'mirror_symmetry', 'parallel', 'equal', 'equal_radii',
+      'plane_relationship', 'axis_solve',
+    ]),
+    copiedSources = reuse.lineage.map((id) => byId.get(id)).filter(
+      (node) => ['fit', 'axis', 'reference_plane'].includes(node.operation) ||
+        relationshipOperations.has(node.operation),
+    );
+  for (const id of reuse.lineage) {
+    const node = byId.get(id);
+    if (node.operation === 'fit' && !selected.has(id))
+      return { error: `Include ${node.label} in the reused fits to preserve its datum relationships.` };
+    if (node.operation === 'point' || (node.operation === 'fit' &&
+        (!['cylinder', 'plane'].includes(node.kind) || node.point)))
+      return { error: 'Feature reuse currently supports cylinder and plane fits, not point datums.' };
+    if (node.operation === 'axis' && node.source_points)
+      return { error: `The point-pair axis ${node.label} cannot currently be reused.` };
+  }
 
-  const desired = new Set(
-      reuse.target_selections.flatMap((target) => reuse.fits.map((fit) => `${target}\0${fit}`)),
-    ),
-    children = next.filter(
+  // Adopt the original prototype's generated selections and fits without
+  // replacing IDs referenced by faces or other user-authored outputs.
+  const children = next.filter(
       (node) => node.operation === 'reuse_selection' && node.reuse === reuseId,
-    ),
-    equalities = next.filter(
-      (node) => node.operation === 'equal_radii' && node.managed_by === reuseId,
     ),
     groups = new Map();
   for (const child of children) {
@@ -268,147 +390,150 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
     groups.get(key).push(child);
   }
 
-  const removeIds = new Set(),
-    ownedIds = new Set([...children, ...equalities].map((node) => node.id)),
-    retained = new Set();
-  for (const [key, group] of groups) {
-    const [, fitId] = key.split('\0'),
-      sourceFit = next.find((node) => node.id === fitId),
-      expectedSelections = new Set(sourceFit?.selections || []),
-      actualSelections = new Set(group.map((node) => node.source_selection)),
-      complete =
-        expectedSelections.size === actualSelections.size &&
-        [...expectedSelections].every((id) => actualSelections.has(id)),
-      childIds = new Set(group.map((node) => node.id)),
+  for (const group of groups.values()) {
+    const childIds = new Set(group.map((node) => node.id)),
       copiedFits = next.filter(
         (node) =>
           node.operation === 'fit' &&
           node.selections.length === childIds.size &&
           node.selections.every((id) => childIds.has(id)),
       ),
-      copiedFit = copiedFits[0];
-    if (copiedFit) {
-      copiedFit.group_id = null;
-      copiedFit.managed_by = reuseId;
-      copiedFit.managed_key = `fit/${group[0].target_selection}/${fitId}`;
-      ownedIds.add(copiedFit.id);
-    }
-    if (desired.has(key) && complete && copiedFit) {
-      retained.add(key);
-      continue;
-    }
+      key = `fit/${group[0].target_selection}/${group[0].fit}`,
+      copiedFit = copiedFits.find((node) =>
+        node.managed_by === reuseId && node.managed_key === key) ||
+        (copiedFits.length === 1 ? copiedFits[0] : null);
     if (!copiedFit)
       return {
         error: 'The generated outputs were edited, so this reuse action cannot be restructured safely.',
       };
-    group.forEach((node) => removeIds.add(node.id));
-    removeIds.add(copiedFit.id);
+    copiedFit.group_id = null;
+    copiedFit.managed_by = reuseId;
+    copiedFit.managed_key = key;
   }
-  const desiredEqualityKeys = new Set(
-    reuse.equal_corresponding_dimensions
-      ? reuse.fits
-          .filter((fitId) => next.find((node) => node.id === fitId)?.kind === 'cylinder')
-          .map((fitId) => `equal-radius/${fitId}`)
-      : [],
-  );
-  for (const equality of equalities) {
-    equality.group_id = null;
-    if (!desiredEqualityKeys.has(equality.managed_key)) removeIds.add(equality.id);
+  const owned = next.filter((node) => node.managed_by === reuseId),
+    ownedIds = new Set(owned.map((node) => node.id)),
+    byKey = new Map(),
+    generated = [],
+    outputs = [],
+    retainedIds = new Set();
+  for (const node of owned) {
+    if (!node.managed_key || byKey.has(node.managed_key))
+      return { error: 'Generated reuse outputs need unique ownership keys before they can be updated.' };
+    byKey.set(node.managed_key, node);
   }
-  const blocking = next.find(
-    (node) =>
-      !removeIds.has(node.id) &&
-      node.id !== reuseId &&
-      node.managed_by !== reuseId &&
-      nodeReferences(node).some((id) => removeIds.has(id)),
-  );
-  if (blocking)
-    return { error: `Cannot remove generated outputs used by ${blocking.label}.` };
-
-  let working = next.filter((node) => !removeIds.has(node.id));
-  const generated = [];
+  const output = (key, operation, label) => {
+    let node = byKey.get(key);
+    if (node && node.operation !== operation) return null;
+    if (!node) {
+      node = {
+        id: makeId(operation),
+        label: uniqueFeatureLabel(label, [...next, ...generated]),
+        operation,
+        managed_by: reuseId,
+        managed_key: key,
+      };
+      generated.push(node);
+    }
+    node.group_id = null;
+    retainedIds.add(node.id);
+    return node;
+  };
+  const instances = new Map();
   for (const targetId of reuse.target_selections) {
-    const target = working.find((node) => node.id === targetId);
+    const target = byId.get(targetId),
+      mapping = new Map(),
+      copiedOutputs = new Map(),
+      selections = new Map();
+    instances.set(targetId, mapping);
+    if (!target) return { error: 'A target selection is no longer available.' };
     for (const fitId of reuse.fits) {
-      const key = `${targetId}\0${fitId}`;
-      if (retained.has(key)) continue;
-      const sourceFit = working.find((node) => node.id === fitId),
+      const sourceFit = byId.get(fitId),
         generatedSelections = [];
       for (const sourceSelectionId of sourceFit.selections) {
-        const sourceSelection = working.find((node) => node.id === sourceSelectionId),
-          selection = {
-            id: makeId('reuse_selection'),
-            label: uniqueFeatureLabel(
-              `${sourceSelection.label} at ${target.label}`,
-              [...working, ...generated],
-            ),
-            operation: 'reuse_selection',
-            reuse: reuse.id,
-            fit: fitId,
-            source_selection: sourceSelectionId,
-            target_selection: targetId,
-            managed_by: reuse.id,
-            managed_key: `selection/${targetId}/${fitId}/${sourceSelectionId}`,
-          };
-        generated.push(selection);
+        const sourceSelection = byId.get(sourceSelectionId),
+          selection = output(`selection/${targetId}/${fitId}/${sourceSelectionId}`,
+            'reuse_selection', `${sourceSelection.label} at ${target.label}`);
+        if (!selection) return { error: 'A generated selection has an incompatible operation.' };
+        Object.assign(selection, {
+          reuse: reuse.id, fit: fitId, source_selection: sourceSelectionId,
+          target_selection: targetId,
+        });
+        outputs.push(selection);
         generatedSelections.push(selection.id);
       }
-      generated.push({
-        id: makeId('fit'),
-        label: uniqueFeatureLabel(
-          `${sourceFit.label} at ${target.label}`,
-          [...working, ...generated],
-        ),
-        operation: 'fit',
-        selections: generatedSelections,
-        kind: sourceFit.kind,
-        axial_domain: [...sourceFit.axial_domain],
-        managed_by: reuse.id,
-        managed_key: `fit/${targetId}/${fitId}`,
-      });
+      selections.set(fitId, generatedSelections);
+    }
+    // Reserve all IDs before remapping references; source action order then
+    // keeps initializers, datums, factors and relationship solves topological.
+    for (const sourceNode of copiedSources) {
+      const family = sourceNode.operation === 'fit' ? 'fit' :
+        ['axis', 'reference_plane'].includes(sourceNode.operation) ? 'datum' : 'relationship',
+        node = output(`${family}/${targetId}/${sourceNode.id}`, sourceNode.operation,
+          `${sourceNode.label} at ${target.label}`);
+      if (!node) return { error: 'A generated output has an incompatible operation.' };
+      mapping.set(sourceNode.id, node.id);
+      copiedOutputs.set(sourceNode.id, node);
+    }
+    const remap = (id) => {
+      if (!mapping.has(id)) throw new Error(
+        `Include ${byId.get(id)?.label || id} in the reused feature to preserve its relationships.`,
+      );
+      return mapping.get(id);
+    };
+    try {
+      for (const sourceNode of copiedSources) {
+        const node = copiedOutputs.get(sourceNode.id),
+          identity = { id: node.id, label: node.label, group_id: null,
+            managed_by: reuseId, managed_key: node.managed_key },
+          copy = { ...sourceNode, ...identity };
+        delete copy.placement;
+        if (sourceNode.operation === 'fit') {
+          copy.selections = selections.get(sourceNode.id);
+          for (const field of ['axis', 'point', 'reference_plane'])
+            if (sourceNode[field]) copy[field] = remap(sourceNode[field]);
+        } else if (sourceNode.operation === 'axis') {
+          if (sourceNode.source_fit) copy.source_fit = remap(sourceNode.source_fit);
+          else copy.placement = { reuse: reuseId, source: sourceNode.id, target_selection: targetId };
+        } else if (sourceNode.operation === 'reference_plane') {
+          copy.axis = remap(sourceNode.axis);
+          copy.placement = { reuse: reuseId, source: sourceNode.id, target_selection: targetId };
+        } else if (sourceNode.operation === 'equal') {
+          for (const side of ['left', 'right']) {
+            copy[side] = { ...sourceNode[side], surface: remap(sourceNode[side].surface) };
+            if (sourceNode[side].reference_plane)
+              copy[side].reference_plane = remap(sourceNode[side].reference_plane);
+          }
+        } else {
+          for (const field of ['surface', 'reference', 'lateral', 'plane', 'axis', 'reference_plane'])
+            if (sourceNode[field]) copy[field] = remap(sourceNode[field]);
+          for (const field of ['surfaces', 'planes', 'constraints', 'factors'])
+            if (sourceNode[field]) copy[field] = sourceNode[field].map(remap);
+        }
+        for (const field of Object.keys(node)) delete node[field];
+        Object.assign(node, copy);
+        outputs.push(node);
+      }
+    } catch (error) {
+      return { error: error.message };
     }
   }
-  const availableOutputs = [...working, ...generated],
-    managedEqualities = [];
   for (const fitId of reuse.fits) {
-    const sourceFit = availableOutputs.find((node) => node.id === fitId);
+    const sourceFit = byId.get(fitId);
     if (!reuse.equal_corresponding_dimensions || sourceFit?.kind !== 'cylinder') continue;
     const managedKey = `equal-radius/${fitId}`,
-      surfaces = [
-        fitId,
-        ...reuse.target_selections.map(
-          (targetId) =>
-            availableOutputs.find(
-              (node) =>
-                node.operation === 'fit' &&
-                node.managed_by === reuseId &&
-                node.managed_key === `fit/${targetId}/${fitId}`,
-            )?.id,
-        ),
-      ];
-    if (surfaces.some((id) => !id))
-      return { error: `Generated fits for ${sourceFit.label} are incomplete.` };
-    let equality = equalities.find((node) => node.managed_key === managedKey);
-    if (equality) equality.surfaces = surfaces;
-    else {
-      equality = {
-        id: makeId('equal_radii'),
-        label: uniqueFeatureLabel(
-          `${sourceFit.label} radii all equal`,
-          [...availableOutputs, ...managedEqualities],
-        ),
-        operation: 'equal_radii',
-        surfaces,
-        managed_by: reuseId,
-        managed_key: managedKey,
-      };
-    }
-    managedEqualities.push(equality);
+      equality = output(managedKey, 'equal_radii', `${sourceFit.label} radii all equal`);
+    if (!equality) return { error: 'A generated radius equality has an incompatible operation.' };
+    equality.surfaces = [fitId, ...reuse.target_selections.map((targetId) =>
+      instances.get(targetId).get(fitId))];
+    outputs.push(equality);
   }
+  const removeIds = new Set(owned.filter((node) => !retainedIds.has(node.id)).map((node) => node.id)),
+    blocking = next.find((node) => node.id !== reuseId && !ownedIds.has(node.id) &&
+      nodeReferences(node).some((id) => removeIds.has(id)));
+  if (blocking)
+    return { error: `Cannot remove generated outputs used by ${blocking.label}.` };
   const blockIds = new Set([reuseId, ...ownedIds]),
-    equalityIds = new Set(equalities.map((node) => node.id)),
-    block = working.filter((node) => blockIds.has(node.id) && !equalityIds.has(node.id)),
-    outside = working.filter((node) => !blockIds.has(node.id)),
+    outside = next.filter((node) => !blockIds.has(node.id)),
     dependencies = new Set(nodeReferences(reuse));
   if ([...dependencies].some((id) => blockIds.has(id)))
     return { error: 'A reuse action cannot use one of its own generated outputs.' };
@@ -418,9 +543,8 @@ export function reconcileFeatureReuse(nodes, reuseId, patch, makeId) {
     ),
     result = [
       ...outside.slice(0, insertionIndex + 1),
-      ...block,
-      ...generated,
-      ...managedEqualities,
+      reuse,
+      ...outputs,
       ...outside.slice(insertionIndex + 1),
     ],
     seen = new Set();
@@ -478,6 +602,127 @@ function icon(name, className = '') {
   svg.append(path);
   return svg;
 }
+export { icon as featureIcon };
+
+export function iconPickerIndex(key, index, count) {
+  if (!count) return -1;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  if (key === 'ArrowDown') return (index + 1 + count) % count;
+  if (key === 'ArrowUp') return (index - 1 + count) % count;
+  return index;
+}
+
+export function renderIconPicker(button, list, { choices, value, change, locked = () => false, preview = () => {} }) {
+  if (list.matches(':popover-open')) list.hidePopover();
+  let active = Math.max(0, choices.findIndex((choice) => choice.value === value)),
+    search = '', searchTime = 0;
+  const selected = choices.find((choice) => choice.value === value),
+    text = (choice) => {
+      const column = document.createElement('span'),
+        name = document.createElement('span'), detail = document.createElement('span');
+      column.className = 'icon-picker-text';
+      name.className = 'icon-picker-name';
+      detail.className = 'icon-picker-detail';
+      name.textContent = choice?.name || 'Choose a surface';
+      detail.textContent = choice?.detail || '';
+      column.append(name, detail);
+      return column;
+    },
+    close = () => {
+      list.hidePopover();
+      button.setAttribute('aria-expanded', 'false');
+      button.removeAttribute('aria-activedescendant');
+      search = '';
+      preview(null);
+    },
+    highlight = (index, scroll = false) => {
+      active = index;
+      [...list.children].forEach((option, i) => option.classList.toggle('picker-active', i === active));
+      if (list.children[active]) {
+        button.setAttribute('aria-activedescendant', list.children[active].id);
+        if (scroll) list.children[active].scrollIntoView({ block: 'nearest' });
+      }
+      if (!locked() && list.matches(':popover-open')) preview(choices[active]?.value || null);
+    },
+    open = () => {
+      if (locked() || button.disabled) return false;
+      const bounds = button.getBoundingClientRect(),
+        viewportWidth = globalThis.innerWidth, viewportHeight = globalThis.innerHeight;
+      list.style.width = `${Math.min(Math.max(bounds.width, 320), viewportWidth - 16)}px`;
+      list.style.maxHeight = `${Math.min(320, viewportHeight - 16)}px`;
+      list.showPopover();
+      const popup = list.getBoundingClientRect(),
+        below = viewportHeight - bounds.bottom - 8,
+        above = bounds.top - 8;
+      const down = below >= Math.min(popup.height, 180) || below >= above;
+      list.style.maxHeight = `${Math.max(40, Math.min(320, down ? below : above))}px`;
+      list.style.left = `${Math.max(8, Math.min(bounds.left, viewportWidth - popup.width - 8))}px`;
+      list.style.top = `${Math.max(8, down ? bounds.bottom + 3 : bounds.top - Math.min(popup.height, above) - 3)}px`;
+      button.setAttribute('aria-expanded', 'true');
+      highlight(active, true);
+      return true;
+    },
+    choose = (index) => {
+      if (locked() || button.disabled || !choices[index]) return;
+      close();
+      button.focus();
+      if (choices[index].value !== value) change(choices[index].value);
+    };
+  const arrow = document.createElement('span');
+  arrow.textContent = '▾';
+  arrow.setAttribute('aria-hidden', 'true');
+  button.replaceChildren(...(selected ? [icon(selected.icon, 'action-type')] : []), text(selected), arrow);
+  button.title = selected?.label || 'Choose a surface';
+  button.disabled = !choices.length;
+  button.setAttribute('aria-label', `Surface: ${button.title}`);
+  button.setAttribute('aria-expanded', 'false');
+  button.removeAttribute('aria-activedescendant');
+  list.replaceChildren(...choices.map((choice, index) => {
+    const option = document.createElement('div');
+    option.id = `${list.id}-${index}`;
+    option.className = 'icon-picker-option';
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(choice.value === value));
+    option.setAttribute('aria-label', choice.label);
+    option.title = choice.label;
+    option.append(icon(choice.icon, 'action-type'), text(choice));
+    // Scrolling to a keyboard option can put a different row under a stationary
+    // pointer. Only actual pointer movement should replace keyboard navigation.
+    option.onpointermove = (event) => {
+      if (event.movementX || event.movementY) highlight(index);
+    };
+    option.onmousedown = (event) => event.preventDefault();
+    option.onclick = () => choose(index);
+    return option;
+  }));
+  list.ontoggle = () => { if (!list.matches(':popover-open')) close(); };
+  button.onclick = () => list.matches(':popover-open') ? close() : open();
+  button.onkeydown = (event) => {
+    const expanded = list.matches(':popover-open');
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!expanded) {
+        if (open() && ['Home', 'End'].includes(event.key))
+          highlight(iconPickerIndex(event.key, active, choices.length), true);
+      } else if (['Enter', ' '].includes(event.key)) choose(active);
+      else highlight(iconPickerIndex(event.key, active, choices.length), true);
+    } else if (expanded && ['Escape', 'Tab'].includes(event.key)) {
+      close();
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      if (!expanded && !open()) return;
+      const now = Date.now(), letter = event.key.toLowerCase();
+      search = now - searchTime > 700 || search === letter ? letter : search + letter;
+      searchTime = now;
+      const indices = choices.map((_, i) => (active + (search.length > 1 ? 0 : 1) + i) % choices.length),
+        match = indices.find((i) => choices[i].name.toLowerCase().startsWith(search));
+      if (match !== undefined) highlight(match, true);
+    }
+  };
+}
 export function renderActionTree(
   list,
   {
@@ -492,8 +737,11 @@ export function renderActionTree(
     announce,
     editGroup = () => {},
     removeGroup = () => {},
+    contextMenu = () => {},
+    qualities = {},
   },
 ) {
+  ({ states, errors } = featureTreePresentation(nodes, states, errors));
   let dragged = null,
     dropSlot = null;
   const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
@@ -510,6 +758,24 @@ export function renderActionTree(
     managed.get(owner).push(node);
   }
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
+  function qualityBadge(quality, generatedOwner = null) {
+    const badge = document.createElement('span');
+    badge.className = `fit-quality quality-${quality.status}`;
+    badge.textContent = quality.label;
+    badge.title = `${generatedOwner ? `Generated by ${byId.get(generatedOwner)?.label || generatedOwner}.\n` : ''}${quality.tooltip}`;
+    return badge;
+  }
+  function groupQuality(members) {
+    const fits = new Map(), visited = new Set();
+    function visit(node) {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      if (qualities[node.id]) fits.set(node.id, qualities[node.id]);
+      for (const child of managed.get(node.id) || []) visit(child);
+    }
+    members.forEach(visit);
+    return summarizeFitQuality([...fits.values()]);
+  }
   function clearDrop() {
     dropSlot = null;
     for (const row of list.querySelectorAll('.action-drop-target'))
@@ -550,8 +816,8 @@ export function renderActionTree(
     grip.className = 'action-grip';
     grip.dataset.reorderKey = key;
     grip.append(icon('grip'));
-    grip.disabled = !ids.length;
-    grip.draggable = !!ids.length;
+    grip.disabled = !ids.length || unavailable();
+    grip.draggable = !!ids.length && !unavailable();
     grip.title = `Drag to reorder ${label} with its actions; or focus here and use the arrow keys.`;
     grip.setAttribute('aria-label', `Reorder ${label}. Use Up or Down arrow keys.`);
     if (!ids.length) {
@@ -608,9 +874,13 @@ export function renderActionTree(
     return grip;
   }
   function stateFor(items) {
-    for (const state of ['failed', 'running', 'stale', 'unevaluated'])
+    for (const state of ['failed', 'blocked', 'running', 'stale', 'unevaluated'])
       if (items.some((item) => states[item.id] === state)) return state;
     return 'ready';
+  }
+  function stateDescription(items, state) {
+    return items.filter((item) => states[item.id] === state)
+      .map((item) => `${item.label} · ${errors[item.id] || actionDescription(item, state)}`).join('\n');
   }
   function actionItem(node, generated = false) {
     const index = nodes.indexOf(node),
@@ -633,11 +903,29 @@ export function renderActionTree(
     button.className = 'action-select';
     button.dataset.actionId = node.id;
     button.setAttribute('aria-pressed', String(selectedIds.has(node.id)));
-    const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation),
-      description = actionDescription(node, states[node.id], errors[node.id]);
-    button.title = `${node.label} · ${description}`;
-    button.setAttribute('aria-label', button.title);
+    const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&
+        !['failed', 'blocked'].includes(states[node.id]),
+      description = actionDescription(node, states[node.id], errors[node.id]),
+      quality = qualities[node.id];
+    button.title = `${node.label} · ${description}${quality ? `\n${quality.tooltip}` : ''}`;
+    button.setAttribute('aria-label', `${node.label} · ${description}${generated ? ' · Generated' : ''}${quality ? ` · ${quality.label} · ${quality.status}` : ''}`);
+    const openContextMenu = (event, keyboard = false) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (unavailable()) return;
+      const row = event.currentTarget || button;
+      const bounds = row.getBoundingClientRect();
+      contextMenu(node.id, {
+        x: keyboard ? bounds.left : event.clientX,
+        y: keyboard ? bounds.bottom : event.clientY,
+      });
+    };
+    button.oncontextmenu = openContextMenu;
     button.onkeydown = (event) => {
+      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+        openContextMenu(event, true);
+        return;
+      }
       if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
       event.preventDefault();
       const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
@@ -651,12 +939,13 @@ export function renderActionTree(
     label.className = 'action-name';
     label.textContent = node.label;
     button.append(icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'), label);
-    if (generated) {
+    if (generated && !quality) {
       const badge = document.createElement('span');
       badge.className = 'generated-badge';
       badge.textContent = 'Generated';
       button.append(badge);
     }
+    if (quality) button.append(qualityBadge(quality, generated ? ownerById.get(node.id) : null));
     button.append(
       icon(
         relationship ? 'ready' : states[node.id],
@@ -676,16 +965,19 @@ export function renderActionTree(
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
         edit = document.createElement('button'),
-        summaryState = relationship ? 'ready' : states[node.id];
+        summaryState = relationship ? 'ready' : states[node.id],
+        ownerQuality = groupQuality([node]);
       item.classList.add('managed-owner');
       details.className = 'tree-group managed-owner-group';
       details.open = expandedManaged.has(node.id);
       summary.className = 'managed-owner-summary';
       summary.dataset.actionId = node.id;
       summary.dataset.actionIndex = index;
+      summary.classList.toggle('feature-selected', selectedIds.has(node.id));
       summary.title = `${node.label} · ${description}`;
-      summary.setAttribute('aria-label', summary.title);
+      summary.setAttribute('aria-label', `${summary.title}${selectedIds.has(node.id) ? ' · Selected' : ''}${ownerQuality ? ` · ${ownerQuality.label} · ${ownerQuality.status}` : ''}`);
       summary.onkeydown = button.onkeydown;
+      summary.oncontextmenu = openContextMenu;
       label.classList.add('tree-group-name');
       edit.type = 'button';
       edit.className = 'group-action';
@@ -699,6 +991,7 @@ export function renderActionTree(
         reorderHandle(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null),
         icon('group', 'group-icon'),
         label,
+        ...(ownerQuality ? [qualityBadge(ownerQuality)] : []),
         edit,
         icon(summaryState, `action-state state-${summaryState}`),
       );
@@ -724,6 +1017,7 @@ export function renderActionTree(
           targetKey = `${node.id}/${target}`,
           childList = document.createElement('ul'),
           targetState = stateFor(children);
+        targetSummary.title = stateDescription(children, targetState);
         targetDetails.className = 'tree-group managed-group managed-target';
         targetDetails.open = expandedTargets.has(targetKey);
         targetLabel.className = 'tree-group-name';
@@ -732,13 +1026,15 @@ export function renderActionTree(
           : target
           ? `${byId.get(target)?.label || target} · ${children.filter((child) => child.operation === 'fit').length} fits`
           : `Other outputs · ${children.length}`;
+        targetSummary.setAttribute('aria-label', `${targetLabel.textContent} · ${targetSummary.title}`);
         targetBadge.className = 'managed-badge';
         targetBadge.textContent = 'Generated';
+        const quality = groupQuality(children);
         targetSummary.append(
           reorderHandle(targetSummary, children.map((child) => child.id), targetKey, targetLabel.textContent, node.id),
           icon('group', 'group-icon'),
           targetLabel,
-          targetBadge,
+          quality ? qualityBadge(quality, node.id) : targetBadge,
           icon(targetState, `action-state state-${targetState}`),
         );
         targetDetails.ontoggle = () => {
@@ -769,9 +1065,11 @@ export function renderActionTree(
     label.textContent = `${group.label} · ${members.length}`;
     edit.type = remove.type = 'button';
     edit.className = remove.className = 'group-action';
+    edit.disabled = remove.disabled = unavailable();
     edit.textContent = 'Edit';
     edit.onclick = (event) => {
       event.preventDefault();
+      if (unavailable()) return;
       editGroup(group.id);
     };
     remove.textContent = '×';
@@ -779,10 +1077,15 @@ export function renderActionTree(
     remove.setAttribute('aria-label', remove.title);
     remove.onclick = (event) => {
       event.preventDefault();
+      if (unavailable()) return;
       removeGroup(group.id);
     };
+    const quality = groupQuality(members), groupState = stateFor(members);
+    summary.title = stateDescription(members, groupState);
+    summary.setAttribute('aria-label', `${group.label} · ${summary.title}`);
     summary.append(reorderHandle(summary, members.map((node) => node.id), group.id, group.label),
-      icon('group', 'group-icon'), label, edit, remove);
+      icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []), edit, remove,
+      icon(groupState, `action-state state-${groupState}`));
     details.ontoggle = () => {
       if (details.open) collapsedGroups.delete(group.id);
       else collapsedGroups.add(group.id);

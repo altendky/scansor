@@ -22,6 +22,8 @@ const fit = {
   axial_domain: [-2, 5],
 };
 const nodes = [source, a, b, fit];
+assert.deepEqual(nodeReferences({ operation: 'body', faces: ['a', 'b', 'a'] }), ['a', 'b']);
+assert.equal(actionDescription({ operation: 'body' }, 'ready'), 'Solid body · Ready');
 const ids = (result) => result.nodes.map((node) => node.id);
 
 assert.deepEqual(ids(actionMove(nodes, 'b', 1)), ['source', 'b', 'a', 'fit']);
@@ -65,6 +67,17 @@ assert.match(actionMove([...faceNodes, usesFace], 'faces-owner', 8).error, /Face
 assert.match(actionMove(faceNodes, ['edge', 'face'], 7).error, /within their owner/);
 assert.match(actionMove(faceNodes, ['edge', 'face'], 3).error, /within their owner/);
 assert.deepEqual(faceNodes, [source, a, fit, facesOwner, edge, face, loose]);
+const cutter = { id: 'cutter', label: 'Cutting plane', operation: 'fit', kind: 'plane', selections: ['b'] };
+const arranged = { id: 'arranged', label: 'Retained cell', operation: 'arranged_face',
+  surface: { feature: 'fit' }, cutters: [{ feature: 'cutter' }], domains: ['face'],
+  selector: { signs: { cutter: 'positive' }, component_count: 1, witness_chart: [0, 0] } };
+const arrangedNodes = [...faceNodes, b, cutter, arranged];
+assert.deepEqual(nodeReferences(arranged), ['fit', 'cutter', 'face']);
+assert.match(actionDescription(arranged, 'ready'), /Arranged face.*Ready/);
+assert.match(actionMove(arrangedNodes, 'arranged', arrangedNodes.indexOf(cutter)).error,
+  /Retained cell needs Cutting plane earlier/);
+assert.match(actionMove(arrangedNodes, 'faces-owner', arrangedNodes.length).error,
+  /Retained cell needs Trimmed face earlier/);
 assert.ok(actionMove(faceNodes, [], 4).error);
 assert.ok(actionMove(faceNodes, ['faces-owner', 'missing'], 4).error);
 // Multiple and noncontiguous members coalesce without changing memberships.
@@ -404,6 +417,150 @@ const blocked = reconcileFeatureReuse(
   (prefix) => `${prefix}-blocked`,
 );
 assert.match(blocked.error, /Dependent axis/);
+
+const reuseAxis = { id: 'reuse-axis', label: 'Boss axis', operation: 'axis',
+    initial_parameters: [0.1, -0.2, 3, 4], direction_reversed: true },
+  reuseAxial = { id: 'reuse-axial', label: 'Shoulder datum', operation: 'reference_plane',
+    axis: reuseAxis.id, construction: 'perpendicular_to_axis', initial_angle_degrees: null,
+    offset: 7 },
+  reuseClock = { id: 'reuse-clock', label: 'Clock datum', operation: 'reference_plane',
+    axis: reuseAxis.id, construction: 'parallel_to_axis', initial_angle_degrees: 28, offset: 2 },
+  reuseOuter = { ...fit, id: 'reuse-outer', label: 'Outer', axis: reuseAxis.id },
+  reuseBore = { ...fit, id: 'reuse-bore', label: 'Bore', axis: reuseAxis.id },
+  reuseShoulder = { ...fit, id: 'reuse-shoulder', label: 'Shoulder', kind: 'plane',
+    reference_plane: reuseAxial.id },
+  reuseFlat = { ...fit, id: 'reuse-flat', label: 'Flat', kind: 'plane',
+    reference_plane: reuseClock.id },
+  reuseOtherPlane = { ...fit, id: 'reuse-other-plane', label: 'Other plane', kind: 'plane' },
+  reusableFits = [reuseOuter, reuseBore, reuseShoulder, reuseFlat, reuseOtherPlane],
+  reusableRelationships = [
+    { id: 'reuse-coaxial', label: 'Coaxial', operation: 'coaxial',
+      surface: reuseBore.id, reference: reuseOuter.id },
+    { id: 'reuse-perpendicular', label: 'Perpendicular', operation: 'perpendicular',
+      lateral: reuseOuter.id, plane: reuseShoulder.id },
+    { id: 'reuse-parallel', label: 'Parallel', operation: 'parallel',
+      surface: reuseFlat.id, reference_plane: reuseClock.id },
+    { id: 'reuse-mirror', label: 'Mirror', operation: 'mirror_symmetry',
+      plane: reuseClock.id, surfaces: [reuseShoulder.id, reuseOtherPlane.id], symmetric_extents: false },
+    { id: 'reuse-rotation', label: 'Rotation', operation: 'rotational_symmetry',
+      axis: reuseOuter.id, planes: [reuseShoulder.id, reuseFlat.id, reuseOtherPlane.id],
+      symmetric_extents: true },
+    { id: 'reuse-equal', label: 'Equal', operation: 'equal',
+      left: { measurement: 'radius', surface: reuseOuter.id },
+      right: { measurement: 'plane_distance', surface: reuseShoulder.id,
+        reference_plane: reuseAxial.id } },
+    { id: 'reuse-radii', label: 'Radii', operation: 'equal_radii',
+      surfaces: [reuseOuter.id, reuseBore.id] },
+    { id: 'reuse-planes', label: 'Planes', operation: 'plane_relationship',
+      surfaces: [reuseShoulder.id, reuseOtherPlane.id], relation: 'parallel' },
+    { id: 'reuse-joint', label: 'Joint', operation: 'joint_fit',
+      constraints: ['reuse-coaxial', 'reuse-perpendicular', 'reuse-parallel', 'reuse-equal'] },
+    { id: 'reuse-solve', label: 'Axis solve', operation: 'axis_solve', axis: reuseAxis.id,
+      factors: reusableFits.map((node) => node.id), free_axis: true },
+  ],
+  constrainedReuse = { ...reuse, id: 'constrained-reuse', label: 'Constrained reuse',
+    fits: reusableFits.map((node) => node.id), target_selections: ['b'],
+    equal_corresponding_dimensions: true },
+  constrainedNodes = [source, a, b, c, reuseAxis, reuseAxial, reuseClock,
+    ...reusableFits, ...reusableRelationships, constrainedReuse],
+  constrainedResult = reconcileFeatureReuse(constrainedNodes, constrainedReuse.id, {},
+    (prefix) => `${prefix}-constrained-${++sequence}`);
+assert.equal(constrainedResult.error, undefined);
+assert.deepEqual(constrainedNodes.at(-1), constrainedReuse);
+const copied = (result, family, target, original) => result.nodes.find((node) =>
+  node.managed_by === constrainedReuse.id && node.managed_key === `${family}/${target}/${original}`),
+  copiedAxis = copied(constrainedResult, 'datum', 'b', reuseAxis.id),
+  copiedAxial = copied(constrainedResult, 'datum', 'b', reuseAxial.id),
+  copiedClock = copied(constrainedResult, 'datum', 'b', reuseClock.id);
+assert.deepEqual(copiedAxis.initial_parameters, reuseAxis.initial_parameters);
+assert.equal(copiedAxis.direction_reversed, true);
+for (const [node, original] of [[copiedAxis, reuseAxis], [copiedAxial, reuseAxial],
+  [copiedClock, reuseClock]]) {
+  assert.deepEqual(node.placement, {
+    reuse: constrainedReuse.id, source: original.id, target_selection: 'b',
+  });
+  assert.ok(nodeReferences(node).includes(constrainedReuse.id));
+  assert.ok(nodeReferences(node).includes(original.id));
+  assert.ok(nodeReferences(node).includes('b'));
+}
+assert.equal(copiedAxial.axis, copiedAxis.id);
+assert.equal(copiedClock.axis, copiedAxis.id);
+assert.equal(copiedClock.construction, 'parallel_to_axis');
+assert.equal(copiedClock.offset, reuseClock.offset);
+assert.equal(copied(constrainedResult, 'fit', 'b', reuseOuter.id).axis, copiedAxis.id);
+assert.equal(copied(constrainedResult, 'fit', 'b', reuseBore.id).axis, copiedAxis.id);
+assert.equal(copied(constrainedResult, 'fit', 'b', reuseFlat.id).reference_plane, copiedClock.id);
+assert.equal(copied(constrainedResult, 'fit', 'b', reuseShoulder.id).reference_plane, copiedAxial.id);
+for (const relationship of reusableRelationships) {
+  const generatedRelationship = copied(constrainedResult, 'relationship', 'b', relationship.id);
+  assert.ok(generatedRelationship);
+  const refs = nodeReferences(generatedRelationship);
+  assert.ok(refs.length);
+  assert.ok(refs.every((id) => constrainedResult.nodes.find((node) => node.id === id)
+    .managed_by === constrainedReuse.id));
+}
+assert.equal(copied(constrainedResult, 'relationship', 'b', 'reuse-mirror').symmetric_extents, false);
+assert.equal(copied(constrainedResult, 'relationship', 'b', 'reuse-equal').right.reference_plane,
+  copiedAxial.id);
+assert.equal(copied(constrainedResult, 'relationship', 'b', 'reuse-solve').free_axis, true);
+const stableReuse = reconcileFeatureReuse(constrainedResult.nodes, constrainedReuse.id, {}, () => {
+  throw new Error('Idempotent reconciliation must not allocate IDs');
+});
+assert.equal(stableReuse.error, undefined);
+assert.deepEqual(stableReuse.nodes, constrainedResult.nodes);
+assert.deepEqual(stableReuse.generatedIds, []);
+
+const withThirdTarget = reconcileFeatureReuse(stableReuse.nodes, constrainedReuse.id,
+  { target_selections: ['b', 'c'] }, (prefix) => `${prefix}-third-${++sequence}`);
+assert.equal(withThirdTarget.error, undefined);
+for (const existing of constrainedResult.nodes.filter((node) => node.managed_by === constrainedReuse.id))
+  assert.ok(withThirdTarget.nodes.some((node) => node.id === existing.id && node.label === existing.label));
+assert.notEqual(copied(withThirdTarget, 'datum', 'c', reuseAxis.id).id, copiedAxis.id);
+assert.equal(copied(withThirdTarget, 'fit', 'c', reuseFlat.id).reference_plane,
+  copied(withThirdTarget, 'datum', 'c', reuseClock.id).id);
+const withoutFirstTarget = reconcileFeatureReuse(withThirdTarget.nodes, constrainedReuse.id,
+  { target_selections: ['c'] }, () => { throw new Error('Remaining target must retain all IDs'); });
+assert.equal(withoutFirstTarget.error, undefined);
+assert.ok(!withoutFirstTarget.nodes.some((node) => node.managed_key?.startsWith('datum/b/')));
+assert.ok(!withoutFirstTarget.nodes.some((node) => node.managed_key?.startsWith('relationship/b/')));
+assert.ok(withoutFirstTarget.removedIds.includes(copiedAxis.id));
+assert.ok(withoutFirstTarget.removedIds.includes(copiedClock.id));
+assert.equal(copied(withoutFirstTarget, 'datum', 'c', reuseAxis.id).id,
+  copied(withThirdTarget, 'datum', 'c', reuseAxis.id).id);
+const protectedDatum = reconcileFeatureReuse([...withThirdTarget.nodes,
+  { id: 'user-plane', label: 'User plane', operation: 'reference_plane', axis: copiedAxis.id }],
+constrainedReuse.id, { target_selections: ['c'] }, () => { throw new Error('No new target'); });
+assert.match(protectedDatum.error, /User plane/);
+const protectedFit = reconcileFeatureReuse([...withThirdTarget.nodes,
+  { id: 'user-face', label: 'User face', operation: 'arranged_face',
+    surface: { feature: copied(constrainedResult, 'fit', 'b', reuseFlat.id).id },
+    cutters: [], domains: [] }], constrainedReuse.id, { target_selections: ['c'] },
+() => { throw new Error('No new target'); });
+assert.match(protectedFit.error, /User face/);
+
+const axisInitializer = { ...fit, id: 'axis-initializer', label: 'Initializer' },
+  initializedAxis = { id: 'fit-derived-axis', label: 'Fit-derived axis', operation: 'axis',
+    source_fit: axisInitializer.id, direction_reversed: false },
+  axisBoundFit = { ...fit, id: 'axis-bound-fit', label: 'Bound', axis: initializedAxis.id },
+  initializerNodes = [source, a, b, axisInitializer, initializedAxis, axisBoundFit,
+    { ...constrainedReuse, fits: [axisInitializer.id, axisBoundFit.id],
+      equal_corresponding_dimensions: false }],
+  initializerResult = reconcileFeatureReuse(initializerNodes, constrainedReuse.id, {},
+    (prefix) => `${prefix}-initializer-${++sequence}`);
+assert.equal(initializerResult.error, undefined);
+assert.equal(copied(initializerResult, 'datum', 'b', initializedAxis.id).placement, undefined);
+assert.equal(copied(initializerResult, 'datum', 'b', initializedAxis.id).source_fit,
+  copied(initializerResult, 'fit', 'b', axisInitializer.id).id);
+const omittedInitializer = reconcileFeatureReuse(initializerNodes, constrainedReuse.id,
+  { fits: [axisBoundFit.id] }, () => 'unused');
+assert.match(omittedInitializer.error, /Include Initializer/);
+const pointPairReuse = reconcileFeatureReuse([
+  source, a, b, { id: 'pa', label: 'First point', operation: 'point' },
+  { id: 'pb', label: 'Second point', operation: 'point' },
+  { ...initializedAxis, source_fit: null, source_points: ['pa', 'pb'] }, axisBoundFit,
+  { ...constrainedReuse, fits: [axisBoundFit.id], equal_corresponding_dimensions: false },
+], constrainedReuse.id, {}, () => 'unused');
+assert.ok(pointPairReuse.error);
 
 const legacyOwnerNodes = [source, a, b, c, fit, reuse, reusedSelection, inferredFit, loose];
 assert.deepEqual(ids(actionMove(legacyOwnerNodes, 'reuse', legacyOwnerNodes.length)),

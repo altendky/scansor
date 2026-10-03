@@ -166,12 +166,14 @@ def test_invalid_face_regions_fail(
         _ = trimmed_face(surface, uses, np.empty((0, 3)))
 
 
-def test_nonconcentric_boundaries_are_not_silently_moved() -> None:
+def test_nonconcentric_boundaries_retain_their_actual_centers() -> None:
     first = boundary(side(2), 2, "outside", "first")
     second = boundary(side(4), 2, "inside", "second")
     second[1]["center_display"][0] += 0.1
-    with pytest.raises(ValueError, match="nonconcentric"):
-        _ = trimmed_face(plane(), [first, second], np.empty((0, 3)))
+    result = trimmed_face(plane(), [first, second], np.empty((0, 3)))
+    assert result["bounded"]
+    assert result["bounds"]["loops"][0]["center_display"] == second[1]["center_display"]
+    assert result["bounds"]["loops"][1]["center_display"] == first[1]["center_display"]
 
 
 def test_incomplete_face_has_null_endpoint_and_display_only_coverage() -> None:
