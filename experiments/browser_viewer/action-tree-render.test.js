@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionDescription, featureIcon, featureTreePresentation, iconPickerIndex, renderIconPicker, renderActionTree } from './action-tree.js';
+import { actionDescription, featureIcon, featureTreePresentation, iconPickerIndex, renderIconPicker, renderActionTree, relationshipParticipantChoices, renderRelationshipParticipants, treeDragScrollSpeed } from './action-tree.js';
 import { fitQualities } from './residual-display.js';
 
 // This is deliberately just the DOM surface used by the tree renderer, not a
@@ -25,6 +25,9 @@ class Element {
       },
     };
     this.clientHeight = 30;
+    this.scrollTop = 0;
+    this.scrollHeight = 30;
+    this.listeners = new Map();
   }
   set className(value) { this.classes = new Set(value.split(/\s+/).filter(Boolean)); }
   get className() { return [...this.classes].join(' '); }
@@ -40,6 +43,7 @@ class Element {
   replaceChildren(...children) { this.children = []; this.append(...children); }
   matches(selector) {
     if (selector === ':popover-open') return !!this.popoverOpen;
+    if (selector === '[data-participant-id]') return this.dataset.participantId !== undefined;
     return selector.split(',').some((part) => {
       const value = part.trim();
       return value.startsWith('.') ? this.classes.has(value.slice(1)) : this.tagName === value;
@@ -54,7 +58,16 @@ class Element {
   contains(element) {
     return element === this || this.children.some((child) => child.contains(element));
   }
-  getBoundingClientRect() { return { top: 100, left: 20, bottom: 130, width: 280, height: 30 }; }
+  getBoundingClientRect() { return { top: 100, left: 20, right: 300, bottom: 130, width: 280, height: 30 }; }
+  addEventListener(name, handler) {
+    if (!this.listeners.has(name)) this.listeners.set(name, new Set());
+    this.listeners.get(name).add(handler);
+  }
+  removeEventListener(name, handler) { this.listeners.get(name)?.delete(handler); }
+  emit(name, event = {}) { for (const handler of this.listeners.get(name) || []) handler(event); }
+  setPointerCapture(id) { this.captured = id; }
+  hasPointerCapture(id) { return this.captured === id; }
+  releasePointerCapture(id) { if (this.captured === id) this.captured = null; }
   focus() { globalThis.document.activeElement = this; }
   showPopover() { this.popoverOpen = true; }
   hidePopover() { this.popoverOpen = false; }
@@ -63,7 +76,7 @@ class Element {
 
 function event(target, options = {}) {
   return {
-    target, clientY: 105, prevented: false, stopped: false,
+    target, button: 0, pointerId: 1, clientX: 50, clientY: 105, prevented: false, stopped: false,
     preventDefault() { this.prevented = true; },
     stopPropagation() { this.stopped = true; },
     dataTransfer: { setData() {}, setDragImage() {} },
@@ -82,6 +95,107 @@ const face = { id: 'face', label: 'Wall face', operation: 'trimmed_face', surfac
   boundaries: [{ intersection: 'edge', keep: 'positive' }], managed_by: 'batch', managed_key: 'face' };
 const point = (id, group_id = null) => ({ id, label: id, operation: 'point', group_id });
 const base = [source, cylinder, plane, owner, edge, face, point('other')];
+
+test('relationship choices only expose physical fits and required datums, not graph contexts', () => {
+  const sphere = { id: 'ball', operation: 'fit', kind: 'sphere' },
+    bound = { ...cylinder, id: 'bound', axis: 'axis' },
+    boundPlane = { ...plane, id: 'bound-plane', reference_plane: 'datum' },
+    datum = { id: 'datum', operation: 'reference_plane', construction: 'contains_axis', axis: 'axis' },
+    axial = { ...datum, id: 'axial', construction: 'perpendicular_to_axis' },
+    nodes = [...base, sphere, bound, boundPlane, datum, axial];
+  const ids = (kind, selected) => relationshipParticipantChoices(nodes, kind, selected).map(({ node }) => node.id);
+  assert.deepEqual(ids(null), ['wall', 'shoulder', 'ball', 'bound', 'bound-plane', 'datum', 'axial']);
+  assert.deepEqual(ids('coincident_planes'), ['shoulder', 'bound-plane']);
+  assert.deepEqual(ids('parallel_planes'), ['shoulder', 'bound-plane']);
+  assert.deepEqual(ids('equal_radii'), ['wall', 'ball', 'bound']);
+  assert.deepEqual(ids('mirror'), ['wall', 'shoulder', 'datum']);
+  assert.deepEqual(ids('radius_plane_distance'), ['shoulder', 'bound', 'datum', 'axial']);
+  const retained = relationshipParticipantChoices(nodes, 'equal_radii', new Set(['shoulder']));
+  assert.equal(retained.find(({ node }) => node.id === 'shoulder').compatible, false);
+  assert.equal(retained.find(({ node }) => node.id === 'wall').compatible, true);
+});
+
+test('relationship rows support icon labels, selection, hover/keyboard inspection, focus and stable list position', () => {
+  fixture();
+  const container = new Element('div'), selected = new Set(['shoulder']), calls = [];
+  const choices = [
+    { id: 'shoulder', name: 'Shoulder', detail: 'Plane fit', icon: 'plane', compatible: true },
+    { id: 'wall', name: 'Wall', detail: 'Cylinder fit', icon: 'cylinder', compatible: true },
+  ];
+  const render = (locked = false) => renderRelationshipParticipants(container, {
+    choices, selected, locked: () => locked,
+    change: (id, include) => { if (include) selected.add(id); else selected.delete(id); },
+    inspect: (id) => calls.push(['inspect', id]), focus: (id) => calls.push(['focus', id]),
+  });
+  render();
+  const [shoulder, wall] = container.children;
+  assert.equal(shoulder.classList.contains('participant-selected'), true);
+  assert.equal(wall.children[0].children[1].tagName, 'svg');
+  assert.equal(wall.dataset.search, 'wall cylinder fit');
+  wall.onpointerenter();
+  wall.onpointerleave();
+  const checkbox = wall.children[0].children[0];
+  checkbox.focus();
+  wall.onfocusin();
+  wall.onpointerleave(); // Keyboard focus retains the inspection.
+  wall.onfocusout({ relatedTarget: null });
+  checkbox.checked = true;
+  checkbox.onchange();
+  assert.equal(selected.has('wall'), true);
+  assert.equal(wall.classList.contains('participant-selected'), true);
+  wall.children[1].onclick();
+  assert.deepEqual(calls, [
+    ['inspect', 'wall'], ['inspect', null], ['inspect', 'wall'], ['inspect', null], ['focus', 'wall'],
+  ]);
+  container.scrollTop = 140;
+  render();
+  assert.equal(container.scrollTop, 140);
+  assert.equal(document.activeElement.dataset.participantId, 'wall');
+  assert.notEqual(document.activeElement, checkbox);
+  render(true);
+  const lockedCheckbox = container.children[1].children[0].children[0];
+  lockedCheckbox.checked = false;
+  lockedCheckbox.onchange();
+  assert.equal(lockedCheckbox.checked, true);
+  assert.equal(selected.has('wall'), true);
+});
+
+test('incompatible retained relationship participants can only be removed', () => {
+  fixture();
+  const container = new Element('div'), selected = new Set(['shoulder']);
+  renderRelationshipParticipants(container, {
+    choices: [{ id: 'shoulder', name: 'Shoulder', detail: 'Plane fit · incompatible', icon: 'plane', compatible: false }],
+    selected, inspect: () => {}, focus: () => {},
+    change: (id) => selected.delete(id),
+  });
+  const checkbox = container.children[0].children[0].children[0];
+  assert.equal(checkbox.disabled, false);
+  checkbox.checked = false;
+  checkbox.onchange();
+  assert.equal(selected.size, 0);
+  assert.equal(checkbox.disabled, true);
+});
+
+test('relationship inspection preserves focus and hover on different participants', () => {
+  fixture();
+  const container = new Element('div'), inspections = [];
+  renderRelationshipParticipants(container, {
+    choices: ['shoulder', 'wall'].map((id) => ({ id, name: id, detail: 'Fit', icon: 'plane', compatible: true })),
+    selected: new Set(), change: () => {}, focus: () => {},
+    inspect: (id) => inspections.push(id),
+  });
+  const [shoulder, wall] = container.children;
+  shoulder.children[0].children[0].focus();
+  shoulder.onfocusin();
+  wall.onpointerenter();
+  wall.onpointerleave();
+  assert.deepEqual(inspections, ['shoulder', 'wall', 'shoulder']);
+  wall.onpointerenter();
+  shoulder.onfocusout({ relatedTarget: null });
+  assert.equal(inspections.at(-1), 'wall');
+  wall.onpointerleave();
+  assert.equal(inspections.at(-1), null);
+});
 
 function fixture(nodes = base, groups = []) {
   globalThis.document = {
@@ -111,6 +225,143 @@ function fixture(nodes = base, groups = []) {
   state.render();
   return state;
 }
+
+function dragFixture(t) {
+  const previousRequest = globalThis.requestAnimationFrame, previousCancel = globalThis.cancelAnimationFrame;
+  const frames = new Map();
+  let sequence = 0;
+  globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  t.after(() => {
+    globalThis.requestAnimationFrame = previousRequest;
+    globalThis.cancelAnimationFrame = previousCancel;
+  });
+  const state = fixture([source, point('a'), point('b'), point('c'), point('d')]);
+  state.list.scrollHeight = 800;
+  state.list.scrollTop = 100;
+  document.elementFromPoint = () => state.row(state.list.scrollTop >= 110 ? 'd' : 'b');
+  const grip = state.grip('a');
+  const start = (y = 125) => {
+    grip.onpointerdown(event(grip));
+    grip.onpointermove(event(grip, { clientY: y }));
+  };
+  const tick = (time) => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach((callback) => callback(time));
+  };
+  t.after(() => state.render());
+  return { state, grip, start, tick, frames };
+}
+
+test('tree edge scrolling scales with proximity and stops outside or in the middle', () => {
+  const bounds = { top: 100, bottom: 300 };
+  assert.equal(treeDragScrollSpeed(200, bounds), 0);
+  assert.equal(treeDragScrollSpeed(99, bounds), 0);
+  assert.equal(treeDragScrollSpeed(301, bounds), 0);
+  assert.equal(treeDragScrollSpeed(100, bounds), -650);
+  assert.equal(treeDragScrollSpeed(300, bounds), 650);
+  assert.equal(treeDragScrollSpeed(124, bounds), -325);
+  assert.equal(treeDragScrollSpeed(276, bounds), 325);
+  assert.equal(treeDragScrollSpeed(0, { top: 0, bottom: 0 }), 0);
+});
+
+test('pointer dragging autoscrolls continuously and drops at the freshly revealed target', async (t) => {
+  const { state, grip, start, tick, frames } = dragFixture(t);
+  start(129);
+  assert.equal(state.row('b').classList.contains('drop-after'), true);
+  tick(16);
+  tick(32);
+  assert.ok(state.list.scrollTop > 110);
+  assert.equal(state.row('b').classList.contains('drop-after'), false);
+  assert.equal(state.row('d').classList.contains('drop-after'), true);
+  grip.onpointerup(event(grip, { clientY: 129 }));
+  await settle();
+  assert.deepEqual(state.ids(), ['source', 'b', 'c', 'd', 'a']);
+  assert.equal(frames.size, 0);
+  assert.equal(grip.hasPointerCapture(1), false);
+});
+
+test('wheel scrolling remains native during dragging and refreshes the drop target', async (t) => {
+  const { state, grip, start, tick } = dragFixture(t);
+  start(129);
+  const wheel = event(state.list, { deltaY: 300, deltaMode: 1 });
+  state.list.emit('wheel', wheel);
+  assert.equal(wheel.prevented, false);
+  state.list.scrollTop = 400; // Native browser scrolling, including line/page mode.
+  state.list.emit('scroll');
+  assert.equal(state.row('d').classList.contains('drop-after'), true);
+  tick(performance.now());
+  assert.equal(state.list.scrollTop, 400); // Auto-scroll yields to the wheel.
+  grip.onpointerup(event(grip, { clientY: 129 }));
+  await settle();
+  assert.deepEqual(state.ids(), ['source', 'b', 'c', 'd', 'a']);
+});
+
+test('top-edge scrolling moves upward and stops at the content boundary', (t) => {
+  const { state, grip, start, tick, frames } = dragFixture(t);
+  start(129);
+  grip.onpointermove(event(grip, { clientY: 101 }));
+  tick(16);
+  assert.ok(state.list.scrollTop < 100);
+  state.list.scrollTop = 0;
+  tick(32);
+  assert.equal(state.list.scrollTop, 0);
+  assert.equal(frames.size, 0);
+  grip.onpointercancel();
+  assert.equal(state.moves.length, 0);
+});
+
+test('drag scrolling stops on cancellation, leaving, locks and tree replacement', (t) => {
+  const { state, grip, start, tick, frames } = dragFixture(t);
+  start(129);
+  grip.onpointermove(event(grip, { clientY: 160 }));
+  tick(16);
+  assert.equal(state.list.scrollTop, 100);
+  assert.equal(frames.size, 0);
+  assert.equal(state.row('b').classList.contains('drop-after'), false);
+  grip.onpointermove(event(grip, { clientY: 129 }));
+  assert.ok(frames.size > 0);
+  grip.onpointercancel();
+  assert.equal(frames.size, 0);
+  assert.equal(state.list.classList.contains('feature-reordering'), false);
+  start(129);
+  state.locked = true;
+  tick(32);
+  assert.equal(frames.size, 0);
+  assert.equal(grip.hasPointerCapture(1), false);
+  state.locked = false;
+  start(129);
+  state.render();
+  assert.equal(frames.size, 0);
+  assert.equal(grip.hasPointerCapture(1), false);
+  grip.onpointerup(event(grip, { clientY: 129 }));
+  assert.equal(state.moves.length, 0);
+  assert.equal(state.list.listeners.get('scroll').size, 1);
+  assert.equal(state.list.listeners.get('wheel').size, 1);
+});
+
+test('a grip click below the drag threshold does not reorder', (t) => {
+  const { state, grip, start, frames } = dragFixture(t);
+  start(107);
+  grip.onpointerup(event(grip, { clientY: 107 }));
+  assert.equal(state.moves.length, 0);
+  assert.equal(frames.size, 0);
+});
+
+test('a pending edit prevents dropping a drag after scrolling has stopped', (t) => {
+  const { state, grip, start, tick, frames } = dragFixture(t);
+  start(115);
+  tick(16);
+  assert.equal(frames.size, 0);
+  assert.equal(state.row('b').classList.contains('drop-before'), true);
+  state.locked = true;
+  grip.onpointerup(event(grip, { clientY: 115 }));
+  assert.equal(state.moves.length, 0);
+  assert.equal(grip.hasPointerCapture(1), false);
+  assert.equal(state.list.classList.contains('feature-reordering'), false);
+  assert.equal(state.row('b').classList.contains('drop-before'), false);
+});
 
 test('ordinary and managed-owner rows expose pointer and keyboard context menus', () => {
   const state = fixture();

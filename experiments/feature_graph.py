@@ -922,8 +922,10 @@ def automatic_equal_radius_components(
 
 def automatic_plane_relationship_components(
     nodes: dict[str, Feature],
+    *,
+    include_radii: bool = True,
 ) -> dict[str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]]:
-    """Connected exact plane relationships evaluated as one constraint system."""
+    """Relationships join through shared geometry, not just plane feature IDs."""
     relationships = [
         node for node in nodes.values() if isinstance(node, PlaneRelationship)
     ]
@@ -932,6 +934,30 @@ def automatic_plane_relationship_components(
     components: dict[
         str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
     ] = {}
+
+    def linked_datums(surface_ids: set[str]) -> tuple[set[str], set[str]]:
+        axes = {
+            axis
+            for key in surface_ids
+            if (axis := fit_axis(cast(SurfaceFit, nodes[key]), nodes)) is not None
+        }
+        points = {
+            point
+            for key in surface_ids
+            if (point := cast(SurfaceFit, nodes[key]).point) is not None
+        }
+        axes.update(
+            node.id
+            for node in nodes.values()
+            if isinstance(node, AxisDefinition) and node.source_fit in surface_ids
+        )
+        points.update(
+            node.id
+            for node in nodes.values()
+            if isinstance(node, PointDefinition) and node.source_fit in surface_ids
+        )
+        return axes, points
+
     while pending:
         first = next(
             relationship.id
@@ -941,6 +967,19 @@ def automatic_plane_relationship_components(
         relation_ids = {first}
         surface_ids = set(by_id[first].surfaces)
         while True:
+            axes, points = linked_datums(surface_ids)
+            surface_ids.update(
+                node.id
+                for node in nodes.values()
+                if isinstance(node, SurfaceFit)
+                and (fit_axis(node, nodes) in axes or node.point in points)
+            )
+            if include_radii:
+                for node in nodes.values():
+                    if isinstance(node, EqualRadii) and surface_ids.intersection(
+                        node.surfaces
+                    ):
+                        surface_ids.update(node.surfaces)
             connected = {
                 relationship.id
                 for relationship in relationships
@@ -952,7 +991,22 @@ def automatic_plane_relationship_components(
                 for relationship_id in connected | relation_ids
                 for surface in by_id[relationship_id].surfaces
             }
-            if connected <= relation_ids and expanded_surfaces == surface_ids:
+            expanded_surfaces.update(surface_ids)
+            expanded_axes, expanded_points = linked_datums(expanded_surfaces)
+            complete = all(
+                not isinstance(node, SurfaceFit)
+                or (
+                    fit_axis(node, nodes) not in expanded_axes
+                    and node.point not in expanded_points
+                )
+                or node.id in expanded_surfaces
+                for node in nodes.values()
+            )
+            if (
+                connected <= relation_ids
+                and expanded_surfaces == surface_ids
+                and complete
+            ):
                 break
             relation_ids.update(connected)
             surface_ids.update(expanded_surfaces)
@@ -967,7 +1021,25 @@ def automatic_plane_relationship_components(
             for node_id in nodes
             if node_id in surface_ids
         ]
-        members = {*relation_ids, *surface_ids}
+        axes, points = linked_datums(surface_ids)
+        members = {
+            *relation_ids,
+            *surface_ids,
+            *axes,
+            *points,
+            *(
+                node.id
+                for node in nodes.values()
+                if isinstance(node, PlaneDefinition) and node.axis in axes
+            ),
+            *(
+                node.id
+                for node in nodes.values()
+                if include_radii
+                and isinstance(node, EqualRadii)
+                and set(node.surfaces) <= surface_ids
+            ),
+        }
         for relationship_id in relation_ids:
             components[relationship_id] = (
                 component_relationships,
@@ -986,6 +1058,7 @@ class PriorGeometrySolve:
     planes: list[PlaneRelationship]
     radii: EqualRadii | None
     excluded: set[str]
+    radius_groups: tuple[EqualRadii, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1023,16 +1096,25 @@ def prior_stage_exclusions(node: Feature, nodes: dict[str, Feature]) -> set[str]
     They must not feed back into the source geometry that generated those same
     memberships. Other resolved source relationships still participate.
     """
-    if not isinstance(node, ReuseSelection):
+    if isinstance(node, ReuseSelection):
+        reuse = node.reuse
+    elif (
+        isinstance(node, (AxisDefinition, PlaneDefinition))
+        and node.placement is not None
+    ):
+        reuse = node.placement.reuse
+    else:
         return set()
-    after = reuse_transfer_descendants(node.reuse, nodes)
+    after = reuse_transfer_descendants(reuse, nodes)
     excluded = {
         candidate.id
         for candidate in nodes.values()
         if isinstance(candidate, EqualRadii) and candidate.id in after
     }
-    for relations, _, _ in automatic_plane_relationship_components(nodes).values():
-        if any(relation.id in after for relation in relations):
+    for relations, _, members in automatic_plane_relationship_components(
+        nodes
+    ).values():
+        if members.intersection(after):
             excluded.update(relation.id for relation in relations)
     return excluded
 
@@ -1116,13 +1198,13 @@ def compile_execution_plan(
         solves[task] = ("planes", first)
         plane_ids = {plane.id for plane in planes}
         relation_ids = {relation.id for relation in relations}
-        task_dependencies[task] = plane_ids.copy()
+        task_dependencies[task] = plane_components[first][2] - relation_ids
         reads[task] = plane_ids
-        aliases[task] = plane_ids | relation_ids
+        aliases[task] = plane_components[first][2].copy()
         for relation in relations:
             task_dependencies[relation.id].add(task)
-        for plane in planes:
-            providers.setdefault(plane.id, set()).update(relation_ids)
+        for output in aliases[task] - relation_ids:
+            providers.setdefault(output, set()).update(relation_ids)
 
     for node in recipe.nodes:
         if (
@@ -1176,12 +1258,18 @@ def compile_execution_plan(
         if not excluded:
             continue
         after = reuse_transfer_descendants(node.reuse, nodes)
-        prior_nodes = {
-            key: value
-            for key, value in nodes.items()
-            if not isinstance(value, PlaneRelationship) or key not in after
-        }
-        for relations, surfaces, _ in automatic_plane_relationship_components(
+        prior_nodes: dict[str, Feature] = {}
+        joint_prior_radii: set[str] = set()
+        for key, value in nodes.items():
+            if isinstance(value, (PlaneRelationship, SurfaceFit)) and key in after:
+                continue
+            if isinstance(value, EqualRadii):
+                prior_members = [ref for ref in value.surfaces if ref not in after]
+                if len(prior_members) < 2:
+                    continue
+                value = value.model_copy(update={"surfaces": prior_members})
+            prior_nodes[key] = value
+        for relations, surfaces, members in automatic_plane_relationship_components(
             prior_nodes
         ).values():
             if node.fit not in {
@@ -1189,13 +1277,29 @@ def compile_execution_plan(
             } or not excluded.intersection(relation.id for relation in relations):
                 continue
             task = "@reuse_planes/" + node.reuse + "/" + relations[0].id
-            prior_solves[task] = PriorGeometrySolve(
-                node.reuse, surfaces, relations, None, excluded
+            surface_ids = {surface.id for surface in surfaces}
+            radius_groups = tuple(
+                relation
+                for relation in prior_nodes.values()
+                if isinstance(relation, EqualRadii)
+                and set(relation.surfaces) <= surface_ids
             )
-            task_dependencies[task] = {surface.id for surface in surfaces}
-            reads[task] = task_dependencies[task].copy()
+            prior_solves[task] = PriorGeometrySolve(
+                node.reuse, surfaces, relations, None, excluded, radius_groups
+            )
+            joint_prior_radii.update(relation.id for relation in radius_groups)
+            task_dependencies[task] = (
+                members
+                - {relation.id for relation in relations}
+                - {relation.id for relation in radius_groups if relation.id in excluded}
+            )
+            reads[task] = {surface.id for surface in surfaces}
             task_dependencies[node.id].add(task)
         for key in excluded:
+            if key in joint_prior_radii:
+                # The joint prior port already satisfies this radius equality.
+                # A later independent radius overlay would restore old axes.
+                continue
             relation = nodes[key]
             if (
                 not isinstance(relation, EqualRadii)
@@ -1225,6 +1329,16 @@ def compile_execution_plan(
         excluded = {task}
         if task in nodes:
             excluded.update(prior_stage_exclusions(nodes[task], nodes))
+            node = nodes[task]
+            if isinstance(node, EqualRadii):
+                excluded.update(
+                    relation.id
+                    for relations, surfaces, _ in plane_components.values()
+                    if set(node.surfaces).intersection(
+                        surface.id for surface in surfaces
+                    )
+                    for relation in relations
+                )
         if task in prior_solves:
             excluded.update(prior_solves[task].excluded)
         if task in solves and solves[task][0] == "planes":
@@ -3010,7 +3124,9 @@ class FeatureGraph:
                 ):
                     continue
                 relationship = self._derived.get(node.id, {})
-                for fit_id, surface in relationship.get("surfaces", {}).items():
+                for fit_id, surface in relationship.get(
+                    "resolved", relationship.get("surfaces", {})
+                ).items():
                     resolved[fit_id] = deepcopy(surface)
             return {
                 "recipe": self._recipe.model_dump(),
@@ -3622,17 +3738,16 @@ class FeatureGraph:
                             )
                             if node_id in adjusted:
                                 value = deepcopy(adjusted[node_id])
-                    for relationship in recipe.nodes:
-                        if (
-                            isinstance(relationship, PlaneRelationship)
-                            and relationship.id not in (excluded or set())
-                            and self._states.get(relationship.id) == "ready"
-                        ):
-                            adjusted = self._derived.get(relationship.id, {}).get(
-                                "surfaces", {}
-                            )
-                            if node_id in adjusted:
-                                value = deepcopy(adjusted[node_id])
+                for relationship in recipe.nodes:
+                    if (
+                        isinstance(relationship, PlaneRelationship)
+                        and relationship.id not in (excluded or set())
+                        and self._states.get(relationship.id) == "ready"
+                    ):
+                        context = self._derived.get(relationship.id, {})
+                        adjusted = context.get("resolved", context.get("surfaces", {}))
+                        if node_id in adjusted:
+                            value = deepcopy(adjusted[node_id])
                 return value
 
         def referenced_surface(reference: SurfaceReference) -> dict[str, Any]:
@@ -3642,7 +3757,9 @@ class FeatureGraph:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during boundary evaluation")
                 context = (
-                    self._results.get(reference.feature)
+                    resolved_result(reference.feature)
+                    if isinstance(nodes[reference.feature], EqualRadii)
+                    else self._results.get(reference.feature)
                     or self._derived[reference.feature]
                 )
                 surfaces = context.get("surfaces")
@@ -3761,6 +3878,235 @@ class FeatureGraph:
                 np.asarray(point_result["point_display"], dtype=float),
             )
 
+        def solve_plane_component(
+            relations: list[PlaneRelationship],
+            surfaces: list[SurfaceFit],
+            excluded: set[str],
+            *,
+            include_radii: bool = True,
+            radius_groups: tuple[EqualRadii, ...] | None = None,
+        ) -> dict[str, Any]:
+            if not any(fit_axis(surface, nodes) for surface in surfaces):
+                return fit_plane_relationships(
+                    self.workspace,
+                    relations,
+                    surfaces,
+                    [resolved_result(surface.id, excluded) for surface in surfaces],
+                    [fitted_ids(surface) for surface in surfaces],
+                )
+            from experiments.fit_relationship_component import (
+                AxisInput,
+                PointInput,
+                SurfaceInput,
+                fit_relationship_component,
+            )
+
+            axis_ids = dict.fromkeys(
+                axis
+                for surface in surfaces
+                if (axis := fit_axis(surface, nodes)) is not None
+            )
+            axes = {
+                key: AxisInput(
+                    resolved_result(key, excluded),
+                    key in connected_components and key not in plan.explicit_axes,
+                )
+                for key in axis_ids
+            }
+            point_ids = dict.fromkeys(
+                surface.point for surface in surfaces if surface.point is not None
+            )
+            centers = {
+                key: PointInput(resolved_result(key, excluded), key in point_components)
+                for key in point_ids
+            }
+            inputs: list[SurfaceInput] = []
+            for surface in surfaces:
+                ids = fitted_ids(surface)
+                reference = (
+                    initialized_plane(
+                        cast(PlaneDefinition, nodes[surface.reference_plane]),
+                        derived_result(surface.reference_plane),
+                    )
+                    if surface.reference_plane
+                    else None
+                )
+                value = resolved_result(surface.id, excluded)
+                axis_id = fit_axis(surface, nodes)
+                point_id = surface.point
+                if axis_id is None and surface.kind in {"cylinder", "cone"}:
+                    axis_id = "@" + surface.id
+                    p = np.asarray(value["parameters"])
+                    direction = np.array([p[2], p[3], 1.0])
+                    direction /= np.linalg.norm(direction)
+                    axes[axis_id] = AxisInput(
+                        {
+                            "parameters": p.tolist(),
+                            "axis_display": direction.tolist(),
+                            "point_display": [p[0], p[1], 0.0],
+                        },
+                        True,
+                    )
+                if point_id is None and surface.kind == "sphere":
+                    point_id = "@" + surface.id
+                    centers[point_id] = PointInput(
+                        {"point_display": value["parameters"][:3]}, True
+                    )
+                inputs.append(
+                    SurfaceInput(
+                        surface.id,
+                        surface.kind,
+                        self.workspace.local[ids],
+                        self.workspace.data.weights[ids],
+                        value,
+                        axis_id,
+                        surface.reference_plane,
+                        reference.construction
+                        if reference
+                        else "perpendicular_to_axis",
+                        point_id,
+                    )
+                )
+            surface_ids = {surface.id for surface in surfaces}
+            # Publish source-fit datums even when no member fit uses them. Their
+            # raw initialization remains an input; consumers get final geometry.
+            for node in recipe.nodes:
+                if isinstance(node, AxisDefinition) and node.source_fit in surface_ids:
+                    _ = axes.setdefault(
+                        node.id, AxisInput(derived_result(node.id), False)
+                    )
+                if isinstance(node, PointDefinition) and node.source_fit in surface_ids:
+                    _ = centers.setdefault(
+                        node.id, PointInput(derived_result(node.id), False)
+                    )
+            for key, axis in list(axes.items()):
+                axis_node = nodes.get(key)
+                if (
+                    isinstance(axis_node, AxisDefinition)
+                    and axis_node.source_fit in surface_ids
+                ):
+                    source = next(
+                        item for item in inputs if item.id == axis_node.source_fit
+                    )
+                    if source.axis is None:
+                        raise ValueError(
+                            "coupled axis initializer must be a lateral fit"
+                        )
+                    axes[key] = AxisInput(axis.result, False, source.axis)
+            for key, center in list(centers.items()):
+                point_node = nodes.get(key)
+                if (
+                    isinstance(point_node, PointDefinition)
+                    and point_node.source_fit in surface_ids
+                ):
+                    source = next(
+                        item for item in inputs if item.id == point_node.source_fit
+                    )
+                    if source.point is None:
+                        raise ValueError(
+                            "coupled point initializer must be a sphere fit"
+                        )
+                    centers[key] = PointInput(center.result, False, source.point)
+            equal_radii = [
+                node
+                for node in recipe.nodes
+                if include_radii
+                and isinstance(node, EqualRadii)
+                and set(node.surfaces) <= surface_ids
+            ]
+            if radius_groups is not None:
+                equal_radii = list(radius_groups)
+            fitted = fit_relationship_component(
+                inputs,
+                axes,
+                [(relation.relation, relation.surfaces) for relation in relations],
+                [relation.surfaces for relation in equal_radii],
+                centers,
+            )
+            for key, axis in fitted["axes"].items():
+                node = nodes.get(key)
+                if isinstance(node, AxisDefinition) and node.source_fit in surface_ids:
+                    axis["parameters"] = deepcopy(
+                        fitted["surfaces"][node.source_fit]["parameters"]
+                    )
+            resolved = {
+                **fitted["surfaces"],
+                **{key: value for key, value in fitted["axes"].items() if key in nodes},
+                **{
+                    key: value
+                    for key, value in fitted["points"].items()
+                    if key in nodes
+                },
+            }
+            for node in recipe.nodes:
+                if not isinstance(node, PlaneDefinition) or node.axis not in axes:
+                    continue
+                initializer = initialized_plane(node, derived_result(node.id))
+                axis = fitted["axes"][node.axis]
+                datum = reference_plane_result(axis, initializer)
+                equation = fitted["equations"].get(node.id)
+                if equation is not None:
+                    normal = np.asarray(equation[:3])
+                    anchor = np.asarray(axis["point_display"])
+                    direction = np.asarray(axis["axis_display"])
+                    point = anchor + (equation[3] - normal @ anchor) * normal
+                    if node.construction != "perpendicular_to_axis":
+                        radial = np.cross(normal, direction)
+                        radial /= np.linalg.norm(radial)
+                        zero = reference_plane_result(
+                            axis,
+                            initializer.model_copy(
+                                update={"initial_angle_degrees": 0.0}
+                            ),
+                        )
+                        u = np.asarray(zero["basis_v_display"])
+                        v = np.cross(direction, u)
+                        datum.update(
+                            basis_u_display=direction.tolist(),
+                            basis_v_display=radial.tolist(),
+                            radial_display=radial.tolist(),
+                            angle_degrees=float(
+                                np.degrees(np.arctan2(radial @ v, radial @ u))
+                            ),
+                        )
+                    datum.update(
+                        normal_display=normal.tolist(),
+                        plane_equation=equation,
+                        point_display=point.tolist(),
+                        offset=float(equation[3] - normal @ anchor),
+                        resolved_by="plane_relationship",
+                    )
+                resolved[node.id] = datum
+            for relation in equal_radii:
+                first = fitted["surfaces"][relation.surfaces[0]]
+                radius = first["parameters"][3 if first["kind"] == "sphere" else 4]
+                resolved[relation.id] = {
+                    **deepcopy(
+                        self._derived.get(
+                            relation.id,
+                            {
+                                "format": "scansor-equal-radii-v2",
+                                "measurement": "radius",
+                            },
+                        )
+                    ),
+                    "value": radius,
+                    "surfaces": {
+                        key: fitted["surfaces"][key] for key in relation.surfaces
+                    },
+                }
+            return {
+                "format": "scansor-plane-relationships-v1",
+                "relationships": [relation.id for relation in relations],
+                "normal_display": fitted["surfaces"][relations[0].surfaces[0]][
+                    "plane_equation"
+                ][:3],
+                "surfaces": fitted["surfaces"],
+                "resolved": resolved,
+                "weighted_rms": fitted["weighted_rms"],
+                "solver": fitted["solver"],
+            }
+
         def invalidate_resolved_consumers(
             outputs: set[str], excluded: set[str], provider: str | None = None
         ) -> None:
@@ -3845,13 +4191,7 @@ class FeatureGraph:
                 elif kind == "point":
                     resolved = solve_connected_point(identifier, factors)
                 else:
-                    resolved = fit_plane_relationships(
-                        self.workspace,
-                        relations,
-                        planes,
-                        [resolved_result(plane.id, error_ids) for plane in planes],
-                        [fitted_ids(plane) for plane in planes],
-                    )
+                    resolved = solve_plane_component(relations, planes, error_ids)
             except Exception as error:
                 with self.lock:
                     if epoch == self._epoch:
@@ -4012,8 +4352,12 @@ class FeatureGraph:
                             self.workspace, stage.surfaces, inputs, ids
                         )
                     else:
-                        prior = fit_plane_relationships(
-                            self.workspace, stage.planes, stage.surfaces, inputs, ids
+                        prior = solve_plane_component(
+                            stage.planes,
+                            stage.surfaces,
+                            stage.excluded,
+                            include_radii=False,
+                            radius_groups=stage.radius_groups,
                         )
                 except Exception as error:
                     if isinstance(error, StaleGraph):
@@ -4278,7 +4622,9 @@ class FeatureGraph:
                             placement.target_selection
                         ]
                         parameters, reversed_direction = transformed_axis_initial(
-                            resolved_result(placement.source),
+                            resolved_result(
+                                placement.source, plan.read_exclusions.get(node.id)
+                            ),
                             np.asarray(match["rotation"], dtype=float),
                             np.asarray(match["translation"], dtype=float),
                         )
@@ -4347,7 +4693,9 @@ class FeatureGraph:
                             placement.target_selection
                         ]
                         initializer = transformed_plane_initial(
-                            resolved_result(placement.source),
+                            resolved_result(
+                                placement.source, plan.read_exclusions.get(node.id)
+                            ),
                             np.asarray(match["rotation"], dtype=float),
                             np.asarray(match["translation"], dtype=float),
                             axis_result,
@@ -4521,6 +4869,7 @@ class FeatureGraph:
                                     if stage.reuse == node.reuse
                                     for relation in [
                                         *stage.planes,
+                                        *stage.radius_groups,
                                         *(
                                             [stage.radii]
                                             if stage.radii is not None

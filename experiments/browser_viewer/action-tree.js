@@ -604,6 +604,96 @@ function icon(name, className = '') {
 }
 export { icon as featureIcon };
 
+// Relationship authorship uses physical fit IDs, not partial solve outputs.
+// Keep incompatible selected participants visible so changing kind is reversible.
+export function relationshipParticipantChoices(nodes, kind, selected = new Set()) {
+  const standalone = (node) => !node.axis && !node.point && !node.reference_plane;
+  const eligible = (node) => {
+    if (node.operation === 'reference_plane')
+      return !kind || kind === 'radius_plane_distance' ||
+        (kind === 'mirror' && node.construction === 'contains_axis');
+    if (node.operation !== 'fit') return false;
+    if (['coincident_planes', 'parallel_planes'].includes(kind)) return node.kind === 'plane';
+    if (kind === 'equal_radii') return ['cylinder', 'sphere'].includes(node.kind);
+    if (kind === 'mirror') return ['cone', 'cylinder', 'plane'].includes(node.kind) && standalone(node);
+    if (kind === 'radius_plane_distance')
+      return (node.kind === 'cylinder' && !!node.axis) || (node.kind === 'plane' && standalone(node));
+    return ['plane', 'cylinder', 'cone', 'sphere'].includes(node.kind);
+  };
+  return nodes.filter((node) => eligible(node) || selected.has(node.id))
+    .map((node) => ({ node, compatible: eligible(node) }));
+}
+
+export function renderRelationshipParticipants(container, {
+  choices, selected, change, inspect, focus, locked = () => false,
+}) {
+  const scroll = container.scrollTop;
+  const active = container.contains(document.activeElement) ? document.activeElement : null;
+  const activeId = active?.dataset.participantId;
+  const activeFocus = active?.dataset.participantFocus;
+  let hoveredId = null, focusedId = null, inspectedId = null;
+  const inspectActive = () => {
+    const id = hoveredId || focusedId;
+    if (id === inspectedId) return;
+    inspectedId = id;
+    inspect(id);
+  };
+  container.replaceChildren(...choices.map((choice) => {
+    const row = document.createElement('div'), label = document.createElement('label'),
+      checkbox = document.createElement('input'), text = document.createElement('span'),
+      name = document.createElement('span'), detail = document.createElement('span'),
+      focusButton = document.createElement('button');
+    row.className = 'relationship-participant';
+    row.dataset.compatible = String(choice.compatible);
+    row.dataset.search = `${choice.name} ${choice.detail}`.toLowerCase();
+    row.classList.toggle('participant-selected', selected.has(choice.id));
+    label.title = `${choice.name} — ${choice.detail}`;
+    checkbox.type = 'checkbox';
+    checkbox.checked = selected.has(choice.id);
+    checkbox.disabled = locked() || (!choice.compatible && !checkbox.checked);
+    checkbox.dataset.participantId = choice.id;
+    checkbox.setAttribute('aria-label', choice.name);
+    checkbox.onchange = () => {
+      if (locked()) { checkbox.checked = selected.has(choice.id); return; }
+      change(choice.id, checkbox.checked);
+      row.classList.toggle('participant-selected', checkbox.checked);
+      // An incompatible retained participant can be removed, not added back.
+      checkbox.disabled = !choice.compatible && !checkbox.checked;
+    };
+    text.className = 'face-candidate-text';
+    name.className = 'face-candidate-name';
+    detail.className = 'face-candidate-kind';
+    name.textContent = choice.name;
+    detail.textContent = choice.detail;
+    text.append(name, detail);
+    label.append(checkbox, icon(choice.icon, 'action-type'), text);
+    focusButton.type = 'button';
+    focusButton.textContent = 'Focus';
+    focusButton.dataset.participantId = choice.id;
+    focusButton.dataset.participantFocus = 'true';
+    focusButton.setAttribute('aria-label', `Focus ${choice.name}`);
+    focusButton.onclick = () => focus(choice.id);
+    row.onpointerenter = () => { hoveredId = choice.id; inspectActive(); };
+    row.onpointerleave = () => {
+      if (hoveredId === choice.id) hoveredId = null;
+      inspectActive();
+    };
+    row.onfocusin = () => { focusedId = choice.id; inspectActive(); };
+    row.onfocusout = (event) => {
+      if (!row.contains(event.relatedTarget) && focusedId === choice.id) focusedId = null;
+      inspectActive();
+    };
+    row.append(label, focusButton);
+    return row;
+  }));
+  if (activeId) {
+    const replacement = [...container.querySelectorAll('[data-participant-id]')].find((element) =>
+      element.dataset.participantId === activeId && element.dataset.participantFocus === activeFocus);
+    replacement?.focus();
+  }
+  container.scrollTop = scroll;
+}
+
 export function iconPickerIndex(key, index, count) {
   if (!count) return -1;
   if (key === 'Home') return 0;
@@ -723,6 +813,16 @@ export function renderIconPicker(button, list, { choices, value, change, locked 
     }
   };
 }
+export function treeDragScrollSpeed(y, bounds) {
+  if (y < bounds.top || y > bounds.bottom) return 0;
+  const band = Math.min(48, (bounds.bottom - bounds.top) / 3);
+  if (band <= 0) return 0;
+  if (y < bounds.top + band) return -650 * (1 - (y - bounds.top) / band);
+  if (y > bounds.bottom - band) return 650 * (1 - (bounds.bottom - y) / band);
+  return 0;
+}
+
+const treeDragCleanups = new WeakMap();
 export function renderActionTree(
   list,
   {
@@ -739,11 +839,14 @@ export function renderActionTree(
     removeGroup = () => {},
     contextMenu = () => {},
     qualities = {},
+    scrollContainer = list.parentElement || list,
   },
 ) {
+  treeDragCleanups.get(list)?.();
   ({ states, errors } = featureTreePresentation(nodes, states, errors));
   let dragged = null,
-    dropSlot = null;
+    dropSlot = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
+    scrollTime = null, wheelPauseUntil = 0;
   const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
     expandedTargets = renderActionTree.expandedTargets ||= new Set(),
     collapsedGroups = renderActionTree.collapsedGroups ||= new Set(),
@@ -781,6 +884,92 @@ export function renderActionTree(
     for (const row of list.querySelectorAll('.action-drop-target'))
       row.classList.remove('drop-before', 'drop-after', 'drop-invalid');
   }
+  function stopScrolling() {
+    if (scrollFrame !== null) globalThis.cancelAnimationFrame?.(scrollFrame);
+    scrollFrame = scrollTime = null;
+  }
+  function finishDrag() {
+    stopScrolling();
+    const gesture = pointerDrag;
+    pointerDrag = dragPoint = dragged = null;
+    clearDrop();
+    scrollContainer.classList.remove('feature-reordering');
+    for (const row of list.querySelectorAll('.dragging')) row.classList.remove('dragging');
+    if (gesture?.grip.hasPointerCapture?.(gesture.id)) gesture.grip.releasePointerCapture(gesture.id);
+  }
+  function pointerInside() {
+    if (!dragPoint) return false;
+    const bounds = scrollContainer.getBoundingClientRect();
+    return dragPoint.x >= bounds.left && dragPoint.x <= bounds.right &&
+      dragPoint.y >= bounds.top && dragPoint.y <= bounds.bottom;
+  }
+  function updateDrop(row, y, transfer = null) {
+    clearDrop();
+    if (!dragged || unavailable() || !row || !list.contains(row) ||
+        (row.dataset.dropScope || null) !== dragged.scope) return;
+    const after = y > row.getBoundingClientRect().top + row.clientHeight / 2,
+      slot = Number(after ? row.dataset.dropEnd : row.dataset.dropStart),
+      candidate = actionMove(nodes, dragged.ids, slot);
+    dropSlot = slot;
+    row.classList.add(after ? 'drop-after' : 'drop-before');
+    row.classList.toggle('drop-invalid', !!candidate.error);
+    if (transfer) transfer.dropEffect = candidate.error ? 'none' : 'move';
+    if (candidate.error) announce(candidate.error, true);
+  }
+  function updatePointerDrop() {
+    if (!pointerInside()) { clearDrop(); return; }
+    const row = document.elementFromPoint?.(dragPoint.x, dragPoint.y)?.closest('.action-drop-target');
+    updateDrop(row, dragPoint.y);
+  }
+  function scrollTick(time) {
+    scrollFrame = null;
+    if (!dragged || unavailable()) { finishDrag(); return; }
+    if (!pointerInside()) { stopScrolling(); return; }
+    const speed = time < wheelPauseUntil ? 0
+      : treeDragScrollSpeed(dragPoint.y, scrollContainer.getBoundingClientRect()),
+      elapsed = Math.min(32, scrollTime === null ? 16 : time - scrollTime),
+      previous = scrollContainer.scrollTop;
+    scrollTime = time;
+    scrollContainer.scrollTop = Math.max(0, Math.min(
+      scrollContainer.scrollHeight - scrollContainer.clientHeight, previous + speed * elapsed / 1000));
+    updatePointerDrop();
+    if (time < wheelPauseUntil || (speed && scrollContainer.scrollTop !== previous))
+      scrollFrame = globalThis.requestAnimationFrame?.(scrollTick) ?? null;
+    else stopScrolling();
+  }
+  function startScrolling() {
+    if (scrollFrame === null && dragged && pointerInside())
+      scrollFrame = globalThis.requestAnimationFrame?.(scrollTick) ?? null;
+  }
+  function scrolled() {
+    if (!dragged) return;
+    if (unavailable()) { finishDrag(); return; }
+    updatePointerDrop();
+  }
+  function wheeled() {
+    if (!dragged) return;
+    // Keep native pixel/line/page wheel semantics, including trackpad inertia.
+    // Briefly yield edge scrolling so it doesn't oppose the user's wheel.
+    wheelPauseUntil = performance.now() + 180;
+    startScrolling();
+  }
+  function escapeDrag(event) {
+    if (event.key !== 'Escape' || !pointerDrag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    finishDrag();
+  }
+  scrollContainer.addEventListener?.('scroll', scrolled, { passive: true });
+  scrollContainer.addEventListener?.('wheel', wheeled, { passive: true });
+  document.addEventListener?.('keydown', escapeDrag, true);
+  globalThis.addEventListener?.('blur', finishDrag);
+  treeDragCleanups.set(list, () => {
+    finishDrag();
+    scrollContainer.removeEventListener?.('scroll', scrolled);
+    scrollContainer.removeEventListener?.('wheel', wheeled);
+    document.removeEventListener?.('keydown', escapeDrag, true);
+    globalThis.removeEventListener?.('blur', finishDrag);
+  });
   async function commit(block, slot, focusHandle = false) {
     if (unavailable()) {
       announce('Wait for the current edit or evaluation to finish.', true);
@@ -829,7 +1018,37 @@ export function renderActionTree(
     row.dataset.dropEnd = end;
     row.dataset.dropScope = scope || '';
     grip.onclick = (event) => { event.preventDefault(); event.stopPropagation(); };
-    grip.onpointerdown = () => grip.focus();
+    grip.onpointerdown = (event) => {
+      grip.focus();
+      if (event.button !== 0 || unavailable()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      finishDrag();
+      pointerDrag = { id: event.pointerId, grip, row, block,
+        startX: event.clientX, startY: event.clientY };
+      grip.setPointerCapture(event.pointerId);
+    };
+    grip.onpointermove = (event) => {
+      if (pointerDrag?.id !== event.pointerId) return;
+      if (unavailable()) { finishDrag(); return; }
+      dragPoint = { x: event.clientX, y: event.clientY };
+      if (!dragged && Math.hypot(event.clientX - pointerDrag.startX,
+        event.clientY - pointerDrag.startY) < 5) return;
+      dragged = block;
+      row.classList.add('dragging');
+      scrollContainer.classList.add('feature-reordering');
+      updatePointerDrop();
+      startScrolling();
+    };
+    grip.onpointerup = (event) => {
+      if (pointerDrag?.id !== event.pointerId) return;
+      dragPoint = { x: event.clientX, y: event.clientY };
+      updatePointerDrop();
+      const moving = dragged, slot = dropSlot;
+      finishDrag();
+      if (moving && slot !== null) void commit(moving, slot, true);
+    };
+    grip.onpointercancel = grip.onlostpointercapture = () => finishDrag();
     grip.onkeydown = (event) => {
       if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
       event.preventDefault();
@@ -859,6 +1078,9 @@ export function renderActionTree(
       void commit(block, up ? Math.min(...positions) : Math.max(...positions) + 1, true);
     };
     grip.ondragstart = (event) => {
+      // Real mouse/touch gestures use pointer capture so wheel scrolling stays
+      // available. Retain native handlers for non-pointer/synthetic clients.
+      if (pointerDrag) { event.preventDefault(); return; }
       if (unavailable()) { event.preventDefault(); return; }
       dragged = block;
       event.dataTransfer.effectAllowed = 'move';
@@ -867,9 +1089,7 @@ export function renderActionTree(
       event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
     };
     grip.ondragend = () => {
-      dragged = null;
-      clearDrop();
-      row.classList.remove('dragging');
+      finishDrag();
     };
     return grip;
   }
@@ -1122,17 +1342,8 @@ export function renderActionTree(
       return;
     }
     const row = event.target.closest('.action-drop-target');
-    clearDrop();
-    if (!row || (row.dataset.dropScope || null) !== dragged.scope) return;
-    event.preventDefault();
-    const after = event.clientY > row.getBoundingClientRect().top + row.clientHeight / 2,
-      slot = Number(after ? row.dataset.dropEnd : row.dataset.dropStart),
-      candidate = actionMove(nodes, dragged.ids, slot);
-    dropSlot = slot;
-    row.classList.add(after ? 'drop-after' : 'drop-before');
-    row.classList.toggle('drop-invalid', !!candidate.error);
-    event.dataTransfer.dropEffect = candidate.error ? 'none' : 'move';
-    if (candidate.error) announce(candidate.error, true);
+    updateDrop(row, event.clientY, event.dataTransfer);
+    if (dropSlot !== null) event.preventDefault();
   };
   list.ondragleave = (event) => {
     if (!list.contains(event.relatedTarget)) clearDrop();
@@ -1141,7 +1352,7 @@ export function renderActionTree(
     event.preventDefault();
     const id = dragged,
       slot = dropSlot;
-    clearDrop();
+    finishDrag();
     if (id && slot !== null) void commit(id, slot, true);
   };
 }

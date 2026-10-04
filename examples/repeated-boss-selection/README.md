@@ -243,9 +243,16 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
 
 That recipe retains the four source selections, three target match selections,
 generated reuse selections and fits, equal-radius and parallel-plane
-relationships, sphere-center point datums, directed axis, output Frame, measured
-Scale, and applied Transform. It is intended as a reproducible UI demonstration,
-not a compatibility promise or physical-validation record.
+relationships, coincident shoulders, sphere-center point datums, directed axis,
+Frame, measured Scale, and Transform definitions. The captured 131-action recipe
+also includes the plate perimeter fits, 22 face-building reviews, 26 retained
+faces, and a Body. It is intended as a reproducible UI demonstration, not a
+compatibility promise or physical-validation record.
+
+The resampling benchmark and fresh face-construction tests use the separate
+`recipes/repeated-boss-fitting-benchmark.json` fitting-only baseline. Saved face
+region choices in the editable demo are tied to its coarse fitted geometry;
+they are not transferable benchmark inputs for another tessellation.
 
 The adapter retains its historical module name but reads the generated example's
 manifest, source, model, and initial selection bundle. The browser's provisional

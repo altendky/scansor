@@ -10,6 +10,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from OCP.BRep import BRep_Tool
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
@@ -25,6 +27,7 @@ from experiments.face_arrangement import (
 )
 from experiments.general_face_geometry import face_from_boundaries, intersection_record
 from experiments.native_replay import native_replay_scope
+from experiments.ocp_geometry import checked_face, primitive_surface
 
 
 def plane(
@@ -1022,6 +1025,30 @@ def test_native_uv_witness_does_not_require_an_inside_mesh_centroid(
     witness, _ = vars(face_arrangement)["_witness"](kept["geometry"], native)
     assert np.linalg.norm(witness[:2]) < 2
     assert witness[2] == pytest.approx(0)
+
+
+def test_thin_cylindrical_cell_has_a_strict_native_chart_witness():
+    geometry = cylinder(radius=0.01)
+    lower, upper = 0.00479, 0.0048014
+    native = checked_face(
+        BRepBuilderAPI_MakeFace(
+            primitive_surface(geometry),
+            2.28,
+            2 * math.pi,
+            lower,
+            upper,
+            face_arrangement.TOLERANCE,
+        )
+    )
+    witness = vars(face_arrangement)["_native_witness"](native)
+    assert witness[2] == pytest.approx((lower + upper) / 2, abs=1e-14)
+    assert np.linalg.norm(witness[:2]) == pytest.approx(geometry["radius"])
+    inside = vars(face_arrangement)["_strictly_inside"]
+    assert inside(native, witness)
+    # A successful witness must not turn chart boundaries into interior points.
+    surface = BRep_Tool.Surface_s(native)
+    for u, v in ((4.0, lower), (4.0, upper), (1.0, (lower + upper) / 2)):
+        assert not inside(native, np.asarray(surface.Value(u, v).Coord()))
 
 
 def test_raw_cell_classification_does_not_require_a_display_mesh(

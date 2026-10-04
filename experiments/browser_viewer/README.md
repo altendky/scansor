@@ -121,7 +121,10 @@ Creation buttons stay in the top toolbar; fit, relationship, and joint creation
 open dialogs.
 
 Action and group headers have reorder grips supporting drag-and-drop or Up/Down
-keys. Moving an organizational group includes its member actions and their
+keys. Grip dragging auto-scrolls near the top or bottom of the feature panel;
+wheel/trackpad scrolling remains available while the drag is held. The insertion
+marker follows the newly revealed rows, and Escape cancels without reordering.
+Moving an organizational group includes its member actions and their
 generated outputs; moving a managed owner such as Build faces includes its whole
 generated subtree. Generated subgroups move only among siblings within their
 owner, and individual generated actions remain locked. Moves preserve membership
@@ -136,6 +139,15 @@ their resolved geometry providers. Connected plane groups are solved once and
 publish every relationship result together. Targeted evaluation selects a
 dependency closure from this compiled graph; it does not execute the list as a
 sequence of provisional results.
+
+Plane relationships connected through shared axes, reference planes, or radius
+equalities are fitted together with their lateral and datum observations. The
+joint solve preserves perpendicular/parallel/contains-axis constructions and
+declared coincidence as hard equalities; it publishes axes, datums, fits, and
+updated residuals together. Feasibility and tangent stationarity are checked
+before results become ready. Incompatible fixed geometry fails instead of
+silently averaging its directions. Changed carriers can invalidate a previously
+reviewed face-region choice; that face must be reviewed again before export.
 
 Preliminary growth fits and datum initializers remain separate from resolved
 geometry. Feature-reuse membership transfer uses source geometry before radius
@@ -247,10 +259,17 @@ graph and ensures current outputs after creation, property, selection, reorder,
 delete, load, or reset changes. **Show all available fits and references** keeps
 available guides visible together; disabling it restores selected-action-only
 display. The selected action's evaluation and proposal controls remain in its
-properties pane. **Relationship…** opens the common exact-relationship builder,
-prefilled from the persistent feature-selection set; participants can also be
-changed in the dialog. Incompatible relationship kinds remain visible there with
-an explanation.
+properties pane. **Relationship…** opens a compact, nonmodal side panel,
+prefilled from eligible selected features. Choose the relationship kind, then
+use its searchable icon list to select physical fits (or reference planes when
+needed). Selected fits retain cyan support outlines on their complete evaluated
+surfaces; hover or keyboard focus inspects a participant in yellow. Sphere fits
+use analytic sphere guides, and reference planes use datum outlines. **Focus**
+frames one participant; **Focus selected** frames the set. These are display-only
+helpers, not a preview of newly constrained geometry, and do not trigger a solve.
+Changing kind retains incompatible selected participants so they can be removed
+explicitly. **Options** contains the name. The model remains rotatable while the
+panel is open; closing it clears the helper highlights.
 
 1. **Selection** creates an empty selection independently of any fit. Paint
    it, rename it, and add more selections as needed.
@@ -743,6 +762,11 @@ not add general intersection branches or new retained-region types. The subseque
 Body slice adds conservative sewing/solid validation. Scansor still owns fit
 charts, explicit physical intent, review evidence,
 graph identity, and conservative disjointness/uncertainty policy.
+
+Display tessellation retries unsuccessful native meshes on fresh display copies,
+first with absolute and then edge-relative deflection. This does not heal faces
+or change their physical tolerances. Previews remain approximations within native
+topology uncertainty; unsuccessful or empty triangulations remain explicit errors.
 
 ## Experimental Body assembly
 
