@@ -33,6 +33,13 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
           npm run check --prefix experiments/browser_viewer
+          npm run build --prefix experiments/browser_viewer
+
+      - name: Browser workspace integration
+        working-directory: experiments/browser_viewer
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:browser
 
       - name: Type check
         run: uv run --locked --python 3.12.14 basedpyright

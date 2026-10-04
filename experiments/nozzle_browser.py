@@ -129,6 +129,9 @@ class Handler(BaseHTTPRequestHandler):
         ),
         "/": ("index.html", "text/html"),
         "/app.js": ("app.js", "text/javascript"),
+        "/workspace.js": ("dist/workspace.js", "text/javascript"),
+        "/workspace.css": ("dist/workspace.css", "text/css"),
+        "/workspace-state.js": ("workspace-state.js", "text/javascript"),
         "/action-tree.js": ("action-tree.js", "text/javascript"),
         "/display-transform.js": ("display-transform.js", "text/javascript"),
         "/cad-export.js": ("cad-export.js", "text/javascript"),
@@ -250,7 +253,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_reply(
                     404,
                     {
-                        "error": "missing asset; run npm ci in experiments/browser_viewer"
+                        "error": "missing asset; run npm ci then npm run build in experiments/browser_viewer"
                     },
                 )
         else:
@@ -532,6 +535,11 @@ def main() -> None:
         parser.error(
             "run npm ci --ignore-scripts --prefix experiments/browser_viewer first"
         )
+    if not all(
+        (ASSETS / filename).is_file()
+        for filename in ("dist/workspace.js", "dist/workspace.css")
+    ):
+        parser.error("run npm run build --prefix experiments/browser_viewer first")
     workspace = NozzleWorkspace(args.example)
     manifest = json.loads((args.example / "manifest.json").read_text())
     recipe = (
