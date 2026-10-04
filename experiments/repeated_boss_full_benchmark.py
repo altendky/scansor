@@ -35,7 +35,7 @@ from experiments.repeated_boss_fixture import publish_fixture
 from scansor.serialization import canonical_json
 
 RECIPE = Path(
-    "examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json"
+    "examples/repeated-boss-selection/recipes/repeated-boss-fitting-benchmark.json"
 )
 
 

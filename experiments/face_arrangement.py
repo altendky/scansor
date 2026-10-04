@@ -36,6 +36,7 @@ from OCP.GeomAbs import (
 from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCP.gp import gp_Pnt2d, gp_Vec2d
 from OCP.GProp import GProp_GProps
+from OCP.IntTools import IntTools_FClass2d
 from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_ON, TopAbs_WIRE
 from OCP.TopExp import TopExp, TopExp_Explorer
@@ -600,6 +601,10 @@ def _native_witness(face: TopoDS_Face) -> Array:
     u0, u1, v0, v1 = bounds
     span = max(u1 - u0, v1 - v0)
     tolerance = 64 * np.finfo(float).eps * max(1, *(abs(value) for value in bounds))
+    # Classify in the intrinsic chart. BRepClass scales a 3D tolerance through
+    # the surface resolution and can report every point of a thin cylindrical
+    # strip as ON, even when the supplied tolerance is zero.
+    classifier = IntTools_FClass2d(face, tolerance)
     candidates = [gp_Pnt2d((u0 + u1) / 2, (v0 + v1) / 2)]
     properties = GProp_GProps()
     _ = BRepGProp.SurfaceProperties_s(face, properties, 1e-10, False)
@@ -626,18 +631,13 @@ def _native_witness(face: TopoDS_Face) -> Array:
                     xy = np.asarray(point.Coord()) + sign * span * distance * normal
                     candidates.append(gp_Pnt2d(*xy))
     for candidate in candidates:
-        if BRepClass_FaceClassifier(face, candidate, tolerance).State() == TopAbs_IN:
+        if classifier.Perform(candidate) == TopAbs_IN:
             point = np.asarray(native.Value(candidate.X(), candidate.Y()).Coord())
             return point
     for resolution in (9, 17, 33):
         for u in np.linspace(u0, u1, resolution)[1:-1]:
             for v in np.linspace(v0, v1, resolution)[1:-1]:
-                if (
-                    BRepClass_FaceClassifier(
-                        face, gp_Pnt2d(float(u), float(v)), tolerance
-                    ).State()
-                    == TopAbs_IN
-                ):
+                if classifier.Perform(gp_Pnt2d(float(u), float(v))) == TopAbs_IN:
                     return np.asarray(native.Value(float(u), float(v)).Coord())
     raise ValueError("arrangement cell has no unambiguous interior witness")
 
@@ -649,7 +649,7 @@ def _strictly_inside(face: TopoDS_Face, point: Array) -> bool:
         return False
     uv = projection.LowerDistanceParameters()
     tolerance = 64 * np.finfo(float).eps * max(1, *(abs(value) for value in uv))
-    return BRepClass_FaceClassifier(face, gp_Pnt2d(*uv), tolerance).State() == TopAbs_IN
+    return IntTools_FClass2d(face, tolerance).Perform(gp_Pnt2d(*uv)) == TopAbs_IN
 
 
 def _pnt(point: Array):

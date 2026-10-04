@@ -269,7 +269,7 @@ def test_display_meshing_exhaustion_never_returns_an_empty_success(
     monkeypatch.setattr(kernel, "BRepMesh_IncrementalMesh", mesh)
     with pytest.raises(ValueError, match=r"preview (has no triangles|meshing failed)"):
         _ = tessellate_face(face, 3)
-    assert attempts == [0.001, 0.0001, 0.00001]
+    assert attempts == [0.001, 0.0001, 0.00001] * 2
     assert area(face) == before
 
 
@@ -314,11 +314,48 @@ def test_display_meshing_checks_failure_flags_even_with_positive_triangles(
     if reported_status == "all_failure":
         with pytest.raises(ValueError, match="preview meshing failed"):
             _ = tessellate_face(face, 3)
-        assert attempts == [0.001, 0.0001, 0.00001]
+        assert attempts == [0.001, 0.0001, 0.00001] * 2
     else:
         preview = tessellate_face(face, 3)
         assert preview["indices"]
         assert attempts == ([0.001] if reported_status == "reused" else [0.001, 0.0001])
+    assert area(face) == before
+
+
+def test_display_meshing_can_use_native_relative_discretization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import experiments.ocp_geometry as kernel
+
+    face = face_from_record(bounded_side(3, 0, 2, 5))
+    before = area(face)
+    original = vars(kernel)["BRepMesh_IncrementalMesh"]
+    attempts: list[tuple[float, bool]] = []
+    displays: list[TopoDS_Shape] = []
+
+    class FailedMesh:
+        def IsDone(self) -> bool:
+            return False
+
+    def mesh(
+        display: TopoDS_Shape, deflection: float, relative: bool, *args: Any
+    ) -> Any:
+        attempts.append((deflection, relative))
+        displays.append(display)
+        if not relative:
+            return FailedMesh()
+        return original(display, deflection, relative, *args)
+
+    monkeypatch.setattr(kernel, "BRepMesh_IncrementalMesh", mesh)
+    preview = tessellate_face(face, 3)
+    assert attempts == [
+        (0.001, False),
+        (0.0001, False),
+        (0.00001, False),
+        (0.001, True),
+    ]
+    assert preview["indices"] and np.isfinite(preview["positions"]).all()
+    assert all(not first.IsSame(second) for first, second in pairwise(displays))
     assert area(face) == before
 
 

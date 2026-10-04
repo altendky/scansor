@@ -170,6 +170,25 @@ def test_full_boss_all_twenty_two_fits_apply_and_replay(tmp_path: Path) -> None:
     assert len(after["recipe"]["nodes"]) > 100
 
 
+def test_captured_boss_recipe_replays_its_reviewed_faces_and_body(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "boss"
+    _ = publish_fixture(root, DEFINITION, realization_ids=("scan-coarse",))
+    recipe = Recipe.model_validate_json(
+        Path(
+            "examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json"
+        ).read_bytes()
+    )
+    state = evaluate(FeatureGraph(NozzleWorkspace(root / "scan-coarse"), recipe))
+    assert not state["errors"]
+    assert set(state["states"].values()) == {"ready"}
+    bodies = [node for node in recipe.nodes if node.operation == "body"]
+    assert len(bodies) == 1
+    body = state["results"][bodies[0].id]
+    assert body["valid"] and body["volume"] > 0
+
+
 def test_full_captured_nozzle_recipe_preserves_its_open_physical_extents() -> None:
     example = Path("examples/nozzle-bayonette-simplified")
     graph = FeatureGraph(

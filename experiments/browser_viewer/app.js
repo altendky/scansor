@@ -5,6 +5,8 @@ import {
   featureIcon,
   featureTreePresentation,
   renderIconPicker,
+  relationshipParticipantChoices,
+  renderRelationshipParticipants,
   managedOwnerId,
   managedSubtreeIds,
   nodeReferences as refs,
@@ -74,6 +76,7 @@ let workspaceView = 'model', resizeViewport = null;
 let displayTransformKey = 'identity';
 let buildFacesProposal = null, buildFacesOwnerId = null, buildFacesRequest = 0;
 let buildFacesReview = new Map(), buildFacesOverlays;
+let relationshipOverlays, relationshipInspected = null, relationshipApplying = false;
 let buildFacesRegionInspected = null;
 let buildFacesAdjacencyDraft = [], buildFacesScopeDraft = [];
 let buildFacesApplying = false;
@@ -155,21 +158,22 @@ function clearBuildFacesPreview() {
 function updateFaceReviewDisplay() {
   if (!mesh || !overlays) return;
   const reviewing = $('build-faces-dialog').open && buildFacesMode === 'guided';
+  const guiding = reviewing || $('relationship-dialog').open;
   const facesOnly = $('faces-only').checked;
-  if (reviewing || facesOnly) $('brush-cursor').hidden = true;
+  if (guiding || facesOnly) $('brush-cursor').hidden = true;
   if (buildFacesContext) buildFacesContext.visible = reviewing && !facesOnly;
   if (reviewing) paintBuildFacesContext();
-  mesh.material.opacity = reviewing ? 0.4 : 1;
-  mesh.material.transparent = reviewing;
+  mesh.material.opacity = guiding ? 0.4 : 1;
+  mesh.material.transparent = guiding;
   for (const points of [selectedPoints, focusedPoints]) {
     if (!points) continue;
-    points.material.opacity = reviewing ? 0.18 : 1;
-    points.material.transparent = reviewing;
+    points.material.opacity = guiding ? 0.18 : 1;
+    points.material.transparent = guiding;
   }
   mesh.visible = !facesOnly;
-  overlays.visible = $('guides').checked && !reviewing && !facesOnly;
+  overlays.visible = $('guides').checked && !guiding && !facesOnly;
   constructedFaces.visible = facesOnly;
-  reuseVolumes.visible = $('reuse-volumes').checked && !facesOnly;
+  reuseVolumes.visible = $('reuse-volumes').checked && !facesOnly && !guiding;
   if (facesOnly) {
     selectedPoints.visible = focusedPoints.visible = false;
     overlapMarkers.visible = overlapHalo.visible = false;
@@ -550,6 +554,7 @@ function openBuildFaces(owner = null, target = null) {
     return;
   }
   if ($('build-faces-dialog').open && !canDiscardFaceReview()) return;
+  if ($('relationship-dialog').open) $('relationship-dialog').close();
   invalidateBuildFaces();
   buildFacesOwnerId = owner?.id || null;
   buildFacesAdjacencyDraft = structuredClone(owner?.adjacencies || []);
@@ -736,7 +741,7 @@ function paintBuildFacesPreview() {
   $('apply-build-faces').disabled = buildFacesApplying || !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
   draw();
 }
-function paintFaceFootprint(reference, prominent, color) {
+function paintFaceFootprint(reference, prominent, color, group = buildFacesOverlays) {
   const result = graphState.results[reference?.feature];
   const fitted = reference?.surface ? result?.surfaces?.[reference.surface] : result;
   if (fitted && graphState.states[reference.feature] === 'ready') {
@@ -755,7 +760,7 @@ function paintFaceFootprint(reference, prominent, color) {
     for (const path of cached.paths) {
       const lines = faceEdgeLines(path.preview.positions, color, path.closed,
         prominent ? 'footprint' : 'footprint-context');
-      buildFacesOverlays.add(...lines);
+      group.add(...lines);
     }
   }
 }
@@ -1454,77 +1459,100 @@ function relationshipValidity(kind, participants) {
     ? { valid: true }
     : { valid: false, reason: 'Select one axis-bound cylinder, one standalone plane fit, and one reference plane on that axis.' };
 }
-function participantType(node) {
-  if (node.operation === 'fit') return `${node.kind} fit`;
-  if (node.operation === 'point') return 'reference point';
-  if (node.operation === 'reference_plane') return 'reference plane';
-  return node.operation.replaceAll('_', ' ');
-}
 function renderRelationshipBuilder() {
-  const participants = graphState.recipe.nodes.filter((node) =>
-      relationshipParticipantIds.has(node.id),
-    ),
-    valid = relationshipDefinitions.filter(
-      (definition) => relationshipValidity(definition.id, participants).valid,
-    );
-  if (!valid.some((definition) => definition.id === selectedRelationshipKind))
-    selectedRelationshipKind = valid.length === 1 ? valid[0].id : null;
-  $('relationship-participants').replaceChildren(
-    ...graphState.recipe.nodes.map((node) => {
-      const label = document.createElement('label'),
-        checkbox = document.createElement('input'),
-        name = document.createElement('span'),
-        type = document.createElement('span');
-      checkbox.type = 'checkbox';
-      checkbox.checked = relationshipParticipantIds.has(node.id);
-      checkbox.onchange = () => {
-        if (checkbox.checked) relationshipParticipantIds.add(node.id);
-        else relationshipParticipantIds.delete(node.id);
-        renderRelationshipBuilder();
-      };
-      name.textContent = node.label;
-      type.className = 'participant-type';
-      type.textContent = participantType(node);
-      label.append(checkbox, name, type);
-      return label;
-    }),
-  );
-  $('relationship-kinds').replaceChildren(
-    ...relationshipDefinitions.map((definition) => {
-      const validity = relationshipValidity(definition.id, participants),
-        label = document.createElement('label'),
-        radio = document.createElement('input'),
-        name = document.createElement('span'),
-        help = document.createElement('small');
-      label.className = 'relationship-kind';
-      radio.type = 'radio';
-      radio.name = 'relationship-kind';
-      radio.value = definition.id;
-      radio.disabled = !validity.valid;
-      radio.checked = selectedRelationshipKind === definition.id;
-      radio.onchange = () => {
-        selectedRelationshipKind = definition.id;
-        $('new-relationship-label').value = nextFeatureLabel(definition.baseName);
-        $('new-relationship-label').select();
-        renderRelationshipBuilder();
-      };
-      name.textContent = definition.label;
-      help.textContent = validity.valid ? definition.summary : validity.reason;
-      label.append(radio, name, help);
-      return label;
-    }),
-  );
-  const chosen = relationshipDefinitions.find(
-    (definition) => definition.id === selectedRelationshipKind,
-  );
+  const nodes = graphState.recipe.nodes;
+  $('relationship-kind').replaceChildren(new Option('Choose a relationship', ''),
+    ...relationshipDefinitions.map((definition) => new Option(definition.label, definition.id)));
+  $('relationship-kind').value = selectedRelationshipKind || '';
+  renderRelationshipParticipants($('relationship-participants'), {
+    choices: relationshipParticipantChoices(nodes, selectedRelationshipKind, relationshipParticipantIds)
+      .map(({ node, compatible }) => {
+        const presentation = node.operation === 'fit'
+          ? fittedSurfacePresentation({ feature: node.id }, nodes)
+          : { name: node.label, icon: 'reference_plane', detail: `Reference plane · ${graphNode(node.axis)?.label || node.axis}` };
+        return { ...presentation, id: node.id, compatible,
+          detail: compatible ? presentation.detail : `${presentation.detail} · incompatible` };
+      }),
+    selected: relationshipParticipantIds,
+    locked: () => featureTreeLocked() || relationshipApplying,
+    change: (id, included) => {
+      if (included) relationshipParticipantIds.add(id);
+      else relationshipParticipantIds.delete(id);
+      $('relationship-error').textContent = '';
+      updateRelationshipSelection();
+    },
+    inspect: (id) => { relationshipInspected = id; paintRelationshipPreview(); },
+    focus: (id) => focusRelationshipParticipants([id]),
+  });
+  filterRelationshipParticipants();
+  updateRelationshipSelection();
+}
+function filterRelationshipParticipants() {
+  const filter = $('relationship-filter').value.trim().toLowerCase();
+  for (const row of $('relationship-participants').children) row.hidden = !row.dataset.search.includes(filter);
+  if (relationshipInspected && ![...$('relationship-participants').children].some((row) =>
+    !row.hidden && row.querySelector('input').dataset.participantId === relationshipInspected))
+    relationshipInspected = null;
+  paintRelationshipPreview();
+}
+function updateRelationshipSelection() {
+  const participants = graphState.recipe.nodes.filter((node) => relationshipParticipantIds.has(node.id)),
+    chosen = relationshipDefinitions.find((definition) => definition.id === selectedRelationshipKind),
+    validity = chosen ? relationshipValidity(chosen.id, participants) : { valid: false };
+  const summaries = {
+    coincident_planes: 'Same plane: normal and offset.', parallel_planes: 'Same normal; independent offsets.',
+    equal_radii: 'Same radius; independent positions.', mirror: 'Exact mirrored pair.',
+    radius_plane_distance: 'Radius equals plane separation.',
+  };
   $('relationship-summary').textContent = chosen
-    ? chosen.summary
-    : valid.length > 1
-      ? 'More than one relationship fits these participants. Choose the intended one.'
-      : valid.length === 1
-        ? valid[0].summary
-        : 'Choose participants to see compatible exact relationships.';
-  $('add-relationship').disabled = !chosen;
+    ? validity.valid ? summaries[chosen.id] : validity.reason : 'Choose a relationship, then its participants.';
+  $('relationship-count').textContent = `${participants.length} selected`;
+  const locked = featureTreeLocked() || relationshipApplying;
+  $('relationship-kind').disabled = relationshipApplying;
+  $('new-relationship-label').readOnly = relationshipApplying;
+  $('clear-relationship-participants').disabled = !participants.length || locked;
+  $('focus-relationship').disabled = !participants.length;
+  $('add-relationship').disabled = !validity.valid || locked;
+  for (const checkbox of $('relationship-participants').querySelectorAll('input')) {
+    const row = checkbox.closest('.relationship-participant');
+    checkbox.disabled = locked || (row.dataset.compatible === 'false' && !checkbox.checked);
+  }
+  paintRelationshipPreview();
+}
+function paintRelationshipPreview() {
+  if (!relationshipOverlays) return;
+  for (const child of [...relationshipOverlays.children]) {
+    relationshipOverlays.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  if ($('relationship-dialog').open) {
+    const ids = new Set(relationshipParticipantIds);
+    if (relationshipInspected) ids.add(relationshipInspected);
+    const choices = completeFitSurfaceChoices(graphState.recipe.nodes, graphState.results,
+      [], graphState.states).choices;
+    for (const id of ids) {
+      const node = graphNode(id), inspected = id === relationshipInspected,
+        color = inspected ? '#ffe45c' : '#78e2ff';
+      if (node?.operation === 'fit') {
+        // Reuse the same complete resolved output as face construction, without
+        // replacing the physical participant ID in the relationship declaration.
+        const choice = choices.find((choice) =>
+            (choice.reference.surface || choice.reference.feature) === id);
+        if (choice) paintFaceFootprint(choice.reference, inspected, color, relationshipOverlays);
+        else if (node.kind === 'sphere' && graphState.states[id] === 'ready') {
+          const fitted = graphState.results[id];
+          if (fitted?.parameters) surfaceGuide('sphere', fitted.parameters, null, color,
+            fitted.ids, relationshipOverlays);
+        }
+      } else if (node?.operation === 'reference_plane') {
+        const values = graphState.results[id] || referencePlanePreview(node);
+        if (values) referencePlaneGuide(values, color, relationshipOverlays);
+      }
+    }
+  }
+  updateFaceReviewDisplay();
+  draw();
 }
 function axialDatumPlanes(nodes) {
   return nodes.filter(
@@ -1752,11 +1780,15 @@ function acceptGraph(state) {
   showReuseVolumes();
   paint();
   if ($('build-faces-dialog').open) paintBuildFacesPreview();
+  if ($('relationship-dialog').open) {
+    relationshipParticipantIds = new Set([...relationshipParticipantIds].filter((id) => graphNode(id)));
+    renderRelationshipBuilder();
+  }
   if (transformChanged) home('oblique');
 }
 function featureTreeLocked() {
   return busy || selectionDrawing || selectionPending || graphState.evaluation_running ||
-    featureDeletionPending;
+    featureDeletionPending || relationshipApplying;
 }
 function focusContextFeature() {
   const target = [...$('action-list').querySelectorAll('.action-select, .managed-owner-summary')]
@@ -1851,6 +1883,7 @@ function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
   $('clear-feature-selection').disabled = !selectedFeatureIds.size;
   renderActionTree($('action-list'), {
+    scrollContainer: $('features-panel'),
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
     selected: selectedFeatureIds,
@@ -2499,7 +2532,7 @@ function referencePlanePreview(node) {
     construction,
   };
 }
-function referencePlaneGuide(values, color = '#ff8fe5') {
+function referencePlaneGuide(values, color = '#ff8fe5', group = overlays) {
   const basisU = new THREE.Vector3(
       ...(values.basis_u_display || values.axis_display),
     ).normalize(),
@@ -2525,16 +2558,16 @@ function referencePlaneGuide(values, color = '#ff8fe5') {
       point.clone().addScaledVector(basisU, domain[1]).addScaledVector(basisV, -halfWidth),
     ];
   corners.push(corners[0]);
-  overlays.add(
+  group.add(
     new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(corners),
       new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.9 }),
     ),
   );
 }
-function surfaceGuide(kind, p, domain, color, ids = []) {
+function surfaceGuide(kind, p, domain, color, ids = [], group = overlays) {
   const line = (points) =>
-    overlays.add(
+    group.add(
       new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(points),
         new THREE.LineBasicMaterial({
@@ -3240,6 +3273,7 @@ async function runGraphEvaluation(allActions, target, retry) {
     $('project-toolbar').inert = false;
     renderActions();
     paint();
+    if ($('relationship-dialog').open) updateRelationshipSelection();
   }
 }
 function home(direction = null) {
@@ -3287,9 +3321,34 @@ function focusFaceTarget() {
         box.expandByPoint(point.fromArray(region.preview.positions, offset).applyMatrix4(modelRoot.matrixWorld));
     }
   }
+  focusGeometryBox(box, $('build-faces-dialog'));
+}
+function focusRelationshipParticipants(ids) {
+  const box = new THREE.Box3(), point = new THREE.Vector3();
+  modelRoot.updateMatrixWorld(true);
+  for (const id of ids) {
+    const node = graphNode(id), fitted = graphState.results[id];
+    if (node?.operation === 'fit') {
+      for (const index of fitted?.ids || [])
+        box.expandByPoint(point.fromArray(positions, index * 3).applyMatrix4(modelRoot.matrixWorld));
+    } else if (node?.operation === 'reference_plane') {
+      const values = fitted || referencePlanePreview(node);
+      if (!values) continue;
+      const group = new THREE.Group();
+      referencePlaneGuide(values, '#78e2ff', group);
+      group.applyMatrix4(modelRoot.matrixWorld);
+      box.union(new THREE.Box3().setFromObject(group));
+      for (const child of group.children) { child.geometry.dispose(); child.material.dispose(); }
+    }
+  }
+  focusGeometryBox(box, $('relationship-dialog'));
+}
+function focusGeometryBox(box, panelElement) {
+  if (box.isEmpty()) return;
+  camera.updateMatrixWorld(true);
   const sphere = box.getBoundingSphere(new THREE.Sphere());
   const canvas = renderer.domElement.getBoundingClientRect();
-  const panel = $('build-faces-dialog').getBoundingClientRect();
+  const panel = panelElement.getBoundingClientRect();
   const visibleWidth = Math.max(1, Math.min(canvas.width, panel.left - canvas.left));
   const tangent = Math.tan(camera.fov * Math.PI / 360);
   const halfAngle = Math.min(camera.fov * Math.PI / 360,
@@ -3512,6 +3571,8 @@ async function start() {
   modelRoot.add(reuseVolumes);
   buildFacesOverlays = new THREE.Group();
   modelRoot.add(buildFacesOverlays);
+  relationshipOverlays = new THREE.Group();
+  modelRoot.add(relationshipOverlays);
   buildFacesContext = new THREE.Group();
   buildFacesContext.visible = false;
   modelRoot.add(buildFacesContext);
@@ -3564,15 +3625,52 @@ async function start() {
     refreshFeatureSelection();
   };
   $('new-relationship').onclick = () => {
-    relationshipParticipantIds = new Set(selectedFeatureIds);
+    if (relationshipApplying) return;
+    if ($('build-faces-dialog').open) {
+      if (!canDiscardFaceReview()) return;
+      $('build-faces-dialog').close();
+    }
+    relationshipParticipantIds = new Set(relationshipParticipantChoices(graphState.recipe.nodes, null)
+      .filter(({ node }) => selectedFeatureIds.has(node.id)).map(({ node }) => node.id));
     selectedRelationshipKind = null;
-    $('new-relationship-label').value = nextFeatureLabel('Relationship');
+    const participants = graphState.recipe.nodes.filter((node) => relationshipParticipantIds.has(node.id)),
+      valid = relationshipDefinitions.filter((definition) => relationshipValidity(definition.id, participants).valid);
+    if (valid.length === 1) selectedRelationshipKind = valid[0].id;
+    relationshipInspected = null;
+    $('relationship-filter').value = '';
+    $('new-relationship-label').value = nextFeatureLabel(
+      relationshipDefinitions.find((definition) => definition.id === selectedRelationshipKind)?.baseName || 'Relationship');
+    $('relationship-error').textContent = '';
+    $('relationship-dialog').show();
+    renderRelationshipBuilder();
+    $('relationship-kind').focus();
+  };
+  $('relationship-kind').onchange = () => {
+    selectedRelationshipKind = $('relationship-kind').value || null;
+    const definition = relationshipDefinitions.find((entry) => entry.id === selectedRelationshipKind);
+    if (definition) $('new-relationship-label').value = nextFeatureLabel(definition.baseName);
+    relationshipInspected = null;
     $('relationship-error').textContent = '';
     renderRelationshipBuilder();
-    $('relationship-dialog').showModal();
-    $('new-relationship-label').focus();
-    $('new-relationship-label').select();
   };
+  $('relationship-filter').oninput = filterRelationshipParticipants;
+  $('clear-relationship-participants').onclick = () => {
+    if (featureTreeLocked() || relationshipApplying) return;
+    relationshipParticipantIds.clear();
+    relationshipInspected = null;
+    renderRelationshipBuilder();
+  };
+  $('focus-relationship').onclick = () => focusRelationshipParticipants([...relationshipParticipantIds]);
+  $('relationship-dialog').addEventListener('close', () => {
+    relationshipInspected = null;
+    paintRelationshipPreview();
+  });
+  $('relationship-dialog').addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    $('relationship-dialog').close();
+  });
   $('new-build-faces').onclick = () => {
     const node = graphNode(selectedFeatureId);
     openBuildFaces(node?.operation === 'build_faces' ? node : null);
@@ -4765,6 +4863,7 @@ async function start() {
   };
   $('add-relationship-form').onsubmit = async (event) => {
     event.preventDefault();
+    if (featureTreeLocked() || relationshipApplying) return;
     const participants = graphState.recipe.nodes.filter((node) =>
         relationshipParticipantIds.has(node.id),
       ),
@@ -4811,8 +4910,22 @@ async function start() {
         right: { measurement: 'plane_distance', surface: plane.id, reference_plane: datum.id },
       };
     }
-    if (await appendActions([node])) $('relationship-dialog').close();
-    else $('relationship-error').textContent = $('status').textContent;
+    relationshipApplying = true;
+    const panels = [document.querySelector('aside'), $('creation-toolbar'), $('project-toolbar')],
+      previousInert = panels.map((panel) => panel.inert);
+    panels.forEach((panel) => { panel.inert = true; });
+    $('feature-context-menu').hidePopover();
+    renderActions();
+    updateRelationshipSelection();
+    try {
+      if (await appendActions([node])) $('relationship-dialog').close();
+      else $('relationship-error').textContent = $('status').textContent;
+    } finally {
+      relationshipApplying = false;
+      panels.forEach((panel, index) => { panel.inert = previousInert[index]; });
+      renderActions();
+      if ($('relationship-dialog').open) updateRelationshipSelection();
+    }
   };
   $('add-mirror-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -5408,6 +5521,7 @@ async function start() {
       point = xy(event);
     brush.hidden =
       $('faces-only').checked ||
+      $('relationship-dialog').open ||
       ($('build-faces-dialog').open && buildFacesMode === 'guided') ||
       !activeSelection() || busy || selectionPending ||
       $('selection-shape').value !== 'paint' ||
@@ -5493,13 +5607,13 @@ async function start() {
       pickGuidedFaceRegion(event);
       return;
     }
-    if ($('faces-only').checked) return;
+    if ($('faces-only').checked || $('relationship-dialog').open) return;
     if (event.button !== 0) {
       inspectFaceRegion(null);
       cancelStroke();
       return;
     }
-    if ($('tool').value === 'orbit' || busy || selectionPending) return;
+    if ($('tool').value === 'orbit' || busy || selectionPending || relationshipApplying) return;
     if (!activeSelection()) return;
     cancelStroke();
     event.preventDefault();

@@ -247,12 +247,21 @@ def tessellate_face(face: TopoDS_Face, scale: float) -> dict[str, Any]:
     normalize[:3, :3] /= scale
     normalize[:3, 3] = -center / scale
     failure = "OCP face preview meshing failed"
-    for deflection in (0.001, 0.0001, 0.00001):
+    attempts = [
+        (relative, deflection)
+        for relative in (False, True)
+        for deflection in (0.001, 0.0001, 0.00001)
+    ]
+    for relative, deflection in attempts:
         # Thin curved cells can collapse at the default display deflection.
         # Retry only unsuccessful meshes, using a fresh derived copy so a failed
         # triangulation cache cannot affect the next attempt or physical face.
         display = transform_shape(face, normalize)
-        mesh = BRepMesh_IncrementalMesh(display, deflection, False, 0.1, False)
+        # Tolerance-covered Boolean endpoints can defeat absolute wire
+        # discretization even on a valid face. Native edge-relative meshing
+        # provides another bounded discretization, without healing the shape,
+        # changing physical tolerances, or accepting a failed triangulation.
+        mesh = BRepMesh_IncrementalMesh(display, deflection, relative, 0.1, False)
         if not mesh.IsDone() or mesh.GetStatusFlags() & int(IMeshData_Failure):
             failure = "OCP face preview meshing failed"
             continue

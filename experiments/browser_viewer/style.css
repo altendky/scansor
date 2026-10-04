@@ -190,6 +190,8 @@ details { margin: 12px 0; }
 aside { display: grid; grid-template-rows: minmax(0, var(--tree-height, 40%)) 8px minmax(0, 1fr); overflow: hidden; padding: 0; }
 #features-panel, #feature-properties-panel { overflow: auto; min-height: 0; padding: 16px; overscroll-behavior: contain; }
 #features-panel { padding-top: 8px; padding-bottom: 8px; }
+.action-grip { touch-action: none; }
+.feature-reordering, .feature-reordering * { cursor: grabbing !important; user-select: none; }
 #feature-divider { position: relative; cursor: row-resize; touch-action: none; background: #253342; }
 #feature-divider::after { content: ''; position: absolute; width: 36px; height: 2px; left: calc(50% - 18px); top: 3px; background: #91a7b9; border-radius: 2px; }
 #feature-divider:hover, #feature-divider:focus-visible, .resizing-features #feature-divider { background: #166579; }
@@ -227,17 +229,24 @@ dialog input { width: 100%; padding: 8px; }
 .scale-distance-row { margin: 9px 0; padding: 9px; border: 1px solid #425668; border-radius: 6px; background: #1a2834; }
 .scale-distance-row label { margin: 7px 0; }
 .scale-distance-row button { padding: 6px 9px; font-size: 12px; }
-.relationship-participants { display: grid; max-height: 240px; overflow: auto; border: 1px solid #4b6175; border-radius: 6px; }
-.relationship-participants label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; margin: 0; padding: 8px 10px; border-bottom: 1px solid #314354; }
-.relationship-participants label:last-child { border-bottom: 0; }
+#relationship-dialog { position: fixed; inset: 72px 12px auto auto; margin: 0; width: min(350px, calc(100vw - 24px)); max-height: calc(100vh - 92px); padding: 10px; overflow: hidden; z-index: 11; }
+#relationship-dialog[open], #add-relationship-form { display: flex; flex-direction: column; min-height: 0; }
+#relationship-dialog h2 { margin: 0 0 8px; }
+.relationship-panel-body { overflow: auto; min-height: 0; padding-right: 3px; }
+#relationship-dialog label { margin: 5px 0; }
+#relationship-dialog button, #relationship-dialog select, #relationship-dialog input { font-size: 12px; padding: 5px 6px; }
+#relationship-dialog p { margin: 5px 0; font-size: 11px; }
+#relationship-dialog details { margin-top: 8px; }
+.relationship-participants { max-height: 320px; overflow: auto; border: 1px solid #4b6175; border-radius: 6px; }
+.relationship-participant { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid #314354; }
+.relationship-participant[hidden] { display: none; }
+.relationship-participant:last-child { border-bottom: 0; }
+.relationship-participant:hover, .relationship-participant:focus-within { background: #253342; }
+.relationship-participant.participant-selected { background: #193c47; }
+#relationship-dialog .relationship-participant label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; margin: 0; padding: 3px 0; }
 .relationship-participants input { width: auto; }
-.participant-type { color: #91a7b9; font-size: 12px; }
-.relationship-kinds { display: grid; gap: 7px; }
-.relationship-kind { display: grid; grid-template-columns: auto 1fr; gap: 2px 9px; align-items: start; padding: 9px; border: 1px solid #4b6175; border-radius: 6px; }
-.relationship-kind input { width: auto; margin-top: 3px; }
-.relationship-kind small { grid-column: 2; color: #91a7b9; }
-.relationship-kind:has(input:checked) { border-color: #77d3ea; background: #164b5a; }
-.relationship-kind:has(input:disabled) { opacity: .55; }
+.relationship-selection-tools { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; color: #a6b6c5; }
+#relationship-error:empty { display: none; }
 
 #feature-graph-view { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 0; padding: 0; border: 0; background: #17232e; }
 .feature-graph-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 9px 14px; border-bottom: 1px solid #344351; background: #151f28; }

@@ -284,7 +284,8 @@
         -0.11770677985645683,
         -0.13100357176492008
       ],
-      "direction_reversed": false
+      "direction_reversed": false,
+      "placement": null
     },
     {
       "id": "reference_plane_45bb0164b0ef40afbaaf2277268a6a4a",
@@ -296,7 +297,8 @@
       "axis": "axis_b970d98ea84144dcbcda2d9331e79ab3",
       "construction": "perpendicular_to_axis",
       "initial_angle_degrees": null,
-      "offset": 0
+      "offset": 0,
+      "placement": null
     },
     {
       "id": "reference_plane_c16316405be4483bb2b8c5af7d2e2a6e",
@@ -308,7 +310,8 @@
       "axis": "axis_b970d98ea84144dcbcda2d9331e79ab3",
       "construction": "parallel_to_axis",
       "initial_angle_degrees": 0,
-      "offset": 0
+      "offset": 0,
+      "placement": null
     },
     {
       "id": "fit_56e9d6f9a2a344629c52cba6931add0f",
@@ -1493,6 +1496,19 @@
       ]
     },
     {
+      "id": "plane_relationship_13e06a91c7a14bdba8c03e1b7972b96c",
+      "label": "Coincident planes",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "plane_relationship",
+      "relation": "coincident",
+      "surfaces": [
+        "fit_56e9d6f9a2a344629c52cba6931add0f",
+        "fit_target_3_shoulder"
+      ]
+    },
+    {
       "id": "selection_3cdead579993480394872fd6814a5a8b",
       "label": "sphere a",
       "group_id": "group_5c9a368bd86d4af6974c7cfcfb3d6ba7",
@@ -2463,7 +2479,8 @@
         "point_5c28c53c5821496f962cd07b5a5441e7"
       ],
       "initial_parameters": null,
-      "direction_reversed": false
+      "direction_reversed": false,
+      "placement": null
     },
     {
       "id": "frame_output",
@@ -2503,6 +2520,4007 @@
       "operation": "transform",
       "frame": "frame_output",
       "scale": "scale_output"
+    },
+    {
+      "id": "selection_30c788c469a64cc3b817910fec71204a",
+      "label": "Selection",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "selection",
+      "source": "scan",
+      "ids": [
+        787,
+        788,
+        791,
+        792,
+        793,
+        796,
+        797,
+        801,
+        802,
+        806,
+        807,
+        811,
+        812,
+        813,
+        816,
+        817,
+        821,
+        822,
+        826,
+        827,
+        831,
+        832,
+        833,
+        836,
+        837,
+        838,
+        841,
+        842,
+        843,
+        846,
+        847,
+        848,
+        851,
+        852,
+        853,
+        856,
+        857,
+        858,
+        861,
+        862,
+        863,
+        866,
+        867,
+        868,
+        871,
+        872,
+        873,
+        876,
+        877,
+        878
+      ],
+      "depth": "first_surface"
+    },
+    {
+      "id": "fit_b7e8b91a5763406aa86831034eedd3a1",
+      "label": "Surface fit",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "fit",
+      "selections": [
+        "selection_30c788c469a64cc3b817910fec71204a"
+      ],
+      "kind": "plane",
+      "axial_domain": [
+        -2,
+        5
+      ],
+      "axis": null,
+      "point": null,
+      "reference_plane": null
+    },
+    {
+      "id": "selection_747c798f09a74d5db12c9ddcbd3c0cb8",
+      "label": "Selection 2",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "selection",
+      "source": "scan",
+      "ids": [
+        711,
+        712,
+        713,
+        716,
+        717,
+        718,
+        721,
+        722,
+        723,
+        726,
+        727,
+        728,
+        731,
+        732,
+        733,
+        737,
+        738,
+        741,
+        742,
+        743,
+        746,
+        747,
+        748,
+        752,
+        753,
+        757,
+        758,
+        761,
+        762,
+        763,
+        767,
+        768,
+        771,
+        772,
+        773
+      ],
+      "depth": "first_surface"
+    },
+    {
+      "id": "fit_d57e733f8eb34d8081f1dac54284853c",
+      "label": "Surface fit 2",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "fit",
+      "selections": [
+        "selection_747c798f09a74d5db12c9ddcbd3c0cb8"
+      ],
+      "kind": "plane",
+      "axial_domain": [
+        -2,
+        5
+      ],
+      "axis": null,
+      "point": null,
+      "reference_plane": null
+    },
+    {
+      "id": "selection_571930fc43e34dcca941200890287267",
+      "label": "Selection 3",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "selection",
+      "source": "scan",
+      "ids": [
+        892,
+        893,
+        897,
+        898,
+        902,
+        906,
+        907,
+        908,
+        911,
+        912,
+        913,
+        916,
+        917,
+        918,
+        922,
+        923,
+        927,
+        928,
+        932,
+        936,
+        937,
+        938,
+        941,
+        942,
+        943,
+        947,
+        948,
+        951,
+        952,
+        953,
+        956,
+        957,
+        961,
+        962,
+        963,
+        966,
+        967,
+        968,
+        971,
+        972,
+        973,
+        976,
+        977,
+        978,
+        981,
+        982,
+        983
+      ],
+      "depth": "first_surface"
+    },
+    {
+      "id": "fit_8173992c12224c47bc31694c265bf540",
+      "label": "Surface fit 3",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "fit",
+      "selections": [
+        "selection_571930fc43e34dcca941200890287267"
+      ],
+      "kind": "plane",
+      "axial_domain": [
+        -2,
+        5
+      ],
+      "axis": null,
+      "point": null,
+      "reference_plane": null
+    },
+    {
+      "id": "selection_1f941f2e8bc7410bb4051e9c083c6fcb",
+      "label": "Selection 4",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "selection",
+      "source": "scan",
+      "ids": [
+        636,
+        637,
+        638,
+        641,
+        642,
+        643,
+        647,
+        648,
+        652,
+        653,
+        656,
+        657,
+        661,
+        662,
+        666,
+        667,
+        668,
+        672,
+        673,
+        676,
+        677,
+        678,
+        681,
+        682,
+        683,
+        686,
+        687,
+        688,
+        691,
+        692,
+        693,
+        696,
+        697,
+        698
+      ],
+      "depth": "first_surface"
+    },
+    {
+      "id": "fit_77a99c80bc824ef5b13e4581d0514d36",
+      "label": "Surface fit 4",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "fit",
+      "selections": [
+        "selection_1f941f2e8bc7410bb4051e9c083c6fcb"
+      ],
+      "kind": "plane",
+      "axial_domain": [
+        -2,
+        5
+      ],
+      "axis": null,
+      "point": null,
+      "reference_plane": null
+    },
+    {
+      "id": "selection_dc1169e5dac7406e9badce6208f0bb52",
+      "label": "Selection 5",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "selection",
+      "source": "scan",
+      "ids": [
+        333,
+        334,
+        335,
+        336,
+        337,
+        338,
+        342,
+        343,
+        346,
+        347,
+        348,
+        351,
+        352,
+        353,
+        354,
+        355,
+        356,
+        357,
+        362,
+        365,
+        366,
+        367,
+        368,
+        369,
+        371,
+        372,
+        376,
+        377,
+        379,
+        380,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        391,
+        392,
+        393,
+        394,
+        395,
+        396,
+        397,
+        398,
+        399,
+        400,
+        401,
+        402,
+        403,
+        406,
+        407,
+        408,
+        410,
+        411,
+        412,
+        413,
+        414,
+        415,
+        416,
+        417,
+        421,
+        423,
+        424,
+        425,
+        426,
+        427,
+        428,
+        429,
+        430,
+        431,
+        432,
+        435,
+        436,
+        437,
+        438,
+        439,
+        440,
+        441,
+        442,
+        443,
+        444,
+        445,
+        446,
+        447,
+        450,
+        451,
+        452,
+        453,
+        454,
+        455,
+        456,
+        457,
+        458,
+        459,
+        460,
+        461,
+        462,
+        465,
+        466,
+        467,
+        468,
+        469,
+        470,
+        471,
+        472,
+        473,
+        474,
+        475,
+        476,
+        477,
+        480,
+        481,
+        482,
+        483,
+        484,
+        485,
+        486,
+        487,
+        488,
+        489,
+        490,
+        491,
+        492,
+        496,
+        497,
+        498,
+        499,
+        500,
+        501,
+        503,
+        504,
+        505,
+        506,
+        507,
+        511,
+        512,
+        513,
+        514,
+        515,
+        516,
+        518,
+        520,
+        521,
+        522,
+        526,
+        527,
+        529,
+        530,
+        531,
+        532,
+        533,
+        534,
+        535,
+        536,
+        537,
+        538,
+        541,
+        542,
+        544,
+        545,
+        546,
+        547,
+        548,
+        550,
+        551,
+        552,
+        556,
+        557,
+        566,
+        567,
+        571,
+        572,
+        575,
+        577,
+        578,
+        579,
+        582,
+        587,
+        588,
+        589,
+        590,
+        591,
+        592,
+        593,
+        594,
+        595,
+        596,
+        597,
+        598,
+        602,
+        612,
+        825,
+        830,
+        835
+      ],
+      "depth": "first_surface"
+    },
+    {
+      "id": "fit_44988004d6a44b14a89ece22a7ef31ce",
+      "label": "Surface fit 5",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "fit",
+      "selections": [
+        "selection_dc1169e5dac7406e9badce6208f0bb52"
+      ],
+      "kind": "plane",
+      "axial_domain": [
+        -2,
+        5
+      ],
+      "axis": null,
+      "point": null,
+      "reference_plane": null
+    },
+    {
+      "id": "plane_relationship_bba5c3764a1248f89224e11363f30ec5",
+      "label": "Parallel planes",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "plane_relationship",
+      "relation": "parallel",
+      "surfaces": [
+        "plate-top-fit",
+        "fit_44988004d6a44b14a89ece22a7ef31ce"
+      ]
+    },
+    {
+      "id": "plane_relationship_d42aa0e927f9470fa8d4f2b34613209c",
+      "label": "Parallel planes 1",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "plane_relationship",
+      "relation": "parallel",
+      "surfaces": [
+        "fit_d57e733f8eb34d8081f1dac54284853c",
+        "fit_77a99c80bc824ef5b13e4581d0514d36"
+      ]
+    },
+    {
+      "id": "plane_relationship_d68812de52de4674b47771f09670504b",
+      "label": "Parallel planes 2",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "plane_relationship",
+      "relation": "parallel",
+      "surfaces": [
+        "fit_b7e8b91a5763406aa86831034eedd3a1",
+        "fit_8173992c12224c47bc31694c265bf540"
+      ]
+    },
+    {
+      "id": "build_faces_3ddbf76139e44cf9a071db3aa7dc96da",
+      "label": "Build faces",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        },
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+        "surface": null
+      },
+      "boundary_sources": [],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_c854b1ee5d8308f33c6f02ea0c37042e",
+      "label": "Build faces · shoulder fit face",
+      "group_id": null,
+      "managed_by": "build_faces_3ddbf76139e44cf9a071db3aa7dc96da",
+      "managed_key": "face/f29ebdb6406399ffeaee5b2fe7509fa4/762cc80cfccafb8da5e11af4afb7a9cd",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "0213db9dbcac047839eedc03e7c2ed94": "positive",
+          "37fb2b353df59d21e11bf36114f546cb": "negative",
+          "8843bec2dc4efe0ed50826422f77da3c": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          25.07936047324725,
+          -21.349515312778323
+        ]
+      },
+      "boundary_sources": [],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_128fdb86f3e14bd8ac72d1033b6253f2",
+      "label": "Build faces 2",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_28641540e8cbbcb2062d9eb7566b11e2",
+      "label": "Build faces 2 · outer fit face",
+      "group_id": null,
+      "managed_by": "build_faces_128fdb86f3e14bd8ac72d1033b6253f2",
+      "managed_key": "face/37fb2b353df59d21e11bf36114f546cb/cd07d44842a095c24d3a1e9cb034611e",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "8843bec2dc4efe0ed50826422f77da3c": "positive",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "f29ebdb6406399ffeaee5b2fe7509fa4": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          1.181641028172052,
+          -2.1712978874074205
+        ]
+      },
+      "boundary_sources": [
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_a184592a34eb4d52bebf549da1946204",
+      "label": "Build faces 3",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_90b7b598ee7bd0675eab4691a1c7d099",
+      "label": "Build faces 3 · clock fit face",
+      "group_id": null,
+      "managed_by": "build_faces_a184592a34eb4d52bebf549da1946204",
+      "managed_key": "face/8843bec2dc4efe0ed50826422f77da3c/0c952ee1dbccd9be8d28f42e2aae3ab0",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "37fb2b353df59d21e11bf36114f546cb": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "f29ebdb6406399ffeaee5b2fe7509fa4": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          19.540380229201677,
+          7.2882712672290655
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_fe75292304284436a390598d03799a48",
+      "label": "Build faces 4",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_boss_d_shoulder",
+        "surface": null
+      },
+      "boundary_sources": [],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_86daf1829b6c183af01bfddafe890da9",
+      "label": "Build faces 4 · shoulder 2 reused face",
+      "group_id": null,
+      "managed_by": "build_faces_fe75292304284436a390598d03799a48",
+      "managed_key": "face/4aa1dca5cb859080dae162c6f6bb90f7/e354412ba38f6cd4bb92527c2f04390c",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_boss_d_shoulder",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "081348c39b09ee6f5c83eca2751bdb23": "positive",
+          "67fa16adf67758875483dea0aaa6c03c": "positive",
+          "e8c87da3befd4f2cfea4972dee965fd9": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -6.61885735322929,
+          -31.754999849755958
+        ]
+      },
+      "boundary_sources": [],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_ae0e8ab588f8436a88e9f825f1a32f4f",
+      "label": "Build faces 5",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_boss_d_outer",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_a18d688eae07415d91b8f74a504cda02",
+      "label": "Build faces 5 · outer reused face",
+      "group_id": null,
+      "managed_by": "build_faces_ae0e8ab588f8436a88e9f825f1a32f4f",
+      "managed_key": "face/e8c87da3befd4f2cfea4972dee965fd9/e648de39c20b2c7c02d8c27f37d483bd",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_boss_d_outer",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "4aa1dca5cb859080dae162c6f6bb90f7": "negative",
+          "67fa16adf67758875483dea0aaa6c03c": "positive",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -1.8601320023397376,
+          5.745581017223924
+        ]
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_e5e74b15c9174601b0032b8ae93605bd",
+      "label": "Build faces 6",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_boss_d_clock",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9",
+        "built_a18d688eae07415d91b8f74a504cda02"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+      "label": "Build faces 6 · clock 2 reused face",
+      "group_id": null,
+      "managed_by": "build_faces_e5e74b15c9174601b0032b8ae93605bd",
+      "managed_key": "face/67fa16adf67758875483dea0aaa6c03c/6c2f60552cfa58f533b1cd9f93f84357",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_boss_d_clock",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "4aa1dca5cb859080dae162c6f6bb90f7": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "e8c87da3befd4f2cfea4972dee965fd9": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          18.44036361691216,
+          -4.052115480727348
+        ]
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9",
+        "built_a18d688eae07415d91b8f74a504cda02"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_3736fba66cc240118e3ea64f2314f4b0",
+      "label": "Build faces 7",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_2_shoulder",
+        "surface": null
+      },
+      "boundary_sources": [],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_c6dd5c421634e247b4b6092e1370ef8b",
+      "label": "Build faces 7 · shoulder 2 at target 2 face",
+      "group_id": null,
+      "managed_by": "build_faces_3736fba66cc240118e3ea64f2314f4b0",
+      "managed_key": "face/282561eb43c16f830fa224c25ef5a554/d5d01f93250579dfd3fee0a5ab0005f1",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_2_shoulder",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "6296af71592db72b525390a4abc2c4b4": "positive",
+          "99be18c8c9f5d9d92da11a3928cf415a": "positive",
+          "a0971428c31be024e42665d1ea603807": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -26.88898576241627,
+          -9.20035942126006
+        ]
+      },
+      "boundary_sources": [],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_69e139fff475482aa55d5f08dba1734c",
+      "label": "Build faces 8",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_2_outer",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_a040e61d039505f9a8a2c714f522108b",
+      "label": "Build faces 8 · outer at target 2 face",
+      "group_id": null,
+      "managed_by": "build_faces_69e139fff475482aa55d5f08dba1734c",
+      "managed_key": "face/a0971428c31be024e42665d1ea603807/3b19789e9f5d6089987315a0624142e2",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_2_outer",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "282561eb43c16f830fa224c25ef5a554": "negative",
+          "6296af71592db72b525390a4abc2c4b4": "positive",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -1.351943229799049,
+          16.889124888854006
+        ]
+      },
+      "boundary_sources": [
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_531a473f51f247e1a098c982d972199b",
+      "label": "Build faces 9",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_3_shoulder",
+        "surface": null
+      },
+      "boundary_sources": [],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_25bbf41fd628caeaa7131c7579c28521",
+      "label": "Build faces 9 · shoulder 2 at target 3 face",
+      "group_id": null,
+      "managed_by": "build_faces_531a473f51f247e1a098c982d972199b",
+      "managed_key": "face/e9ee8a1df778dd278eb8f9f3d1d60238/13083623f08af72c23de791a1ed9a6d3",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_3_shoulder",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "18544f9c510d14963919673cafff5922": "positive",
+          "802f964a58abe21d0b0ac148f6cac9e5": "negative",
+          "c57695aca500dd7271c32b841924fbb7": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          16.79428193846511,
+          34.73440086664954
+        ]
+      },
+      "boundary_sources": [],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_c90864f58c6a4d23a94737649515822a",
+      "label": "Build faces 10",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_3_outer",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_cc5cf9cc96977bd414ee7e855b383273",
+      "label": "Build faces 10 · outer at target 3 face",
+      "group_id": null,
+      "managed_by": "build_faces_c90864f58c6a4d23a94737649515822a",
+      "managed_key": "face/802f964a58abe21d0b0ac148f6cac9e5/cee25bacaace737ae45dceafa2ceec9b",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_3_outer",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "c57695aca500dd7271c32b841924fbb7": "positive",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "e9ee8a1df778dd278eb8f9f3d1d60238": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          1.0165573687336589,
+          12.649689737073299
+        ]
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_d54e4e0aaf1c45d69ab8ffa5e4b6ef28",
+      "label": "Build faces 11",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_3_clock",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521",
+        "built_cc5cf9cc96977bd414ee7e855b383273"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_e134ad1d74dd2ea964b9f5acaf7698a0",
+      "label": "Build faces 11 · clock 2 at target 3 face",
+      "group_id": null,
+      "managed_by": "build_faces_d54e4e0aaf1c45d69ab8ffa5e4b6ef28",
+      "managed_key": "face/c57695aca500dd7271c32b841924fbb7/40b4b7cfcf7ed4ac174e0ea23697ae3d",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_3_clock",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "802f964a58abe21d0b0ac148f6cac9e5": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "e9ee8a1df778dd278eb8f9f3d1d60238": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -36.34433656888185,
+          6.704968529210713
+        ]
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521",
+        "built_cc5cf9cc96977bd414ee7e855b383273"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_d335626b51304ea58424a0eb70ea6403",
+      "label": "Build faces 12",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_2_clock",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_bf6db88db23c54fa7c7cc968987f9be9",
+      "label": "Build faces 12 · clock 2 at target 2 face",
+      "group_id": null,
+      "managed_by": "build_faces_d335626b51304ea58424a0eb70ea6403",
+      "managed_key": "face/6296af71592db72b525390a4abc2c4b4/27b7c73f3917d7079b544e334369742f",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_2_clock",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "282561eb43c16f830fa224c25ef5a554": "negative",
+          "a0971428c31be024e42665d1ea603807": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          9.393450761907971,
+          8.830769558806661
+        ]
+      },
+      "boundary_sources": [
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_5bb387d1c09e4c2e856840dd2a266ce9",
+      "label": "Build faces 13",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_44377930c5aa0c4b62648c5cefbda033",
+      "label": "Build faces 13 · bore fit face",
+      "group_id": null,
+      "managed_by": "build_faces_5bb387d1c09e4c2e856840dd2a266ce9",
+      "managed_key": "face/0213db9dbcac047839eedc03e7c2ed94/33fbfa242b80f7151af12ccb56129ca3",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_56e9d6f9a2a344629c52cba6931add0f",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "f29ebdb6406399ffeaee5b2fe7509fa4": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -0.48341737652150146,
+          2.4080718980536244
+        ]
+      },
+      "boundary_sources": [
+        "built_c854b1ee5d8308f33c6f02ea0c37042e"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_2fd6089e7a5241adafec376cdd3db076",
+      "label": "Build faces 14",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_boss_d_bore",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_boss_d_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_boss_d_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_82c17f693c8b70d8ecaafd25d43dde2a",
+      "label": "Build faces 14 · bore reused face",
+      "group_id": null,
+      "managed_by": "build_faces_2fd6089e7a5241adafec376cdd3db076",
+      "managed_key": "face/081348c39b09ee6f5c83eca2751bdb23/b26c52416a642c7d5f5efb6323f0ee2a",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_boss_d_bore",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_boss_d_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "4aa1dca5cb859080dae162c6f6bb90f7": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -1.8640148885126497,
+          6.167567776390131
+        ]
+      },
+      "boundary_sources": [
+        "built_86daf1829b6c183af01bfddafe890da9"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_0f5b4e9192f643f3b1c9a9f44e9efeee",
+      "label": "Build faces 15",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_2_bore",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_2_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_2_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_b023d3865a60401e3860e01d8cca8f54",
+      "label": "Build faces 15 · bore at target 2 face",
+      "group_id": null,
+      "managed_by": "build_faces_0f5b4e9192f643f3b1c9a9f44e9efeee",
+      "managed_key": "face/99be18c8c9f5d9d92da11a3928cf415a/3c87ef0db73ce90cec9afe87c4009224",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_2_bore",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_target_2_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "282561eb43c16f830fa224c25ef5a554": "negative",
+          "ca8257547c7e6ec8a41416a2c9062247": "positive"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -1.9559902713359227,
+          9.525511355548822
+        ]
+      },
+      "boundary_sources": [
+        "built_c6dd5c421634e247b4b6092e1370ef8b"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_3bde8f28bad044d99e238f908b8426e9",
+      "label": "Build faces 16",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_target_3_bore",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_target_3_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_shoulder",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_target_3_bore",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_a0554e9300e89d1e4d29625109db9d6b",
+      "label": "Build faces 16 · bore at target 3 face",
+      "group_id": null,
+      "managed_by": "build_faces_3bde8f28bad044d99e238f908b8426e9",
+      "managed_key": "face/18544f9c510d14963919673cafff5922/d5221bc9ca64b38b3c2ce56fd29a65aa",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_target_3_bore",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_shoulder",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "ca8257547c7e6ec8a41416a2c9062247": "positive",
+          "e9ee8a1df778dd278eb8f9f3d1d60238": "negative"
+        },
+        "finite_sides": {},
+        "component_count": 1,
+        "witness_chart": [
+          -2.0998411203976444,
+          7.793993141501693
+        ]
+      },
+      "boundary_sources": [
+        "built_25bbf41fd628caeaa7131c7579c28521"
+      ],
+      "finite_boundary_sources": []
+    },
+    {
+      "id": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "label": "Build faces 17",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_clock",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_3_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_target_2_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_bore",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_boss_d_outer",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_ef8c327d69ae3c5417640ac742ef38a4",
+      "label": "Build faces 17 · plate top fit face",
+      "group_id": null,
+      "managed_by": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "managed_key": "face/ca8257547c7e6ec8a41416a2c9062247/19a183bc0edf85fc096559e48c101a71",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "e61b58616ea6bc33221fd6450e6b0d4c": "positive"
+        },
+        "finite_sides": {
+          "37fb2b353df59d21e11bf36114f546cb": [
+            "positive"
+          ],
+          "6296af71592db72b525390a4abc2c4b4": [
+            "negative"
+          ],
+          "67fa16adf67758875483dea0aaa6c03c": [
+            "negative"
+          ],
+          "802f964a58abe21d0b0ac148f6cac9e5": [
+            "positive"
+          ],
+          "8843bec2dc4efe0ed50826422f77da3c": [
+            "negative"
+          ],
+          "a0971428c31be024e42665d1ea603807": [
+            "positive"
+          ],
+          "c57695aca500dd7271c32b841924fbb7": [
+            "negative"
+          ],
+          "e8c87da3befd4f2cfea4972dee965fd9": [
+            "positive"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -25.36588607732134,
+          31.16928361032037
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "finite_boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ]
+    },
+    {
+      "id": "built_3267b752c9f890aac8f3db83eedd640e",
+      "label": "Build faces 17 · plate top fit face 2",
+      "group_id": null,
+      "managed_by": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "managed_key": "face/ca8257547c7e6ec8a41416a2c9062247/4e350d0ff6ebf971c940d42ad9b1b050",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "e61b58616ea6bc33221fd6450e6b0d4c": "positive"
+        },
+        "finite_sides": {
+          "0213db9dbcac047839eedc03e7c2ed94": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          27.499938358464142,
+          -30.624594216625578
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "finite_boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ]
+    },
+    {
+      "id": "built_e92bcf99f37f191919053a7a31fd1d95",
+      "label": "Build faces 17 · plate top fit face 3",
+      "group_id": null,
+      "managed_by": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "managed_key": "face/ca8257547c7e6ec8a41416a2c9062247/872d6a0888fe50595f002a6dbf94f855",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "e61b58616ea6bc33221fd6450e6b0d4c": "positive"
+        },
+        "finite_sides": {
+          "081348c39b09ee6f5c83eca2751bdb23": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -10.747399931221302,
+          -38.80989339528974
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "finite_boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ]
+    },
+    {
+      "id": "built_8c45a71b15c84b7ad4ba0f009c9a1560",
+      "label": "Build faces 17 · plate top fit face 4",
+      "group_id": null,
+      "managed_by": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "managed_key": "face/ca8257547c7e6ec8a41416a2c9062247/2dbc2879c1e92d8c9889fa9f0f3c032f",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "e61b58616ea6bc33221fd6450e6b0d4c": "positive"
+        },
+        "finite_sides": {
+          "18544f9c510d14963919673cafff5922": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          10.878251642930092,
+          38.6927997995638
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "finite_boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ]
+    },
+    {
+      "id": "built_0c67525688a473556586a4af3616bdc1",
+      "label": "Build faces 17 · plate top fit face 5",
+      "group_id": null,
+      "managed_by": "build_faces_2ab51b986ccd42398f76ad480b0122a6",
+      "managed_key": "face/ca8257547c7e6ec8a41416a2c9062247/c7a7eb02c2e5c4fee1d775dd607d3133",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "plate-top-fit",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_540fc24f8d5a4f01a93857292219918c",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_6854e8ef6490471eac2deb01287f0ec4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_40e50a08a9674997924b0cd216b08bf4",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_bore",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_2_outer",
+          "surface": null
+        },
+        {
+          "feature": "fit_target_3_clock",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_boss_d_outer",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "e61b58616ea6bc33221fd6450e6b0d4c": "positive"
+        },
+        "finite_sides": {
+          "99be18c8c9f5d9d92da11a3928cf415a": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -21.313578021362936,
+          -5.833964117363095
+        ]
+      },
+      "boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ],
+      "finite_boundary_sources": [
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0"
+      ]
+    },
+    {
+      "id": "build_faces_f5c1397b414943b8a777034dd83d1d7e",
+      "label": "Build faces 18",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_bbac9b3b59af198b050b6bda47c7c2d5",
+      "label": "Build faces 18 · Surface fit face",
+      "group_id": null,
+      "managed_by": "build_faces_f5c1397b414943b8a777034dd83d1d7e",
+      "managed_key": "face/e61b58616ea6bc33221fd6450e6b0d4c/3976853625a6b8d6acd1f70467f1c2af",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "cd291c128709564cf11c686a409fae8f": "negative",
+          "dc21db98a50d9f85b903d3b0958dbc68": "negative"
+        },
+        "finite_sides": {
+          "ca8257547c7e6ec8a41416a2c9062247": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -20.293615643475363,
+          -0.7600195542936028
+        ]
+      },
+      "boundary_sources": [
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "finite_boundary_sources": [
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ]
+    },
+    {
+      "id": "build_faces_c2f8a22226e640dd995dd9e589da8573",
+      "label": "Build faces 19",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_20edf5c685a9bf288297a96e30d8cd97",
+      "label": "Build faces 19 · Surface fit 2 face",
+      "group_id": null,
+      "managed_by": "build_faces_c2f8a22226e640dd995dd9e589da8573",
+      "managed_key": "face/cd291c128709564cf11c686a409fae8f/15ca57df25e9c4e265a6f77e477ea099",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "828a92b7ba783fd09727464c6457d5dd": "negative",
+          "dc21db98a50d9f85b903d3b0958dbc68": "negative"
+        },
+        "finite_sides": {
+          "ca8257547c7e6ec8a41416a2c9062247": [
+            "negative"
+          ],
+          "e61b58616ea6bc33221fd6450e6b0d4c": [
+            "positive"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          13.750913817243777,
+          -2.846315485206107
+        ]
+      },
+      "boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "finite_boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ]
+    },
+    {
+      "id": "build_faces_8a0989c36fc549b6ac5dfa4e71e2e6db",
+      "label": "Build faces 20",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_8173992c12224c47bc31694c265bf540",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_d89c8d41495a464457b3a8fe1fcf9727",
+      "label": "Build faces 20 · Surface fit 3 face",
+      "group_id": null,
+      "managed_by": "build_faces_8a0989c36fc549b6ac5dfa4e71e2e6db",
+      "managed_key": "face/828a92b7ba783fd09727464c6457d5dd/060b7630580d0959e3c29121cec20e7e",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_8173992c12224c47bc31694c265bf540",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "120c226567a1b6754c4d86901e26f327": "positive",
+          "dc21db98a50d9f85b903d3b0958dbc68": "negative"
+        },
+        "finite_sides": {
+          "ca8257547c7e6ec8a41416a2c9062247": [
+            "negative"
+          ],
+          "cd291c128709564cf11c686a409fae8f": [
+            "negative"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -20.44456367727645,
+          -1.582072994752469
+        ]
+      },
+      "boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "finite_boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ]
+    },
+    {
+      "id": "build_faces_32ca73f85d2c480aa938aabb66b400d3",
+      "label": "Build faces 21",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "second": {
+            "feature": "plate-top-fit",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_55147a7365c46afec46f449389f93e60",
+      "label": "Build faces 21 · Surface fit 4 face",
+      "group_id": null,
+      "managed_by": "build_faces_32ca73f85d2c480aa938aabb66b400d3",
+      "managed_key": "face/120c226567a1b6754c4d86901e26f327/343b333fd3ec4b5f0089e2313dd92a63",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "plate-top-fit",
+          "surface": null
+        },
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {
+          "dc21db98a50d9f85b903d3b0958dbc68": "negative"
+        },
+        "finite_sides": {
+          "828a92b7ba783fd09727464c6457d5dd": [
+            "negative"
+          ],
+          "ca8257547c7e6ec8a41416a2c9062247": [
+            "negative"
+          ],
+          "e61b58616ea6bc33221fd6450e6b0d4c": [
+            "positive"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -13.115912216789152,
+          -3.139145122678304
+        ]
+      },
+      "boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ],
+      "finite_boundary_sources": [
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727",
+        "built_ef8c327d69ae3c5417640ac742ef38a4"
+      ]
+    },
+    {
+      "id": "build_faces_69f6259fd1494143ad5eb5b5f833a634",
+      "label": "Build faces 22",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "build_faces",
+      "surfaces": [
+        {
+          "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+          "surface": null
+        },
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "target": {
+        "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+        "surface": null
+      },
+      "boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_55147a7365c46afec46f449389f93e60",
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727"
+      ],
+      "reused_faces": [],
+      "reused_intersections": [],
+      "adjacencies": [
+        {
+          "first": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_8173992c12224c47bc31694c265bf540",
+            "surface": null
+          },
+          "state": "confirmed"
+        },
+        {
+          "first": {
+            "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+            "surface": null
+          },
+          "second": {
+            "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+            "surface": null
+          },
+          "state": "confirmed"
+        }
+      ],
+      "face_scopes": []
+    },
+    {
+      "id": "built_262d30a651117668f6f2670376cd6542",
+      "label": "Build faces 22 · Surface fit 5 face",
+      "group_id": null,
+      "managed_by": "build_faces_69f6259fd1494143ad5eb5b5f833a634",
+      "managed_key": "face/dc21db98a50d9f85b903d3b0958dbc68/fdc8903781b0b33b2610bf1155bb0898",
+      "operation": "arranged_face",
+      "surface": {
+        "feature": "fit_44988004d6a44b14a89ece22a7ef31ce",
+        "surface": null
+      },
+      "cutters": [
+        {
+          "feature": "fit_77a99c80bc824ef5b13e4581d0514d36",
+          "surface": null
+        },
+        {
+          "feature": "fit_8173992c12224c47bc31694c265bf540",
+          "surface": null
+        },
+        {
+          "feature": "fit_d57e733f8eb34d8081f1dac54284853c",
+          "surface": null
+        },
+        {
+          "feature": "fit_b7e8b91a5763406aa86831034eedd3a1",
+          "surface": null
+        }
+      ],
+      "domains": [],
+      "selector": {
+        "signs": {},
+        "finite_sides": {
+          "120c226567a1b6754c4d86901e26f327": [
+            "positive"
+          ],
+          "828a92b7ba783fd09727464c6457d5dd": [
+            "negative"
+          ],
+          "cd291c128709564cf11c686a409fae8f": [
+            "negative"
+          ],
+          "e61b58616ea6bc33221fd6450e6b0d4c": [
+            "positive"
+          ]
+        },
+        "component_count": 1,
+        "witness_chart": [
+          -17.196676515555023,
+          16.86769866531526
+        ]
+      },
+      "boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_55147a7365c46afec46f449389f93e60",
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727"
+      ],
+      "finite_boundary_sources": [
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_55147a7365c46afec46f449389f93e60",
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_d89c8d41495a464457b3a8fe1fcf9727"
+      ]
+    },
+    {
+      "id": "body_a79f8eb306ad466b8f4526aa763957d2",
+      "label": "Body",
+      "group_id": null,
+      "managed_by": null,
+      "managed_key": null,
+      "operation": "body",
+      "faces": [
+        "built_c854b1ee5d8308f33c6f02ea0c37042e",
+        "built_28641540e8cbbcb2062d9eb7566b11e2",
+        "built_90b7b598ee7bd0675eab4691a1c7d099",
+        "built_86daf1829b6c183af01bfddafe890da9",
+        "built_a18d688eae07415d91b8f74a504cda02",
+        "built_d3071c00652c5cbfb2adcd583ba6eb2d",
+        "built_c6dd5c421634e247b4b6092e1370ef8b",
+        "built_a040e61d039505f9a8a2c714f522108b",
+        "built_25bbf41fd628caeaa7131c7579c28521",
+        "built_cc5cf9cc96977bd414ee7e855b383273",
+        "built_e134ad1d74dd2ea964b9f5acaf7698a0",
+        "built_bf6db88db23c54fa7c7cc968987f9be9",
+        "built_44377930c5aa0c4b62648c5cefbda033",
+        "built_82c17f693c8b70d8ecaafd25d43dde2a",
+        "built_b023d3865a60401e3860e01d8cca8f54",
+        "built_a0554e9300e89d1e4d29625109db9d6b",
+        "built_ef8c327d69ae3c5417640ac742ef38a4",
+        "built_3267b752c9f890aac8f3db83eedd640e",
+        "built_e92bcf99f37f191919053a7a31fd1d95",
+        "built_8c45a71b15c84b7ad4ba0f009c9a1560",
+        "built_0c67525688a473556586a4af3616bdc1",
+        "built_bbac9b3b59af198b050b6bda47c7c2d5",
+        "built_20edf5c685a9bf288297a96e30d8cd97",
+        "built_d89c8d41495a464457b3a8fe1fcf9727",
+        "built_55147a7365c46afec46f449389f93e60",
+        "built_262d30a651117668f6f2670376cd6542"
+      ],
+      "sewing_tolerance": 0.000174
     }
   ],
   "groups": [
@@ -2535,5 +6553,5 @@
       "label": "orientation reference"
     }
   ],
-  "output": "transform_955b213e0ba74ab8a5200bbc99c3c7d0"
+  "output": "plane_relationship_13e06a91c7a14bdba8c03e1b7972b96c"
 }
