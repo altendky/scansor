@@ -1,0 +1,32 @@
+/* Shell styles only. Existing feature/forms/model code retains its DOM. */
+body.docking-workspace { height: 100dvh; overflow: hidden; }
+.docking-workspace #creation-toolbar { display: none; }
+.docking-workspace header { min-height: 44px; gap: 12px; padding: 6px 12px; }
+.docking-workspace header small { display: none; }
+.workspace-controls { display: flex; align-items: center; gap: 5px; }
+.workspace-controls select, .workspace-controls button { width: auto; margin: 0; padding: 4px 7px; font-size: 11px; }
+#workspace-root { position: relative; flex: 1; min-height: 0; min-width: 0; display: block; }
+#workspace-root .flexlayout__layout { --color-background: #17232e; --color-text: #e4eaf1; --color-tabset-background: #17232e; --color-tabset-background-selected: #164b5a; font-size: 12px; }
+#workspace-root .flexlayout__tab { background: #17232e; }
+#workspace-root .flexlayout__tab_button { border-radius: 0; }
+#workspace-root .flexlayout__tab_toolbar_button { border: 0; border-radius: 0; padding: 2px; }
+.workspace-native-host { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; container-type: inline-size; }
+.workspace-native-host > #features-panel, .workspace-native-host > #feature-properties-panel { height: 100%; padding: 10px; }
+.workspace-native-host > #viewport, .workspace-native-host > #feature-graph-view { width: 100%; height: 100%; }
+.workspace-native-host #feature-properties-panel input:not([type="checkbox"]):not([type="range"]) { display: block; width: 100%; padding: 7px; }
+.workspace-native-host #feature-properties-panel select[multiple] { min-height: 80px; }
+#workspace-root .workspace-dialog { position: static; inset: auto; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; z-index: auto; padding: 10px; }
+#workspace-root .workspace-dialog[open] { display: flex; flex-direction: column; }
+#workspace-root .workspace-dialog > form { flex: 1; min-height: 0; }
+.workspace-toolbar { height: 100%; overflow: auto; display: flex; align-items: flex-start; gap: 8px; padding: 5px 7px; }
+.workspace-toolbar .toolbar-group { flex: none; border: 0; margin: 0; padding: 0; }
+.workspace-toolbar .toolbar-group-label { display: block; color: #a6b6c5; font-size: 10px; margin-bottom: 3px; }
+.workspace-toolbar .toolbar-items { display: flex; gap: 4px; align-items: center; }
+.workspace-toolbar button { padding: 5px 7px; white-space: nowrap; font-size: 11px; }
+.workspace-toolbar .toolbar-check { display: flex; gap: 4px; align-items: center; margin: 0; font-size: 11px; white-space: nowrap; }
+@container (max-width: 190px) {
+  .workspace-toolbar { flex-direction: column; align-items: stretch; }
+  .workspace-toolbar .toolbar-items { flex-direction: column; align-items: stretch; }
+}
+.workspace-layout-notice { position: absolute; bottom: 4px; right: 8px; z-index: 20; padding: 5px; background: #583720; font-size: 11px; }
+@media(max-width: 950px) { .docking-workspace header > span { display: none; } }

@@ -2,6 +2,19 @@
   "name": "scansor-browser-experiment",
   "private": true,
   "type": "module",
-  "scripts": {"check": "node --check app.js && node --check feature-graph-view.js && node --check navigation.js && node --test *.test.js"},
-  "dependencies": {"three": "0.186.1"}
+  "scripts": {
+    "check": "node --check app.js && node --check feature-graph-view.js && node --check navigation.js && node --test *.test.js",
+    "build": "vite build",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "three": "0.186.1",
+    "flexlayout-react": "0.11.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "vite": "8.3.1"
+  }
 }

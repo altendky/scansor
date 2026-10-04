@@ -41,6 +41,7 @@ root:
 mise install --locked
 uv sync --locked
 npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
+npm run build --prefix experiments/browser_viewer
 ```
 
 Open the captured-nozzle demonstration on port `8765`:

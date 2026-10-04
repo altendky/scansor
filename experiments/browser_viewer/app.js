@@ -14,6 +14,8 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars } from './workspace.js';
+import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
@@ -72,7 +74,7 @@ let bodyInspection;
 let fitQualityLimit = null, fitQualityStorageKey = null, fitQualityCache = null;
 let selectedFeatureIds = new Set();
 let featureDeletionReview = null, featureDeletionPending = false, featureContextAnchor = null;
-let workspaceView = 'model', resizeViewport = null;
+let resizeViewport = null;
 let displayTransformKey = 'identity';
 let buildFacesProposal = null, buildFacesOwnerId = null, buildFacesRequest = 0;
 let buildFacesReview = new Map(), buildFacesOverlays;
@@ -624,6 +626,7 @@ function openBuildFaces(owner = null, target = null) {
   setBuildFacesModeDisplay();
   renderBuildFacesScopes();
   if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
+  revealWorkspacePanel('build-faces-dialog');
   if (buildFacesMode === 'guided') {
     $('build-faces-target').focus();
     void loadFaceCandidates(owner?.surfaces || null, owner ? owner.boundary_sources || [] : null);
@@ -1054,17 +1057,6 @@ function renderGraphView() {
   $('feature-graph-summary').textContent =
     `${graph.nodes.length} feature${graph.nodes.length === 1 ? '' : 's'} · ` +
     `${graph.edges.length} connection${graph.edges.length === 1 ? '' : 's'}`;
-}
-function setWorkspaceView(next) {
-  workspaceView = next;
-  const model = next === 'model';
-  $('viewport').hidden = !model;
-  $('feature-graph-view').hidden = model;
-  $('model-view-tab').setAttribute('aria-selected', String(model));
-  $('graph-view-tab').setAttribute('aria-selected', String(!model));
-  history.replaceState(null, '', model ? location.pathname + location.search : '#graph');
-  if (model) requestAnimationFrame(() => resizeViewport?.());
-  else renderGraphView();
 }
 function nextFeatureLabel(base, reserved = []) {
   return uniqueFeatureLabel(base, [
@@ -3235,8 +3227,8 @@ async function ensureCurrent(targets, { token = graphState.token, isCurrent } = 
 }
 async function runGraphEvaluation(allActions, target, retry) {
   busy = true;
-  $('creation-toolbar').inert = true;
-  $('project-toolbar').inert = true;
+  const toolbars = workspaceToolbars(), previousInert = toolbars.map(panel => panel.inert);
+  toolbars.forEach(panel => { panel.inert = true; });
   renderActions();
   paint();
   status(allActions ? 'Evaluating all actions…' : 'Evaluating action and earlier inputs…');
@@ -3269,8 +3261,7 @@ async function runGraphEvaluation(allActions, target, retry) {
     status(error.message, true);
   } finally {
     busy = false;
-    $('creation-toolbar').inert = false;
-    $('project-toolbar').inert = false;
+    toolbars.forEach((panel, index) => { panel.inert = previousInert[index]; });
     renderActions();
     paint();
     if ($('relationship-dialog').open) updateRelationshipSelection();
@@ -3345,20 +3336,27 @@ function focusRelationshipParticipants(ids) {
 }
 function focusGeometryBox(box, panelElement) {
   if (box.isEmpty()) return;
+  revealWorkspacePanel('view');
+  resizeViewport?.();
   camera.updateMatrixWorld(true);
   const sphere = box.getBoundingSphere(new THREE.Sphere());
   const canvas = renderer.domElement.getBoundingClientRect();
+  if (!canvas.width || !canvas.height) return;
   const panel = panelElement.getBoundingClientRect();
-  const visibleWidth = Math.max(1, Math.min(canvas.width, panel.left - canvas.left));
+  const visible = unobscuredViewport(canvas, panel);
   const tangent = Math.tan(camera.fov * Math.PI / 360);
-  const halfAngle = Math.min(camera.fov * Math.PI / 360,
-    Math.atan(tangent * camera.aspect * visibleWidth / canvas.width));
+  const halfAngle = Math.min(
+    Math.atan(tangent * visible.height / canvas.height),
+    Math.atan(tangent * camera.aspect * visible.width / canvas.width));
   const radius = Math.max(sphere.radius, 0.001);
   const distance = radius / Math.sin(halfAngle) * 1.18;
   const direction = camera.getWorldDirection(new THREE.Vector3()).negate();
   const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+  const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
   controls.target.copy(sphere.center).addScaledVector(right,
-    distance * tangent * camera.aspect * (1 - visibleWidth / canvas.width));
+    distance * tangent * camera.aspect * (1 - (visible.left + visible.right - 2 * canvas.left) / canvas.width));
+  controls.target.addScaledVector(up,
+    distance * tangent * ((visible.top + visible.bottom - 2 * canvas.top) / canvas.height - 1));
   camera.position.copy(controls.target).addScaledVector(direction, distance);
   camera.near = Math.max(0.0001, radius / 1000);
   camera.far = Math.max(radius * 1000, distance + radius * 4);
@@ -3366,67 +3364,7 @@ function focusGeometryBox(box, panelElement) {
   controls.update();
   draw();
 }
-function setupFeatureDivider() {
-  const divider = $('feature-divider');
-  const sidebar = divider.parentElement;
-  const storageKey = 'scansor.featurePanelRatio';
-  let ratio = 0.4, drag = null;
-  try {
-    const saved = Number(localStorage.getItem(storageKey));
-    if (saved >= 0.15 && saved <= 0.85) ratio = saved;
-  } catch { /* Layout preferences are optional when browser storage is unavailable. */ }
-  const availableHeight = () => Math.max(1, sidebar.clientHeight - divider.offsetHeight);
-  const update = (next) => {
-    ratio = Math.max(0.15, Math.min(0.85, next));
-    sidebar.style.setProperty('--tree-height', `${availableHeight() * ratio}px`);
-    divider.setAttribute('aria-valuenow', String(Math.round(ratio * 100)));
-    divider.setAttribute('aria-valuetext', `Feature tree ${Math.round(ratio * 100)} percent`);
-  };
-  const save = () => {
-    try { localStorage.setItem(storageKey, String(ratio)); }
-    catch { /* Keep resizing available without persistent browser storage. */ }
-  };
-  const finish = (cancel = false) => {
-    if (!drag) return;
-    const previous = drag;
-    drag = null;
-    if (cancel) update(previous.ratio);
-    else save();
-    document.body.classList.remove('resizing-features');
-    if (divider.hasPointerCapture(previous.id)) divider.releasePointerCapture(previous.id);
-  };
-  divider.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || drag) return;
-    event.preventDefault();
-    divider.focus();
-    drag = { id: event.pointerId, y: event.clientY, ratio };
-    divider.setPointerCapture(event.pointerId);
-    document.body.classList.add('resizing-features');
-  });
-  divider.addEventListener('pointermove', (event) => {
-    if (drag?.id === event.pointerId)
-      update(drag.ratio + (event.clientY - drag.y) / availableHeight());
-  });
-  divider.addEventListener('pointerup', (event) => {
-    if (drag?.id === event.pointerId) finish();
-  });
-  divider.addEventListener('pointercancel', () => finish(true));
-  divider.addEventListener('lostpointercapture', () => finish(true));
-  window.addEventListener('blur', () => finish(true));
-  divider.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { finish(true); return; }
-    const step = event.shiftKey ? 0.1 : 0.025;
-    const next = { ArrowUp: ratio - step, ArrowDown: ratio + step, Home: 0.15, End: 0.85 }[event.key];
-    if (next === undefined || drag) return;
-    event.preventDefault();
-    update(next);
-    save();
-  });
-  new ResizeObserver(() => update(ratio)).observe(sidebar);
-  update(ratio);
-}
 async function start() {
-  setupFeatureDivider();
   metadata = await request('/api/meta');
   const [pb, ib] = await Promise.all(
     [metadata.positions.url, metadata.indices.url].map(async (url) => {
@@ -3642,6 +3580,7 @@ async function start() {
       relationshipDefinitions.find((definition) => definition.id === selectedRelationshipKind)?.baseName || 'Relationship');
     $('relationship-error').textContent = '';
     $('relationship-dialog').show();
+    revealWorkspacePanel('relationship-dialog');
     renderRelationshipBuilder();
     $('relationship-kind').focus();
   };
@@ -3669,7 +3608,7 @@ async function start() {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     event.stopPropagation();
-    $('relationship-dialog').close();
+    requestWorkspaceClose('relationship-dialog');
   });
   $('new-build-faces').onclick = () => {
     const node = graphNode(selectedFeatureId);
@@ -3712,6 +3651,18 @@ async function start() {
     invalidateBuildFaces(unavailableFitsMessage(buildFacesGeometry().unavailable));
     renderBuildFacesScopes();
   };
+  $('build-faces-dialog').addEventListener('workspace-before-close', event => {
+    if (buildFacesApplying || !canDiscardFaceReview()) event.preventDefault();
+  });
+  $('build-faces-dialog').addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || $('build-faces-target-options').matches(':popover-open')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestWorkspaceClose('build-faces-dialog');
+  });
+  $('relationship-dialog').addEventListener('workspace-before-close', event => {
+    if (relationshipApplying) event.preventDefault();
+  });
   for (const event of ['close', 'cancel']) $('build-faces-dialog').addEventListener(event, () => {
     buildFacesContinuePreview = null;
     buildFacesContinueInteraction = { pointer: null, focus: null };
@@ -4911,7 +4862,7 @@ async function start() {
       };
     }
     relationshipApplying = true;
-    const panels = [document.querySelector('aside'), $('creation-toolbar'), $('project-toolbar')],
+    const panels = workspaceEditingPanels(),
       previousInert = panels.map((panel) => panel.inert);
     panels.forEach((panel) => { panel.inert = true; });
     $('feature-context-menu').hidePopover();
@@ -5079,7 +5030,11 @@ async function start() {
     } else $('rotation-error').textContent = $('status').textContent;
   };
   for (const button of document.querySelectorAll('[data-close-dialog]'))
-    button.onclick = () => $(button.dataset.closeDialog).close();
+    button.onclick = () => {
+      const id = button.dataset.closeDialog;
+      if (['build-faces-dialog', 'relationship-dialog'].includes(id)) requestWorkspaceClose(id);
+      else $(id).close();
+    };
   $('extend-joint').onclick = async () => {
     const selected = chosen('joint-add-fits');
     if (!selected.length) {
@@ -5544,24 +5499,10 @@ async function start() {
     acceptGraph(graphState);
     status('Selection gesture cancelled.');
   };
-  const workspaceTabs = [$('model-view-tab'), $('graph-view-tab')];
-  $('model-view-tab').onclick = () => {
-    cancelStroke();
-    setWorkspaceView('model');
-  };
-  $('graph-view-tab').onclick = () => {
-    cancelStroke();
-    setWorkspaceView('graph');
-  };
-  for (const tab of workspaceTabs) {
-    tab.onkeydown = (event) => {
-      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-      event.preventDefault();
-      const next = workspaceView === 'model' ? 'graph' : 'model';
-      setWorkspaceView(next);
-      $(next === 'model' ? 'model-view-tab' : 'graph-view-tab').focus();
-    };
-  }
+  viewport.addEventListener('workspace-panel-visibility', event => {
+    if (!event.detail.visible) cancelStroke();
+    else requestAnimationFrame(() => resizeViewport?.());
+  });
   for (const id of [
     'feature-graph-lens',
     'feature-graph-selections',
@@ -5704,9 +5645,8 @@ async function start() {
     selectionDrawing = false;
     selectionPending = true;
     $('rectangle').hidden = true;
-    document.querySelector('aside').inert = true;
-    $('creation-toolbar').inert = true;
-    $('project-toolbar').inert = true;
+    const panels = workspaceEditingPanels(), previousInert = panels.map(panel => panel.inert);
+    panels.forEach(panel => { panel.inert = true; });
     status('Saving selection…');
     try {
       await change(
@@ -5719,9 +5659,7 @@ async function start() {
       status('Could not verify selection save. Reload the viewer: ' + error.message, true);
     } finally {
       selectionPending = false;
-      document.querySelector('aside').inert = false;
-      $('creation-toolbar').inert = false;
-      $('project-toolbar').inert = false;
+      panels.forEach((panel, index) => { panel.inert = previousInert[index]; });
       paint();
     }
   });
@@ -5752,7 +5690,7 @@ async function start() {
   };
   const state = await request('/api/graph');
   acceptGraph(state);
-  setWorkspaceView(location.hash === '#graph' ? 'graph' : 'model');
+  if (location.hash === '#graph') revealWorkspacePanel('graph');
   $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');
   if ($('auto-evaluate').checked) await ensureAll();

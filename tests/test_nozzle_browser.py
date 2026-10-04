@@ -29,6 +29,15 @@ def test_fit_only_browser_import_does_not_load_cad_kernel() -> None:
     )
 
 
+def test_workspace_bundle_is_a_served_browser_asset() -> None:
+    assert Handler.files["/workspace.js"] == ("dist/workspace.js", "text/javascript")
+    assert Handler.files["/workspace.css"] == ("dist/workspace.css", "text/css")
+    assert Handler.files["/workspace-state.js"] == (
+        "workspace-state.js",
+        "text/javascript",
+    )
+
+
 def test_surface_trims_module_is_a_served_browser_asset() -> None:
     assert Handler.files["/surface-trims.js"] == ("surface-trims.js", "text/javascript")
 

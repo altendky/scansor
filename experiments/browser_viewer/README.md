@@ -14,6 +14,7 @@ From the repository root, using the locked mise tools and Python environment:
 mise install --locked
 uv sync --locked
 npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
+npm run build --prefix experiments/browser_viewer
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   python -m experiments.nozzle_browser
 ```
@@ -33,11 +34,46 @@ opening an explicit experimental action recipe; it is not a compatibility
 promise for a successor format.
 
 The browser loads the full 24,999-vertex, 49,994-triangle simplified mesh. No mesh
-is uploaded externally. Assets are served locally after installation. Three.js
-0.186.0 is the sole npm dependency, has an MIT license, and is pinned with npm
-integrity metadata. No framework, bundler, desktop browser wrapper, or production
-Python dependency is added. Node is pinned in mise for installation and checks;
-it is not needed to run the Python server after asset installation.
+is uploaded externally. Assets are served locally after installation and building.
+Three.js, React, React DOM, and FlexLayout are pinned MIT-licensed dependencies.
+Vite builds the React/FlexLayout workspace shell; existing feature forms and the
+Three.js renderer retain their DOM and behavior. Vite's build-tool dependency
+Lightning CSS is MPL-2.0 (file-level copyleft), not GPL/LGPL/AGPL. No desktop
+browser wrapper or production Python dependency is added. Node is pinned in mise
+for installation, building, and checks; it is not needed to run the Python server
+after assets have been built. Rebuild after changing workspace source or updating
+its dependencies. Generated `dist/` files are not committed.
+
+## Workspace layout
+
+Features and Feature editor are independent FlexLayout panels. Drag their tabs
+to split, stack, or join panels; drag splitters to resize. The four toolbar panels
+(Create, Faces, Feature tools, Run / output) use the same docking engine and can
+move to any edge or float. Narrow toolbar panels stack their controls vertically.
+These are panel-hosted toolbars, not a separate custom toolbar-docking engine.
+
+Build faces and Relationships open as dockable panels next to the model. Their
+header float control moves them within the browser tab; their form values,
+review choices, and previews survive rearrangement. The panel close button follows
+the same review-discard guard as the form's Cancel/Done button. Other creation,
+confirmation, and export dialogs remain modal. Separate browser-window popouts
+are disabled in this slice because the existing tools and renderer share a single
+document.
+
+Layout changes are saved automatically under `scansor.flexlayout.workspace.v1`,
+separate from action recipes and mockup preferences. Reload restores panel
+placement, but does not reopen workflow drafts. **Show panel** selects a panel
+or starts the selected workflow; **Reset layout** restores default placement
+without changing actions, form drafts, or the camera. If browser storage is
+unavailable, docking remains usable with a visible persistence warning. Layout
+changes do not request fitting or graph evaluation.
+
+Checks: `npm run check --prefix experiments/browser_viewer` and `npm run build
+--prefix experiments/browser_viewer`. Real-browser checks run in a fresh context
+against an isolated adapter on 8767: `BROWSER_CHANNEL=chrome npm run test:browser
+--prefix experiments/browser_viewer` when host Chrome is available. They do not
+connect to or mutate the user's server on 8765. Without that environment variable,
+install Playwright's Chromium first.
 
 ## Interaction
 
@@ -170,13 +206,13 @@ all currently evaluated generated reuse-selection envelopes as translucent
 target-colored overlays. It is off by default and is display state only; the
 surface-normal acceptance test still determines which vertices inside an
 envelope become selected.
-Drag the divider between the tree and attributes to resize them. With the divider
-focused, Up/Down adjusts the split (Shift for larger steps); Home/End selects its
-limits. Escape cancels an unfinished drag. The split is remembered in browser
-storage when available, and both panes retain their own scrollbars.
+Drag the FlexLayout splitter between Features and Feature editor to resize them,
+or move their tabs to arrange them independently. Their placement is remembered
+in browser storage when available, and both panes retain their own scrollbars.
 
-The main workspace switches between **Model** and a read-only **Graph** view; the
-feature tree and properties remain available in both. Graph selection is
+**Model** and the read-only **Graph** are separate FlexLayout tabs. They start in
+one tabset, but can be docked side by side or floated independently. The feature
+tree and properties remain available in both. Graph selection is
 synchronized with the tree and 3D model. Its **Combined** lens distinguishes
 directed evaluation dependencies, geometric-relationship participants, joint
 activation, and generated ownership. Separate **Dependencies**,

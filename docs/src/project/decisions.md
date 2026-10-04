@@ -42,6 +42,18 @@ in package metadata when an implementation stack is selected.
 
 ## Provisional Directions
 
+### Use FlexLayout for the browser experiment's workspace
+
+The user selected MIT-licensed FlexLayout after comparing isolated FlexLayout
+and Dockview mockups, considering only features available without a commercial
+license. React hosts the docking shell; the existing feature forms, graph API,
+and Three.js renderer retain their implementation. Tree and editor are separate
+panels, face review and relationship builders can dock or float, and toolbar
+groups are hosted as movable panels. Layout preferences are independent of
+action recipes. Separate browser-window popouts and a specialized toolbar engine
+are deferred; this choice does not establish a browser-only product architecture.
+See the [workspace interaction notes](../../../experiments/browser_viewer/README.md#workspace-layout).
+
 ### Use OCP for the bounded browser CAD experiment
 
 The user selected OCP and explicitly accepted underlying OCCT licensing as an
