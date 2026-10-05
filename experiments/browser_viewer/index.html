@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scansor · Nozzle selection</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/workspace.css">
+<title>Scansor</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/workspace.css">
 <script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/lines/":"/vendor/lines/"}}</script>
 <script type="module">
 import('/workspace.js').then(({ initializeWorkspace }) => {
-  initializeWorkspace();
-  return import('/app.js');
+  const ready = initializeWorkspace();
+  return import('/app.js').then(ready);
 }).catch((error) => {
   document.getElementById('startup-error').hidden = false;
   document.getElementById('startup-detail').textContent = error.message;
@@ -36,7 +36,7 @@ document.getElementById('recover-actions').onclick = async () => {
 </script>
 </head>
 <body>
-<header><strong>Scansor</strong><span>Nozzle selection</span><small>EXPERIMENT</small><nav id="project-toolbar" aria-label="Project actions"><div class="row"><button id="save" disabled>Save actions</button><button id="load">Load actions</button></div><input id="file" type="file" accept="application/json,.json" hidden><button id="reset">Restore example</button></nav></header>
+<nav id="project-toolbar" aria-label="Project actions"><div class="row"><button id="save" disabled>Save actions</button><button id="load">Load actions</button></div><input id="file" type="file" accept="application/json,.json" hidden><button id="reset">Restore example</button></nav>
 <div id="startup-error" role="alert" hidden><strong>The viewer could not start.</strong><p>Your actions may still be on the running server. Save them below before restarting it, then reload this page.</p><button id="recover-actions">Save actions for recovery</button><p id="startup-detail"></p></div>
 <nav id="creation-toolbar" aria-label="Geometry and joint tools"><div class="toolbar-group"><span class="toolbar-group-label">Create</span><div class="toolbar-items"><button id="add-selection">Selection</button><button id="new-fit">Surface fit</button><button id="new-point">Point</button><button id="new-axis">Axis</button><button id="new-reference-plane">Plane</button><button id="new-frame">Frame</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Faces</span><div class="toolbar-items"><button id="new-build-faces">Build faces…</button><button id="new-surface-intersection">Surface intersection</button><button id="new-trimmed-face">Trimmed face</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Organize</span><div class="toolbar-items"><button id="new-feature-group">Group</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Reuse</span><div class="toolbar-items"><button id="new-feature-reuse">Feature</button><button id="new-selection-region">Region</button><button id="new-region-selection">Apply</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Relate</span><div class="toolbar-items"><button id="new-relationship">Relationship…</button><button id="new-mirror" hidden>Mirror</button><button id="new-parallel" hidden>Parallel</button><button id="new-equal" hidden>Equal</button><button id="new-joint" hidden>New legacy joint</button><button id="new-rotation" hidden>Rotational symmetry</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Combine</span><div class="toolbar-items"><button id="new-axis-solve">Joint</button><button id="new-body">Body…</button></div></div><div class="toolbar-group"><span class="toolbar-group-label">Run</span><div class="toolbar-items"><button id="evaluate-all" disabled>Evaluate all</button><label class="toolbar-check" title="Automatically evaluate after changes"><input id="auto-evaluate" type="checkbox" checked> Auto</label></div></div><div class="toolbar-group toolbar-export"><span class="toolbar-group-label">Output</span><div class="toolbar-items"><button id="new-scale">Scale</button><button id="new-transform">Transform</button><button id="export-cad">Export CAD…</button></div></div></nav>
 <main>

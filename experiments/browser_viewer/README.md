@@ -47,10 +47,45 @@ its dependencies. Generated `dist/` files are not committed.
 ## Workspace layout
 
 Features and Feature editor are independent FlexLayout panels. Drag their tabs
-to split, stack, or join panels; drag splitters to resize. The four toolbar panels
-(Create, Faces, Feature tools, Run / output) use the same docking engine and can
-move to any edge or float. Narrow toolbar panels stack their controls vertically.
-These are panel-hosted toolbars, not a separate custom toolbar-docking engine.
+to split, stack, or join panels; drag splitters to resize.
+
+Project, Create, Faces, Feature tools, and Run / output are independently dockable
+toolbar strips, enabled by default. There is no separate title bar: Project starts
+with a non-interactive Scansor title, followed by Save/Load/Restore and workspace
+layout controls. The workspace picker is also available in its overflow menu. Drag each
+strip's dotted grip to a workspace edge, or drop inside to float. The actual
+toolbar follows the drag; Escape restores its previous position. Edge strips
+orient automatically and share lanes, wrapping when necessary without overlapping.
+Drop before or after a strip to set the order in that row or column; the preview
+names the destination and insertion point. The options menu also offers Move
+earlier/later. Order is saved per host and edge, and menu docking appends to its
+destination group.
+Each options menu offers docking, floating, rotation while floating, and all
+commands when space is tight. Auto in Run / output and its overflow menu controls
+the original evaluation checkbox. Arrow keys navigate controls; placement menus
+also work without dragging. dnd-kit owns drag sensors and accessibility, Radix
+owns toolbar/menu/tooltip behavior, and a small shell owns strip placement. These
+dependencies are MIT-licensed; their added runtime dependencies use MIT or 0BSD.
+
+Panel layout uses `scansor.flexlayout.workspace.v1` and toolbar placements use
+`scansor.toolbars.v1`, independently of action recipes. Existing saved panel
+layouts migrate by removing only the old toolbar tabs. Reset layout restores
+both the panels and all five toolbar placements. No URL parameter is required.
+
+Strips can also dock at any **tabset's outer edge**, outside its tab bar and content.
+Drag near that local edge, or choose a **Docking host** in the options menu, then
+choose an edge. It reserves space around the whole tab area and stays with the
+tabset across tab switches, splits, resizing, and floating; it does not follow an
+individual tab that leaves the group. A hidden host temporarily hides its strip;
+**Show panel → Create** reveals the host again. Removing the host or shrinking it
+too small for the grip/options controls returns the strip to a workspace edge. Local strips
+share their host's stacking layer, so other floating panels can cover them.
+While dragging, blue workspace targets occupy the outer gutter or existing
+global rails. Green tabset targets sit inside those bands, so the two meanings
+of a shared perimeter do not overlap. A labeled outline shows the proposed strip
+position before release; Escape discards both placement and order changes.
+Markers stop short of the corners rather than competing there. Corner areas have
+no docking target; releasing in one restores the committed placement and order.
 
 Build faces and Relationships open as dockable panels next to the model. Their
 header float control moves them within the browser tab; their form values,

@@ -4,8 +4,10 @@ import { flushSync } from 'react-dom';
 import { Actions, DockLocation, Layout, Model } from 'flexlayout-react';
 import 'flexlayout-react/style/dark.css';
 import './workspace.css';
+import { ToolbarHostMarker, ToolbarWorkspace, useToolbarHost } from './toolbar-prototype.jsx';
 import { DIALOG_PANELS, PANEL_NAMES, PERMANENT_PANELS, WORKSPACE_STORAGE_KEY,
   initialWorkspace, panelTab } from './workspace-state.js';
+import { TOOLBAR_IDS } from './toolbar-state.js';
 
 let controller;
 const byId = id => document.getElementById(id);
@@ -32,6 +34,7 @@ export function requestWorkspaceClose(id) {
 
 function NativePanel({ element, parking, node }) {
   const host = useRef(null);
+  useToolbarHost(node, host);
   useLayoutEffect(() => {
     const container = host.current;
     container.append(element);
@@ -46,11 +49,16 @@ function NativePanel({ element, parking, node }) {
   return <div className="workspace-native-host" ref={host} />;
 }
 
+const storageKey = WORKSPACE_STORAGE_KEY;
+const defaultWorkspace = initialWorkspace;
+
 function loadModel() {
   try {
-    const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY));
-    if (saved?.version !== 1) return Model.fromJson(initialWorkspace());
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (saved?.version !== 1) return Model.fromJson(defaultWorkspace());
     const model = Model.fromJson(saved.layout), view = model.getNodeById('view'), ids = [];
+    // Preserve the user's panels while retiring the old toolbar tabsets.
+    for (const id of TOOLBAR_IDS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
     // Split the old combined view without discarding the user's panel placement.
     if (view && !model.getNodeById('graph')) {
       model.doAction(Actions.addTab(panelTab('graph'), view.getParent().getId(), DockLocation.CENTER, -1, false));
@@ -62,17 +70,19 @@ function loadModel() {
     // Layout preferences are not permission to reopen a face/relationship draft.
     for (const id of DIALOG_PANELS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
     return model;
-  } catch { return Model.fromJson(initialWorkspace()); }
+  } catch { return Model.fromJson(defaultWorkspace()); }
 }
 
 function Workspace({ elements, parking }) {
   const [model, setModel] = useState(loadModel);
   const [storageError, setStorageError] = useState('');
+  const [ready, setReady] = useState(false);
+  const [toolbarReset, setToolbarReset] = useState(0);
   const modelRef = useRef(model);
   modelRef.current = model;
   const save = next => {
     try {
-      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({ version: 1, layout: next.toJson() }));
+      localStorage.setItem(storageKey, JSON.stringify({ version: 1, layout: next.toJson() }));
       setStorageError('');
     } catch { setStorageError('Layout cannot be saved in this browser.'); }
   };
@@ -93,7 +103,12 @@ function Workspace({ elements, parking }) {
       return observer;
     });
     controller = {
+      ready() { setReady(true); },
       select(id) {
+        if (TOOLBAR_IDS.includes(id)) {
+          byId('workspace-root').dispatchEvent(new CustomEvent('toolbar-reveal', { detail: id }));
+          return;
+        }
         const next = modelRef.current;
         if (DIALOG_PANELS.includes(id) && !elements[id].open) {
           // Use the actual launch command to initialize the existing workflow.
@@ -109,7 +124,8 @@ function Workspace({ elements, parking }) {
         }
       },
       reset() {
-        const next = Model.fromJson(initialWorkspace(DIALOG_PANELS.filter(id => elements[id].open)));
+        const next = Model.fromJson(defaultWorkspace(DIALOG_PANELS.filter(id => elements[id].open)));
+        setToolbarReset(value => value + 1);
         setModel(next);
         save(next);
       },
@@ -117,9 +133,12 @@ function Workspace({ elements, parking }) {
     function syncIfDialog(id) { if (DIALOG_PANELS.includes(id)) sync(id); }
     return () => { observers.forEach(observer => observer.disconnect()); controller = null; };
   }, [elements, parking]);
-  return <>
+  const layout = <>
     <div className="workspace-layout-notice" role="status" hidden={!storageError}>{storageError}</div>
     <Layout model={model} factory={node => <NativePanel element={elements[node.getId()]} parking={parking} node={node} />}
+      onRenderTabSet={(node, values) => {
+        if (node.getType() === 'tabset') values.leading = <ToolbarHostMarker node={node} />;
+      }}
       onModelChange={save}
       onAction={action => {
         if (action.type === Actions.DELETE_TAB && DIALOG_PANELS.includes(action.data.node)) {
@@ -131,6 +150,10 @@ function Workspace({ elements, parking }) {
         return action;
       }} />
   </>;
+  return <ToolbarWorkspace originals={elements} ready={ready} reset={toolbarReset}
+    model={model} persistLayout={() => save(model)} revealPanel={id => controller.select(id)}>
+    {layout}
+  </ToolbarWorkspace>;
 }
 
 export function initializeWorkspace() {
@@ -149,7 +172,6 @@ export function initializeWorkspace() {
     toolbar.append(...indexes.map(index => groups[index]));
     elements[id] = toolbar;
   }
-  for (const element of Object.values(elements)) parking.append(element);
   byId('creation-toolbar').hidden = true;
   const main = document.querySelector('main');
   main.replaceChildren();
@@ -159,15 +181,20 @@ export function initializeWorkspace() {
   controls.className = 'workspace-controls';
   controls.setAttribute('aria-label', 'Workspace layout');
   const picker = document.createElement('select');
-  picker.setAttribute('aria-label', 'Workspace panel');
+  picker.id = 'workspace-panel';
   for (const [id, name] of Object.entries(PANEL_NAMES)) picker.add(new Option(name, id));
   const show = document.createElement('button');
+  show.id = 'workspace-show';
   show.textContent = 'Show panel';
   show.onclick = () => controller.select(picker.value);
   const reset = document.createElement('button');
+  reset.id = 'workspace-reset';
   reset.textContent = 'Reset layout';
   reset.onclick = () => controller.reset();
   controls.append(picker, show, reset);
-  document.querySelector('header').append(controls);
+  elements.project = byId('project-toolbar');
+  elements.project.append(controls);
+  for (const element of Object.values(elements)) parking.append(element);
   flushSync(() => createRoot(main).render(<Workspace elements={elements} parking={parking} />));
+  return () => controller.ready();
 }
