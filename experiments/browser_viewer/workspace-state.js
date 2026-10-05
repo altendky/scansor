@@ -3,8 +3,9 @@ export const PANEL_NAMES = {
   tree: 'Features', editor: 'Feature editor', view: 'Model', graph: 'Graph',
   project: 'Project', create: 'Create', faces: 'Faces', features: 'Feature tools', output: 'Run / output',
   'build-faces-dialog': 'Build faces', 'relationship-dialog': 'Relationships',
+  'icon-legend-dialog': 'Icon legend',
 };
-export const DIALOG_PANELS = ['build-faces-dialog', 'relationship-dialog'];
+export const DIALOG_PANELS = ['build-faces-dialog', 'relationship-dialog', 'icon-legend-dialog'];
 export const PERMANENT_PANELS = ['tree', 'editor', 'view', 'graph'];
 export const panelTab = id => ({
   type: 'tab', id, name: PANEL_NAMES[id], component: id,

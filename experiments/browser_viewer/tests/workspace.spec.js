@@ -40,6 +40,42 @@ async function drag(page, from, x, y) {
   await page.mouse.up();
 }
 
+test('icon legend uses current drawings, docks and floats without changing actions', async ({ page }) => {
+  await ready(page);
+  const writes = [];
+  page.on('request', request => { if (request.method() !== 'GET') writes.push(request.url()); });
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const legend = page.locator('#icon-legend-dialog');
+  await expect(legend).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toBeVisible();
+  await expect(legend.locator('li[data-icon]')).toHaveCount(44);
+  await expect(legend.getByText('Plane fit', { exact: true })).toBeVisible();
+  expect(await legend.evaluate(async element => {
+    const { featureIcon, featureIconLegend } = await import('/action-tree.js');
+    return featureIconLegend.flatMap(section => section.entries).every(({ name }) =>
+      element.querySelector(`[data-icon="${name}"] path`).getAttribute('d') ===
+        featureIcon(name).querySelector('path').getAttribute('d'));
+  })).toBe(true);
+  if (process.env.ICON_LEGEND_SCREENSHOT) await page.screenshot({ path: process.env.ICON_LEGEND_SCREENSHOT });
+  await floatPanel(page, 'Icon legend');
+  await expect(legend).toBeVisible();
+  await legend.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Workspace panel', exact: true }).selectOption('icon-legend-dialog');
+  await page.getByRole('button', { name: 'Show panel', exact: true }).click();
+  await expect(legend).toBeVisible();
+  await page.getByRole('tab', { name: 'Icon legend', exact: true }).getByTitle('Close', { exact: true }).click();
+  await expect(legend).toBeHidden();
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  await expect(legend).toBeVisible();
+  await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
+  await expect(legend).toBeVisible();
+  expect(writes).toEqual([]);
+  await page.reload();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
+  await expect(legend).toBeHidden();
+});
+
 test('real viewer starts under CSP with independent feature panels and no errors', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
