@@ -93,7 +93,7 @@ test('native float, dock and splitter preserve actual draft and canvas without r
 
 test('Build faces and Relationships are native dockable workflows with guarded shell close', async ({ page }) => {
   await ready(page);
-  await page.locator('#new-build-faces').click();
+  await page.locator('[data-command-id="new-build-faces"]').click();
   await expect(page.locator('#build-faces-dialog')).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Build faces', exact: true })).toBeVisible();
   await page.locator('#build-faces-options').getByText('Options', { exact: true }).click();
@@ -114,7 +114,7 @@ test('Build faces and Relationships are native dockable workflows with guarded s
     .removeEventListener('workspace-before-close', window.blockWorkspaceClose));
   await close.click();
   await expect(page.getByRole('tab', { name: 'Build faces', exact: true })).toHaveCount(0);
-  await page.locator('#new-relationship').click();
+  await page.locator('[data-command-id="new-relationship"]').click();
   await expect(page.locator('#relationship-dialog')).toBeVisible();
   await page.locator('#relationship-filter').fill('surface');
   await floatPanel(page, 'Relationships');
@@ -139,7 +139,7 @@ test('saved workspace reloads, skips workflow drafts and resets without replacin
   await expect(page.locator('#features-panel')).toBeVisible();
   await expect(page.locator('#feature-properties-panel')).toBeVisible();
   expect(await page.evaluate(() => window.originalCanvas === document.querySelector('#viewport canvas'))).toBeTruthy();
-  await page.locator('#new-relationship').click();
+  await page.locator('[data-command-id="new-relationship"]').click();
   await expect(page.getByRole('tab', { name: 'Relationships', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('tab', { name: 'Relationships', exact: true })).toHaveCount(0);
@@ -169,7 +169,7 @@ test('Show panel restores a maximized layout and workflow Focus reveals the mode
   await page.getByRole('combobox', { name: 'Workspace panel', exact: true }).selectOption('view');
   await page.getByRole('button', { name: 'Show panel', exact: true }).click();
   await expect(page.locator('#viewport')).toBeVisible();
-  await page.locator('#new-build-faces').click();
+  await page.locator('[data-command-id="new-build-faces"]').click();
   await expect(page.locator('#focus-face-target')).toBeEnabled();
   await page.getByRole('tab', { name: 'Graph', exact: true }).click();
   await expect(page.locator('#viewport')).toBeHidden();
@@ -182,12 +182,14 @@ test('Show panel restores a maximized layout and workflow Focus reveals the mode
 
 test('toolbar controls retain real handlers when floated and docked', async ({ page }) => {
   await ready(page);
-  await floatPanel(page, 'Create');
-  await page.locator('#new-point').click();
+  await page.getByRole('button', { name: 'Create toolbar options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Float', exact: true }).click();
+  await page.locator('[data-command-id="new-point"]').click();
   await expect(page.locator('#point-dialog')).toBeVisible();
   await page.locator('#point-dialog [data-close-dialog]').click();
-  await dockPanel(page, 'Create');
-  await page.locator('#new-point').click();
+  await page.getByRole('button', { name: 'Create toolbar options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Dock top', exact: true }).click();
+  await page.locator('[data-command-id="new-point"]').click();
   await expect(page.locator('#point-dialog')).toBeVisible();
   await page.locator('#point-dialog [data-close-dialog]').click();
 });
@@ -249,4 +251,24 @@ test('saved combined view migrates to Model and Graph without losing other panel
   await expect(page.getByRole('tab', { name: 'Model', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Graph', exact: true }).click();
   await expect(page.locator('#feature-graph-canvas svg')).toBeVisible();
+});
+
+test('old toolbar tabs migrate to strips without discarding saved panels', async ({ page }) => {
+  await ready(page);
+  await floatPanel(page, 'Feature editor');
+  await page.evaluate(key => {
+    const saved = JSON.parse(localStorage.getItem(key));
+    saved.layout.layout.children.unshift({ type: 'row', weight: 12, children:
+      ['create', 'faces', 'features', 'output'].map(id => ({ type: 'tabset', children: [
+        { type: 'tab', id, name: id, component: id, enableClose: false },
+      ] })) });
+    localStorage.setItem(key, JSON.stringify(saved));
+  }, storageKey);
+  await page.reload();
+  await expect(page.locator(floating).getByRole('tab', { name: 'Feature editor', exact: true })).toBeVisible();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Features', exact: true })).toBeVisible();
+  await expect(page.locator('.prototype-toolbar')).toHaveCount(5);
+  for (const name of ['Create', 'Faces', 'Feature tools', 'Run / output'])
+    await expect(page.getByRole('tab', { name, exact: true })).toHaveCount(0);
 });

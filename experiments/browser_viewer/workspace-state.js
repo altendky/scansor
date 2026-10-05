@@ -1,11 +1,11 @@
 export const WORKSPACE_STORAGE_KEY = 'scansor.flexlayout.workspace.v1';
 export const PANEL_NAMES = {
   tree: 'Features', editor: 'Feature editor', view: 'Model', graph: 'Graph',
-  create: 'Create', faces: 'Faces', features: 'Feature tools', output: 'Run / output',
+  project: 'Project', create: 'Create', faces: 'Faces', features: 'Feature tools', output: 'Run / output',
   'build-faces-dialog': 'Build faces', 'relationship-dialog': 'Relationships',
 };
 export const DIALOG_PANELS = ['build-faces-dialog', 'relationship-dialog'];
-export const PERMANENT_PANELS = Object.keys(PANEL_NAMES).filter(id => !DIALOG_PANELS.includes(id));
+export const PERMANENT_PANELS = ['tree', 'editor', 'view', 'graph'];
 export const panelTab = id => ({
   type: 'tab', id, name: PANEL_NAMES[id], component: id,
   enableClose: DIALOG_PANELS.includes(id), enablePopout: false,
@@ -25,9 +25,6 @@ export function initialWorkspace(openDialogs = []) {
     },
     borders: [],
     layout: { type: 'row', children: [
-      { type: 'row', weight: 12, height: 88, children: [
-        tabset('create', 28), tabset('faces', 23), tabset('features', 29), tabset('output', 20),
-      ] },
       { type: 'row', weight: 88, children: [
         { type: 'row', weight: 24, width: 310, children: [tabset('tree', 48), tabset('editor', 52)] },
         tabset('view', 76, { children: [panelTab('view'), panelTab('graph')] }),

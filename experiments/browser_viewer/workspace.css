@@ -1,10 +1,6 @@
 /* Shell styles only. Existing feature/forms/model code retains its DOM. */
 body.docking-workspace { height: 100dvh; overflow: hidden; }
 .docking-workspace #creation-toolbar { display: none; }
-.docking-workspace header { min-height: 44px; gap: 12px; padding: 6px 12px; }
-.docking-workspace header small { display: none; }
-.workspace-controls { display: flex; align-items: center; gap: 5px; }
-.workspace-controls select, .workspace-controls button { width: auto; margin: 0; padding: 4px 7px; font-size: 11px; }
 #workspace-root { position: relative; flex: 1; min-height: 0; min-width: 0; display: block; }
 #workspace-root .flexlayout__layout { --color-background: #17232e; --color-text: #e4eaf1; --color-tabset-background: #17232e; --color-tabset-background-selected: #164b5a; font-size: 12px; }
 #workspace-root .flexlayout__tab { background: #17232e; }
@@ -29,4 +25,3 @@ body.docking-workspace { height: 100dvh; overflow: hidden; }
   .workspace-toolbar .toolbar-items { flex-direction: column; align-items: stretch; }
 }
 .workspace-layout-notice { position: absolute; bottom: 4px; right: 8px; z-index: 20; padding: 5px; background: #583720; font-size: 11px; }
-@media(max-width: 950px) { .docking-workspace header > span { display: none; } }

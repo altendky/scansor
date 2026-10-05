@@ -3,9 +3,10 @@ import test from 'node:test';
 import { Model, Actions } from 'flexlayout-react';
 import { initialWorkspace, PERMANENT_PANELS, panelTab, unobscuredViewport } from './workspace-state.js';
 
-test('default workspace has separate tree/editor, four toolbars and optional workflow panels', () => {
+test('default workspace has separate tree/editor, no toolbar tabs and optional workflow panels', () => {
   const model = Model.fromJson(initialWorkspace(['build-faces-dialog']));
   for (const id of [...PERMANENT_PANELS, 'build-faces-dialog']) assert.ok(model.getNodeById(id));
+  for (const id of ['create', 'faces', 'features', 'output']) assert.equal(model.getNodeById(id), undefined);
   assert.notEqual(model.getNodeById('tree').getParent(), model.getNodeById('editor').getParent());
   assert.equal(model.getNodeById('view').getName(), 'Model');
   assert.equal(model.getNodeById('graph').getName(), 'Graph');
