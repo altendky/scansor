@@ -60,6 +60,30 @@ test('real viewer starts under CSP with independent feature panels and no errors
   if (process.env.WORKSPACE_SCREENSHOT) await page.screenshot({ path: process.env.WORKSPACE_SCREENSHOT });
 });
 
+test('workspace tabs use the compact viewer theme and retain selection/focus behavior', async ({ page }) => {
+  await ready(page);
+  const model = page.getByRole('tab', { name: 'Model', exact: true });
+  const graph = page.getByRole('tab', { name: 'Graph', exact: true });
+  const styles = element => {
+    const style = getComputedStyle(element);
+    return { font: style.fontSize, background: style.backgroundColor, color: style.color, shadow: style.boxShadow };
+  };
+  expect(await model.evaluate(styles)).toEqual({ font: '12px', background: 'rgb(22, 75, 90)',
+    color: 'rgb(228, 234, 241)', shadow: 'rgb(121, 216, 238) 0px -2px 0px 0px inset' });
+  expect((await graph.evaluate(styles)).color).toBe('rgb(154, 172, 190)');
+  const frame = tabset(page, 'Model');
+  expect((await frame.locator('.flexlayout__tabset_tabbar_outer').boundingBox()).height).toBe(30);
+  expect(await frame.locator('.flexlayout__tabset_tabbar_outer').evaluate(element => getComputedStyle(element).backgroundColor))
+    .toBe('rgb(27, 42, 54)');
+  await graph.click();
+  await expect(page.locator('#feature-graph-view')).toBeVisible();
+  expect((await graph.evaluate(styles)).background).toBe('rgb(22, 75, 90)');
+  await model.focus();
+  await expect(model).toBeFocused();
+  await model.click();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
+});
+
 test('native float, dock and splitter preserve actual draft and canvas without reevaluation', async ({ page }) => {
   await ready(page);
   await page.locator('#action-list .action-select').filter({ hasText: 'Outer band' }).click();

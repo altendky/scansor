@@ -2,10 +2,46 @@
 body.docking-workspace { height: 100dvh; overflow: hidden; }
 .docking-workspace #creation-toolbar { display: none; }
 #workspace-root { position: relative; flex: 1; min-height: 0; min-width: 0; display: block; }
-#workspace-root .flexlayout__layout { --color-background: #17232e; --color-text: #e4eaf1; --color-tabset-background: #17232e; --color-tabset-background-selected: #164b5a; font-size: 12px; }
+#workspace-root .flexlayout__layout {
+  --flexlayout-font-size: 12px;
+  --flexlayout-color-background: #17232e;
+  --flexlayout-color-text: #e4eaf1;
+  --flexlayout-color-base: #17232e;
+  --flexlayout-color-1: #1b2a36;
+  --flexlayout-color-2: #21313e;
+  --flexlayout-color-3: #293e4e;
+  --flexlayout-color-4: #344b5c;
+  --flexlayout-color-5: #3c5668;
+  --flexlayout-color-6: #526676;
+  --flexlayout-color-tabset-background: #1b2a36;
+  --flexlayout-color-tabset-background-selected: #1b2a36;
+  --flexlayout-color-tabset-background-maximized: #1b2a36;
+  --flexlayout-color-tabset-divider-line: #344351;
+  --flexlayout-color-tab-selected-background: #164b5a;
+  --flexlayout-color-tab-unselected: #9aacbe;
+  --flexlayout-color-icon: #a6b6c5;
+  --flexlayout-color-overflow: #a6b6c5;
+  --flexlayout-color-toolbar-button-hover: #3c5668;
+  --flexlayout-color-focus: #79d8ee;
+  font-size: 12px;
+}
 #workspace-root .flexlayout__tab { background: #17232e; }
-#workspace-root .flexlayout__tab_button { border-radius: 0; }
-#workspace-root .flexlayout__tab_toolbar_button { border: 0; border-radius: 0; padding: 2px; }
+#workspace-root .flexlayout__tabset_tabbar_outer { min-height: 30px; }
+#workspace-root .flexlayout__tabset_tabbar_inner_tab_container { border: 0; }
+#workspace-root .flexlayout__tab_button { padding: 3px 8px; line-height: 20px; border-radius: 3px 3px 0 0; }
+#workspace-root .flexlayout__tab_button--selected { box-shadow: inset 0 -2px #79d8ee; }
+#workspace-root .flexlayout__tab_button--unselected:hover { background: #293e4e; }
+#workspace-root .flexlayout__tab_toolbar_button,
+#workspace-root .flexlayout__tab_toolbar_icon,
+#workspace-root .flexlayout__float_window_button {
+  display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border: 0; border-radius: 3px; padding: 3px; color: #a6b6c5;
+}
+#workspace-root .flexlayout__tab_toolbar_button svg,
+#workspace-root .flexlayout__tab_toolbar_icon svg,
+#workspace-root .flexlayout__float_window_button svg { width: 16px; height: 16px; }
+#workspace-root .flexlayout__float_window_button:hover { background: #3c5668; }
+#workspace-root .flexlayout__float_window_button:focus-visible { outline: 2px solid #79d8ee; outline-offset: -2px; }
 .workspace-native-host { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; container-type: inline-size; }
 .workspace-native-host > #features-panel, .workspace-native-host > #feature-properties-panel { height: 100%; padding: 10px; }
 .workspace-native-host > #viewport, .workspace-native-host > #feature-graph-view { width: 100%; height: 100%; }
