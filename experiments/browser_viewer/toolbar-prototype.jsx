@@ -15,7 +15,7 @@ import './toolbar-prototype.css';
 const COMMANDS = {
   project: [['save', 'Save actions', 'download'], ['load', 'Load actions', 'upload'],
     ['reset', 'Restore example', 'restore'], ['workspace-show', 'Show panel', 'show_panel'],
-    ['workspace-reset', 'Reset layout', 'restore']],
+    ['workspace-reset', 'Reset layout', 'restore'], ['show-icon-legend', 'Icon legend', 'arranged_face']],
   create: [
     ['add-selection', 'Selection', 'selection'], ['new-fit', 'Surface fit', 'plane'],
     ['new-point', 'Point', 'point'], ['new-axis', 'Axis', 'axis'],
@@ -52,11 +52,7 @@ const available = (id, bar) => {
 function Icon({ name }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
-    const paths = { download: 'M4 15v5h16v-5M12 3v12m-5-5 5 5 5-5',
-      upload: 'M4 15v5h16v-5M12 15V3m-5 5 5-5 5 5',
-      restore: 'M4 10a8 8 0 1 1 1 8M4 4v6h6', show_panel: 'M3 4h18v16H3zM9 4v16' };
     const svg = featureIcon(name);
-    if (paths[name]) svg.querySelector('path').setAttribute('d', paths[name]);
     ref.current.replaceChildren(svg);
   }, [name]);
   return <span className="prototype-icon" ref={ref} />;

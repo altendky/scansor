@@ -49,6 +49,11 @@ its dependencies. Generated `dist/` files are not committed.
 Features and Feature editor are independent FlexLayout panels. Drag their tabs
 to split, stack, or join panels; drag splitters to resize.
 
+Open **Icon legend** from the Project toolbar (or the workspace panel picker) to
+see the current feature, fit, relationship, status and control symbols. The
+read-only legend can dock or float alongside the tree and edit dialogs. It uses
+the same drawings as those controls, and does not reopen automatically on reload.
+
 Project, Create, Faces, Feature tools, and Run / output are independently dockable
 toolbar strips, enabled by default. There is no separate title bar: Project starts
 with a non-interactive Scansor title, followed by Save/Load/Restore and workspace

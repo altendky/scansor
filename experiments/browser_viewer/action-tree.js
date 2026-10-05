@@ -43,6 +43,10 @@ const paths = {
   failed: 'M12 3 2 21h20ZM12 9v5m0 3v.5',
   blocked: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5Zm7 4v3',
   grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
+  download: 'M4 15v5h16v-5M12 3v12m-5-5 5 5 5-5',
+  upload: 'M4 15v5h16v-5M12 15V3m-5 5 5-5 5 5',
+  restore: 'M4 10a8 8 0 1 1 1 8M4 4v6h6',
+  show_panel: 'M3 4h18v16H3zM9 4v16',
 };
 const operations = {
   source: 'Source mesh',
@@ -83,6 +87,37 @@ const states = {
   failed: 'Failed',
   blocked: 'Blocked',
 };
+// Reference entries use the same names and drawings as the tree and pickers.
+export const featureIconLegend = [
+  { title: 'Fits and reference geometry', icons: [
+    'plane', 'cylinder', 'cone', 'sphere', 'reference_plane', 'axis', 'point', 'frame', 'scale', 'transform',
+  ] },
+  { title: 'Scan, selections and reuse', icons: [
+    'source', 'selection', 'growth', 'selection_region', 'region_selection', 'reuse_selection', 'feature_reuse',
+  ] },
+  { title: 'Faces, body and groups', icons: [
+    'build_faces', 'surface_intersection', 'trimmed_face', 'arranged_face', 'body', 'group',
+  ] },
+  { title: 'Relationships and solve', icons: [
+    'plane_relationship', 'parallel', 'perpendicular', 'coaxial', 'equal', 'equal_radii',
+    'mirror_symmetry', 'rotational_symmetry', 'axis_solve', 'joint_fit',
+  ] },
+  { title: 'Evaluation status', icons: Object.keys(states) },
+  { title: 'Toolbar and tree controls', icons: ['download', 'upload', 'restore', 'show_panel', 'grip'] },
+].map(({ title, icons }) => ({ title, entries: icons.map(name => ({
+  name,
+  label: states[name] || operations[name] || {
+    plane: 'Plane fit', cylinder: 'Cylinder fit', cone: 'Cone fit', sphere: 'Sphere fit',
+    group: 'Group / generated outputs', download: 'Save actions', upload: 'Load actions',
+    restore: 'Restore example / Reset layout', show_panel: 'Show panel', grip: 'Drag handle',
+  }[name],
+  state: Object.hasOwn(states, name),
+  detail: {
+    plane_relationship: 'Coincident or parallel planes',
+    joint_fit: 'Also used as the fallback for unknown feature types',
+    blocked: 'A dependency or generated output prevents evaluation',
+  }[name],
+})) }));
 export function actionDescription(node, state, error) {
   const kind = node.operation === 'fit' ? `${node.kind} fit` : operations[node.operation];
   if (['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&

@@ -8,6 +8,7 @@ import { ToolbarHostMarker, ToolbarWorkspace, useToolbarHost } from './toolbar-p
 import { DIALOG_PANELS, PANEL_NAMES, PERMANENT_PANELS, WORKSPACE_STORAGE_KEY,
   initialWorkspace, panelTab } from './workspace-state.js';
 import { TOOLBAR_IDS } from './toolbar-state.js';
+import { renderIconLegend } from './icon-legend.js';
 
 let controller;
 const byId = id => document.getElementById(id);
@@ -112,7 +113,8 @@ function Workspace({ elements, parking }) {
         const next = modelRef.current;
         if (DIALOG_PANELS.includes(id) && !elements[id].open) {
           // Use the actual launch command to initialize the existing workflow.
-          byId(id === 'build-faces-dialog' ? 'new-build-faces' : 'new-relationship').click();
+          byId({ 'build-faces-dialog': 'new-build-faces', 'relationship-dialog': 'new-relationship',
+            'icon-legend-dialog': 'show-icon-legend' }[id]).click();
         }
         syncIfDialog(id);
         const node = next.getNodeById(id);
@@ -157,6 +159,12 @@ function Workspace({ elements, parking }) {
 }
 
 export function initializeWorkspace() {
+  renderIconLegend(byId('icon-legend-content'));
+  byId('show-icon-legend').onclick = () => {
+    const dialog = byId('icon-legend-dialog');
+    if (!dialog.open) dialog.show();
+    revealWorkspacePanel(dialog.id);
+  };
   const parking = document.createElement('div');
   parking.id = 'workspace-parking';
   parking.hidden = true;

@@ -128,6 +128,15 @@ footer #status { margin: 0 0 6px; }
 #action-list .action-select:focus-visible { outline-offset: -3px; }
 .action-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .feature-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#icon-legend-dialog h2 { margin: 0 0 8px; }
+#icon-legend-content { flex: 1; min-height: 0; overflow: auto; }
+#icon-legend-content section { margin-bottom: 16px; }
+#icon-legend-content h3 { font-size: 12px; margin: 0 0 8px; color: #a6b6c5; }
+#icon-legend-content ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 8px 16px; }
+#icon-legend-content li { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; }
+#icon-legend-content .feature-icon { width: 24px; height: 24px; }
+#icon-legend-content small { display: block; color: #a6b6c5; font-size: 11px; }
+#icon-legend-content [data-icon="grip"] .feature-icon { stroke-width: 3.5; }
 .action-type { color: #b7cfe1; }
 .action-state { width: 16px; height: 16px; }
 .state-ready { color: #67dba2; }
