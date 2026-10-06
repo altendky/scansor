@@ -98,6 +98,39 @@ supervision contracts. Ordinary local pytest still defaults to serial execution;
 omit `-n 4 --dist=worksteal` for a serial comparison. pytest-cov combines worker
 coverage and appends it to the preceding serial mesh run without dropping checks.
 
+### Native arrangement timing
+
+**Local measurement, 2026-10-06.** The full 22-fit boss face workflow took
+148.21 seconds before the history-traversal change and 96.67 seconds afterward
+(about 35% less time), with locked Python 3.12 dependencies, one numerical
+thread, and the same four-core affinity. These are individual local measurements,
+not a whole-CI speedup or a guarantee on other runners.
+
+A second baseline/optimized comparison, with record fingerprinting and other
+verification running, took 283.26 and 147.61 seconds (about 48% less time).
+All 3,398 published arrangement records matched exactly, including previews,
+boundary provenance, evidence, and replay identities.
+
+Wall-clock phase instrumentation found 82.07 seconds in edge-history transport
+within a separate 174.84-second profiled run. A small native-history benchmark
+isolated the OCP 8 shape-list iterator: 40,000 lookups took 0.03 seconds, but
+iterating their returned lists took 12.79 seconds, including iterator setup for
+empty lists. The final copy-and-drain helper, including independent shape-value
+copies, took 0.36 seconds for the same queries. It retains independent shape values
+and leaves the original native history unchanged. Topology checks, evidence,
+region identities, apply-time validation, and fresh-graph replay remain intact.
+
+Run the unchanged end-to-end regression independently to measure this path:
+
+```console
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  uv run --locked --python 3.12.14 pytest \
+  tests/test_full_example_face_workflows.py \
+  -k test_full_boss_all_twenty_two_fits_apply_and_replay -q --durations=5
+```
+
+### Python check scope
+
 Ruff checks every applicable Python file under the repository root. Basedpyright
 analyzes `src`, `tests`, and `experiments`; the committed baseline records the
 existing diagnostics exposed by expanding beyond `src`, so new diagnostics fail

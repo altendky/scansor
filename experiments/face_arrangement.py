@@ -754,12 +754,25 @@ def _edge_descriptor(edge: TopoDS_Edge, center: Array, scale: float) -> dict[str
     return record
 
 
+def _shape_list(shapes: List_TopoDS_Shape) -> list[TopoDS_Shape]:
+    # OCP 8's native-list iterator is costly even for empty history results.
+    # Drain independent list nodes instead, leaving the native history intact.
+    remaining = List_TopoDS_Shape(shapes)
+    result: list[TopoDS_Shape] = []
+    while not remaining.IsEmpty():
+        first = remaining.First()
+        # Oriented returns a shape value, independent of the removed list node.
+        result.append(first.Oriented(first.Orientation()))
+        remaining.RemoveFirst()
+    return result
+
+
 def _transport(history: Any, provenance: list[tuple[str, list[TopoDS_Edge]]]) -> None:
     for _, descendants in provenance:
         descendants.extend(
             TopoDS.Edge(shape)
             for edge in list(descendants)
-            for shape in history.Modified(edge)
+            for shape in _shape_list(history.Modified(edge))
             if shape.ShapeType() == TopAbs_EDGE
         )
 
@@ -831,7 +844,7 @@ def _scoped_carriers(
                         *(
                             TopoDS.Edge(shape)
                             for edge in edges
-                            for shape in operation.Modified(edge)
+                            for shape in _shape_list(operation.Modified(edge))
                             if shape.ShapeType() == TopAbs_EDGE
                         ),
                     ]
@@ -875,7 +888,7 @@ def _scoped_carriers(
                             label,
                             [
                                 TopoDS.Edge(shape)
-                                for shape in operation.Generated(tool)
+                                for shape in _shape_list(operation.Generated(tool))
                                 if shape.ShapeType() == TopAbs_EDGE
                             ],
                         )
@@ -947,20 +960,14 @@ def _split(
             raise ValueError(
                 "native surface arrangement failed or produced invalid topology"
             )
-        for _, descendants in [*provenance, *cutter_provenance]:
-            descendants.extend(
-                TopoDS.Edge(shape)
-                for edge in list(descendants)
-                for shape in splitter.Modified(edge)
-                if shape.ShapeType() == TopAbs_EDGE
-            )
+        _transport(splitter, [*provenance, *cutter_provenance])
         if tool is not None:
             cutter_provenance.append(
                 (
                     key,
                     [
                         TopoDS.Edge(shape)
-                        for shape in splitter.Generated(tool)
+                        for shape in _shape_list(splitter.Generated(tool))
                         if shape.ShapeType() == TopAbs_EDGE
                     ],
                 )
@@ -991,13 +998,7 @@ def _split(
                 "arrangement components have ambiguous touching or invalid merged topology"
             )
         region_faces.extend(_shape_faces(result))
-        for _, descendants in [*provenance, *cutter_provenance]:
-            descendants.extend(
-                TopoDS.Edge(shape)
-                for edge in list(descendants)
-                for shape in unify.History().Modified(edge)
-                if shape.ShapeType() == TopAbs_EDGE
-            )
+        _transport(unify.History(), [*provenance, *cutter_provenance])
     # Finite neighboring faces contribute only their physical intersection
     # segments. Apply them together: individual open arcs may only separate a
     # region after their endpoints join other approved segments. Their cells
@@ -1030,12 +1031,12 @@ def _split(
                         *(
                             TopoDS.Edge(shape)
                             for edge in edges
-                            for shape in splitter.Modified(edge)
+                            for shape in _shape_list(splitter.Modified(edge))
                             if shape.ShapeType() == TopAbs_EDGE
                         ),
                         *(
                             TopoDS.Edge(shape)
-                            for shape in splitter.Generated(tool)
+                            for shape in _shape_list(splitter.Generated(tool))
                             if shape.ShapeType() == TopAbs_EDGE
                         ),
                     ],
