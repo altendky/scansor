@@ -3,19 +3,24 @@
 import json
 from collections.abc import Iterator
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from threading import Event, Thread
 from typing import Any, cast
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import numpy as np
 import pytest
 
 import experiments.feature_graph as feature_graph
 from experiments.feature_graph import Recipe, StaleGraph
 from experiments.nozzle_browser import NozzleServer
 from experiments.nozzle_session import NozzleWorkspace
+from scansor.constrained_least_squares import (
+    ConstrainedLeastSquaresFailure,
+    solve_constrained_least_squares,
+)
 
 
 @dataclass
@@ -261,34 +266,107 @@ def test_invalid_ensure_request_starts_no_work(
     assert set(http_graph.snapshot()["states"].values()) == {"unevaluated"}
 
 
+@pytest.mark.parametrize(
+    "failure_code", [None, "invalid-input", "infeasible-constraints", "iteration-limit"]
+)
 def test_ensure_preserves_failure_and_explicit_evaluation_retries(
-    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch, failure_code: str | None
 ) -> None:
     original = feature_graph.frame_result
     attempts: list[Any] = []
+    failure: ValueError = ValueError("temporary frame failure")
+    if failure_code is not None:
+        with pytest.raises(ConstrainedLeastSquaresFailure) as raised:
+            _ = solve_constrained_least_squares(
+                [0.0],
+                lambda values: (values - 1.0, np.eye(1)),
+                lambda values: (
+                    (np.asarray([values[0], values[0] - 1.0]), np.ones((2, 1)))
+                    if failure_code == "infeasible-constraints"
+                    else (np.empty(0), np.empty((0, 1)))
+                ),
+                parameter_scales=[0.0 if failure_code == "invalid-input" else 1.0],
+                max_iterations=0,
+            )
+        failure = raised.value
+        assert raised.value.code == failure_code
+        if failure_code == "iteration-limit":
+            assert raised.value.diagnostics is not None
+            # Exercise nonfinite transport in both scalar and sequence fields.
+            raised.value.diagnostics = replace(
+                raised.value.diagnostics,
+                parameters=(float("nan"),),
+                objective_history=(float("inf"), float("-inf"), float("nan")),
+                condition=float("inf"),
+                projected_gradient_norm=float("-inf"),
+                constraint_violation=float("nan"),
+            )
+    recipe = http_graph.snapshot()["recipe"]
+    recipe["nodes"].append(
+        {
+            "id": "independent",
+            "label": "Independent point",
+            "operation": "point",
+            "initial_coordinates": [1, 2, 3],
+        }
+    )
+    assert (
+        http_graph.post("/api/graph", {"token": http_graph.token, "recipe": recipe})[0]
+        == 200
+    )
 
     def frame(*args: Any, **kwargs: Any) -> dict[str, Any]:
         attempts.append(args)
         if len(attempts) == 1:
-            raise ValueError("temporary frame failure")
+            raise failure
         return original(*args, **kwargs)
 
     monkeypatch.setattr(feature_graph, "frame_result", frame)
     assert http_graph.ensure(["transform"])[0] == 202
     failed_job = http_graph.server.graph_job
     assert failed_job is not None
-    with pytest.raises(ValueError, match="temporary frame failure"):
+    with pytest.raises(ValueError, match=str(failure)):
         _ = failed_job.result(timeout=10)
     failed = http_graph.snapshot()
     assert failed["states"]["frame"] == "failed"
     assert failed["states"]["transform"] == "blocked"
     assert failed["diagnostics"]["transform"]["blocked_by"] == ["frame"]
+    assert "frame" not in failed["results"] and "frame" not in failed["derived"]
+    if failure_code is not None:
+        diagnostic = failed["diagnostics"]["frame"]
+        assert diagnostic["kind"] == "constrained_solver_failure"
+        assert diagnostic["code"] == failure_code
+        if failure_code == "invalid-input":
+            assert diagnostic["solver"] is None
+        else:
+            solver = diagnostic["solver"]
+            assert solver["termination"] == failure_code
+            assert solver["constraint_evaluations"] > 0
+            if failure_code == "iteration-limit":
+                assert solver["parameters"] == ["NaN"]
+                assert solver["objective_history"] == ["Infinity", "-Infinity", "NaN"]
+                assert solver["condition"] == "Infinity"
+                assert solver["projected_gradient_norm"] == "-Infinity"
+                assert solver["constraint_violation"] == "NaN"
+                altered = http_graph.snapshot()
+                altered["diagnostics"]["frame"]["solver"]["parameters"].clear()
+                assert http_graph.snapshot()["diagnostics"] == failed["diagnostics"]
 
     status, response = http_graph.ensure(["transform"])
     assert status == 200 and response["errors"] == failed["errors"]
     assert response["diagnostics"] == failed["diagnostics"]
     assert response["required_failures"] == ["frame", "transform"]
     assert len(attempts) == 1 and http_graph.server.graph_job is failed_job
+
+    # New work must preserve diagnostics when reusing an existing failed node.
+    assert http_graph.ensure(["transform", "independent"])[0] == 202
+    independent_job = http_graph.server.graph_job
+    assert independent_job is not None and independent_job is not failed_job
+    with pytest.raises(ValueError, match=str(failure)):
+        _ = independent_job.result(timeout=10)
+    preserved = http_graph.snapshot()
+    assert preserved["states"]["independent"] == "ready"
+    assert preserved["diagnostics"] == failed["diagnostics"] and len(attempts) == 1
 
     status, independent = http_graph.ensure(["a"])
     assert status == 200 and independent["required_failures"] == []

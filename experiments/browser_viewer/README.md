@@ -556,6 +556,17 @@ trials, numerical failure, nonstationary stagnation, and iteration limits remain
 distinct failures. First-order local convergence is not evidence of unique/global
 recovery, appropriate correspondence, uncertainty, or physical accuracy.
 
+Constrained-solver failures retain their code and available solver record under
+the failed action's graph `diagnostics`, including each failed connected-solve
+output and failed prior-geometry transfer. These records have kind
+`constrained_solver_failure`; `solver` is `null` when failure occurs before a
+solver record is available. Nonfinite diagnostic numbers are transported as the
+strings `"Infinity"`, `"-Infinity"`, or `"NaN"`, including within parameter and
+objective-history arrays. Last-iterate parameters are failure evidence only;
+they are never published as ready geometry. Downstream actions retain their
+separate `blocked_by` causes. Readiness preserves failure records until a
+successful explicit retry or an edit invalidates them.
+
 No finite-edge/cap distance objective or general nonlinear-constrained optimum is
 implied. The positive-Z axis chart and cone positive-reference-radius restriction
 remain explicit limits; see the [cone fitting experiment](../mesh-cone-fit/README.md).

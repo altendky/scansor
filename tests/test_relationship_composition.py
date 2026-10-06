@@ -1,5 +1,6 @@
 """Published geometry must satisfy composed local and cross-occurrence constraints."""
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +23,7 @@ from experiments.repeated_boss_fixture import publish_fixture
 from experiments.repeated_boss_full_benchmark import RECIPE
 from experiments.surface_primitives import basis, primitive
 from scansor.constrained_least_squares import (
+    ConstrainedLeastSquaresFailure,
     ConstrainedLeastSquaresResult,
     Evaluation,
     solve_constrained_least_squares,
@@ -868,13 +870,24 @@ def test_parallel_relationship_reports_conflicting_fixed_axes(
         position = payload["nodes"].index(axis)
         payload["nodes"].insert(position, initializer)
     _ = composed_graph.replace(Recipe.model_validate(payload), _token(composed_graph))
-    with pytest.raises(ValueError):
+    with pytest.raises(ConstrainedLeastSquaresFailure) as failure:
         _ = composed_graph.evaluate(_token(composed_graph), all_actions=True)
     state = cast(dict[str, Any], composed_graph.snapshot())
     assert state["states"]["upright_parallel"] == "failed"
     assert state["states"]["consumer"] == "blocked"
     assert "consumer" not in state["results"]
     assert state["diagnostics"]["consumer"]["blocked_by"]
+    assert failure.value.code == "infeasible-constraints"
+    assert failure.value.diagnostics is not None
+    for key in ("upright_parallel", "same_height"):
+        diagnostic = state["diagnostics"][key]
+        assert diagnostic["kind"] == "constrained_solver_failure"
+        assert diagnostic["code"] == failure.value.code
+        assert diagnostic["solver"]["constraint_evaluations"] > 0
+        assert diagnostic["solver"]["constraint_violation"] > 1e-11
+        assert diagnostic["solver"]["condition"] == "Infinity"
+        assert key not in state["results"] and key not in state["derived"]
+    _ = json.dumps(state, allow_nan=False)
 
 
 def test_boss_relationships_keep_upright_axes_and_reused_datums_coherent(
