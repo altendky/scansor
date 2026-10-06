@@ -196,6 +196,57 @@ test('feature emphasis follows fit inputs and relationships, excluding growth ba
   assert.deepEqual(featureVertexIds(nodes, { ...memberships, grown: null }, 'grown'), []);
 });
 
+test('relationship emphasis unions participant observations without growth seeds, barriers or datum guidance', () => {
+  const nodes = [
+    { id: 'a', operation: 'selection' },
+    { id: 'b', operation: 'selection' },
+    { id: 'guidance', operation: 'selection' },
+    { id: 'guide-fit', operation: 'fit', selections: ['guidance'] },
+    { id: 'guide-axis', operation: 'axis', source_fit: 'guide-fit' },
+    { id: 'guide-plane', operation: 'reference_plane', axis: 'guide-axis' },
+    { id: 'grown', operation: 'growth', seed_fit: 'guide-fit', barriers: ['guidance'] },
+    { id: 'first', operation: 'fit', selections: ['a', 'grown'], axis: 'guide-axis' },
+    { id: 'second', operation: 'fit', selections: ['b'], reference_plane: 'guide-plane' },
+    { id: 'third', operation: 'fit', selections: ['a'] },
+    { id: 'participant-axis', operation: 'axis', source_fit: 'first' },
+  ];
+  const memberships = { a: [2, 1, 2], b: [4, 2, 3], guidance: [99], grown: [2, 3] };
+  const cases = [
+    { operation: 'coaxial', surface: 'first', reference: 'second' },
+    { operation: 'perpendicular', lateral: 'first', plane: 'second' },
+    { operation: 'rotational_symmetry', axis: 'participant-axis', planes: ['first', 'second', 'third'] },
+    { operation: 'mirror_symmetry', plane: 'guide-plane', surfaces: ['first', 'second'] },
+    { operation: 'parallel', surface: 'second', reference_plane: 'guide-plane' },
+    { operation: 'equal', left: { measurement: 'radius', surface: 'first' },
+      right: { measurement: 'plane_distance', surface: 'second', reference_plane: 'guide-plane' } },
+    { operation: 'plane_relationship', relation: 'coincident', surfaces: ['first', 'second', 'first'] },
+    { operation: 'plane_relationship', relation: 'parallel', surfaces: ['first', 'second', 'first'] },
+    { operation: 'equal_radii', surfaces: ['first', 'second', 'first'] },
+  ];
+  for (const relationship of cases) {
+    const expected = relationship.operation === 'parallel' ? [2, 3, 4] : [1, 2, 3, 4];
+    assert.deepEqual(featureVertexIds([...nodes, { id: 'relationship', ...relationship }],
+      memberships, 'relationship'), expected, `${relationship.operation} ${relationship.relation || ''}`);
+  }
+});
+
+test('aggregate relationship emphasis safely traverses missing references and cycles', () => {
+  for (const operation of ['plane_relationship', 'equal_radii']) {
+    const nodes = [
+      { id: 'a', operation: 'selection' },
+      { id: 'b', operation: 'selection' },
+      { id: 'first', operation: 'fit', selections: ['a', 'relationship', 'missing-selection'] },
+      { id: 'second', operation: 'fit', selections: ['b'] },
+      { id: 'relationship', operation, surfaces: ['first', 'second', 'missing-fit', 'relationship'] },
+    ];
+    assert.deepEqual(featureVertexIds(nodes, { a: [2, 1], b: [2, 3] }, 'relationship'),
+      [1, 2, 3], operation);
+    assert.deepEqual(featureVertexIds(nodes, { a: [2, 1] }, 'relationship'), [1, 2], operation);
+    assert.deepEqual(featureVertexIds(nodes, {}, 'relationship'), [], operation);
+    assert.deepEqual(featureVertexIds(nodes, {}, 'missing-relationship'), [], operation);
+  }
+});
+
 test('rotational symmetry preserves cylinder fit references and rejects selections or mixed types', async () => {
   const { rotationalFitInputs } = await import('./selection.js');
   const nodes = ['a', 'b', 'c'].map((id) => ({
