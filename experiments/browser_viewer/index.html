@@ -114,10 +114,10 @@ document.getElementById('recover-actions').onclick = async () => {
   <form id="build-faces-form">
     <div class="face-panel-body">
       <div id="build-faces-guided">
-        <div class="face-target-row"><div class="face-target-label"><span id="build-faces-surface-label">Surface</span><button id="build-faces-target" type="button" role="combobox" aria-haspopup="listbox" aria-controls="build-faces-target-options" aria-expanded="false">Choose a surface</button></div><button id="focus-face-target" type="button" title="Frame the target surface">Focus</button></div>
+        <div class="face-target-row"><div class="face-target-label"><span id="build-faces-surface-label">Surface</span><button id="build-faces-target" type="button" role="combobox" aria-haspopup="listbox" aria-controls="build-faces-target-options" aria-expanded="false">Choose a surface</button></div><button id="pick-face-target" type="button" aria-pressed="false" title="Choose a fitted surface in the model">Pick</button><button id="focus-face-target" type="button" title="Frame the target surface">Focus</button></div>
         <div id="build-faces-target-options" class="icon-picker-options" popover="auto" role="listbox" aria-labelledby="build-faces-surface-label"></div>
         <details id="build-faces-neighbors" open><summary id="build-faces-neighbor-summary">Neighbors</summary>
-          <div class="face-neighbor-tools"><input id="build-faces-neighbor-filter" type="search" placeholder="Filter neighbors" aria-label="Filter neighbors"><button id="refresh-face-candidates" type="button">Refresh</button></div>
+          <div class="face-neighbor-tools"><input id="build-faces-neighbor-filter" type="search" placeholder="Filter neighbors" aria-label="Filter neighbors"><button id="pick-face-neighbor" type="button" aria-pressed="false" title="Toggle neighbors in the model">Pick</button><button id="refresh-face-candidates" type="button">Refresh</button></div>
           <div id="build-faces-candidates"></div>
         </details>
         <p id="build-faces-candidate-status" class="hint" role="status"></p><div id="build-faces-unavailable-guidance"></div>
@@ -159,7 +159,7 @@ document.getElementById('recover-actions').onclick = async () => {
       <label>Relationship<select id="relationship-kind"><option value="">Choose a relationship</option></select></label>
       <p id="relationship-summary" class="hint"></p>
       <div class="face-neighbor-tools"><input id="relationship-filter" type="search" placeholder="Filter participants" aria-label="Filter participants"><button id="focus-relationship" type="button">Focus selected</button></div>
-      <div class="relationship-selection-tools"><output id="relationship-count">0 selected</output><button id="clear-relationship-participants" type="button">Clear</button></div>
+      <div class="relationship-selection-tools"><output id="relationship-count">0 selected</output><button id="pick-relationship-participant" type="button" aria-pressed="false" title="Toggle fitted participants in the model">Pick in model</button><button id="clear-relationship-participants" type="button">Clear</button></div>
       <div id="relationship-participants" class="relationship-participants"></div>
       <details><summary>Options</summary><label>Name<input id="new-relationship-label" required maxlength="120"></label></details>
     </div>
@@ -195,4 +195,7 @@ document.getElementById('recover-actions').onclick = async () => {
 <p class="hint">One STEP file with separate named faces, metadata, and optional mesh in a ZIP. No sewing or solid creation.</p>
 </fieldset>
 <p id="export-error" role="alert"></p><button id="export-download">Download ZIP</button>
-</form><button type="button" data-close-dialog="export-dialog">Cancel</button></dialog></body></html>
+</form><button type="button" data-close-dialog="export-dialog">Cancel</button></dialog>
+<div id="model-pick-hint" hidden><span id="model-pick-message" role="status"></span><button id="stop-model-picking" type="button">Stop picking</button></div>
+<div id="model-pick-choices" class="model-pick-choices" popover="auto" role="dialog" aria-label="Choose the overlapping item"></div>
+</body></html>

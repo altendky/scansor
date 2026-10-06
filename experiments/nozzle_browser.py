@@ -144,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         "/graph-evaluation.js": ("graph-evaluation.js", "text/javascript"),
         "/edge-highlight.js": ("edge-highlight.js", "text/javascript"),
         "/fit-footprint.js": ("fit-footprint.js", "text/javascript"),
+        "/model-picking.js": ("model-picking.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
