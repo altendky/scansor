@@ -687,6 +687,11 @@ Conflicting joint outputs are reported as unavailable rather than chosen
 arbitrarily. Existing face actions retain their exact geometry dependencies.
 Review cannot preview an existing action while saved inputs are unavailable;
 it never silently removes those inputs and their generated faces.
+Open guided and batch surface lists follow accepted fit additions, renames,
+deletions, and readiness changes while retaining draft names, selections, and
+review settings. Unavailable draft inputs remain explicit and block preview;
+they are never silently replaced with another geometry context. Unchanged
+progress snapshots preserve the picker, focus, and draft controls.
 A second line names only the fit type. The picker
 supports arrow keys, Home/End, name typeahead, Enter to choose, and Escape to cancel.
 Hovering or keyboard-browsing the surface picker highlights a cyan coverage

@@ -103,6 +103,67 @@ test('relationship model picks preserve physical participant IDs and list eligib
   await expect(page.locator('#pick-relationship-participant')).toBeEnabled();
 });
 
+test('open Build faces lists and model picking agree after fit readiness, rename and deletion', async ({ page }) => {
+  await ready(page);
+  let graph = await (await page.request.get('/api/graph')).json();
+  const original = structuredClone(graph);
+  await page.route('**/api/graph', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: graph }) : route.continue());
+  await page.route('**/api/graph/evaluate', route => route.fulfill({ json: { status: 'running' } }));
+  await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
+  const publish = async () => {
+    const response = page.waitForResponse('**/api/graph/ensure');
+    await page.locator('#evaluate-all').evaluate(button => button.click());
+    await response;
+    await expect(page.locator('#evaluate-all')).toBeEnabled();
+  };
+  const listed = async (name, count) => {
+    await expect(page.locator('#build-faces-target-options [role=option]').filter({ hasText: name })).toHaveCount(count);
+    await expect(page.locator('#build-faces-surfaces option').filter({ hasText: name })).toHaveCount(count);
+  };
+  await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
+  await page.locator('#pick-face-target').click();
+  const end = await patch(page, 'End surface');
+  await page.mouse.click(end.x, end.y);
+  await expect(page.locator('#build-faces-target')).toContainText('End surface');
+  await listed('End surface', 1);
+
+  graph.states.end = 'stale';
+  await publish();
+  await listed('End surface', 0);
+  await page.locator('#pick-face-target').click();
+  await page.mouse.move(end.x, end.y);
+  await expect(page.locator('#model-pick-message')).not.toContainText('End surface');
+  await page.mouse.click(end.x, end.y);
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'target');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#build-faces-target')).toContainText('Unavailable: End surface');
+
+  graph = structuredClone(original);
+  graph.recipe.nodes.find(node => node.id === 'end').label = 'Renamed end';
+  await publish();
+  await listed('End surface', 0);
+  await listed('Renamed end', 1);
+  await page.locator('#pick-face-target').click();
+  const renamed = await patch(page, 'Renamed end');
+  await page.mouse.click(renamed.x, renamed.y);
+  await expect(page.locator('#build-faces-target')).toContainText('Renamed end');
+
+  graph.recipe.nodes = graph.recipe.nodes.filter(node => node.id !== 'end');
+  delete graph.results.end;
+  delete graph.states.end;
+  await publish();
+  await listed('Renamed end', 0);
+  await page.locator('#pick-face-target').click();
+  await page.mouse.move(renamed.x, renamed.y);
+  await expect(page.locator('#model-pick-message')).not.toContainText('Renamed end');
+  await page.mouse.click(renamed.x, renamed.y);
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'target');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#build-faces-error')).toContainText('Selected inputs unavailable');
+  await expect(page.locator('#apply-build-faces')).toBeDisabled();
+});
+
 test('overlapping fit patches open an explicit chooser instead of guessing', async ({ page }) => {
   await ready(page);
   const graph = await (await page.request.get('/api/graph')).json();
