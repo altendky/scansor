@@ -81,11 +81,11 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
   -n 4 --dist=worksteal
 ```
 
-Mesh and remaining tests run in separate processes in CI. The CAD kernel stays
+Mesh and remaining tests run on separate runners in CI. The CAD kernel stays
 resident after loading; collecting/running CAD tests in the same process can
 exhaust the mesh tests' explicitly budgeted 512 MiB baseline, and process-lifetime
 peak RSS also carries across tests. This separation does not increase budgets,
-skip tests, or change runtime resource enforcement. For coverage, add
+skip tests, or change runtime resource enforcement. For local coverage, add
 `--cov=scansor --cov-report=term-missing` to both 3.12 invocations and
 `--cov-append` to the second to retain combined terminal coverage. The unpartitioned
 suite remains useful for diagnosis but is not equivalent resource isolation.
@@ -96,7 +96,14 @@ oversubscribing the runner. Mesh resource tests remain serial; do not run the
 unpartitioned suite with xdist, since concurrency can disturb their memory and
 supervision contracts. Ordinary local pytest still defaults to serial execution;
 omit `-n 4 --dist=worksteal` for a serial comparison. pytest-cov combines worker
-coverage and appends it to the preceding serial mesh run without dropping checks.
+coverage within the remaining-tests job. CI runs four independent test jobs
+(two suites for each Python version), instead of two runners executing both
+suites sequentially. The two Python 3.12 jobs upload their coverage data as
+one-day artifacts; a dependent job requires both files and reports their union
+to the terminal. The reusable Python gate, and therefore `all`, requires every
+test job and the combined coverage job to succeed. This trades extra runners
+and setup for overlapping the suites; no end-to-end CI speedup is established
+until measured on GitHub Actions.
 
 ### Native arrangement timing
 
@@ -226,11 +233,13 @@ pre-commit, and Python workflows:
   `persist-credentials: false` keep access read-only
 - Ubuntu setup flows from mise to uv and then `uv run`
 - pre-commit and Python validation remain separate gates
-- Python tests use a fail-fast-disabled `3.12.13`/`3.13.15` fixture matrix
+- Python tests use a fail-fast-disabled `3.12.14`/`3.13.15` fixture matrix,
+  each partitioned into independent mesh and remaining-test jobs
 - basedpyright replaces Hamster's mypy choice
-- Python `3.12.13` reports package coverage to the terminal only, without a
-  threshold, upload, retained artifact, or support claim
-- line coverage uses the `sysmon` core; both test jobs report the 30 slowest
+- Python `3.12.14` reports package coverage to the terminal without a threshold
+  or support claim; one-day data artifacts transfer each suite's coverage to
+  a required combined report, without an external coverage service
+- line coverage uses the `sysmon` core; all four test jobs report the 30 slowest
   test phases for duration diagnosis
 
 Do not import Home Assistant validation, release, deployment, recovery, generated
