@@ -230,7 +230,8 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     _ = job.result()
                 except Exception as error:
-                    state["evaluation_error"] = str(error)
+                    if not isinstance(error, StaleGraph):
+                        state["evaluation_error"] = str(error)
             self.json_reply(200, state)
         elif self.path.startswith("/api/fit/"):
             with self.app.lock:
@@ -409,7 +410,11 @@ class Handler(BaseHTTPRequestHandler):
                                 and self.app.graph_job_token == payload.token
                             ):
                                 error = self.app.graph_job.exception()
-                                if error is not None:
+                                # Superseded work is cancellation, not a retained
+                                # failure of the current requested outputs.
+                                if error is not None and not isinstance(
+                                    error, StaleGraph
+                                ):
                                     self.app.graph_job_errors[
                                         (payload.token, self.app.graph_job_roots)
                                     ] = str(error)

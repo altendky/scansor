@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event, Thread
@@ -12,7 +13,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 import experiments.feature_graph as feature_graph
-from experiments.feature_graph import Recipe
+from experiments.feature_graph import Recipe, StaleGraph
 from experiments.nozzle_browser import NozzleServer
 from experiments.nozzle_session import NozzleWorkspace
 
@@ -171,6 +172,71 @@ def test_ensure_rechecks_own_targets_after_joining_incompatible_work(
     _ = second.result(timeout=10)
     assert len(calls) == 2
     assert http_graph.ensure(["a", "b"])[0] == 200
+
+
+@pytest.mark.parametrize("change_away", [False, True])
+def test_ensure_restarts_cancelled_work_when_recipe_token_is_restored(
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch, change_away: bool
+) -> None:
+    entered, release = Event(), Event()
+    http_graph.releases.append(release)
+    original = feature_graph.frame_result
+    attempts: list[Any] = []
+
+    def frame(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        attempts.append(args)
+        entered.set()
+        assert release.wait(10), "test did not release frame evaluation"
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(feature_graph, "frame_result", frame)
+    token = http_graph.token
+    recipe = http_graph.snapshot()["recipe"]
+    assert http_graph.ensure(["frame"])[0] == 202
+    assert entered.wait(10)
+    cancelled_job = http_graph.server.graph_job
+    assert cancelled_job is not None
+    assert http_graph.snapshot()["states"]["frame"] == "running"
+
+    if change_away:
+        changed = deepcopy(recipe)
+        next(node for node in changed["nodes"] if node["id"] == "a")[
+            "initial_coordinates"
+        ] = [2, 0, 0]
+        status, _ = http_graph.post(
+            "/api/graph", {"token": http_graph.token, "recipe": changed}
+        )
+        assert status == 200 and http_graph.token != token
+    status, _ = http_graph.post(
+        "/api/graph", {"token": http_graph.token, "recipe": recipe}
+    )
+    assert status == 200 and http_graph.token == token
+
+    # An identical content token must not let the old epoch publish its result.
+    release.set()
+    with pytest.raises(StaleGraph, match="graph changed during evaluation"):
+        _ = cancelled_job.result(timeout=10)
+    cancelled = http_graph.snapshot()
+    assert cancelled["states"]["frame"] == "stale"
+    assert "frame" not in cancelled["derived"]
+    assert not cancelled["errors"]
+    with urlopen(
+        f"http://127.0.0.1:{http_graph.server.server_port}/api/graph", timeout=10
+    ) as response:
+        reported = json.load(response)
+    assert not reported["evaluation_running"]
+    assert "evaluation_error" not in reported
+
+    status, response = http_graph.ensure(["frame"])
+    assert status == 202 and response["evaluation_running"]
+    retry_job = http_graph.server.graph_job
+    assert retry_job is not None and retry_job is not cancelled_job
+    _ = retry_job.result(timeout=10)
+    status, response = http_graph.ensure(["frame"])
+    assert status == 200 and not response["evaluation_running"]
+    assert response["states"]["frame"] == "ready" and len(attempts) == 2
+    assert "evaluation_error" not in response
+    assert not http_graph.server.graph_job_errors
 
 
 @pytest.mark.parametrize(
