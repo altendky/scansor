@@ -73,7 +73,12 @@ jobs:
 
       - name: Run remaining tests
         if: ${{ !matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' --durations=30
+        # Bound numerical-library threads independently of pytest's process workers.
+        env:
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --durations=30
 
       - name: Run memory-budgeted mesh tests with terminal coverage
         if: ${{ matrix.coverage }}
@@ -81,4 +86,8 @@ jobs:
 
       - name: Run remaining tests with combined terminal coverage
         if: ${{ matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' --cov=scansor --cov-append --cov-report=term-missing --durations=30
+        env:
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --cov=scansor --cov-append --cov-report=term-missing --durations=30

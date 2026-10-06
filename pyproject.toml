@@ -26,6 +26,7 @@ dev = [
   "cadquery-ocp-stubs==8.0.1.0.0",
   "pytest>=8.4",
   "pytest-cov>=7.0",
+  "pytest-xdist>=3.8",
   "ruff>=0.12",
 ]
 
