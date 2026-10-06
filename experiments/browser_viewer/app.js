@@ -86,6 +86,8 @@ let buildFacesRegionInspected = null;
 let buildFacesAdjacencyDraft = [], buildFacesScopeDraft = [];
 let buildFacesApplying = false;
 let buildFacesMode = 'guided', buildFacesTarget = null, buildFacesCandidates = null;
+let buildFacesBatchDraft = [], buildFacesChoicesKey = null, buildFacesScopesKey = null;
+let buildFacesChoicesMessage = '';
 let buildFacesCutters = [], buildFacesReviewDirty = false, buildFacesInspected = null;
 let buildFacesBoundarySources = [];
 let buildFacesSurfacePreview = null, buildFacesSurfaceHovered = false;
@@ -567,21 +569,24 @@ function buildFacesSelectedSurfaces() {
     ...buildFacesCutters, ...guidedRejectedDecisions(buildFacesAdjacencyDraft, buildFacesTarget,
       buildFacesCutters).flatMap((choice) => [choice.first, choice.second]),
   ]);
-  return chosen('build-faces-surfaces').map((value) => JSON.parse(value));
+  return buildFacesBatchDraft;
 }
 function buildFacesGeometry() {
   const owner = graphNode(buildFacesOwnerId);
   return completeFitSurfaceChoices(graphState.recipe.nodes, graphState.results,
-    [...(owner?.surfaces || []), ...(buildFacesTarget ? [buildFacesTarget] : [])], graphState.states);
+    [...(owner?.surfaces || []), ...buildFacesBatchDraft, ...buildFacesCutters,
+      ...(buildFacesTarget ? [buildFacesTarget] : [])], graphState.states);
 }
 function unavailableFitsMessage(unavailable) {
   return unavailable.length ? `Unavailable fits: ${unavailable.map((fit) =>
     `${fit.label} (${fit.reason.toLowerCase()})`).join(', ')}.` : '';
 }
-function unavailableSavedFaceInputsMessage() {
-  const missing = unavailableRetainedFitReferences(graphNode(buildFacesOwnerId)?.surfaces || [],
-    buildFacesGeometry().choices);
-  return missing.length ? `Saved inputs unavailable: ${missing.map((reference) =>
+function unavailableSavedFaceInputsMessage(choices = buildFacesGeometry().choices) {
+  const references = [...(graphNode(buildFacesOwnerId)?.surfaces || []),
+    ...buildFacesSelectedSurfaces()],
+    missing = unavailableRetainedFitReferences(references, choices)
+      .filter((reference, index, all) => all.findIndex((other) => sameSurfaceReference(reference, other)) === index);
+  return missing.length ? `${buildFacesOwnerId ? 'Saved' : 'Selected'} inputs unavailable: ${missing.map((reference) =>
     fittedSurfacePresentation(reference, graphState.recipe.nodes).name).join(', ')}. Restore or update these inputs before previewing.` : '';
 }
 function fittedFaceCandidatePresentation(candidate) {
@@ -601,7 +606,8 @@ function setBuildFacesModeDisplay() {
   $('build-faces-target-options').hidePopover();
   const result = graphState.results[buildFacesTarget?.feature];
   const target = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
-  $('focus-face-target').disabled = !target?.ids?.length;
+  $('focus-face-target').disabled = !target?.ids?.length || !buildFacesGeometry().choices
+    .some((choice) => sameSurfaceReference(choice.reference, buildFacesTarget));
   $('select-suggested-face-regions').hidden = false;
   $('build-faces-adjacency-details').hidden = buildFacesMode === 'guided';
 }
@@ -779,7 +785,8 @@ async function loadFaceCandidates(previous = null, approvedSources = null, exact
   $('build-faces-candidates').replaceChildren();
   syncModelPickControls();
   $('build-faces-candidate-status').textContent = 'Finding candidate neighbors…';
-  if (!buildFacesTarget || buildFacesMode !== 'guided') {
+  if (!buildFacesTarget || buildFacesMode !== 'guided' || !choices.some((choice) =>
+      sameSurfaceReference(choice.reference, buildFacesTarget))) {
     if (!buildFacesTarget) $('build-faces-error').textContent ||= 'Target fit unavailable.';
     $('build-faces-candidate-status').textContent = '';
     return;
@@ -815,7 +822,13 @@ function guidedAdjacencies() {
     ...buildFacesCutters.map((second) => ({ first: buildFacesTarget, second, state: 'confirmed' })),
   ] : buildAdjacencyDecisions(buildFacesAdjacencyDraft, buildFacesSelectedSurfaces());
 }
+function buildFacesScopesSignature() {
+  const surfaces = buildFacesMode === 'guided' ? (buildFacesTarget ? [buildFacesTarget] : []) : buildFacesBatchDraft;
+  return JSON.stringify({ choices: buildFacesChoicesKey, scopes: surfaces.map((surface) => ({ surface,
+    choices: faceScopeChoices(graphState.recipe.nodes, surface, buildFacesOwnerId) })) });
+}
 function renderBuildFacesScopes() {
+  buildFacesScopesKey = buildFacesScopesSignature();
   const surfaces = buildFacesMode === 'guided' ? (buildFacesTarget ? [buildFacesTarget] : [])
     : buildFacesSelectedSurfaces();
   const options = buildFacesGeometry().choices;
@@ -935,6 +948,9 @@ function openBuildFaces(owner = null, target = null) {
   buildFacesCandidates = null;
   buildFacesInspected = null;
   buildFacesCutters = [];
+  buildFacesBatchDraft = structuredClone(owner?.surfaces || []);
+  buildFacesChoicesKey = buildFacesScopesKey = null;
+  buildFacesChoicesMessage = '';
   buildFacesBoundarySources = structuredClone(owner?.boundary_sources || []);
   buildFacesSurfacePreview = null;
   buildFacesSurfaceHovered = false;
@@ -951,22 +967,10 @@ function openBuildFaces(owner = null, target = null) {
     .map((choice) => choice.reference);
   const requestedTarget = target || owner?.target;
   buildFacesTarget = requestedTarget
-    ? options.find((choice) => sameSurfaceReference(choice.reference, requestedTarget))?.reference || null
+    ? requestedTarget
     : selected[0] || options[0]?.reference || null;
-  if (requestedTarget && !buildFacesTarget) $('build-faces-error').textContent = 'Target fit unavailable.';
-  renderIconPicker($('build-faces-target'), $('build-faces-target-options'), {
-    choices: options.map((choice) => ({
-      ...fittedSurfacePresentation(choice.reference, graphState.recipe.nodes),
-      value: JSON.stringify(choice.reference),
-    })),
-    value: JSON.stringify(buildFacesTarget),
-    locked: () => featureTreeLocked() || buildFacesApplying,
-    preview: (value) => {
-      buildFacesSurfacePreview = value ? JSON.parse(value) : null;
-      paintBuildFacesPreview();
-    },
-    change: value => selectBuildFacesTarget(JSON.parse(value)),
-  });
+  buildFacesBatchDraft = structuredClone(selected);
+  refreshBuildFacesChoices();
   $('build-faces-target').onpointerenter = () => {
     buildFacesSurfaceHovered = true;
     inspectFaceCandidate(null);
@@ -977,17 +981,9 @@ function openBuildFaces(owner = null, target = null) {
   };
   $('build-faces-target').onfocus = () => inspectFaceCandidate(null);
   $('build-faces-target').onblur = () => paintBuildFacesPreview();
-  $('build-faces-surfaces').replaceChildren(...options.map((choice) => {
-    const option = document.createElement('option');
-    option.value = JSON.stringify(choice.reference);
-    option.textContent = choice.label;
-    option.selected = selected.some((reference) => sameSurfaceReference(reference, choice.reference));
-    return option;
-  }));
   $('build-faces-title').textContent = owner ? 'Review / update faces' : 'Build faces';
   $('build-faces-next-neighbors').hidden = true;
   setBuildFacesModeDisplay();
-  renderBuildFacesScopes();
   if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
   revealWorkspacePanel('build-faces-dialog');
   syncModelPickControls();
@@ -995,6 +991,55 @@ function openBuildFaces(owner = null, target = null) {
     $('build-faces-target').focus();
     void loadFaceCandidates(owner?.surfaces || null, owner ? owner.boundary_sources || [] : null);
   } else $('build-faces-surfaces').focus();
+}
+function refreshBuildFacesChoices() {
+  // Apply restores existing controls in its finally block; refresh afterwards.
+  if (buildFacesApplying) return;
+  const { choices: options, unavailable } = buildFacesGeometry(),
+    message = unavailableSavedFaceInputsMessage(options) || unavailableFitsMessage(unavailable),
+    key = JSON.stringify({ options, message });
+  if (key !== buildFacesChoicesKey) {
+    if (buildFacesChoicesKey !== null) {
+      invalidateBuildFaces('Fit choices changed. Find candidate neighbors and preview again.');
+      buildFacesCandidates = null;
+      buildFacesInspected = null;
+      $('build-faces-candidates').replaceChildren();
+    }
+    buildFacesChoicesKey = key;
+    if (message || $('build-faces-error').textContent === buildFacesChoicesMessage)
+      $('build-faces-error').textContent = message;
+    buildFacesChoicesMessage = message;
+    renderIconPicker($('build-faces-target'), $('build-faces-target-options'), {
+      choices: options.map((choice) => ({
+        ...fittedSurfacePresentation(choice.reference, graphState.recipe.nodes),
+        value: JSON.stringify(choice.reference),
+      })),
+      value: JSON.stringify(buildFacesTarget),
+      locked: () => featureTreeLocked() || buildFacesApplying,
+      preview: (value) => {
+        buildFacesSurfacePreview = value ? JSON.parse(value) : null;
+        paintBuildFacesPreview();
+      },
+      change: value => selectBuildFacesTarget(JSON.parse(value)),
+    });
+    const targetAvailable = options.some((choice) => sameSurfaceReference(choice.reference, buildFacesTarget));
+    if (buildFacesTarget && !targetAvailable) {
+      const target = $('build-faces-target');
+      target.textContent = `Unavailable: ${fittedSurfacePresentation(buildFacesTarget, graphState.recipe.nodes).name}`;
+      target.setAttribute('aria-label', target.textContent);
+    }
+    const result = graphState.results[buildFacesTarget?.feature],
+      targetFit = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
+    $('focus-face-target').disabled = !targetAvailable || !targetFit?.ids?.length;
+    $('build-faces-surfaces').replaceChildren(...options.map((choice) => {
+      const option = document.createElement('option');
+      option.value = JSON.stringify(choice.reference);
+      option.textContent = choice.label;
+      option.selected = buildFacesBatchDraft.some((reference) => sameSurfaceReference(reference, choice.reference));
+      return option;
+    }));
+  }
+  if (buildFacesScopesSignature() !== buildFacesScopesKey) renderBuildFacesScopes();
 }
 function buildFacesPreviewGeometry(preview, color, edge = false, closed = true, emphasis = 'region', group = buildFacesOverlays) {
   if (!validGeometryPreview(preview) || !preview.positions.length) return;
@@ -2137,7 +2182,10 @@ function acceptGraph(state) {
   showResult();
   showReuseVolumes();
   paint();
-  if ($('build-faces-dialog').open) paintBuildFacesPreview();
+  if ($('build-faces-dialog').open) {
+    refreshBuildFacesChoices();
+    paintBuildFacesPreview();
+  }
   if ($('relationship-dialog').open) {
     relationshipParticipantIds = new Set([...relationshipParticipantIds].filter((id) => graphNode(id)));
     renderRelationshipBuilder();
@@ -4001,6 +4049,7 @@ async function start() {
     openBuildFaces(node?.operation === 'build_faces' ? node : null);
   };
   $('build-faces-surfaces').onchange = () => {
+    buildFacesBatchDraft = chosen('build-faces-surfaces').map((value) => JSON.parse(value));
     invalidateBuildFaces('Surface inputs changed. Preview again.');
     renderBuildFacesScopes();
   };
@@ -4035,6 +4084,7 @@ async function start() {
         graphState.recipe.nodes, choices, buildFacesSelectedSurfaces());
     for (const option of select.options)
       option.selected = references.some((reference) => sameSurfaceReference(reference, JSON.parse(option.value)));
+    buildFacesBatchDraft = references;
     invalidateBuildFaces(unavailableFitsMessage(buildFacesGeometry().unavailable));
     renderBuildFacesScopes();
   };
@@ -4219,6 +4269,7 @@ async function start() {
     } finally {
       buildFacesApplying = false;
       for (const { control, disabled } of disabledControls) control.disabled = disabled;
+      if ($('build-faces-dialog').open) refreshBuildFacesChoices();
       $('preview-build-faces').disabled = false;
       $('apply-build-faces').disabled = !buildFacesProposal ||
         !buildFaceChoices(buildFacesProposal, buildFacesReview).length;
