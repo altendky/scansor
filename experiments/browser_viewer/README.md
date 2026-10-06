@@ -100,6 +100,29 @@ confirmation, and export dialogs remain modal. Separate browser-window popouts
 are disabled in this slice because the existing tools and renderer share a single
 document.
 
+**Pick** beside the Build faces surface chooses a fit by clicking its scan patch
+in the model. **Pick** beside Neighbors and **Pick in model** in Relationships
+toggle the corresponding list checkboxes. Hover previews the fit/boundary; an
+overlapping patch opens an icon-and-label chooser instead of guessing. Picking
+uses the current complete fit output and the list's eligibility/filter rules.
+Target picking ends after a successful choice; neighbor/participant picking
+continues until **Stop picking**, Escape, or closing the workflow. Outside this
+mode, clicking retained regions keeps its existing behavior, and painting and
+right/middle-button navigation remain unchanged. Geometry input lists in feature
+editors and creation dialogs also have **Pick** buttons. They use scan patches
+for selections/fits and visible guides for points, axes, planes, frames,
+intersections, constructed faces and bodies. No general feature-tree selection
+is added. Single-input picking returns immediately; multi-input picking toggles
+items until **Done picking** or Escape. Modal forms temporarily step aside and
+return with their draft intact. Picking changes the same input and runs the same
+change handler as choosing from its list; it does not apply the form.
+
+In Faces only mode, identified source-face previews map a click back to a face,
+its fitted surface or containing body. Source-face previews are used even when a
+sewn body replaces them in the display; they are pick proxies, not changes to the
+body or exported topology. Options without evaluated geometric output remain
+list-only; arbitrary infinite carriers and metadata are not click targets.
+
 Layout changes are saved automatically under `scansor.flexlayout.workspace.v1`,
 separate from action recipes and mockup preferences. Reload restores panel
 placement, but does not reopen workflow drafts. **Show panel** selects a panel

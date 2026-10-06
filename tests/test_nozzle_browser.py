@@ -50,6 +50,10 @@ def test_fit_footprint_module_is_a_served_browser_asset() -> None:
     assert Handler.files["/fit-footprint.js"] == ("fit-footprint.js", "text/javascript")
 
 
+def test_model_picking_module_is_a_served_browser_asset() -> None:
+    assert Handler.files["/model-picking.js"] == ("model-picking.js", "text/javascript")
+
+
 def test_reuse_volume_module_is_a_served_browser_asset() -> None:
     assert Handler.files["/reuse-volume.js"] == (
         "reuse-volume.js",

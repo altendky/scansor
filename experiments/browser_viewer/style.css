@@ -23,6 +23,19 @@
 .icon-picker-option[aria-selected="true"] { background: #164b5a; }
 .icon-picker-option.picker-active { outline: 1px solid #77d3ea; outline-offset: -1px; }
 .face-neighbor-tools { margin: 6px 0; }
+.model-picking { cursor: crosshair; }
+.model-pick-input-row { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.model-pick-input-row > select { flex: 1; min-width: 0; width: 0; margin-top: 0 !important; }
+.model-field-pick { flex: none; font-size: 12px; padding: 5px 7px; }
+.model-field-pick[aria-pressed="true"] { border-color: #79d8ee; background: #164b5a; }
+#pick-face-target[aria-pressed="true"], #pick-face-neighbor[aria-pressed="true"], #pick-relationship-participant[aria-pressed="true"] { background: #164b5a; border-color: #79d8ee; }
+#model-pick-hint { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 16px); padding: 5px 8px; border: 1px solid #79d8ee; border-radius: 5px; background: #1c2a35; z-index: 3; font-size: 12px; }
+#model-pick-hint[hidden] { display: none; }
+#model-pick-hint button { flex: none; padding: 3px 6px; font-size: 11px; }
+.model-pick-choices { position: fixed; inset: auto; margin: 0; padding: 5px; max-width: min(350px, calc(100vw - 8px)); max-height: min(300px, calc(100vh - 8px)); overflow: auto; background: #253342; color: inherit; border: 1px solid #79d8ee; border-radius: 5px; box-shadow: 0 4px 18px #0008; }
+.model-pick-choices > span { display: block; padding: 3px 5px; font-size: 11px; color: #a6b6c5; }
+.model-pick-choices button { display: flex; align-items: center; gap: 6px; width: 100%; margin: 2px 0; text-align: left; font-size: 12px; padding: 5px 6px; }
+.model-pick-hover { background: #164b5a; outline: 1px solid #79d8ee; outline-offset: -1px; }
 .face-panel-footer { flex: none; border-top: 1px solid #344351; padding-top: 7px; margin-top: 7px; }
 .face-panel-actions button { flex: 1; }
 #build-faces-error:empty { display: none; }

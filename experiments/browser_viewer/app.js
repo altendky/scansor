@@ -25,6 +25,8 @@ import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } fr
 import { selectionVolumePositions } from './reuse-volume.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
+import { scanFitCandidates, isModelClick, bindModelPickControls, nativePickOptions,
+  commitNativePick, segmentDistance } from './model-picking.js';
 import {
   surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
   geometryAppendOutput, sameSurfaceReference, validGeometryPreview,
@@ -59,6 +61,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const viewport = $('viewport');
+viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
 let metadata,
   positions,
@@ -91,6 +94,13 @@ let buildFacesContinueInteraction = { pointer: null, focus: null };
 let buildFacesContextCache = null;
 const buildFacesFootprints = new WeakMap();
 let buildFacesMeshTopology = null;
+let modelPickMode = null, modelPickGesture = null, modelPickClick = null, modelPickHoverKey = null;
+let modelPickField = null, modelPickGuides, modelPickGeometryKey = null;
+let modelPickSourceFaces, modelPickSourceState = null;
+let modelPickFitState = null, modelPickFitReferences = new Map();
+const modelPickButtons = {
+  target: 'pick-face-target', neighbor: 'pick-face-neighbor', participant: 'pick-relationship-participant',
+};
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
   selectionPending = false;
@@ -111,6 +121,359 @@ function downloadJson(filename, value) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function fittedPickResult(reference) {
+  if (!reference || graphState.states[reference.feature] !== 'ready') return null;
+  const output = graphState.results[reference.feature];
+  return reference.surface ? output?.surfaces?.[reference.surface] : output;
+}
+function modelPickChoices() {
+  if (!modelPickMode || !graphState || featureTreeLocked() ||
+      buildFacesApplying || relationshipApplying) return [];
+  const nodes = graphState.recipe.nodes;
+  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control).map(option => {
+    let reference, exactReference = false;
+    try { reference = JSON.parse(option.key); exactReference = !!reference?.feature; }
+    catch { reference = { feature: option.key }; }
+    if (!reference?.feature) reference = { feature: option.key };
+    const node = graphNode(reference.surface || reference.feature);
+    return { ...option, reference, exactReference, icon: node?.operation === 'fit' ? node.kind : node?.operation || 'selection' };
+  });
+  if (modelPickMode === 'target') return buildFacesGeometry().choices.map(choice => ({
+    ...fittedSurfacePresentation(choice.reference, nodes),
+    key: JSON.stringify(choice.reference), reference: choice.reference,
+    ids: fittedPickResult(choice.reference)?.ids,
+  }));
+  if (modelPickMode === 'neighbor') return (buildFacesCandidates?.candidates || []).flatMap(candidate => {
+    const key = JSON.stringify(candidate.reference),
+      row = [...$('build-faces-candidates').children].find(row => row.dataset.reference === key),
+      checkbox = row?.querySelector('summary input');
+    return row && !row.hidden && checkbox && !checkbox.disabled ? [{
+      ...fittedFaceCandidatePresentation(candidate), key, candidate, checkbox,
+      ids: fittedPickResult(candidate.reference)?.ids,
+    }] : [];
+  });
+  const choices = completeFitSurfaceChoices(nodes, graphState.results, [], graphState.states).choices;
+  return [...$('relationship-participants').children].flatMap(row => {
+    const checkbox = row.querySelector('input'), id = checkbox?.dataset.participantId,
+      node = graphNode(id), reference = choices.find(choice =>
+        (choice.reference.surface || choice.reference.feature) === id)?.reference;
+    const fitted = reference ? fittedPickResult(reference) :
+      (node?.kind === 'sphere' || node?.operation === 'reference_plane') &&
+        graphState.states[id] === 'ready' ? graphState.results[id] : null;
+    return !row.hidden && checkbox && !checkbox.disabled && fitted ? [{
+      ...fittedSurfacePresentation({ feature: id }, nodes), key: id,
+      reference: reference || { feature: id }, checkbox, ids: fitted.ids,
+    }] : [];
+  });
+}
+function clearModelPickHover() {
+  if (modelPickHoverKey === null) return;
+  modelPickHoverKey = null;
+  buildFacesSurfacePreview = null;
+  inspectFaceCandidate(null);
+  relationshipInspected = null;
+  paintRelationshipPreview();
+  paintModelPickGuides();
+  for (const row of document.querySelectorAll('.model-pick-hover')) row.classList.remove('model-pick-hover');
+}
+function inspectModelPick(choice) {
+  const key = choice?.key || null;
+  if (key === modelPickHoverKey) return;
+  clearModelPickHover();
+  modelPickHoverKey = key;
+  if (!choice) return;
+  if (modelPickMode === 'target') {
+    buildFacesSurfacePreview = choice.reference;
+    paintBuildFacesPreview();
+  } else if (modelPickMode === 'neighbor') inspectFaceCandidate(choice.candidate);
+  else if (modelPickMode === 'participant') { relationshipInspected = choice.key; paintRelationshipPreview(); }
+  paintModelPickGuides();
+  choice.checkbox?.closest('.face-candidate, .relationship-participant')?.classList.add('model-pick-hover');
+}
+function setModelPickMode(mode) {
+  const previousField = modelPickField;
+  clearModelPickHover();
+  $('model-pick-choices').hidePopover();
+  modelPickGesture = null;
+  modelPickClick = null;
+  modelPickMode = mode;
+  if (mode !== 'field') modelPickField = null;
+  modelPickGeometryKey = null;
+  paintModelPickGuides();
+  if (previousField && mode !== 'field') {
+    previousField.button.setAttribute('aria-pressed', 'false');
+    for (const [element, inert] of previousField.locks || []) element.inert = inert;
+    if (previousField.suspended) {
+      delete previousField.dialog.dataset.modelPickSuspended;
+      if (!previousField.dialog.open && previousField.dialog.isConnected) previousField.dialog.showModal();
+    }
+    previousField.button.focus();
+  }
+  syncModelPickControls();
+  updateFaceReviewDisplay();
+  draw();
+}
+function startFieldPick(control, button) {
+  if (featureTreeLocked() || !nativePickOptions(control).length) return;
+  if (modelPickField?.control === control) { setModelPickMode(null); return; }
+  setModelPickMode(null);
+  const dialog = control.closest('dialog'), suspended = dialog?.matches(':modal') || false;
+  modelPickField = { control, button, dialog, suspended,
+    ownerId: control.closest('#feature-properties-panel') ? selectedFeatureId : undefined };
+  if (suspended) {
+    dialog.dataset.modelPickSuspended = 'true';
+    dialog.close();
+    // Keep modal ownership while exposing the viewport: another create/edit
+    // action must not reinitialize or replace the temporarily hidden draft.
+    modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #features-panel, #feature-properties-panel')]
+      .map(element => [element, element.inert]);
+    for (const [element] of modelPickField.locks) element.inert = true;
+  }
+  button.setAttribute('aria-pressed', 'true');
+  setModelPickMode('field');
+  revealWorkspacePanel('view');
+}
+function syncModelPickControls() {
+  const locked = !graphState || featureTreeLocked() || buildFacesApplying || relationshipApplying,
+    facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
+    relationshipOpen = $('relationship-dialog').open;
+  const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
+    (modelPickField.ownerId === undefined || modelPickField.ownerId === selectedFeatureId) &&
+    (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
+  if (modelPickMode && (locked ||
+      (modelPickMode === 'neighbor' && !buildFacesCandidates) ||
+      (modelPickMode === 'field' ? !fieldValid : modelPickMode === 'participant' ? !relationshipOpen : !facesOpen))) {
+    setModelPickMode(null);
+    return;
+  }
+  for (const [mode, id] of Object.entries(modelPickButtons)) {
+    $(id).setAttribute('aria-pressed', String(modelPickMode === mode));
+    $(id).disabled = locked || (mode === 'participant' ?
+      !relationshipOpen : !facesOpen || (mode === 'neighbor' && !buildFacesCandidates));
+  }
+  const canvas = renderer?.domElement;
+  if (canvas) {
+    canvas.dataset.modelPick = modelPickMode || '';
+    canvas.classList.toggle('model-picking', !!modelPickMode);
+  }
+  $('model-pick-hint').hidden = !modelPickMode;
+  $('stop-model-picking').textContent = modelPickField ? 'Done picking' : 'Stop picking';
+  $('model-pick-message').textContent = modelPickMode === 'field' ?
+    `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
+    modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
+    modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
+      'Click fitted scan patches to toggle participants.';
+}
+function modelPickParts(choice) {
+  const reference = choice.reference || choice.candidate?.reference;
+  const node = graphNode(reference?.surface || reference?.feature);
+  if (!node) return [];
+  let fitted = fittedPickResult(reference);
+  let fitReference = reference;
+  if (node.operation === 'fit' && !reference.surface && !choice.exactReference) {
+    if (modelPickFitState !== graphState) {
+      modelPickFitState = graphState;
+      modelPickFitReferences = new Map(completeFitSurfaceChoices(graphState.recipe.nodes, graphState.results,
+        [], graphState.states).choices.map(item => [item.reference.surface || item.reference.feature, item.reference]));
+    }
+    const resolved = modelPickFitReferences.get(node.id);
+    if (resolved) { fitted = fittedPickResult(resolved); fitReference = resolved; }
+  }
+  if (!fitted && selectionOperations.includes(node.operation) && graphState.states[node.id] === 'ready')
+    fitted = { ids: node.ids };
+  if (!fitted) return [];
+  if (node.operation === 'selection_region') fitted = { ...fitted,
+    ids: fittedPickResult({ feature: node.selection })?.ids || graphNode(node.selection)?.ids };
+  if (fitted.surfaces && !reference.surface) return Object.entries(fitted.surfaces).flatMap(([id, value]) => {
+    const member = graphNode(id);
+    return member ? [{ node: member, fitted: value, reference: { feature: reference.feature, surface: id } }] : [];
+  });
+  return [{ node, fitted, reference: fitReference }];
+}
+function paintModelPickGuides() {
+  if (!modelPickGuides) return;
+  paintModelPickSourceFaces();
+  const choices = modelPickMode ? modelPickChoices() : [];
+  const key = JSON.stringify([modelPickMode, modelPickHoverKey, choices.map(choice => [choice.key, choice.selected])]);
+  if (key === modelPickGeometryKey) return;
+  modelPickGeometryKey = key;
+  for (const child of [...modelPickGuides.children]) {
+    modelPickGuides.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  for (const choice of choices) {
+    const color = choice.key === modelPickHoverKey ? '#ffe45c' : '#78e2ff';
+    const before = modelPickGuides.children.length;
+    for (const { node, fitted, reference } of modelPickParts(choice)) {
+      if (node.operation === 'axis') axisGuide(fitted, color, modelPickGuides);
+      else if (node.operation === 'point') pointGuide(fitted, color, modelPickGuides);
+      else if (['frame', 'transform'].includes(node.operation)) transformGuide(fitted, modelPickGuides);
+      else if (node.operation === 'reference_plane') {
+        referencePlaneGuide(fitted, color, modelPickGuides);
+        const outline = modelPickGuides.children.at(-1).geometry.getAttribute('position');
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(Array.from(outline.array).slice(0, 12), 3));
+        geometry.setIndex([0, 1, 2, 0, 2, 3]);
+        modelPickGuides.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color, side: THREE.DoubleSide, transparent: true, opacity: choice.key === modelPickHoverKey ? 0.16 : 0.06,
+          depthTest: false, depthWrite: false })));
+      } else if (['trimmed_face', 'arranged_face', 'surface_intersection', 'body'].includes(node.operation)) {
+        physicalGeometryGuide(node, fitted, color, modelPickGuides);
+      } else if (modelPickMode === 'field' && choice.key === modelPickHoverKey && node.operation === 'fit') {
+        if (node.kind === 'sphere') surfaceGuide(node.kind, fitted.parameters, node.axial_domain,
+          color, fitted.ids, modelPickGuides);
+        else paintFaceFootprint(reference, true, color, modelPickGuides);
+      } else if (modelPickMode === 'field' && choice.key === modelPickHoverKey && fitted.ids?.length) {
+        const coordinates = fitted.ids.flatMap(id => Array.from(positions.subarray(id * 3, id * 3 + 3)));
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(coordinates, 3));
+        modelPickGuides.add(new THREE.Points(geometry, new THREE.PointsMaterial({
+          color, size: 5, sizeAttenuation: false, depthTest: false })));
+      }
+      if (['axis', 'point', 'frame', 'transform', 'reference_plane', 'trimmed_face', 'arranged_face', 'surface_intersection', 'body'].includes(node.operation))
+        for (const child of modelPickGuides.children.slice(before)) child.userData.pickGuide = true;
+    }
+    for (const child of modelPickGuides.children.slice(before)) child.userData.pickKey = choice.key;
+  }
+  draw();
+}
+function paintModelPickSourceFaces() {
+  // A sewn body has one merged display mesh. Use identified source previews
+  // as pick proxies, without changing body/export topology. Hover changes must
+  // not rebuild these potentially large tessellations.
+  const state = modelPickMode && $('faces-only').checked ? graphState : null;
+  if (state === modelPickSourceState) return;
+  modelPickSourceState = state;
+  for (const child of [...modelPickSourceFaces.children]) {
+    modelPickSourceFaces.remove(child);
+    child.geometry.dispose();
+    child.material.dispose();
+  }
+  if (state) for (const { node, result } of faceDisplayEntries(state)) {
+    if (graphState.states[node.id] !== 'ready' || !validGeometryPreview(result.preview)) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(result.preview.positions, 3));
+    geometry.setIndex(result.preview.indices);
+    const proxy = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+      side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false }));
+    proxy.userData.sourceFace = node.id;
+    modelPickSourceFaces.add(proxy);
+  }
+}
+function modelPicksAt(event) {
+  if (!modelPickMode) return [];
+  paintModelPickGuides();
+  const choices = modelPickChoices();
+  const bounds = renderer.domElement.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return [];
+  camera.updateMatrixWorld();
+  modelRoot.updateMatrixWorld(true);
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(
+    (event.clientX - bounds.left) / bounds.width * 2 - 1,
+    1 - (event.clientY - bounds.top) / bounds.height * 2), camera);
+  const matches = new Set();
+  const hits = raycaster.intersectObjects([
+    ...modelPickGuides.children.filter(child => child.isMesh), ...modelPickSourceFaces.children,
+  ], false);
+  const nearest = hits.find(hit => hit.object.material.depthTest !== false)?.distance;
+  for (const hit of hits) if (hit.object.userData.pickKey &&
+      (hit.object.material.depthTest === false || hit.distance <= nearest + 1e-5)) matches.add(hit.object.userData.pickKey);
+  if ($('faces-only').checked) {
+    const face = hits.find(hit => hit.object.userData.sourceFace);
+    const node = graphNode(face?.object.userData.sourceFace);
+    if (node) for (const choice of choices) {
+      const reference = choice.reference || choice.candidate?.reference;
+      if (choice.key === node.id || sameSurfaceReference(reference, node.surface) ||
+          modelPickParts(choice).some(part => sameSurfaceReference(part.reference, node.surface)) ||
+          graphNode(reference?.feature)?.faces?.includes(node.id)) matches.add(choice.key);
+    }
+  } else if (mesh.visible) {
+    const hit = raycaster.intersectObject(mesh, false)[0];
+    const supported = choices.flatMap(choice => {
+      if (choice.ids) return [choice];
+      return modelPickParts(choice).map(part => ({ ...choice, ids: part.fitted.ids }));
+    });
+    for (const choice of scanFitCandidates(hit?.face ? [hit.face.a, hit.face.b, hit.face.c] : null, supported)) matches.add(choice.key);
+  }
+  const point = [event.clientX, event.clientY];
+  for (const object of modelPickGuides.children.filter(child => child.userData.pickGuide && (child.isLine || child.isPoints))) {
+    const attribute = object.geometry.getAttribute('position');
+    let previous = null;
+    for (let i = 0; i < attribute.count; i++) {
+      const vertex = new THREE.Vector3().fromBufferAttribute(attribute, i).applyMatrix4(object.matrixWorld).project(camera);
+      if (vertex.z < -1 || vertex.z > 1) { previous = null; continue; }
+      const current = [bounds.left + (vertex.x + 1) * bounds.width / 2, bounds.top + (1 - vertex.y) * bounds.height / 2];
+      if ((object.isPoints ? Math.hypot(point[0] - current[0], point[1] - current[1]) :
+          previous ? segmentDistance(point, previous, current) : Infinity) <= 7) {
+        matches.add(object.userData.pickKey); break;
+      }
+      previous = current;
+    }
+    if (object.isLineLoop && attribute.count > 1) {
+      const ends = [attribute.count - 1, 0].map(i => {
+        const vertex = new THREE.Vector3().fromBufferAttribute(attribute, i).applyMatrix4(object.matrixWorld).project(camera);
+        return vertex.z >= -1 && vertex.z <= 1 ?
+          [bounds.left + (vertex.x + 1) * bounds.width / 2, bounds.top + (1 - vertex.y) * bounds.height / 2] : null;
+      });
+      if (ends.every(Boolean) && segmentDistance(point, ...ends) <= 7) matches.add(object.userData.pickKey);
+    }
+  }
+  return choices.filter(choice => matches.has(choice.key));
+}
+function selectBuildFacesTarget(target) {
+  if (featureTreeLocked() || buildFacesApplying || !canDiscardFaceReview()) return false;
+  const owner = graphState.recipe.nodes.find(node => node.operation === 'build_faces' &&
+    node.target && sameSurfaceReference(node.target, target));
+  buildFacesReviewDirty = false;
+  openBuildFaces(owner || null, target);
+  return true;
+}
+function commitModelPick(key) {
+  // Recheck current lists and locks; a chooser may outlive a candidate refresh.
+  const choice = modelPickChoices().find(choice => choice.key === key);
+  if (!choice) { $('model-pick-choices').hidePopover(); return; }
+  if (modelPickMode === 'field') {
+    const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
+    if (commitNativePick(control, key)) {
+      if (multiple) { modelPickGeometryKey = null; paintModelPickGuides(); }
+      else setModelPickMode(null);
+    }
+  } else if (modelPickMode === 'target') {
+    if (selectBuildFacesTarget(choice.reference)) setModelPickMode(null);
+  } else {
+    choice.checkbox.click();
+    inspectModelPick(choice);
+    choice.checkbox.closest('.face-candidate, .relationship-participant').scrollIntoView({ block: 'nearest' });
+  }
+  $('model-pick-choices').hidePopover();
+}
+function pickModelItem(event) {
+  const matches = modelPicksAt(event), chooser = $('model-pick-choices');
+  chooser.hidePopover();
+  if (matches.length === 1) { commitModelPick(matches[0].key); return; }
+  if (!matches.length) {
+    $('model-pick-message').textContent = 'No eligible item here. Click a scan patch or visible guide.';
+    return;
+  }
+  const title = document.createElement('span');
+  title.textContent = 'Choose item';
+  chooser.replaceChildren(title, ...matches.map(choice => {
+    const button = document.createElement('button'), label = document.createElement('span');
+    button.type = 'button';
+    label.textContent = choice.label;
+    button.append(featureIcon(choice.icon), label);
+    button.onpointerenter = button.onfocus = () => inspectModelPick(choice);
+    button.onclick = () => commitModelPick(choice.key);
+    return button;
+  }));
+  chooser.showPopover();
+  const bounds = chooser.getBoundingClientRect();
+  chooser.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - bounds.width - 4))}px`;
+  chooser.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - bounds.height - 4))}px`;
+  chooser.querySelector('button').focus();
 }
 async function request(path, value) {
   const response = await fetch(
@@ -160,7 +523,7 @@ function clearBuildFacesPreview() {
 function updateFaceReviewDisplay() {
   if (!mesh || !overlays) return;
   const reviewing = $('build-faces-dialog').open && buildFacesMode === 'guided';
-  const guiding = reviewing || $('relationship-dialog').open;
+  const guiding = reviewing || $('relationship-dialog').open || !!modelPickMode;
   const facesOnly = $('faces-only').checked;
   if (guiding || facesOnly) $('brush-cursor').hidden = true;
   if (buildFacesContext) buildFacesContext.visible = reviewing && !facesOnly;
@@ -230,6 +593,7 @@ function canDiscardFaceReview() {
   return !buildFacesReviewDirty || confirm('Discard unapplied retained-cell choices and change the review inputs?');
 }
 function setBuildFacesModeDisplay() {
+  syncModelPickControls();
   $('build-faces-mode').value = buildFacesMode;
   $('build-faces-guided').hidden = buildFacesMode !== 'guided';
   $('build-faces-batch').hidden = buildFacesMode === 'guided';
@@ -260,6 +624,7 @@ function renderFaceCandidates(previous = null, exact = false) {
   const rows = candidates.map((candidate) => {
     const row = document.createElement('details');
     row.className = 'face-candidate';
+    row.dataset.reference = JSON.stringify(candidate.reference);
     const heading = document.createElement('summary');
     const presentation = fittedFaceCandidatePresentation(candidate);
     row.dataset.search = presentation.label.toLowerCase();
@@ -373,6 +738,7 @@ function renderFaceCandidates(previous = null, exact = false) {
     return row;
   });
   $('build-faces-candidates').replaceChildren(...rows);
+  syncModelPickControls();
   updateFaceNeighborSummary();
   filterFaceCandidates();
   $('build-faces-candidate-status').textContent = '';
@@ -403,12 +769,15 @@ function renderUnavailableFaceGuidance() {
   container.append(warning, discard);
 }
 async function loadFaceCandidates(previous = null, approvedSources = null, exact = false) {
+  clearModelPickHover();
+  $('model-pick-choices').hidePopover();
   const { choices, unavailable } = buildFacesGeometry();
   invalidateBuildFaces(unavailableSavedFaceInputsMessage() || unavailableFitsMessage(unavailable));
   buildFacesCandidates = null;
   buildFacesInspected = null;
   buildFacesCutters = [];
   $('build-faces-candidates').replaceChildren();
+  syncModelPickControls();
   $('build-faces-candidate-status').textContent = 'Finding candidate neighbors…';
   if (!buildFacesTarget || buildFacesMode !== 'guided') {
     if (!buildFacesTarget) $('build-faces-error').textContent ||= 'Target fit unavailable.';
@@ -556,6 +925,7 @@ function openBuildFaces(owner = null, target = null) {
     return;
   }
   if ($('build-faces-dialog').open && !canDiscardFaceReview()) return;
+  setModelPickMode(null);
   if ($('relationship-dialog').open) $('relationship-dialog').close();
   invalidateBuildFaces();
   buildFacesOwnerId = owner?.id || null;
@@ -595,14 +965,7 @@ function openBuildFaces(owner = null, target = null) {
       buildFacesSurfacePreview = value ? JSON.parse(value) : null;
       paintBuildFacesPreview();
     },
-    change: (value) => {
-      if (!canDiscardFaceReview()) return;
-      const target = JSON.parse(value),
-        owner = graphState.recipe.nodes.find((node) => node.operation === 'build_faces' &&
-          node.target && sameSurfaceReference(node.target, target));
-      buildFacesReviewDirty = false;
-      openBuildFaces(owner || null, target);
-    },
+    change: value => selectBuildFacesTarget(JSON.parse(value)),
   });
   $('build-faces-target').onpointerenter = () => {
     buildFacesSurfaceHovered = true;
@@ -627,6 +990,7 @@ function openBuildFaces(owner = null, target = null) {
   renderBuildFacesScopes();
   if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
   revealWorkspacePanel('build-faces-dialog');
+  syncModelPickControls();
   if (buildFacesMode === 'guided') {
     $('build-faces-target').focus();
     void loadFaceCandidates(owner?.surfaces || null, owner ? owner.boundary_sources || [] : null);
@@ -1488,6 +1852,7 @@ function filterRelationshipParticipants() {
   paintRelationshipPreview();
 }
 function updateRelationshipSelection() {
+  syncModelPickControls();
   const participants = graphState.recipe.nodes.filter((node) => relationshipParticipantIds.has(node.id)),
     chosen = relationshipDefinitions.find((definition) => definition.id === selectedRelationshipKind),
     validity = chosen ? relationshipValidity(chosen.id, participants) : { valid: false };
@@ -1700,6 +2065,7 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
+  if (modelPickMode && graphState && state !== graphState) setModelPickMode(null);
   if ((buildFacesProposal && state.token !== buildFacesProposal.token) ||
       (buildFacesCandidates && state.token !== buildFacesCandidates.token) ||
       (graphState && state.token !== graphState.token && $('build-faces-dialog').open && buildFacesMode === 'guided')) {
@@ -2391,7 +2757,7 @@ function showProperties() {
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
 }
-function axisGuide(axisValues, color = '#ffd166') {
+function axisGuide(axisValues, color = '#ffd166', group = overlays) {
   const axis = new THREE.Vector3(...axisValues.axis_display).normalize();
   const point = new THREE.Vector3(...axisValues.point_display);
   const domain = metadata?.axial_domain || [-2, 5];
@@ -2399,7 +2765,7 @@ function axisGuide(axisValues, color = '#ffd166') {
     endpoints = [-extent, extent].map((distance) =>
       point.clone().addScaledVector(axis, distance),
     );
-  overlays.add(
+  group.add(
     new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(endpoints),
       new THREE.LineBasicMaterial({
@@ -2410,7 +2776,7 @@ function axisGuide(axisValues, color = '#ffd166') {
       }),
     ),
   );
-  overlays.add(
+  group.add(
     new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([endpoints[0], point, endpoints[1]]),
       new THREE.PointsMaterial({ color, depthTest: false, size: 7, sizeAttenuation: false }),
@@ -2424,7 +2790,7 @@ function axisGuide(axisValues, color = '#ffd166') {
   arrow.position.copy(endpoints[1]);
   arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
   arrow.renderOrder = 5;
-  overlays.add(arrow);
+  group.add(arrow);
 }
 function axisPreview(node) {
   if (node.source_points) {
@@ -2454,8 +2820,8 @@ function pointPreview(node) {
     coordinates = graphState.results[node.source_fit]?.parameters?.slice(0, 3);
   return coordinates ? { point_display: coordinates } : null;
 }
-function pointGuide(values, color = '#ffd166') {
-  overlays.add(
+function pointGuide(values, color = '#ffd166', group = overlays) {
+  group.add(
     new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(...values.point_display),
@@ -2469,7 +2835,7 @@ function pointGuide(values, color = '#ffd166') {
     ),
   );
 }
-function transformGuide(values) {
+function transformGuide(values, group = overlays) {
   const origin = new THREE.Vector3(...values.origin_display),
     extent = Math.max(...(metadata?.axial_domain || [-2, 5]).map(Math.abs), 1) * 0.7;
   for (const [key, color] of [
@@ -2478,14 +2844,14 @@ function transformGuide(values) {
     ['z_axis_display', '#72b7ed'],
   ]) {
     const end = origin.clone().addScaledVector(new THREE.Vector3(...values[key]), extent);
-    overlays.add(
+    group.add(
       new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([origin, end]),
         new THREE.LineBasicMaterial({ color, depthTest: false }),
       ),
     );
   }
-  pointGuide({ point_display: values.origin_display }, '#ffffff');
+  pointGuide({ point_display: values.origin_display }, '#ffffff', group);
 }
 function referencePlanePreview(node) {
   const axisNode = graphNode(node.axis);
@@ -3045,6 +3411,7 @@ function showResult() {
   }
 }
 function paint() {
+  syncModelPickControls();
   const colors = mesh.geometry.getAttribute('color'),
     gray = new THREE.Color('#8796a2'),
     residualMode = $('colors').value === 'residual',
@@ -3501,6 +3868,10 @@ async function start() {
   modelRoot.add(overlays);
   bodyInspection = new THREE.Group();
   modelRoot.add(bodyInspection);
+  modelPickGuides = new THREE.Group();
+  modelRoot.add(modelPickGuides);
+  modelPickSourceFaces = new THREE.Group();
+  modelRoot.add(modelPickSourceFaces);
   constructedFaces = new THREE.Group();
   constructedFaces.visible = false;
   modelRoot.add(constructedFaces);
@@ -3600,7 +3971,21 @@ async function start() {
     renderRelationshipBuilder();
   };
   $('focus-relationship').onclick = () => focusRelationshipParticipants([...relationshipParticipantIds]);
+  for (const [mode, id] of Object.entries(modelPickButtons)) $(id).onclick = () => {
+    if ($(id).disabled) return;
+    setModelPickMode(modelPickMode === mode ? null : mode);
+    if (modelPickMode) revealWorkspacePanel('view');
+  };
+  $('stop-model-picking').onclick = () => setModelPickMode(null);
+  bindModelPickControls(document, startFieldPick);
+  for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('close', () => {
+    if (modelPickField?.dialog === dialog && !dialog.open && !modelPickField.suspended) setModelPickMode(null);
+  });
+  $('model-pick-choices').addEventListener('toggle', event => {
+    if (event.newState === 'closed') clearModelPickHover();
+  });
   $('relationship-dialog').addEventListener('close', () => {
+    setModelPickMode(null);
     relationshipInspected = null;
     paintRelationshipPreview();
   });
@@ -3608,6 +3993,7 @@ async function start() {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     event.stopPropagation();
+    if (modelPickMode) { setModelPickMode(null); return; }
     requestWorkspaceClose('relationship-dialog');
   });
   $('new-build-faces').onclick = () => {
@@ -3621,6 +4007,7 @@ async function start() {
   $('build-faces-mode').onchange = () => {
     if (!canDiscardFaceReview()) { $('build-faces-mode').value = buildFacesMode; return; }
     buildFacesMode = $('build-faces-mode').value;
+    setModelPickMode(null);
     // A different construction mode is a new owner, not permission to delete
     // a previously approved owner's other faces.
     buildFacesOwnerId = null;
@@ -3658,12 +4045,14 @@ async function start() {
     if (event.key !== 'Escape' || $('build-faces-target-options').matches(':popover-open')) return;
     event.preventDefault();
     event.stopPropagation();
+    if (modelPickMode) { setModelPickMode(null); return; }
     requestWorkspaceClose('build-faces-dialog');
   });
   $('relationship-dialog').addEventListener('workspace-before-close', event => {
     if (relationshipApplying) event.preventDefault();
   });
   for (const event of ['close', 'cancel']) $('build-faces-dialog').addEventListener(event, () => {
+    setModelPickMode(null);
     buildFacesContinuePreview = null;
     buildFacesContinueInteraction = { pointer: null, focus: null };
     $('build-faces-target-options').hidePopover();
@@ -5430,6 +5819,8 @@ async function start() {
   $('top').onclick = () => home('top');
   for (const name of ['colors', 'all-residuals', 'guides', 'points']) $(name).onchange = paint;
   $('faces-only').onchange = () => {
+    modelPickGeometryKey = null;
+    paintModelPickGuides();
     showConstructedFaces();
     paint();
   };
@@ -5541,6 +5932,21 @@ async function start() {
     }
   };
   canvas.addEventListener('pointerdown', (event) => {
+    if (modelPickMode) {
+      cancelStroke();
+      modelPickClick = null;
+      clearModelPickHover();
+      $('model-pick-choices').hidePopover();
+      modelPickGesture = event.button === 0 ? {
+        pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+      } : null;
+      if (event.button === 0) {
+        event.preventDefault();
+        canvas.focus();
+        canvas.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (event.button === 0 && $('build-faces-dialog').open && buildFacesMode === 'guided') {
       cancelStroke();
       event.preventDefault();
@@ -5612,6 +6018,16 @@ async function start() {
   });
   canvas.addEventListener('pointermove', (event) => {
     cursor(event);
+    if (modelPickMode) {
+      if (modelPickGesture && Math.hypot(event.clientX - modelPickGesture.clientX,
+          event.clientY - modelPickGesture.clientY) > 5) modelPickGesture = null;
+      if (event.buttons || $('model-pick-choices').matches(':popover-open')) return;
+      const matches = modelPicksAt(event);
+      inspectModelPick(matches.length === 1 ? matches[0] : null);
+      $('model-pick-message').textContent = matches.length === 1 ? matches[0].label :
+        matches.length > 1 ? `${matches.length} items here. Click to choose.` : 'Click a scan patch or visible guide. Esc to stop.';
+      return;
+    }
     if ($('build-faces-dialog').open && buildFacesMode === 'guided') {
       inspectFaceRegion(event.buttons ? null : guidedFaceRegionAt(event));
       return;
@@ -5621,8 +6037,20 @@ async function start() {
   canvas.addEventListener('pointerleave', () => {
     $('brush-cursor').hidden = true;
     inspectFaceRegion(null);
+    if (!$('model-pick-choices').matches(':popover-open')) clearModelPickHover();
   });
   canvas.addEventListener('pointerup', async (event) => {
+    if (modelPickMode) {
+      const clicked = isModelClick(modelPickGesture, event);
+      modelPickGesture = null;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      // Commit on click, after the browser's pointerup light-dismiss step. A
+      // popover opened during pointerup would immediately dismiss itself.
+      // Keep the subpixel pointer coordinates: MouseEvent click coordinates
+      // can be rounded differently and hit an adjacent triangle at a patch edge.
+      modelPickClick = clicked ? { clientX: event.clientX, clientY: event.clientY } : null;
+      return;
+    }
     if (!stroke || stroke.pointerId !== event.pointerId || event.button !== 0) return;
     const end = xy(event);
     extend(end);
@@ -5664,12 +6092,28 @@ async function start() {
     }
   });
   canvas.addEventListener('pointercancel', cancelStroke);
+  canvas.addEventListener('click', () => {
+    if (!modelPickMode || !modelPickClick) return;
+    const point = modelPickClick;
+    modelPickClick = null;
+    pickModelItem(point);
+  });
   canvas.addEventListener('lostpointercapture', cancelStroke);
   canvas.addEventListener('wheel', cancelStroke, { capture: true });
   window.addEventListener('blur', cancelStroke);
   window.addEventListener('resize', cancelStroke);
+  for (const type of ['pointercancel', 'lostpointercapture', 'wheel', 'blur']) {
+    canvas.addEventListener(type, () => { modelPickGesture = null; clearModelPickHover(); });
+  }
+  window.addEventListener('blur', () => { modelPickGesture = null; clearModelPickHover(); });
+  window.addEventListener('resize', () => $('model-pick-choices').hidePopover());
   window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
+    if (modelPickMode) {
+      event.preventDefault();
+      setModelPickMode(null);
+      return;
+    }
     if (selectionDrawing || selectionPending) {
       cancelStroke();
       return;
