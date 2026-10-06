@@ -137,7 +137,7 @@ def roundtrip(
             "model.step",
             *(["reference.ply"] if mesh is not None else []),
         }
-    return metadata, shapes, mesh, step.decode("ascii")
+    return metadata, shapes, mesh, step.decode("utf-8")
 
 
 def trimmed_face(kind: str, lo: float, hi: float) -> dict[str, Any]:
@@ -217,6 +217,33 @@ def collection(
         snapshot["results"][key] = record
     _ = Recipe.model_validate(snapshot["recipe"])
     return workspace, snapshot
+
+
+def test_step_object_labels_preserve_unicode_and_ascii(
+    collection: tuple[NozzleWorkspace, dict[str, Any]], tmp_path: Path
+) -> None:
+    workspace, snapshot = collection
+    labels = {
+        "shoulder_face": "Build faces 16 · bore",
+        "outer_face": "肩面 Ø12 — café",
+        "other_face": "ASCII face",
+    }
+    for node in snapshot["recipe"]["nodes"]:
+        if node["id"] in labels:
+            node["label"] = labels[node["id"]]
+    request = CadExportRequest(
+        token=snapshot["token"],
+        scope="all_faces",
+        units="Millimeters",
+        axis_up=False,
+        include_mesh=False,
+    )
+    metadata, shapes, mesh, _ = roundtrip(
+        export_cad(workspace, snapshot, request), tmp_path
+    )
+    assert set(shapes) == set(labels.values())
+    assert {obj["feature"]: obj["name"] for obj in metadata["objects"]} == labels
+    assert mesh is None
 
 
 @pytest.mark.parametrize(
