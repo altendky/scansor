@@ -896,6 +896,7 @@ export function renderActionTree(
     managed.get(owner).push(node);
   }
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
+  const lockControls = [];
   function qualityBadge(quality, generatedOwner = null) {
     const badge = document.createElement('span');
     badge.className = `fit-quality quality-${quality.status}`;
@@ -1040,8 +1041,12 @@ export function renderActionTree(
     grip.className = 'action-grip';
     grip.dataset.reorderKey = key;
     grip.append(icon('grip'));
-    grip.disabled = !ids.length || unavailable();
-    grip.draggable = !!ids.length && !unavailable();
+    const updateLock = () => {
+      grip.disabled = !ids.length || unavailable();
+      grip.draggable = !!ids.length && !unavailable();
+    };
+    lockControls.push(updateLock);
+    updateLock();
     grip.title = `Drag to reorder ${label} with its actions; or focus here and use the arrow keys.`;
     grip.setAttribute('aria-label', `Reorder ${label}. Use Up or Down arrow keys.`);
     if (!ids.length) {
@@ -1320,7 +1325,9 @@ export function renderActionTree(
     label.textContent = `${group.label} · ${members.length}`;
     edit.type = remove.type = 'button';
     edit.className = remove.className = 'group-action';
-    edit.disabled = remove.disabled = unavailable();
+    const updateLock = () => { edit.disabled = remove.disabled = unavailable(); };
+    lockControls.push(updateLock);
+    updateLock();
     edit.textContent = 'Edit';
     edit.onclick = (event) => {
       event.preventDefault();
@@ -1390,4 +1397,6 @@ export function renderActionTree(
     finishDrag();
     if (id && slot !== null) void commit(id, slot, true);
   };
+  // Lifecycle-only polling can refresh locks without replacing tree controls.
+  return () => { lockControls.forEach(update => update()); };
 }

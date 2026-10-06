@@ -11,6 +11,7 @@ from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar, cast, override
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ValidationError
 
@@ -221,17 +222,40 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif self.path == "/api/graph/example":
             self.json_reply(200, self.app.example_recipe.model_dump())
-        elif self.path == "/api/graph":
-            state = self.app.graph.snapshot()
-            with self.app.lock:
+        elif self.path == "/api/graph" or self.path.startswith("/api/graph?"):
+            try:
+                query = parse_qs(
+                    urlsplit(self.path).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+                revision = None
+                if query:
+                    values = query.get("revision", [])
+                    if (
+                        set(query) != {"revision"}
+                        or len(values) != 1
+                        or not values[0].isascii()
+                        or not values[0].isdecimal()
+                    ):
+                        raise ValueError("expected one nonnegative integer revision")
+                    revision = int(values[0])
+            except ValueError:
+                self.json_reply(
+                    422, {"error": "expected one nonnegative integer revision"}
+                )
+                return
+            with self.app.lock, self.app.graph.lock:
+                state = self.app.graph.snapshot(if_revision=revision)
                 job, token = self.app.graph_job, self.app.graph_job_token
-            state["evaluation_running"] = job is not None and not job.done()
-            if job is not None and job.done() and token == state["token"]:
-                try:
-                    _ = job.result()
-                except Exception as error:
-                    if not isinstance(error, StaleGraph):
-                        state["evaluation_error"] = str(error)
+                running = job is not None and not job.done()
+                state["evaluation_running"] = running
+                if job is not None and not running and token == state["token"]:
+                    try:
+                        _ = job.result()
+                    except Exception as error:
+                        if not isinstance(error, StaleGraph):
+                            state["evaluation_error"] = str(error)
             self.json_reply(200, state)
         elif self.path.startswith("/api/fit/"):
             with self.app.lock:

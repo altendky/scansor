@@ -71,6 +71,7 @@ let metadata,
 let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
+let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
 let constructedFaces, constructedFacesState = null;
 let bodyInspection;
@@ -2288,7 +2289,7 @@ function currentFitQualities() {
 function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
   $('clear-feature-selection').disabled = !selectedFeatureIds.size;
-  renderActionTree($('action-list'), {
+  updateActionTreeLocks = renderActionTree($('action-list'), {
     scrollContainer: $('features-panel'),
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
@@ -3614,12 +3615,17 @@ function paint() {
   $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
   $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
   $('use-growth').disabled = busy || !graphState.results[selectedFeatureId];
-  const evaluationLocked = busy || graphState.evaluation_running;
+  updateEvaluationControls();
+  draw();
+}
+function updateEvaluationControls() {
+  updateActionTreeLocks();
+  const selectedNode = graphNode(selectedFeatureId),
+    evaluationLocked = busy || graphState.evaluation_running;
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked;
   $('delete-action').disabled = evaluationLocked || !selectedNode ||
     selectedNode.operation === 'source' || !!managedOwnerId(selectedNode, graphState.recipe.nodes);
-  draw();
 }
 async function fit() {
   return evaluateGraph(false, selectedFeatureId);
@@ -3638,7 +3644,19 @@ async function evaluateGraph(allActions, target = null, retry = true) {
   finally { activeGraphEvaluation = null; }
 }
 async function ensureCurrent(targets, { token = graphState.token, isCurrent } = {}) {
-  return ensureGraphCurrent({ targets, token, request, acceptState: acceptGraph, isCurrent });
+  return ensureGraphCurrent({ targets, token, request, acceptState: acceptGraph,
+    getState: () => graphState, acceptEvaluationStatus, isCurrent });
+}
+function acceptEvaluationStatus(state) {
+  if (graphState.token !== state.token || graphState.revision !== state.revision) return;
+  const runningChanged = graphState.evaluation_running !== state.evaluation_running;
+  // Preserve snapshot identity so lifecycle-only changes retain geometry caches.
+  graphState.evaluation_running = state.evaluation_running;
+  graphState.evaluation_error = state.evaluation_error;
+  if (runningChanged) {
+    updateEvaluationControls();
+    syncModelPickControls();
+  }
 }
 async function runGraphEvaluation(allActions, target, retry) {
   busy = true;
@@ -3652,11 +3670,13 @@ async function runGraphEvaluation(allActions, target, retry) {
     if (retry) {
       // Evaluate buttons are the explicit retry path; Auto and output consumers
       // only ensure current work, preserving failures until inputs change.
-      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph });
+      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph,
+        getState: () => graphState, acceptEvaluationStatus });
       await request('/api/graph/evaluate', {
         token, ...(allActions ? { all_actions: true } : { target }),
       });
-      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph });
+      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph,
+        getState: () => graphState, acceptEvaluationStatus });
     }
     const state = await ensureCurrent(allActions ? graphState.recipe.nodes.map((node) => node.id) : [target]);
     const failed = Object.values(state.states).filter((value) => value === 'failed').length,

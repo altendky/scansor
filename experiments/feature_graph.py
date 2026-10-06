@@ -2344,6 +2344,10 @@ class FeatureGraph:
         self.reference_sha256 = workspace_reference_sha256(workspace)
         self.lock = RLock()
         self._recipe = self.validate(recipe)
+        self._content_token = hashlib.sha256(
+            self._recipe.model_dump_json().encode()
+        ).hexdigest()
+        self._revision = 0  # Observable publications, independent of recipe edits.
         self._states: dict[str, str] = dict.fromkeys(
             (n.id for n in recipe.nodes), "unevaluated"
         )
@@ -3080,10 +3084,21 @@ class FeatureGraph:
 
     def _token(self) -> str:
         # Content token detects conflicting client edits without an edit history.
-        return hashlib.sha256(self._recipe.model_dump_json().encode()).hexdigest()
+        return self._content_token
 
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self, if_revision: int | None = None) -> dict[str, object]:
+        """Read one publication atomically, omitting unchanged geometry.
+
+        Observable state/result mutations must advance _revision under self.lock;
+        recipe content tokens alone cannot identify evaluation publications.
+        """
         with self.lock:
+            if if_revision == self._revision:
+                return {
+                    "token": self._token(),
+                    "revision": self._revision,
+                    "unchanged": True,
+                }
             resolved = deepcopy({**self._derived, **self._results})
             for axis_id, solve in self._connected_solves.items():
                 axis_node = next(
@@ -3162,6 +3177,7 @@ class FeatureGraph:
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
+                "revision": self._revision,
                 "states": self._states.copy(),
                 "errors": self._errors.copy(),
                 "diagnostics": deepcopy(self._diagnostics),
@@ -3311,7 +3327,11 @@ class FeatureGraph:
                 for key, value in self._states.items()
             }
             self._recipe = recipe
+            self._content_token = hashlib.sha256(
+                recipe.model_dump_json().encode()
+            ).hexdigest()
             self._epoch += 1
+            self._revision += 1
             self._validation_reviews = {
                 key: value
                 for key, value in self._validation_reviews.items()
@@ -4188,6 +4208,8 @@ class FeatureGraph:
                             _ = self._connected_solves.pop(identifier, None)
                         elif kind == "point":
                             _ = self._connected_point_solves.pop(identifier, None)
+                if affected:
+                    self._revision += 1
 
         def resolve_component(task: str) -> None:
             kind, identifier = plan.solves[task]
@@ -4239,6 +4261,7 @@ class FeatureGraph:
                             self._diagnostics[identifier] = error.diagnostic
                         elif not isinstance(error, ConstrainedLeastSquaresFailure):
                             _ = self._diagnostics.pop(identifier, None)
+                        self._revision += 1
                 raise
             with self.lock:
                 if epoch != self._epoch:
@@ -4258,6 +4281,7 @@ class FeatureGraph:
                     self._states[member] = "ready"
                     _ = self._errors.pop(member, None)
                     _ = self._diagnostics.pop(member, None)
+                self._revision += 1
 
         with self.lock:
             for axis in plan.explicit_axes:
@@ -4269,6 +4293,7 @@ class FeatureGraph:
                     }
                     invalidate_resolved_consumers(outputs, set())
                     _ = self._connected_solves.pop(axis, None)
+                    self._revision += 1
         prior_surfaces: dict[str, dict[str, dict[str, Any]]] = {}
         # Native cells are shared only within this evaluation epoch. Multiple
         # reviewed patches on one carrier must not repeat the same split.
@@ -4333,6 +4358,7 @@ class FeatureGraph:
                             _ = self._results.pop(affected_id, None)
                             _ = self._connected_solves.pop(affected_id, None)
                             _ = self._connected_point_solves.pop(affected_id, None)
+                self._revision += 1
 
         if not retry_failed:
             # Preserve failed/blocked results until an explicit retry or edit;
@@ -4417,6 +4443,8 @@ class FeatureGraph:
                                     else:
                                         _ = self._diagnostics.pop(consumer.id, None)
                                     failed_consumers.add(consumer.id)
+                            if failed_consumers:
+                                self._revision += 1
                     note_failure(key, error, failed_consumers)
                     continue
                 prior_surfaces.setdefault(stage.reuse, {}).update(prior["surfaces"])
@@ -4447,6 +4475,7 @@ class FeatureGraph:
                 if self._states[key] == "ready":
                     continue
                 self._states[key] = "running"
+                self._revision += 1
             try:
                 result = None
                 derived = None
@@ -5119,6 +5148,7 @@ class FeatureGraph:
                             self._diagnostics[key] = diagnostic
                         else:
                             _ = self._diagnostics.pop(key, None)
+                        self._revision += 1
                 note_failure(key, error, {key})
                 continue
             with self.lock:
@@ -5137,6 +5167,7 @@ class FeatureGraph:
                             plan.aliases[node.id], {node.id}, node.id
                         )
                     self._derived[key] = derived
+                self._revision += 1
         # Owners precede their generated children in the DAG. Check their
         # aggregate coverage only after evaluation, without adding a cycle.
         for owner in recipe.nodes:
@@ -5170,10 +5201,13 @@ class FeatureGraph:
                     face_id for face_id in faces if self._states.get(face_id) != "ready"
                 ]
                 if pending:
-                    self._derived[owner.id]["shared_boundary_review"] = {
+                    review = {
                         "complete": False,
                         "pending_faces": pending,
                     }
+                    if self._derived[owner.id].get("shared_boundary_review") != review:
+                        self._derived[owner.id]["shared_boundary_review"] = review
+                        self._revision += 1
                     continue
                 # Physical faces have no solver overlays. Copy only the owner
                 # inputs, not every face preview/result in the entire graph.
@@ -5211,13 +5245,16 @@ class FeatureGraph:
                         self._states[failed_id] = "failed"
                         self._errors[failed_id] = str(error)
                         self._derived[failed_id].pop("shared_boundary_review", None)
+                    self._revision += 1
                 for failed_id in failed_ids:
                     note_failure(failed_id, error, failed_ids)
                 continue
             with self.lock:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during shared-boundary review")
-                self._derived[owner.id]["shared_boundary_review"] = review
+                if self._derived[owner.id].get("shared_boundary_review") != review:
+                    self._derived[owner.id]["shared_boundary_review"] = review
+                    self._revision += 1
         for key in order:
             body = nodes.get(key)
             if not isinstance(body, Body) or key in failures:
@@ -5228,6 +5265,7 @@ class FeatureGraph:
                 already_ready = self._states[key] == "ready"
                 if not already_ready:
                     self._states[key] = "running"
+                    self._revision += 1
             from experiments.body_geometry import BodyAssemblyError, assemble_body
 
             try:
@@ -5265,6 +5303,7 @@ class FeatureGraph:
                         self._errors[key] = str(error)
                         self._diagnostics[key] = {"blocked_by": causes}
                         _ = self._derived.pop(key, None)
+                        self._revision += 1
                     note_failure(key, error, set(causes))
                     continue
                 if already_ready:
@@ -5282,6 +5321,7 @@ class FeatureGraph:
                             self._diagnostics[key] = deepcopy(error.diagnostic)
                         else:
                             _ = self._diagnostics.pop(key, None)
+                        self._revision += 1
                 note_failure(key, error, {key})
                 continue
             with self.lock:
@@ -5291,6 +5331,7 @@ class FeatureGraph:
                 self._states[key] = "ready"
                 _ = self._errors.pop(key, None)
                 _ = self._diagnostics.pop(key, None)
+                self._revision += 1
         if evaluation_errors:
             raise evaluation_errors[0]
         return self.snapshot()
