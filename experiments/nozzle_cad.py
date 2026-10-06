@@ -358,7 +358,8 @@ def _step_bytes(
     shapes = XCAFDoc_DocumentTool.ShapeTool_s(document.Main())
     for id, shape in patches.items():
         label = shapes.AddShape(shape, False)
-        _ = TDataStd_Name.Set_s(label, TCollection_ExtendedString(names[id]))
+        # Python labels reach this binding as UTF-8 narrow strings.
+        _ = TDataStd_Name.Set_s(label, TCollection_ExtendedString(names[id], True))
     # This binding does not expose DESTEP_Parameters. The native writer consults
     # a process-global setting despite its model unit setters. Serialize, restore
     # it even on failure, and set the document's input unit to prevent rescaling.
