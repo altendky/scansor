@@ -72,9 +72,13 @@ uv run --locked --python 3.12.14 ruff format --check .
 uv run --locked --python 3.12.14 ruff check .
 uv run --locked --python 3.12.14 basedpyright
 uv run --locked --python 3.12.14 pytest tests/test_mesh*.py
-uv run --locked --python 3.12.14 pytest --ignore-glob='tests/test_mesh*.py'
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  uv run --locked --python 3.12.14 pytest --ignore-glob='tests/test_mesh*.py' \
+  -n 4 --dist=worksteal
 uv run --locked --python 3.13.15 pytest tests/test_mesh*.py
-uv run --locked --python 3.13.15 pytest --ignore-glob='tests/test_mesh*.py'
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  uv run --locked --python 3.13.15 pytest --ignore-glob='tests/test_mesh*.py' \
+  -n 4 --dist=worksteal
 ```
 
 Mesh and remaining tests run in separate processes in CI. The CAD kernel stays
@@ -85,6 +89,14 @@ skip tests, or change runtime resource enforcement. For coverage, add
 `--cov=scansor --cov-report=term-missing` to both 3.12 invocations and
 `--cov-append` to the second to retain combined terminal coverage. The unpartitioned
 suite remains useful for diagnosis but is not equivalent resource isolation.
+
+The remaining tests use four pytest-xdist process workers in CI, with work-stealing
+to balance uneven test durations. Each worker uses one BLAS/OpenMP thread to avoid
+oversubscribing the runner. Mesh resource tests remain serial; do not run the
+unpartitioned suite with xdist, since concurrency can disturb their memory and
+supervision contracts. Ordinary local pytest still defaults to serial execution;
+omit `-n 4 --dist=worksteal` for a serial comparison. pytest-cov combines worker
+coverage and appends it to the preceding serial mesh run without dropping checks.
 
 Ruff checks every applicable Python file under the repository root. Basedpyright
 analyzes `src`, `tests`, and `experiments`; the committed baseline records the
