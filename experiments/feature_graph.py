@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import RLock
 from typing import Annotated, Any, ClassVar, Literal, cast, final
@@ -39,6 +40,7 @@ from experiments.selection_region import (
     datum_frame,
 )
 from experiments.surface_extents import surface_intersection, trimmed_face
+from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 MAX_RECIPE_ACTIONS = 10_000
 
@@ -1619,6 +1621,35 @@ class SelectionOverlap(ValueError):
 
 class StaleGraph(ValueError):
     """The current graph changed while a client or worker was using it."""
+
+
+def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
+    """Keep solver evidence separate from geometry and safe for strict JSON."""
+    if isinstance(error, SelectionOverlap):
+        return deepcopy(error.diagnostic)
+    if not isinstance(error, ConstrainedLeastSquaresFailure):
+        return None
+
+    def json_value(value: Any) -> Any:
+        if isinstance(value, float) and not math.isfinite(value):
+            if math.isnan(value):
+                return "NaN"
+            return "Infinity" if value > 0 else "-Infinity"
+        if isinstance(value, (tuple, list)):
+            return [json_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: json_value(item) for key, item in value.items()}
+        return value
+
+    return {
+        "kind": "constrained_solver_failure",
+        "code": error.code,
+        "solver": (
+            json_value(asdict(error.diagnostics))
+            if error.diagnostics is not None
+            else None
+        ),
+    }
 
 
 def workspace_reference_sha256(workspace: NozzleWorkspace) -> str:
@@ -4195,12 +4226,18 @@ class FeatureGraph:
             except Exception as error:
                 with self.lock:
                     if epoch == self._epoch:
+                        diagnostic = failure_diagnostic(error)
                         for member in error_ids:
                             self._states[member] = "failed"
                             self._errors[member] = str(error)
+                            if isinstance(error, ConstrainedLeastSquaresFailure):
+                                assert diagnostic is not None
+                                self._diagnostics[member] = deepcopy(diagnostic)
+                            else:
+                                _ = self._diagnostics.pop(member, None)
                         if isinstance(error, SelectionOverlap):
                             self._diagnostics[identifier] = error.diagnostic
-                        else:
+                        elif not isinstance(error, ConstrainedLeastSquaresFailure):
                             _ = self._diagnostics.pop(identifier, None)
                 raise
             with self.lock:
@@ -4374,6 +4411,11 @@ class FeatureGraph:
                                     self._errors[consumer.id] = (
                                         f"prior source geometry: {error}"
                                     )
+                                    diagnostic = failure_diagnostic(error)
+                                    if diagnostic is not None:
+                                        self._diagnostics[consumer.id] = diagnostic
+                                    else:
+                                        _ = self._diagnostics.pop(consumer.id, None)
                                     failed_consumers.add(consumer.id)
                     note_failure(key, error, failed_consumers)
                     continue
@@ -5072,8 +5114,9 @@ class FeatureGraph:
                     if epoch == self._epoch:
                         self._states[key] = "failed"
                         self._errors[key] = str(error)
-                        if isinstance(error, SelectionOverlap):
-                            self._diagnostics[key] = error.diagnostic
+                        diagnostic = failure_diagnostic(error)
+                        if diagnostic is not None:
+                            self._diagnostics[key] = diagnostic
                         else:
                             _ = self._diagnostics.pop(key, None)
                 note_failure(key, error, {key})

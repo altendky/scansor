@@ -20,6 +20,7 @@ from experiments.feature_graph import (
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 EXAMPLE = Path("examples/nozzle-bayonette-simplified")
 DEMO_RECIPES = (
@@ -1790,8 +1791,9 @@ def test_multiple_independent_failures_keep_distinct_downstream_causes(
     assert "End surface" in state["errors"]["fit"]
 
 
+@pytest.mark.parametrize("structured", [False, True])
 def test_failed_virtual_axis_solve_blocks_raw_and_resolved_consumers(
-    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+    graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch, structured: bool
 ) -> None:
     payload = explicit_axis_recipe(graph, free=True).model_dump()
     payload["nodes"] = [
@@ -1829,6 +1831,10 @@ def test_failed_virtual_axis_solve_blocks_raw_and_resolved_consumers(
     _ = graph.replace(Recipe.model_validate(payload), token(graph))
 
     def broken_solve(*_args: object, **_kwargs: object) -> None:
+        if structured:
+            raise ConstrainedLeastSquaresFailure(
+                "invalid-input", "forced connected solve failure"
+            )
         raise ValueError("forced connected solve failure")
 
     with monkeypatch.context() as patch:
@@ -1839,6 +1845,14 @@ def test_failed_virtual_axis_solve_blocks_raw_and_resolved_consumers(
     for key in ("reference_axis", "side_factor", "plane_factor"):
         assert failed["states"][key] == "failed"
         assert key not in failed["results"]
+        if structured:
+            assert failed["diagnostics"][key] == {
+                "kind": "constrained_solver_failure",
+                "code": "invalid-input",
+                "solver": None,
+            }
+        else:
+            assert key not in failed["diagnostics"]
     for key in ("extra_plane", "consumer"):
         assert failed["states"][key] == "blocked"
         assert "reference_axis" in failed["diagnostics"][key]["blocked_by"]
@@ -1846,6 +1860,7 @@ def test_failed_virtual_axis_solve_blocks_raw_and_resolved_consumers(
     assert failed["states"]["independent"] == "ready"
     repaired = cast(dict[str, Any], graph.evaluate(token(graph), all_actions=True))
     assert not repaired["errors"]
+    assert not repaired["diagnostics"]
     assert all(state == "ready" for state in repaired["states"].values())
 
 

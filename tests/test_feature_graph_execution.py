@@ -13,6 +13,7 @@ from experiments.feature_graph import FeatureGraph, Recipe, discover_reuse_linea
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.selection_growth import connected_growth
 from experiments.selection_region import build_selection_region
+from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 
 @pytest.fixture
@@ -763,7 +764,7 @@ def test_reuse_preserves_prior_original_constraints_when_final_group_adds_copy(
     if fail_prior:
 
         def failed_prior_geometry(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-            raise ValueError("bad prior geometry")
+            raise ConstrainedLeastSquaresFailure("invalid-input", "bad prior geometry")
 
         monkeypatch.setattr(
             feature_graph,
@@ -780,6 +781,13 @@ def test_reuse_preserves_prior_original_constraints_when_final_group_adds_copy(
         assert failed["states"]["transfer"] == "failed"
         assert "prior source geometry" in failed["errors"]["transfer"]
         assert "bad prior geometry" in failed["errors"]["transfer"]
+        assert failed["diagnostics"]["transfer"] == {
+            "kind": "constrained_solver_failure",
+            "code": "invalid-input",
+            "solver": None,
+        }
+        assert "transfer" not in failed["results"]
+        assert "transfer" not in failed["derived"]
         assert failed["states"]["final_relation"] != "ready"
         assert "final_relation" not in failed["results"]
         assert not captured
