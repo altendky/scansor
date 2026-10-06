@@ -11,10 +11,13 @@ from typing import Any
 import numpy as np
 import pytest
 from OCP.BRep import BRep_Tool
-from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
+from OCP.collections import List_TopoDS_Shape
+from OCP.gp import gp_Pnt, gp_Trsf, gp_Vec
 from OCP.GProp import GProp_GProps
+from OCP.TopLoc import TopLoc_Location
 from pytest import MonkeyPatch
 
 from experiments import face_arrangement
@@ -850,6 +853,49 @@ def test_shared_cut_evidence_is_boundary_not_two_interiors():
     boundaries = np.sum([record["evidence"]["boundary"] for record in records], axis=0)
     assert interiors.tolist() == [0, 1]
     assert boundaries.tolist() == [2, 0]
+
+
+def test_native_shape_list_preserves_values_and_history(monkeypatch: MonkeyPatch):
+    first = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(1, 0, 0)).Edge()
+    transform = gp_Trsf()
+    transform.SetTranslation(gp_Vec(1, 0, 0))
+    located = first.Moved(TopLoc_Location(transform))
+    face = checked_face(
+        BRepBuilderAPI_MakeFace(primitive_surface(plane()), -1, 1, -1, 1, 1e-8)
+    )
+    expected = [first, first.Reversed(), first, located, face]
+    shapes = List_TopoDS_Shape()
+    for shape in expected:
+        _ = shapes.Append(shape)
+
+    def expensive_iterator(_self: Any) -> Any:
+        pytest.fail("native history traversal must not construct OCP's list iterator")
+
+    monkeypatch.setattr(List_TopoDS_Shape, "__iter__", expensive_iterator)
+    converted = vars(face_arrangement)["_shape_list"](shapes)
+    assert shapes.Extent() == len(expected)
+    assert len(converted) == len(expected)
+    assert all(
+        actual.IsEqual(original)
+        for actual, original in zip(converted, expected, strict=True)
+    )
+    assert vars(face_arrangement)["_shape_list"](List_TopoDS_Shape()) == []
+    # Returned handles survive deletion of all list nodes, not just the copy.
+    shapes.Clear()
+    assert all(
+        actual.IsEqual(original)
+        for actual, original in zip(converted, expected, strict=True)
+    )
+
+
+def test_native_shape_list_returns_independent_shape_values():
+    first = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(1, 0, 0)).Edge()
+    shapes = List_TopoDS_Shape()
+    _ = shapes.Append(first)
+    converted = vars(face_arrangement)["_shape_list"](shapes)
+    converted[0].Reverse()
+    assert shapes.First().IsEqual(first)
+    assert converted[0].IsSame(first) and not converted[0].IsEqual(first)
 
 
 def test_cone_negative_sheet_creates_no_phantom_planar_cell():
