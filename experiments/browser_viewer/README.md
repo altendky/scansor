@@ -339,6 +339,38 @@ closure and solve context, reuses current results, and joins active work before
 rechecking the requested outputs. Unchanged failures remain visible until an
 explicit retry or an input edit; unrelated failures do not block a targeted
 request.
+
+Evaluation polling uses a publication revision independent of the recipe's
+content token. A matching `/api/graph?revision=N` returns only the token,
+revision, unchanged flag, and current worker lifecycle/error metadata; it skips
+geometry copying and encoding, and UI rebuilding. Changed snapshots still
+publish action states and results during the job. Completion always rechecks
+the caller's required outputs through `/api/graph/ensure`.
+
+From the repository root, reproduce the polling measurements with:
+
+```sh
+OPENBLAS_NUM_THREADS=2 uv run python -m experiments.graph_polling_benchmark
+```
+
+Example measurements on Python 3.12, five repetitions (median snapshot time
+while holding the graph lock; lock acquisition and JSON encoding excluded):
+
+| Case | Full response bytes | Unchanged bytes | Full snapshot ms | Unchanged snapshot ms |
+| --- | ---: | ---: | ---: | ---: |
+| Retained nozzle, 15 actions | 74,193 | 140 | 2.626 | 0.0016 |
+| Retained boss fitting recipe, 68 actions | 534,865 | 141 | 32.381 | 0.0009 |
+| Synthetic preview, 1,000 vertices | 32,169 | 139 | 5.259 | 0.0017 |
+| Synthetic preview, 10,000 vertices | 356,167 | 139 | 30.296 | 0.0010 |
+| Synthetic preview, 100,000 vertices | 3,956,165 | 139 | 399.897 | 0.0013 |
+
+Both retained recipes evaluated fully ready before measurement. The boss case
+regenerates the deterministic coarse fixture and uses its saved selection
+memberships; synthetic previews are injected into disposable graphs. These
+measurements exclude fitting, fixture generation, network latency, and UI time.
+Timings are illustrative; regressions assert skipped copies and bounded payloads
+without timing thresholds.
+
 Failures do not stop independent branches. Dependent actions are marked
 **Blocked**, with the failed upstream features identified; obsolete dependent
 results are discarded. Generator/group status includes its generated outputs,

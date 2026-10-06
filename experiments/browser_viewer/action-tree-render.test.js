@@ -226,6 +226,27 @@ function fixture(nodes = base, groups = []) {
   return state;
 }
 
+test('lifecycle lock updates preserve tree controls and empty-group restrictions', () => {
+  const state = fixture([source, point('a')], [{ id: 'empty', label: 'Empty' }]),
+    updateLocks = state.render(),
+    grip = state.grip('a'), emptyGrip = state.grip('empty'),
+    items = [...state.list.children], groupActions = state.list.querySelectorAll('.group-action');
+  assert(emptyGrip);
+  state.locked = true;
+  updateLocks();
+  assert.equal(grip.disabled, true);
+  assert.equal(grip.draggable, false);
+  assert(groupActions.every(button => button.disabled));
+  state.locked = false;
+  updateLocks();
+  assert.equal(grip.disabled, false);
+  assert.equal(grip.draggable, true);
+  assert.equal(emptyGrip.disabled, true);
+  assert(groupActions.every(button => !button.disabled));
+  assert.deepEqual(state.list.children, items);
+  assert.equal(state.grip('a'), grip);
+});
+
 function dragFixture(t) {
   const previousRequest = globalThis.requestAnimationFrame, previousCancel = globalThis.cancelAnimationFrame;
   const frames = new Map();

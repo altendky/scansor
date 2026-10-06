@@ -84,7 +84,7 @@ test('readiness refresh retains exact unavailable inputs and unchanged snapshots
   await ready(page);
   let graph = await (await page.request.get('/api/graph')).json();
   const readyGraph = structuredClone(graph);
-  await page.route('**/api/graph', route => route.request().method() === 'GET'
+  await page.route(/\/api\/graph(?:\?.*)?$/, route => route.request().method() === 'GET'
     ? route.fulfill({ json: graph }) : route.continue());
   await page.route('**/api/graph/evaluate', route => route.fulfill({ json: { status: 'running' } }));
   await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
@@ -162,7 +162,7 @@ test('readiness refresh retains exact unavailable inputs and unchanged snapshots
 test('same-token eligibility changes reject a late candidate response', async ({ page }) => {
   await ready(page);
   const graph = await (await page.request.get('/api/graph')).json();
-  await page.route('**/api/graph', route => route.request().method() === 'GET'
+  await page.route(/\/api\/graph(?:\?.*)?$/, route => route.request().method() === 'GET'
     ? route.fulfill({ json: graph }) : route.continue());
   await page.route('**/api/graph/evaluate', route => route.fulfill({ json: { status: 'running' } }));
   await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));

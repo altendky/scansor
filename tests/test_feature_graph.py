@@ -1688,6 +1688,7 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
     assert set(snapshot) == {
         "recipe",
         "token",
+        "revision",
         "states",
         "errors",
         "diagnostics",

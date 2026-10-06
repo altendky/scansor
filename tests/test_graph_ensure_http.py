@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator
+from concurrent.futures import Future
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -34,6 +35,15 @@ class HttpGraph:
 
     def snapshot(self) -> dict[str, Any]:
         return cast(dict[str, Any], self.server.graph.snapshot())
+
+    def get(self, path: str = "/api/graph") -> tuple[int, dict[str, Any]]:
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{self.server.server_port}{path}", timeout=10
+            ) as response:
+                return response.status, json.load(response)
+        except HTTPError as error:
+            return error.code, json.load(error)
 
     def post(self, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         request = Request(
@@ -155,6 +165,176 @@ def test_ensure_joins_work_and_reuses_ready_multi_root_outputs(
     assert response["states"]["a"] == response["states"]["b"] == "ready"
     assert response["states"]["frame"] == "unevaluated"
     assert http_graph.server.graph_job is job and len(calls) == 1
+
+
+def test_conditional_graph_poll_omits_geometry_without_copying_it(
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status, state = http_graph.get()
+    assert status == 200 and "recipe" in state and "results" in state
+
+    def forbidden_copy(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("unchanged polling copied graph geometry")
+
+    monkeypatch.setattr(feature_graph, "deepcopy", forbidden_copy)
+    for _ in range(3):
+        status, unchanged = http_graph.get(f"/api/graph?revision={state['revision']}")
+        assert status == 200
+        assert unchanged == {
+            "token": state["token"],
+            "revision": state["revision"],
+            "unchanged": True,
+            "evaluation_running": False,
+        }
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "revision=",
+        "revision=-1",
+        "revision=1.5",
+        "revision=no",
+        "revision=1&revision=2",
+        "other=1",
+        "revision",
+    ],
+)
+def test_conditional_graph_poll_rejects_invalid_revision(
+    http_graph: HttpGraph, query: str
+) -> None:
+    status, response = http_graph.get(f"/api/graph?{query}")
+    assert status == 422 and response["error"]
+    assert http_graph.server.graph_job is None
+
+
+def test_conditional_graph_poll_publishes_incremental_same_token_geometry(
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, before = http_graph.get()
+    entered, release = Event(), Event()
+    http_graph.releases.append(release)
+    original = feature_graph.frame_result
+
+    def frame(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        entered.set()
+        assert release.wait(10), "test did not release frame evaluation"
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(feature_graph, "frame_result", frame)
+    assert http_graph.ensure(["frame"])[0] == 202
+    assert entered.wait(10)
+    job = http_graph.server.graph_job
+    assert job is not None
+    status, intermediate = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert status == 200 and intermediate["evaluation_running"]
+    assert intermediate["token"] == before["token"]
+    assert intermediate["revision"] > before["revision"]
+    assert intermediate["states"]["a"] == "ready"
+    assert intermediate["states"]["frame"] == "running"
+    assert "a" in intermediate["derived"]
+    _, unchanged = http_graph.get(f"/api/graph?revision={intermediate['revision']}")
+    assert unchanged["unchanged"] and unchanged["evaluation_running"]
+    release.set()
+    _ = job.result(timeout=10)
+    _, complete = http_graph.get(f"/api/graph?revision={intermediate['revision']}")
+    assert not complete["evaluation_running"]
+    assert complete["revision"] > intermediate["revision"]
+    assert complete["states"]["frame"] == "ready" and "frame" in complete["derived"]
+
+
+@pytest.mark.parametrize(
+    "error", [None, ValueError("worker failed"), StaleGraph("cancelled")]
+)
+def test_conditional_graph_poll_reports_status_only_completion(
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch, error: Exception | None
+) -> None:
+    _, before = http_graph.get()
+    entered, release = Event(), Event()
+    http_graph.releases.append(release)
+
+    def ensure(*_args: Any, **_kwargs: Any) -> dict[str, object]:
+        entered.set()
+        assert release.wait(10), "test did not release evaluation worker"
+        if error is not None:
+            raise error
+        return http_graph.server.graph.snapshot()
+
+    monkeypatch.setattr(http_graph.server.graph, "ensure_current", ensure)
+    assert http_graph.ensure(["a"])[0] == 202
+    assert entered.wait(10)
+    job = http_graph.server.graph_job
+    assert job is not None
+    _, running = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert running["unchanged"] and running["evaluation_running"]
+    release.set()
+    if error is None:
+        _ = job.result(timeout=10)
+    else:
+        with pytest.raises(type(error)):
+            _ = job.result(timeout=10)
+    _, complete = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert complete["unchanged"] and not complete["evaluation_running"]
+    if error is not None and not isinstance(error, StaleGraph):
+        assert complete["evaluation_error"] == str(error)
+    else:
+        assert "evaluation_error" not in complete
+
+
+def test_conditional_graph_poll_detects_edits_and_restored_recipe_tokens(
+    http_graph: HttpGraph,
+) -> None:
+    _, before = http_graph.get()
+    changed = deepcopy(before["recipe"])
+    changed["nodes"][0]["initial_coordinates"] = [2, 0, 0]
+    status, edited = http_graph.post(
+        "/api/graph", {"token": before["token"], "recipe": changed}
+    )
+    assert status == 200 and edited["token"] != before["token"]
+    _, current = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert current["recipe"] == changed and current["revision"] > before["revision"]
+    status, restored = http_graph.post(
+        "/api/graph", {"token": edited["token"], "recipe": before["recipe"]}
+    )
+    assert status == 200 and restored["token"] == before["token"]
+    _, current = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert current["recipe"] == before["recipe"]
+    assert current["revision"] > edited["revision"]
+
+
+def test_conditional_graph_poll_observes_worker_completion_once(
+    http_graph: HttpGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, before = http_graph.get()
+    job: Future[dict[str, object]] = Future()
+    job.set_exception(ValueError("worker failed"))
+    observations = iter([False, True])
+    monkeypatch.setattr(job, "done", lambda: next(observations))
+    with http_graph.server.lock:
+        http_graph.server.graph_job = job
+        http_graph.server.graph_job_token = before["token"]
+
+    _, running = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert running["unchanged"] and running["evaluation_running"]
+    assert "evaluation_error" not in running
+    _, complete = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert complete["unchanged"] and not complete["evaluation_running"]
+    assert complete["evaluation_error"] == "worker failed"
+
+
+def test_conditional_graph_poll_ignores_old_token_worker_errors(
+    http_graph: HttpGraph,
+) -> None:
+    _, before = http_graph.get()
+    job: Future[dict[str, object]] = Future()
+    job.set_exception(ValueError("old recipe failed"))
+    with http_graph.server.lock:
+        http_graph.server.graph_job = job
+        http_graph.server.graph_job_token = "old token"
+
+    _, complete = http_graph.get(f"/api/graph?revision={before['revision']}")
+    assert complete["unchanged"] and not complete["evaluation_running"]
+    assert "evaluation_error" not in complete
 
 
 def test_ensure_rechecks_own_targets_after_joining_incompatible_work(
