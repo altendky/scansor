@@ -1052,6 +1052,101 @@ def automatic_plane_relationship_components(
 
 
 @dataclass(frozen=True)
+class ProviderInfluence:
+    """One provider's coupling, execution inputs, and publication identities."""
+
+    task: str
+    solve: tuple[Literal["axis", "point", "planes"], str] | None
+    members: frozenset[str]
+    aliases: frozenset[str]
+    prerequisites: frozenset[str]
+    resolved_reads: frozenset[str]
+    publications: dict[str, frozenset[str]]
+
+
+@dataclass(frozen=True)
+class GeometryInfluence:
+    """Shared provider metadata with the numerical component payloads."""
+
+    axis_components: dict[str, tuple[list[SurfaceFit], set[str]]]
+    point_components: dict[str, tuple[list[SurfaceFit], set[str]]]
+    plane_components: dict[
+        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
+    ]
+    providers: dict[str, ProviderInfluence]
+
+    def memberships(self) -> dict[str, frozenset[str]]:
+        # A plane group's first task identity can change when actions reorder.
+        # Its real publishers retain stable identities across that change.
+        return {
+            publisher: provider.members
+            for provider in self.providers.values()
+            for publisher in provider.publications
+        }
+
+
+def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
+    """Describe providers once; consumers retain their own closure semantics."""
+    axes = automatic_axis_components(nodes)
+    points = automatic_point_components(nodes)
+    planes = automatic_plane_relationship_components(nodes)
+    providers: dict[str, ProviderInfluence] = {}
+    for axis, (_, members) in axes.items():
+        task = "@axis/" + axis
+        aliases = frozenset(members) | {
+            node.id
+            for node in nodes.values()
+            if isinstance(node, PlaneDefinition) and node.axis == axis
+        }
+        providers[task] = ProviderInfluence(
+            task,
+            ("axis", axis),
+            frozenset(members),
+            aliases,
+            frozenset(members),
+            frozenset(),
+            {task: aliases},
+        )
+    for point, (_, members) in points.items():
+        task = "@point/" + point
+        aliases = frozenset(members)
+        providers[task] = ProviderInfluence(
+            task,
+            ("point", point),
+            aliases,
+            aliases,
+            aliases,
+            frozenset(),
+            {task: aliases},
+        )
+    for key, members in automatic_equal_radius_components(nodes).items():
+        relation = nodes[key]
+        assert isinstance(relation, EqualRadii)
+        aliases = frozenset(members)
+        surfaces = frozenset(relation.surfaces)
+        providers[key] = ProviderInfluence(
+            key, None, aliases, aliases, surfaces, surfaces, {key: aliases}
+        )
+    for relations, surfaces, members in planes.values():
+        first = relations[0].id
+        task = "@planes/" + first
+        if task in providers:
+            continue
+        relation_ids = frozenset(relation.id for relation in relations)
+        aliases = frozenset(members)
+        providers[task] = ProviderInfluence(
+            task,
+            ("planes", first),
+            aliases,
+            aliases,
+            aliases - relation_ids,
+            frozenset(surface.id for surface in surfaces),
+            {key: aliases - relation_ids for key in relation_ids},
+        )
+    return GeometryInfluence(axes, points, planes, providers)
+
+
+@dataclass(frozen=True)
 class PriorGeometrySolve:
     """Reuse-local source geometry before constraints involving transferred fits."""
 
@@ -1124,11 +1219,7 @@ def prior_stage_exclusions(node: Feature, nodes: dict[str, Feature]) -> set[str]
 def compile_execution_plan(
     recipe: Recipe,
     roots: set[str],
-    axis_components: dict[str, tuple[list[SurfaceFit], set[str]]],
-    point_components: dict[str, tuple[list[SurfaceFit], set[str]]],
-    plane_components: dict[
-        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
-    ],
+    influence: GeometryInfluence,
 ) -> ExecutionPlan:
     """Build the whole execution graph before selecting a requested closure.
 
@@ -1138,6 +1229,7 @@ def compile_execution_plan(
     the adapter's existing request-local precedence over automatic axis solves.
     """
     nodes = {node.id: node for node in recipe.nodes}
+    plane_components = influence.plane_components
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
     initial = roots.copy()
     while True:
@@ -1161,52 +1253,23 @@ def compile_execution_plan(
     prior_solves: dict[str, PriorGeometrySolve] = {}
     read_exclusions: dict[str, set[str]] = {}
 
-    def provide(task: str, outputs: set[str]) -> None:
-        aliases[task] = outputs
-        for output in outputs:
-            providers.setdefault(output, set()).add(task)
-
-    for axis, (_, members) in axis_components.items():
-        if axis in explicit_axes:
+    for provider in influence.providers.values():
+        if provider.solve is not None and (
+            provider.solve[0] == "axis" and provider.solve[1] in explicit_axes
+        ):
             continue
-        task = "@axis/" + axis
-        solves[task] = ("axis", axis)
-        task_dependencies[task] = members.copy()
-        provide(
-            task,
-            members
-            | {
-                node.id
-                for node in recipe.nodes
-                if isinstance(node, PlaneDefinition) and node.axis == axis
-            },
-        )
-    for point, (_, members) in point_components.items():
-        task = "@point/" + point
-        solves[task] = ("point", point)
-        task_dependencies[task] = members.copy()
-        provide(task, members.copy())
-    for node in recipe.nodes:
-        if isinstance(node, EqualRadii):
-            provide(node.id, {node.id, *node.surfaces})
-            reads[node.id] = set(node.surfaces)
-    seen_planes: set[str] = set()
-    for relations, planes, _ in plane_components.values():
-        first = relations[0].id
-        if first in seen_planes:
-            continue
-        seen_planes.add(first)
-        task = "@planes/" + first
-        solves[task] = ("planes", first)
-        plane_ids = {plane.id for plane in planes}
-        relation_ids = {relation.id for relation in relations}
-        task_dependencies[task] = plane_components[first][2] - relation_ids
-        reads[task] = plane_ids
-        aliases[task] = plane_components[first][2].copy()
-        for relation in relations:
-            task_dependencies[relation.id].add(task)
-        for output in aliases[task] - relation_ids:
-            providers.setdefault(output, set()).update(relation_ids)
+        task = provider.task
+        if provider.solve is not None:
+            solves[task] = provider.solve
+        task_dependencies.setdefault(task, set()).update(provider.prerequisites)
+        aliases[task] = set(provider.aliases)
+        if provider.resolved_reads:
+            reads[task] = set(provider.resolved_reads)
+        for publisher, outputs in provider.publications.items():
+            if publisher != task:
+                task_dependencies[publisher].add(task)
+            for output in outputs:
+                providers.setdefault(output, set()).add(publisher)
 
     for node in recipe.nodes:
         if (
@@ -3216,62 +3279,21 @@ class FeatureGraph:
                     and node.managed_by is not None
                     and isinstance(nodes.get(node.managed_by), BuildFaces)
                 )
-            before_components = automatic_axis_components(before)
-            after_components = automatic_axis_components(after_nodes)
-            for axis_id in before_components.keys() | after_components.keys():
-                before_members = before_components.get(axis_id, ([], set()))[1]
-                after_members = after_components.get(axis_id, ([], set()))[1]
-                if before_members != after_members or affected.intersection(
-                    before_members | after_members
-                ):
-                    affected.update(before_members | after_members)
-            before_point_components = automatic_point_components(before)
-            after_point_components = automatic_point_components(after_nodes)
-            for point_id in (
-                before_point_components.keys() | after_point_components.keys()
-            ):
-                before_members = before_point_components.get(point_id, ([], set()))[1]
-                after_members = after_point_components.get(point_id, ([], set()))[1]
-                if before_members != after_members or affected.intersection(
-                    before_members | after_members
-                ):
-                    affected.update(before_members | after_members)
-            before_plane_components = automatic_plane_relationship_components(before)
-            after_plane_components = automatic_plane_relationship_components(
-                after_nodes
-            )
-            for relationship_id in (
-                before_plane_components.keys() | after_plane_components.keys()
-            ):
-                before_members = before_plane_components.get(
-                    relationship_id, ([], [], set())
-                )[2]
-                after_members = after_plane_components.get(
-                    relationship_id, ([], [], set())
-                )[2]
-                if before_members != after_members or affected.intersection(
-                    before_members | after_members
-                ):
+            before_influence = describe_geometry_influence(before)
+            after_influence = describe_geometry_influence(after_nodes)
+            before_memberships = before_influence.memberships()
+            after_memberships = after_influence.memberships()
+            for publisher in before_memberships.keys() | after_memberships.keys():
+                before_members = before_memberships.get(publisher, frozenset())
+                after_members = after_memberships.get(publisher, frozenset())
+                if before_members != after_members:
                     affected.update(before_members | after_members)
             # Connected fitting changes geometry outside ordinary DAG edges.
             # Close BOTH kinds of influence together: newly affected sibling
             # surfaces must invalidate their downstream physical boundaries.
-            before_radii = automatic_equal_radius_components(before)
-            after_radii = automatic_equal_radius_components(after_nodes)
-            for key in before_radii.keys() | after_radii.keys():
-                if before_radii.get(key) != after_radii.get(key):
-                    affected.update(
-                        before_radii.get(key, set()) | after_radii.get(key, set())
-                    )
             component_members = [
-                *(members for _, members in before_components.values()),
-                *(members for _, members in after_components.values()),
-                *(members for _, members in before_point_components.values()),
-                *(members for _, members in after_point_components.values()),
-                *(members for _, _, members in before_plane_components.values()),
-                *(members for _, _, members in after_plane_components.values()),
-                *before_radii.values(),
-                *after_radii.values(),
+                *before_memberships.values(),
+                *after_memberships.values(),
             ]
             while True:
                 expanded = affected | {
@@ -3297,14 +3319,14 @@ class FeatureGraph:
             self._connected_solves = {
                 key: value
                 for key, value in self._connected_solves.items()
-                if key in after_components
-                and not affected.intersection(after_components[key][1])
+                if key in after_influence.axis_components
+                and not affected.intersection(after_influence.axis_components[key][1])
             }
             self._connected_point_solves = {
                 key: value
                 for key, value in self._connected_point_solves.items()
-                if key in after_point_components
-                and not affected.intersection(after_point_components[key][1])
+                if key in after_influence.point_components
+                and not affected.intersection(after_influence.point_components[key][1])
             }
             self._derived = {
                 key: value
@@ -3484,9 +3506,7 @@ class FeatureGraph:
         return compile_execution_plan(
             self._recipe,
             roots,
-            automatic_axis_components(nodes),
-            automatic_point_components(nodes),
-            automatic_plane_relationship_components(nodes),
+            describe_geometry_influence(nodes),
         )
 
     def readiness_snapshot(
@@ -3619,11 +3639,10 @@ class FeatureGraph:
                 raise StaleGraph("graph changed before evaluation")
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
-            connected_components = automatic_axis_components(nodes)
-            point_components = automatic_point_components(nodes)
-            plane_relationship_components = automatic_plane_relationship_components(
-                nodes
-            )
+            influence = describe_geometry_influence(nodes)
+            connected_components = influence.axis_components
+            point_components = influence.point_components
+            plane_relationship_components = influence.plane_components
             if targets is not None:
                 if target is not None or all_actions:
                     raise ValueError(
@@ -3673,9 +3692,7 @@ class FeatureGraph:
             plan = compile_execution_plan(
                 recipe,
                 roots,
-                connected_components,
-                point_components,
-                plane_relationship_components,
+                influence,
             )
             order = plan.order
 
@@ -4286,11 +4303,7 @@ class FeatureGraph:
         with self.lock:
             for axis in plan.explicit_axes:
                 if axis in self._connected_solves:
-                    outputs = connected_components[axis][1] | {
-                        node.id
-                        for node in recipe.nodes
-                        if isinstance(node, PlaneDefinition) and node.axis == axis
-                    }
+                    outputs = set(influence.providers["@axis/" + axis].aliases)
                     invalidate_resolved_consumers(outputs, set())
                     _ = self._connected_solves.pop(axis, None)
                     self._revision += 1
