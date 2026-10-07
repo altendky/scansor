@@ -44,6 +44,7 @@ test('multi input shows selected rows and eligible checked choices that stay ope
   await expect(field.locator('.selection-field-row')).toHaveText(['Outer band×']);
   await expect(page.locator('#action-list .selected')).toHaveCount(0);
   if (process.env.SELECTION_FIELD_SCREENSHOT) await page.screenshot({ path: process.env.SELECTION_FIELD_SCREENSHOT });
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#fit-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('#fit-dialog')).toBeHidden();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
@@ -135,5 +136,6 @@ test('choosing the checked single target closes its dropdown without replacing a
   await expect(menu).toBeHidden();
   await expect(page.locator('#build-faces-label')).toHaveValue('Retained face draft');
   await expect(page.locator('#build-faces-target')).toHaveText(target);
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#close-build-faces').click();
 });

@@ -256,8 +256,10 @@ dialog::backdrop { background: #0008; }
 .body-face-choices .hint { margin-left: auto; font-size: 10px; }
 #body-diagnostics button { display: block; width: 100%; text-align: left; padding: 6px; margin: 4px 0; font-size: 12px; }
 #body-diagnostics .hint { display: block; margin-top: 3px; }
-#feature-context-menu { position: fixed; inset: auto; margin: 0; padding: 4px; max-width: 280px; background: #17232e; color: inherit; border: 1px solid #4b6175; border-radius: 6px; box-shadow: 0 4px 18px #0008; }
-#feature-context-menu button { width: 100%; text-align: left; border: 0; padding: 7px 10px; }
+#feature-context-menu, #group-context-menu { position: fixed; inset: auto; margin: 0; padding: 4px; max-width: 280px; background: #17232e; color: inherit; border: 1px solid #4b6175; border-radius: 6px; box-shadow: 0 4px 18px #0008; }
+#feature-context-menu button, #group-context-menu button { width: 100%; text-align: left; border: 0; padding: 7px 10px; }
+#feature-context-group-row { display: block; margin: 4px 8px; }
+#feature-context-group-row[hidden] { display: none; }
 #feature-context-error { margin: 4px 8px; }
 #feature-context-error:empty, #delete-features-error:empty { display: none; }
 #delete-features-dialog { width: min(360px, 90vw); padding: 12px; }

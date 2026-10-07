@@ -593,6 +593,12 @@ export function treeDragScrollSpeed(y, bounds) {
 }
 
 const treeDragCleanups = new WeakMap();
+function afterContextGesture(event, open) {
+  // Chromium can dispatch contextmenu before pointerup. Opening an auto
+  // popover then lets that same pointerup immediately light-dismiss it.
+  if (event.buttons & 2) document.addEventListener('pointerup', () => setTimeout(open, 0), { once: true });
+  else open();
+}
 export function renderActionTree(
   list,
   {
@@ -603,9 +609,10 @@ export function renderActionTree(
     errors,
     locked,
     select,
+    edit = () => {},
     move,
     announce,
-    editGroup = () => {},
+    groupContextMenu = () => {},
     removeGroup = () => {},
     contextMenu = () => {},
     qualities = {},
@@ -910,12 +917,19 @@ export function renderActionTree(
       if (unavailable()) return;
       const row = event.currentTarget || button;
       const bounds = row.getBoundingClientRect();
-      contextMenu(node.id, {
+      const position = {
         x: keyboard ? bounds.left : event.clientX,
         y: keyboard ? bounds.bottom : event.clientY,
-      });
+      };
+      afterContextGesture(event, () => { if (!unavailable()) contextMenu(node.id, position); });
     };
     button.oncontextmenu = openContextMenu;
+    button.ondblclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (unavailable() || event.target.closest('.action-grip')) return;
+      edit(node.id);
+    };
     button.onkeydown = (event) => {
       if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
         openContextMenu(event, true);
@@ -959,7 +973,6 @@ export function renderActionTree(
     } else {
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
-        edit = document.createElement('button'),
         summaryState = relationship ? 'ready' : states[node.id],
         ownerQuality = groupQuality([node]);
       item.classList.add('managed-owner');
@@ -973,21 +986,13 @@ export function renderActionTree(
       summary.setAttribute('aria-label', `${summary.title}${selectedIds.has(node.id) ? ' · Selected' : ''}${ownerQuality ? ` · ${ownerQuality.label} · ${ownerQuality.status}` : ''}`);
       summary.onkeydown = button.onkeydown;
       summary.oncontextmenu = openContextMenu;
+      summary.ondblclick = button.ondblclick;
       label.classList.add('tree-group-name');
-      edit.type = 'button';
-      edit.className = 'group-action';
-      edit.textContent = 'Edit';
-      edit.onclick = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        select(node.id);
-      };
       summary.append(
         reorderHandle(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null),
         icon('group', 'group-icon'),
         label,
         ...(ownerQuality ? [qualityBadge(ownerQuality)] : []),
-        edit,
         icon(summaryState, `action-state state-${summaryState}`),
       );
       details.ontoggle = () => {
@@ -1050,7 +1055,6 @@ export function renderActionTree(
       details = document.createElement('details'),
       summary = document.createElement('summary'),
       label = document.createElement('span'),
-      edit = document.createElement('button'),
       remove = document.createElement('button'),
       children = document.createElement('ul');
     item.className = 'feature-group';
@@ -1058,16 +1062,27 @@ export function renderActionTree(
     details.open = !collapsedGroups.has(group.id);
     label.className = 'tree-group-name';
     label.textContent = `${group.label} · ${members.length}`;
-    edit.type = remove.type = 'button';
-    edit.className = remove.className = 'group-action';
-    const updateLock = () => { edit.disabled = remove.disabled = unavailable(); };
+    remove.type = 'button';
+    remove.className = 'group-action';
+    const updateLock = () => { remove.disabled = unavailable(); };
     lockControls.push(updateLock);
     updateLock();
-    edit.textContent = 'Edit';
-    edit.onclick = (event) => {
+    const openContextMenu = (event, keyboard = false) => {
       event.preventDefault();
+      event.stopPropagation();
       if (unavailable()) return;
-      editGroup(group.id);
+      const bounds = summary.getBoundingClientRect();
+      const position = {
+        x: keyboard ? bounds.left : event.clientX,
+        y: keyboard ? bounds.bottom : event.clientY,
+      };
+      afterContextGesture(event, () => { if (!unavailable()) groupContextMenu(group.id, position); });
+    };
+    summary.dataset.groupId = group.id;
+    summary.oncontextmenu = openContextMenu;
+    summary.onkeydown = event => {
+      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
+        openContextMenu(event, true);
     };
     remove.textContent = '×';
     remove.title = `Remove ${group.label} without deleting its features`;
@@ -1081,7 +1096,7 @@ export function renderActionTree(
     summary.title = stateDescription(members, groupState);
     summary.setAttribute('aria-label', `${group.label} · ${summary.title}`);
     summary.append(reorderHandle(summary, members.map((node) => node.id), group.id, group.label),
-      icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []), edit, remove,
+      icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []), remove,
       icon(groupState, `action-state state-${groupState}`));
     details.ontoggle = () => {
       if (details.open) collapsedGroups.delete(group.id);

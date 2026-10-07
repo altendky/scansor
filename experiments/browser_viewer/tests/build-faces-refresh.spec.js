@@ -10,9 +10,7 @@ async function ready(page) {
 
 async function evaluate(page) {
   // Keep focus in the draft while delivering snapshots through the real handler.
-  const response = page.waitForResponse('**/api/graph/ensure');
   await page.locator('#evaluate-all').evaluate(button => button.click());
-  await response;
   await expect(page.locator('#evaluate-all')).toBeEnabled();
 }
 
@@ -23,17 +21,12 @@ async function lists(page, label, present) {
   await expect(batch).toHaveCount(present ? 1 : 0);
 }
 
-test('open Build faces lists follow add, evaluate, rename and delete without losing drafts', async ({ page }) => {
+test('open Build faces lists follow evaluation, rename and delete without losing drafts', async ({ page }) => {
   await ready(page);
   const original = await (await page.request.get('/api/graph')).json();
   try {
     await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
-    await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
-    await page.locator('#build-faces-options > summary').click();
-    await page.locator('#build-faces-label').fill('Uncommitted faces');
-    await page.getByRole('button', { name: 'Show Neighbors choices', exact: true }).click();
-    await page.locator('#build-faces-neighbor-filter').fill('My neighbor filter');
-    const target = await page.locator('#build-faces-target').textContent();
+    // Creation shares the Edit host, so create the unevaluated input first.
     await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
     await page.locator('#new-fit-label').fill('Additional plane');
     await page.locator('#new-fit-kind').selectOption('plane');
@@ -42,6 +35,13 @@ test('open Build faces lists follow add, evaluate, rename and delete without los
     await page.getByRole('menuitemradio', { name: 'None (standalone)', exact: true }).click();
     await page.locator('#add-fit-form').getByRole('button', { name: 'Add fit', exact: true }).click();
     await expect(page.locator('#fit-dialog')).toBeHidden();
+    const additional = page.locator('#action-list .action-select').filter({ hasText: 'Additional plane' });
+    await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
+    await page.locator('#build-faces-options > summary').click();
+    await page.locator('#build-faces-label').fill('Uncommitted faces');
+    await page.getByRole('button', { name: 'Show Neighbors choices', exact: true }).click();
+    await page.locator('#build-faces-neighbor-filter').fill('My neighbor filter');
+    const target = await page.locator('#build-faces-target').textContent();
     await lists(page, 'Additional plane', false);
     await evaluate(page);
     await lists(page, 'Additional plane', true);
@@ -56,15 +56,20 @@ test('open Build faces lists follow add, evaluate, rename and delete without los
     await page.evaluate(() => { window.originalScope = document.querySelector('#build-faces-scopes select'); });
     await evaluate(page);
     expect(await page.evaluate(() => window.originalScope === document.querySelector('#build-faces-scopes select'))).toBe(true);
-    await page.locator('#action-label').fill('Renamed plane');
-    await page.locator('#apply-properties').click();
+    const additionalId = await additional.getAttribute('data-action-id');
+    await additional.click({ button: 'right' });
+    await page.locator('#feature-context-rename').click();
+    await page.locator('#rename-feature-label').fill('Renamed plane');
+    await page.locator('#rename-feature-form').getByRole('button', { name: 'Rename', exact: true }).click();
+    await expect(page.locator('#rename-feature-dialog')).toBeHidden();
     await evaluate(page);
     await lists(page, 'Additional plane', false);
     await lists(page, 'Renamed plane', true);
     expect(await page.locator('#build-faces-surfaces').evaluate(select => [...select.selectedOptions].map(option => option.value))).toEqual([reference]);
     await expect(page.locator('#build-faces-label')).toHaveValue('Uncommitted faces');
 
-    await page.locator('#delete-action').click();
+    await page.locator(`#action-list .action-select[data-action-id="${additionalId}"]`).click({ button: 'right' });
+    await page.locator('#delete-selected-features').click();
     await page.locator('#confirm-delete-features').click();
     await expect(page.locator('#delete-features-dialog')).toBeHidden();
     await lists(page, 'Renamed plane', false);
@@ -148,8 +153,8 @@ test('readiness refresh retains exact unavailable inputs and unchanged snapshots
   graph.states.saved_faces = 'ready';
   await page.reload();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
-  await page.locator('#action-list .action-select').filter({ hasText: 'Saved faces' }).click();
-  await page.locator('#review-build-faces').click();
+  await page.locator('#action-list .action-select').filter({ hasText: 'Saved faces' }).click({ button: 'right' });
+  await page.locator('#feature-context-edit').click();
   await expect(page.locator('#build-faces-surfaces option:checked')).toHaveCount(2);
   graph.states.fit = 'failed';
   await evaluate(page);

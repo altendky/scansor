@@ -98,6 +98,8 @@ test('relationship model picks preserve physical participant IDs and list eligib
   await expect(page.locator('#relationship-participants input:checked')).toHaveCount(0);
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'participant');
   await page.locator('#stop-model-picking').click();
+  // The popup can overlap viewport tools; retaining Edit docks it beside them.
+  await page.locator('#dock-edit').click();
   await page.locator('#viewport .display-options > summary').click();
   await page.locator('#faces-only').check();
   await expect(page.locator('#pick-relationship-participant')).toBeEnabled();
@@ -198,7 +200,7 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
   await expect(chooser).toBeHidden();
 });
 
-test('modal multi-input picks preserve the draft, toggle selections and do not apply or select tree features', async ({ page }) => {
+test('popup multi-input picks preserve the draft, toggle selections and do not apply or select tree features', async ({ page }) => {
   const errors = [], edits = [];
   page.on('pageerror', error => errors.push(error.message));
   await ready(page);
@@ -226,7 +228,7 @@ test('modal multi-input picks preserve the draft, toggle selections and do not a
   await expect(page.locator('#fit-dialog')).toBeVisible();
   expect(await create.evaluate(button => !!button.closest('[inert]'))).toBe(false);
   await expect(page.locator('#new-fit-label')).toHaveValue('My uncommitted fit');
-  expect(await page.locator('#fit-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(true);
+  expect(await page.locator('#fit-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(false);
   await page.locator('[data-pick-control="new-fit-inputs"]').click();
   await page.keyboard.press('Escape');
   await expect(page.locator('#fit-dialog')).toBeVisible();
@@ -236,7 +238,7 @@ test('modal multi-input picks preserve the draft, toggle selections and do not a
   expect(errors).toEqual([]);
 });
 
-test('datum guide picks return a modal single-input form with its draft and enum unchanged', async ({ page }) => {
+test('datum guide picks retain a nonmodal single-input form with its draft and enum unchanged', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await ready(page);
@@ -341,7 +343,9 @@ test('faces-only picks retain source face and exact solved surface identities un
   await page.mouse.click(point.x, point.y);
   expect(await checkbox.isChecked()).toBe(!initial);
   await page.locator('#stop-model-picking').click();
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('[data-close-dialog="body-dialog"]').click();
+  await expect(page.locator('#body-dialog')).toBeHidden();
   await page.getByRole('button', { name: 'Trimmed face', exact: true }).click();
   await page.locator('[data-pick-control="new-face-surface"]').click();
   const surface = await patch(page, 'End surface');

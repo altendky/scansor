@@ -10,9 +10,16 @@ import { DIALOG_PANELS, PANEL_NAMES, PERMANENT_PANELS, WORKSPACE_STORAGE_KEY,
 import { preserveModelSpace } from './workspace-sizing.js';
 import { TOOLBAR_IDS } from './toolbar-state.js';
 import { renderIconLegend } from './icon-legend.js';
+import { createEditHost } from './edit-host.js';
 
-let controller;
+let controller, editHost;
 const byId = id => document.getElementById(id);
+
+export function prepareEditSession() { return editHost.prepare(); }
+export function showEditWorkflow(id) { return editHost.show(id); }
+export function editWorkflowApplied() { editHost.applied(); }
+export function activeEditWorkflow() { return editHost.active(); }
+export function forceEndEditSession() { editHost.finish(); }
 
 export function workspaceEditingPanels() {
   return [byId('features-panel'), byId('feature-properties-panel'), ...workspaceToolbars()];
@@ -28,6 +35,7 @@ export function revealWorkspacePanel(id) {
 
 export function requestWorkspaceClose(id) {
   const dialog = byId(id);
+  if (editHost?.active() === dialog) return editHost.prepare();
   if (!dialog.open) return true;
   if (!dialog.dispatchEvent(new Event('workspace-before-close', { cancelable: true }))) return false;
   dialog.close();
@@ -48,7 +56,7 @@ function NativePanel({ element, parking, node }) {
       if (element.parentElement === container) parking.append(element);
     };
   }, [element, parking, node]);
-  return <div className="workspace-native-host" ref={host} />;
+  return <div className="workspace-native-host" data-edit-tab-host={node.getId() === 'editor' ? '' : undefined} ref={host} />;
 }
 
 const storageKey = WORKSPACE_STORAGE_KEY;
@@ -66,6 +74,21 @@ function loadModel() {
       model.doAction(Actions.addTab(panelTab('graph'), view.getParent().getId(), DockLocation.CENTER, -1, false));
     }
     if (view) model.doAction(Actions.updateNodeAttributes('view', { name: PANEL_NAMES.view }));
+    // Older layouts had one permanent properties panel and separate authoring
+    // tabs. Preserve the properties placement as the optional shared Edit tab.
+    if (model.getNodeById('editor')) model.doAction(Actions.updateNodeAttributes('editor', {
+      name: PANEL_NAMES.editor, enableClose: true,
+    }));
+    const releaseMigrationSizing = preserveModelSpace(model);
+    try {
+      for (const id of ['build-faces-dialog', 'relationship-dialog']) {
+        const node = model.getNodeById(id);
+        if (!node) continue;
+        if (!model.getNodeById('editor')) model.doAction(Actions.addTab(panelTab('editor'),
+          node.getParent().getId(), DockLocation.CENTER, -1, false));
+        model.doAction(Actions.deleteTab(id));
+      }
+    } finally { releaseMigrationSizing(); }
     model.visitNodes(node => { if (node.getType() === 'tab') ids.push(node.getId()); });
     if (ids.some(id => !Object.hasOwn(PANEL_NAMES, id)) || new Set(ids).size !== ids.length ||
         PERMANENT_PANELS.some(id => !ids.includes(id))) throw new Error('Unknown workspace panels');
@@ -116,10 +139,13 @@ function Workspace({ elements, parking }) {
           return;
         }
         const next = modelRef.current;
+        if (id === 'editor' && !next.getNodeById(id)) {
+          next.doAction(Actions.addTab(panelTab(id), next.getNodeById('view').getParent().getId(),
+            DockLocation.RIGHT, -1, true));
+        }
         if (DIALOG_PANELS.includes(id) && !elements[id].open) {
           // Use the actual launch command to initialize the existing workflow.
-          byId({ 'build-faces-dialog': 'new-build-faces', 'relationship-dialog': 'new-relationship',
-            'icon-legend-dialog': 'show-icon-legend' }[id]).click();
+          byId('show-icon-legend').click();
         }
         syncIfDialog(id);
         const node = next.getNodeById(id);
@@ -129,13 +155,22 @@ function Workspace({ elements, parking }) {
           if (layoutId !== Model.MAIN_LAYOUT_ID) next.doAction(Actions.movePopoutToFront(layoutId));
           next.doAction(Actions.selectTab(id));
         }
+        if (id === 'editor') editHost.docked();
+        if (id === 'editor' && elements.editor.parentElement?.id === 'edit-popup') {
+          // Reparent immediately; React's NativePanel may already be mounted
+          // behind another selected tab and therefore does not remount here.
+          const native = byId('workspace-root').querySelector('[data-edit-tab-host]');
+          if (native) native.append(elements.editor);
+        }
       },
       reset() {
+        if (!editHost.prepare()) return;
         const next = Model.fromJson(defaultWorkspace(DIALOG_PANELS.filter(id => elements[id].open)));
         setToolbarReset(value => value + 1);
         setModel(next);
         save(next);
       },
+      hasEditor() { return Boolean(modelRef.current.getNodeById('editor')); },
     };
     function syncIfDialog(id) { if (DIALOG_PANELS.includes(id)) sync(id); }
     return () => { observers.forEach(observer => observer.disconnect()); controller = null; };
@@ -148,6 +183,7 @@ function Workspace({ elements, parking }) {
       }}
       onModelChange={save}
       onAction={action => {
+        if (action.type === Actions.DELETE_TAB && action.data.node === 'editor' && !editHost.prepare()) return undefined;
         if (action.type === Actions.DELETE_TAB && DIALOG_PANELS.includes(action.data.node)) {
           requestWorkspaceClose(action.data.node);
           return undefined; // Attribute observer removes the tab after native close.
@@ -174,8 +210,11 @@ export function initializeWorkspace() {
   parking.id = 'workspace-parking';
   parking.hidden = true;
   document.body.append(parking);
-  const elements = { tree: byId('features-panel'), editor: byId('feature-properties-panel'),
+  const elements = { tree: byId('features-panel'),
     view: byId('viewport'), graph: byId('feature-graph-view') };
+  editHost = createEditHost({ parking, hasEditor: () => controller?.hasEditor() ?? false,
+    revealEditor: () => revealWorkspacePanel('editor'), dockEditor: () => revealWorkspacePanel('editor') });
+  elements.editor = editHost.host;
   for (const id of DIALOG_PANELS) { elements[id] = byId(id); elements[id].classList.add('workspace-dialog'); }
   const groups = [...byId('creation-toolbar').children];
   for (const [id, indexes] of Object.entries({ create: [0], faces: [1], features: [2, 3, 4, 5], output: [6, 7] })) {

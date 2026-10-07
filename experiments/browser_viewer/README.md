@@ -64,8 +64,22 @@ its dependencies. Generated `dist/` files are not committed.
 
 ## Workspace layout
 
-Features and Feature editor are independent FlexLayout panels. Drag their tabs
-to split, stack, or join panels; drag splitters to resize.
+Features, Model, and Graph are FlexLayout panels. The optional **Edit** tab shares
+all feature-editing and creation workflows. Drag tabs to split, stack, or join
+panels; drag splitters to resize.
+
+Select a feature to highlight it; double-click to **Edit**, or use its context
+menu for **Edit**, **Rename**,
+**Evaluate**, organizational group assignment, or deletion. Group assignment
+applies immediately; feature editing offers Apply only for editable parameters.
+Editing opens in the Edit tab when present, otherwise
+in a nonmodal popup. **Dock** retains the popup as an Edit tab; **Show panel →
+Edit** also opens an empty tab. Its presence and placement survive reload, while
+unfinished edits do not reopen. Generated features offer **Edit owning feature**
+and a separate **Inspect** action for their own results and saved context.
+An edit stays attached to its original feature while tree selection or model
+picking changes. Background graph publication retains parameter drafts. Switching
+or closing workflows asks before discarding unapplied changes.
 
 Open **Icon legend** from the Project toolbar (or the workspace panel picker) to
 see the current feature, fit, relationship, status and control symbols. The
@@ -110,14 +124,15 @@ position before release; Escape discards both placement and order changes.
 Markers stop short of the corners rather than competing there. Corner areas have
 no docking target; releasing in one restores the committed placement and order.
 
-Build faces and Relationships open as dockable panels next to the model. Their
-header float control moves them within the browser tab; their form values,
-review choices, and previews survive rearrangement. The panel close button follows
-the same review-discard guard as the form's Cancel/Done button.
+Build faces, Relationships, and the other creation tools use the same Edit host.
+Its float control moves it within the browser tab; form values, review choices,
+and previews survive rearrangement. The panel close button follows the same
+draft-discard guard as the form's Cancel/Done button.
 When a docked panel closes or floats, or the browser window resizes, the model
 absorbs the space change while other docked panels retain their chosen sizes
 where the layout permits. Splitters remain adjustable.
-Other creation, confirmation, and export dialogs remain modal. Separate browser-window popouts
+Confirmation, example-choice, rename, and export dialogs remain modal.
+Separate browser-window popouts
 are disabled in this slice because the existing tools and renderer share a single
 document.
 
@@ -291,22 +306,22 @@ automatic axis resolution and an explicit joint invalidates cached resolved
 consumers; raw initializer values are retained. This remains the bounded
 adapter's request-local joint precedence, not a general solve-activation contract.
 
-The left column has two independently scrollable areas: features above, selected
-feature information/properties and results below. Selection editing appears only
-for a selected selection. Save actions, Load actions and Restore example are in
+The Features panel contains the tree. Parameters, information, and results appear
+in the optional Edit tab or popup during an explicit edit or inspection session.
+Selection editing offers painting controls for the selection being edited.
+Save actions, Load actions and Restore example are in
 the project header. Display settings sit beside Navigation over the viewport;
 general status and errors appear in the footer. **Show reuse volumes** displays
 all currently evaluated generated reuse-selection envelopes as translucent
 target-colored overlays. It is off by default and is display state only; the
 surface-normal acceptance test still determines which vertices inside an
 envelope become selected.
-Drag the FlexLayout splitter between Features and Feature editor to resize them,
-or move their tabs to arrange them independently. Their placement is remembered
-in browser storage when available, and both panes retain their own scrollbars.
+Features and Edit can be arranged independently. Their placement is remembered
+in browser storage when available, and both panels retain their own scrollbars.
 
 **Model** and the read-only **Graph** are separate FlexLayout tabs. They start in
 one tabset, but can be docked side by side or floated independently. The feature
-tree and properties remain available in both. Graph selection is
+tree and optional Edit workflow remain available in both. Graph selection is
 synchronized with the tree and 3D model. Its **Combined** lens distinguishes
 directed evaluation dependencies, geometric-relationship participants, joint
 activation, and generated ownership. Separate **Dependencies**,

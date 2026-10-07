@@ -13,7 +13,9 @@ import {
 import { uniqueFeatureLabel } from './feature-names.js';
 import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference,
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
-import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars } from './workspace.js';
+import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
+  prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
+  forceEndEditSession } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
@@ -70,6 +72,12 @@ let metadata,
 let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
+let editingFeatureId = null;
+let groupContextAnchor = null;
+let renameFeatureId = null;
+let featurePropertiesApplying = false;
+let featureOrganizationPending = false;
+let authoringApplying = false;
 let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
 let exampleCatalogue = null, exampleSwitchPending = false;
@@ -244,17 +252,17 @@ function startFieldPick(control, button) {
   setModelPickMode(null);
   const dialog = control.closest('dialog'), suspended = dialog?.matches(':modal') || false;
   modelPickField = { control, button, dialog, suspended,
-    ownerId: control.closest('#feature-properties-panel') ? selectedFeatureId : undefined };
+    ownerId: control.closest('#feature-properties-panel') ? editingFeatureId : undefined };
   if (suspended) {
     dialog.dataset.modelPickSuspended = 'true';
     dialog.close();
     dialog.show();
     // Keep the draft visible while exposing the viewport. Another create/edit
     // action must not reinitialize or replace the draft during picking.
-    modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
-      .map(element => [element, element.inert]);
-    for (const [element] of modelPickField.locks) element.inert = true;
   }
+  modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
+    .map(element => [element, element.inert]);
+  for (const [element] of modelPickField.locks) element.inert = true;
   button.setAttribute('aria-pressed', 'true');
   setModelPickMode('field');
   revealWorkspacePanel('view');
@@ -264,7 +272,7 @@ function syncModelPickControls() {
     facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
     relationshipOpen = $('relationship-dialog').open;
   const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
-    (modelPickField.ownerId === undefined || modelPickField.ownerId === selectedFeatureId) &&
+    (modelPickField.ownerId === undefined || modelPickField.ownerId === editingFeatureId) &&
     (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
   if (modelPickMode && (locked ||
       (modelPickMode === 'neighbor' && !buildFacesCandidates) ||
@@ -530,12 +538,10 @@ function modelPicksAt(event) {
   return choices.filter(choice => matches.has(choice.key));
 }
 function selectBuildFacesTarget(target) {
-  if (featureTreeLocked() || buildFacesApplying || !canDiscardFaceReview()) return false;
+  if (featureTreeLocked() || buildFacesApplying) return false;
   const owner = graphState.recipe.nodes.find(node => node.operation === 'build_faces' &&
     node.target && sameSurfaceReference(node.target, target));
-  buildFacesReviewDirty = false;
-  openBuildFaces(owner || null, target);
-  return true;
+  return openBuildFaces(owner || null, target);
 }
 function commitModelPick(key) {
   // Recheck current lists and locks; a chooser may outlive a candidate refresh.
@@ -1069,9 +1075,9 @@ function renderBuildFacesAdjacencies() {
 function openBuildFaces(owner = null, target = null) {
   if (buildFacesApplying) {
     status('Wait for the current face batch to finish applying.', true);
-    return;
+    return false;
   }
-  if ($('build-faces-dialog').open && !canDiscardFaceReview()) return;
+  if (!prepareEditSession()) return false;
   setModelPickMode(null);
   if ($('relationship-dialog').open) $('relationship-dialog').close();
   invalidateBuildFaces();
@@ -1118,13 +1124,13 @@ function openBuildFaces(owner = null, target = null) {
   $('build-faces-title').textContent = owner ? 'Review / update faces' : 'Build faces';
   $('build-faces-next-neighbors').hidden = true;
   setBuildFacesModeDisplay();
-  if (!$('build-faces-dialog').open) $('build-faces-dialog').show();
-  revealWorkspacePanel('build-faces-dialog');
+  showEditWorkflow('build-faces-dialog');
   syncModelPickControls();
   if (buildFacesMode === 'guided') {
     $('build-faces-target').focus();
     void loadFaceCandidates(owner?.surfaces || null, owner ? owner.boundary_sources || [] : null);
   } else $('build-faces-surfaces').focus();
+  return true;
 }
 function refreshBuildFacesChoices() {
   // Apply restores existing controls in its finally block; refresh afterwards.
@@ -1617,6 +1623,7 @@ function nextGroupLabel(base) {
 }
 function openFeatureGroup(groupId = null) {
   if (featureTreeLocked()) return;
+  if (!prepareEditSession()) return;
   editingGroupId = groupId;
   const group = (graphState.recipe.groups || []).find((candidate) => candidate.id === groupId),
     members = graphState.recipe.nodes.filter(
@@ -1635,7 +1642,7 @@ function openFeatureGroup(groupId = null) {
       : [...selectedFeatureIds],
   );
   $('feature-group-error').textContent = '';
-  $('feature-group-dialog').showModal();
+  showEditWorkflow('feature-group-dialog');
   $('feature-group-label').focus();
   $('feature-group-label').select();
 }
@@ -1650,7 +1657,7 @@ async function removeFeatureGroup(groupId) {
 function showCreateDialog(dialogId, labelId, defaultLabel) {
   const input = $(labelId);
   input.value = nextFeatureLabel(defaultLabel);
-  $(dialogId).showModal();
+  showEditWorkflow(dialogId);
   input.focus();
   input.select();
   // Begin at the first empty required geometry input while keeping the name and
@@ -1761,8 +1768,9 @@ const solveInputs = (axis) =>
       factorAxis(node) === axis,
   );
 function activeSelection() {
+  const id = graphNode(editingFeatureId)?.operation === 'selection' ? editingFeatureId : selectedFeatureId;
   return graphState?.recipe.nodes.find(
-    (node) => node.id === selectedFeatureId && node.operation === 'selection',
+    (node) => node.id === id && node.operation === 'selection',
   );
 }
 function choices(id, nodes, selected = []) {
@@ -1784,7 +1792,7 @@ function readSurfaceReference(id) {
 }
 function faceEditorNodes(prefix) {
   return prefix === 'face'
-    ? graphState.recipe.nodes.slice(0, graphState.recipe.nodes.findIndex((node) => node.id === selectedFeatureId))
+    ? graphState.recipe.nodes.slice(0, graphState.recipe.nodes.findIndex((node) => node.id === editingFeatureId))
     : graphState.recipe.nodes;
 }
 function readFaceBoundaries(prefix) {
@@ -1855,7 +1863,7 @@ function geometryInputChoices(id, requirement, nodes, selected) {
   const control = typeof id === 'string' ? $(id) : id;
   control.dataset.inputRequirement = requirement;
   if (nodes.length < graphState.recipe.nodes.length)
-    control.dataset.inputConsumer = selectedFeatureId || '';
+    control.dataset.inputConsumer = editingFeatureId || '';
   else delete control.dataset.inputConsumer;
   renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected);
 }
@@ -1888,7 +1896,7 @@ function scaleDistanceRow(containerId, points, distance = {}) {
   second.dataset.field = 'second';
   known.dataset.field = 'known';
   first.dataset.inputRequirement = second.dataset.inputRequirement = 'point';
-  if (containerId === 'scale-distance-rows') first.dataset.inputConsumer = second.dataset.inputConsumer = selectedFeatureId;
+  if (containerId === 'scale-distance-rows') first.dataset.inputConsumer = second.dataset.inputConsumer = editingFeatureId;
   renderInputChoices(first, points, distance.first_point || points.find(point => point.availability === 'ready')?.reference);
   renderInputChoices(second, points, distance.second_point || points.filter(point => point.availability === 'ready')[1]?.reference);
   known.type = 'number';
@@ -2280,15 +2288,20 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
+  const workflow = activeEditWorkflow();
+  const authoringDraft = workflow?.tagName === 'DIALOG' &&
+    !['build-faces-dialog', 'relationship-dialog'].includes(workflow.id)
+    ? [...workflow.querySelectorAll('select')].map(control => ({ control,
+      options: [...control.selectedOptions].map(option => ({ value: option.value, label: option.textContent })) })) : [];
   const inputDrafts = new Map([...document.querySelectorAll('select[data-input-requirement]')]
     .filter(control => !control.closest('#action-properties')).map(control => [control, control.value]));
-  const draftOwner = graphNode(selectedFeatureId),
-    preserveProperties = ['axis', 'frame', 'scale'].includes(draftOwner?.operation) &&
-      state.recipe.nodes.some(node => node.id === selectedFeatureId && node.operation === draftOwner.operation),
-    propertyDraft = preserveProperties ? [...$('action-properties').querySelectorAll('input[id], select[id]')]
-      .map(control => ({ id: control.id, value: control.value, checked: control.checked })) : [],
-    scaleDraft = preserveProperties && draftOwner.operation === 'scale' ? readScaleDistances('scale-distance-rows') : null;
-  if (modelPickMode && graphState && state !== graphState) setModelPickMode(null);
+  if (editingFeatureId) {
+    const previous = graphNode(editingFeatureId), next = state.recipe.nodes.find(node => node.id === editingFeatureId);
+    if (!next || next.operation !== previous?.operation ||
+        managedOwnerId(next, state.recipe.nodes) !== managedOwnerId(previous, graphState.recipe.nodes))
+      forceEndEditSession();
+  }
+  if (modelPickMode && graphState && state.token !== graphState.token) setModelPickMode(null);
   if ((buildFacesProposal && state.token !== buildFacesProposal.token) ||
       (buildFacesCandidates && state.token !== buildFacesCandidates.token) ||
       (graphState && state.token !== graphState.token && $('build-faces-dialog').open && buildFacesMode === 'guided')) {
@@ -2357,22 +2370,19 @@ function acceptGraph(state) {
   );
   renderActions();
   showProperties();
-  if (scaleDraft) renderScaleDistances('scale-distance-rows',
-    frameGeometry(state.recipe.nodes.slice(0, state.recipe.nodes.findIndex(node => node.id === selectedFeatureId))).points,
-    scaleDraft);
-  for (const saved of propertyDraft) {
-    const control = $(saved.id);
-    if (control.dataset.inputRequirement) {
-      const consumer = control.dataset.inputConsumer,
-        nodes = consumer ? state.recipe.nodes.slice(0, state.recipe.nodes.findIndex(node => node.id === consumer)) : state.recipe.nodes;
-      renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement, nodes), saved.value);
-    } else { control.value = saved.value; control.checked = saved.checked; }
-  }
-  if (preserveProperties && draftOwner.operation === 'axis') showAxisInitializer(
-    'axis-init-mode', 'axis-source-fields', 'axis-manual-fields', 'axis-point-fields');
   for (const control of document.querySelectorAll('select[data-input-requirement]')) {
     if (control.closest('#action-properties')) continue;
     renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement), inputDrafts.get(control) ?? control.value);
+  }
+  for (const { control, options } of authoringDraft) {
+    for (const saved of options) {
+      if (![...control.options].some(option => option.value === saved.value)) {
+        const missing = new Option('Unavailable: ' + saved.label, saved.value);
+        missing.disabled = true;
+        control.add(missing);
+      }
+    }
+    for (const option of control.options) option.selected = options.some(saved => saved.value === option.value);
   }
   showResult();
   showReuseVolumes();
@@ -2389,20 +2399,64 @@ function acceptGraph(state) {
 }
 function featureTreeLocked() {
   return busy || selectionDrawing || selectionPending || graphState.evaluation_running ||
-    featureDeletionPending || relationshipApplying;
+    featureDeletionPending || relationshipApplying || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
 }
 function focusContextFeature() {
   const target = [...$('action-list').querySelectorAll('.action-select, .managed-owner-summary')]
     .find((element) => element.dataset.actionId === featureContextAnchor);
   (target || $('features-panel')).focus();
 }
+function canEvaluateFeature(node) {
+  return node && !['source', 'selection', 'coaxial', 'perpendicular',
+    'rotational_symmetry', ...relationshipOperations].includes(node.operation);
+}
+function editFeature(id, { inspect = false } = {}) {
+  if (featureTreeLocked()) return false;
+  let node = graphNode(id);
+  if (!node) return false;
+  const ownerId = managedOwnerId(node, graphState.recipe.nodes);
+  if (ownerId && !inspect) node = graphNode(ownerId);
+  if (node.operation === 'build_faces' && !inspect) {
+    return openBuildFaces(node);
+  }
+  if (!prepareEditSession()) return false;
+  setModelPickMode(null);
+  editingFeatureId = node.id;
+  $('feature-properties-panel').dataset.editOwner = node.id;
+  selectOnly(node.id);
+  showProperties(true);
+  showEditWorkflow('feature-properties-panel');
+  refreshFeatureSelection();
+  editWorkflowApplied();
+  return true;
+}
+function openFeatureRename(id) {
+  const node = graphNode(id);
+  if (!node || featureTreeLocked() || managedOwnerId(node, graphState.recipe.nodes)) return;
+  renameFeatureId = id;
+  setModelPickMode(null);
+  $('rename-feature-label').value = node.label;
+  $('rename-feature-error').textContent = '';
+  $('rename-feature-dialog').showModal();
+  $('rename-feature-label').focus();
+  $('rename-feature-label').select();
+}
 function openFeatureContextMenu(id, { x, y }) {
   if (featureTreeLocked()) return;
+  $('group-context-menu').hidePopover();
   if (!selectedFeatureIds.has(id)) {
     selectOnly(id);
     refreshFeatureSelection(true);
   }
   featureContextAnchor = id;
+  const node = graphNode(id), ownerId = managedOwnerId(node, graphState.recipe.nodes);
+  $('feature-context-edit').textContent = ownerId ? 'Edit owning feature…' : 'Edit…';
+  $('feature-context-inspect').hidden = !ownerId && node.operation !== 'build_faces';
+  $('feature-context-rename').disabled = !!ownerId;
+  $('feature-context-group-row').hidden = !!ownerId;
+  choices('feature-context-group', [{ id: '', label: 'No group' }, ...(graphState.recipe.groups || [])],
+    [node.group_id || '']);
+  $('feature-context-evaluate').disabled = !canEvaluateFeature(node);
   const plan = featureDeletionPlan(graphState.recipe, selectedFeatureIds),
     menu = $('feature-context-menu'), button = $('delete-selected-features');
   button.textContent = `Delete ${selectedFeatureIds.size} selected…`;
@@ -2412,7 +2466,23 @@ function openFeatureContextMenu(id, { x, y }) {
   const bounds = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(4, Math.min(x, innerWidth - bounds.width - 4))}px`;
   menu.style.top = `${Math.max(4, Math.min(y, innerHeight - bounds.height - 4))}px`;
-  (button.disabled ? menu : button).focus();
+  $('feature-context-edit').focus();
+}
+function focusContextGroup() {
+  const target = [...$('action-list').querySelectorAll('summary[data-group-id]')]
+    .find(element => element.dataset.groupId === groupContextAnchor);
+  (target || $('features-panel')).focus();
+}
+function openGroupContextMenu(id, { x, y }) {
+  if (featureTreeLocked()) return;
+  groupContextAnchor = id;
+  $('feature-context-menu').hidePopover();
+  const menu = $('group-context-menu');
+  menu.showPopover();
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, innerWidth - bounds.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, innerHeight - bounds.height - 4))}px`;
+  $('group-context-edit').focus();
 }
 function updateFeatureDeletionButton() {
   const review = featureDeletionReview;
@@ -2499,19 +2569,36 @@ function renderActions() {
       refreshFeatureSelection(true);
     },
     move: (nodes) => replaceRecipe({ ...structuredClone(graphState.recipe), nodes }),
+    edit: editFeature,
     announce: (message, error = false) => {
       $('action-announcement').textContent = message;
       status(message, error);
     },
-    editGroup: openFeatureGroup,
+    groupContextMenu: openGroupContextMenu,
     removeGroup: (groupId) => void removeFeatureGroup(groupId),
     contextMenu: openFeatureContextMenu,
     qualities: currentFitQualities(),
   });
   renderGraphView();
 }
-function showProperties() {
-  const single = selectedFeatureIds.size === 1;
+function showProperties(force = false) {
+  // The tree selection is free to change while an edit session owns the form.
+  // Polling updates availability without recreating controls or losing drafts.
+  if (editingFeatureId && !force) {
+    const node = graphNode(editingFeatureId);
+    if (!node) return;
+    const presentation = featureTreePresentation(graphState.recipe.nodes, graphState.states, graphState.errors);
+    $('properties-title').textContent = node.label;
+    $('feature-state').textContent = actionDescription(node,
+      presentation.states[node.id], presentation.errors[node.id]);
+    for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
+      const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
+      renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
+        graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected);
+    }
+    return;
+  }
+  const single = !!editingFeatureId || selectedFeatureIds.size === 1;
   $('feature-selection-summary').hidden = single;
   $('feature-single-selection').hidden = !single;
   $('selection-tools').hidden = !single;
@@ -2526,7 +2613,7 @@ function showProperties() {
       : 'Click features to add them to the selection.';
     return;
   }
-  const node = graphNode(selectedFeatureId),
+  const node = graphNode(editingFeatureId || selectedFeatureId),
     earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node));
   $('selection-tools').hidden = node.operation !== 'selection';
   $('feature-inspection').hidden = [
@@ -2539,12 +2626,6 @@ function showProperties() {
   const presentation = featureTreePresentation(graphState.recipe.nodes, graphState.states, graphState.errors);
   $('feature-state').textContent = actionDescription(
     node, presentation.states[node.id], presentation.errors[node.id],
-  );
-  $('action-label').value = node.label;
-  choices(
-    'action-group',
-    [{ id: '', label: 'No group' }, ...(graphState.recipe.groups || [])],
-    [node.group_id || ''],
   );
   $('feature-description').textContent = refs(node).length
     ? 'Inputs: ' +
@@ -2969,15 +3050,13 @@ function showProperties() {
     managed = !!ownerId,
     owner = graphNode(ownerId);
   $('managed-feature-note').hidden = !managed;
-  $('action-group-row').hidden = managed;
+  $('action-properties').hidden = ['source', 'selection'].includes(node.operation);
+  $('apply-properties').hidden = managed || ['build_faces', 'arranged_face', 'reuse_selection',
+    'equal_radii', 'plane_relationship'].includes(node.operation);
   if (managed) {
     $('managed-owner-name').textContent = owner?.label || ownerId;
     $('select-managed-owner').onclick = () => {
-      selectOnly(ownerId);
-      renderActions();
-      showProperties();
-      showResult();
-      paint();
+      editFeature(ownerId);
     };
   }
   for (const control of $('action-properties').querySelectorAll('input, select, button')) {
@@ -2990,12 +3069,6 @@ function showProperties() {
       delete control.dataset.managedDisabled;
     }
   }
-  $('delete-action').disabled = managed || node.operation === 'source';
-  $('delete-action').title = managed
-    ? `Managed by ${owner?.label || ownerId}`
-    : node.operation === 'source' ? 'The source mesh cannot be deleted.'
-      : 'Review deletion of this feature and its dependent features';
-  $('fit').textContent = 'Evaluate ' + node.label;
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
 }
@@ -3416,46 +3489,46 @@ function showOverlap() {
       button.textContent = node.label;
       button.title = 'Selections: ' + node.selections.map((ref) => graphNode(ref).label).join(', ');
       button.onclick = () => {
-        selectOnly(id);
-        renderActions();
-        showProperties();
-        showResult();
-        paint();
-        $('feature-properties-panel').scrollTop = 0;
+        if (editFeature(id)) $('feature-properties-panel').scrollTop = 0;
       };
       row.append(button);
     }
     $('overlap-details').append(row);
   }
 }
+function updateSelectedResult() {
+  result = selectedFeatureIds.size === 1 ? graphState.results[selectedFeatureId] || null : null;
+}
 function showResult() {
+  updateSelectedResult();
   showConstructedFaces();
   clearBodyInspection();
   $('body-diagnostics').hidden = true;
-  if (selectedFeatureIds.size !== 1) {
-    result = null;
-    clearGuides();
-    showAvailableGuides();
-    $('metrics').replaceChildren();
-    return;
-  }
-  result = graphState.results[selectedFeatureId] || null;
   clearGuides();
   showAvailableGuides();
   $('metrics').replaceChildren();
-  if (graphNode(selectedFeatureId)?.operation === 'body')
-    showBodyDiagnostics(graphState.diagnostics?.[selectedFeatureId]);
+  if (selectedFeatureId) showFeatureResult(selectedFeatureId, {
+    metrics: !editingFeatureId || editingFeatureId === selectedFeatureId,
+  });
+  if (editingFeatureId && editingFeatureId !== selectedFeatureId)
+    showFeatureResult(editingFeatureId, { guides: false });
+}
+function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true } = {}) {
+  const result = graphState.results[inspectedFeatureId] || null;
+  const drawGuide = (guide, ...args) => { if (guides) guide(...args); };
+  if (metrics && graphNode(inspectedFeatureId)?.operation === 'body')
+    showBodyDiagnostics(graphState.diagnostics?.[inspectedFeatureId]);
   if (!result) {
-    const node = graphNode(selectedFeatureId);
+    const node = graphNode(inspectedFeatureId);
     if (node.operation === 'axis') {
       const preview = axisPreview(node);
-      if (preview) axisGuide(preview);
+      if (preview) drawGuide(axisGuide, preview);
     } else if (node.operation === 'point') {
       const preview = pointPreview(node);
-      if (preview) pointGuide(preview);
+      if (preview) drawGuide(pointGuide, preview);
     } else if (node.operation === 'reference_plane') {
       const preview = referencePlanePreview(node);
-      if (preview) referencePlaneGuide(preview);
+      if (preview) drawGuide(referencePlaneGuide, preview);
     } else if (
       [
         'coaxial',
@@ -3472,23 +3545,23 @@ function showResult() {
         const fit = graphState.results[id],
           surface = graphNode(id);
         if (!fit) return;
-        if (surface.operation === 'reference_plane') referencePlaneGuide(fit);
-        else if (surface.operation === 'axis') axisGuide(fit);
-        else fitGuide(surface, fit, palette[i % palette.length]);
+        if (surface.operation === 'reference_plane') drawGuide(referencePlaneGuide, fit);
+        else if (surface.operation === 'axis') drawGuide(axisGuide, fit);
+        else drawGuide(fitGuide, surface, fit, palette[i % palette.length]);
       });
     }
     return;
   }
-  const node = graphNode(selectedFeatureId),
+  const node = graphNode(inspectedFeatureId),
     values = {};
   if (node.operation === 'body') {
-    physicalGeometryGuide(node, result);
+    drawGuide(physicalGeometryGuide, node, result);
     values['Solid'] = result.valid === true ? 'Closed and validated' : 'Invalid';
     values['Faces'] = result.face_count;
     values['Volume'] = Number(result.volume).toPrecision(8);
     values['Sewing tolerance'] = node.sewing_tolerance;
   } else if (node.operation === 'surface_intersection') {
-    physicalGeometryGuide(node, result);
+    drawGuide(physicalGeometryGuide, node, result);
     const curves = intersectionCurves(result);
     values['Shared curves'] = curves.length;
     values['Curve kinds'] = curves.map((curve) => curve.kind).join(', ') || 'None';
@@ -3505,7 +3578,7 @@ function showResult() {
     const faces = [...(result.generated_faces || []), ...(result.reused_faces || [])];
     for (const [index, id] of faces.entries()) {
       const face = graphNode(id), fitted = graphState.results[id];
-      if (face && fitted) physicalGeometryGuide(face, fitted, palette[index % palette.length]);
+      if (face && fitted) drawGuide(physicalGeometryGuide, face, fitted, palette[index % palette.length]);
     }
     values['Selected surfaces'] = node.surfaces.length;
     values['Generated faces'] = result.generated_faces?.length || 0;
@@ -3514,7 +3587,7 @@ function showResult() {
       (result.reused_intersections?.length || 0);
     values['Output'] = 'Reviewed faces — not a sewn solid';
   } else if (['trimmed_face', 'arranged_face'].includes(node.operation)) {
-    physicalGeometryGuide(node, result);
+    drawGuide(physicalGeometryGuide, node, result);
     values['Surface'] = result.surface_kind;
     if (node.operation === 'arranged_face') {
       values['Arrangement cutters'] = node.cutters.length;
@@ -3527,7 +3600,7 @@ function showResult() {
     values['Preview'] = result.preview_clipped
       ? 'Finite display crop only; not a physical cap' : 'Declared physical bounds';
   } else if (node.operation === 'fit') {
-    fitGuide(node, result, '#66dbe9');
+    drawGuide(fitGuide, node, result, '#66dbe9');
     values['Weighted RMS'] = result.weighted_rms.toFixed(5);
     const quality = currentFitQualities()[node.id];
     if (quality?.peak !== undefined) values['Worst residual'] = quality.peak.toPrecision(6);
@@ -3553,7 +3626,7 @@ function showResult() {
       values['Half-angle'] = ((Math.atan(result.parameters[6]) * 180) / Math.PI).toFixed(4) + '°';
     }
   } else if (node.operation === 'axis') {
-    axisGuide(result);
+    drawGuide(axisGuide, result);
     values['Constructed by'] = node.source_points
       ? `${graphNode(node.source_points[0]).label} → ${graphNode(node.source_points[1]).label}`
       : node.source_fit
@@ -3562,11 +3635,11 @@ function showResult() {
     values['Direction'] = result.axis_display.map((v) => v.toFixed(5)).join(', ');
     values['Direction flipped'] = node.direction_reversed ? 'Yes' : 'No';
   } else if (node.operation === 'point') {
-    pointGuide(result);
+    drawGuide(pointGuide, result);
     values['Initialized by'] = node.source_fit ? graphNode(node.source_fit).label : 'Manual value';
     values['Coordinates'] = result.point_display.map((v) => v.toFixed(5)).join(', ');
   } else if (node.operation === 'frame') {
-    transformGuide(result);
+    drawGuide(transformGuide, result);
     values['Origin'] = result.origin_display.map((v) => v.toFixed(5)).join(', ');
     values['Primary mapping'] = `${graphNode(node.primary_reference).label} → ${node.primary_output_axis}`;
     values['Secondary mapping'] = `${graphNode(node.secondary_reference).label} → ${node.secondary_output_axis}`;
@@ -3577,7 +3650,7 @@ function showResult() {
     values['Distance RMS'] = result.weighted_rms.toPrecision(6);
     values['Worst distance residual'] = result.max_abs_residual.toPrecision(6);
   } else if (node.operation === 'transform') {
-    transformGuide(result);
+    drawGuide(transformGuide, result);
     values['Frame'] = graphNode(node.frame).label;
     values['Scale'] = graphNode(node.scale).label;
     values['Uniform scale'] = result.scale.toPrecision(9);
@@ -3588,7 +3661,7 @@ function showResult() {
     values['Output Y'] = result.y_axis_display.map((v) => v.toFixed(5)).join(', ');
     values['Output Z'] = result.z_axis_display.map((v) => v.toFixed(5)).join(', ');
   } else if (node.operation === 'reference_plane') {
-    referencePlaneGuide(result);
+    drawGuide(referencePlaneGuide, result);
     values['Construction'] = planeConstructionLabel(result.construction);
     if (result.angle_degrees != null)
       values['Clocking'] = `${result.angle_degrees.toFixed(4)}°`;
@@ -3596,14 +3669,14 @@ function showResult() {
       values['Offset'] = result.offset.toFixed(5);
     values['Normal'] = result.normal_display.map((v) => v.toFixed(5)).join(', ');
   } else if (['joint_fit', 'axis_solve'].includes(node.operation)) {
-    axisGuide(result, '#ffd166');
+    drawGuide(axisGuide, result, '#ffd166');
     for (const plane of Object.values(result.mirror_planes || {}))
-      referencePlaneGuide(plane, '#ff8fe5');
+      drawGuide(referencePlaneGuide, plane, '#ff8fe5');
     for (const plane of Object.values(result.reference_planes || {}))
-      referencePlaneGuide(plane, '#ff8fe5');
+      drawGuide(referencePlaneGuide, plane, '#ff8fe5');
     values['Combined RMS'] = result.fit.weighted_rms.toFixed(5);
     Object.entries(result.surfaces).forEach(([id, s], i) => {
-      fitGuide(graphNode(id), s, palette[i % palette.length]);
+      drawGuide(fitGuide, graphNode(id), s, palette[i % palette.length]);
       values[graphNode(id).label + ' adjusted RMS'] = s.weighted_rms.toFixed(5);
     });
   } else if (node.operation === 'growth') {
@@ -3633,7 +3706,7 @@ function showResult() {
     values['Shared radius'] = result.value.toFixed(5);
     values['Fits'] = node.surfaces.length;
     Object.entries(result.surfaces).forEach(([id, surface], index) =>
-      fitGuide(graphNode(id), surface, palette[index % palette.length]),
+      drawGuide(fitGuide, graphNode(id), surface, palette[index % palette.length]),
     );
   } else if (node.operation === 'plane_relationship') {
     values['Relationship'] = node.relation === 'coincident' ? 'Coincident' : 'Parallel';
@@ -3641,10 +3714,10 @@ function showResult() {
     if (Number.isFinite(result.weighted_rms))
       values['Combined RMS'] = result.weighted_rms.toFixed(5);
     Object.entries(result.surfaces).forEach(([id, surface], index) =>
-      fitGuide(graphNode(id), surface, palette[index % palette.length]),
+      drawGuide(fitGuide, graphNode(id), surface, palette[index % palette.length]),
     );
   }
-  for (const [label, value] of Object.entries(values)) {
+  for (const [label, value] of metrics ? Object.entries(values) : []) {
     const dt = document.createElement('dt'),
       dd = document.createElement('dd');
     dt.textContent = label;
@@ -3787,42 +3860,24 @@ function paint() {
   overlays.visible = $('guides').checked;
   updateFaceReviewDisplay();
   $('counts').textContent = activeSelection()
-    ? `${session[selectedFeatureId].length.toLocaleString()} selected vertices`
+    ? `${session[activeSelection().id].length.toLocaleString()} selected vertices`
     : '';
   renderer.domElement.style.cursor = !facesOnly && activeSelection() && $('tool').value !== 'orbit'
     ? 'crosshair' : 'default';
   if (!activeSelection()) $('brush-cursor').hidden = true;
-  $('fit').disabled =
-    busy ||
-    selectionDrawing ||
-    selectionPending ||
-    !selectedNode ||
-    [
-      'coaxial',
-      'perpendicular',
-      'rotational_symmetry',
-      ...relationshipOperations,
-    ].includes(
-      selectedNode?.operation,
-    );
   $('evaluate-all').disabled = busy || selectionDrawing || selectionPending;
   $('propose-growth').disabled = busy || selectionDrawing || selectionPending;
-  $('use-growth').disabled = busy || !graphState.results[selectedFeatureId];
+  $('use-growth').disabled = busy || !graphState.results[editingFeatureId];
   updateEvaluationControls();
   draw();
 }
 function updateEvaluationControls() {
   updateActionTreeLocks();
-  const selectedNode = graphNode(selectedFeatureId),
-    evaluationLocked = busy || graphState.evaluation_running;
+  const evaluationLocked = busy || graphState.evaluation_running || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked;
+  $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
   $('choose-example').disabled = featureTreeLocked();
-  $('delete-action').disabled = evaluationLocked || !selectedNode ||
-    selectedNode.operation === 'source' || !!managedOwnerId(selectedNode, graphState.recipe.nodes);
-}
-async function fit() {
-  return evaluateGraph(false, selectedFeatureId);
 }
 async function evaluateAll() {
   return evaluateGraph(true);
@@ -4162,7 +4217,32 @@ async function start() {
   $('mesh-info').textContent =
     `${metadata.vertices.toLocaleString()} vertices · ${metadata.triangles.toLocaleString()} triangles`;
   $('tool').onchange = paint;
-  $('fit').onclick = fit;
+  // Creation buttons guard the current draft before their handlers initialize
+  // another form. These buttons are reparented into toolbar hosts at runtime.
+  document.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button || !(button.id.startsWith('new-') ||
+      ['add-selection', 'reset', 'load', 'choose-example'].includes(button.id))) return;
+    if (!prepareEditSession()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  document.addEventListener('edit-session-closed', () => {
+    editingFeatureId = null;
+    delete $('feature-properties-panel').dataset.editOwner;
+    if (modelPickField) modelPickField.suspended = false;
+    if (modelPickMode) setModelPickMode(null);
+    $('tool').value = 'orbit';
+    showResult();
+    paint();
+  });
+  document.addEventListener('workspace-before-close', event => {
+    if (authoringApplying) event.preventDefault();
+  }, true);
+  $('feature-properties-panel').addEventListener('workspace-before-close', event => {
+    if (featurePropertiesApplying || selectionDrawing || selectionPending) event.preventDefault();
+  });
   $('evaluate-all').onclick = evaluateAll;
   $('auto-evaluate').onchange = () => {
     if ($('auto-evaluate').checked) void ensureAll();
@@ -4212,9 +4292,9 @@ async function start() {
     $('new-relationship-label').value = nextFeatureLabel(
       relationshipDefinitions.find((definition) => definition.id === selectedRelationshipKind)?.baseName || 'Relationship');
     $('relationship-error').textContent = '';
-    $('relationship-dialog').show();
-    revealWorkspacePanel('relationship-dialog');
+    showEditWorkflow('relationship-dialog');
     renderRelationshipBuilder();
+    editWorkflowApplied();
     $('relationship-kind').focus();
   };
   $('relationship-kind').onchange = () => {
@@ -4251,6 +4331,7 @@ async function start() {
     if (event.newState === 'closed') clearModelPickHover();
   });
   $('relationship-dialog').addEventListener('close', () => {
+    if ($('relationship-dialog').open) return;
     setModelPickMode(null);
     relationshipInspected = null;
     paintRelationshipPreview();
@@ -4308,6 +4389,7 @@ async function start() {
   };
   $('build-faces-dialog').addEventListener('workspace-before-close', event => {
     if (buildFacesApplying || !canDiscardFaceReview()) event.preventDefault();
+    else if (buildFacesReviewDirty) event.editDiscardConfirmed = true;
   });
   $('build-faces-dialog').addEventListener('keydown', event => {
     if (event.key !== 'Escape' || $('build-faces-target-options').matches(':popover-open')) return;
@@ -4320,6 +4402,7 @@ async function start() {
     if (relationshipApplying) event.preventDefault();
   });
   for (const event of ['close', 'cancel']) $('build-faces-dialog').addEventListener(event, () => {
+    if ($('build-faces-dialog').open) return;
     setModelPickMode(null);
     buildFacesContinuePreview = null;
     buildFacesContinueInteraction = { pointer: null, focus: null };
@@ -4473,6 +4556,7 @@ async function start() {
         renderFaceDialogClose($('close-build-faces'), true);
       } else $('build-faces-dialog').close();
       status('Reviewed faces applied. Existing manual geometry retained.');
+      editWorkflowApplied();
       if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
     } catch (error) {
       const message = error.message;
@@ -4533,7 +4617,7 @@ async function start() {
     $('body-error').textContent = '';
     const selected = bodyFaceSelection(graphState, selectedFeatureIds);
     renderBodyFaces('new-body-face-choices', selected.length ? selected : bodyFaceSelection(graphState));
-    if (!$('body-dialog').open) $('body-dialog').show();
+    showEditWorkflow('body-dialog');
     $('new-body-label').focus();
     $('new-body-label').select();
   };
@@ -4578,12 +4662,8 @@ async function start() {
     } catch (error) { $('trimmed-face-error').textContent = error.message; }
   };
   $('inspect-overlap').onclick = () => {
-    selectOnly(activeOverlap);
-    renderActions();
-    showProperties();
-    showResult();
-    paint();
-    $('overlap-details').scrollIntoView({ block: 'nearest' });
+    if (editFeature(activeOverlap, { inspect: true }))
+      $('overlap-details').scrollIntoView({ block: 'nearest' });
   };
   const updateExportPlanes = () => {
     const nodes = graphState.recipe.nodes;
@@ -5094,7 +5174,7 @@ async function start() {
   $('new-fit-reference').onchange = () =>
     updateFitKindForReference('new-fit-kind', 'new-fit-reference');
   $('surface-kind').onchange = () => {
-    const node = graphNode(selectedFeatureId);
+    const node = graphNode(editingFeatureId);
     const referenceOperation = graphNode($('fit-reference').value)?.operation;
     if (
       ($('surface-kind').value === 'sphere' && referenceOperation !== 'point') ||
@@ -5113,7 +5193,7 @@ async function start() {
     );
   };
   $('fit-reference').onchange = () => {
-    const node = graphNode(selectedFeatureId);
+    const node = graphNode(editingFeatureId);
     updateFitKindForReference(
       'surface-kind',
       'fit-reference',
@@ -5148,7 +5228,7 @@ async function start() {
       frameGeometry(graphState.recipe.nodes).points,
     );
   $('add-scale-distance-row').onclick = () => {
-    const selected = graphNode(selectedFeatureId),
+    const selected = graphNode(editingFeatureId),
       earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(selected));
     scaleDistanceRow('scale-distance-rows', frameGeometry(earlier).points);
   };
@@ -5165,7 +5245,7 @@ async function start() {
         $('selection-region-selection').value,
         graphState.recipe.nodes.slice(
           0,
-          graphState.recipe.nodes.indexOf(graphNode(selectedFeatureId)),
+          graphState.recipe.nodes.indexOf(graphNode(editingFeatureId)),
         ),
       ),
     );
@@ -5667,7 +5747,7 @@ async function start() {
   for (const button of document.querySelectorAll('[data-close-dialog]'))
     button.onclick = () => {
       const id = button.dataset.closeDialog;
-      if (['build-faces-dialog', 'relationship-dialog'].includes(id)) requestWorkspaceClose(id);
+      if (activeEditWorkflow()?.id === id) requestWorkspaceClose(id);
       else $(id).close();
     };
   $('extend-joint').onclick = async () => {
@@ -5677,7 +5757,7 @@ async function start() {
       return;
     }
     const recipe = structuredClone(graphState.recipe),
-      joint = recipe.nodes.find((n) => n.id === selectedFeatureId);
+      joint = recipe.nodes.find((n) => n.id === editingFeatureId);
     const side = graphNode(
       joint.constraints.find((id) => graphNode(id).operation === 'perpendicular'),
     ).lateral;
@@ -5762,17 +5842,16 @@ async function start() {
       paint();
     }
   };
-  $('action-properties').onsubmit = async (event) => {
+  const applyFeatureProperties = async (event) => {
     event.preventDefault();
     const recipe = structuredClone(graphState.recipe),
-      node = recipe.nodes.find((n) => n.id === selectedFeatureId);
+      node = recipe.nodes.find((n) => n.id === editingFeatureId);
+    if (!node) return;
     const ownerId = managedOwnerId(node, recipe.nodes);
     if (ownerId) {
       status(`Edit ${graphNode(ownerId)?.label || 'the generating feature'} instead.`, true);
       return;
     }
-    node.label = $('action-label').value;
-    node.group_id = $('action-group').value || null;
     if (node.operation === 'body') {
       try {
         Object.assign(node, bodyInputs(bodyCheckedFaces('body-face-choices'), $('body-tolerance').value));
@@ -5909,7 +5988,7 @@ async function start() {
       node.clock_plane = $('region-selection-clock').value;
     }
     if (node.operation === 'feature_reuse') {
-      await applyFeatureReuse(node.id, {
+      const saved = await applyFeatureReuse(node.id, {
         label: node.label,
         group_id: node.group_id,
         fits: chosen('feature-reuse-fits'),
@@ -5921,6 +6000,7 @@ async function start() {
         normal_margin: Number($('feature-reuse-normal-margin').value),
         normal_angle_degrees: Number($('feature-reuse-normal-angle').value),
       });
+      if (saved) { showProperties(true); editWorkflowApplied(); }
       return;
     }
     if (node.operation === 'coaxial') {
@@ -5965,12 +6045,69 @@ async function start() {
         reference_plane: $('equal-distance-reference').value,
       };
     }
-    await replaceRecipe(recipe);
+    if (await replaceRecipe(recipe)) { showProperties(true); editWorkflowApplied(); }
   };
-  $('delete-action').onclick = () => {
-    featureContextAnchor = selectedFeatureId;
-    reviewFeatureDeletion();
+  $('action-properties').onsubmit = async event => {
+    event.preventDefault();
+    if (featureTreeLocked()) return;
+    featurePropertiesApplying = true;
+    updateEvaluationControls();
+    try { await applyFeatureProperties(event); }
+    finally {
+      featurePropertiesApplying = false;
+      updateEvaluationControls();
+    }
   };
+  $('feature-context-group').onchange = async () => {
+    if (featureTreeLocked()) return;
+    const recipe = structuredClone(graphState.recipe),
+      node = recipe.nodes.find(node => node.id === featureContextAnchor);
+    if (!node || managedOwnerId(node, recipe.nodes)) return;
+    node.group_id = $('feature-context-group').value || null;
+    $('feature-context-menu').hidePopover();
+    featureOrganizationPending = true;
+    updateEvaluationControls();
+    try { await replaceRecipe(recipe, false); }
+    finally {
+      featureOrganizationPending = false;
+      updateEvaluationControls();
+    }
+  };
+  $('feature-context-edit').onclick = () => {
+    const id = featureContextAnchor;
+    $('feature-context-menu').hidePopover();
+    editFeature(id);
+  };
+  $('group-context-edit').onclick = () => {
+    const id = groupContextAnchor;
+    $('group-context-menu').hidePopover();
+    openFeatureGroup(id);
+  };
+  $('feature-context-inspect').onclick = () => {
+    const id = featureContextAnchor;
+    $('feature-context-menu').hidePopover();
+    editFeature(id, { inspect: true });
+  };
+  $('feature-context-rename').onclick = () => {
+    const id = featureContextAnchor;
+    $('feature-context-menu').hidePopover();
+    openFeatureRename(id);
+  };
+  $('feature-context-evaluate').onclick = () => {
+    const id = featureContextAnchor;
+    $('feature-context-menu').hidePopover();
+    if (!featureTreeLocked() && canEvaluateFeature(graphNode(id))) void evaluateGraph(false, id);
+  };
+  $('rename-feature-form').onsubmit = async event => {
+    event.preventDefault();
+    if (featureTreeLocked()) return;
+    const recipe = structuredClone(graphState.recipe), node = recipe.nodes.find(node => node.id === renameFeatureId);
+    if (!node || managedOwnerId(node, recipe.nodes)) return;
+    node.label = $('rename-feature-label').value;
+    if (await replaceRecipe(recipe, false)) $('rename-feature-dialog').close();
+    else $('rename-feature-error').textContent = $('status').textContent;
+  };
+  $('rename-feature-dialog').onclose = () => { renameFeatureId = null; focusContextFeature(); };
   $('delete-selected-features').onclick = reviewFeatureDeletion;
   $('delete-feature-dependents').onchange = updateFeatureDeletionButton;
   $('confirm-delete-features').onclick = () => void confirmFeatureDeletion();
@@ -5983,8 +6120,19 @@ async function start() {
       focusContextFeature();
     }
   };
-  $('features-panel').addEventListener('wheel', () => $('feature-context-menu').hidePopover(),
-    { passive: true });
+  $('group-context-menu').onkeydown = event => {
+    if (event.key !== 'Escape' && event.key !== 'Tab') return;
+    $('group-context-menu').hidePopover();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusContextGroup();
+    }
+  };
+  $('features-panel').addEventListener('wheel', () => {
+    $('feature-context-menu').hidePopover();
+    $('group-context-menu').hidePopover();
+  }, { passive: true });
   $('delete-features-dialog').oncancel = (event) => {
     if (featureDeletionPending) event.preventDefault();
   };
@@ -6002,6 +6150,7 @@ async function start() {
       depth: 'first_surface',
     };
     if (await appendActions([node])) {
+      editFeature(node.id);
       $('tool').value = 'add';
       $('tool').onchange();
       status('Selection added. Paint observations, then add a standalone fit.');
@@ -6064,7 +6213,8 @@ async function start() {
       $('joint-dialog').close();
   };
   $('propose-growth').onclick = async () => {
-    const node = graphNode(selectedFeatureId);
+    const node = graphNode(editingFeatureId);
+    if (!node || !prepareEditSession()) return;
     const inputs = new Set();
     const visit = (id) => {
       if (inputs.has(id)) return;
@@ -6087,13 +6237,16 @@ async function start() {
           angle_degrees: 20,
         },
       ], false)
-    )
-      await fit();
+    ) {
+      editFeature(selectedFeatureId);
+      await evaluateGraph(false, selectedFeatureId);
+    }
   };
   $('use-growth').onclick = async () => {
-    const growth = graphNode(selectedFeatureId),
+    const growth = graphNode(editingFeatureId),
       seed = graphNode(growth.seed_fit);
-    await appendActions([
+    if (!prepareEditSession()) return;
+    if (await appendActions([
       {
         id: uid('fit'),
         label: nextFeatureLabel(seed.label + ' grown fit'),
@@ -6102,7 +6255,7 @@ async function start() {
         kind: seed.kind,
         axial_domain: seed.axial_domain,
       },
-    ]);
+    ])) editFeature(selectedFeatureId);
   };
   $('home').onclick = () => home();
   $('side').onclick = () => home('side');
@@ -6304,7 +6457,7 @@ async function start() {
     stroke = {
       pointerId: event.pointerId,
       original: structuredClone(session),
-      region: selectedFeatureId,
+      region: activeSelection().id,
       operation: $('tool').value,
       shape: $('selection-shape').value,
       depth: $('selection-depth').value,
@@ -6412,7 +6565,7 @@ async function start() {
   window.addEventListener('blur', () => { modelPickGesture = null; clearModelPickHover(); });
   window.addEventListener('resize', () => $('model-pick-choices').hidePopover());
   window.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
     if (modelPickMode) {
       event.preventDefault();
       setModelPickMode(null);
@@ -6436,6 +6589,29 @@ async function start() {
   $('brush-size').oninput = () => {
     $('brush-size-value').textContent = $('brush-size').value + ' px';
   };
+  for (const form of document.querySelectorAll('.workspace-edit-workflow form')) {
+    const submit = form.onsubmit;
+    if (!submit) continue;
+    form.onsubmit = async event => {
+      event.preventDefault();
+      if (featureTreeLocked()) return;
+      const controls = [...form.querySelectorAll('input, select, textarea')]
+        .map(control => ({ control, disabled: control.disabled }));
+      try {
+        // Run each workflow's synchronous validation before locking; its first
+        // awaited request then keeps the session protected until completion.
+        const work = submit.call(form, event);
+        authoringApplying = true;
+        for (const { control } of controls) control.disabled = true;
+        updateEvaluationControls();
+        await work;
+      } finally {
+        authoringApplying = false;
+        for (const { control, disabled } of controls) control.disabled = disabled;
+        updateEvaluationControls();
+      }
+    };
+  }
   const state = await request('/api/graph');
   acceptGraph(state);
   if (location.hash === '#graph') revealWorkspacePanel('graph');

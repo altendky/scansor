@@ -22,7 +22,7 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   expect(selected).toHaveLength(2);
   await page.locator('#build-faces-surfaces').selectOption(selected);
   await page.locator('#build-faces-label').fill('Retained batch draft');
-  await expect(page.locator('#action-label')).toBeEnabled();
+  await expect(page.locator('#build-faces-surfaces')).toBeEnabled();
 
   let running = false, published = false, unchangedPolls = 0, ensureRequests = 0;
   await page.route(/\/api\/graph(?:\?.*)?$/, route => {
@@ -48,7 +48,7 @@ test('Build faces readiness unlocks editing after compact completion and a faile
 
   await page.locator('#preview-build-faces').click();
   await expect.poll(() => published).toBe(true);
-  await expect(page.locator('#action-label')).toBeDisabled();
+  await expect(page.locator('#build-faces-surfaces')).toBeDisabled();
   const grip = page.locator('#action-list .action-row > .action-grip:not(.action-grip-placeholder)').first();
   await expect(grip).toBeDisabled();
   await expect(grip).toHaveAttribute('draggable', 'false');
@@ -66,7 +66,7 @@ test('Build faces readiness unlocks editing after compact completion and a faile
 
   running = false;
   await expect(page.locator('#build-faces-error')).toContainText('Final readiness request failed');
-  await expect(page.locator('#action-label')).toBeEnabled();
+  await expect(page.locator('#build-faces-surfaces')).toBeEnabled();
   await expect(page.locator('#preview-build-faces')).toBeEnabled();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
   await expect(grip).toBeEnabled();
