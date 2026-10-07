@@ -189,19 +189,19 @@ def test_captured_boss_recipe_replays_its_reviewed_faces_and_body(
     assert body["valid"] and body["volume"] > 0
 
 
-def test_full_captured_nozzle_recipe_preserves_its_open_physical_extents() -> None:
+def test_two_cone_nozzle_recipe_preserves_its_open_physical_extents() -> None:
     example = Path("examples/nozzle-bayonette-simplified")
     graph = FeatureGraph(
         NozzleWorkspace(example),
         Recipe.model_validate_json(
-            (example / "recipes/nozzle-selection-and-fitting-demo.json").read_bytes()
+            (example / "recipes/nozzle-two-cone-open-extents.json").read_bytes()
         ),
     )
     before = evaluate(graph)
     assert not before["errors"] and len(all_fits(before)) == 2
     plan, after = apply_populated(graph, before, bounded_only=False)
     assert len(plan["faces"]) == 2
-    # The saved nozzle recipe declares only two fitted cones, not end caps or
+    # This fixture declares only two fitted cones, not end caps or
     # complete face adjacency. Reconstruction must not manufacture a solid.
     assert any(
         not region["bounded"]

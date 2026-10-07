@@ -15,7 +15,9 @@ uneven-coverage weighting is tracked in [#47](https://github.com/altendky/scanso
 ## Interactive selection experiment
 
 The [local browser prototype](../../experiments/browser_viewer/README.md) loads this
-example with the 11 retained user selections. It can create a free axis from a
+example with the saved default recipe: 11 retained user selections and their
+11 surface fits (two cones, six planes, and three cylinders), plus relationships
+and a joint fit. It can create a free axis from a
 manual initial value or derive one from a standalone cone or cylinder, fit a cone,
 cylinder, or perpendicular plane against that fixed axis, or connect side and
 plane factors in a shared-axis joint that frees the axis. It can also define a
@@ -30,9 +32,13 @@ are deferred. The checked-in
 `recipes/cone-plane.json` and `recipes/cylinder-plane.json` declare alternative
 fits using the same selections. The
 [`nozzle-selection-and-fitting-demo.json`](recipes/nozzle-selection-and-fitting-demo.json)
-recipe retains the broader interactive selection work: eleven named surface
-patches, a free center axis, and two cone fits. This remains an exploratory
+recipe retains the broader interactive selection and fitting work: eleven named
+surface patches and their fits, with perpendicular, coaxial, and rotational
+relationships and a joint solve. This remains an exploratory
 frontend, not a product UI commitment.
+The smaller saved recipe remains available as
+[`nozzle-two-cone-open-extents.json`](recipes/nozzle-two-cone-open-extents.json)
+for the two-cone example and its open-extent reconstruction checks.
 
 Run that demonstration graph from the repository root with:
 

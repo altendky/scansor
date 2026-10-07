@@ -13,8 +13,14 @@ from pathlib import Path
 from typing import Any, ClassVar, cast, override
 from urllib.parse import parse_qs, urlsplit
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
+from experiments.browser_examples import (
+    EXAMPLES,
+    example_directory,
+    example_identity,
+    example_recipe_path,
+)
 from experiments.face_builder import (
     FacesApplyRequest,
     FacesPreviewRequest,
@@ -31,6 +37,7 @@ from experiments.feature_graph import (
     StaleGraph,
     workspace_reference_sha256,
 )
+from experiments.feature_recipe_import import import_recipe, load_recipe
 from experiments.feature_reuse_authoring import (
     ReuseAuthoringRequest,
     apply_feature_reuse,
@@ -41,6 +48,18 @@ from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFi
 from scansor.selection_bundle import SelectionBundle
 
 ASSETS = Path(__file__).with_name("browser_viewer")
+
+
+class ExampleRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    example: str
+    token: str
+
+
+class RecipeImportRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    token: str
+    recipe: dict[str, Any]
 
 
 def selection_bundle_recipe(workspace: NozzleWorkspace, bundle_path: Path) -> Recipe:
@@ -86,21 +105,42 @@ def selection_bundle_recipe(workspace: NozzleWorkspace, bundle_path: Path) -> Re
     )
 
 
+def default_example_recipe(workspace: NozzleWorkspace, directory: Path) -> Recipe:
+    """Built-ins use saved actions; other CLI workspaces keep retained selections."""
+    identifier = example_identity(directory)
+    if identifier is not None:
+        return load_recipe(example_recipe_path(identifier))
+    manifest = json.loads((directory / "manifest.json").read_text())
+    return selection_bundle_recipe(
+        workspace,
+        directory
+        / manifest.get("selection_bundle", "selections/user-selection-bundle.json"),
+    )
+
+
 class NozzleServer(ThreadingHTTPServer):
     """One bounded fit worker; HTTP remains available during fitting."""
 
     def __init__(
-        self, workspace: NozzleWorkspace, port: int = 0, recipe: Recipe | None = None
+        self,
+        workspace: NozzleWorkspace,
+        port: int = 0,
+        recipe: Recipe | None = None,
+        *,
+        example_path: Path | None = None,
     ) -> None:
         self.workspace: NozzleWorkspace = workspace
+        self.active_example: str | None = example_identity(example_path)
         self.worker: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
         self.lock: threading.Lock = threading.Lock()
         self.job: Future[SessionFit] | None = None
         self.graph_job: Future[dict[str, object]] | None = None
-        initial_recipe = recipe or Recipe.model_validate_json(
-            Path(
-                "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
-            ).read_text()
+        initial_recipe = recipe or (
+            default_example_recipe(workspace, example_path)
+            if example_path is not None
+            else load_recipe(
+                Path("examples/nozzle-bayonette-simplified/recipes/cone-plane.json")
+            )
         )
         self.example_recipe: Recipe = initial_recipe.model_copy(deep=True)
         self.graph: FeatureGraph = FeatureGraph(workspace, initial_recipe)
@@ -113,6 +153,37 @@ class NozzleServer(ThreadingHTTPServer):
             "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
         }
         super().__init__(("127.0.0.1", port), Handler)
+
+    def select_example(self, request: ExampleRequest) -> None:
+        """Install a fresh workspace only after its source and recipe validate."""
+        with self.lock:
+            if request.token != self.graph.snapshot()["token"]:
+                raise StaleGraph("graph changed before switching examples")
+            if any(
+                job is not None and not job.done() for job in (self.job, self.graph_job)
+            ):
+                raise StaleGraph(
+                    "wait for the current evaluation before switching examples"
+                )
+            directory = example_directory(request.example)
+            workspace = NozzleWorkspace(directory)
+            recipe = default_example_recipe(workspace, directory)
+            graph = FeatureGraph(workspace, recipe)
+            buffers = {
+                "/mesh/positions": workspace.local.astype("<f4").tobytes(),
+                "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
+            }
+            self.workspace = workspace
+            self.graph = graph
+            self.example_recipe = recipe.model_copy(deep=True)
+            self.buffers = buffers
+            self.active_example = request.example
+            self.job = None
+            self.job_id = ""
+            self.graph_job = None
+            self.graph_job_token = ""
+            self.graph_job_roots = frozenset()
+            self.graph_job_errors.clear()
 
     @override
     def server_close(self) -> None:
@@ -215,7 +286,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not self.allowed():
             return
-        if self.path == "/api/meta":
+        if self.path == "/api/examples":
+            with self.app.lock:
+                self.json_reply(
+                    200, {"active": self.app.active_example, "examples": EXAMPLES}
+                )
+        elif self.path == "/api/meta":
             self.json_reply(
                 200,
                 {
@@ -227,7 +303,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         elif self.path == "/api/graph/example":
-            self.json_reply(200, self.app.example_recipe.model_dump())
+            with self.app.lock:
+                self.json_reply(200, self.app.example_recipe.model_dump())
         elif self.path == "/api/graph" or self.path.startswith("/api/graph?"):
             try:
                 query = parse_qs(
@@ -298,6 +375,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/session",
             "/api/fit",
             "/api/graph",
+            "/api/graph/import",
             "/api/graph/evaluate",
             "/api/graph/ensure",
             "/api/graph/feature-reuse/preview",
@@ -306,6 +384,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/build-faces/candidates",
             "/api/graph/build-faces/apply",
             "/api/export/cad",
+            "/api/examples/select",
         ):
             self.json_reply(404, {"error": "not found"})
             return
@@ -321,6 +400,20 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected a session under 1 MB")
             self.connection.settimeout(5)
             body = self.rfile.read(length)
+            if self.path == "/api/graph/import":
+                imported = RecipeImportRequest.model_validate_json(body)
+                recipe, warnings = import_recipe(imported.recipe)
+                with self.app.lock:
+                    state = self.app.graph.replace(recipe, imported.token)
+                self.json_reply(200, {**state, "import_warnings": warnings})
+                return
+            if self.path == "/api/examples/select":
+                try:
+                    self.app.select_example(ExampleRequest.model_validate_json(body))
+                except OSError as error:
+                    raise ValueError(f"could not load example: {error}") from error
+                self.json_reply(200, {"active": self.app.active_example})
+                return
             if self.path in (
                 "/api/graph/feature-reuse/preview",
                 "/api/graph/feature-reuse/apply",
@@ -375,7 +468,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
                 export_request = CadExportRequest.model_validate_json(body)
-                snapshot = cast(dict[str, Any], self.app.graph.snapshot())
+                with self.app.lock:
+                    graph, workspace = self.app.graph, self.app.workspace
+                snapshot = cast(dict[str, Any], graph.snapshot())
                 if export_request.scope != "target":
                     with self.app.lock:
                         if (
@@ -395,7 +490,7 @@ class Handler(BaseHTTPRequestHandler):
                             )
                         if export_request.transform is not None:
                             roots.append(export_request.transform)
-                        needed, current = self.app.graph.readiness_status(
+                        needed, current = graph.readiness_status(
                             export_request.token, roots
                         )
                         if needed or current is None:
@@ -420,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
                                     for key in failed
                                 )
                             )
-                exported = export_cad(self.app.workspace, snapshot, export_request)
+                exported = export_cad(workspace, snapshot, export_request)
                 self.reply(200, exported, "application/zip")
                 return
             if self.path.startswith("/api/graph"):
@@ -428,7 +523,8 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == "/api/graph":
                     if payload.recipe is None:
                         raise ValueError("expected a current recipe")
-                    state = self.app.graph.replace(payload.recipe, payload.token)
+                    with self.app.lock:
+                        state = self.app.graph.replace(payload.recipe, payload.token)
                     self.json_reply(200, state)
                 else:
                     with self.app.lock:
@@ -543,13 +639,13 @@ class Handler(BaseHTTPRequestHandler):
                         )
                     self.json_reply(202, {"status": "running"})
                 return
-            session = self.app.workspace.validate(
-                NozzleSession.model_validate_json(body)
-            )
-            if self.path == "/api/session":
-                self.json_reply(200, session.model_dump())
-                return
             with self.app.lock:
+                session = self.app.workspace.validate(
+                    NozzleSession.model_validate_json(body)
+                )
+                if self.path == "/api/session":
+                    self.json_reply(200, session.model_dump())
+                    return
                 if self.app.job is not None and not self.app.job.done():
                     self.json_reply(409, {"error": "a fit is already running"})
                     return
@@ -577,7 +673,7 @@ def main() -> None:
     _ = parser.add_argument(
         "--recipe",
         type=Path,
-        help="Start from an action recipe instead of the retained selection bundle",
+        help="Override the example's default action recipe",
     )
     _ = parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
@@ -591,17 +687,14 @@ def main() -> None:
     ):
         parser.error("run npm run build --prefix experiments/browser_viewer first")
     workspace = NozzleWorkspace(args.example)
-    manifest = json.loads((args.example / "manifest.json").read_text())
     recipe = (
-        Recipe.model_validate_json(args.recipe.read_text())
+        load_recipe(args.recipe)
         if args.recipe is not None
-        else selection_bundle_recipe(
-            workspace,
-            args.example
-            / manifest.get("selection_bundle", "selections/user-selection-bundle.json"),
-        )
+        else default_example_recipe(workspace, args.example)
     )
-    with NozzleServer(workspace, args.port, recipe) as server:
+    with NozzleServer(
+        workspace, args.port, recipe, example_path=args.example
+    ) as server:
         print(
             f"Nozzle selection experiment: http://127.0.0.1:{server.server_port}/",
             flush=True,

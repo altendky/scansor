@@ -21,17 +21,35 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
 
 Open the printed `http://127.0.0.1:PORT/` address in Brave or another WebGL2-capable
 browser. An explicit `--port 8765` is optional. Stop the local server with Ctrl+C.
+Use **Choose example…** beside **Restore example** in the Project toolbar to
+open either **Nozzle** or **Repeated bosses** without restarting the server.
+Opening an example replaces the current actions and reloads its mesh with the
+checked-in default feature definitions; save actions first to keep your work.
+**Restore example** reloads those definitions for the currently open example.
+The repeated-boss coarse fixture is generated
+on first use under the ignored `local-inputs/` tree if it is not already present.
 The adapter supports the captured simplified example plus generated directories
 that implement its bounded manifest/selection contract; this is not an arbitrary
 mesh loader or a full-resolution GUI. The repeated-boss fixture documents its
 generation and `--example` command in
 [its example README](../../examples/repeated-boss-selection/README.md).
 
-The default graph starts from the checked-in compatibility-free bundle containing
-the 11 retained user selections. It deliberately does not reconstruct old fits,
-constraints, joints, or results. `--recipe PATH` remains available only for
-opening an explicit experimental action recipe; it is not a compatibility
-promise for a successor format.
+The built-in defaults are the saved
+[nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)
+from `nozzle-actions.json` and the saved
+[repeated-boss recipe](../../examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json)
+from `boss-actions.json`. These retain the feature definitions, references, and
+selections; numerical results are recomputed. `--recipe PATH` overrides the
+startup recipe. Custom example directories without a built-in default continue
+to start from their retained selection bundle. These experimental recipes do not
+establish a compatibility promise for a successor format.
+The nozzle default includes all 11 fitted surfaces. Three fits use the distinct
+display names **outer fit**, **recesses fit**, and **top fit** to avoid collisions
+with the saved selection names.
+Loading saved actions repairs duplicate display names with descriptive suffixes
+and reports the renames. References continue to use the original feature IDs.
+Duplicate IDs and invalid references still fail validation; normal editing keeps
+names unique.
 
 The browser loads the full 24,999-vertex, 49,994-triangle simplified mesh. No mesh
 is uploaded externally. Assets are served locally after installation and building.

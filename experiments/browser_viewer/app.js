@@ -73,6 +73,7 @@ let pending = false,
 let graphState, selectedFeatureId, editingGroupId = null;
 let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
+let exampleCatalogue = null, exampleSwitchPending = false;
 let constructedFaces, constructedFacesState = null;
 let bodyInspection;
 let fitQualityLimit = null, fitQualityStorageKey = null, fitQualityCache = null;
@@ -124,6 +125,15 @@ function downloadJson(filename, value) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function showImportWarnings(warnings) {
+  $('import-warning-list').replaceChildren(...warnings.map(warning => {
+    const item = document.createElement('li');
+    item.textContent = `${warning.kind === 'group' ? 'Group: ' : ''}“${warning.old_name}” → “${warning.new_name}”`;
+    return item;
+  }));
+  $('import-warning-summary').textContent = `${warnings.length} renamed ${warnings.length === 1 ? 'name' : 'names'}`;
+  $('import-warning').hidden = warnings.length === 0;
 }
 function fittedPickResult(reference) {
   if (!reference || graphState.states[reference.feature] !== 'ready') return null;
@@ -3693,6 +3703,7 @@ function updateEvaluationControls() {
     evaluationLocked = busy || graphState.evaluation_running;
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked;
+  $('choose-example').disabled = featureTreeLocked();
   $('delete-action').disabled = evaluationLocked || !selectedNode ||
     selectedNode.operation === 'source' || !!managedOwnerId(selectedNode, graphState.recipe.nodes);
 }
@@ -3883,7 +3894,7 @@ async function start() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   viewport.append(renderer.domElement);
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute('aria-label', 'Nozzle 3D view');
+  renderer.domElement.setAttribute('aria-label', 'Model 3D view');
   scene = new THREE.Scene();
   scene.background = new THREE.Color('#17232e');
   modelRoot = new THREE.Group();
@@ -5578,6 +5589,61 @@ async function start() {
     await replaceRecipe(recipe);
   };
   $('reset').onclick = async () => replaceRecipe(await request('/api/graph/example'));
+  $('choose-example').onclick = async () => {
+    if (featureTreeLocked()) return;
+    $('choose-example').disabled = true;
+    try {
+      exampleCatalogue = await request('/api/examples');
+      const choices = exampleCatalogue.examples.map(example => new Option(example.label, example.id));
+      if (exampleCatalogue.active === null) {
+        const current = new Option('Current workspace', '', true, true);
+        current.disabled = true;
+        choices.unshift(current);
+      }
+      $('example-choice').replaceChildren(...choices);
+      $('example-choice').value = exampleCatalogue.active || '';
+      $('example-error').textContent = '';
+      $('open-example').disabled = true;
+      $('example-dialog').showModal();
+    } catch (error) { status(error.message, true); }
+    finally { updateEvaluationControls(); }
+  };
+  $('example-choice').onchange = () => {
+    $('open-example').disabled = !$('example-choice').value ||
+      $('example-choice').value === exampleCatalogue.active || exampleSwitchPending;
+  };
+  $('example-dialog').addEventListener('cancel', event => {
+    if (exampleSwitchPending) event.preventDefault();
+  });
+  $('example-form').onsubmit = async event => {
+    event.preventDefault();
+    const example = $('example-choice').value;
+    if (!example || example === exampleCatalogue.active || exampleSwitchPending || featureTreeLocked()) return;
+    exampleSwitchPending = true;
+    busy = true;
+    setModelPickMode(null);
+    const panels = [...workspaceEditingPanels(), viewport], previousInert = panels.map(panel => panel.inert),
+      controls = [$('example-choice'), $('open-example'), $('cancel-example')];
+    panels.forEach(panel => { panel.inert = true; });
+    controls.forEach(control => { control.disabled = true; });
+    $('example-error').textContent = '';
+    status('Opening example…');
+    renderActions();
+    paint();
+    try {
+      await request('/api/examples/select', { example, token: graphState.token });
+      location.reload();
+    } catch (error) {
+      $('example-error').textContent = error.message;
+      status(error.message, true);
+      exampleSwitchPending = false;
+      busy = false;
+      panels.forEach((panel, index) => { panel.inert = previousInert[index]; });
+      controls.forEach(control => { control.disabled = false; });
+      renderActions();
+      paint();
+    }
+  };
   $('action-properties').onsubmit = async (event) => {
     event.preventDefault();
     const recipe = structuredClone(graphState.recipe),
@@ -5948,12 +6014,26 @@ async function start() {
     }
   };
   $('load').onclick = () => $('file').click();
+  $('dismiss-import-warning').onclick = () => { $('import-warning').hidden = true; };
   $('file').onchange = async () => {
     try {
       const file = $('file').files[0];
       if (!file) return;
       if (file.size > 1_000_000) throw new Error('Recipe must be under 1 MB');
-      await replaceRecipe(JSON.parse(await file.text()));
+      const recipe = JSON.parse(await file.text());
+      let state;
+      try { state = await request('/api/graph/import', { token: graphState.token, recipe }); }
+      catch (error) {
+        try { acceptGraph(await request('/api/graph')); }
+        catch (refreshError) {
+          throw new Error(`${error.message} Could not refresh current actions: ${refreshError.message}`);
+        }
+        throw error;
+      }
+      acceptGraph(state);
+      showImportWarnings(state.import_warnings || []);
+      status('Actions loaded. Evaluate to refresh dependent results.');
+      if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
     } catch (error) {
       status(error.message, true);
     } finally {
