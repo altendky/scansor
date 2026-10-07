@@ -256,6 +256,36 @@ def test_composed_relationships_reuse_warm_results(
     assert warm["results"] == expected["results"]
 
 
+def test_relationship_reordering_preserves_warm_provider_results(
+    composed_graph: FeatureGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expected = composed_graph.evaluate(_token(composed_graph), all_actions=True)
+    payload = cast(dict[str, Any], composed_graph.snapshot()["recipe"])
+    indices = [
+        index
+        for index, node in enumerate(payload["nodes"])
+        if node["id"] in {"upright_parallel", "same_height"}
+    ]
+    assert len(indices) == 2
+    first, second = indices
+    payload["nodes"][first], payload["nodes"][second] = (
+        payload["nodes"][second],
+        payload["nodes"][first],
+    )
+    changed = composed_graph.replace(
+        Recipe.model_validate(payload), _token(composed_graph)
+    )
+    assert changed["states"] == expected["states"]
+    assert changed["results"] == expected["results"]
+
+    def unexpected_evaluation(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("provider reordering must preserve current geometry")
+
+    monkeypatch.setattr(composed_graph, "evaluate", unexpected_evaluation)
+    warm = composed_graph.ensure_current(_token(composed_graph), all_actions=True)
+    assert warm["results"] == expected["results"]
+
+
 def test_relationship_edit_invalidates_all_coupled_geometry(
     composed_graph: FeatureGraph,
 ) -> None:

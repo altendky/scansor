@@ -1,5 +1,6 @@
 """Resolved consumers follow both insertion and removal of an axis provider."""
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
@@ -159,3 +160,68 @@ def test_automatic_provider_insertion_recomputes_cached_resolved_frame(
     fresh = evaluate(frame_graph(workspace, reference), "frame")
     assert after["results"]["frame"] == fresh["results"]["frame"]
     assert evaluate(graph, "frame")["results"]["frame"] == after["results"]["frame"]
+
+
+@pytest.mark.parametrize("reference", ["axis", "datum"])
+@pytest.mark.parametrize(
+    "edit", ["insert_contributor", "remove_provider", "edit_selection"]
+)
+def test_provider_recipe_edits_match_fresh_frame(
+    workspace: NozzleWorkspace, reference: str, edit: str
+) -> None:
+    template = cast(
+        dict[str, Any], frame_graph(workspace, reference).snapshot()["recipe"]
+    )
+    payload = deepcopy(template)
+    payload["nodes"] = [
+        node for node in payload["nodes"] if node["id"] != "explicit_solve"
+    ]
+    payload["output"] = "frame"
+    if edit == "insert_contributor":
+        payload["nodes"] = [
+            node for node in payload["nodes"] if node["id"] != "plane_factor"
+        ]
+    graph = FeatureGraph(workspace, Recipe.model_validate(payload))
+    _ = evaluate(graph, "frame")
+
+    if edit == "insert_contributor":
+        # Append after the existing consumer to exercise a late provider input.
+        payload["nodes"].append(
+            next(node for node in template["nodes"] if node["id"] == "plane_factor")
+        )
+    elif edit == "remove_provider":
+        payload["nodes"] = [
+            node for node in payload["nodes"] if node["id"] != "side_factor"
+        ]
+    else:
+        selection = next(node for node in payload["nodes"] if node["id"] == "top_face")
+        selection["ids"] = selection["ids"][::2]
+    recipe = Recipe.model_validate(payload)
+    changed = cast(
+        dict[str, Any], graph.replace(recipe, str(graph.snapshot()["token"]))
+    )
+    assert changed["states"]["frame"] == "stale"
+    assert "frame" not in changed["results"]
+    replay = evaluate(graph, "frame")
+    fresh = evaluate(FeatureGraph(workspace, recipe), "frame")
+    assert replay["states"]["frame"] == "ready"
+    assert replay["results"]["frame"] == fresh["results"]["frame"]
+    assert replay["results"]["axis"] == fresh["results"]["axis"]
+
+
+def test_unfitted_alias_edit_preserves_provider_members(
+    workspace: NozzleWorkspace,
+) -> None:
+    graph = frame_graph(workspace, "datum")
+    before = evaluate(graph, "frame")
+    payload = deepcopy(before["recipe"])
+    datum = next(node for node in payload["nodes"] if node["id"] == "datum")
+    datum["offset"] = 3
+    changed = graph.replace(Recipe.model_validate(payload), str(before["token"]))
+    states = cast(dict[str, str], changed["states"])
+    assert states["datum"] == states["frame"] == "stale"
+    for key in ("axis", "side_factor", "plane_factor"):
+        assert states[key] == "ready"
+    replay = evaluate(graph, "frame")
+    assert replay["results"]["axis"] == before["results"]["axis"]
+    assert replay["results"]["datum"]["offset"] != before["results"]["datum"]["offset"]
