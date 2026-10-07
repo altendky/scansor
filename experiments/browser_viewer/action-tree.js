@@ -593,6 +593,12 @@ export function treeDragScrollSpeed(y, bounds) {
 }
 
 const treeDragCleanups = new WeakMap();
+function afterContextGesture(event, open) {
+  // Chromium can dispatch contextmenu before pointerup. Opening an auto
+  // popover then lets that same pointerup immediately light-dismiss it.
+  if (event.buttons & 2) document.addEventListener('pointerup', () => setTimeout(open, 0), { once: true });
+  else open();
+}
 export function renderActionTree(
   list,
   {
@@ -911,10 +917,11 @@ export function renderActionTree(
       if (unavailable()) return;
       const row = event.currentTarget || button;
       const bounds = row.getBoundingClientRect();
-      contextMenu(node.id, {
+      const position = {
         x: keyboard ? bounds.left : event.clientX,
         y: keyboard ? bounds.bottom : event.clientY,
-      });
+      };
+      afterContextGesture(event, () => { if (!unavailable()) contextMenu(node.id, position); });
     };
     button.oncontextmenu = openContextMenu;
     button.ondblclick = event => {
@@ -1065,10 +1072,11 @@ export function renderActionTree(
       event.stopPropagation();
       if (unavailable()) return;
       const bounds = summary.getBoundingClientRect();
-      groupContextMenu(group.id, {
+      const position = {
         x: keyboard ? bounds.left : event.clientX,
         y: keyboard ? bounds.bottom : event.clientY,
-      });
+      };
+      afterContextGesture(event, () => { if (!unavailable()) groupContextMenu(group.id, position); });
     };
     summary.dataset.groupId = group.id;
     summary.oncontextmenu = openContextMenu;
