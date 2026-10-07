@@ -1696,6 +1696,8 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
         "derived",
         "memberships",
         "results",
+        "input_catalogue",
+        "input_requirements",
     }
     assert set(recipe.model_dump()) == {"schema_version", "nodes", "groups", "output"}
     loaded = FeatureGraph(

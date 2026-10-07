@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   actionDescription,
   actionMove,
+  featureDeletionPlan,
   managedOwnerId,
   managedSubtreeIds,
   nodeReferences,
@@ -197,6 +198,29 @@ assert.deepEqual(
   ['b', 'mirror-plane'],
 );
 assert.deepEqual(nodeReferences(mirror), ['mirror-plane', 'fit', 'other-fit']);
+const centerOutput = { feature: 'sphere-fit', output: 'center', context: '@point/center-datum' };
+const planeOutput = { feature: 'plane-fit', output: 'plane', context: 'plane-solve' };
+assert.deepEqual(nodeReferences({ operation: 'axis', source_points: [centerOutput, 'point'] }),
+  ['sphere-fit', 'center-datum', 'point']);
+assert.deepEqual(nodeReferences({ operation: 'scale', distances: [
+  { first_point: centerOutput, second_point: 'point' },
+] }), ['sphere-fit', 'center-datum', 'point']);
+assert.deepEqual(nodeReferences({ operation: 'frame', origin_point: centerOutput,
+  primary_reference: planeOutput, secondary_reference: { feature: 'axis', output: 'axis', context: '@axis/axis' },
+}), ['sphere-fit', 'center-datum', 'plane-fit', 'plane-solve', 'axis']);
+const physicalPlane = { ...fit, id: 'physical-plane', label: 'Physical plane', kind: 'plane' },
+  otherPlane = { ...physicalPlane, id: 'other-plane', label: 'Other plane' },
+  publication = { id: 'publication', label: 'Plane publication', operation: 'plane_relationship',
+    surfaces: ['physical-plane', 'other-plane'], relation: 'parallel' },
+  frameReader = { id: 'reader', label: 'Reader', operation: 'frame', origin_point: 'a',
+    primary_reference: { feature: 'physical-plane', output: 'plane', context: 'publication' },
+    secondary_reference: 'other-plane' },
+  publicationNodes = [source, a, physicalPlane, otherPlane, publication, frameReader];
+assert.match(actionMove(publicationNodes, 'publication', publicationNodes.length).error,
+  /Reader needs Plane publication earlier/);
+const deletedPublication = featureDeletionPlan({ nodes: publicationNodes, output: 'reader' }, ['publication']);
+assert.deepEqual(deletedPublication.dependents.map(node => node.id), ['reader']);
+assert.ok(deletedPublication.recipe.nodes.some(node => node.id === 'physical-plane'));
 const parallel = {
   id: 'parallel',
   label: 'Parallel',
