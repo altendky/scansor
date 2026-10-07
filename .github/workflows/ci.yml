@@ -46,6 +46,13 @@ jobs:
       python-versions: ${{ needs.python-versions.outputs.versions }}
       primary-python: ${{ needs.python-versions.outputs.primary }}
 
+  browser:
+    name: Browser
+    needs: python-versions
+    uses: ./.github/workflows/reflow-browser.yml
+    with:
+      primary-python: ${{ needs.python-versions.outputs.primary }}
+
   mesh-numeric:
     name: Mesh numerical conformance
     needs: python-versions
@@ -56,7 +63,7 @@ jobs:
   all:
     name: all
     if: ${{ !cancelled() }}
-    needs: [python-versions, mise, pre-commit, python, mesh-numeric]
+    needs: [python-versions, mise, pre-commit, python, browser, mesh-numeric]
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
