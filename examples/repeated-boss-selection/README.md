@@ -230,7 +230,9 @@ OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \
   --port 8765
 ```
 
-To load the checked-in end-to-end demonstration graph, run:
+The checked-in end-to-end demonstration graph is the default for this coarse
+example, including when opened from **Choose example…**. To select that recipe
+explicitly, run:
 
 ```sh
 OPENBLAS_NUM_THREADS=2 PYTHONPATH=src:. uv run --locked \

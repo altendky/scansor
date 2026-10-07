@@ -1240,58 +1240,6 @@
       "depth": "first_surface"
     },
     {
-      "id": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "label": "outer fit",
-      "operation": "fit",
-      "selections": [
-        "selection_0350f17f14784ce2b686fafc6e709dfb"
-      ],
-      "kind": "cone",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "fit_d6fef399bb0046669de54b4b07fc8cad",
-      "label": "recesses fit",
-      "operation": "fit",
-      "selections": [
-        "selection_2df7d374a3234b18b2d5d96d66844bd0"
-      ],
-      "kind": "cone",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "fit_e61afa8a605d4e78bae9e36ad47f5a9d",
-      "label": "top fit",
-      "operation": "fit",
-      "selections": [
-        "selection_0bcf6d9c18b84ed59026a3c906600409"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "fit_114f6f1a367d4f2f839457ad67db3dfc",
-      "label": "recesses axial",
-      "operation": "fit",
-      "selections": [
-        "selection_c2eea31a8e5140eca1a9274c23b244e3"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
       "id": "selection_c70b7cf64d6348a5b0ee9e9dd8b6ebb2",
       "label": "recesses axial other",
       "operation": "selection",
@@ -1320,47 +1268,6 @@
         18929
       ],
       "depth": "first_surface"
-    },
-    {
-      "id": "perpendicular_45f4ef03bd994f4cb6af915c1b3de636",
-      "label": "top perpendicular",
-      "operation": "perpendicular",
-      "lateral": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "plane": "fit_e61afa8a605d4e78bae9e36ad47f5a9d"
-    },
-    {
-      "id": "perpendicular_b1c393340a804dd495fc6d86176a67d7",
-      "label": "recess axial perpendicular",
-      "operation": "perpendicular",
-      "lateral": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "plane": "fit_114f6f1a367d4f2f839457ad67db3dfc"
-    },
-    {
-      "id": "coaxial_e9d9e36158714115b1d5b7afd639ae3b",
-      "label": "recesses coaxial",
-      "operation": "coaxial",
-      "surface": "fit_d6fef399bb0046669de54b4b07fc8cad",
-      "reference": "fit_f8cd508ae1074528875fb135cb1576a3"
-    },
-    {
-      "id": "fit_38455464a66a40f1a0923e5abd1cd772",
-      "label": "recess axial other",
-      "operation": "fit",
-      "selections": [
-        "selection_c70b7cf64d6348a5b0ee9e9dd8b6ebb2"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "perpendicular_c581a685ff524dc096b274c8a901703f",
-      "label": "recess axial other perpendicular",
-      "operation": "perpendicular",
-      "lateral": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "plane": "fit_38455464a66a40f1a0923e5abd1cd772"
     },
     {
       "id": "selection_f1a351baca5946d4978db72fb86a3547",
@@ -1458,57 +1365,6 @@
         10701
       ],
       "depth": "first_surface"
-    },
-    {
-      "id": "fit_4f196e938def4229bb25e76a7be039bc",
-      "label": "recess slope a plane",
-      "operation": "fit",
-      "selections": [
-        "selection_f1a351baca5946d4978db72fb86a3547"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "fit_10da544b17cf4392a3b05c7a6922f002",
-      "label": "recess slope b plane",
-      "operation": "fit",
-      "selections": [
-        "selection_ee2660f02f9348f28ec1511d55d3199d"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "fit_c1a4418b79a0498294d2707fa71bf6cc",
-      "label": "recess slope c plane",
-      "operation": "fit",
-      "selections": [
-        "selection_fd74c02433ae431daf73ac2836b0ce85"
-      ],
-      "kind": "plane",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "rotation_aa53aee84e9e4659ba636c9057465b1b",
-      "label": "Threefold plane symmetry",
-      "operation": "rotational_symmetry",
-      "axis": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "planes": [
-        "fit_4f196e938def4229bb25e76a7be039bc",
-        "fit_10da544b17cf4392a3b05c7a6922f002",
-        "fit_c1a4418b79a0498294d2707fa71bf6cc"
-      ],
-      "symmetric_extents": true
     },
     {
       "id": "selection_3cfc10578fe04f2291074d0182f330cb",
@@ -1616,69 +1472,45 @@
       "depth": "first_surface"
     },
     {
-      "id": "fit_5f26f607d4894f0fb860169dcfaf8391",
-      "label": "bump a cylinder",
+      "id": "axis_9f2337754ec943caa49bda2723476651",
+      "label": "the middle",
+      "operation": "axis",
+      "source_fit": null,
+      "initial_parameters": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "fit_e5c4d25f49d04c8497460964929f3581",
+      "label": "outer fit",
       "operation": "fit",
       "selections": [
-        "selection_3cfc10578fe04f2291074d0182f330cb"
+        "selection_0350f17f14784ce2b686fafc6e709dfb"
       ],
-      "kind": "cylinder",
+      "kind": "cone",
       "axial_domain": [
         -2,
         5
-      ]
+      ],
+      "axis": null
     },
     {
-      "id": "fit_35b4be8c7a4349aa8cb42bdf468773c9",
-      "label": "bump b cylinder",
+      "id": "fit_132bdb8984964b8d830cbc9fab21bcd5",
+      "label": "recesses fit",
       "operation": "fit",
       "selections": [
-        "selection_58c41f91f2564984a3290e9ec2971806"
+        "selection_2df7d374a3234b18b2d5d96d66844bd0"
       ],
-      "kind": "cylinder",
+      "kind": "cone",
       "axial_domain": [
         -2,
         5
-      ]
-    },
-    {
-      "id": "fit_1f82387a23f44b8da3f7d3cb9ce5053a",
-      "label": "bump c cylinder",
-      "operation": "fit",
-      "selections": [
-        "selection_65d425a566a04734b45703c6c845cc2c"
       ],
-      "kind": "cylinder",
-      "axial_domain": [
-        -2,
-        5
-      ]
-    },
-    {
-      "id": "rotation_a529352f9804416dac2b58b878e825fc",
-      "label": "Threefold cylinder symmetry",
-      "operation": "rotational_symmetry",
-      "axis": "fit_f8cd508ae1074528875fb135cb1576a3",
-      "planes": [
-        "fit_5f26f607d4894f0fb860169dcfaf8391",
-        "fit_35b4be8c7a4349aa8cb42bdf468773c9",
-        "fit_1f82387a23f44b8da3f7d3cb9ce5053a"
-      ],
-      "symmetric_extents": true
-    },
-    {
-      "id": "joint_c1b8a7c568b64db68161c9c8462ab669",
-      "label": "Joint fit",
-      "operation": "joint_fit",
-      "constraints": [
-        "perpendicular_45f4ef03bd994f4cb6af915c1b3de636",
-        "perpendicular_b1c393340a804dd495fc6d86176a67d7",
-        "coaxial_e9d9e36158714115b1d5b7afd639ae3b",
-        "perpendicular_c581a685ff524dc096b274c8a901703f",
-        "rotation_aa53aee84e9e4659ba636c9057465b1b",
-        "rotation_a529352f9804416dac2b58b878e825fc"
-      ]
+      "axis": null
     }
   ],
-  "output": "fit_1f82387a23f44b8da3f7d3cb9ce5053a"
+  "output": "fit_132bdb8984964b8d830cbc9fab21bcd5"
 }

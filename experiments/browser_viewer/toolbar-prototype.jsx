@@ -14,7 +14,8 @@ import './toolbar-prototype.css';
 
 const COMMANDS = {
   project: [['save', 'Save actions', 'download'], ['load', 'Load actions', 'upload'],
-    ['reset', 'Restore example', 'restore'], ['workspace-show', 'Show panel', 'show_panel'],
+    ['reset', 'Restore example', 'restore'], ['choose-example', 'Choose example…', 'source'],
+    ['workspace-show', 'Show panel', 'show_panel'],
     ['workspace-reset', 'Reset layout', 'restore'], ['show-icon-legend', 'Icon legend', 'arranged_face']],
   create: [
     ['add-selection', 'Selection', 'selection'], ['new-fit', 'Surface fit', 'plane'],
