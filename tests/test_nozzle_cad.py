@@ -2,7 +2,9 @@
 
 import io
 import json
-from collections.abc import Callable
+import subprocess
+import sys
+from collections.abc import Callable, Generator
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -28,7 +30,7 @@ from OCP.GProp import GProp_GProps
 from OCP.IFSelect import IFSelect_RetDone, IFSelect_ReturnStatus
 from OCP.Interface import Interface_Static
 from OCP.Standard import Standard_ConstructionError
-from OCP.STEPCAFControl import STEPCAFControl_Reader
+from OCP.STEPCAFControl import STEPCAFControl_Reader, STEPCAFControl_Writer
 from OCP.TCollection import TCollection_ExtendedString
 from OCP.TDataStd import TDataStd_Name
 from OCP.TDocStd import TDocStd_Document
@@ -173,6 +175,47 @@ def evaluated() -> tuple[NozzleWorkspace, dict[str, Any]]:
     return workspace, cast(
         dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]))
     )
+
+
+@pytest.fixture
+def initialized_step_unit() -> Generator[str]:
+    # The first writer registers the native setting with an MM default.
+    _ = STEPCAFControl_Writer()
+    previous = Interface_Static.CVal_s("write.step.unit")
+    try:
+        assert Interface_Static.SetCVal_s("write.step.unit", "CM")
+        yield "CM"
+    finally:
+        assert Interface_Static.SetCVal_s("write.step.unit", previous)
+
+
+def test_step_cold_start_initializes_default_unit() -> None:
+    # Use a fresh process so preceding tests cannot initialize the native writer.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+from OCP.Interface import Interface_Static
+from OCP.STEPCAFControl import STEPCAFControl_Writer
+from experiments.nozzle_cad import _step_bytes
+
+assert Interface_Static.CVal_s("write.step.unit") == ""
+data = _step_bytes(
+    {"box": BRepPrimAPI_MakeBox(1, 2, 3).Shape()}, {"box": "Box"}, "Meters"
+)
+assert b"SI_UNIT($,.METRE.)" in data
+assert Interface_Static.CVal_s("write.step.unit") == "MM"
+_ = STEPCAFControl_Writer()
+assert Interface_Static.CVal_s("write.step.unit") == "MM"
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.fixture
@@ -805,6 +848,7 @@ def test_trimmed_annulus_export_metadata_transform(
 @pytest.mark.parametrize("axis_up", [False, True])
 def test_joint_export_geometry_units_mesh_and_names(
     evaluated: tuple[NozzleWorkspace, dict[str, Any]],
+    initialized_step_unit: str,
     units: Any,
     step_unit: str,
     axis_up: bool,
@@ -815,11 +859,10 @@ def test_joint_export_geometry_units_mesh_and_names(
     request = CadExportRequest(
         token=snapshot["token"], target="fit", units=units, axis_up=axis_up
     )
-    previous = Interface_Static.CVal_s("write.step.unit")
     metadata, shapes, mesh, step = roundtrip(
         export_cad(workspace, snapshot, request), tmp_path
     )
-    assert Interface_Static.CVal_s("write.step.unit") == previous
+    assert Interface_Static.CVal_s("write.step.unit") == initialized_step_unit
     assert step_unit in step
     nodes = {n["id"]: n for n in snapshot["recipe"]["nodes"]}
     assert set(shapes) == {
@@ -1466,24 +1509,23 @@ def test_axis_solve_mirror_factors_passed(
 @pytest.mark.parametrize("native_exception", [False, True])
 def test_step_setting_restored_on_failure(
     evaluated: tuple[NozzleWorkspace, dict[str, Any]],
+    initialized_step_unit: str,
     monkeypatch: pytest.MonkeyPatch,
     native_exception: bool,
 ) -> None:
     import experiments.nozzle_cad as nozzle_cad
 
     workspace, snapshot = evaluated
-    previous = Interface_Static.CVal_s("write.step.unit")
 
     class FailedWriter:
         def __init__(self) -> None:
-            from OCP.STEPCAFControl import STEPCAFControl_Writer
-
             _ = STEPCAFControl_Writer()
 
         def SetNameMode(self, _enabled: bool) -> None:
             pass
 
         def Transfer(self, *_args: Any) -> bool:
+            assert Interface_Static.CVal_s("write.step.unit") == "M"
             if native_exception:
                 raise Standard_ConstructionError("native transfer failure")
             return False
@@ -1494,4 +1536,4 @@ def test_step_setting_restored_on_failure(
     )
     with pytest.raises(ValueError, match="transfer"):
         _ = export_cad(workspace, snapshot, request)
-    assert Interface_Static.CVal_s("write.step.unit") == previous
+    assert Interface_Static.CVal_s("write.step.unit") == initialized_step_unit
