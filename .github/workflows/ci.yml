@@ -15,6 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python-versions:
+    name: Python version pins
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+      primary: ${{ steps.versions.outputs.primary }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Read interpreter matrix from mise
+        id: versions
+        run: python3 -m experiments.ci_python_versions >> "$GITHUB_OUTPUT"
+
   mise:
     name: Mise
     uses: ./.github/workflows/reflow-mise.yml
@@ -25,16 +40,23 @@ jobs:
 
   python:
     name: Python
+    needs: python-versions
     uses: ./.github/workflows/reflow-python.yml
+    with:
+      python-versions: ${{ needs.python-versions.outputs.versions }}
+      primary-python: ${{ needs.python-versions.outputs.primary }}
 
   mesh-numeric:
     name: Mesh numerical conformance
+    needs: python-versions
     uses: ./.github/workflows/reflow-mesh-numeric.yml
+    with:
+      python-versions: ${{ needs.python-versions.outputs.versions }}
 
   all:
     name: all
     if: ${{ !cancelled() }}
-    needs: [mise, pre-commit, python, mesh-numeric]
+    needs: [python-versions, mise, pre-commit, python, mesh-numeric]
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1

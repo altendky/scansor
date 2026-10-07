@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from experiments.ci_python_versions import python_versions
+
 
 def _cpu() -> dict[str, Any]:
     # NumPy exposes these as implementation diagnostics, not a stable public API.
@@ -127,8 +129,9 @@ def _worker(mode: str, output: Path) -> int:
     return 0
 
 
-def compare_matrix(root: Path) -> None:
+def compare_matrix(root: Path, *, mise_config: Path | None = None) -> None:
     """Require every expected OS/interpreter/dispatch report and identical IDs."""
+    versions = python_versions(mise_config)
     reference: dict[str, Any] | None = None
     compared: list[str] = []
     for system, arch in (
@@ -136,7 +139,7 @@ def compare_matrix(root: Path) -> None:
         ("Windows", "AMD64"),
         ("Darwin", "arm64"),
     ):
-        for version in ("3.12.14", "3.13.15"):
+        for version in versions:
             directory = root / f"mesh-conformance-{system}-{version}"
             for mode in ("default", "baseline"):
                 report: dict[str, Any] = json.loads(

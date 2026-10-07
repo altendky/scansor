@@ -2,6 +2,13 @@ name: Python
 
 on:
   workflow_call:
+    inputs:
+      python-versions:
+        required: true
+        type: string
+      primary-python:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -10,6 +17,8 @@ jobs:
   check:
     name: Format, lint, and types
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: ${{ inputs.primary-python }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -18,16 +27,16 @@ jobs:
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5
 
       - name: Install dependencies
-        run: uv sync --locked --python 3.12.14
+        run: uv sync --locked --python "$PYTHON_VERSION"
 
       - name: Check formatting
-        run: uv run --locked --python 3.12.14 ruff format --check .
+        run: uv run --locked --python "$PYTHON_VERSION" ruff format --check .
 
       - name: Check synchronized release versions
         run: uv run scripts/release-version.py check
 
       - name: Lint
-        run: uv run --locked --python 3.12.14 ruff check .
+        run: uv run --locked --python "$PYTHON_VERSION" ruff check .
 
       - name: Browser experiment checks
         run: |
@@ -42,7 +51,7 @@ jobs:
           npm run test:browser
 
       - name: Type check
-        run: uv run --locked --python 3.12.14 basedpyright
+        run: uv run --locked --python "$PYTHON_VERSION" basedpyright
 
   test:
     name: Test ${{ matrix.suite }} (Python ${{ matrix.python-version }})
@@ -50,15 +59,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12.14", "3.13.15"]
+        python-version: ${{ fromJSON(inputs.python-versions) }}
         suite: [mesh, remaining]
-        include:
-          - python-version: 3.12.14
-            coverage: true
-          - python-version: 3.13.15
-            coverage: false
     env:
       COVERAGE_FILE: coverage-data
+      PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -67,37 +72,37 @@ jobs:
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5
 
       - name: Install dependencies
-        run: uv sync --locked --python ${{ matrix.python-version }}
+        run: uv sync --locked --python "$PYTHON_VERSION"
 
       # Separate runners let these suites overlap and keep native CAD libraries
       # out of the serial mesh tests' memory-budgeted process.
       - name: Run memory-budgeted mesh tests
-        if: ${{ matrix.suite == 'mesh' && !matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest tests/test_mesh*.py --durations=30
+        if: ${{ matrix.suite == 'mesh' && matrix.python-version != inputs.primary-python }}
+        run: uv run --locked --python "$PYTHON_VERSION" pytest tests/test_mesh*.py --durations=30
 
       - name: Run remaining tests
-        if: ${{ matrix.suite == 'remaining' && !matrix.coverage }}
+        if: ${{ matrix.suite == 'remaining' && matrix.python-version != inputs.primary-python }}
         # Bound numerical-library threads independently of pytest's process workers.
         env:
           OPENBLAS_NUM_THREADS: "1"
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --durations=30
+        run: uv run --locked --python "$PYTHON_VERSION" pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --durations=30
 
       - name: Run memory-budgeted mesh tests with terminal coverage
-        if: ${{ matrix.suite == 'mesh' && matrix.coverage }}
-        run: uv run --locked --python ${{ matrix.python-version }} pytest tests/test_mesh*.py --cov=scansor --cov-report=term-missing --durations=30
+        if: ${{ matrix.suite == 'mesh' && matrix.python-version == inputs.primary-python }}
+        run: uv run --locked --python "$PYTHON_VERSION" pytest tests/test_mesh*.py --cov=scansor --cov-report=term-missing --durations=30
 
       - name: Run remaining tests with terminal coverage
-        if: ${{ matrix.suite == 'remaining' && matrix.coverage }}
+        if: ${{ matrix.suite == 'remaining' && matrix.python-version == inputs.primary-python }}
         env:
           OPENBLAS_NUM_THREADS: "1"
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
-        run: uv run --locked --python ${{ matrix.python-version }} pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --cov=scansor --cov-report=term-missing --durations=30
+        run: uv run --locked --python "$PYTHON_VERSION" pytest --ignore-glob='tests/test_mesh*.py' -n 4 --dist=worksteal --cov=scansor --cov-report=term-missing --durations=30
 
       - name: Upload suite coverage data
-        if: ${{ matrix.coverage }}
+        if: ${{ matrix.python-version == inputs.primary-python }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: python-coverage-${{ matrix.suite }}
@@ -106,9 +111,11 @@ jobs:
           retention-days: 1
 
   coverage:
-    name: Combined coverage (Python 3.12.14)
+    name: Combined coverage (Python ${{ inputs.primary-python }})
     needs: test
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: ${{ inputs.primary-python }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -119,7 +126,7 @@ jobs:
           install_args: python uv
 
       - name: Install dependencies
-        run: uv sync --locked --python 3.12.14
+        run: uv sync --locked --python "$PYTHON_VERSION"
 
       - name: Download mesh coverage data
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -138,7 +145,7 @@ jobs:
           COVERAGE_DIRECTORY: ${{ runner.temp }}/coverage
           COVERAGE_FILE: ${{ runner.temp }}/coverage-combined
         run: |
-          uv run --locked --python 3.12.14 coverage combine \
+          uv run --locked --python "$PYTHON_VERSION" coverage combine \
             "$COVERAGE_DIRECTORY/mesh/coverage-data" \
             "$COVERAGE_DIRECTORY/remaining/coverage-data"
-          uv run --locked --python 3.12.14 coverage report --show-missing
+          uv run --locked --python "$PYTHON_VERSION" coverage report --show-missing

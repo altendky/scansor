@@ -12,7 +12,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^mise\\.toml$/", "/^\\.github/workflows/.*\\.ya?ml$/"],
+      "managerFilePatterns": ["/^mise\\.toml$/"],
       "matchStrings": ["(?<currentValue>3\\.(?:12|13)\\.\\d+)"],
       "depNameTemplate": "python/cpython",
       "datasourceTemplate": "github-tags",
@@ -22,7 +22,7 @@
   ],
   "packageRules": [
     // Native mise extraction updates only the primary Python entry. The custom
-    // manager instead maintains both tested minors and their exact CI pins.
+    // manager instead maintains both tested minors in CI's shared pin source.
     { "matchManagers": ["mise"], "matchPackageNames": ["python", "python/cpython"], "enabled": false },
     { "matchManagers": ["pep621"], "matchDepTypes": ["requires-python"], "enabled": false },
     {
