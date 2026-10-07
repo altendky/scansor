@@ -38,8 +38,8 @@ test('model picks use complete fit IDs for target and the existing neighbor chec
     if (request.url().endsWith('/api/graph') || request.url().endsWith('/api/session')) edits.push(request.url());
   });
   await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
-  await expect(page.locator('#pick-face-target')).toBeEnabled();
-  await page.locator('#pick-face-target').click();
+  await expect(page.locator('#build-faces-target')).toBeEnabled();
+  await page.locator('#build-faces-target').click();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'target');
   let end = await patch(page, 'End surface');
   // Dragging is not selecting, and empty space cannot change the target.
@@ -118,11 +118,11 @@ test('open Build faces lists and model picking agree after fit readiness, rename
     await expect(page.locator('#evaluate-all')).toBeEnabled();
   };
   const listed = async (name, count) => {
-    await expect(page.locator('#build-faces-target-options [role=option]').filter({ hasText: name })).toHaveCount(count);
+    await expect(page.locator('#build-faces-target-options [role=menuitemradio]').filter({ hasText: name })).toHaveCount(count);
     await expect(page.locator('#build-faces-surfaces option').filter({ hasText: name })).toHaveCount(count);
   };
   await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
-  await page.locator('#pick-face-target').click();
+  await page.locator('#build-faces-target').click();
   const end = await patch(page, 'End surface');
   await page.mouse.click(end.x, end.y);
   await expect(page.locator('#build-faces-target')).toContainText('End surface');
@@ -131,7 +131,7 @@ test('open Build faces lists and model picking agree after fit readiness, rename
   graph.states.end = 'stale';
   await publish();
   await listed('End surface', 0);
-  await page.locator('#pick-face-target').click();
+  await page.locator('#build-faces-target').click();
   await page.mouse.move(end.x, end.y);
   await expect(page.locator('#model-pick-message')).not.toContainText('End surface');
   await page.mouse.click(end.x, end.y);
@@ -144,7 +144,7 @@ test('open Build faces lists and model picking agree after fit readiness, rename
   await publish();
   await listed('End surface', 0);
   await listed('Renamed end', 1);
-  await page.locator('#pick-face-target').click();
+  await page.locator('#build-faces-target').click();
   const renamed = await patch(page, 'Renamed end');
   await page.mouse.click(renamed.x, renamed.y);
   await expect(page.locator('#build-faces-target')).toContainText('Renamed end');
@@ -154,7 +154,7 @@ test('open Build faces lists and model picking agree after fit readiness, rename
   delete graph.states.end;
   await publish();
   await listed('Renamed end', 0);
-  await page.locator('#pick-face-target').click();
+  await page.locator('#build-faces-target').click();
   await page.mouse.move(renamed.x, renamed.y);
   await expect(page.locator('#model-pick-message')).not.toContainText('Renamed end');
   await page.mouse.click(renamed.x, renamed.y);
@@ -182,18 +182,18 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
   await expect(chooser).toBeVisible();
   await expect(chooser.getByRole('button')).toHaveCount(2);
   await expect(page.locator('#relationship-participants input:checked')).toHaveCount(0);
-  // A chooser must recheck eligibility even if a filter changes while open.
+  // Dropdown search does not restrict eligible model picks.
   await page.locator('#relationship-filter').evaluate(input => {
     input.value = 'Outer surface';
     input.dispatchEvent(new Event('input'));
   });
   await chooser.getByRole('button', { name: /End surface/ }).click();
-  await expect(page.locator('#relationship-participants input:checked')).toHaveCount(0);
-  await page.locator('#relationship-filter').fill('');
+  await expect(page.locator('input[data-participant-id="end"]')).toBeChecked();
+  await page.locator('#relationship-filter').evaluate(input => { input.value = ''; input.dispatchEvent(new Event('input')); });
   await page.mouse.click(point.x, point.y);
   await expect(chooser).toBeVisible();
   await chooser.getByRole('button', { name: /End surface/ }).click();
-  await expect(page.locator('input[data-participant-id="end"]')).toBeChecked();
+  await expect(page.locator('input[data-participant-id="end"]')).not.toBeChecked();
   await expect(page.locator('input[data-participant-id="side"]')).not.toBeChecked();
   await expect(chooser).toBeHidden();
 });
@@ -209,7 +209,8 @@ test('modal multi-input picks preserve the draft, toggle selections and do not a
   await page.locator('#new-fit-label').fill('My uncommitted fit');
   await page.locator('#new-fit-inputs').selectOption([]);
   await page.locator('[data-pick-control="new-fit-inputs"]').click();
-  await expect(page.locator('#fit-dialog')).toBeHidden();
+  await expect(page.locator('#fit-dialog')).toBeVisible();
+  expect(await page.locator('#fit-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(false);
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
   const create = page.getByRole('button', { name: 'Surface fit', exact: true });
   expect(await create.evaluate(button => !!button.closest('[inert]'))).toBe(true);
@@ -267,7 +268,8 @@ test('datum guide picks return a modal single-input form with its draft and enum
   await page.locator('#new-frame-label').fill('Uncommitted frame');
   await page.locator('#new-frame-origin').selectOption(JSON.stringify({ feature: 'other_point', output: 'point', context: 'other_point' }));
   await page.locator('[data-pick-control="new-frame-origin"]').click();
-  await expect(page.locator('#frame-dialog')).toBeHidden();
+  await expect(page.locator('#frame-dialog')).toBeVisible();
+  expect(await page.locator('#frame-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(false);
   const origin = await patch(page, 'Pick origin');
   await page.mouse.click(origin.x, origin.y);
   await expect(page.locator('#frame-dialog')).toBeVisible();
