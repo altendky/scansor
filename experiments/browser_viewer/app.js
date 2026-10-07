@@ -12,6 +12,8 @@ import {
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
+import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference,
+  referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
@@ -133,6 +135,12 @@ function modelPickChoices() {
       buildFacesApplying || relationshipApplying) return [];
   const nodes = graphState.recipe.nodes;
   if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control).map(option => {
+    if (modelPickField.control.dataset.inputRequirement) {
+      const output = matchingInputOutput(option.key,
+        requirementOutputs(graphState, modelPickField.control.dataset.inputRequirement));
+      return { ...option, reference: output?.reference, inputOutput: output,
+        icon: output?.capability || 'point' };
+    }
     let reference, exactReference = false;
     try { reference = JSON.parse(option.key); exactReference = !!reference?.feature; }
     catch { reference = { feature: option.key }; }
@@ -267,6 +275,9 @@ function syncModelPickControls() {
       'Click fitted scan patches to toggle participants.';
 }
 function modelPickParts(choice) {
+  // Named geometry outputs never inherit supporting observations or unrelated
+  // members of a provider's numerical result.
+  if (choice.inputOutput) return [];
   const reference = choice.reference || choice.candidate?.reference;
   const node = graphNode(reference?.surface || reference?.feature);
   if (!node) return [];
@@ -307,6 +318,22 @@ function paintModelPickGuides() {
   for (const choice of choices) {
     const color = choice.key === modelPickHoverKey ? '#ffe45c' : '#78e2ff';
     const before = modelPickGuides.children.length;
+    if (choice.inputOutput?.preview) {
+      const output = choice.inputOutput, values = output.preview;
+      if (output.capability === 'point') pointGuide(values, color, modelPickGuides);
+      else if (output.capability === 'plane') {
+        const normal = new THREE.Vector3(...values.normal_display).normalize(),
+          u = new THREE.Vector3(Math.abs(normal.z) < 0.9 ? 0 : 1, 0, Math.abs(normal.z) < 0.9 ? 1 : 0)
+            .cross(normal).normalize(), v = normal.clone().cross(u).normalize();
+        referencePlaneGuide({ ...values, basis_u_display: u.toArray(), basis_v_display: v.toArray(),
+          construction: 'perpendicular_to_axis' }, color, modelPickGuides);
+      } else axisGuide(values, color, modelPickGuides);
+      for (const child of modelPickGuides.children.slice(before)) {
+        child.userData.pickGuide = true;
+        child.userData.pickKey = choice.key;
+      }
+      continue;
+    }
     for (const { node, fitted, reference } of modelPickParts(choice)) {
       if (node.operation === 'axis') axisGuide(fitted, color, modelPickGuides);
       else if (node.operation === 'point') pointGuide(fitted, color, modelPickGuides);
@@ -386,6 +413,7 @@ function modelPicksAt(event) {
     const face = hits.find(hit => hit.object.userData.sourceFace);
     const node = graphNode(face?.object.userData.sourceFace);
     if (node) for (const choice of choices) {
+      if (choice.inputOutput) continue;
       const reference = choice.reference || choice.candidate?.reference;
       if (choice.key === node.id || sameSurfaceReference(reference, node.surface) ||
           modelPickParts(choice).some(part => sameSurfaceReference(part.reference, node.surface)) ||
@@ -1409,7 +1437,7 @@ function showReuseVolumes() {
   }
 }
 function graphNode(id) {
-  return graphState.recipe.nodes.find((n) => n.id === id);
+  return graphState?.recipe.nodes.find((n) => n.id === referenceFeature(readInputReference(id)));
 }
 function selectOnly(id) {
   selectedFeatureIds = new Set(id ? [id] : []);
@@ -1710,20 +1738,22 @@ function addFaceBoundary(prefix) {
     if (prefix === 'new-face') $('trimmed-face-error').textContent = error.message;
   }
 }
+function geometryInputChoices(id, requirement, nodes, selected) {
+  const control = typeof id === 'string' ? $(id) : id;
+  control.dataset.inputRequirement = requirement;
+  if (nodes.length < graphState.recipe.nodes.length)
+    control.dataset.inputConsumer = selectedFeatureId || '';
+  else delete control.dataset.inputConsumer;
+  renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected);
+}
 function frameGeometry(nodes) {
   return {
-    points: nodes.filter((node) => node.operation === 'point'),
-    references: nodes.filter(
-      (node) =>
-        ['axis', 'reference_plane'].includes(node.operation) ||
-        (node.operation === 'fit' && node.kind === 'plane'),
-    ),
+    points: inputChoices(graphState, 'point', nodes),
+    references: inputChoices(graphState, 'direction', nodes),
   };
 }
-function pointCoordinates(id) {
-  const node = graphNode(id),
-    value = graphState.results[id] || (node?.operation === 'point' ? pointPreview(node) : null);
-  return value?.point_display || null;
+function pointCoordinates(reference) {
+  return matchingInputOutput(reference, requirementOutputs(graphState, 'point'))?.preview?.point_display || null;
 }
 function currentPointDistance(first, second) {
   const a = pointCoordinates(first),
@@ -1744,14 +1774,10 @@ function scaleDistanceRow(containerId, points, distance = {}) {
   first.dataset.field = 'first';
   second.dataset.field = 'second';
   known.dataset.field = 'known';
-  first.replaceChildren(
-    ...points.map((point) => new Option(point.label, point.id, false, point.id === distance.first_point)),
-  );
-  second.replaceChildren(
-    ...points.map((point) => new Option(point.label, point.id, false, point.id === distance.second_point)),
-  );
-  if (!distance.first_point) first.value = points[0]?.id || '';
-  if (!distance.second_point) second.value = points[1]?.id || points[0]?.id || '';
+  first.dataset.inputRequirement = second.dataset.inputRequirement = 'point';
+  if (containerId === 'scale-distance-rows') first.dataset.inputConsumer = second.dataset.inputConsumer = selectedFeatureId;
+  renderInputChoices(first, points, distance.first_point || points.find(point => point.availability === 'ready')?.reference);
+  renderInputChoices(second, points, distance.second_point || points.filter(point => point.availability === 'ready')[1]?.reference);
   known.type = 'number';
   known.min = '0.000000000001';
   known.step = 'any';
@@ -1773,8 +1799,8 @@ function renderScaleDistances(containerId, points, distances) {
 }
 function readScaleDistances(containerId) {
   return [...$(containerId).querySelectorAll('.scale-distance-row')].map((row) => ({
-    first_point: row.querySelector('[data-field="first"]').value,
-    second_point: row.querySelector('[data-field="second"]').value,
+    first_point: readInputReference(row.querySelector('[data-field="first"]').value),
+    second_point: readInputReference(row.querySelector('[data-field="second"]').value),
     known_distance: Number(row.querySelector('[data-field="known"]').value),
     weight: 1,
   }));
@@ -1971,9 +1997,7 @@ function clockDatumPlanes(nodes, axis = null) {
   );
 }
 function fitReferenceChoices(id, kind, nodes, selected = '') {
-  const references = kind === 'sphere'
-    ? nodes.filter((node) => node.operation === 'point')
-    : nodes.filter((node) => ['axis', 'reference_plane'].includes(node.operation));
+  const references = nodes.filter((node) => ['axis', 'reference_plane'].includes(node.operation));
   const validSelected = references.some((node) => node.id === selected) ? selected : '';
   $(id).replaceChildren(
     new Option('None (standalone)', '', false, !validSelected),
@@ -1987,6 +2011,10 @@ function fitReferenceChoices(id, kind, nodes, selected = '') {
         ),
     ),
   );
+  if (kind === 'sphere') {
+    geometryInputChoices(id, 'constrainable_point', nodes, selected);
+    $(id).options[0].textContent = 'None (standalone)';
+  } else delete $(id).dataset.inputRequirement;
   const hint = $(`${id}-hint`);
   if (hint)
     hint.textContent =
@@ -2129,6 +2157,14 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
+  const inputDrafts = new Map([...document.querySelectorAll('select[data-input-requirement]')]
+    .filter(control => !control.closest('#action-properties')).map(control => [control, control.value]));
+  const draftOwner = graphNode(selectedFeatureId),
+    preserveProperties = ['axis', 'frame', 'scale'].includes(draftOwner?.operation) &&
+      state.recipe.nodes.some(node => node.id === selectedFeatureId && node.operation === draftOwner.operation),
+    propertyDraft = preserveProperties ? [...$('action-properties').querySelectorAll('input[id], select[id]')]
+      .map(control => ({ id: control.id, value: control.value, checked: control.checked })) : [],
+    scaleDraft = preserveProperties && draftOwner.operation === 'scale' ? readScaleDistances('scale-distance-rows') : null;
   if (modelPickMode && graphState && state !== graphState) setModelPickMode(null);
   if ((buildFacesProposal && state.token !== buildFacesProposal.token) ||
       (buildFacesCandidates && state.token !== buildFacesCandidates.token) ||
@@ -2198,6 +2234,23 @@ function acceptGraph(state) {
   );
   renderActions();
   showProperties();
+  if (scaleDraft) renderScaleDistances('scale-distance-rows',
+    frameGeometry(state.recipe.nodes.slice(0, state.recipe.nodes.findIndex(node => node.id === selectedFeatureId))).points,
+    scaleDraft);
+  for (const saved of propertyDraft) {
+    const control = $(saved.id);
+    if (control.dataset.inputRequirement) {
+      const consumer = control.dataset.inputConsumer,
+        nodes = consumer ? state.recipe.nodes.slice(0, state.recipe.nodes.findIndex(node => node.id === consumer)) : state.recipe.nodes;
+      renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement, nodes), saved.value);
+    } else { control.value = saved.value; control.checked = saved.checked; }
+  }
+  if (preserveProperties && draftOwner.operation === 'axis') showAxisInitializer(
+    'axis-init-mode', 'axis-source-fields', 'axis-manual-fields', 'axis-point-fields');
+  for (const control of document.querySelectorAll('select[data-input-requirement]')) {
+    if (control.closest('#action-properties')) continue;
+    renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement), inputDrafts.get(control) ?? control.value);
+  }
   showResult();
   showReuseVolumes();
   paint();
@@ -2464,9 +2517,8 @@ function showProperties() {
       ),
       node.source_fit ? [node.source_fit] : [],
     );
-    const points = earlier.filter((n) => n.operation === 'point');
-    choices('axis-source-point-a', points, node.source_points ? [node.source_points[0]] : []);
-    choices('axis-source-point-b', points, node.source_points ? [node.source_points[1]] : []);
+    geometryInputChoices('axis-source-point-a', 'point', earlier, node.source_points?.[0]);
+    geometryInputChoices('axis-source-point-b', 'point', earlier, node.source_points?.[1]);
     const initial = node.initial_parameters || [0, 0, 0, 0];
     ['axis-point-x', 'axis-point-y', 'axis-direction-x', 'axis-direction-y'].forEach(
       (id, index) => ($(id).value = initial[index]),
@@ -2493,10 +2545,9 @@ function showProperties() {
     );
     showAxisInitializer('point-init-mode', 'point-source-fields', 'point-manual-fields');
   } else if (node.operation === 'frame') {
-    const geometry = frameGeometry(earlier);
-    choices('frame-origin', geometry.points, [node.origin_point]);
-    choices('frame-primary-reference', geometry.references, [node.primary_reference]);
-    choices('frame-secondary-reference', geometry.references, [node.secondary_reference]);
+    geometryInputChoices('frame-origin', 'point', earlier, node.origin_point);
+    geometryInputChoices('frame-primary-reference', 'direction', earlier, node.primary_reference);
+    geometryInputChoices('frame-secondary-reference', 'direction', earlier, node.secondary_reference);
     $('frame-primary-output').value = node.primary_output_axis;
     $('frame-secondary-output').value = node.secondary_output_axis;
   } else if (node.operation === 'scale') {
@@ -2861,11 +2912,11 @@ function axisGuide(axisValues, color = '#ffd166', group = overlays) {
 }
 function axisPreview(node) {
   if (node.source_points) {
-    const first = graphState.results[node.source_points[0]] || pointPreview(graphNode(node.source_points[0])),
-      second = graphState.results[node.source_points[1]] || pointPreview(graphNode(node.source_points[1]));
+    const first = pointCoordinates(node.source_points[0]),
+      second = pointCoordinates(node.source_points[1]);
     if (!first || !second) return null;
-    const point = new THREE.Vector3(...first.point_display),
-      axis = new THREE.Vector3(...second.point_display).sub(point);
+    const point = new THREE.Vector3(...first),
+      axis = new THREE.Vector3(...second).sub(point);
     if (axis.lengthSq() <= Number.EPSILON) return null;
     axis.normalize();
     if (node.direction_reversed) axis.negate();
@@ -4687,15 +4738,15 @@ async function start() {
         ['cone', 'cylinder'].includes(node.kind) &&
         isStandaloneFit(node),
     );
-    const points = graphState.recipe.nodes.filter((node) => node.operation === 'point'),
-      selectedPoints = points.filter((node) => selectedFeatureIds.has(node.id));
+    const points = inputChoices(graphState, 'point'),
+      selectedPoints = points.filter(output => selectedFeatureIds.has(output.reference.feature));
     choices(
       'new-axis-source',
       sources,
       [selectedFeatureId],
     );
-    choices('new-axis-point-a', points, selectedPoints.slice(0, 1).map((node) => node.id));
-    choices('new-axis-point-b', points, selectedPoints.slice(1, 2).map((node) => node.id));
+    geometryInputChoices('new-axis-point-a', 'point', graphState.recipe.nodes, selectedPoints[0]?.reference);
+    geometryInputChoices('new-axis-point-b', 'point', graphState.recipe.nodes, selectedPoints[1]?.reference);
     $('new-axis-mode').value = selectedPoints.length === 2 ? 'points' : 'free';
     $('new-axis-direction-reversed').checked = false;
     $('axis-error').textContent = '';
@@ -4722,23 +4773,23 @@ async function start() {
   };
   $('new-frame').onclick = () => {
     const geometry = frameGeometry(graphState.recipe.nodes),
-      selectedPoint = geometry.points.find((node) => selectedFeatureIds.has(node.id)),
-      selectedReferences = geometry.references.filter((node) => selectedFeatureIds.has(node.id));
+      selectedPoint = geometry.points.find(output => selectedFeatureIds.has(output.reference.feature)),
+      selectedReferences = geometry.references.filter(output => selectedFeatureIds.has(output.reference.feature));
     if (!geometry.points.length || geometry.references.length < 2) {
       status('Create a point and two direction-bearing references before defining a frame.', true);
       return;
     }
     const primary =
-        selectedReferences.find((node) => node.operation !== 'axis') ||
+        selectedReferences.find(output => output.capability === 'plane') ||
         selectedReferences[0] ||
-        geometry.references.find((node) => node.operation !== 'axis') ||
+        geometry.references.find(output => output.capability === 'plane') ||
         geometry.references[0],
       secondary =
-        selectedReferences.find((node) => node.id !== primary.id) ||
-        geometry.references.find((node) => node.id !== primary.id);
-    choices('new-frame-origin', geometry.points, [selectedPoint?.id || geometry.points[0].id]);
-    choices('new-frame-primary-reference', geometry.references, [primary.id]);
-    choices('new-frame-secondary-reference', geometry.references, [secondary.id]);
+        selectedReferences.find(output => inputReferenceKey(output.reference) !== inputReferenceKey(primary.reference)) ||
+        geometry.references.find(output => inputReferenceKey(output.reference) !== inputReferenceKey(primary.reference));
+    geometryInputChoices('new-frame-origin', 'point', graphState.recipe.nodes, selectedPoint?.reference || geometry.points[0].reference);
+    geometryInputChoices('new-frame-primary-reference', 'direction', graphState.recipe.nodes, primary.reference);
+    geometryInputChoices('new-frame-secondary-reference', 'direction', graphState.recipe.nodes, secondary.reference);
     $('new-frame-primary-output').value = '+Z';
     $('new-frame-secondary-output').value = '+X';
     $('frame-error').textContent = '';
@@ -4746,7 +4797,7 @@ async function start() {
   };
   $('new-scale').onclick = () => {
     const geometry = frameGeometry(graphState.recipe.nodes),
-      selectedPoints = geometry.points.filter((node) => selectedFeatureIds.has(node.id));
+      selectedPoints = geometry.points.filter(output => selectedFeatureIds.has(output.reference.feature));
     if (geometry.points.length < 2) {
       status('Create at least two point datums before defining scale.', true);
       return;
@@ -4756,9 +4807,9 @@ async function start() {
     for (let first = 0; first < pairPoints.length; first++)
       for (let second = first + 1; second < pairPoints.length; second++)
         distances.push({
-          first_point: pairPoints[first].id,
-          second_point: pairPoints[second].id,
-          known_distance: currentPointDistance(pairPoints[first].id, pairPoints[second].id),
+          first_point: pairPoints[first].reference,
+          second_point: pairPoints[second].reference,
+          known_distance: currentPointDistance(pairPoints[first].reference, pairPoints[second].reference),
         });
     renderScaleDistances('new-scale-distance-rows', geometry.points, distances);
     $('scale-error').textContent = '';
@@ -5112,7 +5163,7 @@ async function start() {
       ...(fromFit
         ? { source_fit: sourceId }
         : fromPoints
-          ? { source_points: [pointA, pointB] }
+          ? { source_points: [readInputReference(pointA), readInputReference(pointB)] }
         : {
             initial_parameters: [
               Number($('new-axis-point-x').value),
@@ -5193,10 +5244,10 @@ async function start() {
         id: uid('frame'),
         label: submittedFeatureLabel('new-frame-label'),
         operation: 'frame',
-        origin_point: $('new-frame-origin').value,
-        primary_reference: primaryReference,
+        origin_point: readInputReference($('new-frame-origin').value),
+        primary_reference: readInputReference(primaryReference),
         primary_output_axis: primaryOutput,
-        secondary_reference: secondaryReference,
+        secondary_reference: readInputReference(secondaryReference),
         secondary_output_axis: secondaryOutput,
       },
     ]);
@@ -5212,7 +5263,7 @@ async function start() {
         (distance) =>
           !distance.first_point ||
           !distance.second_point ||
-          distance.first_point === distance.second_point ||
+          inputReferenceKey(distance.first_point) === inputReferenceKey(distance.second_point) ||
           !(distance.known_distance > 0),
       )
     ) {
@@ -5572,7 +5623,7 @@ async function start() {
           return;
         }
         node.source_fit = null;
-        node.source_points = [pointA, pointB];
+        node.source_points = [readInputReference(pointA), readInputReference(pointB)];
         node.initial_parameters = null;
       } else {
         node.source_fit = null;
@@ -5610,10 +5661,10 @@ async function start() {
         status('Choose different direction references and output axes.', true);
         return;
       }
-      node.origin_point = $('frame-origin').value;
-      node.primary_reference = primaryReference;
+      node.origin_point = readInputReference($('frame-origin').value);
+      node.primary_reference = readInputReference(primaryReference);
       node.primary_output_axis = primaryOutput;
-      node.secondary_reference = secondaryReference;
+      node.secondary_reference = readInputReference(secondaryReference);
       node.secondary_output_axis = secondaryOutput;
     }
     if (node.operation === 'scale') {
@@ -5624,7 +5675,7 @@ async function start() {
           (distance) =>
             !distance.first_point ||
             !distance.second_point ||
-            distance.first_point === distance.second_point ||
+            inputReferenceKey(distance.first_point) === inputReferenceKey(distance.second_point) ||
             !(distance.known_distance > 0),
         )
       ) {

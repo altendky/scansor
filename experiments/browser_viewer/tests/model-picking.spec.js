@@ -250,26 +250,35 @@ test('datum guide picks return a modal single-input form with its draft and enum
     graph.results[node.id] = result;
     graph.states[node.id] = 'ready';
   }
+  const descriptors = fixtures.map(({ node, result }) => ({
+    reference: { feature: node.id, output: node.operation === 'axis' ? 'axis' : 'point', context: node.id },
+    capability: node.operation === 'axis' ? 'direction' : 'point', label: node.label,
+    availability: 'ready', reason: null, dependencies: [node.id], preview: result,
+  }));
+  graph.input_catalogue = [...(graph.input_catalogue || []), ...descriptors];
+  for (const requirement of ['point', 'direction']) {
+    graph.input_requirements[requirement].choices.push(...descriptors.filter(output => output.capability === requirement));
+  }
   await page.route(/\/api\/graph(?:\?.*)?$/, route => route.request().method() === 'GET' ? route.fulfill({ json: graph }) : route.continue());
   await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
   await page.reload();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
   await page.getByRole('button', { name: 'Frame', exact: true }).click();
   await page.locator('#new-frame-label').fill('Uncommitted frame');
-  await page.locator('#new-frame-origin').selectOption('other_point');
+  await page.locator('#new-frame-origin').selectOption(JSON.stringify({ feature: 'other_point', output: 'point', context: 'other_point' }));
   await page.locator('[data-pick-control="new-frame-origin"]').click();
   await expect(page.locator('#frame-dialog')).toBeHidden();
   const origin = await patch(page, 'Pick origin');
   await page.mouse.click(origin.x, origin.y);
   await expect(page.locator('#frame-dialog')).toBeVisible();
-  await expect(page.locator('#new-frame-origin')).toHaveValue('origin');
+  await expect(page.locator('#new-frame-origin')).toHaveValue(JSON.stringify({ feature: 'origin', output: 'point', context: 'origin' }));
   await expect(page.locator('#new-frame-label')).toHaveValue('Uncommitted frame');
   await expect(page.locator('[data-pick-control="new-frame-primary-output"]')).toHaveCount(0);
   await page.locator('[data-pick-control="new-frame-primary-reference"]').click();
   const axis = await patch(page, 'Pick axis');
   await page.mouse.click(axis.x, axis.y);
   await expect(page.locator('#frame-dialog')).toBeVisible();
-  await expect(page.locator('#new-frame-primary-reference')).toHaveValue('axis');
+  await expect(page.locator('#new-frame-primary-reference')).toHaveValue(JSON.stringify({ feature: 'axis', output: 'axis', context: 'axis' }));
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
   expect(errors).toEqual([]);
 });

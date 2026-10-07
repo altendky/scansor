@@ -144,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         "/body-ui.js": ("body-ui.js", "text/javascript"),
         "/feature-graph-view.js": ("feature-graph-view.js", "text/javascript"),
         "/feature-names.js": ("feature-names.js", "text/javascript"),
+        "/feature-inputs.js": ("feature-inputs.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/surface-trims.js": ("surface-trims.js", "text/javascript"),

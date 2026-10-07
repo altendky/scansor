@@ -421,7 +421,7 @@ panel is open; closing it clears the helper highlights.
    axis. Alternatively, initialize the separate axis action from an earlier
    standalone cone or cylinder fit; in that mode the dialog can also create an
    axis-bound factor of the same type from the same observations. An axis can
-   also be constructed through two point datums, directed from the first toward
+   also be constructed through two point outputs, directed from the first toward
    the second. Every axis has an explicit **Flip positive direction** setting
    and is drawn with an arrowhead. Point-pair axes support arbitrary directions,
    including horizontal ones; in this bounded slice they are datum-only and do
@@ -439,15 +439,30 @@ panel is open; closing it clears the helper highlights.
    separately selectable feature. That axis point is a bounded prototype
    convention; the generalized model should use an explicit point or frame.
 6. **Frame** defines an explicit right-handed coordinate frame. Choose a point
-   datum as its origin and map two nonparallel axis, reference-plane, or fitted-
+   output as its origin and map two nonparallel axis, reference-plane, or fitted-
    plane directions to two distinct signed output axes such as `+Z` and `+X`.
    The secondary direction is projected perpendicular to the primary direction;
    the third axis is derived by the right-hand rule. Parallel references and
    conflicting output-axis choices are rejected.
 7. **Scale** derives one uniform scale from one or more known distances between
-   point datums. Its least-squares result reports every measured and scaled
+   point outputs. Its least-squares result reports every measured and scaled
    distance and residual, plus weighted RMS and worst absolute residual. With
    multiple distances, weights determine their relative influence.
+   These point readers share the experimental backend input contract: a datum
+   point, the center of a sphere fit, or exactly one selected scan vertex can
+   supply a point. A selection with several vertices never implies a centroid.
+   The list and model picker offer the same named outputs; point picking
+   highlights the point itself, rather than its supporting observations.
+   Frame directions similarly use named axis and plane outputs. New references
+   save the feature, output name, and exact publication context. An unavailable
+   saved output remains identifiable and is not silently replaced by another
+   solve. Candidate discovery does not evaluate fits.
+   This is a bounded, internal authoring contract in
+   `experiments.feature_inputs`, not a public schema or a migration of every
+   input. Geometry readers and adjustable fitting inputs remain distinct:
+   supplying a sphere center does not make the sphere an adjustable point datum,
+   and a plane geometry output does not make its provider a valid participant
+   in every fitting relationship. Existing datum-ID recipes remain readable.
 8. **Transform** composes one earlier Frame and one earlier Scale into an
    applicable 4×4 output matrix. When it is the graph output, the model view
    applies it to the mesh, selections, fits, datums, residual markers, and reuse

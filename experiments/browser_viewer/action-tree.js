@@ -157,6 +157,12 @@ export function featureTreePresentation(nodes, featureStates, featureErrors = {}
   nodes.forEach((node) => visit(node.id));
   return { states: presentedStates, errors: presentedErrors };
 }
+function outputReferenceIds(reference) {
+  if (typeof reference === 'string') return [reference];
+  if (!reference?.feature) return [];
+  const context = reference.context?.replace(/^@(axis|point)\//, '');
+  return [...new Set([reference.feature, ...(context ? [context] : [])])];
+}
 export function nodeReferences(node) {
   if (node.operation === 'body') return [...new Set(node.faces)];
   if (node.operation === 'build_faces')
@@ -182,17 +188,19 @@ export function nodeReferences(node) {
     ];
   if (node.operation === 'axis')
     return [...new Set([
-      ...(node.source_fit ? [node.source_fit] : [...(node.source_points || [])]),
+      ...(node.source_fit ? [node.source_fit] : (node.source_points || []).flatMap(outputReferenceIds)),
       ...(node.placement
         ? [node.placement.reuse, node.placement.source, node.placement.target_selection] : []),
     ])];
   if (node.operation === 'point') return node.source_fit ? [node.source_fit] : [];
   if (node.operation === 'scale')
     return [...new Set([
-      ...node.distances.flatMap((distance) => [distance.first_point, distance.second_point]),
+      ...node.distances.flatMap((distance) =>
+        [distance.first_point, distance.second_point].flatMap(outputReferenceIds)),
     ])];
   if (node.operation === 'frame')
-    return [...new Set([node.origin_point, node.primary_reference, node.secondary_reference])];
+    return [...new Set([node.origin_point, node.primary_reference, node.secondary_reference]
+      .flatMap(outputReferenceIds))];
   if (node.operation === 'transform') return [node.frame, node.scale];
   if (node.operation === 'reference_plane') return [...new Set([
     node.axis,

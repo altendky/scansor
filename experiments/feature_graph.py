@@ -1,5 +1,9 @@
 """Experimental backend DAG for captured-mesh recipes; current state only."""
 
+# Output models load independently; provider functions import this module only
+# when called after initialization. The lazy provider integration is intentional.
+# pyright: reportImportCycles=false
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +19,21 @@ from typing import Annotated, Any, ClassVar, Literal, cast, final
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
+from experiments.feature_inputs import (
+    REQUIREMENTS,
+    FeatureInput,
+    OutputReference,
+    input_choices,
+    output_catalogue,
+    reference_dependencies,
+    reference_json,
+    resolve_output,
+    validate_output_reference,
+    validate_parameter_owner,
+)
+from experiments.feature_inputs import (
+    reference_key as input_reference_key,
+)
 from experiments.feature_reuse import (
     estimate_rigid_match,
     surface_region_frame,
@@ -216,7 +235,7 @@ class AxisDefinition(Node):
 
     operation: Literal["axis"]
     source_fit: str | None = None
-    source_points: tuple[str, str] | None = None
+    source_points: tuple[FeatureInput, FeatureInput] | None = None
     initial_parameters: tuple[float, float, float, float] | None = None
     direction_reversed: bool = False
     placement: ReusePlacement | None = None
@@ -264,8 +283,8 @@ class PointDefinition(Node):
 class ScaleDistance(Record):
     """One known output distance between two fitted point datums."""
 
-    first_point: str
-    second_point: str
+    first_point: FeatureInput
+    second_point: FeatureInput
     known_distance: float = Field(gt=0, allow_inf_nan=False)
     weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
 
@@ -290,10 +309,10 @@ class FrameDefinition(Node):
     """Right-handed coordinate frame constructed from explicit datum references."""
 
     operation: Literal["frame"]
-    origin_point: str
-    primary_reference: str
+    origin_point: FeatureInput
+    primary_reference: FeatureInput
     primary_output_axis: CoordinateAxis
-    secondary_reference: str
+    secondary_reference: FeatureInput
     secondary_output_axis: CoordinateAxis
 
     @model_validator(mode="after")
@@ -713,7 +732,13 @@ def dependencies(node: Feature) -> list[str]:
             ]
         if node.source_fit is not None:
             return [node.source_fit]
-        return list(node.source_points or ())
+        return list(
+            dict.fromkeys(
+                dep
+                for ref in node.source_points or ()
+                for dep in reference_dependencies(ref)
+            )
+        )
     if isinstance(node, PointDefinition):
         return [node.source_fit] if node.source_fit is not None else []
     if isinstance(node, ScaleDefinition):
@@ -721,12 +746,13 @@ def dependencies(node: Feature) -> list[str]:
             dict.fromkeys(
                 [
                     *(
-                        ref
+                        dep
                         for distance in node.distances
                         for ref in (
                             distance.first_point,
                             distance.second_point,
                         )
+                        for dep in reference_dependencies(ref)
                     ),
                 ]
             )
@@ -734,7 +760,15 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, FrameDefinition):
         return list(
             dict.fromkeys(
-                [node.origin_point, node.primary_reference, node.secondary_reference]
+                [
+                    dep
+                    for ref in (
+                        node.origin_point,
+                        node.primary_reference,
+                        node.secondary_reference,
+                    )
+                    for dep in reference_dependencies(ref)
+                ]
             )
         )
     if isinstance(node, TransformDefinition):
@@ -1277,10 +1311,35 @@ def compile_execution_plan(
             and node.placement is not None
         ):
             reads[node.id] = {node.placement.source}
-        elif isinstance(node, (FrameDefinition, ScaleDefinition, TransformDefinition)):
+        elif isinstance(node, (FrameDefinition, ScaleDefinition)):
+            references = (
+                (node.origin_point, node.primary_reference, node.secondary_reference)
+                if isinstance(node, FrameDefinition)
+                else tuple(
+                    ref
+                    for distance in node.distances
+                    for ref in (distance.first_point, distance.second_point)
+                )
+            )
+            reads[node.id] = {ref for ref in references if isinstance(ref, str)}
+            task_dependencies[node.id].update(
+                ref.context
+                for ref in references
+                if isinstance(ref, OutputReference)
+                and ref.context
+                and ref.context.startswith("@")
+            )
+        elif isinstance(node, TransformDefinition):
             reads[node.id] = set(dependencies(node))
         elif isinstance(node, AxisDefinition) and node.source_points is not None:
-            reads[node.id] = set(node.source_points)
+            reads[node.id] = {ref for ref in node.source_points if isinstance(ref, str)}
+            task_dependencies[node.id].update(
+                ref.context
+                for ref in node.source_points
+                if isinstance(ref, OutputReference)
+                and ref.context
+                and ref.context.startswith("@")
+            )
         elif isinstance(node, SelectionRegion):
             reads[node.id] = {
                 node.fit,
@@ -1415,8 +1474,37 @@ def compile_execution_plan(
         )
         read_exclusions[task] = excluded
 
+    # Track implicit publication demand by root path. An exact output edge
+    # brings only its named context; an independent legacy path to the same
+    # physical initializer still retains its implicit solved publications.
+    implicit_initial = roots.copy()
+    pending_implicit = list(roots)
+    while pending_implicit:
+        node = nodes[pending_implicit.pop()]
+        references = (
+            (node.origin_point, node.primary_reference, node.secondary_reference)
+            if isinstance(node, FrameDefinition)
+            else node.source_points
+            if isinstance(node, AxisDefinition) and node.source_points is not None
+            else tuple(
+                ref
+                for distance in node.distances
+                for ref in (distance.first_point, distance.second_point)
+            )
+            if isinstance(node, ScaleDefinition)
+            else None
+        )
+        implicit_dependencies = (
+            dependencies(node)
+            if references is None
+            else [ref for ref in references if isinstance(ref, str)]
+        )
+        for dep in implicit_dependencies:
+            if dep not in implicit_initial:
+                implicit_initial.add(dep)
+                pending_implicit.append(dep)
     needed = initial | {
-        provider for key in initial for provider in providers.get(key, set())
+        provider for key in implicit_initial for provider in providers.get(key, set())
     }
     while True:
         expanded = needed | {dep for key in needed for dep in task_dependencies[key]}
@@ -1760,7 +1848,9 @@ def directed_axis_result(
         direction = -direction
     return {
         "source_fit": node.source_fit,
-        "source_points": list(node.source_points) if node.source_points else None,
+        "source_points": [reference_json(ref) for ref in node.source_points]
+        if node.source_points
+        else None,
         "parameters": legacy_parameters,
         "axis_display": direction.tolist(),
         "point_display": point.tolist(),
@@ -1826,9 +1916,13 @@ def scale_result(
     known: list[float] = []
     weights: list[float] = []
     for distance in node.distances:
-        first = np.asarray(resolved[distance.first_point]["point_display"], dtype=float)
+        first = np.asarray(
+            resolved[input_reference_key(distance.first_point)]["point_display"],
+            dtype=float,
+        )
         second = np.asarray(
-            resolved[distance.second_point]["point_display"], dtype=float
+            resolved[input_reference_key(distance.second_point)]["point_display"],
+            dtype=float,
         )
         value = float(np.linalg.norm(second - first))
         if not np.isfinite(value) or value <= 1e-12:
@@ -1886,9 +1980,15 @@ def frame_result(
     resolved: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Construct an explicit right-handed frame from two mapped directions."""
-    origin = np.asarray(resolved[node.origin_point]["point_display"], dtype=float)
-    primary = reference_direction(resolved[node.primary_reference], node.label)
-    secondary = reference_direction(resolved[node.secondary_reference], node.label)
+    origin = np.asarray(
+        resolved[input_reference_key(node.origin_point)]["point_display"], dtype=float
+    )
+    primary = reference_direction(
+        resolved[input_reference_key(node.primary_reference)], node.label
+    )
+    secondary = reference_direction(
+        resolved[input_reference_key(node.secondary_reference)], node.label
+    )
     projected = secondary - primary * float(secondary @ primary)
     projected_length = float(np.linalg.norm(projected))
     if not np.isfinite(projected_length) or projected_length <= 1e-10:
@@ -1919,9 +2019,9 @@ def frame_result(
         "y_axis_display": axes["y"].tolist(),
         "z_axis_display": axes["z"].tolist(),
         "rotation": rotation.tolist(),
-        "primary_reference": node.primary_reference,
+        "primary_reference": reference_json(node.primary_reference),
         "primary_output_axis": node.primary_output_axis,
-        "secondary_reference": node.secondary_reference,
+        "secondary_reference": reference_json(node.secondary_reference),
         "secondary_output_axis": node.secondary_output_axis,
         "reference_separation_degrees": float(
             np.degrees(np.arccos(np.clip(float(primary @ secondary), -1.0, 1.0)))
@@ -2559,6 +2659,8 @@ class FeatureGraph:
                     nodes[node.point], PointDefinition
                 ):
                     raise ValueError("point-bound fit requires an explicit point")
+                if node.point is not None:
+                    validate_parameter_owner(nodes[node.point], "constrainable_point")
                 if node.reference_plane is not None and not isinstance(
                     nodes[node.reference_plane], PlaneDefinition
                 ):
@@ -2879,11 +2981,13 @@ class FeatureGraph:
                             "an axis fit initializer must be an earlier standalone cone or cylinder"
                         )
                 elif node.source_points is not None:
-                    points = [nodes[ref] for ref in node.source_points]
-                    if any(not isinstance(point, PointDefinition) for point in points):
-                        raise ValueError(
-                            "a point-pair axis requires two earlier point datums"
-                        )
+                    for ref in node.source_points:
+                        if isinstance(ref, OutputReference):
+                            _ = validate_output_reference(ref, recipe, "point")
+                        elif not isinstance(nodes[ref], PointDefinition):
+                            raise ValueError(
+                                "a point-pair axis requires two earlier point datums"
+                            )
                 else:
                     assert node.initial_parameters is not None
                     if not np.isfinite(node.initial_parameters).all():
@@ -2911,17 +3015,25 @@ class FeatureGraph:
                 if len(pairs) != len(set(pairs)):
                     raise ValueError("scale distance point pairs must be unique")
                 for distance in node.distances:
-                    if not isinstance(
-                        nodes[distance.first_point], PointDefinition
-                    ) or not isinstance(nodes[distance.second_point], PointDefinition):
-                        raise ValueError("scale distances require earlier point datums")
+                    for ref in (distance.first_point, distance.second_point):
+                        if isinstance(ref, OutputReference):
+                            _ = validate_output_reference(ref, recipe, "point")
+                        elif not isinstance(nodes[ref], PointDefinition):
+                            raise ValueError(
+                                "scale distances require earlier point datums"
+                            )
             elif isinstance(node, FrameDefinition):
-                if not isinstance(nodes[node.origin_point], PointDefinition):
+                if isinstance(node.origin_point, OutputReference):
+                    _ = validate_output_reference(node.origin_point, recipe, "point")
+                elif not isinstance(nodes[node.origin_point], PointDefinition):
                     raise ValueError("frame origin requires a point datum")
                 for reference_id in (
                     node.primary_reference,
                     node.secondary_reference,
                 ):
+                    if isinstance(reference_id, OutputReference):
+                        _ = validate_output_reference(reference_id, recipe, "direction")
+                        continue
                     reference = nodes[reference_id]
                     if not isinstance(
                         reference, (AxisDefinition, PlaneDefinition)
@@ -3039,6 +3151,8 @@ class FeatureGraph:
                     for surface in surfaces
                 ):
                     raise ValueError("plane relationships require plane fits")
+                for surface in surfaces:
+                    validate_parameter_owner(surface, "constrainable_plane")
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -3143,7 +3257,88 @@ class FeatureGraph:
                 }
                 if len(sources) != 1:
                     raise ValueError("joint fit needs selections on the same source")
+        if any(
+            isinstance(ref, OutputReference)
+            for node in recipe.nodes
+            for ref in (
+                (node.origin_point, node.primary_reference, node.secondary_reference)
+                if isinstance(node, FrameDefinition)
+                else node.source_points or ()
+                if isinstance(node, AxisDefinition)
+                else tuple(
+                    ref
+                    for distance in node.distances
+                    for ref in (distance.first_point, distance.second_point)
+                )
+                if isinstance(node, ScaleDefinition)
+                else ()
+            )
+        ):
+            _ = compile_execution_plan(
+                recipe, set(nodes), describe_geometry_influence(nodes)
+            )
         return recipe.model_copy(deep=True)
+
+    def _input_values(self) -> dict[str, dict[str, Any]]:
+        """Exact publication stores; callers hold the graph lock."""
+        values = cast(
+            dict[str, dict[str, Any]], deepcopy({**self._derived, **self._results})
+        )
+        nodes = {node.id: node for node in self._recipe.nodes}
+        for point_id, solve in self._connected_point_solves.items():
+            values["@point/" + point_id] = {
+                "outputs": {point_id: deepcopy(solve["point"])},
+                "surfaces": deepcopy(solve["surfaces"]),
+            }
+        for axis_id, solve in self._connected_solves.items():
+            node = cast(AxisDefinition, nodes[axis_id])
+            axis = directed_axis_result(
+                initialized_axis(node, self._derived.get(axis_id, {})),
+                parameters=solve["fit"]["parameters"],
+            )
+            outputs = {axis_id: axis}
+            for plane in self._recipe.nodes:
+                if isinstance(plane, PlaneDefinition) and plane.axis == axis_id:
+                    outputs[plane.id] = deepcopy(
+                        solve.get("reference_planes", {}).get(plane.id)
+                    ) or reference_plane_result(
+                        axis, initialized_plane(plane, self._derived.get(plane.id, {}))
+                    )
+            values["@axis/" + axis_id] = {
+                "outputs": outputs,
+                "surfaces": deepcopy(solve.get("surfaces", {})),
+            }
+        return values
+
+    def input_choices(
+        self,
+        expected_token: str,
+        requirement: str = "point",
+        *,
+        consumer_id: str | None = None,
+        retained: Any = (),
+        source: str | None = None,
+        frame: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        with self.lock:
+            if expected_token != self._token():
+                raise StaleGraph("graph changed before input discovery")
+            catalogue = output_catalogue(
+                self._recipe,
+                self._states,
+                self._input_values(),
+                frame=self.reference_sha256,
+                coordinates=self.workspace.local,
+            )
+            return input_choices(
+                self._recipe,
+                consumer_id=consumer_id,
+                requirement=requirement,
+                retained=retained,
+                source=source,
+                frame=frame,
+                catalogue=catalogue,
+            )
 
     def _token(self) -> str:
         # Content token detects conflicting client edits without an edit history.
@@ -3206,8 +3401,22 @@ class FeatureGraph:
                     continue
                 axis_result = directed_axis_result(
                     node,
-                    first_point=cast(dict[str, Any], resolved[node.source_points[0]]),
-                    second_point=cast(dict[str, Any], resolved[node.source_points[1]]),
+                    first_point=resolve_output(
+                        node.source_points[0],
+                        {n.id: n for n in self._recipe.nodes},
+                        self._input_values(),
+                        coordinates=self.workspace.local,
+                    )
+                    if isinstance(node.source_points[0], OutputReference)
+                    else cast(dict[str, Any], resolved[node.source_points[0]]),
+                    second_point=resolve_output(
+                        node.source_points[1],
+                        {n.id: n for n in self._recipe.nodes},
+                        self._input_values(),
+                        coordinates=self.workspace.local,
+                    )
+                    if isinstance(node.source_points[1], OutputReference)
+                    else cast(dict[str, Any], resolved[node.source_points[1]]),
                 )
                 resolved[node.id] = axis_result
                 for plane in self._recipe.nodes:
@@ -3237,6 +3446,13 @@ class FeatureGraph:
                     "resolved", relationship.get("surfaces", {})
                 ).items():
                     resolved[fit_id] = deepcopy(surface)
+            catalogue = output_catalogue(
+                self._recipe,
+                self._states,
+                self._input_values(),
+                frame=self.reference_sha256,
+                coordinates=self.workspace.local,
+            )
             return {
                 "recipe": self._recipe.model_dump(),
                 "token": self._token(),
@@ -3247,6 +3463,13 @@ class FeatureGraph:
                 "result": deepcopy(self._results.get(self._recipe.output)),
                 "derived": deepcopy(self._derived),
                 "results": resolved,
+                "input_catalogue": catalogue,
+                "input_requirements": {
+                    name: input_choices(
+                        self._recipe, requirement=name, catalogue=catalogue
+                    )
+                    for name in REQUIREMENTS
+                },
                 "memberships": {
                     n.id: n.ids.copy()
                     if isinstance(n, Selection)
@@ -3710,6 +3933,19 @@ class FeatureGraph:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during evaluation")
                 return deepcopy(self._derived[node_id])
+
+        def input_result(reference: FeatureInput) -> dict[str, Any]:
+            if isinstance(reference, str):
+                return resolved_result(reference)
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during output resolution")
+                return resolve_output(
+                    reference,
+                    nodes,
+                    self._input_values(),
+                    coordinates=self.workspace.local,
+                )
 
         def boundary_source_records(face_ids: list[str]) -> list[dict[str, Any]]:
             sources: list[dict[str, Any]] = []
@@ -4725,8 +4961,8 @@ class FeatureGraph:
                     elif node.source_points is not None:
                         derived = directed_axis_result(
                             node,
-                            first_point=resolved_result(node.source_points[0]),
-                            second_point=resolved_result(node.source_points[1]),
+                            first_point=input_result(node.source_points[0]),
+                            second_point=input_result(node.source_points[1]),
                         )
                     else:
                         assert node.initial_parameters is not None
@@ -4748,16 +4984,24 @@ class FeatureGraph:
                     derived = scale_result(
                         node,
                         {
-                            reference: resolved_result(reference)
-                            for reference in dependencies(node)
+                            input_reference_key(reference): input_result(reference)
+                            for distance in node.distances
+                            for reference in (
+                                distance.first_point,
+                                distance.second_point,
+                            )
                         },
                     )
                 elif isinstance(node, FrameDefinition):
                     derived = frame_result(
                         node,
                         {
-                            reference: resolved_result(reference)
-                            for reference in dependencies(node)
+                            input_reference_key(reference): input_result(reference)
+                            for reference in (
+                                node.origin_point,
+                                node.primary_reference,
+                                node.secondary_reference,
+                            )
                         },
                     )
                 elif isinstance(node, TransformDefinition):
