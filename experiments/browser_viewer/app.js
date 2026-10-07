@@ -1,6 +1,5 @@
 import {
   actionDescription,
-  discoverReuseLineage,
   featureDeletionPlan,
   featureIcon,
   featureTreePresentation,
@@ -10,7 +9,6 @@ import {
   managedOwnerId,
   managedSubtreeIds,
   nodeReferences as refs,
-  reconcileFeatureReuse,
   renderActionTree,
 } from './action-tree.js';
 import { uniqueFeatureLabel } from './feature-names.js';
@@ -2089,6 +2087,26 @@ async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphS
     acceptGraph(await request('/api/graph', { token: expectedToken, recipe }));
     status('Actions updated. Evaluate to refresh dependent results.');
     if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+    return true;
+  } catch (error) {
+    acceptGraph(await request('/api/graph'));
+    status(error.message, true);
+    return false;
+  }
+}
+async function applyFeatureReuse(reuseId, changes, create = false) {
+  try {
+    const state = await request('/api/graph/feature-reuse/apply', {
+      token: graphState.token, reuse_id: reuseId, changes,
+      allocation_seed: uid('reuse_ids'), create,
+    });
+    if (create) selectOnly(state.reuse_authoring.selected_id);
+    acceptGraph(state);
+    status('Actions updated. Evaluate to refresh dependent results.');
+    if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+    if (create) $('action-list')
+      .querySelector(`[data-action-id="${CSS.escape(selectedFeatureId)}"].action-select`)
+      ?.scrollIntoView({ block: 'nearest' });
     return true;
   } catch (error) {
     acceptGraph(await request('/api/graph'));
@@ -4835,19 +4853,7 @@ async function start() {
         status('This reuse feature has no compatible cylinder dimensions.', true);
         return;
       }
-      const recipe = structuredClone(graphState.recipe),
-        reconciled = reconcileFeatureReuse(
-          recipe.nodes,
-          selected.id,
-          { equal_corresponding_dimensions: true },
-          uid,
-        );
-      if (reconciled.error) {
-        status(reconciled.error, true);
-        return;
-      }
-      recipe.nodes = reconciled.nodes;
-      if (await replaceRecipe(recipe))
+      if (await applyFeatureReuse(selected.id, { equal_corresponding_dimensions: true }))
         status(`Created all-equal radius relationships for ${selected.label}.`);
       return;
     }
@@ -5014,28 +5020,17 @@ async function start() {
         'The reference selection cannot also be a target.';
       return;
     }
-    const label = submittedFeatureLabel('new-feature-reuse-label'),
-      reuse = {
-        id: uid('feature_reuse'),
-        label,
-        operation: 'feature_reuse',
-        fits: fitIds,
-        lineage: discoverReuseLineage(graphState.recipe.nodes, fitIds),
-        reference_selection: referenceSelection,
-        target_selections: targetSelections,
-        tangent_margin: Number($('new-feature-reuse-tangent-margin').value),
-        normal_margin: Number($('new-feature-reuse-normal-margin').value),
-        normal_angle_degrees: Number($('new-feature-reuse-normal-angle').value),
-        equal_corresponding_dimensions:
-          $('new-feature-reuse-equal-dimensions').checked,
-      },
-      reconciled = reconcileFeatureReuse([...graphState.recipe.nodes, reuse], reuse.id, {}, uid);
-    if (reconciled.error) {
-      $('feature-reuse-error').textContent = reconciled.error;
-      return;
-    }
-    const existingIds = new Set(graphState.recipe.nodes.map((node) => node.id));
-    const saved = await appendActions(reconciled.nodes.filter((node) => !existingIds.has(node.id)));
+    const saved = await applyFeatureReuse(uid('feature_reuse'), {
+      label: submittedFeatureLabel('new-feature-reuse-label'),
+      fits: fitIds,
+      reference_selection: referenceSelection,
+      target_selections: targetSelections,
+      tangent_margin: Number($('new-feature-reuse-tangent-margin').value),
+      normal_margin: Number($('new-feature-reuse-normal-margin').value),
+      normal_angle_degrees: Number($('new-feature-reuse-normal-angle').value),
+      equal_corresponding_dimensions:
+        $('new-feature-reuse-equal-dimensions').checked,
+    }, true);
     if (saved) $('feature-reuse-dialog').close();
     else $('feature-reuse-error').textContent = $('status').textContent;
   };
@@ -5679,29 +5674,18 @@ async function start() {
       node.clock_plane = $('region-selection-clock').value;
     }
     if (node.operation === 'feature_reuse') {
-      const reconciled = reconcileFeatureReuse(
-        recipe.nodes,
-        node.id,
-        {
-          label: node.label,
-          fits: chosen('feature-reuse-fits'),
-          reference_selection: $('feature-reuse-reference').value,
-          target_selections: chosen('feature-reuse-target'),
-          equal_corresponding_dimensions:
-            $('feature-reuse-equal-dimensions').checked,
-          tangent_margin: Number($('feature-reuse-tangent-margin').value),
-          normal_margin: Number($('feature-reuse-normal-margin').value),
-          normal_angle_degrees: Number($('feature-reuse-normal-angle').value),
-        },
-        uid,
-      );
-      if (reconciled.error) {
-        status(reconciled.error, true);
-        return;
-      }
-      recipe.nodes = reconciled.nodes;
-      if (reconciled.removedIds.includes(recipe.output)) recipe.output = node.id;
-      await replaceRecipe(recipe);
+      await applyFeatureReuse(node.id, {
+        label: node.label,
+        group_id: node.group_id,
+        fits: chosen('feature-reuse-fits'),
+        reference_selection: $('feature-reuse-reference').value,
+        target_selections: chosen('feature-reuse-target'),
+        equal_corresponding_dimensions:
+          $('feature-reuse-equal-dimensions').checked,
+        tangent_margin: Number($('feature-reuse-tangent-margin').value),
+        normal_margin: Number($('feature-reuse-normal-margin').value),
+        normal_angle_degrees: Number($('feature-reuse-normal-angle').value),
+      });
       return;
     }
     if (node.operation === 'coaxial') {

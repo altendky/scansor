@@ -478,6 +478,12 @@ panel is open; closing it clears the helper highlights.
    reuse action updates its generated graph while retaining existing fit IDs;
    faces whose saved region choices no longer match corrected geometry require
    re-review rather than silently selecting a replacement cell.
+   Creation, edits, and the all-equal shortcut use the experimental Python
+   authoring layer in `experiments.feature_reuse_authoring`. Its pure
+   `reconcile_feature_reuse` transform returns a recipe and identity metadata;
+   token-bound preview/apply HTTP adapters validate against the current graph.
+   A request's allocation seed makes preview and apply allocate the same new
+   IDs. Loading or evaluating a recipe does not reconcile its managed children.
 10. **Region** lifts an earlier selection and its cylinder or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,
