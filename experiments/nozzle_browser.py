@@ -31,6 +31,11 @@ from experiments.feature_graph import (
     StaleGraph,
     workspace_reference_sha256,
 )
+from experiments.feature_reuse_authoring import (
+    ReuseAuthoringRequest,
+    apply_feature_reuse,
+    preview_feature_reuse,
+)
 from experiments.guided_face_candidates import FaceCandidatesRequest, candidate_faces
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 from scansor.selection_bundle import SelectionBundle
@@ -294,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph",
             "/api/graph/evaluate",
             "/api/graph/ensure",
+            "/api/graph/feature-reuse/preview",
+            "/api/graph/feature-reuse/apply",
             "/api/graph/build-faces/preview",
             "/api/graph/build-faces/candidates",
             "/api/graph/build-faces/apply",
@@ -313,6 +320,18 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("expected a session under 1 MB")
             self.connection.settimeout(5)
             body = self.rfile.read(length)
+            if self.path in (
+                "/api/graph/feature-reuse/preview",
+                "/api/graph/feature-reuse/apply",
+            ):
+                authoring = ReuseAuthoringRequest.model_validate_json(body)
+                state = (
+                    preview_feature_reuse(self.app.graph, authoring)
+                    if self.path.endswith("/preview")
+                    else apply_feature_reuse(self.app.graph, authoring)
+                )
+                self.json_reply(200, state)
+                return
             if self.path in (
                 "/api/graph/build-faces/preview",
                 "/api/graph/build-faces/candidates",
