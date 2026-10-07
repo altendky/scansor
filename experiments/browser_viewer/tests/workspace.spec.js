@@ -96,6 +96,116 @@ test('real viewer starts under CSP with independent feature panels and no errors
   if (process.env.WORKSPACE_SCREENSHOT) await page.screenshot({ path: process.env.WORKSPACE_SCREENSHOT });
 });
 
+test('closing or floating a right panel gives its width to Model and preserves Features', async ({ page }) => {
+  await ready(page);
+  for (const method of ['form', 'shell', 'float']) {
+    await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+    const tree = await tabset(page, 'Features').boundingBox();
+    const model = await tabset(page, 'Model').boundingBox();
+    const legend = await tabset(page, 'Icon legend').boundingBox();
+    expect(legend.x).toBeGreaterThan(model.x + model.width);
+    if (method === 'form') await page.locator('#icon-legend-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    else if (method === 'shell') await page.getByRole('tab', { name: 'Icon legend', exact: true }).getByTitle('Close', { exact: true }).click();
+    else await floatPanel(page, 'Icon legend');
+    await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).width)
+      .toBeGreaterThan(model.width + legend.width - 2);
+    expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - tree.width)).toBeLessThan(2);
+    if (method === 'float') {
+      const expanded = await tabset(page, 'Model').boundingBox();
+      await page.locator('#icon-legend-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toHaveCount(0);
+      expect(Math.abs((await tabset(page, 'Model').boundingBox()).width - expanded.width)).toBeLessThan(2);
+    }
+  }
+});
+
+test('closing a vertically docked panel expands Model through collapsed rows without resizing Features', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const viewport = await page.locator('#viewport').boundingBox();
+  await drag(page, page.getByRole('tab', { name: 'Icon legend', exact: true }),
+    viewport.x + viewport.width / 2, viewport.y + viewport.height - 12);
+  const tree = await tabset(page, 'Features').boundingBox();
+  const model = await tabset(page, 'Model').boundingBox();
+  const legend = await tabset(page, 'Icon legend').boundingBox();
+  expect(legend.y).toBeGreaterThan(model.y + model.height);
+  await page.locator('#icon-legend-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).height)
+    .toBeGreaterThan(model.height + legend.height - 2);
+  const after = await tabset(page, 'Features').boundingBox();
+  expect(Math.abs(after.width - tree.width)).toBeLessThan(2);
+  expect(Math.abs(after.height - tree.height)).toBeLessThan(2);
+  await ready(page);
+  expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - tree.width)).toBeLessThan(2);
+});
+
+test('floating a shared tab does not resize docked panels', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('tab', { name: 'Graph', exact: true }).click();
+  const tree = await tabset(page, 'Features').boundingBox();
+  const model = await tabset(page, 'Model').boundingBox();
+  await floatPanel(page, 'Graph');
+  expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - tree.width)).toBeLessThan(2);
+  expect(Math.abs((await tabset(page, 'Model').boundingBox()).width - model.width)).toBeLessThan(2);
+});
+
+test('omitting workflow panels on reload gives saved space back to Model', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const tree = await tabset(page, 'Features').boundingBox();
+  const model = await tabset(page, 'Model').boundingBox();
+  const legend = await tabset(page, 'Icon legend').boundingBox();
+  await page.reload();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toHaveCount(0);
+  expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - tree.width)).toBeLessThan(2);
+  expect((await tabset(page, 'Model').boundingBox()).width).toBeGreaterThan(model.width + legend.width - 2);
+});
+
+test('window resizing gives Model the width change, preserving chosen splitter sizes', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const tree = await tabset(page, 'Features').boundingBox();
+  const splitter = page.locator('.flexlayout__splitter').filter({ visible: true });
+  let divider;
+  for (const item of await splitter.all()) {
+    const box = await item.boundingBox();
+    if (box.height > box.width && Math.abs(box.x - tree.x - tree.width) < 15) { divider = item; break; }
+  }
+  const box = await divider.boundingBox();
+  await drag(page, divider, box.x + 70, box.y + box.height / 2);
+  await expect.poll(async () => (await tabset(page, 'Features').boundingBox()).width).toBeGreaterThan(tree.width + 25);
+  const chosen = await tabset(page, 'Features').boundingBox();
+  const legend = await tabset(page, 'Icon legend').boundingBox();
+  const model = await tabset(page, 'Model').boundingBox();
+  for (const width of [1640, 1300, 600, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    if (width === 600) continue; // Minimum-size constraints may compress panels.
+    await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).width)
+      .toBeCloseTo(model.width + width - 1440, 0);
+    expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - chosen.width)).toBeLessThan(2);
+    expect(Math.abs((await tabset(page, 'Icon legend').boundingBox()).width - legend.width)).toBeLessThan(2);
+  }
+});
+
+test('window height changes go to Model while a panel below it retains its height', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const viewport = await page.locator('#viewport').boundingBox();
+  await drag(page, page.getByRole('tab', { name: 'Icon legend', exact: true }),
+    viewport.x + viewport.width / 2, viewport.y + viewport.height - 12);
+  const model = await tabset(page, 'Model').boundingBox();
+  const legend = await tabset(page, 'Icon legend').boundingBox();
+  const tree = await tabset(page, 'Features').boundingBox();
+  for (const height of [1200, 850, 1000]) {
+    await page.setViewportSize({ width: 1440, height });
+    await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).height)
+      .toBeCloseTo(model.height + height - 1000, 0);
+    expect(Math.abs((await tabset(page, 'Icon legend').boundingBox()).height - legend.height)).toBeLessThan(2);
+    expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - tree.width)).toBeLessThan(2);
+  }
+});
+
 test('workspace tabs use the compact viewer theme and retain selection/focus behavior', async ({ page }) => {
   await ready(page);
   const model = page.getByRole('tab', { name: 'Model', exact: true });
