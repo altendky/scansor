@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { initialWorkspace } from '../workspace-state.js';
+import { initialWorkspace, panelTab } from '../workspace-state.js';
 
 async function ready(page) {
   await page.goto('/');
@@ -17,8 +17,18 @@ async function attach(page, name) {
   await toolbarAttach(page, 'Create', name);
 }
 async function toolbarAttach(page, toolbar, host) {
+  if (host === 'Edit' && await page.getByRole('tab', { name: 'Edit', exact: true }).count() === 0) {
+    await page.getByRole('combobox', { name: 'Workspace panel', exact: true }).selectOption('editor');
+    await page.getByRole('button', { name: 'Show panel', exact: true }).click();
+  }
   await page.getByRole('button', { name: toolbar + ' toolbar options', exact: true }).click();
   await page.getByRole('menuitemradio', { name: host, exact: true }).click();
+}
+async function editOuterSurface(page) {
+  await page.locator('#action-list .action-select').filter({ hasText: 'Outer surface' }).click({ button: 'right' });
+  await page.locator('#feature-context-edit').click();
+  await expect(page.locator('#axial-start')).toBeVisible();
+  await page.locator('#dock-edit').click();
 }
 function tabset(page, name) {
   return page.getByRole('tab', { name, exact: true }).locator(
@@ -35,8 +45,8 @@ async function dragTo(page, from, x, y) {
 test('local strips reserve space, follow tabs/resize, persist and detach without evaluation', async ({ page }) => {
   await ready(page);
   await page.evaluate(() => { window.hostCanvas = document.querySelector('#viewport canvas'); });
-  await page.locator('#action-list .action-select').filter({ hasText: 'Outer band' }).click();
-  await page.locator('#action-label').fill('Local toolbar draft');
+  await editOuterSurface(page);
+  await page.locator('#axial-start').fill('1.234');
   const evaluations = [];
   page.on('request', r => { if (/\/api\/graph\/(evaluate|ensure)(\?|$)/.test(r.url())) evaluations.push(r.url()); });
   const toolbar = page.locator('.prototype-toolbar[data-toolbar-id="create"]'), frame = tabset(page, 'Model');
@@ -70,7 +80,7 @@ test('local strips reserve space, follow tabs/resize, persist and detach without
   await tabset(page, 'Model').getByRole('button', { name: /Restore/ }).click();
   await page.setViewportSize({ width: 1200, height: 850 });
   await expect.poll(async () => Math.abs((await toolbar.boundingBox()).x - (await frame.boundingBox()).x)).toBeLessThan(1);
-  await expect(page.locator('#action-label')).toHaveValue('Local toolbar draft');
+  await expect(page.locator('#axial-start')).toHaveValue('1.234');
   expect(await page.evaluate(() => window.hostCanvas === document.querySelector('#viewport canvas'))).toBeTruthy();
   expect(evaluations).toEqual([]);
   await page.reload();
@@ -113,14 +123,14 @@ test('drag targets local tabsets and the strip follows its original tabset when 
 test('floating host movement, occlusion, hidden-host reveal and removed-host recovery', async ({ page }) => {
   await ready(page);
   const toolbar = page.locator('.prototype-toolbar[data-toolbar-id="create"]');
-  await attach(page, 'Feature editor');
+  await attach(page, 'Edit');
   const originalHost = await toolbar.getAttribute('data-host');
-  await tabset(page, 'Feature editor').getByRole('button', { name: 'Float selected tab', exact: true }).click();
+  await tabset(page, 'Edit').getByRole('button', { name: 'Float selected tab', exact: true }).click();
   // Floating the only tab deletes its old host, so recover to the workspace.
   await expect(toolbar).toHaveAttribute('data-host', 'workspace');
-  await attach(page, 'Feature editor');
+  await attach(page, 'Edit');
   expect(await toolbar.getAttribute('data-host')).not.toBe(originalHost);
-  const frame = tabset(page, 'Feature editor');
+  const frame = tabset(page, 'Edit');
   await expect.poll(async () => Math.abs((await toolbar.boundingBox()).y - (await frame.boundingBox()).y)).toBeLessThan(1);
   const window = page.locator('.flexlayout__float_window');
   const box = await window.boundingBox();
@@ -132,7 +142,7 @@ test('floating host movement, occlusion, hidden-host reveal and removed-host rec
   await page.keyboard.press('Escape');
   await tabset(page, 'Features').getByRole('button', { name: 'Float selected tab', exact: true }).click();
   const front = page.locator('.flexlayout__float_window').filter({ has: page.getByRole('tab', { name: 'Features', exact: true }) });
-  const rear = page.locator('.flexlayout__float_window').filter({ has: page.getByRole('tab', { name: 'Feature editor', exact: true }) });
+  const rear = page.locator('.flexlayout__float_window').filter({ has: page.getByRole('tab', { name: 'Edit', exact: true }) });
   const frontBox = await front.boundingBox(), rearBox = await rear.boundingBox(), header = await front.locator('.flexlayout__float_window_header').boundingBox();
   await dragTo(page, front.locator('.flexlayout__float_window_header'), header.x + header.width / 2 + rearBox.x - frontBox.x,
     header.y + header.height / 2 + rearBox.y - frontBox.y);
@@ -161,6 +171,11 @@ test('small local host recovers rather than clipping its placement controls', as
   // saved preference to exercise recovery from a genuinely undersized frame.
   const layout = initialWorkspace();
   layout.global.tabSetMinHeight = 1;
+  // Put Features above Edit so a horizontal splitter can shrink the host.
+  const features = layout.layout.children[0].children[0];
+  features.weight = 48;
+  layout.layout.children[0].children[0] = { type: 'row', weight: 24, width: 310,
+    children: [features, { type: 'tabset', weight: 52, children: [panelTab('editor')] }] };
   await page.addInitScript(layout => localStorage.setItem('scansor.flexlayout.workspace.v1',
     JSON.stringify({ version: 1, layout })), layout);
   await ready(page);
@@ -223,8 +238,8 @@ test('real commands, keyboard controls, inert locking and CSP', async ({ page })
 
 test('placement persists independently, preserves model and drafts, and resets', async ({ page }) => {
   await ready(page);
-  await page.locator('#action-list .action-select').filter({ hasText: 'Outer band' }).click();
-  await page.locator('#action-label').fill('Toolbar arrangement draft');
+  await editOuterSurface(page);
+  await page.locator('#axial-start').fill('2.345');
   await page.evaluate(() => { window.canvasBefore = document.querySelector('#viewport canvas'); });
   const evaluations = [];
   page.on('request', r => { if (/\/api\/graph\/(evaluate|ensure)(\?|$)/.test(r.url())) evaluations.push(r.url()); });
@@ -236,7 +251,7 @@ test('placement persists independently, preserves model and drafts, and resets',
   await place(page, 'Rotate floating toolbar');
   await expect(page.locator('.prototype-toolbar[data-toolbar-id="create"]')).toHaveAttribute('data-orientation', 'vertical');
   expect(await page.evaluate(() => window.canvasBefore === document.querySelector('#viewport canvas'))).toBeTruthy();
-  await expect(page.locator('#action-label')).toHaveValue('Toolbar arrangement draft');
+  await expect(page.locator('#axial-start')).toHaveValue('2.345');
   expect(evaluations).toEqual([]);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('scansor.flexlayout.workspace.v1'))?.version)).toBe(1);
   await page.reload();
@@ -458,7 +473,7 @@ test('multiple strips share global and local edges without overlap and persist i
   }
   await noOverlap();
   // Orientation changes on a narrow-but-valid host must not cause premature recovery.
-  await toolbarAttach(page, 'Faces', 'Feature editor');
+  await toolbarAttach(page, 'Faces', 'Edit');
   const faces = page.locator('.prototype-toolbar[data-toolbar-id="faces"]'), editorHost = await faces.getAttribute('data-host');
   for (const edge of ['top', 'left', 'top', 'right']) {
     await toolbarPlace(page, 'Faces', 'Dock ' + edge);

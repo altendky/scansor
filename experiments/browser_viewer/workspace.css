@@ -61,3 +61,20 @@ body.docking-workspace { height: 100dvh; overflow: hidden; }
   .workspace-toolbar .toolbar-items { flex-direction: column; align-items: stretch; }
 }
 .workspace-layout-notice { position: absolute; bottom: 4px; right: 8px; z-index: 20; padding: 5px; background: #583720; font-size: 11px; }
+
+#edit-host { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; margin: 0; padding: 0; border: 0; }
+#edit-host .edit-empty { padding: 10px; }
+#edit-host > #feature-properties-panel { width: 100%; min-height: 0; flex: 1; padding: 10px; overflow: auto; }
+#edit-host #feature-single-selection { margin-top: 0; padding-top: 0; border-top: 0; }
+#edit-host #feature-properties-panel input:not([type="checkbox"]):not([type="range"]) { display: block; width: 100%; padding: 7px; }
+#edit-host > dialog.workspace-dialog { position: static; inset: auto; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; z-index: auto; padding: 10px; overflow: auto; }
+#edit-host > dialog.workspace-dialog[open] { display: flex; flex-direction: column; }
+#edit-host > dialog.workspace-dialog > form { flex: 1; min-height: 0; }
+#edit-popup { position: fixed; inset: 72px 12px auto auto; margin: 0; width: min(380px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 92px); padding: 0; overflow: hidden; z-index: 15; }
+#edit-popup[open] { display: flex; flex-direction: column; }
+.edit-popup-header { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid #344351; }
+.edit-popup-header strong { flex: 1; }
+.edit-popup-header button { font-size: 12px; padding: 4px 7px; }
+#edit-popup > #edit-host { flex: 1; min-height: 0; height: auto; overflow: auto; }
+#edit-popup #feature-properties-panel { max-height: calc(100dvh - 145px); }
+#edit-popup #build-faces-dialog > form { max-height: calc(100dvh - 160px); }

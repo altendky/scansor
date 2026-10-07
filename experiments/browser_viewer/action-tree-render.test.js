@@ -206,7 +206,7 @@ function fixture(nodes = base, groups = []) {
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
-  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupEdits: [], groupRemovals: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
+  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], groupRemovals: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
     list: new Element('ul') };
   state.render = () => renderActionTree(state.list, {
     nodes: state.nodes, groups: state.groups, selected: state.selected, states: state.states, errors: state.errors,
@@ -215,7 +215,7 @@ function fixture(nodes = base, groups = []) {
     move: async (next) => { state.moves.push(next); state.nodes = next; state.render(); return true; },
     announce: (message, error) => state.announcements.push({ message, error }),
     contextMenu: (id, position) => state.contexts.push({ id, position }),
-    editGroup: (id) => state.groupEdits.push(id),
+    groupContextMenu: (id, position) => state.groupContexts.push({ id, position }),
     removeGroup: (id) => state.groupRemovals.push(id),
   });
   state.grip = (key) => state.list.querySelectorAll('.action-grip')
@@ -426,8 +426,7 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
     .find((element) => element.dataset.actionId === 'wall');
   assert.notEqual(inspect.disabled, true);
   inspect.onclick();
-  state.row('batch').querySelectorAll('.group-action')[0].onclick(event(state.row('batch')));
-  assert.deepEqual(state.inspections, ['wall', 'batch']);
+  assert.deepEqual(state.inspections, ['wall']);
   const details = state.row('batch').parentElement;
   details.open = true;
   details.ontoggle();
@@ -436,7 +435,8 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
   for (const control of controls) control.onclick(event(control));
   state.grip('wall').onkeydown(event(state.grip('wall'), { key: 'ArrowDown' }));
   await settle();
-  assert.deepEqual(state.groupEdits, []);
+  state.row('group').oncontextmenu(event(state.row('group')));
+  assert.deepEqual(state.groupContexts, []);
   assert.deepEqual(state.groupRemovals, []);
   assert.deepEqual(state.moves, []);
   state.locked = false;
@@ -446,7 +446,10 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
   const unlocked = state.row('group').querySelectorAll('.group-action');
   assert.equal(unlocked.every((control) => !control.disabled), true);
   for (const control of unlocked) control.onclick(event(control));
-  assert.deepEqual(state.groupEdits, ['group']);
+  state.row('group').oncontextmenu(event(state.row('group')));
+  assert.deepEqual(state.groupContexts.map(context => context.id), ['group']);
+  state.row('group').onkeydown(event(state.row('group'), { key: 'F10', shiftKey: true }));
+  assert.deepEqual(state.groupContexts.map(context => context.id), ['group', 'group']);
   assert.deepEqual(state.groupRemovals, ['group']);
 });
 
@@ -457,8 +460,10 @@ test('group mutation callbacks recheck locks even before their rows are repainte
     state.locked = !ariaBusy;
     state.list.setAttribute('aria-busy', String(ariaBusy));
     for (const control of controls) control.onclick(event(control));
+    state.row('group').oncontextmenu(event(state.row('group')));
+    state.row('group').onkeydown(event(state.row('group'), { key: 'ContextMenu' }));
   }
-  assert.deepEqual(state.groupEdits, []);
+  assert.deepEqual(state.groupContexts, []);
   assert.deepEqual(state.groupRemovals, []);
 });
 

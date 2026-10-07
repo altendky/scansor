@@ -1,15 +1,14 @@
 export const WORKSPACE_STORAGE_KEY = 'scansor.flexlayout.workspace.v1';
 export const PANEL_NAMES = {
-  tree: 'Features', editor: 'Feature editor', view: 'Model', graph: 'Graph',
+  tree: 'Features', editor: 'Edit', view: 'Model', graph: 'Graph',
   project: 'Project', create: 'Create', faces: 'Faces', features: 'Feature tools', output: 'Run / output',
-  'build-faces-dialog': 'Build faces', 'relationship-dialog': 'Relationships',
   'icon-legend-dialog': 'Icon legend',
 };
-export const DIALOG_PANELS = ['build-faces-dialog', 'relationship-dialog', 'icon-legend-dialog'];
-export const PERMANENT_PANELS = ['tree', 'editor', 'view', 'graph'];
+export const DIALOG_PANELS = ['icon-legend-dialog'];
+export const PERMANENT_PANELS = ['tree', 'view', 'graph'];
 export const panelTab = id => ({
   type: 'tab', id, name: PANEL_NAMES[id], component: id,
-  enableClose: DIALOG_PANELS.includes(id), enablePopout: false,
+  enableClose: id === 'editor' || DIALOG_PANELS.includes(id), enablePopout: false,
 });
 
 export function initialWorkspace(openDialogs = []) {
@@ -27,7 +26,7 @@ export function initialWorkspace(openDialogs = []) {
     borders: [],
     layout: { type: 'row', children: [
       { type: 'row', weight: 88, children: [
-        { type: 'row', weight: 24, width: 310, children: [tabset('tree', 48), tabset('editor', 52)] },
+        tabset('tree', 24, { width: 310 }),
         tabset('view', 76, { children: [panelTab('view'), panelTab('graph')] }),
         ...openDialogs.map(id => tabset(id, 28, { width: 350 })),
       ] },

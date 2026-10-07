@@ -3,22 +3,23 @@ import test from 'node:test';
 import { Model, Actions } from 'flexlayout-react';
 import { initialWorkspace, PERMANENT_PANELS, panelTab, unobscuredViewport } from './workspace-state.js';
 
-test('default workspace has separate tree/editor, no toolbar tabs and optional workflow panels', () => {
-  const model = Model.fromJson(initialWorkspace(['build-faces-dialog']));
-  for (const id of [...PERMANENT_PANELS, 'build-faces-dialog']) assert.ok(model.getNodeById(id));
+test('default workspace has tree/model/graph with optional Edit and no toolbar tabs', () => {
+  const model = Model.fromJson(initialWorkspace());
+  for (const id of PERMANENT_PANELS) assert.ok(model.getNodeById(id));
   for (const id of ['create', 'faces', 'features', 'output']) assert.equal(model.getNodeById(id), undefined);
-  assert.notEqual(model.getNodeById('tree').getParent(), model.getNodeById('editor').getParent());
+  assert.equal(model.getNodeById('editor'), undefined);
   assert.equal(model.getNodeById('view').getName(), 'Model');
   assert.equal(model.getNodeById('graph').getName(), 'Graph');
   assert.equal(model.getNodeById('view').getParent(), model.getNodeById('graph').getParent());
   assert.equal(model.getNodeById('relationship-dialog'), undefined);
-  assert.equal(panelTab('build-faces-dialog').enableClose, true);
+  assert.equal(panelTab('editor').enableClose, true);
+  assert.equal(panelTab('editor').name, 'Edit');
   assert.equal(panelTab('tree').enableClose, false);
   assert.equal(panelTab('view').enablePopout, false);
 });
 
 test('floating and serialized restoration keep stable panel identities', () => {
-  const model = Model.fromJson(initialWorkspace());
+  const model = Model.fromJson(initialWorkspace(['editor']));
   model.doAction(Actions.popoutTab('editor', 'float'));
   const restored = Model.fromJson(model.toJson());
   for (const id of PERMANENT_PANELS) assert.ok(restored.getNodeById(id));

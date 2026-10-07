@@ -3,6 +3,11 @@ import { test, expect } from '@playwright/test';
 const reference = (feature, output, context = feature) => ({ feature, output, context });
 const key = (feature, output, context = feature) => JSON.stringify(reference(feature, output, context));
 
+async function contextAction(page, id, action) {
+  await page.locator(`.action-select[data-action-id="${id}"]`).click({ button: 'right' });
+  await page.locator(`#feature-context-${action}`).click();
+}
+
 async function guidePoint(page, label) {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const point = await page.evaluate(label => {
@@ -84,9 +89,17 @@ test('real backend output choices persist explicit point and plane meanings thro
     const frame = saved.recipe.nodes.find(node => node.operation === 'frame');
     expect(frame).toMatchObject({ origin_point: reference('sphere', 'center'),
       primary_reference: reference('datum', 'plane'), secondary_reference: reference('direction', 'axis') });
+    await contextAction(page, frame.id, 'rename');
+    await page.locator('#rename-feature-label').fill('Edited named frame');
+    await save(() => page.locator('#rename-feature-form').getByRole('button', { name: 'Rename', exact: true }).click());
+    await expect(page.locator('#rename-feature-dialog')).toBeHidden();
+    await contextAction(page, frame.id, 'edit');
     await expect(page.locator('#frame-origin')).toHaveValue(key('sphere', 'center'));
-    await page.locator('#action-label').fill('Edited named frame');
+    await page.locator('#frame-primary-output').selectOption('-Y');
     saved = await save(() => page.locator('#apply-properties').click());
+    expect(saved.recipe.nodes.find(node => node.id === frame.id)).toMatchObject({
+      label: 'Edited named frame', primary_output_axis: '-Y',
+    });
     expect(saved.recipe.nodes.find(node => node.id === frame.id).origin_point).toEqual(frame.origin_point);
 
     await page.getByRole('button', { name: 'Axis', exact: true }).click();
@@ -135,8 +148,7 @@ test('readiness refresh preserves an edited frame draft and keeps native and mod
     graph = await read();
     await page.reload();
     await expect(page.locator('#evaluate-all')).toBeEnabled();
-    await page.locator('.action-select[data-action-id="frame"]').click();
-    await page.locator('#action-label').fill('Uncommitted frame name');
+    await contextAction(page, 'frame', 'edit');
     await page.locator('#frame-primary-output').selectOption('-Y');
     await page.route(/\/api\/graph(?:\?.*)?$/, route => route.request().method() === 'GET'
       ? route.fulfill({ json: graph }) : route.continue());
@@ -157,7 +169,6 @@ test('readiness refresh preserves an edited frame draft and keeps native and mod
     await expect(page.locator('#frame-origin')).toHaveValue(key('origin', 'point'));
     await expect(page.locator('#frame-origin option:checked')).toHaveJSProperty('disabled', true);
     await expect(page.locator('#frame-origin option:checked')).toContainText('Reevaluate');
-    await expect(page.locator('#action-label')).toHaveValue('Uncommitted frame name');
     await expect(page.locator('#frame-primary-output')).toHaveValue('-Y');
     const modelOptions = await page.locator('#frame-origin').evaluate(async control => {
       const { nativePickOptions } = await import('/model-picking.js');
@@ -172,7 +183,7 @@ test('readiness refresh preserves an edited frame draft and keeps native and mod
     await expect(page.locator('#frame-origin')).toHaveValue(key('origin', 'point'));
     await expect(page.locator('#frame-origin option:checked')).toHaveJSProperty('disabled', false);
     await expect(page.locator('#frame-origin option:checked')).toContainText('Renamed origin');
-    await expect(page.locator('#action-label')).toHaveValue('Uncommitted frame name');
+    await expect(page.locator('#frame-primary-output')).toHaveValue('-Y');
     await expect(page.locator('[data-pick-control="frame-origin"]')).toBeEnabled();
   } finally {
     await page.unrouteAll({ behavior: 'wait' });
