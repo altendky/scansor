@@ -116,11 +116,10 @@ document.getElementById('recover-actions').onclick = async () => {
   <form id="build-faces-form">
     <div class="face-panel-body">
       <div id="build-faces-guided">
-        <div class="face-target-row"><div class="face-target-label"><span id="build-faces-surface-label">Surface</span><button id="build-faces-target" type="button" role="combobox" aria-haspopup="listbox" aria-controls="build-faces-target-options" aria-expanded="false">Choose a surface</button></div><button id="pick-face-target" type="button" aria-pressed="false" title="Choose a fitted surface in the model">Pick</button><button id="focus-face-target" type="button" title="Frame the target surface">Focus</button></div>
-        <div id="build-faces-target-options" class="icon-picker-options" popover="auto" role="listbox" aria-labelledby="build-faces-surface-label"></div>
+        <div class="face-target-row"><div class="face-target-label"><span id="build-faces-surface-label">Surface</span><div id="build-faces-target-field"></div></div><button id="focus-face-target" type="button" title="Frame the target surface">Focus</button></div>
         <details id="build-faces-neighbors" open><summary id="build-faces-neighbor-summary">Neighbors</summary>
-          <div class="face-neighbor-tools"><input id="build-faces-neighbor-filter" type="search" placeholder="Filter neighbors" aria-label="Filter neighbors"><button id="pick-face-neighbor" type="button" aria-pressed="false" title="Toggle neighbors in the model">Pick</button><button id="refresh-face-candidates" type="button">Refresh</button></div>
-          <div id="build-faces-candidates"></div>
+          <div id="build-faces-neighbor-field"></div>
+          <div id="build-faces-neighbor-options"><div class="face-neighbor-tools"><input id="build-faces-neighbor-filter" type="search" placeholder="Filter neighbors" aria-label="Filter neighbors"><button id="refresh-face-candidates" type="button">Refresh</button></div><div id="build-faces-candidates"></div></div>
         </details>
         <p id="build-faces-candidate-status" class="hint" role="status"></p><div id="build-faces-unavailable-guidance"></div>
       </div>
@@ -160,9 +159,9 @@ document.getElementById('recover-actions').onclick = async () => {
     <div class="relationship-panel-body">
       <label>Relationship<select id="relationship-kind"><option value="">Choose a relationship</option></select></label>
       <p id="relationship-summary" class="hint"></p>
-      <div class="face-neighbor-tools"><input id="relationship-filter" type="search" placeholder="Filter participants" aria-label="Filter participants"><button id="focus-relationship" type="button">Focus selected</button></div>
-      <div class="relationship-selection-tools"><output id="relationship-count">0 selected</output><button id="pick-relationship-participant" type="button" aria-pressed="false" title="Toggle fitted participants in the model">Pick in model</button><button id="clear-relationship-participants" type="button">Clear</button></div>
-      <div id="relationship-participants" class="relationship-participants"></div>
+      <div class="relationship-selection-tools"><output id="relationship-count">0 selected</output><button id="focus-relationship" type="button">Focus selected</button><button id="clear-relationship-participants" type="button">Clear</button></div>
+      <div id="relationship-participant-field"></div>
+      <div id="relationship-participant-options"><input id="relationship-filter" type="search" placeholder="Filter participants" aria-label="Filter participants"><div id="relationship-participants" class="relationship-participants"></div></div>
       <details><summary>Options</summary><label>Name<input id="new-relationship-label" required maxlength="120"></label></details>
     </div>
     <div class="face-panel-footer"><p id="relationship-error" role="alert"></p><div class="face-panel-actions"><button id="add-relationship" disabled>Add relationship</button><button type="button" data-close-dialog="relationship-dialog">Cancel</button></div></div>

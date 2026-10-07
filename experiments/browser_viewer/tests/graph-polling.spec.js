@@ -29,7 +29,7 @@ test('unchanged running polls preserve UI controls and drafts while same-token p
   await page.locator('#build-faces-label').fill('Unsaved face draft');
   await page.locator('#build-faces-label').focus();
   await page.evaluate(() => {
-    window.originalFaceChoice = document.querySelector('#build-faces-target-options [role=option]');
+    window.originalFaceChoice = document.querySelector('#build-faces-target-options [role=menuitemradio]');
     window.originalCanvas = document.querySelector('#viewport canvas');
   });
   await page.locator('#evaluate-all').evaluate(button => button.click());
@@ -42,7 +42,7 @@ test('unchanged running polls preserve UI controls and drafts while same-token p
   await expect(page.locator('#build-faces-label')).toHaveValue('Unsaved face draft');
   await expect(page.locator('#build-faces-label')).toBeFocused();
   expect(await page.evaluate(() => window.originalTreeItem === document.querySelector('#action-list .action-select') &&
-    window.originalFaceChoice === document.querySelector('#build-faces-target-options [role=option]') &&
+    window.originalFaceChoice === document.querySelector('#build-faces-target-options [role=menuitemradio]') &&
     window.originalCanvas === document.querySelector('#viewport canvas'))).toBe(true);
 
   graph = structuredClone(graph);

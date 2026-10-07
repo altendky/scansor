@@ -3,7 +3,6 @@ import {
   featureDeletionPlan,
   featureIcon,
   featureTreePresentation,
-  renderIconPicker,
   relationshipParticipantChoices,
   renderRelationshipParticipants,
   managedOwnerId,
@@ -25,7 +24,7 @@ import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } fr
 import { selectionVolumePositions } from './reuse-volume.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
-import { scanFitCandidates, isModelClick, bindModelPickControls, nativePickOptions,
+import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
 import {
   surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
@@ -102,8 +101,9 @@ let modelPickMode = null, modelPickGesture = null, modelPickClick = null, modelP
 let modelPickField = null, modelPickGuides, modelPickGeometryKey = null;
 let modelPickSourceFaces, modelPickSourceState = null;
 let modelPickFitState = null, modelPickFitReferences = new Map();
+let faceTargetField, faceNeighborField, relationshipParticipantField;
 const modelPickButtons = {
-  target: 'pick-face-target', neighbor: 'pick-face-neighbor', participant: 'pick-relationship-participant',
+  target: 'build-faces-target', neighbor: 'pick-face-neighbor', participant: 'pick-relationship-participant',
 };
 let overlapMarkers, overlapHalo, activeOverlap, focusedPoints;
 let selectionDrawing = false,
@@ -167,7 +167,8 @@ function modelPickChoices() {
     const key = JSON.stringify(candidate.reference),
       row = [...$('build-faces-candidates').children].find(row => row.dataset.reference === key),
       checkbox = row?.querySelector('summary input');
-    return row && !row.hidden && checkbox && !checkbox.disabled ? [{
+    return row && candidate.supported && candidate.mathematical?.status !== 'proven_empty' &&
+      checkbox && !checkbox.disabled ? [{
       ...fittedFaceCandidatePresentation(candidate), key, candidate, checkbox,
       ids: fittedPickResult(candidate.reference)?.ids,
     }] : [];
@@ -180,7 +181,7 @@ function modelPickChoices() {
     const fitted = reference ? fittedPickResult(reference) :
       (node?.kind === 'sphere' || node?.operation === 'reference_plane') &&
         graphState.states[id] === 'ready' ? graphState.results[id] : null;
-    return !row.hidden && checkbox && !checkbox.disabled && fitted ? [{
+    return row.dataset.compatible !== 'false' && checkbox && !checkbox.disabled && fitted ? [{
       ...fittedSurfacePresentation({ feature: id }, nodes), key: id,
       reference: reference || { feature: id }, checkbox, ids: fitted.ids,
     }] : [];
@@ -225,17 +226,21 @@ function setModelPickMode(mode) {
     for (const [element, inert] of previousField.locks || []) element.inert = inert;
     if (previousField.suspended) {
       delete previousField.dialog.dataset.modelPickSuspended;
-      if (!previousField.dialog.open && previousField.dialog.isConnected) previousField.dialog.showModal();
+      if (previousField.dialog.isConnected) {
+        if (previousField.dialog.open) previousField.dialog.close();
+        previousField.dialog.showModal();
+      }
     }
     previousField.button.focus();
   }
   syncModelPickControls();
+  updateActionTreeLocks();
   updateFaceReviewDisplay();
   draw();
 }
 function startFieldPick(control, button) {
   if (featureTreeLocked() || !nativePickOptions(control).length) return;
-  if (modelPickField?.control === control) { setModelPickMode(null); return; }
+  if (modelPickField?.control === control) return;
   setModelPickMode(null);
   const dialog = control.closest('dialog'), suspended = dialog?.matches(':modal') || false;
   modelPickField = { control, button, dialog, suspended,
@@ -243,9 +248,10 @@ function startFieldPick(control, button) {
   if (suspended) {
     dialog.dataset.modelPickSuspended = 'true';
     dialog.close();
-    // Keep modal ownership while exposing the viewport: another create/edit
-    // action must not reinitialize or replace the temporarily hidden draft.
-    modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #features-panel, #feature-properties-panel')]
+    dialog.show();
+    // Keep the draft visible while exposing the viewport. Another create/edit
+    // action must not reinitialize or replace the draft during picking.
+    modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
       .map(element => [element, element.inert]);
     for (const [element] of modelPickField.locks) element.inert = true;
   }
@@ -269,8 +275,12 @@ function syncModelPickControls() {
   for (const [mode, id] of Object.entries(modelPickButtons)) {
     $(id).setAttribute('aria-pressed', String(modelPickMode === mode));
     $(id).disabled = locked || (mode === 'participant' ?
-      !relationshipOpen : !facesOpen || (mode === 'neighbor' && !buildFacesCandidates));
+      !relationshipOpen : !facesOpen || (mode === 'neighbor' && !buildFacesCandidates) ||
+        (mode === 'target' && !buildFacesGeometry().choices.length));
   }
+  if (faceTargetField) faceTargetField.dropdown.disabled = $('build-faces-target').disabled;
+  updateFaceNeighborSummary();
+  updateRelationshipParticipantField();
   const canvas = renderer?.domElement;
   if (canvas) {
     canvas.dataset.modelPick = modelPickMode || '';
@@ -283,6 +293,63 @@ function syncModelPickControls() {
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
     modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
       'Click fitted scan patches to toggle participants.';
+}
+function initializeSpecializedPickFields() {
+  const begin = mode => {
+    setModelPickMode(mode);
+    if (modelPickMode) revealWorkspacePanel('view');
+  };
+  faceTargetField = createPickField(document, {
+    label: 'Surface', onPick: () => begin('target'),
+    onChange: key => selectBuildFacesTarget(JSON.parse(key)),
+    onChoose: () => { if (modelPickMode === 'target') setModelPickMode(null); },
+    onInspect: key => {
+      buildFacesSurfacePreview = key ? JSON.parse(key) : null;
+      paintBuildFacesPreview();
+    },
+  });
+  faceTargetField.button.id = 'build-faces-target';
+  faceTargetField.popup.id = 'build-faces-target-options';
+  faceTargetField.dropdown.setAttribute('aria-controls', faceTargetField.popup.id);
+  $('build-faces-target-field').append(faceTargetField.element);
+  faceNeighborField = createPickField(document, {
+    label: 'Neighbors', multiple: true, onPick: () => begin('neighbor'),
+    popupContent: $('build-faces-neighbor-options'),
+    onChange: key => {
+      const row = [...$('build-faces-candidates').children].find(row => row.dataset.reference === key);
+      row?.querySelector('summary input')?.click();
+    },
+    onRemove: key => {
+      const input = [...$('build-faces-candidates').children]
+        .find(row => row.dataset.reference === key)?.querySelector('summary input');
+      if (input) {
+        input.checked = false;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (canDiscardFaceReview()) {
+        const reference = JSON.parse(key);
+        buildFacesCutters = buildFacesCutters.filter(item => !sameSurfaceReference(item, reference));
+        buildFacesBoundarySources = buildFacesBoundarySources.filter(id =>
+          !sameSurfaceReference(graphNode(id)?.surface, reference));
+        invalidateBuildFaces('Boundaries changed. Preview again.', true);
+        updateFaceNeighborSummary();
+        renderBuildFacesScopes();
+        renderUnavailableFaceGuidance();
+      }
+    },
+  });
+  faceNeighborField.button.id = 'pick-face-neighbor';
+  $('build-faces-neighbor-field').append(faceNeighborField.element);
+  relationshipParticipantField = createPickField(document, {
+    label: 'Participants', multiple: true, onPick: () => begin('participant'),
+    popupContent: $('relationship-participant-options'),
+    onChange: key => {
+      const checkbox = [...$('relationship-participants').querySelectorAll('input')]
+        .find(input => input.dataset.participantId === key);
+      checkbox?.click();
+    },
+  });
+  relationshipParticipantField.button.id = 'pick-relationship-participant';
+  $('relationship-participant-field').append(relationshipParticipantField.element);
 }
 function modelPickParts(choice) {
   // Named geometry outputs never inherit supporting observations or unrelated
@@ -326,7 +393,7 @@ function paintModelPickGuides() {
     child.material.dispose();
   }
   for (const choice of choices) {
-    const color = choice.key === modelPickHoverKey ? '#ffe45c' : '#78e2ff';
+    const color = choice.key === modelPickHoverKey ? '#ffe45c' : choice.selected ? '#6deda6' : '#78e2ff';
     const before = modelPickGuides.children.length;
     if (choice.inputOutput?.preview) {
       const output = choice.inputOutput, values = output.preview;
@@ -359,11 +426,11 @@ function paintModelPickGuides() {
           depthTest: false, depthWrite: false })));
       } else if (['trimmed_face', 'arranged_face', 'surface_intersection', 'body'].includes(node.operation)) {
         physicalGeometryGuide(node, fitted, color, modelPickGuides);
-      } else if (modelPickMode === 'field' && choice.key === modelPickHoverKey && node.operation === 'fit') {
+      } else if (modelPickMode === 'field' && (choice.key === modelPickHoverKey || choice.selected) && node.operation === 'fit') {
         if (node.kind === 'sphere') surfaceGuide(node.kind, fitted.parameters, node.axial_domain,
           color, fitted.ids, modelPickGuides);
         else paintFaceFootprint(reference, true, color, modelPickGuides);
-      } else if (modelPickMode === 'field' && choice.key === modelPickHoverKey && fitted.ids?.length) {
+      } else if (modelPickMode === 'field' && (choice.key === modelPickHoverKey || choice.selected) && fitted.ids?.length) {
         const coordinates = fitted.ids.flatMap(id => Array.from(positions.subarray(id * 3, id * 3 + 3)));
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(coordinates, 3));
@@ -490,7 +557,10 @@ function commitModelPick(key) {
   $('model-pick-choices').hidePopover();
 }
 function pickModelItem(event) {
-  const matches = modelPicksAt(event), chooser = $('model-pick-choices');
+  showModelPickChoices(modelPicksAt(event), event);
+}
+function showModelPickChoices(matches, event) {
+  const chooser = $('model-pick-choices');
   chooser.hidePopover();
   if (matches.length === 1) { commitModelPick(matches[0].key); return; }
   if (!matches.length) {
@@ -513,6 +583,16 @@ function pickModelItem(event) {
   chooser.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - bounds.width - 4))}px`;
   chooser.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - bounds.height - 4))}px`;
   chooser.querySelector('button').focus();
+}
+function pickFeatureInput(id) {
+  if (!modelPickMode) return false;
+  const matches = modelPickChoices().filter(choice =>
+    choice.reference?.surface === id || referenceFeature(choice.reference) === id || choice.key === id);
+  const row = [...$('action-list').querySelectorAll('.action-select')]
+    .find(button => button.dataset.actionId === id), bounds = row?.getBoundingClientRect();
+  showModelPickChoices(matches, { clientX: bounds?.right || innerWidth / 2,
+    clientY: bounds?.top || innerHeight / 2 });
+  return true;
 }
 async function request(path, value) {
   const response = await fetch(
@@ -654,11 +734,28 @@ function inspectFaceCandidate(candidate) {
 }
 function filterFaceCandidates() {
   const filter = $('build-faces-neighbor-filter').value.trim().toLowerCase();
-  for (const row of $('build-faces-candidates').children)
-    row.hidden = !row.dataset.search.includes(filter);
+  for (const row of $('build-faces-candidates').children) {
+    const candidate = (buildFacesCandidates?.candidates || []).find(candidate =>
+      JSON.stringify(candidate.reference) === row.dataset.reference);
+    row.hidden = !candidate?.supported || candidate.mathematical?.status === 'proven_empty' ||
+      !row.dataset.search.includes(filter);
+  }
 }
 function updateFaceNeighborSummary() {
   $('build-faces-neighbor-summary').textContent = `Neighbors · ${buildFacesCutters.length} selected`;
+  if (!faceNeighborField) return;
+  const choices = (buildFacesCandidates?.candidates || []).map(candidate => ({
+    key: JSON.stringify(candidate.reference), label: fittedFaceCandidatePresentation(candidate).label,
+    selected: buildFacesCutters.some(reference => sameSurfaceReference(reference, candidate.reference)),
+    disabled: !candidate.supported || candidate.mathematical?.status === 'proven_empty',
+  }));
+  for (const reference of buildFacesCutters) {
+    const key = JSON.stringify(reference);
+    if (!choices.some(choice => choice.key === key)) choices.push({ key,
+      label: `Unavailable: ${fittedSurfacePresentation(reference, graphState.recipe.nodes).label}`,
+      selected: true, disabled: true });
+  }
+  faceNeighborField.update(choices, { disabled: !graphState || featureTreeLocked() || buildFacesApplying });
 }
 function renderFaceCandidates(previous = null, exact = false) {
   const candidates = buildFacesCandidates?.candidates || [];
@@ -1046,25 +1143,18 @@ function refreshBuildFacesChoices() {
     if (message || $('build-faces-error').textContent === buildFacesChoicesMessage)
       $('build-faces-error').textContent = message;
     buildFacesChoicesMessage = message;
-    renderIconPicker($('build-faces-target'), $('build-faces-target-options'), {
-      choices: options.map((choice) => ({
-        ...fittedSurfacePresentation(choice.reference, graphState.recipe.nodes),
-        value: JSON.stringify(choice.reference),
-      })),
-      value: JSON.stringify(buildFacesTarget),
-      locked: () => featureTreeLocked() || buildFacesApplying,
-      preview: (value) => {
-        buildFacesSurfacePreview = value ? JSON.parse(value) : null;
-        paintBuildFacesPreview();
-      },
-      change: value => selectBuildFacesTarget(JSON.parse(value)),
-    });
     const targetAvailable = options.some((choice) => sameSurfaceReference(choice.reference, buildFacesTarget));
-    if (buildFacesTarget && !targetAvailable) {
-      const target = $('build-faces-target');
-      target.textContent = `Unavailable: ${fittedSurfacePresentation(buildFacesTarget, graphState.recipe.nodes).name}`;
-      target.setAttribute('aria-label', target.textContent);
-    }
+    faceTargetField.update([
+      ...options.map(choice => ({
+        key: JSON.stringify(choice.reference), label: choice.label,
+        selected: sameSurfaceReference(choice.reference, buildFacesTarget),
+      })),
+      ...(buildFacesTarget && !targetAvailable ? [{
+        key: JSON.stringify(buildFacesTarget),
+        label: `Unavailable: ${fittedSurfacePresentation(buildFacesTarget, graphState.recipe.nodes).name}`,
+        selected: true, disabled: true,
+      }] : []),
+    ], { disabled: featureTreeLocked() || buildFacesApplying });
     const result = graphState.results[buildFacesTarget?.feature],
       targetFit = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
     $('focus-face-target').disabled = !targetAvailable || !targetFit?.ids?.length;
@@ -1495,6 +1585,7 @@ function renderGraphView() {
     selected: selectedFeatureIds,
     options: featureGraphOptions(),
     onSelect: (id, { clear = false } = {}) => {
+      if (modelPickMode) { if (id) pickFeatureInput(id); return; }
       if (clear || !id) selectOnly(null);
       else toggleFeatureSelection(id);
       refreshFeatureSelection(true);
@@ -1562,6 +1653,18 @@ function showCreateDialog(dialogId, labelId, defaultLabel) {
   $(dialogId).showModal();
   input.focus();
   input.select();
+  // Begin at the first empty required geometry input while keeping the name and
+  // other draft settings visible. Existing-feature inspection never starts picks.
+  setTimeout(() => {
+    const dialog = $(dialogId);
+    if (!dialog.open || modelPickMode) return;
+    const control = [...dialog.querySelectorAll('select[required]')].find(select =>
+      ![...select.selectedOptions].some(option => option.value) && nativePickOptions(select).length &&
+      [...dialog.querySelectorAll('[data-pick-control]')].some(button => button.dataset.pickControl === select.id));
+    const button = [...dialog.querySelectorAll('[data-pick-control]')]
+      .find(button => button.dataset.pickControl === control?.id);
+    button?.click();
+  }, 0);
 }
 function clearBodyInspection() {
   if (!bodyInspection) return;
@@ -1925,11 +2028,21 @@ function renderRelationshipBuilder() {
 }
 function filterRelationshipParticipants() {
   const filter = $('relationship-filter').value.trim().toLowerCase();
-  for (const row of $('relationship-participants').children) row.hidden = !row.dataset.search.includes(filter);
+  for (const row of $('relationship-participants').children)
+    row.hidden = row.dataset.compatible === 'false' || !row.dataset.search.includes(filter);
   if (relationshipInspected && ![...$('relationship-participants').children].some((row) =>
     !row.hidden && row.querySelector('input').dataset.participantId === relationshipInspected))
     relationshipInspected = null;
   paintRelationshipPreview();
+}
+function updateRelationshipParticipantField() {
+  if (!relationshipParticipantField) return;
+  const nodes = graphState?.recipe.nodes || [];
+  relationshipParticipantField.update(relationshipParticipantChoices(nodes,
+    selectedRelationshipKind, relationshipParticipantIds).map(({ node, compatible }) => ({
+    key: node.id, label: node.label,
+    selected: relationshipParticipantIds.has(node.id), disabled: !compatible,
+  })), { disabled: !graphState || featureTreeLocked() || relationshipApplying });
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
@@ -2377,9 +2490,10 @@ function renderActions() {
     selected: selectedFeatureIds,
     states: graphState.states,
     errors: graphState.errors,
-    locked: featureTreeLocked,
+    locked: () => featureTreeLocked() || !!modelPickMode,
     select: (id, { exclusive = false } = {}) => {
       if (selectionDrawing || selectionPending || featureDeletionPending) return;
+      if (pickFeatureInput(id)) return;
       if (exclusive) selectOnly(id);
       else toggleFeatureSelection(id);
       refreshFeatureSelection(true);
@@ -4119,15 +4233,19 @@ async function start() {
     renderRelationshipBuilder();
   };
   $('focus-relationship').onclick = () => focusRelationshipParticipants([...relationshipParticipantIds]);
-  for (const [mode, id] of Object.entries(modelPickButtons)) $(id).onclick = () => {
-    if ($(id).disabled) return;
-    setModelPickMode(modelPickMode === mode ? null : mode);
-    if (modelPickMode) revealWorkspacePanel('view');
-  };
+  initializeSpecializedPickFields();
   $('stop-model-picking').onclick = () => setModelPickMode(null);
   bindModelPickControls(document, startFieldPick);
+  document.addEventListener('selection-picker-change', event => {
+    if (modelPickField?.control === event.target && !event.target.multiple && event.target.matches('select'))
+      setModelPickMode(null);
+  });
   for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('close', () => {
-    if (modelPickField?.dialog === dialog && !dialog.open && !modelPickField.suspended) setModelPickMode(null);
+    if (modelPickField?.dialog === dialog && !dialog.open) {
+      modelPickField.suspended = false;
+      delete dialog.dataset.modelPickSuspended;
+      setModelPickMode(null);
+    }
   });
   $('model-pick-choices').addEventListener('toggle', event => {
     if (event.newState === 'closed') clearModelPickHover();

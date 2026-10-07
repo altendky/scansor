@@ -17,7 +17,7 @@ async function evaluate(page) {
 }
 
 async function lists(page, label, present) {
-  const target = page.locator('#build-faces-target-options [role=option]').filter({ hasText: label });
+  const target = page.locator('#build-faces-target-options [role=menuitemradio]').filter({ hasText: label });
   const batch = page.locator('#build-faces-surfaces option').filter({ hasText: label });
   await expect(target).toHaveCount(present ? 1 : 0);
   await expect(batch).toHaveCount(present ? 1 : 0);
@@ -31,13 +31,15 @@ test('open Build faces lists follow add, evaluate, rename and delete without los
     await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
     await page.locator('#build-faces-options > summary').click();
     await page.locator('#build-faces-label').fill('Uncommitted faces');
+    await page.getByRole('button', { name: 'Show Neighbors choices', exact: true }).click();
     await page.locator('#build-faces-neighbor-filter').fill('My neighbor filter');
     const target = await page.locator('#build-faces-target').textContent();
     await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
     await page.locator('#new-fit-label').fill('Additional plane');
     await page.locator('#new-fit-kind').selectOption('plane');
     await page.locator('#new-fit-inputs').selectOption('top_face');
-    await page.locator('#new-fit-reference').selectOption('');
+    await page.getByRole('button', { name: 'Show Reference geometry choices', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'None (standalone)', exact: true }).click();
     await page.locator('#add-fit-form').getByRole('button', { name: 'Add fit', exact: true }).click();
     await expect(page.locator('#fit-dialog')).toBeHidden();
     await lists(page, 'Additional plane', false);
@@ -89,21 +91,22 @@ test('readiness refresh retains exact unavailable inputs and unchanged snapshots
   await page.route('**/api/graph/evaluate', route => route.fulfill({ json: { status: 'running' } }));
   await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
   await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
-  await page.locator('#build-faces-target').click();
-  await page.locator('#build-faces-target-options [role=option]').filter({ hasText: 'End surface' }).click();
+  await page.getByRole('button', { name: 'Show Surface choices', exact: true }).click();
+  await page.locator('#build-faces-target-options [role=menuitemradio]').filter({ hasText: 'End surface' }).click();
   await page.locator('#build-faces-options > summary').click();
   await page.locator('#build-faces-label').fill('Retained draft');
+  await page.getByRole('button', { name: 'Show Neighbors choices', exact: true }).click();
   await page.locator('#build-faces-neighbor-filter').fill('Retained filter');
   await page.locator('#build-faces-label').focus();
   await page.evaluate(() => {
-    window.originalFaceOption = document.querySelector('#build-faces-target-options [role=option]');
+    window.originalFaceOption = document.querySelector('#build-faces-target-options [role=menuitemradio]');
     window.originalBatchOption = document.querySelector('#build-faces-surfaces option');
   });
   await evaluate(page);
   await expect(page.locator('#build-faces-label')).toBeFocused();
-  expect(await page.evaluate(() => window.originalFaceOption === document.querySelector('#build-faces-target-options [role=option]') &&
+  expect(await page.evaluate(() => window.originalFaceOption === document.querySelector('#build-faces-target-options [role=menuitemradio]') &&
     window.originalBatchOption === document.querySelector('#build-faces-surfaces option'))).toBe(true);
-  await page.locator('#build-faces-target').click();
+  await page.getByRole('button', { name: 'Show Surface choices', exact: true }).click();
   await evaluate(page);
   await expect(page.locator('#build-faces-target-options')).toBeVisible();
   await page.keyboard.press('Escape');

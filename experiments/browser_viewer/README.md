@@ -118,22 +118,32 @@ confirmation, and export dialogs remain modal. Separate browser-window popouts
 are disabled in this slice because the existing tools and renderer share a single
 document.
 
-**Pick** beside the Build faces surface chooses a fit by clicking its scan patch
-in the model. **Pick** beside Neighbors and **Pick in model** in Relationships
-toggle the corresponding list checkboxes. Hover previews the fit/boundary; an
-overlapping patch opens an icon-and-label chooser instead of guessing. Picking
-uses the current complete fit output and the list's eligibility/filter rules.
+Geometry input fields start picking when clicked. Single inputs show their
+selected value; multiple inputs show selected rows with remove buttons and a
+minimum two-row height. Their dropdown arrows show all eligible choices, with
+checkmarks for selected items. Single choices close the dropdown; multiple
+choices toggle selection and keep it open. Unavailable choices are excluded from
+the dropdown, while unavailable saved selections remain visible for repair.
+Creation tools begin picking at the first required empty geometry input when
+eligible choices are available; inspecting an existing feature does not.
+This also applies to Build faces surfaces/neighbors and relationship participants;
+their detailed neighbor/participant controls remain available in the dropdown.
+Hover previews the fit/boundary; an overlapping patch opens an icon-and-label
+chooser instead of guessing. Picking uses the current complete fit output and
+input eligibility rules. Dropdown search does not restrict picks in the model.
 Target picking ends after a successful choice; neighbor/participant picking
 continues until **Stop picking**, Escape, or closing the workflow. Outside this
 mode, clicking retained regions keeps its existing behavior, and painting and
-right/middle-button navigation remain unchanged. Geometry input lists in feature
-editors and creation dialogs also have **Pick** buttons. They use scan patches
+right/middle-button navigation remain unchanged. Geometry inputs in feature
+editors and creation dialogs use scan patches
 for selections/fits and visible guides for points, axes, planes, frames,
-intersections, constructed faces and bodies. No general feature-tree selection
-is added. Single-input picking returns immediately; multi-input picking toggles
-items until **Done picking** or Escape. Modal forms temporarily step aside and
-return with their draft intact. Picking changes the same input and runs the same
-change handler as choosing from its list; it does not apply the form.
+intersections, constructed faces and bodies. While an input is being picked,
+eligible feature-tree clicks fill that input rather than changing the inspected
+feature. Single-input picking finishes immediately; multi-input picking toggles
+items until **Done picking** or Escape. Modal forms stay visible beside the
+viewport during picking and return to modal interaction afterward, with their
+draft intact. Picking runs the same input change handler as the dropdown and
+does not apply the form.
 
 In Faces only mode, identified source-face previews map a click back to a face,
 its fitted surface or containing body. Source-face previews are used even when a

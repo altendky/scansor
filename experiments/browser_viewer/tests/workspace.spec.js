@@ -176,10 +176,14 @@ test('Build faces and Relationships are native dockable workflows with guarded s
   await expect(page.getByRole('tab', { name: 'Build faces', exact: true })).toHaveCount(0);
   await page.locator('[data-command-id="new-relationship"]').click();
   await expect(page.locator('#relationship-dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Show Participants choices', exact: true }).click();
   await page.locator('#relationship-filter').fill('surface');
+  await page.keyboard.press('Escape');
   await floatPanel(page, 'Relationships');
   await dockPanel(page, 'Relationships');
+  await page.getByRole('button', { name: 'Show Participants choices', exact: true }).click();
   await expect(page.locator('#relationship-filter')).toHaveValue('surface');
+  await page.keyboard.press('Escape');
   await page.getByRole('tab', { name: 'Relationships', exact: true }).getByTitle('Close', { exact: true }).click();
   await expect(page.locator('#relationship-dialog')).toBeHidden();
   await expect(page.getByRole('tab', { name: 'Relationships', exact: true })).toHaveCount(0);
