@@ -113,8 +113,11 @@ no docking target; releasing in one restores the committed placement and order.
 Build faces and Relationships open as dockable panels next to the model. Their
 header float control moves them within the browser tab; their form values,
 review choices, and previews survive rearrangement. The panel close button follows
-the same review-discard guard as the form's Cancel/Done button. Other creation,
-confirmation, and export dialogs remain modal. Separate browser-window popouts
+the same review-discard guard as the form's Cancel/Done button.
+When a docked panel closes or floats, or the browser window resizes, the model
+absorbs the space change while other docked panels retain their chosen sizes
+where the layout permits. Splitters remain adjustable.
+Other creation, confirmation, and export dialogs remain modal. Separate browser-window popouts
 are disabled in this slice because the existing tools and renderer share a single
 document.
 

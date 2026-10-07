@@ -7,6 +7,7 @@ import './workspace.css';
 import { ToolbarHostMarker, ToolbarWorkspace, useToolbarHost } from './toolbar-prototype.jsx';
 import { DIALOG_PANELS, PANEL_NAMES, PERMANENT_PANELS, WORKSPACE_STORAGE_KEY,
   initialWorkspace, panelTab } from './workspace-state.js';
+import { preserveModelSpace } from './workspace-sizing.js';
 import { TOOLBAR_IDS } from './toolbar-state.js';
 import { renderIconLegend } from './icon-legend.js';
 
@@ -69,7 +70,10 @@ function loadModel() {
     if (ids.some(id => !Object.hasOwn(PANEL_NAMES, id)) || new Set(ids).size !== ids.length ||
         PERMANENT_PANELS.some(id => !ids.includes(id))) throw new Error('Unknown workspace panels');
     // Layout preferences are not permission to reopen a face/relationship draft.
-    for (const id of DIALOG_PANELS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
+    const releaseSizing = preserveModelSpace(model);
+    try {
+      for (const id of DIALOG_PANELS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
+    } finally { releaseSizing(); }
     return model;
   } catch { return Model.fromJson(defaultWorkspace()); }
 }
@@ -81,6 +85,7 @@ function Workspace({ elements, parking }) {
   const [toolbarReset, setToolbarReset] = useState(0);
   const modelRef = useRef(model);
   modelRef.current = model;
+  useLayoutEffect(() => preserveModelSpace(model, byId('workspace-root').querySelector('.flexlayout__layout')), [model]);
   const save = next => {
     try {
       localStorage.setItem(storageKey, JSON.stringify({ version: 1, layout: next.toJson() }));
