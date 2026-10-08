@@ -177,6 +177,30 @@ def test_discovery_does_not_publish_or_evaluate_and_snapshot_is_independent(
     )
 
 
+def test_evaluated_catalogue_previews_do_not_alias_publication_stores(
+    graph: FeatureGraph,
+) -> None:
+    first = graph.evaluate(str(graph.snapshot()["token"]), all_actions=True)
+    catalogue = cast(list[dict[str, Any]], first["input_catalogue"])
+    point = next(
+        item for item in catalogue if item["reference"] == ref("other", "point")
+    )
+    point["preview"]["point_display"][0] = 999
+    cast(dict[str, Any], first["results"])["other"]["point_display"][1] = 999
+    second = graph.snapshot()
+    fresh = next(
+        item
+        for item in cast(list[dict[str, Any]], second["input_catalogue"])
+        if item["reference"] == ref("other", "point")
+    )
+    assert fresh["preview"]["point_display"] == [5, 2, 3]
+    assert cast(dict[str, Any], second["results"])["other"]["point_display"] == [
+        5,
+        2,
+        3,
+    ]
+
+
 def test_sphere_center_is_an_explicit_point_for_all_readers(
     graph: FeatureGraph,
 ) -> None:

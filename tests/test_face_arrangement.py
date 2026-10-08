@@ -233,6 +233,46 @@ def test_finite_neighbor_faces_close_boss_footprint_without_remote_clock_cut(
     assert len(scoped) == 1 and same_region(outside, scoped[0])
 
 
+@pytest.mark.parametrize("shift", [(0, 0, 0), (1e6, -2e6, 3e6)])
+def test_nested_replay_declarations_preserve_full_record_geometry_and_carrier(
+    monkeypatch: MonkeyPatch, shift: tuple[float, float, float]
+):
+    target, cuts, plate = finite_boss_sources(shift=shift)
+    points = np.asarray([[-3, -2, 0], [3, -2, 0], [0, 0, 0]], dtype=float) + shift
+    original_inputs = deepcopy((cuts, plate))
+
+    def full_record(record: dict[str, Any]) -> dict[str, Any]:
+        return record
+
+    # Exercise full-record and compact storage through native splitting and
+    # reconstruction, including finite cutters and subsequent domain reuse.
+    with monkeypatch.context() as patch:
+        patch.setattr(face_arrangement, "_replay_domain", full_record)
+        full = arrange_faces(target, cuts, domains=[plate], observations=points)
+    compact = arrange_faces(target, cuts, domains=[plate], observations=points)
+    assert (cuts, plate) == original_inputs
+    assert len(full) == len(compact) == 2
+    for original, retained in zip(full, compact, strict=True):
+        assert {k: v for k, v in original.items() if k != "bounds"} == {
+            k: v for k, v in retained.items() if k != "bounds"
+        }
+        intent = retained["bounds"]["arrangement"]
+        assert intent["carrier"] == original["bounds"]["arrangement"]["carrier"]
+        assert same_region(original, retained)
+        assert area(retained) == pytest.approx(area(original), rel=2e-7)
+        embedded = [*intent["domains"], *intent["cutters"][0]["face_domains"]]
+        assert all(
+            "preview" not in domain and "evidence" not in domain for domain in embedded
+        )
+        scoped = arrange_faces(target, [], domains=[json.loads(json.dumps(retained))])
+        assert len(scoped) == 1 and same_region(original, scoped[0])
+    assert len(json.dumps(compact)) < len(json.dumps(full)) / 2
+    cuts[0]["face_domains"][0]["bounds"].clear()
+    assert all(
+        BRepCheck_Analyzer(face_from_record(record)).IsValid() for record in compact
+    )
+
+
 def test_finite_cutter_rejects_open_or_empty_domain_guidance():
     target, cuts, plate = finite_boss_sources()
     for domains in ([], [{**cuts[0]["face_domains"][0], "bounded": False}]):

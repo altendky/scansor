@@ -1215,6 +1215,42 @@ def _record(
     }
 
 
+def _replay_domain(record: dict[str, Any]) -> dict[str, Any]:
+    """Retain physical declarations without embedding display/review snapshots.
+
+    Arranged faces rebuild their loops from the complete arrangement intent;
+    manual faces still need every declared loop, cut and interval. Nested
+    selectors and normalization contexts remain exact replay inputs.
+    """
+    bounds = record["bounds"]
+    if "arrangement" in bounds:
+        intent = bounds["arrangement"]
+        bounds = {
+            "arrangement": {
+                **intent,
+                "domains": [_replay_domain(domain) for domain in intent["domains"]],
+                "cutters": [_replay_cutter(cutter) for cutter in intent["cutters"]],
+            }
+        }
+    return {
+        **{
+            key: record[key]
+            for key in ("kind", "surface_kind", "geometry", "bounded")
+            if key in record
+        },
+        "bounds": bounds,
+    }
+
+
+def _replay_cutter(cutter: dict[str, Any]) -> dict[str, Any]:
+    if "face_domains" not in cutter:
+        return cutter
+    return {
+        **cutter,
+        "face_domains": [_replay_domain(domain) for domain in cutter["face_domains"]],
+    }
+
+
 def _intent(
     surface: dict[str, Any],
     cutters: list[dict[str, Any]],
@@ -1244,16 +1280,19 @@ def _intent(
         raise ValueError(
             "unbounded arrangement scopes need explicit physical closing bounds; only declared open axial/radial intervals can currently be reused"
         )
+    # Preview positions participate in carrier construction. Compute it from
+    # the original records before dropping their display and review metadata.
+    carrier = _carrier_intent(
+        surface,
+        cutters,
+        physical,
+        coverage if coverage is not None else observations,
+    )
     return {
         "surface": _world_frame(surface),
-        "cutters": cutters,
-        "domains": physical,
-        "carrier": _carrier_intent(
-            surface,
-            cutters,
-            physical,
-            coverage if coverage is not None else observations,
-        ),
+        "cutters": [_replay_cutter(cutter) for cutter in cutters],
+        "domains": [_replay_domain(domain) for domain in physical],
+        "carrier": carrier,
         "observations": observations.tolist() if observations is not None else [],
     }
 

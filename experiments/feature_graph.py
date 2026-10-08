@@ -3281,14 +3281,14 @@ class FeatureGraph:
 
     def _input_values(self) -> dict[str, dict[str, Any]]:
         """Exact publication stores; callers hold the graph lock."""
-        values = cast(
-            dict[str, dict[str, Any]], deepcopy({**self._derived, **self._results})
-        )
+        # Catalogue/resolution readers build detached outputs while the lock is
+        # held; copying every stored face here needlessly duplicates provenance.
+        values = cast(dict[str, dict[str, Any]], {**self._derived, **self._results})
         nodes = {node.id: node for node in self._recipe.nodes}
         for point_id, solve in self._connected_point_solves.items():
             values["@point/" + point_id] = {
-                "outputs": {point_id: deepcopy(solve["point"])},
-                "surfaces": deepcopy(solve["surfaces"]),
+                "outputs": {point_id: solve["point"]},
+                "surfaces": solve["surfaces"],
             }
         for axis_id, solve in self._connected_solves.items():
             node = cast(AxisDefinition, nodes[axis_id])
@@ -3299,14 +3299,14 @@ class FeatureGraph:
             outputs = {axis_id: axis}
             for plane in self._recipe.nodes:
                 if isinstance(plane, PlaneDefinition) and plane.axis == axis_id:
-                    outputs[plane.id] = deepcopy(
-                        solve.get("reference_planes", {}).get(plane.id)
+                    outputs[plane.id] = solve.get("reference_planes", {}).get(
+                        plane.id
                     ) or reference_plane_result(
                         axis, initialized_plane(plane, self._derived.get(plane.id, {}))
                     )
             values["@axis/" + axis_id] = {
                 "outputs": outputs,
-                "surfaces": deepcopy(solve.get("surfaces", {})),
+                "surfaces": solve.get("surfaces", {}),
             }
         return values
 
@@ -3357,6 +3357,7 @@ class FeatureGraph:
                     "revision": self._revision,
                     "unchanged": True,
                 }
+            publication_values = self._input_values()
             resolved = deepcopy({**self._derived, **self._results})
             for axis_id, solve in self._connected_solves.items():
                 axis_node = next(
@@ -3404,7 +3405,7 @@ class FeatureGraph:
                     first_point=resolve_output(
                         node.source_points[0],
                         {n.id: n for n in self._recipe.nodes},
-                        self._input_values(),
+                        publication_values,
                         coordinates=self.workspace.local,
                     )
                     if isinstance(node.source_points[0], OutputReference)
@@ -3412,7 +3413,7 @@ class FeatureGraph:
                     second_point=resolve_output(
                         node.source_points[1],
                         {n.id: n for n in self._recipe.nodes},
-                        self._input_values(),
+                        publication_values,
                         coordinates=self.workspace.local,
                     )
                     if isinstance(node.source_points[1], OutputReference)
@@ -3449,7 +3450,7 @@ class FeatureGraph:
             catalogue = output_catalogue(
                 self._recipe,
                 self._states,
-                self._input_values(),
+                publication_values,
                 frame=self.reference_sha256,
                 coordinates=self.workspace.local,
             )
