@@ -136,6 +136,56 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
   -k test_full_boss_all_twenty_two_fits_apply_and_replay -q --durations=5
 ```
 
+### Full feature graph timing
+
+**Local measurement, 2026-10-07.** A fresh evaluation of the current browser's
+131-action repeated-boss recipe (6,292 vertices, 10,976 triangles) took a median
+18.83 seconds before compact nested face declarations and 5.45 seconds afterward
+(71% less time). This includes graph construction, the final detached snapshot,
+and HTTP response JSON encoding; it excludes workspace loading, module imports,
+network transfer and browser rendering. Three uninstrumented runs per version
+used Python 3.12.14, NumPy 2.5.1, Pydantic 2.13.4, OCP 8.0.1.0.0 and two BLAS
+threads. All 131 actions were ready in every run.
+
+Separate low-overhead instrumented runs attributed about 9.04 seconds to internal
+JSON encoding and 3.84 seconds to copying before the change, versus 0.79 and 0.74
+seconds afterward. Geometry, validation and preview work remained about 3–4
+seconds. Final response encoding fell from about 1.05 to 0.14 seconds, and the
+payload from 36,097,874 to 6,862,086 bytes. These phase medians come from two
+instrumented runs per version and need not sum to the uninstrumented median.
+
+Nested replay records now retain the complete physical declarations, selectors
+and exact normalization contexts instead of embedding earlier display previews
+and review metadata. The carrier is computed from full inputs before compaction;
+outer previews, evidence and validation remain available. Input discovery reads
+publication stores under the graph lock and still returns detached outputs.
+
+A second full-graph comparison with locked OCP 8.0.1.1.0 matched every snapshot
+field after compacting embedded declarations, including previews, fits, evidence,
+carriers, selectors, boundary reviews and body geometry. Body input fingerprints
+change with the stored representation and remain checked against exact inputs.
+
+To repeat full evaluation timing with a saved recipe or graph snapshot:
+
+```console
+OPENBLAS_NUM_THREADS=2 uv run --locked --python 3.12.14 \
+  python -m experiments.feature_graph_benchmark \
+  local-inputs/repeated-boss-selection-v2/scan-coarse \
+  examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json \
+  --runs 3
+```
+
+The benchmark reports its dependency versions, thread settings, phases and ready
+counts. Imports are warmed, but each measured graph starts unevaluated with a
+fresh native replay cache. The measured browser recipe differs from the retained
+example in action ordering and one reuse-lineage ordering; timings from the
+retained example or the currently locked OCP 8.0.1.1.0 need separate attribution.
+The new CLI also completed three runs of the browser recipe with locked OCP
+8.0.1.1.0: median total 5.78 seconds (range 5.67–6.05), including the initial
+unevaluated snapshot in setup. All 131 actions were ready, with the same response
+size. This is an additional optimized measurement, not a matched kernel baseline.
+The earlier fitting-only scaling results do not include face/body processing.
+
 ### Python check scope
 
 Ruff checks every applicable Python file under the repository root. Basedpyright
