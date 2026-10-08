@@ -191,7 +191,20 @@ test('window resizing gives Model the width change, preserving chosen splitter s
   const legend = await tabset(page, 'Icon legend').boundingBox();
   const model = await tabset(page, 'Model').boundingBox();
   for (const width of [1640, 1300, 600, 1440]) {
+    await page.evaluate(() => {
+      window.workspaceResizeSettled = new Promise(resolve => {
+        window.addEventListener('resize', () => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        }, { once: true });
+      });
+    });
     await page.setViewportSize({ width, height: 1000 });
+    // Finish each resize/layout cycle before requesting the next size, even
+    // when minimum-size constraints prevent asserting exact panel widths.
+    await page.evaluate(async () => {
+      await window.workspaceResizeSettled;
+      delete window.workspaceResizeSettled;
+    });
     if (width === 600) continue; // Minimum-size constraints may compress panels.
     await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).width)
       .toBeCloseTo(model.width + width - 1440, 0);
