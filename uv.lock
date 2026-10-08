@@ -62,14 +62,14 @@ wheels = [
 
 [[package]]
 name = "cadquery-ocp-stubs"
-version = "8.0.1.0.0"
+version = "8.0.1.1.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/8c/5b66a84e73ac95ff6c1e13c938adeb0bd304a6a6bcc0f4587e6031aeffa8/cadquery_ocp_stubs-8.0.1.0.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:f232f8969d89ba651ca6a89876a680bb4b06e9b9d296a7d5a477504103107dd2", size = 2666277, upload-time = "2026-09-05T11:32:08.701Z" },
-    { url = "https://files.pythonhosted.org/packages/87/31/3b2735e197f88956ddb6bb58f8fd85e07c7dcf6c5ef2eeaaab493eb91b47/cadquery_ocp_stubs-8.0.1.0.0-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:0e95e80d2ebf38dc824c14b9cdf1167af5095d60ade1a03f496a686dcf5c6b16", size = 2666278, upload-time = "2026-09-05T11:32:10.33Z" },
-    { url = "https://files.pythonhosted.org/packages/bd/64/80615dcd55dc408733438267336027a68f0b97ef5287a57ffe05214267a4/cadquery_ocp_stubs-8.0.1.0.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:22f27c7592a4a3ba00d2a2e489ae2d1c4bc03cb486d2a58af67ad9befbe86a3e", size = 2666629, upload-time = "2026-09-05T11:32:11.864Z" },
-    { url = "https://files.pythonhosted.org/packages/7d/71/97ce7d6408322dd83ffa083e93e0858b6e74d5e7c739bbca3f3489dc5c9e/cadquery_ocp_stubs-8.0.1.0.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:3c7eef7d40a9e1b769a9ea41b39f27ea993b157b952b24a71be68568732b310f", size = 2666627, upload-time = "2026-09-05T11:32:13.171Z" },
-    { url = "https://files.pythonhosted.org/packages/f0/47/45ea7716b137f30ecab87dff15ec312e487344a1cd0378cde6daca581e8d/cadquery_ocp_stubs-8.0.1.0.0-py3-none-win_amd64.whl", hash = "sha256:3dbef7c239aede520c4f3fd5dfa8fab4762c8864419f495f20f975b238205fdd", size = 2691114, upload-time = "2026-09-05T11:32:14.731Z" },
+    { url = "https://files.pythonhosted.org/packages/49/ae/114c3f48e1456c294dfe93385c2ddfd60115a77422946fec7a5fe55e5c71/cadquery_ocp_stubs-8.0.1.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:fcb92e6e5118f1dfc7c85d4a0a1547c93d238546474e3bc0c7169e5d86e198d9", size = 2667836, upload-time = "2026-10-05T16:22:37.198Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/e5/bcf3d4dcf8ca25634d309b40524c4c4372aaf9bc49b7949a5f9b9913ef4f/cadquery_ocp_stubs-8.0.1.1.0-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:0366906c1303b1c19814b871a6aa3494a2df2aaf52af2742337cdd45e6a9ee66", size = 2667837, upload-time = "2026-10-05T16:22:38.747Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/5c/eabe2cf433d70459c6fc3a37497482b35a1715d9f1747a65ec3c7d664c6c/cadquery_ocp_stubs-8.0.1.1.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:d1b83dd23193646f4c23ad08e8f86b4fa731d4354c7dab5a80d8b0fea75c205b", size = 2668105, upload-time = "2026-10-05T16:22:40.354Z" },
+    { url = "https://files.pythonhosted.org/packages/46/7f/b91cd251ad52e3540b24f5f4536681c51647376a1700fd82cbbcd6f32d02/cadquery_ocp_stubs-8.0.1.1.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:e04f54e6f286b38422c5ab9240e3de9e5a484fc76b400a399c19df5b670581ed", size = 2668105, upload-time = "2026-10-05T16:22:41.992Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/31/1b34d57ad642477ea92ad750fe59d4b8444b02dce3296dc7a7e33f53f85a/cadquery_ocp_stubs-8.0.1.1.0-py3-none-win_amd64.whl", hash = "sha256:0b23659d9243b6b86313837e36f4d9623d341cdc9eec87ea94bf2028abf2040e", size = 2692972, upload-time = "2026-10-05T16:22:43.306Z" },
 ]
 
 [[package]]
@@ -527,7 +527,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31" },
-    { name = "cadquery-ocp-stubs", specifier = "==8.0.1.0.0" },
+    { name = "cadquery-ocp-stubs", specifier = "==8.0.1.1.0" },
     { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "pytest-xdist", specifier = ">=3.8" },
