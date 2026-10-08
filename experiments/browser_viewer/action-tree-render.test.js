@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { actionDescription, featureIcon, featureTreePresentation, iconPickerIndex, renderIconPicker, renderActionTree, relationshipParticipantChoices, renderRelationshipParticipants, treeDragScrollSpeed } from './action-tree.js';
 import { fitQualities } from './residual-display.js';
+import { createHeadlessFeatureTree } from './headless-feature-tree.js';
 
 // This is deliberately just the DOM surface used by the tree renderer, not a
 // browser emulator. Native drag behavior still requires real-browser verification.
@@ -68,7 +69,7 @@ class Element {
   setPointerCapture(id) { this.captured = id; }
   hasPointerCapture(id) { return this.captured === id; }
   releasePointerCapture(id) { if (this.captured === id) this.captured = null; }
-  focus() { globalThis.document.activeElement = this; }
+  focus() { globalThis.document.activeElement = this; this.onfocus?.(); }
   showPopover() { this.popoverOpen = true; }
   hidePopover() { this.popoverOpen = false; }
   scrollIntoView(options) { this.scrollRequest = options; }
@@ -77,6 +78,7 @@ class Element {
 function event(target, options = {}) {
   return {
     target, button: 0, pointerId: 1, clientX: 50, clientY: 105, prevented: false, stopped: false,
+    code: '', key: '', repeat: false, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
     preventDefault() { this.prevented = true; },
     stopPropagation() { this.stopped = true; },
     dataTransfer: { setData() {}, setDragImage() {} },
@@ -198,25 +200,43 @@ test('relationship inspection preserves focus and hover on different participant
 });
 
 function fixture(nodes = base, groups = []) {
-  globalThis.document = {
+  globalThis.document = Object.assign(new Element('document'), {
     createElement: (tag) => new Element(tag),
     createElementNS: (_namespace, tag) => new Element(tag),
     activeElement: null,
-  };
+  });
+  globalThis.window = new Element('window');
+  globalThis.HTMLInputElement = class extends Element {};
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
   const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
     list: new Element('ul') };
-  state.render = () => renderActionTree(state.list, {
+  state.render = () => {
+    const updateLocks = renderActionTree(state.list, {
     nodes: state.nodes, groups: state.groups, selected: state.selected, states: state.states, errors: state.errors,
     qualities: state.qualities,
+    createTree: createHeadlessFeatureTree,
     locked: () => state.locked, select: (id) => state.inspections.push(id),
     move: async (next) => { state.moves.push(next); state.nodes = next; state.render(); return true; },
     announce: (message, error) => state.announcements.push({ message, error }),
     contextMenu: (id, position) => state.contexts.push({ id, position }),
     groupContextMenu: (id, position) => state.groupContexts.push({ id, position }),
-  });
+    });
+    // Native keydown bubbles from a focused treeitem to Headless Tree's root
+    // listener. These direct-handler tests emulate that path and key release.
+    for (const item of state.list.querySelectorAll('.tree-item')) {
+      const row = item.children[0].tagName === 'details' ? item.children[0].children[0] : item.children[0],
+        ownKeydown = item.onkeydown;
+      item.onkeydown = row.onkeydown = input => {
+        item.focus();
+        ownKeydown(input);
+        if (!input.stopped) state.list.emit('keydown', input);
+        document.emit('keyup', input);
+      };
+    }
+    return updateLocks;
+  };
   state.mover = (key) => state.list.querySelectorAll('.tree-row')
     .find((element) => element.dataset.reorderKey === key);
   state.row = state.mover;
@@ -371,16 +391,17 @@ test('a mover click below the drag threshold does not reorder', (t) => {
 
 test('a pending edit prevents dropping a drag after scrolling has stopped', (t) => {
   const { state, mover, start, tick, frames } = dragFixture(t);
+  document.elementFromPoint = () => state.row('c');
   start(115);
   tick(16);
   assert.equal(frames.size, 0);
-  assert.equal(state.row('b').classList.contains('drop-before'), true);
+  assert.equal(state.row('c').classList.contains('drop-before'), true);
   state.locked = true;
   mover.onpointerup(event(mover, { clientY: 115 }));
   assert.equal(state.moves.length, 0);
   assert.equal(mover.hasPointerCapture(1), false);
   assert.equal(state.list.classList.contains('feature-reordering'), false);
-  assert.equal(state.row('b').classList.contains('drop-before'), false);
+  assert.equal(state.row('c').classList.contains('drop-before'), false);
 });
 
 test('a fast pointer gesture stays owned by its starting row', async () => {
@@ -477,7 +498,11 @@ test('tree rows expose hierarchy, navigate visible items without selecting, and 
   assert.equal(state.list.getAttribute('aria-multiselectable'), 'true');
   const wall = state.item('feature/wall'), batch = state.item('feature/batch'),
     outputs = state.item('target/batch/');
+  assert.equal(state.list.dataset.treeLibrary, 'headless-tree');
   assert.equal(wall.getAttribute('role'), 'treeitem');
+  assert.equal(wall.getAttribute('aria-level'), '1');
+  assert.equal(wall.getAttribute('aria-setsize'), '5');
+  assert.equal(wall.getAttribute('aria-posinset'), '2');
   assert.equal(state.row('wall').getAttribute('role'), 'presentation');
   wall.onkeydown(event(wall, { key: 'ArrowDown' }));
   assert.equal(document.activeElement, state.item('feature/shoulder'));
@@ -486,10 +511,16 @@ test('tree rows expose hierarchy, navigate visible items without selecting, and 
   assert.equal(batch.getAttribute('aria-expanded'), 'true');
   batch.onkeydown(event(batch, { key: 'ArrowRight' }));
   assert.equal(document.activeElement, outputs);
+  assert.equal(outputs.getAttribute('aria-level'), '2');
+  assert.equal(outputs.getAttribute('aria-setsize'), '1');
+  assert.equal(outputs.getAttribute('aria-posinset'), '1');
   outputs.onkeydown(event(outputs, { key: 'ArrowRight' }));
   outputs.onkeydown(event(outputs, { key: 'ArrowRight' }));
   const child = document.activeElement;
   assert.equal(child.dataset.treeKey, 'feature/edge');
+  assert.equal(child.getAttribute('aria-level'), '3');
+  assert.equal(child.getAttribute('aria-setsize'), '2');
+  assert.equal(child.getAttribute('aria-posinset'), '1');
   child.onkeydown(event(child, { key: 'ArrowLeft' }));
   assert.equal(document.activeElement, outputs);
   outputs.onkeydown(event(outputs, { key: 'ArrowLeft' }));
@@ -808,6 +839,35 @@ test('organizational group keyboard movement carries its managed subtree and oth
   await settle();
   assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face', 'member']);
   assert.equal(document.activeElement, state.item('group/group'));
+});
+
+test('cancelling a rejected selected drag preserves selection on release', () => {
+  const state = fixture();
+  state.selected = new Set(['wall', 'edge']);
+  state.render();
+  const row = state.mover('wall');
+  row.onpointerdown(event(row));
+  row.onpointermove(event(row, { clientY: 129 }));
+  assert.match(state.announcements.at(-1).message, /Select Build faces/);
+  document.emit('keydown', event(row, { key: 'Escape' }));
+  row.onpointerup(event(row, { clientY: 129 }));
+  row.onclick(event(row));
+  assert.equal(state.moves.length, 0);
+  assert.equal(state.inspections.length, 0);
+  assert.deepEqual([...state.selected], ['wall', 'edge']);
+});
+
+test('dragging a selected owner and descendant moves the owner once with all its outputs', async () => {
+  const state = fixture();
+  state.selected = new Set(['batch', 'edge']);
+  state.render();
+  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.list.ondragover(event(state.row('other'), { clientY: 129 }));
+  state.list.ondrop(event(state.row('other')));
+  await settle();
+  assert.equal(state.moves.length, 1);
+  assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face']);
+  assert.deepEqual([...state.selected], ['batch', 'edge']);
 });
 
 test('ordinary rows remain drop targets and dragging an owner after one carries every child', async () => {

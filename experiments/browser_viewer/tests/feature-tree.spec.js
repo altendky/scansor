@@ -75,11 +75,208 @@ test('whole rows preserve clicks and double-click editing while drag suppresses 
   expect(state.writes).toHaveLength(1);
 });
 
+test('dragging either selected row moves noncontiguous selections in recipe order and retains selection', async ({ page }) => {
+  const state = await ready(page);
+  await row(page, 'c').click();
+  await row(page, 'a').click();
+  await dragRow(page, row(page, 'c'), row(page, 'side'));
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.graph.recipe.nodes.filter(node => ['a', 'b', 'c'].includes(node.id))
+    .map(node => node.id)).toEqual(['a', 'c', 'b']);
+  const ids = state.graph.recipe.nodes.map(node => node.id);
+  expect(ids.indexOf('a')).toBeLessThan(ids.indexOf('side'));
+  expect(ids.indexOf('c')).toBeLessThan(ids.indexOf('side'));
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'c')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'c')).toBeFocused();
+  await expect(page.locator('#feature-selection-count')).toHaveText('2 selected');
+});
+
+test('dragging an unselected row moves only that row and retains the other selections', async ({ page }) => {
+  const state = await ready(page);
+  await row(page, 'a').click();
+  await row(page, 'c').click();
+  await dragRow(page, row(page, 'b'), row(page, 'side'));
+  await expect.poll(() => state.writes.length).toBe(1);
+  const ids = state.graph.recipe.nodes.map(node => node.id);
+  expect(ids.indexOf('b')).toBeLessThan(ids.indexOf('side'));
+  expect(ids.indexOf('a')).toBeGreaterThan(ids.indexOf('side'));
+  expect(ids.indexOf('c')).toBeGreaterThan(ids.indexOf('side'));
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'c')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'b')).toHaveAttribute('aria-selected', 'false');
+});
+
+test('multiselection rejects incompatible generated selections without moving only part of the selection', async ({ page }) => {
+  const state = await ready(page);
+  await row(page, 'tree-reuse').locator('.tree-toggle').click();
+  await page.locator('#action-list .managed-target > details > summary .tree-toggle').click();
+  await row(page, 'tree-output').click();
+  await row(page, 'a').click();
+  await dragRow(page, row(page, 'a'), row(page, 'side'));
+  await expect(page.locator('#action-announcement')).toContainText('Select Copies');
+  expect(state.writes).toHaveLength(0);
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'tree-output')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('a dependency violation rejects the whole selected block', async ({ page }) => {
+  const state = await ready(page);
+  await row(page, 'a').click();
+  await row(page, 'b').click();
+  await dragRow(page, row(page, 'b'), row(page, 'scan'));
+  await expect(page.locator('#action-announcement')).toContainText('earlier');
+  expect(state.writes).toHaveLength(0);
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'b')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('releasing on the insertion line below the last row commits the move', async ({ page }) => {
+  const state = await ready(page);
+  const source = await row(page, 'c').boundingBox(), target = await row(page, 'tree-reuse').boundingBox();
+  const x = target.x + target.width / 2;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, target.y + target.height - 2, { steps: 12 });
+  await expect(row(page, 'tree-reuse')).toHaveClass(/drop-after/);
+  await expect(row(page, 'tree-reuse')).not.toHaveClass(/drop-invalid/);
+  await page.mouse.move(x, target.y + target.height + 2);
+  await page.mouse.up();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.graph.recipe.nodes.at(-1).id).toBe('c');
+  await expect(item(page, 'c')).toBeFocused();
+  expect((await row(page, 'c').boundingBox()).y).toBeGreaterThan(
+    (await row(page, 'tree-reuse').boundingBox()).y);
+});
+
+test('adjacent rows share one insertion line instead of jumping across the gap', async ({ page }) => {
+  const state = await ready(page);
+  const source = await row(page, 'c').boundingBox(), first = await row(page, 'a').boundingBox(),
+    second = await row(page, 'b').boundingBox(), x = first.x + first.width / 2;
+  const indicatorY = (target, pseudo) => target.evaluate((element, pseudo) =>
+    element.getBoundingClientRect().top + element.clientTop +
+      parseFloat(getComputedStyle(element, pseudo).top), pseudo);
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, first.y + first.height - 6, { steps: 12 });
+  await expect(row(page, 'a')).toHaveClass(/drop-after/);
+  const afterY = await indicatorY(row(page, 'a'), '::after');
+  await page.mouse.move(x, second.y + 6);
+  await expect(row(page, 'b')).toHaveClass(/drop-before/);
+  expect(await indicatorY(row(page, 'b'), '::before')).toBeCloseTo(afterY, 1);
+  await page.mouse.up();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.graph.recipe.nodes.filter(node => ['a', 'b', 'c'].includes(node.id))
+    .map(node => node.id)).toEqual(['a', 'c', 'b']);
+});
+
+test('grouped selections drop on the line before the first child without moving the group', async ({ page }) => {
+  const state = await ready(page, true);
+  const source = await row(page, 'b').boundingBox(), target = await row(page, 'a').boundingBox(),
+    x = target.x + target.width / 2;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, target.y + 6, { steps: 12 });
+  await expect(row(page, 'a')).toHaveClass(/drop-before/);
+  await page.mouse.move(x, target.y - 2);
+  await page.mouse.up();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.graph.recipe.nodes.filter(node => ['a', 'b'].includes(node.id))
+    .map(node => node.id)).toEqual(['b', 'a']);
+  await expect(groupItem(page)).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('a drop boundary that preserves the current order does not show a blue marker', async ({ page }) => {
+  const state = await ready(page);
+  const source = await row(page, 'b').boundingBox(), target = await row(page, 'a').boundingBox();
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height - 6, { steps: 12 });
+  await expect(page.locator('#action-list .drop-before, #action-list .drop-after')).toHaveCount(0);
+  await page.mouse.up();
+  expect(state.writes).toHaveLength(0);
+});
+
+test('reordering repeated-boss selections updates reuse lineage through real saves and survives reload', async ({ page }) => {
+  const read = async () => (await page.request.get('/api/graph')).json(),
+    original = await read(), catalogue = await (await page.request.get('/api/examples')).json(),
+    headers = { 'X-Scansor-Request': '1' };
+  try {
+    const opened = await page.request.post('/api/examples/select', {
+      headers, data: { example: 'repeated-boss', token: original.token },
+    });
+    expect(opened.ok(), await opened.text()).toBe(true);
+    // Keep evaluation out of this ordering test; recipe reads and saves are real.
+    await page.route('**/api/graph/ensure', async route => route.fulfill({ json: await read() }));
+    await page.goto('/');
+    await expect(page.locator('#evaluate-all')).toBeEnabled();
+    await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+    const before = await read(),
+      shoulder = before.recipe.nodes.find(node => node.label === 'boss-a shoulder'),
+      bore = before.recipe.nodes.find(node => node.label === 'boss-a bore'),
+      source = await row(page, shoulder.id).boundingBox(), target = await row(page, bore.id).boundingBox(),
+      x = target.x + target.width / 2;
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, target.y + 6, { steps: 12 });
+    await expect(row(page, bore.id)).toHaveClass(/drop-before/);
+    await page.mouse.move(x, target.y - 2);
+    const saved = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
+      response.request().method() === 'POST');
+    await page.mouse.up();
+    const response = await saved;
+    expect(response.ok(), await response.text()).toBe(true);
+    const after = await read();
+    expect(after.recipe.nodes.filter(node => node.group_id === shoulder.group_id).map(node => node.label))
+      .toEqual(['boss-a outer', 'boss-a shoulder', 'boss-a bore', 'boss-a clock']);
+    const reuse = after.recipe.nodes.find(node => node.operation === 'feature_reuse');
+    expect(reuse.lineage.indexOf(shoulder.id)).toBeLessThan(reuse.lineage.indexOf(bore.id));
+    expect(after.recipe.nodes.filter(node => node.managed_by).map(node => node.id))
+      .toEqual(before.recipe.nodes.filter(node => node.managed_by).map(node => node.id));
+    // Select in reverse order, then drag the second feature in recipe order.
+    await row(page, bore.id).click();
+    await row(page, shoulder.id).click();
+    const outer = before.recipe.nodes.find(node => node.label === 'boss-a outer'),
+      multiSaved = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
+        response.request().method() === 'POST');
+    await dragRow(page, row(page, bore.id), row(page, outer.id));
+    const multiResponse = await multiSaved;
+    expect(multiResponse.ok(), await multiResponse.text()).toBe(true);
+    expect((await read()).recipe.nodes.filter(node => node.group_id === shoulder.group_id).map(node => node.label))
+      .toEqual(['boss-a shoulder', 'boss-a bore', 'boss-a outer', 'boss-a clock']);
+    await expect(item(page, shoulder.id)).toHaveAttribute('aria-selected', 'true');
+    await expect(item(page, bore.id)).toHaveAttribute('aria-selected', 'true');
+    await page.reload();
+    await expect(item(page, shoulder.id)).toHaveAttribute('aria-posinset', '1');
+    await expect(item(page, bore.id)).toHaveAttribute('aria-posinset', '2');
+  } finally {
+    await page.request.post('/api/examples/select', {
+      headers, data: { example: catalogue.active, token: (await read()).token },
+    });
+    const restored = await page.request.post('/api/graph', {
+      headers, data: { token: (await read()).token, recipe: original.recipe },
+    });
+    expect(restored.ok(), await restored.text()).toBe(true);
+  }
+});
+
 test('disclosures expose tree structure and keyboard focus follows visible rows', async ({ page }) => {
   await ready(page, true);
   const tree = page.getByRole('tree', { name: 'Features in evaluation order' });
   await expect(tree).toBeVisible();
+  await expect(tree).toHaveAttribute('data-tree-library', 'headless-tree');
   await expect(tree.locator('.action-grip, .group-action')).toHaveCount(0);
+  await expect(groupItem(page)).toHaveAttribute('aria-level', '1');
+  await expect(item(page, 'a')).toHaveAttribute('aria-level', '2');
+  await expect(item(page, 'a')).toHaveAttribute('aria-setsize', '2');
+  await expect(item(page, 'b')).toHaveAttribute('aria-posinset', '2');
+  await page.evaluate(() => {
+    window.treeNavigationDefaults = [];
+    window.addEventListener('keydown', event => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key))
+        window.treeNavigationDefaults.push(event.defaultPrevented);
+    });
+  });
   await expect(groupItem(page)).toHaveAttribute('aria-expanded', 'true');
   await groupRow(page).locator('.tree-toggle').click();
   await expect(groupItem(page)).toHaveAttribute('aria-expanded', 'false');
@@ -113,6 +310,7 @@ test('disclosures expose tree structure and keyboard focus follows visible rows'
   await page.keyboard.press('ArrowLeft');
   await expect(bucket.locator('xpath=ancestor::li[1]')).toBeFocused();
   await expect(tree.locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1);
+  expect(await page.evaluate(() => window.treeNavigationDefaults.every(Boolean))).toBe(true);
 });
 
 test('keyboard reorder preserves focus and dependencies while generated leaves cannot drag', async ({ page }) => {

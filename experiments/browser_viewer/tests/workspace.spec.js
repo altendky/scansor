@@ -62,7 +62,7 @@ test('icon legend uses current drawings, docks and floats without changing actio
   const legend = page.locator('#icon-legend-dialog');
   await expect(legend).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toBeVisible();
-  await expect(legend.locator('li[data-icon]')).toHaveCount(44);
+  await expect(legend.locator('li[data-icon]')).toHaveCount(45);
   await expect(legend.getByText('Plane fit', { exact: true })).toBeVisible();
   expect(await legend.evaluate(async element => {
     const { featureIcon, featureIconLegend } = await import('/action-tree.js');

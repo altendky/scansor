@@ -41,6 +41,7 @@ const paths = {
   running: 'M12 2a10 10 0 0 1 10 10',
   failed: 'M12 3 2 21h20ZM12 9v5m0 3v.5',
   blocked: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5Zm7 4v3',
+  grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
   expand: 'm9 5 7 7-7 7',
   download: 'M4 15v5h16v-5M12 3v12m-5-5 5 5 5-5',
   upload: 'M4 15v5h16v-5M12 15V3m-5 5 5-5 5 5',
@@ -102,13 +103,14 @@ export const featureIconLegend = [
     'mirror_symmetry', 'rotational_symmetry', 'axis_solve', 'joint_fit',
   ] },
   { title: 'Evaluation status', icons: Object.keys(states) },
-  { title: 'Toolbar and tree controls', icons: ['download', 'upload', 'restore', 'show_panel', 'expand'] },
+  { title: 'Toolbar and tree controls', icons: ['download', 'upload', 'restore', 'show_panel', 'grip', 'expand'] },
 ].map(({ title, icons }) => ({ title, entries: icons.map(name => ({
   name,
   label: states[name] || operations[name] || {
     plane: 'Plane fit', cylinder: 'Cylinder fit', cone: 'Cone fit', sphere: 'Sphere fit',
     group: 'Group / generated outputs', download: 'Save actions', upload: 'Load actions',
-    restore: 'Restore example / Reset layout', show_panel: 'Show panel', expand: 'Expand / collapse branch',
+    restore: 'Restore example / Reset layout', show_panel: 'Show panel', grip: 'Toolbar drag handle',
+    expand: 'Expand / collapse branch',
   }[name],
   state: Object.hasOwn(states, name),
   detail: {
@@ -360,7 +362,16 @@ export function actionMove(nodes, id, slot) {
     }
     seen.add(item.id);
   }
-  return { nodes: candidate, changed: candidate.some((item, i) => item !== nodes[i]) };
+  const changed = candidate.some((item, i) => item !== nodes[i]),
+    positions = new Map(candidate.map((item, index) => [item.id, index]));
+  // Reuse lineage records the same upstream identities in action order.
+  // Reordering independent inputs must keep this derived ordering consistent.
+  const ordered = candidate.map(item => {
+    if (item.operation !== 'feature_reuse' || !item.lineage?.length) return item;
+    const lineage = [...item.lineage].sort((a, b) => positions.get(a) - positions.get(b));
+    return lineage.some((id, index) => id !== item.lineage[index]) ? { ...item, lineage } : item;
+  });
+  return { nodes: ordered, changed };
 }
 function icon(name, className = '') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -615,6 +626,7 @@ export function renderActionTree(
     groupContextMenu = () => {},
     contextMenu = () => {},
     qualities = {},
+    createTree,
     scrollContainer = list.parentElement || list,
   },
 ) {
@@ -623,7 +635,7 @@ export function renderActionTree(
   treeDragCleanups.get(list)?.();
   ({ states, errors } = featureTreePresentation(nodes, states, errors));
   let dragged = null,
-    dropSlot = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
+    dropSlot = null, dropTarget = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
     scrollTime = null, wheelPauseUntil = 0, suppressClick = null;
   const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
     expandedTargets = renderActionTree.expandedTargets ||= new Set(),
@@ -640,21 +652,12 @@ export function renderActionTree(
   }
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
   const lockControls = [], treeItems = [];
+  let treeController;
   list.setAttribute('role', 'tree');
   list.setAttribute('aria-label', 'Features in evaluation order');
   list.setAttribute('aria-multiselectable', 'true');
-  function visibleItems() {
-    return treeItems.filter(({ item }) => {
-      for (let parent = item.parentElement; parent && parent !== list; parent = parent.parentElement)
-        if (parent.tagName.toLowerCase() === 'details' && !parent.open) return false;
-      return true;
-    });
-  }
   function focusItem(entry) {
-    if (!entry) return;
-    treeItems.forEach(({ item }) => { item.tabIndex = item === entry.item ? 0 : -1; });
-    list.dataset.focusedTreeKey = entry.key;
-    entry.item.focus();
+    if (entry) treeController.focus(entry.key);
   }
   function treeItem(item, row, key, activate = null, context = null) {
     const entry = { item, row, key, activate, context };
@@ -668,16 +671,12 @@ export function renderActionTree(
     row.tabIndex = -1;
     row.setAttribute('role', 'presentation');
     row.classList.add('tree-row');
-    item.onfocus = () => {
-      treeItems.forEach(({ item: peer }) => { peer.tabIndex = peer === item ? 0 : -1; });
-      list.dataset.focusedTreeKey = key;
-    };
+    item.onfocus = () => treeController?.onFocus(key);
     row.onclick = event => {
       event.preventDefault();
       event.stopPropagation();
       if (suppressClick === row) { suppressClick = null; return; }
-      focusItem(entry);
-      activate?.();
+      treeController.activate(key, event);
     };
     const keydown = event => {
       if (event.target.closest('.tree-item') !== item) return;
@@ -689,27 +688,6 @@ export function renderActionTree(
         row.reorderKeydown?.(event);
         return;
       }
-      const visible = visibleItems(), index = visible.indexOf(entry);
-      let next;
-      if (event.key === 'ArrowDown') next = visible[index + 1];
-      else if (event.key === 'ArrowUp') next = visible[index - 1];
-      else if (event.key === 'Home') next = visible[0];
-      else if (event.key === 'End') next = visible.at(-1);
-      else if (event.key === 'ArrowRight') {
-        if (entry.details && !entry.details.open) entry.setExpanded(true);
-        else if (entry.details && visible[index + 1]?.item.parentElement?.closest('.tree-item') === item)
-          next = visible[index + 1];
-      } else if (event.key === 'ArrowLeft') {
-        if (entry.details?.open) entry.setExpanded(false);
-        else {
-          const parent = item.parentElement?.closest('.tree-item');
-          next = treeItems.find(candidate => candidate.item === parent);
-        }
-      } else if (event.key === ' ' || event.key === 'Enter') activate?.();
-      else return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (next) { focusItem(next); next.row.scrollIntoView?.({ block: 'nearest' }); }
     };
     item.onkeydown = row.onkeydown = keydown;
     return entry;
@@ -727,7 +705,8 @@ export function renderActionTree(
       toggle.title = `${details.open ? 'Collapse' : 'Expand'} ${entry.row.getAttribute('aria-label')}`;
       remember(details.open);
     };
-    entry.setExpanded = open => { details.open = open; sync(); };
+    entry.renderExpanded = open => { details.open = open; sync(); };
+    entry.setExpanded = open => treeController.setExpanded(entry.key, open);
     toggle.onclick = event => {
       event.preventDefault();
       event.stopPropagation();
@@ -763,7 +742,7 @@ export function renderActionTree(
     return summarizeFitQuality([...fits.values()]);
   }
   function clearDrop() {
-    dropSlot = null;
+    dropSlot = dropTarget = null;
     for (const row of list.querySelectorAll('.action-drop-target'))
       row.classList.remove('drop-before', 'drop-after', 'drop-invalid');
   }
@@ -774,7 +753,7 @@ export function renderActionTree(
   function finishDrag() {
     stopScrolling();
     const gesture = pointerDrag;
-    if (dragged && gesture) suppressClick = gesture.row;
+    if (gesture && (dragged || gesture.failed)) suppressClick = gesture.row;
     pointerDrag = dragPoint = dragged = null;
     clearDrop();
     scrollContainer.classList.remove('feature-reordering');
@@ -794,15 +773,43 @@ export function renderActionTree(
     const after = y > row.getBoundingClientRect().top + row.clientHeight / 2,
       slot = Number(after ? row.dataset.dropEnd : row.dataset.dropStart),
       candidate = actionMove(nodes, dragged.ids, slot);
+    if (!candidate.error && !candidate.changed) {
+      if (transfer) transfer.dropEffect = 'none';
+      return;
+    }
     dropSlot = slot;
+    dropTarget = row;
     row.classList.add(after ? 'drop-after' : 'drop-before');
     row.classList.toggle('drop-invalid', !!candidate.error);
     if (transfer) transfer.dropEffect = candidate.error ? 'none' : 'move';
     if (candidate.error) announce(candidate.error, true);
   }
+  function dropRowAt(element, x, y) {
+    if (element && !list.contains(element) && element !== scrollContainer) return null;
+    // Insertion lines lie outside row bounds. Keep the indicated boundary when
+    // the pointer reaches its line, even if hit testing now returns a neighbor.
+    if (dropTarget) {
+      const bounds = dropTarget.getBoundingClientRect();
+      if (x >= bounds.left && x <= bounds.right &&
+          ((y < bounds.top && y >= bounds.top - 4) ||
+           (y >= bounds.bottom && y <= bounds.bottom + 4))) return dropTarget;
+    }
+    const direct = element?.closest('.action-drop-target');
+    if (direct) return direct;
+    if (element?.closest('.tree-row')) return null;
+    let nearest = null, distance = 4;
+    for (const row of list.querySelectorAll('.action-drop-target')) {
+      const bounds = row.getBoundingClientRect();
+      if (!bounds.width || !bounds.height || x < bounds.left || x > bounds.right ||
+          (row.dataset.dropScope || null) !== dragged?.scope) continue;
+      const gap = Math.max(bounds.top - y, y - bounds.bottom, 0);
+      if (gap > 0 && gap <= distance) { nearest = row; distance = gap; }
+    }
+    return nearest;
+  }
   function updatePointerDrop() {
     if (!pointerInside()) { clearDrop(); return; }
-    const row = document.elementFromPoint?.(dragPoint.x, dragPoint.y)?.closest('.action-drop-target');
+    const row = dropRowAt(document.elementFromPoint?.(dragPoint.x, dragPoint.y), dragPoint.x, dragPoint.y);
     updateDrop(row, dragPoint.y);
   }
   function scrollTick(time) {
@@ -879,6 +886,28 @@ export function renderActionTree(
       list.removeAttribute('aria-busy');
     }
   }
+  function selectionDragBlock(row, block) {
+    if (!selectedIds.has(row.dataset.actionId) || selectedIds.size < 2) return block;
+    const roots = nodes.filter(node => {
+      if (!selectedIds.has(node.id)) return false;
+      for (let owner = ownerById.get(node.id); owner; owner = ownerById.get(owner))
+        if (selectedIds.has(owner)) return false;
+      return true;
+    });
+    const blocks = roots.map(node => treeItems.find(entry => entry.row.dataset.actionId === node.id)?.dragBlock);
+    const unsupported = roots.find((_, index) => !blocks[index]);
+    if (unsupported) {
+      const owner = byId.get(ownerById.get(unsupported.id));
+      announce(`Select ${owner?.label || 'the owning feature'} to move its generated outputs.`, true);
+      return null;
+    }
+    if (blocks.some(candidate => candidate.scope !== blocks[0].scope)) {
+      announce('Selected features must share a generated-output group to move together.', true);
+      return null;
+    }
+    return { ...block, ids: roots.map(node => node.id), scope: blocks[0].scope,
+      label: `${selectedIds.size} selected features` };
+  }
   function draggableRow(row, ids, key, label, scope = null) {
     const moving = new Set(ids.flatMap((id) => [...managedSubtreeIds(id, nodes)])),
       indices = nodes.flatMap((node, index) => moving.has(node.id) ? [index] : []),
@@ -891,7 +920,8 @@ export function renderActionTree(
     };
     lockControls.push(updateLock);
     updateLock();
-    const item = treeItems.find(entry => entry.row === row).item;
+    const entry = treeItems.find(entry => entry.row === row), item = entry.item;
+    entry.dragBlock = block;
     item.setAttribute('aria-description', 'Drag to reorder; or use Alt+Up and Alt+Down.');
     item.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
     if (!ids.length) {
@@ -915,11 +945,15 @@ export function renderActionTree(
     row.onpointermove = (event) => {
       if (pointerDrag?.id !== event.pointerId || pointerDrag.row !== row) return;
       if (unavailable()) { finishDrag(); return; }
+      if (pointerDrag.failed) return;
       dragPoint = { x: event.clientX, y: event.clientY };
       if (!dragged && Math.hypot(event.clientX - pointerDrag.startX,
         event.clientY - pointerDrag.startY) < 5) return;
       event.preventDefault();
-      dragged = block;
+      if (!dragged) {
+        dragged = selectionDragBlock(row, block);
+        if (!dragged) { pointerDrag.failed = true; return; }
+      }
       row.classList.add('dragging');
       scrollContainer.classList.add('feature-reordering');
       updatePointerDrop();
@@ -927,6 +961,7 @@ export function renderActionTree(
     };
     row.onpointerup = (event) => {
       if (pointerDrag?.id !== event.pointerId || pointerDrag.row !== row) return;
+      if (pointerDrag.failed) { suppressClick = row; finishDrag(); return; }
       dragPoint = { x: event.clientX, y: event.clientY };
       updatePointerDrop();
       const moving = dragged, slot = dropSlot;
@@ -968,7 +1003,8 @@ export function renderActionTree(
       // available. Retain native handlers for non-pointer/synthetic clients.
       if (pointerDrag) { event.preventDefault(); return; }
       if (unavailable()) { event.preventDefault(); return; }
-      dragged = block;
+      dragged = selectionDragBlock(row, block);
+      if (!dragged) { event.preventDefault(); return; }
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', key);
       row.classList.add('dragging');
@@ -1186,20 +1222,13 @@ export function renderActionTree(
   for (const group of groups)
     if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
   list.replaceChildren(...items);
-  const visible = visibleItems(), savedKey = focusedKey || list.dataset.focusedTreeKey,
-    focus = visible.find(entry => entry.key === savedKey) ||
-      visible.find(entry => selectedIds.has(entry.row.dataset.actionId)) || visible[0];
-  if (focus) {
-    focus.item.tabIndex = 0;
-    list.dataset.focusedTreeKey = focus.key;
-    if (focusedKey) focusItem(focus);
-  }
+  treeController = createTree(list, treeItems, { selectedIds, focusedKey });
   list.ondragover = (event) => {
     if (!dragged || unavailable()) {
       clearDrop();
       return;
     }
-    const row = event.target.closest('.action-drop-target');
+    const row = dropRowAt(event.target, event.clientX, event.clientY);
     updateDrop(row, event.clientY, event.dataTransfer);
     if (dropSlot !== null) event.preventDefault();
   };

@@ -15,7 +15,7 @@ import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
-  forceEndEditSession } from './workspace.js';
+  forceEndEditSession, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
@@ -2559,6 +2559,7 @@ function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
   $('clear-feature-selection').disabled = !selectedFeatureIds.size;
   updateActionTreeLocks = renderActionTree($('action-list'), {
+    createTree: createHeadlessFeatureTree,
     scrollContainer: $('features-panel'),
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],

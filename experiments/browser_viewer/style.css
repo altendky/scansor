@@ -145,7 +145,7 @@ footer #status { margin: 0 0 6px; }
 #brush-size { width: 100%; }
 
 
-#action-list { padding: 3px 0; list-style: none; }
+#action-list { --tree-row-height: 30px; --tree-guide-color: #344351; padding: 3px 0; list-style: none; }
 #feature-selection-bar { position: sticky; top: -16px; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 12px; margin: -8px -8px 8px; padding: 8px; background: #111a22ee; border-bottom: 1px solid #314354; }
 #feature-selection-bar button { padding: 4px 9px; font-size: 12px; }
 .fit-quality-control { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; color: #a6b6c5; font-size: 11px; }
@@ -157,7 +157,7 @@ footer #status { margin: 0 0 6px; }
 .fit-quality.quality-unavailable { color: #8c9bab; background: transparent; }
 #feature-selection-summary-names { line-height: 1.55; }
 #action-list li { position: relative; margin: 1px 0; border-radius: 4px; }
-#action-list .tree-row { position: relative; display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 4px 5px; border: 1px solid transparent; border-radius: 4px; color: #c4d3df; font-size: 12px; user-select: none; }
+#action-list .tree-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: var(--tree-row-height); padding: 4px 5px; border: 1px solid transparent; border-radius: 4px; color: #c4d3df; font-size: 12px; user-select: none; }
 #action-list .tree-row:hover { background: #253342; }
 #action-list .tree-item:focus { outline: none; }
 #action-list .tree-item:focus-visible > .tree-row,
@@ -165,12 +165,12 @@ footer #status { margin: 0 0 6px; }
 #action-list .tree-row.feature-selected { border-color: #77d3ea; background: #164b5a; }
 #action-list .tree-item[aria-expanded] > details > summary::marker { content: ''; }
 #action-list .tree-item[aria-expanded] > details > summary::-webkit-details-marker { display: none; }
-#action-list .tree-toggle { order: -1; display: flex; align-items: center; justify-content: center; flex: 0 0 18px; align-self: stretch; cursor: pointer; border-radius: 3px; }
+#action-list .tree-toggle { order: -1; display: flex; align-items: center; justify-content: center; flex: 0 0 16px; align-self: stretch; cursor: pointer; border-radius: 3px; }
 #action-list .tree-toggle:hover { background: #3b4e60; }
 #action-list .tree-toggle .feature-icon { width: 13px; height: 13px; }
 #action-list .tree-item[aria-expanded="true"] > details > summary > .tree-toggle .feature-icon { transform: rotate(90deg); }
 #action-list button { padding: 5px; font-size: 12px; }
-#action-list .action-select { min-width: 0; text-align: left; padding-left: 30px; }
+#action-list .action-select { min-width: 0; text-align: left; padding-left: 27px; }
 .action-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .feature-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 #icon-legend-dialog h2 { margin: 0 0 8px; }
@@ -193,7 +193,13 @@ footer #status { margin: 0 0 6px; }
 @media (prefers-reduced-motion: reduce) { .state-running { animation: none; } }
 #action-list .row-draggable { cursor: grab; touch-action: none; }
 #action-list .row-draggable:active { cursor: grabbing; }
-.nested-actions { list-style: none; margin: 0 0 0 14px; padding: 0 0 0 9px; border-left: 1px solid #344351; }
+.nested-actions { list-style: none; margin: 0 0 0 14px; padding: 0 0 0 6px; }
+/* Connect each child at its row center, stopping the spine at the last child.
+   Use the item rather than the row so drag insertion markers remain separate. */
+#action-list .nested-actions > .tree-item::before { content: ''; position: absolute; left: -6px; top: -1px; bottom: -1px; border-left: 1px solid var(--tree-guide-color); pointer-events: none; }
+#action-list .nested-actions > .tree-item:last-child::before { bottom: auto; height: calc(var(--tree-row-height) / 2 + 1px); }
+#action-list .nested-actions > .tree-item::after { content: ''; position: absolute; left: -6px; top: calc(var(--tree-row-height) / 2); width: 10px; border-top: 1px solid var(--tree-guide-color); pointer-events: none; }
+#action-list .nested-actions > .tree-item:not([aria-expanded])::after { width: 26px; }
 #action-list .tree-group { padding: 0; margin: 0; border: 0; background: transparent; }
 .tree-group > summary { cursor: default; font-weight: 600; }
 .tree-group > summary .action-state { margin-left: auto; }
@@ -206,7 +212,8 @@ footer #status { margin: 0 0 6px; }
 .managed-note { padding: 9px; border-left: 3px solid #77d3ea; background: #1d2b37; }
 .managed-note span { display: block; margin-bottom: 7px; }
 .drop-before::before, .drop-after::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: #77d3ea; pointer-events: none; }
-.drop-before::before { top: -3px; } .drop-after::after { bottom: -3px; }
+/* Center both directions on the same 1px gap between adjacent rows. */
+.drop-before::before { top: -2.5px; } .drop-after::after { bottom: -2.5px; }
 .drop-invalid::before, .drop-invalid::after { background: #ffab94; }
 /* A clipped live announcement must not extend the page past a long feature tree. */
 .sr-only { position: absolute; top: 0; left: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
