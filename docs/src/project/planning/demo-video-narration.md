@@ -1,176 +1,168 @@
 # Demo video narration
 
-**Working production script, 2026-09-25.** This script accompanies the
-[two-workflow demo plan](demo-video.md). It describes an exploratory prototype,
-not a product release or an accuracy claim. The working voice is Kokoro
-`af_heart` at normal speed. Pronounce Scansor as “SCAN-sor.”
+**Working production script, 2026-10-08.** This script accompanies the
+[two-workflow demo plan](demo-video.md). The working voice is Kokoro `af_heart`
+at normal speed. Pronounce Scansor as “SCAN-sor.” Shot IDs remain stable across
+the capture, narration, captions, and rendered timeline.
 
 ## 00 — Title
 
-**Focus:** Title card, then the clean nozzle mesh.
+**Focus:** Title card introducing aligned, usable geometry.
 
 **Narration:**
 
-Scansor is an exploratory workspace for turning scan observations into explicit
-geometric intent. This demonstration builds up parts of two workflows: retaining
-and fitting selections on captured data, then reusing fitted features and
-recovering an output coordinate system on a generated example.
+Scansor helps you turn a scan into clean, aligned geometry. Choose the surfaces
+that matter, fit them, and describe how they belong together.
 
-## 01 — Captured nozzle
+## 01 — Nozzle bayonet mount
 
-**Focus:** Oblique nozzle overview with a short, restrained orbit.
+**Focus:** The captured nozzle's bayonet mount in Model, with a short orbit.
 
 **Narration:**
 
-We begin with a captured nozzle scan. Its surface is irregular, its units are
-not confirmed, and nothing here is presented as physical validation. The mesh is
-the evidence layer. Named features in the tree preserve the interpretation we
-add to that evidence.
+Start with this captured nozzle. We're modeling its bayonet mount: the round
+body, rim, and repeated locking features. The model should follow the scan
+while keeping a common center, square shoulders, and evenly spaced details.
 
-## 02 — Build retained selections
+## 02 — Select the surfaces that matter
 
-**Focus:** Add several retained selections to the visible inspection set.
-
-**Narration:**
-
-The colored patches appear as we select named regions from the feature tree.
-They are retained vertex selections, not temporary click state. Several can be
-inspected together without a modifier key, clicked again to remove them, or
-cleared as a set. They remain editable inputs for later operations.
-
-## 03 — Build reference geometry and fits
-
-**Focus:** Add the center axis and two cone fits to the inspection set.
+**Focus:** Begin with the bare scan; create meaningful outer-wall, top-rim, and
+repeated-slope selections through real pointer strokes.
 
 **Narration:**
 
-The next layer is analytic geometry. A free axis is an explicit datum with its
-own identity. Cone fits are separate graph features that retain their source
-selections and can be recomputed. A fit may stand alone, refer to fixed geometry,
-or participate in a combined solve when the design intent requires it.
+Start by selecting the outside wall, then the top rim. Keep each surface in its
+own named selection. Paint a strip of the wall, rotate the view, and add another
+strip. Looking down onto the rim helps keep that selection on the flat face.
+A smaller selection captures a slope on one bayonet feature. These are the
+observations we'll use to describe the mount.
 
-## 04 — Rotational symmetry
+## 03 — Turn selections into surfaces
 
-**Focus:** Highlight the three repeated recess-slope selections around the nozzle.
-
-**Narration:**
-
-These three slope patches repeat around the center. After fitting the patches,
-Scansor can declare exact threefold rotational symmetry about an axis. The three
-observations then influence a shared solve while keeping their individual
-selection lineage. Rotational symmetry is an explicit relationship, not an
-assumption inferred merely because the patches look similar.
-
-## 05 — Residuals
-
-**Focus:** Switch to residual coloring and pause on the signed scale legend.
+**Focus:** Pick the newly created selections in Model and create representative
+cone and plane fits that actually use their recorded observations.
 
 **Narration:**
 
-Residual display replaces selection colors with signed distance from the fitted
-surface. The legend shows both the display scale and the observed negative and
-positive peaks. These are local fit residuals in scan coordinates. They are not,
-by themselves, manufacturing error or an acceptance decision.
+Click a selection directly in the model to use it for a fit. The outside wall
+becomes a cone; the top rim becomes a plane. These simple surfaces describe
+the shape while keeping the scan available to inspect.
 
-## 06 — Transition
+## 04 — Align the bayonet mount's features
 
-**Focus:** Reuse and coordinate recovery title card.
-
-**Narration:**
-
-The second workflow uses a generated, noisy fixture so repeated features,
-relationships, and coordinate recovery are easy to inspect.
-
-## 07 — Source scan frame
-
-**Focus:** Rotated boss plate with a small orbit before applying the output transform.
+**Focus:** Clearly cut to the remaining prepared features, retaining the filmed
+selections and fits. Create a parallel-plane relationship through Model picks,
+then inspect common-axis, perpendicular, and threefold relationships.
 
 **Narration:**
 
-The plate begins in its source scan frame, deliberately rotated and scaled away
-from the desired output coordinates. Four bosses vary in height and orientation,
-and three spherical references sit near the plate corners. The colored points
-again represent retained observations on the noisy mesh.
+With the remaining surfaces prepared, choose a relationship and pick its
+surfaces in the model. Parallel planes share a direction. Other relationships
+share a center axis, square the top to it, and align the repeated bayonet features.
 
-## 08 — Build a reusable source
+## 05 — Check the fit against the scan
 
-**Focus:** Add source selections, datums, and a cylinder fit to the inspection set.
-
-**Narration:**
-
-The first boss supplies a partial reusable definition. Its named outer, bore,
-shoulder, and clock regions preserve distinct observations. An axis and two
-planes provide a local frame, while cylinder and plane fits describe surfaces.
-These pieces stay general: the reusable unit is a graph lineage, not a special
-hard-coded boss feature.
-
-## 09 — Feature reuse
-
-**Focus:** Expand Feature reuse and enable the visible reuse volumes.
+**Focus:** Residual coloring with the signed scale visible.
 
 **Narration:**
 
-Feature reuse combines those source fits with one simple reference patch and
-several target patches. Approximate matches place surface-relative selection
-volumes at each target. The volumes generate new target selections, and those
-selections drive fresh local fits. The initial match is only a starting pose;
-it does not become the final fitted transform or force all results to be equal.
+Use residual colors to see where the fitted surface sits above or below the
+scan. The scale shows the size of those differences. This helps you inspect
+the fit; it does not establish manufacturing accuracy.
 
-## 10 — Exact relationships
+## 06 — Repeated-feature transition
 
-**Focus:** Inspect equal-radius and parallel-plane relationships with residuals.
+**Focus:** Brief transition card: repeated features and aligned surfaces.
 
 **Narration:**
 
-Reused fits remain independent unless a relationship says otherwise. Here,
-selected cylinder families share exact radii, while the plate top and chosen
-shoulder planes share an exact direction. The taller boss remains offset but
-parallel. These declarations influence fitted quantities and are distinct from
-a later tolerance or closeness check.
+Now let's look at repeated features on a generated, noisy example.
 
-## 11 — Measurable datums
+## 07 — Repeated bosses
 
-**Focus:** Add sphere fits, point datums, a directed axis, frame, and scale.
+**Focus:** Boss plate in its source orientation, with a restrained orbit.
 
 **Narration:**
 
-The three sphere fits provide measurable centers. Two centers initialize point
-datums, and their ordered pair defines a directed axis. A coordinate frame maps
-chosen direction references onto explicit output axes. Separately, one or more
-known distances between points determine a least-squares uniform scale, so
-additional readings can contribute rather than being discarded.
+This plate has four bosses, including one taller than the others. The scan
+starts tilted. We'll describe the surfaces and their relationships before
+choosing the model's final orientation.
 
-## 12 — Applied transform
+## 08 — Define one boss
 
-**Focus:** Select Output transform, switch to Top, then make one small view adjustment.
+**Focus:** Source boss cylinder, shared axis, and perpendicular shoulder plane.
 
 **Narration:**
 
-The Output transform composes the chosen frame and scale. Selecting it applies
-that similarity transform to the view: the model moves into its intended output
-orientation and size, while upstream fitted values remain in source coordinates.
-The mesh, selections, analytic guides, and residual markers all share the same
-display placement.
+On the first boss, the outside and bore share an axis. The shoulder is square
+to it. These relationships keep the feature coherent as its surfaces fit
+the scan.
 
-## 13 — Export boundary
+## 09 — Reuse the selection work
 
-**Focus:** Open CAD export and inspect the chosen transform and units.
+**Focus:** Feature reuse and its visible selection volumes at the other bosses.
 
 **Narration:**
 
-The same transform is available at export together with an explicit unit choice.
-That makes coordinate recovery a visible handoff decision instead of silently
-rewriting the fitted geometry. This export dialog demonstrates the current
-boundary; it is not a claim of a finished production CAD integration.
+Reuse carries that selection work to the other bosses. Each gets its own
+local observations and fresh fits, so differences between the features remain
+available to inspect.
+
+## 10 — Pick surfaces and relate them
+
+**Focus:** Pick fitted planes in Model for a parallel relationship; inspect
+existing coincident-plane and equal-radius relationships.
+
+**Narration:**
+
+To align planes, choose a relationship and click the fitted surfaces in the
+model. Parallel planes share a direction while keeping their offsets.
+Coincident planes share a surface. Equal-radius relationships keep matching
+round features the same size.
+
+## 11 — Inspect the aligned model
+
+**Focus:** Cleanly aligned shoulder and plate planes, round features, and
+evaluated constructed faces where available.
+
+**Narration:**
+
+The result is geometry that fits together: level shoulders, aligned planes,
+and consistent round features. The taller boss stays taller. You choose
+which dimensions and directions belong together rather than accepting a
+collection of unrelated fits.
+
+Small gaps between faces that should align, off-center bores, or end faces not
+quite perpendicular to their cylinder axes make sketches and mating parts
+awkward to work with.
+Scansor's relationships give you the control to eliminate that mess.
+
+## 12 — Choose the output orientation
+
+**Focus:** Apply Output transform continuously, then show an aligned view.
+
+**Narration:**
+
+Reference points and directions let you choose the output orientation.
+Known distances set its scale. Apply the transform to place the model in
+useful coordinates while keeping the original scan available for inspection.
+
+## 13 — CAD handoff
+
+**Focus:** Current Export CAD dialog with an available scope, units, and transform.
+
+**Narration:**
+
+At export, choose the geometry, units, and transform for the CAD handoff.
+Those choices stay visible, so the exported geometry has the orientation
+and size you intend.
 
 ## 14 — Close
 
-**Focus:** Closing card.
+**Focus:** Closing card emphasizing selection, fitting, and relationships.
 
 **Narration:**
 
-Together, the examples show the current direction for Scansor: preserve user
-observations, fit simple analytic primitives, express exact geometric intent,
-reuse selection effort without freezing local fits, and make output scale and
-coordinates explicit. The prototype is still evolving, but these operations
-remain inspectable graph features rather than a flattened final result.
+Select the evidence, fit the surfaces, and connect them with relationships.
+That's how Scansor helps turn a rough scan into a well-organized model
+with cleanly aligned planes and features.

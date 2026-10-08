@@ -16,8 +16,14 @@ const narrationPath = resolve(
 const voice = process.env.SCANSOR_DEMO_VOICE || 'af_heart';
 const speed = process.env.SCANSOR_DEMO_VOICE_SPEED || '1.0';
 const playbackRate = Number(process.env.SCANSOR_DEMO_PLAYBACK_RATE || '1.04');
+const maximumClipRate = Number(process.env.SCANSOR_DEMO_MAX_CLIP_RATE || '1.35');
+if (!Number.isFinite(maximumClipRate) || maximumClipRate < 1 || maximumClipRate > 2)
+  throw new Error('Clip playback limit must be between 1 and 2');
 const pauseSeconds = 0.55;
 const reuseTts = process.env.SCANSOR_DEMO_REUSE_TTS === '1';
+const workflow = process.env.SCANSOR_DEMO_WORKFLOW || 'all';
+if (!['all', 'boss', 'nozzle'].includes(workflow)) throw new Error(`Unknown workflow: ${workflow}`);
+const commands = [];
 
 const shotMap = new Map([
   ['00', ['00-title']],
@@ -41,6 +47,7 @@ await mkdir(resolve(outputDirectory, 'tts'), { recursive: true });
 await mkdir(resolve(outputDirectory, 'segments'), { recursive: true });
 
 function command(executable, arguments_, options = {}) {
+  commands.push({ executable, arguments: arguments_ });
   return execFileSync(executable, arguments_, {
     cwd: repository,
     encoding: 'utf8',
@@ -99,21 +106,37 @@ function captionChunks(text, maximum = 84) {
   return chunks;
 }
 
+function captionLines(text) {
+  if (text.length <= 42) return text;
+  const spaces = [...text.matchAll(/ /g)].map(match => match.index);
+  const split = spaces.reduce((best, index) =>
+    Math.abs(index - text.length / 2) < Math.abs(best - text.length / 2) ? index : best);
+  return `${text.slice(0, split)}\n${text.slice(split + 1)}`;
+}
+
 async function sha256(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex');
 }
 
-const narration = sections(await readFile(narrationPath, 'utf8'));
-if (narration.length !== shotMap.size) {
-  throw new Error(`Expected ${shotMap.size} narration sections; found ${narration.length}`);
+const allNarration = sections(await readFile(narrationPath, 'utf8'));
+if (allNarration.length !== shotMap.size) {
+  throw new Error(`Expected ${shotMap.size} narration sections; found ${allNarration.length}`);
 }
+const narration = allNarration.filter(section => workflow === 'all' ||
+  (workflow === 'boss' ? Number(section.id) >= 6 : Number(section.id) < 6));
+for (const id of shotMap.keys()) if (!narration.some(section => section.id === id)) shotMap.delete(id);
 
 for (const section of narration) {
+  console.log(`Narrating ${section.id}: ${section.title}`);
   const textPath = resolve(outputDirectory, 'tts', `${section.id}.txt`);
   const audioPath = resolve(outputDirectory, 'tts', `${section.id}.wav`);
   const ttsText = section.text.replaceAll('Scansor', 'SCAN-sor');
   const utterances = ttsText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [ttsText];
-  await writeFile(textPath, `${utterances.map((item) => item.trim()).join('\n')}\n`);
+  const text = `${utterances.map((item) => item.trim()).join('\n')}\n`;
+  if (reuseTts && await readFile(textPath, 'utf8') !== text) {
+    throw new Error(`Narration ${section.id} changed; regenerate TTS instead of reusing it`);
+  }
+  await writeFile(textPath, text);
   if (!reuseTts) {
     mise('kokoro', ['-m', voice, '-s', speed, '-i', textPath, '-o', audioPath]);
   }
@@ -132,15 +155,33 @@ if (wordsPerMinute > 180 || wordsPerMinute < 90) {
     `Implausible narration rate ${wordsPerMinute.toFixed(1)} words/minute; check TTS output for truncation`,
   );
 }
+if (process.env.SCANSOR_DEMO_TTS_ONLY === '1') {
+  console.log(`Synthesized ${wordCount} words at ${wordsPerMinute.toFixed(1)} words/minute`);
+  process.exit(0);
+}
 
 const audioArguments = [];
 const audioFilters = [];
+// Keep Apply and the completed result. Modest motion acceleration reduces quiet
+// tails after speech; longer interactions still receive enough time to finish.
+const clipRates = new Map();
+for (const section of narration) {
+  const spoken = section.duration / playbackRate;
+  section.total = Math.max(spoken + pauseSeconds,
+    ...shotMap.get(section.id).map(shot => {
+      const clip = resolve(captureDirectory, `${shot}.mp4`);
+      if (!existsSync(clip)) return 0;
+      const duration = probeDuration(clip);
+      const rate = Math.min(maximumClipRate, Math.max(1, duration / (spoken + 1)));
+      clipRates.set(shot, rate);
+      return duration / rate + pauseSeconds;
+    }));
+}
 for (const [index, section] of narration.entries()) {
   audioArguments.push('-i', section.audioPath);
-  const playedDuration = section.duration / playbackRate;
-  const padded = playedDuration + pauseSeconds;
+  const padded = section.total;
   audioFilters.push(
-    `[${index}:a]aresample=24000,aformat=sample_fmts=fltp:channel_layouts=mono,atempo=${playbackRate},apad=pad_dur=${pauseSeconds},atrim=0:${padded.toFixed(6)}[a${index}]`,
+    `[${index}:a]aresample=24000,aformat=sample_fmts=fltp:channel_layouts=mono,atempo=${playbackRate},apad,atrim=0:${padded.toFixed(6)}[a${index}]`,
   );
 }
 audioFilters.push(
@@ -177,13 +218,14 @@ for (const section of narration) {
     captions.push(
       String(captionNumber++),
       `${timestamp(captionCursor)} --> ${timestamp(end)}`,
-      chunk,
+      captionLines(chunk),
       '',
     );
     captionCursor = end;
   });
 
-  const sectionTotal = playedDuration + pauseSeconds;
+  console.log(`Assembling ${section.id}: ${section.title}`);
+  const sectionTotal = section.total;
   const shots = shotMap.get(section.id);
   const shotDuration = sectionTotal / shots.length;
   for (const shot of shots) {
@@ -200,7 +242,7 @@ for (const section of narration) {
     if (source === still) arguments_.push('-loop', '1', '-framerate', '30');
     arguments_.push('-i', source);
     const filter = source === clip
-      ? `tpad=stop_mode=clone:stop_duration=${shotDuration.toFixed(6)},fps=30,format=yuv420p`
+      ? `setpts=(PTS-STARTPTS)/${clipRates.get(shot)},tpad=stop_mode=clone:stop_duration=${shotDuration.toFixed(6)},fps=30,format=yuv420p`
       : 'fps=30,format=yuv420p';
     arguments_.push(
       '-t', shotDuration.toFixed(6), '-vf', filter, '-an', '-c:v', 'libx264',
@@ -215,7 +257,9 @@ for (const section of narration) {
     start: sectionStart,
     end: sectionEnd,
     duration: playedDuration,
+    video_end: sectionStart + sectionTotal,
     shots,
+    clip_playback_rates: Object.fromEntries(shots.filter(shot => clipRates.has(shot)).map(shot => [shot,clipRates.get(shot)])),
   });
   cursor += sectionTotal;
 }
@@ -251,16 +295,38 @@ const recipePaths = [
 ];
 const sourceHashes = {};
 for (const path of recipePaths) sourceHashes[path] = await sha256(resolve(repository, path));
+for (const path of ['scripts/demo-video/capture.mjs', 'scripts/demo-video/render.mjs',
+  'docs/src/project/planning/demo-video-narration.md', 'src/scansor/nonlinear_least_squares.py']) {
+  sourceHashes[path] = await sha256(resolve(repository, path));
+}
+const meshes = {};
+const sessions = {};
+const checkpoints = {};
+for (const example of workflow === 'all' ? ['nozzle', 'boss'] : [workflow]) {
+  meshes[example] = JSON.parse(await readFile(resolve(captureDirectory, `${example}-source.json`), 'utf8'));
+  const path = resolve(captureDirectory, `${example}-session.json`);
+  sessions[example] = { recipe: JSON.parse(await readFile(path, 'utf8')), sha256: await sha256(path) };
+}
+if (workflow !== 'boss') {
+  for (const name of ['nozzle-filmed-stage', 'nozzle-prepared-checkpoint']) {
+    const path = resolve(captureDirectory, `${name}.json`);
+    checkpoints[name] = {recipe:JSON.parse(await readFile(path, 'utf8')), sha256:await sha256(path)};
+  }
+}
 const frames = {};
+const edits = {};
 for (const shots of shotMap.values()) {
   for (const shot of shots) {
     const extension = existsSync(resolve(captureDirectory, `${shot}.mp4`)) ? 'mp4' : 'png';
     const filename = `${shot}.${extension}`;
     frames[filename] = await sha256(resolve(captureDirectory, filename));
+    const editPath = resolve(captureDirectory, `${shot}-edits.json`);
+    if (existsSync(editPath)) edits[shot] = JSON.parse(await readFile(editPath, 'utf8'));
   }
 }
 const manifest = {
   produced_at: new Date().toISOString(),
+  workflow,
   git_commit: command('git', ['rev-parse', 'HEAD'], { capture: true }).trim(),
   viewport: { width: 1920, height: 1080, device_scale_factor: 1 },
   chrome: command(chromeExecutable(), ['--version'], { capture: true }).trim(),
@@ -271,13 +337,20 @@ const manifest = {
     voice,
     synthesis_speed: Number(speed),
     playback_rate: playbackRate,
+    reused_audio: reuseTts,
     sample_rate_hz: 24000,
     duration_seconds: probeDuration(narrationAudio),
     words: wordCount,
     words_per_minute: wordsPerMinute * playbackRate,
   },
   source_sha256: sourceHashes,
+  source_meshes: meshes,
+  captured_sessions: sessions,
+  captured_checkpoints: checkpoints,
+  commands,
   frame_sha256: frames,
+  capture_edits: edits,
+  maximum_clip_playback_rate: maximumClipRate,
   timings,
   outputs: {
     silent_video: { path: basename(silentVideo), sha256: await sha256(silentVideo) },
@@ -289,6 +362,9 @@ await writeFile(
   resolve(outputDirectory, 'capture-manifest.json'),
   `${JSON.stringify(manifest, null, 2)}\n`,
 );
+await writeFile(resolve(outputDirectory, 'scansor-demo-timed-narration.md'),
+  '# Demo narration with video timings\n\n' + narration.map((section, index) =>
+    `## ${section.id} — ${section.title}\n\n${timestamp(timings[index].start, '.')} – ${timestamp(timings[index].video_end, '.')}\n\n${section.text}\n`).join('\n'));
 
 function chromeExecutable() {
   return process.env.SCANSOR_DEMO_CHROME || 'google-chrome';

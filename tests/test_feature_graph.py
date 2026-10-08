@@ -39,6 +39,26 @@ def test_checked_in_browser_demo_recipes_validate(path: Path) -> None:
     assert recipe.output in {node.id for node in recipe.nodes}
 
 
+def test_checked_in_nozzle_demo_converges_with_default_solver_budget() -> None:
+    # The small, offset bump b cylinder starts from the main nozzle seed and
+    # needs more than 100 iterations before reaching first-order stationarity.
+    recipe = Recipe.model_validate_json(DEMO_RECIPES[0].read_text())
+    demo = FeatureGraph(NozzleWorkspace(EXAMPLE), recipe)
+    bump_id = "fit_35b4be8c7a4349aa8cb42bdf468773c9"
+
+    standalone = demo.evaluate(token(demo), target=bump_id)
+    assert not standalone["errors"]
+    bump = cast(dict[str, dict[str, Any]], standalone["results"])[bump_id]
+    assert bump["solver"]["termination"] == "projected-gradient"
+    assert bump["solver"]["scaled_projected_gradient_infinity_norm"] <= 1e-10
+    assert bump["weighted_rms"] < 0.005
+
+    state = demo.evaluate(token(demo), all_actions=True)
+
+    assert not state["errors"]
+    assert set(cast(dict[str, str], state["states"]).values()) == {"ready"}
+
+
 @pytest.fixture
 def graph() -> FeatureGraph:
     return FeatureGraph(
