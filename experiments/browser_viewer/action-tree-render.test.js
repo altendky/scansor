@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { actionDescription, featureIcon, featureTreePresentation, iconPickerIndex, renderIconPicker, renderActionTree, relationshipParticipantChoices, renderRelationshipParticipants, treeDragScrollSpeed } from './action-tree.js';
 import { fitQualities } from './residual-display.js';
+import { createHeadlessFeatureTree } from './headless-feature-tree.js';
 
 // This is deliberately just the DOM surface used by the tree renderer, not a
 // browser emulator. Native drag behavior still requires real-browser verification.
@@ -68,7 +69,7 @@ class Element {
   setPointerCapture(id) { this.captured = id; }
   hasPointerCapture(id) { return this.captured === id; }
   releasePointerCapture(id) { if (this.captured === id) this.captured = null; }
-  focus() { globalThis.document.activeElement = this; }
+  focus() { globalThis.document.activeElement = this; this.onfocus?.(); }
   showPopover() { this.popoverOpen = true; }
   hidePopover() { this.popoverOpen = false; }
   scrollIntoView(options) { this.scrollRequest = options; }
@@ -77,6 +78,7 @@ class Element {
 function event(target, options = {}) {
   return {
     target, button: 0, pointerId: 1, clientX: 50, clientY: 105, prevented: false, stopped: false,
+    code: '', key: '', repeat: false, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
     preventDefault() { this.prevented = true; },
     stopPropagation() { this.stopped = true; },
     dataTransfer: { setData() {}, setDragImage() {} },
@@ -198,29 +200,48 @@ test('relationship inspection preserves focus and hover on different participant
 });
 
 function fixture(nodes = base, groups = []) {
-  globalThis.document = {
+  globalThis.document = Object.assign(new Element('document'), {
     createElement: (tag) => new Element(tag),
     createElementNS: (_namespace, tag) => new Element(tag),
     activeElement: null,
-  };
+  });
+  globalThis.window = new Element('window');
+  globalThis.HTMLInputElement = class extends Element {};
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
-  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], groupRemovals: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
+  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
     list: new Element('ul') };
-  state.render = () => renderActionTree(state.list, {
+  state.render = () => {
+    const updateLocks = renderActionTree(state.list, {
     nodes: state.nodes, groups: state.groups, selected: state.selected, states: state.states, errors: state.errors,
     qualities: state.qualities,
+    createTree: createHeadlessFeatureTree,
     locked: () => state.locked, select: (id) => state.inspections.push(id),
     move: async (next) => { state.moves.push(next); state.nodes = next; state.render(); return true; },
     announce: (message, error) => state.announcements.push({ message, error }),
     contextMenu: (id, position) => state.contexts.push({ id, position }),
     groupContextMenu: (id, position) => state.groupContexts.push({ id, position }),
-    removeGroup: (id) => state.groupRemovals.push(id),
-  });
-  state.grip = (key) => state.list.querySelectorAll('.action-grip')
+    });
+    // Native keydown bubbles from a focused treeitem to Headless Tree's root
+    // listener. These direct-handler tests emulate that path and key release.
+    for (const item of state.list.querySelectorAll('.tree-item')) {
+      const row = item.children[0].tagName === 'details' ? item.children[0].children[0] : item.children[0],
+        ownKeydown = item.onkeydown;
+      item.onkeydown = row.onkeydown = input => {
+        item.focus();
+        ownKeydown(input);
+        if (!input.stopped) state.list.emit('keydown', input);
+        document.emit('keyup', input);
+      };
+    }
+    return updateLocks;
+  };
+  state.mover = (key) => state.list.querySelectorAll('.tree-row')
     .find((element) => element.dataset.reorderKey === key);
-  state.row = (key) => state.grip(key)?.parentElement;
+  state.row = state.mover;
+  state.item = (key) => state.list.querySelectorAll('.tree-item')
+    .find((element) => element.dataset.treeKey === key);
   state.ids = () => state.nodes.map((node) => node.id);
   state.render();
   return state;
@@ -229,22 +250,20 @@ function fixture(nodes = base, groups = []) {
 test('lifecycle lock updates preserve tree controls and empty-group restrictions', () => {
   const state = fixture([source, point('a')], [{ id: 'empty', label: 'Empty' }]),
     updateLocks = state.render(),
-    grip = state.grip('a'), emptyGrip = state.grip('empty'),
-    items = [...state.list.children], groupActions = state.list.querySelectorAll('.group-action');
-  assert(emptyGrip);
+    mover = state.mover('a'), emptyMover = state.mover('empty'),
+    items = [...state.list.children];
+  assert(emptyMover);
   state.locked = true;
   updateLocks();
-  assert.equal(grip.disabled, true);
-  assert.equal(grip.draggable, false);
-  assert(groupActions.every(button => button.disabled));
+  assert.equal(mover.draggable, false);
+  assert.equal(mover.classList.contains('row-draggable'), false);
   state.locked = false;
   updateLocks();
-  assert.equal(grip.disabled, false);
-  assert.equal(grip.draggable, true);
-  assert.equal(emptyGrip.disabled, true);
-  assert(groupActions.every(button => !button.disabled));
+  assert.equal(mover.draggable, true);
+  assert.equal(mover.classList.contains('row-draggable'), true);
+  assert.equal(emptyMover.draggable, false);
   assert.deepEqual(state.list.children, items);
-  assert.equal(state.grip('a'), grip);
+  assert.equal(state.mover('a'), mover);
 });
 
 function dragFixture(t) {
@@ -261,10 +280,10 @@ function dragFixture(t) {
   state.list.scrollHeight = 800;
   state.list.scrollTop = 100;
   document.elementFromPoint = () => state.row(state.list.scrollTop >= 110 ? 'd' : 'b');
-  const grip = state.grip('a');
+  const mover = state.mover('a');
   const start = (y = 125) => {
-    grip.onpointerdown(event(grip));
-    grip.onpointermove(event(grip, { clientY: y }));
+    mover.onpointerdown(event(mover));
+    mover.onpointermove(event(mover, { clientY: y }));
   };
   const tick = (time) => {
     const callbacks = [...frames.values()];
@@ -272,7 +291,7 @@ function dragFixture(t) {
     callbacks.forEach((callback) => callback(time));
   };
   t.after(() => state.render());
-  return { state, grip, start, tick, frames };
+  return { state, mover, start, tick, frames };
 }
 
 test('tree edge scrolling scales with proximity and stops outside or in the middle', () => {
@@ -288,7 +307,7 @@ test('tree edge scrolling scales with proximity and stops outside or in the midd
 });
 
 test('pointer dragging autoscrolls continuously and drops at the freshly revealed target', async (t) => {
-  const { state, grip, start, tick, frames } = dragFixture(t);
+  const { state, mover, start, tick, frames } = dragFixture(t);
   start(129);
   assert.equal(state.row('b').classList.contains('drop-after'), true);
   tick(16);
@@ -296,15 +315,15 @@ test('pointer dragging autoscrolls continuously and drops at the freshly reveale
   assert.ok(state.list.scrollTop > 110);
   assert.equal(state.row('b').classList.contains('drop-after'), false);
   assert.equal(state.row('d').classList.contains('drop-after'), true);
-  grip.onpointerup(event(grip, { clientY: 129 }));
+  mover.onpointerup(event(mover, { clientY: 129 }));
   await settle();
   assert.deepEqual(state.ids(), ['source', 'b', 'c', 'd', 'a']);
   assert.equal(frames.size, 0);
-  assert.equal(grip.hasPointerCapture(1), false);
+  assert.equal(mover.hasPointerCapture(1), false);
 });
 
 test('wheel scrolling remains native during dragging and refreshes the drop target', async (t) => {
-  const { state, grip, start, tick } = dragFixture(t);
+  const { state, mover, start, tick } = dragFixture(t);
   start(129);
   const wheel = event(state.list, { deltaY: 300, deltaMode: 1 });
   state.list.emit('wheel', wheel);
@@ -314,74 +333,91 @@ test('wheel scrolling remains native during dragging and refreshes the drop targ
   assert.equal(state.row('d').classList.contains('drop-after'), true);
   tick(performance.now());
   assert.equal(state.list.scrollTop, 400); // Auto-scroll yields to the wheel.
-  grip.onpointerup(event(grip, { clientY: 129 }));
+  mover.onpointerup(event(mover, { clientY: 129 }));
   await settle();
   assert.deepEqual(state.ids(), ['source', 'b', 'c', 'd', 'a']);
 });
 
 test('top-edge scrolling moves upward and stops at the content boundary', (t) => {
-  const { state, grip, start, tick, frames } = dragFixture(t);
+  const { state, mover, start, tick, frames } = dragFixture(t);
   start(129);
-  grip.onpointermove(event(grip, { clientY: 101 }));
+  mover.onpointermove(event(mover, { clientY: 101 }));
   tick(16);
   assert.ok(state.list.scrollTop < 100);
   state.list.scrollTop = 0;
   tick(32);
   assert.equal(state.list.scrollTop, 0);
   assert.equal(frames.size, 0);
-  grip.onpointercancel();
+  mover.onpointercancel();
   assert.equal(state.moves.length, 0);
 });
 
 test('drag scrolling stops on cancellation, leaving, locks and tree replacement', (t) => {
-  const { state, grip, start, tick, frames } = dragFixture(t);
+  const { state, mover, start, tick, frames } = dragFixture(t);
   start(129);
-  grip.onpointermove(event(grip, { clientY: 160 }));
+  mover.onpointermove(event(mover, { clientY: 160 }));
   tick(16);
   assert.equal(state.list.scrollTop, 100);
   assert.equal(frames.size, 0);
   assert.equal(state.row('b').classList.contains('drop-after'), false);
-  grip.onpointermove(event(grip, { clientY: 129 }));
+  mover.onpointermove(event(mover, { clientY: 129 }));
   assert.ok(frames.size > 0);
-  grip.onpointercancel();
+  mover.onpointercancel();
   assert.equal(frames.size, 0);
   assert.equal(state.list.classList.contains('feature-reordering'), false);
   start(129);
   state.locked = true;
   tick(32);
   assert.equal(frames.size, 0);
-  assert.equal(grip.hasPointerCapture(1), false);
+  assert.equal(mover.hasPointerCapture(1), false);
   state.locked = false;
   start(129);
   state.render();
   assert.equal(frames.size, 0);
-  assert.equal(grip.hasPointerCapture(1), false);
-  grip.onpointerup(event(grip, { clientY: 129 }));
+  assert.equal(mover.hasPointerCapture(1), false);
+  mover.onpointerup(event(mover, { clientY: 129 }));
   assert.equal(state.moves.length, 0);
   assert.equal(state.list.listeners.get('scroll').size, 1);
   assert.equal(state.list.listeners.get('wheel').size, 1);
 });
 
-test('a grip click below the drag threshold does not reorder', (t) => {
-  const { state, grip, start, frames } = dragFixture(t);
+test('a mover click below the drag threshold does not reorder', (t) => {
+  const { state, mover, start, frames } = dragFixture(t);
   start(107);
-  grip.onpointerup(event(grip, { clientY: 107 }));
+  mover.onpointerup(event(mover, { clientY: 107 }));
   assert.equal(state.moves.length, 0);
   assert.equal(frames.size, 0);
 });
 
 test('a pending edit prevents dropping a drag after scrolling has stopped', (t) => {
-  const { state, grip, start, tick, frames } = dragFixture(t);
+  const { state, mover, start, tick, frames } = dragFixture(t);
+  document.elementFromPoint = () => state.row('c');
   start(115);
   tick(16);
   assert.equal(frames.size, 0);
-  assert.equal(state.row('b').classList.contains('drop-before'), true);
+  assert.equal(state.row('c').classList.contains('drop-before'), true);
   state.locked = true;
-  grip.onpointerup(event(grip, { clientY: 115 }));
+  mover.onpointerup(event(mover, { clientY: 115 }));
   assert.equal(state.moves.length, 0);
-  assert.equal(grip.hasPointerCapture(1), false);
+  assert.equal(mover.hasPointerCapture(1), false);
   assert.equal(state.list.classList.contains('feature-reordering'), false);
-  assert.equal(state.row('b').classList.contains('drop-before'), false);
+  assert.equal(state.row('c').classList.contains('drop-before'), false);
+});
+
+test('a fast pointer gesture stays owned by its starting row', async () => {
+  const state = fixture([source, point('a'), point('b'), point('c')]),
+    first = state.mover('a'), second = state.mover('b');
+  first.onpointerdown(event(first));
+  assert.equal(first.hasPointerCapture(1), true);
+  second.onpointermove(event(second, { clientY: 129 }));
+  second.onpointerup(event(second, { clientY: 129 }));
+  assert.equal(first.hasPointerCapture(1), true);
+  assert.equal(state.moves.length, 0);
+  document.elementFromPoint = () => state.row('c');
+  first.onpointermove(event(first, { clientY: 129 }));
+  first.onpointerup(event(first, { clientY: 129 }));
+  await settle();
+  assert.deepEqual(state.ids(), ['source', 'b', 'c', 'a']);
 });
 
 test('ordinary and managed-owner rows expose pointer and keyboard context menus', () => {
@@ -418,53 +454,94 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
   const state = fixture([...base, point('group-member', 'group')], [{ id: 'group', label: 'Group' }]);
   state.locked = true;
   state.render();
-  const controls = state.row('group').querySelectorAll('.group-action');
-  assert.equal(controls.every((control) => control.disabled), true);
-  assert.equal(state.grip('wall').disabled, true);
-  assert.equal(state.grip('wall').draggable, false);
+  assert.equal(state.mover('wall').draggable, false);
+  assert.equal(state.mover('wall').classList.contains('row-draggable'), false);
   const inspect = state.list.querySelectorAll('.action-select')
     .find((element) => element.dataset.actionId === 'wall');
   assert.notEqual(inspect.disabled, true);
-  inspect.onclick();
+  inspect.onclick(event(inspect));
   assert.deepEqual(state.inspections, ['wall']);
   const details = state.row('batch').parentElement;
   details.open = true;
   details.ontoggle();
   state.render();
   assert.equal(state.row('batch').parentElement.open, true);
-  for (const control of controls) control.onclick(event(control));
-  state.grip('wall').onkeydown(event(state.grip('wall'), { key: 'ArrowDown' }));
+  state.mover('wall').onkeydown(event(state.mover('wall'), { key: 'ArrowDown', altKey: true }));
   await settle();
   state.row('group').oncontextmenu(event(state.row('group')));
   assert.deepEqual(state.groupContexts, []);
-  assert.deepEqual(state.groupRemovals, []);
   assert.deepEqual(state.moves, []);
   state.locked = false;
   state.render();
-  assert.equal(state.grip('wall').disabled, false);
-  assert.equal(state.grip('wall').draggable, true);
-  const unlocked = state.row('group').querySelectorAll('.group-action');
-  assert.equal(unlocked.every((control) => !control.disabled), true);
-  for (const control of unlocked) control.onclick(event(control));
+  assert.equal(state.mover('wall').draggable, true);
+  assert.equal(state.mover('wall').classList.contains('row-draggable'), true);
   state.row('group').oncontextmenu(event(state.row('group')));
   assert.deepEqual(state.groupContexts.map(context => context.id), ['group']);
   state.row('group').onkeydown(event(state.row('group'), { key: 'F10', shiftKey: true }));
   assert.deepEqual(state.groupContexts.map(context => context.id), ['group', 'group']);
-  assert.deepEqual(state.groupRemovals, ['group']);
 });
 
-test('group mutation callbacks recheck locks even before their rows are repainted', () => {
-  const state = fixture([source, point('member', 'group')], [{ id: 'group', label: 'Group' }]),
-    controls = state.row('group').querySelectorAll('.group-action');
+test('group context callbacks recheck locks even before their rows are repainted', () => {
+  const state = fixture([source, point('member', 'group')], [{ id: 'group', label: 'Group' }]);
   for (const ariaBusy of [false, true]) {
     state.locked = !ariaBusy;
     state.list.setAttribute('aria-busy', String(ariaBusy));
-    for (const control of controls) control.onclick(event(control));
     state.row('group').oncontextmenu(event(state.row('group')));
     state.row('group').onkeydown(event(state.row('group'), { key: 'ContextMenu' }));
   }
   assert.deepEqual(state.groupContexts, []);
-  assert.deepEqual(state.groupRemovals, []);
+});
+
+test('tree rows expose hierarchy, navigate visible items without selecting, and activate explicitly', () => {
+  const state = fixture();
+  assert.equal(state.list.getAttribute('role'), 'tree');
+  assert.equal(state.list.getAttribute('aria-multiselectable'), 'true');
+  const wall = state.item('feature/wall'), batch = state.item('feature/batch'),
+    outputs = state.item('target/batch/');
+  assert.equal(state.list.dataset.treeLibrary, 'headless-tree');
+  assert.equal(wall.getAttribute('role'), 'treeitem');
+  assert.equal(wall.getAttribute('aria-level'), '1');
+  assert.equal(wall.getAttribute('aria-setsize'), '5');
+  assert.equal(wall.getAttribute('aria-posinset'), '2');
+  assert.equal(state.row('wall').getAttribute('role'), 'presentation');
+  wall.onkeydown(event(wall, { key: 'ArrowDown' }));
+  assert.equal(document.activeElement, state.item('feature/shoulder'));
+  assert.deepEqual(state.inspections, []);
+  batch.onkeydown(event(batch, { key: 'ArrowRight' }));
+  assert.equal(batch.getAttribute('aria-expanded'), 'true');
+  batch.onkeydown(event(batch, { key: 'ArrowRight' }));
+  assert.equal(document.activeElement, outputs);
+  assert.equal(outputs.getAttribute('aria-level'), '2');
+  assert.equal(outputs.getAttribute('aria-setsize'), '1');
+  assert.equal(outputs.getAttribute('aria-posinset'), '1');
+  outputs.onkeydown(event(outputs, { key: 'ArrowRight' }));
+  outputs.onkeydown(event(outputs, { key: 'ArrowRight' }));
+  const child = document.activeElement;
+  assert.equal(child.dataset.treeKey, 'feature/edge');
+  assert.equal(child.getAttribute('aria-level'), '3');
+  assert.equal(child.getAttribute('aria-setsize'), '2');
+  assert.equal(child.getAttribute('aria-posinset'), '1');
+  child.onkeydown(event(child, { key: 'ArrowLeft' }));
+  assert.equal(document.activeElement, outputs);
+  outputs.onkeydown(event(outputs, { key: 'ArrowLeft' }));
+  assert.equal(outputs.getAttribute('aria-expanded'), 'false');
+  batch.onkeydown(event(batch, { key: 'Enter' }));
+  assert.deepEqual(state.inspections, ['batch']);
+  assert.equal(state.list.querySelectorAll('.tree-item').filter(item => item.tabIndex === 0).length, 1);
+});
+
+test('Alt arrow reorders whole rows while plain arrows only move focus', async () => {
+  const state = fixture([source, point('a'), point('b')]), row = state.row('a');
+  row.onkeydown(event(row, { key: 'ArrowDown' }));
+  assert.deepEqual(state.moves, []);
+  assert.equal(document.activeElement, state.item('feature/b'));
+  row.onkeydown(event(row, { key: 'ArrowDown', altKey: true }));
+  await settle();
+  assert.deepEqual(state.ids(), ['source', 'b', 'a']);
+  assert.equal(document.activeElement, state.item('feature/a'));
+  assert.equal(state.list.querySelectorAll('.action-grip').length, 0);
+  const managed = fixture();
+  assert.equal(managed.list.querySelectorAll('.action-select').find(row => row.dataset.actionId === 'face').draggable, false);
 });
 
 test('selected managed owners remain visibly and accessibly selected', () => {
@@ -728,47 +805,76 @@ test('managed and organizational headers expose whole-block drop bounds collapse
     renderActionTree.collapsedGroups = expanded ? new Set() : new Set(['group']);
     state.render();
     for (const [key, start, end] of [['batch', '3', '6'], ['group', '3', '7']]) {
-      const row = state.row(key), grip = state.grip(key);
+      const row = state.row(key), mover = state.mover(key);
       assert.equal(row.tagName, 'summary');
       assert.equal(row.classList.contains('action-drop-target'), true);
       assert.equal(row.dataset.dropStart, start);
       assert.equal(row.dataset.dropEnd, end);
-      assert.equal(grip.draggable, true);
-      const click = event(grip);
-      grip.onclick(click);
+      assert.equal(mover.draggable, true);
+      const click = event(mover);
+      mover.onclick(click);
       assert.equal(click.prevented && click.stopped, true);
     }
-    assert.equal(state.grip('empty').disabled, true);
-    assert.match(state.grip('empty').title, /no actions/);
+    assert.equal(state.mover('empty').draggable, false);
+    assert.match(state.mover('empty').closest('.tree-item').getAttribute('aria-description'), /no actions/);
   }
-  assert.equal(state.list.querySelectorAll('.action-grip-placeholder').every((grip) => grip.disabled), true);
+  assert.equal(state.list.querySelectorAll('.action-grip').length, 0);
 });
 
-test('keyboard crosses a whole managed block and restores the new grip focus', async () => {
+test('keyboard crosses a whole managed block and restores its treeitem focus', async () => {
   const state = fixture();
-  const key = event(state.grip('batch'), { key: 'ArrowDown' });
-  state.grip('batch').onkeydown(key);
+  const key = event(state.mover('batch'), { key: 'ArrowDown', altKey: true });
+  state.mover('batch').onkeydown(key);
   await settle();
   assert.equal(key.prevented && key.stopped, true);
   assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face']);
-  assert.equal(document.activeElement, state.grip('batch'));
+  assert.equal(document.activeElement, state.item('feature/batch'));
   assert.equal(state.list.getAttribute('aria-busy'), null);
 });
 
 test('organizational group keyboard movement carries its managed subtree and other members', async () => {
   const state = fixture([...base.slice(0, 3), { ...owner, group_id: 'group' }, edge, face,
     point('member', 'group'), point('other')], [{ id: 'group', label: 'Geometry' }]);
-  state.grip('group').onkeydown(event(state.grip('group'), { key: 'ArrowDown' }));
+  state.mover('group').onkeydown(event(state.mover('group'), { key: 'ArrowDown', altKey: true }));
   await settle();
   assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face', 'member']);
-  assert.equal(document.activeElement, state.grip('group'));
+  assert.equal(document.activeElement, state.item('group/group'));
+});
+
+test('cancelling a rejected selected drag preserves selection on release', () => {
+  const state = fixture();
+  state.selected = new Set(['wall', 'edge']);
+  state.render();
+  const row = state.mover('wall');
+  row.onpointerdown(event(row));
+  row.onpointermove(event(row, { clientY: 129 }));
+  assert.match(state.announcements.at(-1).message, /Select Build faces/);
+  document.emit('keydown', event(row, { key: 'Escape' }));
+  row.onpointerup(event(row, { clientY: 129 }));
+  row.onclick(event(row));
+  assert.equal(state.moves.length, 0);
+  assert.equal(state.inspections.length, 0);
+  assert.deepEqual([...state.selected], ['wall', 'edge']);
+});
+
+test('dragging a selected owner and descendant moves the owner once with all its outputs', async () => {
+  const state = fixture();
+  state.selected = new Set(['batch', 'edge']);
+  state.render();
+  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.list.ondragover(event(state.row('other'), { clientY: 129 }));
+  state.list.ondrop(event(state.row('other')));
+  await settle();
+  assert.equal(state.moves.length, 1);
+  assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face']);
+  assert.deepEqual([...state.selected], ['batch', 'edge']);
 });
 
 test('ordinary rows remain drop targets and dragging an owner after one carries every child', async () => {
   const state = fixture();
   const target = state.row('other');
   assert.equal(target.classList.contains('action-drop-target'), true);
-  state.grip('batch').ondragstart(event(state.grip('batch')));
+  state.mover('batch').ondragstart(event(state.mover('batch')));
   const over = event(target, { clientY: 129 });
   state.list.ondragover(over);
   assert.equal(target.classList.contains('drop-after'), true);
@@ -776,13 +882,13 @@ test('ordinary rows remain drop targets and dragging an owner after one carries 
   state.list.ondrop(event(target));
   await settle();
   assert.deepEqual(state.ids(), ['source', 'wall', 'shoulder', 'other', 'batch', 'edge', 'face']);
-  assert.equal(document.activeElement, state.grip('batch'));
+  assert.equal(document.activeElement, state.item('feature/batch'));
 });
 
 test('ordinary blocks can drop before a collapsed managed owner without splitting it', async () => {
   const state = fixture();
   const target = state.row('batch');
-  state.grip('other').ondragstart(event(state.grip('other')));
+  state.mover('other').ondragstart(event(state.mover('other')));
   state.list.ondragover(event(target, { clientY: 101 }));
   assert.equal(target.classList.contains('drop-before'), true);
   state.list.ondrop(event(target));
@@ -793,7 +899,7 @@ test('ordinary blocks can drop before a collapsed managed owner without splittin
 test('invalid highlights clear when drag crosses a generated scope or leaves the list', async () => {
   const state = fixture();
   const invalid = state.row('shoulder');
-  state.grip('batch').ondragstart(event(state.grip('batch')));
+  state.mover('batch').ondragstart(event(state.mover('batch')));
   const over = event(invalid);
   state.list.ondragover(over);
   assert.equal(invalid.classList.contains('drop-invalid'), true);
@@ -815,14 +921,14 @@ test('invalid highlights clear when drag crosses a generated scope or leaves the
 test('busy locks prevent keyboard, drag startup, and committing a prepared drop', async () => {
   const state = fixture();
   state.locked = true;
-  state.grip('batch').onkeydown(event(state.grip('batch'), { key: 'ArrowDown' }));
-  const start = event(state.grip('batch'));
-  state.grip('batch').ondragstart(start);
+  state.mover('batch').onkeydown(event(state.mover('batch'), { key: 'ArrowDown', altKey: true }));
+  const start = event(state.mover('batch'));
+  state.mover('batch').ondragstart(start);
   assert.equal(start.prevented, true);
   await settle();
   assert.equal(state.moves.length, 0);
   state.locked = false;
-  state.grip('batch').ondragstart(event(state.grip('batch')));
+  state.mover('batch').ondragstart(event(state.mover('batch')));
   state.list.ondragover(event(state.row('other'), { clientY: 129 }));
   state.locked = true;
   state.list.ondrop(event(state.row('other')));
@@ -845,12 +951,12 @@ test('generated target headers reorder sibling blocks only, preserving input/fit
   ]);
   const state = fixture([source, ...selections, cylinder, reuse, ...outputs, point('other')]);
   assert.equal(state.row('reuse/first').dataset.dropScope, 'reuse');
-  state.grip('reuse/first').onkeydown(event(state.grip('reuse/first'), { key: 'ArrowDown' }));
+  state.mover('reuse/first').onkeydown(event(state.mover('reuse/first'), { key: 'ArrowDown', altKey: true }));
   await settle();
   assert.deepEqual(state.ids().slice(5), ['reuse', 'second-selection', 'second-fit',
     'first-selection', 'first-fit', 'other']);
-  assert.equal(document.activeElement, state.grip('reuse/first'));
-  state.grip('reuse/first').ondragstart(event(state.grip('reuse/first')));
+  assert.equal(document.activeElement, state.item('target/reuse/first'));
+  state.mover('reuse/first').ondragstart(event(state.mover('reuse/first')));
   const outside = event(state.row('other'), { clientY: 129 });
   state.list.ondragover(outside);
   assert.equal(outside.prevented, false);
@@ -862,7 +968,7 @@ test('generated target headers reorder sibling blocks only, preserving input/fit
 test('dropping on an invalid dependency boundary never mutates actions', async () => {
   const state = fixture();
   const original = state.nodes;
-  state.grip('batch').ondragstart(event(state.grip('batch')));
+  state.mover('batch').ondragstart(event(state.mover('batch')));
   state.list.ondragover(event(state.row('shoulder')));
   state.list.ondrop(event(state.row('shoulder')));
   await settle();

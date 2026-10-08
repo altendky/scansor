@@ -62,7 +62,7 @@ test('icon legend uses current drawings, docks and floats without changing actio
   const legend = page.locator('#icon-legend-dialog');
   await expect(legend).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toBeVisible();
-  await expect(legend.locator('li[data-icon]')).toHaveCount(44);
+  await expect(legend.locator('li[data-icon]')).toHaveCount(45);
   await expect(legend.getByText('Plane fit', { exact: true })).toBeVisible();
   expect(await legend.evaluate(async element => {
     const { featureIcon, featureIconLegend } = await import('/action-tree.js');
@@ -191,7 +191,20 @@ test('window resizing gives Model the width change, preserving chosen splitter s
   const legend = await tabset(page, 'Icon legend').boundingBox();
   const model = await tabset(page, 'Model').boundingBox();
   for (const width of [1640, 1300, 600, 1440]) {
+    await page.evaluate(() => {
+      window.workspaceResizeSettled = new Promise(resolve => {
+        window.addEventListener('resize', () => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        }, { once: true });
+      });
+    });
     await page.setViewportSize({ width, height: 1000 });
+    // Finish each resize/layout cycle before requesting the next size, even
+    // when minimum-size constraints prevent asserting exact panel widths.
+    await page.evaluate(async () => {
+      await window.workspaceResizeSettled;
+      delete window.workspaceResizeSettled;
+    });
     if (width === 600) continue; // Minimum-size constraints may compress panels.
     await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).width)
       .toBeCloseTo(model.width + width - 1440, 0);

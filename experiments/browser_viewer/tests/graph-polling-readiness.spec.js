@@ -49,14 +49,14 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   await page.locator('#preview-build-faces').click();
   await expect.poll(() => published).toBe(true);
   await expect(page.locator('#build-faces-surfaces')).toBeDisabled();
-  const grip = page.locator('#action-list .action-row > .action-grip:not(.action-grip-placeholder)').first();
-  await expect(grip).toBeDisabled();
-  await expect(grip).toHaveAttribute('draggable', 'false');
+  const row = page.locator('#action-list .tree-row[data-reorder-key="end"]');
+  await expect(row).toHaveAttribute('draggable', 'false');
+  await expect(row).not.toHaveClass(/row-draggable/);
   // Preview readiness does not enter the explicit evaluator's busy/finally path.
   await expect(page.locator('#evaluate-all')).toBeEnabled();
   await page.evaluate(() => {
     window.originalReadinessOption = document.querySelector('#build-faces-surfaces option');
-    window.originalReadinessGrip = document.querySelector('#action-list .action-row > .action-grip:not(.action-grip-placeholder)');
+    window.originalReadinessRow = document.querySelector('#action-list .tree-row[data-reorder-key="end"]');
   });
   const capturedPolls = unchangedPolls;
   await expect.poll(() => unchangedPolls).toBeGreaterThanOrEqual(capturedPolls + 3);
@@ -69,10 +69,10 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   await expect(page.locator('#build-faces-surfaces')).toBeEnabled();
   await expect(page.locator('#preview-build-faces')).toBeEnabled();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
-  await expect(grip).toBeEnabled();
-  await expect(grip).toHaveAttribute('draggable', 'true');
-  expect(await page.evaluate(() => window.originalReadinessGrip ===
-    document.querySelector('#action-list .action-row > .action-grip:not(.action-grip-placeholder)'))).toBe(true);
+  await expect(row).toHaveAttribute('draggable', 'true');
+  await expect(row).toHaveClass(/row-draggable/);
+  expect(await page.evaluate(() => window.originalReadinessRow ===
+    document.querySelector('#action-list .tree-row[data-reorder-key="end"]'))).toBe(true);
   expect(ensureRequests).toBe(2);
   expect(await page.locator('#build-faces-surfaces').evaluate(select =>
     [...select.selectedOptions].map(option => option.value))).toEqual(selected);

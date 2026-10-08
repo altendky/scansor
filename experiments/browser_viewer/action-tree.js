@@ -42,6 +42,7 @@ const paths = {
   failed: 'M12 3 2 21h20ZM12 9v5m0 3v.5',
   blocked: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5Zm7 4v3',
   grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
+  expand: 'm9 5 7 7-7 7',
   download: 'M4 15v5h16v-5M12 3v12m-5-5 5 5 5-5',
   upload: 'M4 15v5h16v-5M12 15V3m-5 5 5-5 5 5',
   restore: 'M4 10a8 8 0 1 1 1 8M4 4v6h6',
@@ -102,13 +103,14 @@ export const featureIconLegend = [
     'mirror_symmetry', 'rotational_symmetry', 'axis_solve', 'joint_fit',
   ] },
   { title: 'Evaluation status', icons: Object.keys(states) },
-  { title: 'Toolbar and tree controls', icons: ['download', 'upload', 'restore', 'show_panel', 'grip'] },
+  { title: 'Toolbar and tree controls', icons: ['download', 'upload', 'restore', 'show_panel', 'grip', 'expand'] },
 ].map(({ title, icons }) => ({ title, entries: icons.map(name => ({
   name,
   label: states[name] || operations[name] || {
     plane: 'Plane fit', cylinder: 'Cylinder fit', cone: 'Cone fit', sphere: 'Sphere fit',
     group: 'Group / generated outputs', download: 'Save actions', upload: 'Load actions',
-    restore: 'Restore example / Reset layout', show_panel: 'Show panel', grip: 'Drag handle',
+    restore: 'Restore example / Reset layout', show_panel: 'Show panel', grip: 'Toolbar drag handle',
+    expand: 'Expand / collapse branch',
   }[name],
   state: Object.hasOwn(states, name),
   detail: {
@@ -360,7 +362,16 @@ export function actionMove(nodes, id, slot) {
     }
     seen.add(item.id);
   }
-  return { nodes: candidate, changed: candidate.some((item, i) => item !== nodes[i]) };
+  const changed = candidate.some((item, i) => item !== nodes[i]),
+    positions = new Map(candidate.map((item, index) => [item.id, index]));
+  // Reuse lineage records the same upstream identities in action order.
+  // Reordering independent inputs must keep this derived ordering consistent.
+  const ordered = candidate.map(item => {
+    if (item.operation !== 'feature_reuse' || !item.lineage?.length) return item;
+    const lineage = [...item.lineage].sort((a, b) => positions.get(a) - positions.get(b));
+    return lineage.some((id, index) => id !== item.lineage[index]) ? { ...item, lineage } : item;
+  });
+  return { nodes: ordered, changed };
 }
 function icon(name, className = '') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -613,17 +624,19 @@ export function renderActionTree(
     move,
     announce,
     groupContextMenu = () => {},
-    removeGroup = () => {},
     contextMenu = () => {},
     qualities = {},
+    createTree,
     scrollContainer = list.parentElement || list,
   },
 ) {
+  const focusedKey = list.contains(document.activeElement)
+    ? document.activeElement.closest('.tree-item')?.dataset.treeKey : null;
   treeDragCleanups.get(list)?.();
   ({ states, errors } = featureTreePresentation(nodes, states, errors));
   let dragged = null,
-    dropSlot = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
-    scrollTime = null, wheelPauseUntil = 0;
+    dropSlot = null, dropTarget = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
+    scrollTime = null, wheelPauseUntil = 0, suppressClick = null;
   const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
     expandedTargets = renderActionTree.expandedTargets ||= new Set(),
     collapsedGroups = renderActionTree.collapsedGroups ||= new Set(),
@@ -638,7 +651,78 @@ export function renderActionTree(
     managed.get(owner).push(node);
   }
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
-  const lockControls = [];
+  const lockControls = [], treeItems = [];
+  let treeController;
+  list.setAttribute('role', 'tree');
+  list.setAttribute('aria-label', 'Features in evaluation order');
+  list.setAttribute('aria-multiselectable', 'true');
+  function focusItem(entry) {
+    if (entry) treeController.focus(entry.key);
+  }
+  function treeItem(item, row, key, activate = null, context = null) {
+    const entry = { item, row, key, activate, context };
+    treeItems.push(entry);
+    item.classList.add('tree-item');
+    item.dataset.treeKey = key;
+    item.setAttribute('role', 'treeitem');
+    item.setAttribute('aria-label', row.getAttribute('aria-label') || row.title);
+    if (row.dataset.actionId) item.setAttribute('aria-selected', String(selectedIds.has(row.dataset.actionId)));
+    item.tabIndex = -1;
+    row.tabIndex = -1;
+    row.setAttribute('role', 'presentation');
+    row.classList.add('tree-row');
+    item.onfocus = () => treeController?.onFocus(key);
+    row.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (suppressClick === row) { suppressClick = null; return; }
+      treeController.activate(key, event);
+    };
+    const keydown = event => {
+      if (event.target.closest('.tree-item') !== item) return;
+      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+        context?.(event, true);
+        return;
+      }
+      if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+        row.reorderKeydown?.(event);
+        return;
+      }
+    };
+    item.onkeydown = row.onkeydown = keydown;
+    return entry;
+  }
+  function branch(entry, details, expanded, remember) {
+    const toggle = document.createElement('span');
+    toggle.className = 'tree-toggle';
+    toggle.setAttribute('aria-hidden', 'true');
+    toggle.append(icon('expand'));
+    entry.row.append(toggle);
+    entry.details = details;
+    details.setAttribute('role', 'presentation');
+    const sync = () => {
+      entry.item.setAttribute('aria-expanded', String(details.open));
+      toggle.title = `${details.open ? 'Collapse' : 'Expand'} ${entry.row.getAttribute('aria-label')}`;
+      remember(details.open);
+    };
+    entry.renderExpanded = open => { details.open = open; sync(); };
+    entry.setExpanded = open => treeController.setExpanded(entry.key, open);
+    toggle.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      focusItem(entry);
+      entry.setExpanded(!details.open);
+    };
+    details.open = expanded;
+    details.ontoggle = () => { if (list.contains(entry.item)) sync(); };
+    sync();
+  }
+  function childList() {
+    const children = document.createElement('ul');
+    children.className = 'nested-actions';
+    children.setAttribute('role', 'group');
+    return children;
+  }
   function qualityBadge(quality, generatedOwner = null) {
     const badge = document.createElement('span');
     badge.className = `fit-quality quality-${quality.status}`;
@@ -658,7 +742,7 @@ export function renderActionTree(
     return summarizeFitQuality([...fits.values()]);
   }
   function clearDrop() {
-    dropSlot = null;
+    dropSlot = dropTarget = null;
     for (const row of list.querySelectorAll('.action-drop-target'))
       row.classList.remove('drop-before', 'drop-after', 'drop-invalid');
   }
@@ -669,11 +753,12 @@ export function renderActionTree(
   function finishDrag() {
     stopScrolling();
     const gesture = pointerDrag;
+    if (gesture && (dragged || gesture.failed)) suppressClick = gesture.row;
     pointerDrag = dragPoint = dragged = null;
     clearDrop();
     scrollContainer.classList.remove('feature-reordering');
     for (const row of list.querySelectorAll('.dragging')) row.classList.remove('dragging');
-    if (gesture?.grip.hasPointerCapture?.(gesture.id)) gesture.grip.releasePointerCapture(gesture.id);
+    if (gesture?.row.hasPointerCapture?.(gesture.id)) gesture.row.releasePointerCapture(gesture.id);
   }
   function pointerInside() {
     if (!dragPoint) return false;
@@ -688,15 +773,43 @@ export function renderActionTree(
     const after = y > row.getBoundingClientRect().top + row.clientHeight / 2,
       slot = Number(after ? row.dataset.dropEnd : row.dataset.dropStart),
       candidate = actionMove(nodes, dragged.ids, slot);
+    if (!candidate.error && !candidate.changed) {
+      if (transfer) transfer.dropEffect = 'none';
+      return;
+    }
     dropSlot = slot;
+    dropTarget = row;
     row.classList.add(after ? 'drop-after' : 'drop-before');
     row.classList.toggle('drop-invalid', !!candidate.error);
     if (transfer) transfer.dropEffect = candidate.error ? 'none' : 'move';
     if (candidate.error) announce(candidate.error, true);
   }
+  function dropRowAt(element, x, y) {
+    if (element && !list.contains(element) && element !== scrollContainer) return null;
+    // Insertion lines lie outside row bounds. Keep the indicated boundary when
+    // the pointer reaches its line, even if hit testing now returns a neighbor.
+    if (dropTarget) {
+      const bounds = dropTarget.getBoundingClientRect();
+      if (x >= bounds.left && x <= bounds.right &&
+          ((y < bounds.top && y >= bounds.top - 4) ||
+           (y >= bounds.bottom && y <= bounds.bottom + 4))) return dropTarget;
+    }
+    const direct = element?.closest('.action-drop-target');
+    if (direct) return direct;
+    if (element?.closest('.tree-row')) return null;
+    let nearest = null, distance = 4;
+    for (const row of list.querySelectorAll('.action-drop-target')) {
+      const bounds = row.getBoundingClientRect();
+      if (!bounds.width || !bounds.height || x < bounds.left || x > bounds.right ||
+          (row.dataset.dropScope || null) !== dragged?.scope) continue;
+      const gap = Math.max(bounds.top - y, y - bounds.bottom, 0);
+      if (gap > 0 && gap <= distance) { nearest = row; distance = gap; }
+    }
+    return nearest;
+  }
   function updatePointerDrop() {
     if (!pointerInside()) { clearDrop(); return; }
-    const row = document.elementFromPoint?.(dragPoint.x, dragPoint.y)?.closest('.action-drop-target');
+    const row = dropRowAt(document.elementFromPoint?.(dragPoint.x, dragPoint.y), dragPoint.x, dragPoint.y);
     updateDrop(row, dragPoint.y);
   }
   function scrollTick(time) {
@@ -748,7 +861,7 @@ export function renderActionTree(
     document.removeEventListener?.('keydown', escapeDrag, true);
     globalThis.removeEventListener?.('blur', finishDrag);
   });
-  async function commit(block, slot, focusHandle = false) {
+  async function commit(block, slot, restoreFocus = false) {
     if (unavailable()) {
       announce('Wait for the current edit or evaluation to finish.', true);
       return;
@@ -763,75 +876,101 @@ export function renderActionTree(
     try {
       if (await move(candidate.nodes)) {
         announce(`Moved ${block.label}.`);
-        if (focusHandle) {
-          [...list.querySelectorAll('.action-grip')]
-            .find((button) => button.dataset.reorderKey === block.key)
-            ?.focus();
+        if (restoreFocus) {
+          [...list.querySelectorAll('.tree-row')]
+            .find((row) => row.dataset.reorderKey === block.key)
+            ?.closest('.tree-item')?.focus();
         }
       }
     } finally {
       list.removeAttribute('aria-busy');
     }
   }
-  function reorderHandle(row, ids, key, label, scope = null) {
-    const grip = document.createElement('button'),
-      moving = new Set(ids.flatMap((id) => [...managedSubtreeIds(id, nodes)])),
+  function selectionDragBlock(row, block) {
+    if (!selectedIds.has(row.dataset.actionId) || selectedIds.size < 2) return block;
+    const roots = nodes.filter(node => {
+      if (!selectedIds.has(node.id)) return false;
+      for (let owner = ownerById.get(node.id); owner; owner = ownerById.get(owner))
+        if (selectedIds.has(owner)) return false;
+      return true;
+    });
+    const blocks = roots.map(node => treeItems.find(entry => entry.row.dataset.actionId === node.id)?.dragBlock);
+    const unsupported = roots.find((_, index) => !blocks[index]);
+    if (unsupported) {
+      const owner = byId.get(ownerById.get(unsupported.id));
+      announce(`Select ${owner?.label || 'the owning feature'} to move its generated outputs.`, true);
+      return null;
+    }
+    if (blocks.some(candidate => candidate.scope !== blocks[0].scope)) {
+      announce('Selected features must share a generated-output group to move together.', true);
+      return null;
+    }
+    return { ...block, ids: roots.map(node => node.id), scope: blocks[0].scope,
+      label: `${selectedIds.size} selected features` };
+  }
+  function draggableRow(row, ids, key, label, scope = null) {
+    const moving = new Set(ids.flatMap((id) => [...managedSubtreeIds(id, nodes)])),
       indices = nodes.flatMap((node, index) => moving.has(node.id) ? [index] : []),
       start = Math.min(...indices), end = Math.max(...indices) + 1,
       block = { ids, key, label, scope };
-    grip.type = 'button';
-    grip.className = 'action-grip';
-    grip.dataset.reorderKey = key;
-    grip.append(icon('grip'));
+    row.dataset.reorderKey = key;
     const updateLock = () => {
-      grip.disabled = !ids.length || unavailable();
-      grip.draggable = !!ids.length && !unavailable();
+      row.draggable = !!ids.length && !unavailable();
+      row.classList.toggle('row-draggable', row.draggable);
     };
     lockControls.push(updateLock);
     updateLock();
-    grip.title = `Drag to reorder ${label} with its actions; or focus here and use the arrow keys.`;
-    grip.setAttribute('aria-label', `Reorder ${label}. Use Up or Down arrow keys.`);
+    const entry = treeItems.find(entry => entry.row === row), item = entry.item;
+    entry.dragBlock = block;
+    item.setAttribute('aria-description', 'Drag to reorder; or use Alt+Up and Alt+Down.');
+    item.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
     if (!ids.length) {
-      grip.title = 'Empty groups have no actions to reorder.';
-      return grip;
+      item.setAttribute('aria-description', 'Empty groups have no actions to reorder.');
+      item.removeAttribute('aria-keyshortcuts');
+      return;
     }
     row.classList.add('action-drop-target');
     row.dataset.dropStart = start;
     row.dataset.dropEnd = end;
     row.dataset.dropScope = scope || '';
-    grip.onclick = (event) => { event.preventDefault(); event.stopPropagation(); };
-    grip.onpointerdown = (event) => {
-      grip.focus();
-      if (event.button !== 0 || unavailable()) return;
-      event.preventDefault();
-      event.stopPropagation();
+    row.onpointerdown = (event) => {
+      if (event.button !== 0 || unavailable() || event.target.closest('.tree-toggle')) return;
+      row.closest('.tree-item')?.focus();
       finishDrag();
-      pointerDrag = { id: event.pointerId, grip, row, block,
+      suppressClick = null;
+      pointerDrag = { id: event.pointerId, row, block,
         startX: event.clientX, startY: event.clientY };
-      grip.setPointerCapture(event.pointerId);
+      row.setPointerCapture(event.pointerId);
     };
-    grip.onpointermove = (event) => {
-      if (pointerDrag?.id !== event.pointerId) return;
+    row.onpointermove = (event) => {
+      if (pointerDrag?.id !== event.pointerId || pointerDrag.row !== row) return;
       if (unavailable()) { finishDrag(); return; }
+      if (pointerDrag.failed) return;
       dragPoint = { x: event.clientX, y: event.clientY };
       if (!dragged && Math.hypot(event.clientX - pointerDrag.startX,
         event.clientY - pointerDrag.startY) < 5) return;
-      dragged = block;
+      event.preventDefault();
+      if (!dragged) {
+        dragged = selectionDragBlock(row, block);
+        if (!dragged) { pointerDrag.failed = true; return; }
+      }
       row.classList.add('dragging');
       scrollContainer.classList.add('feature-reordering');
       updatePointerDrop();
       startScrolling();
     };
-    grip.onpointerup = (event) => {
-      if (pointerDrag?.id !== event.pointerId) return;
+    row.onpointerup = (event) => {
+      if (pointerDrag?.id !== event.pointerId || pointerDrag.row !== row) return;
+      if (pointerDrag.failed) { suppressClick = row; finishDrag(); return; }
       dragPoint = { x: event.clientX, y: event.clientY };
       updatePointerDrop();
       const moving = dragged, slot = dropSlot;
+      if (moving) suppressClick = row;
       finishDrag();
       if (moving && slot !== null) void commit(moving, slot, true);
     };
-    grip.onpointercancel = grip.onlostpointercapture = () => finishDrag();
-    grip.onkeydown = (event) => {
+    row.onpointercancel = row.onlostpointercapture = () => finishDrag();
+    row.reorderKeydown = (event) => {
       if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -859,21 +998,21 @@ export function renderActionTree(
         positions = nodes.flatMap((node, index) => adjacentIds.has(node.id) ? [index] : []);
       void commit(block, up ? Math.min(...positions) : Math.max(...positions) + 1, true);
     };
-    grip.ondragstart = (event) => {
+    row.ondragstart = (event) => {
       // Real mouse/touch gestures use pointer capture so wheel scrolling stays
       // available. Retain native handlers for non-pointer/synthetic clients.
       if (pointerDrag) { event.preventDefault(); return; }
       if (unavailable()) { event.preventDefault(); return; }
-      dragged = block;
+      dragged = selectionDragBlock(row, block);
+      if (!dragged) { event.preventDefault(); return; }
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', key);
       row.classList.add('dragging');
       event.dataTransfer.setDragImage(row, 20, row.clientHeight / 2);
     };
-    grip.ondragend = () => {
+    row.ondragend = () => {
       finishDrag();
     };
-    return grip;
   }
   function stateFor(items) {
     for (const state of ['failed', 'blocked', 'running', 'stale', 'unevaluated'])
@@ -887,24 +1026,15 @@ export function renderActionTree(
   function actionItem(node, generated = false) {
     const index = nodes.indexOf(node),
       item = document.createElement('li'),
-      row = document.createElement('div'),
-      owned = managed.get(node.id) || [],
-      grip = generated ? document.createElement('button') : reorderHandle(row, [node.id], node.id, node.label);
+      owned = managed.get(node.id) || [];
     item.className = 'action-entry';
-    row.classList.add('action-row');
-    row.dataset.actionIndex = index;
-    if (generated) row.dataset.managed = 'true';
-    if (generated) {
-      grip.className = 'action-grip action-grip-placeholder';
-      grip.disabled = true;
-      grip.tabIndex = -1;
-      grip.title = `Managed by ${byId.get(ownerById.get(node.id))?.label || ownerById.get(node.id)}`;
-      grip.append(icon('feature_reuse'));
-    }
-    const button = document.createElement('button');
-    button.className = 'action-select';
+    const button = document.createElement('div');
+    let contextRow = button;
+    button.className = 'action-row action-select';
+    button.dataset.actionIndex = index;
     button.dataset.actionId = node.id;
-    button.setAttribute('aria-pressed', String(selectedIds.has(node.id)));
+    button.classList.toggle('feature-selected', selectedIds.has(node.id));
+    if (generated) button.dataset.managed = 'true';
     const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&
         !['failed', 'blocked'].includes(states[node.id]),
       description = actionDescription(node, states[node.id], errors[node.id]),
@@ -915,8 +1045,7 @@ export function renderActionTree(
       event.preventDefault();
       event.stopPropagation();
       if (unavailable()) return;
-      const row = event.currentTarget || button;
-      const bounds = row.getBoundingClientRect();
+      const bounds = contextRow.getBoundingClientRect();
       const position = {
         x: keyboard ? bounds.left : event.clientX,
         y: keyboard ? bounds.bottom : event.clientY,
@@ -927,22 +1056,8 @@ export function renderActionTree(
     button.ondblclick = event => {
       event.preventDefault();
       event.stopPropagation();
-      if (unavailable() || event.target.closest('.action-grip')) return;
+      if (unavailable() || event.target.closest('.tree-toggle')) return;
       edit(node.id);
-    };
-    button.onkeydown = (event) => {
-      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
-        openContextMenu(event, true);
-        return;
-      }
-      if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-      event.preventDefault();
-      const adjacent = nodes[index + (event.key === 'ArrowUp' ? -1 : 1)];
-      if (!adjacent) return;
-      select(adjacent.id, { exclusive: true });
-      [...list.querySelectorAll('.action-select, .managed-owner-summary')]
-        .find((candidate) => candidate.dataset.actionId === adjacent.id)
-        ?.focus();
     };
     const label = document.createElement('span');
     label.className = 'action-name';
@@ -961,15 +1076,11 @@ export function renderActionTree(
         `action-state state-${relationship ? 'ready' : states[node.id]}`,
       ),
     );
-    button.onclick = () => {
-      select(node.id);
-      [...list.querySelectorAll('.action-select')]
-        .find((candidate) => candidate.dataset.actionId === node.id)
-        ?.focus();
-    };
     if (!owned.length) {
-      row.append(grip, button);
-      item.append(row);
+      treeItem(item, button, `feature/${node.id}`, () => select(node.id), openContextMenu);
+      if (!generated) draggableRow(button, [node.id], node.id, node.label);
+      else button.draggable = false;
+      item.append(button);
     } else {
       const details = document.createElement('details'),
         summary = document.createElement('summary'),
@@ -977,29 +1088,29 @@ export function renderActionTree(
         ownerQuality = groupQuality([node]);
       item.classList.add('managed-owner');
       details.className = 'tree-group managed-owner-group';
-      details.open = expandedManaged.has(node.id);
       summary.className = 'managed-owner-summary';
+      contextRow = summary;
       summary.dataset.actionId = node.id;
       summary.dataset.actionIndex = index;
       summary.classList.toggle('feature-selected', selectedIds.has(node.id));
       summary.title = `${node.label} · ${description}`;
       summary.setAttribute('aria-label', `${summary.title}${selectedIds.has(node.id) ? ' · Selected' : ''}${ownerQuality ? ` · ${ownerQuality.label} · ${ownerQuality.status}` : ''}`);
-      summary.onkeydown = button.onkeydown;
       summary.oncontextmenu = openContextMenu;
       summary.ondblclick = button.ondblclick;
       label.classList.add('tree-group-name');
       summary.append(
-        reorderHandle(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null),
-        icon('group', 'group-icon'),
+        icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'),
         label,
         ...(ownerQuality ? [qualityBadge(ownerQuality)] : []),
         icon(summaryState, `action-state state-${summaryState}`),
       );
-      details.ontoggle = () => {
-        if (details.open) expandedManaged.add(node.id);
-        else expandedManaged.delete(node.id);
-      };
+      const entry = treeItem(item, summary, `feature/${node.id}`, () => select(node.id), openContextMenu);
+      branch(entry, details, expandedManaged.has(node.id), open => {
+        if (open) expandedManaged.add(node.id); else expandedManaged.delete(node.id);
+      });
+      draggableRow(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null);
       details.append(summary);
+      const targetList = childList();
       const targets = new Map();
       for (const child of owned) {
         const target =
@@ -1010,16 +1121,17 @@ export function renderActionTree(
         targets.get(target).push(child);
       }
       for (const [target, children] of targets) {
-        const targetDetails = document.createElement('details'),
+        const targetItem = document.createElement('li'),
+          targetDetails = document.createElement('details'),
           targetSummary = document.createElement('summary'),
           targetLabel = document.createElement('span'),
           targetBadge = document.createElement('span'),
           targetKey = `${node.id}/${target}`,
-          childList = document.createElement('ul'),
+          outputs = childList(),
           targetState = stateFor(children);
         targetSummary.title = stateDescription(children, targetState);
-        targetDetails.className = 'tree-group managed-group managed-target';
-        targetDetails.open = expandedTargets.has(targetKey);
+        targetDetails.className = 'tree-group managed-group';
+        targetItem.className = 'managed-target';
         targetLabel.className = 'tree-group-name';
         targetLabel.textContent = target === '__relationships__'
           ? `Relationships · ${children.length}`
@@ -1031,21 +1143,22 @@ export function renderActionTree(
         targetBadge.textContent = 'Generated';
         const quality = groupQuality(children);
         targetSummary.append(
-          reorderHandle(targetSummary, children.map((child) => child.id), targetKey, targetLabel.textContent, node.id),
           icon('group', 'group-icon'),
           targetLabel,
           quality ? qualityBadge(quality, node.id) : targetBadge,
           icon(targetState, `action-state state-${targetState}`),
         );
-        targetDetails.ontoggle = () => {
-          if (targetDetails.open) expandedTargets.add(targetKey);
-          else expandedTargets.delete(targetKey);
-        };
-        childList.className = 'nested-actions';
-        childList.append(...children.map((child) => actionItem(child, true)));
-        targetDetails.append(targetSummary, childList);
-        details.append(targetDetails);
+        const targetEntry = treeItem(targetItem, targetSummary, `target/${targetKey}`);
+        branch(targetEntry, targetDetails, expandedTargets.has(targetKey), open => {
+          if (open) expandedTargets.add(targetKey); else expandedTargets.delete(targetKey);
+        });
+        draggableRow(targetSummary, children.map((child) => child.id), targetKey, targetLabel.textContent, node.id);
+        outputs.append(...children.map((child) => actionItem(child, true)));
+        targetDetails.append(targetSummary, outputs);
+        targetItem.append(targetDetails);
+        targetList.append(targetItem);
       }
+      details.append(targetList);
       item.append(details);
     }
     return item;
@@ -1055,18 +1168,11 @@ export function renderActionTree(
       details = document.createElement('details'),
       summary = document.createElement('summary'),
       label = document.createElement('span'),
-      remove = document.createElement('button'),
-      children = document.createElement('ul');
+      children = childList();
     item.className = 'feature-group';
     details.className = 'tree-group';
-    details.open = !collapsedGroups.has(group.id);
     label.className = 'tree-group-name';
     label.textContent = `${group.label} · ${members.length}`;
-    remove.type = 'button';
-    remove.className = 'group-action';
-    const updateLock = () => { remove.disabled = unavailable(); };
-    lockControls.push(updateLock);
-    updateLock();
     const openContextMenu = (event, keyboard = false) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1080,29 +1186,17 @@ export function renderActionTree(
     };
     summary.dataset.groupId = group.id;
     summary.oncontextmenu = openContextMenu;
-    summary.onkeydown = event => {
-      if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
-        openContextMenu(event, true);
-    };
-    remove.textContent = '×';
-    remove.title = `Remove ${group.label} without deleting its features`;
-    remove.setAttribute('aria-label', remove.title);
-    remove.onclick = (event) => {
-      event.preventDefault();
-      if (unavailable()) return;
-      removeGroup(group.id);
-    };
     const quality = groupQuality(members), groupState = stateFor(members);
     summary.title = stateDescription(members, groupState);
     summary.setAttribute('aria-label', `${group.label} · ${summary.title}`);
-    summary.append(reorderHandle(summary, members.map((node) => node.id), group.id, group.label),
-      icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []), remove,
+    summary.append(icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []),
       icon(groupState, `action-state state-${groupState}`));
-    details.ontoggle = () => {
-      if (details.open) collapsedGroups.delete(group.id);
-      else collapsedGroups.add(group.id);
-    };
-    children.className = 'nested-actions group-actions';
+    const entry = treeItem(item, summary, `group/${group.id}`, null, openContextMenu);
+    branch(entry, details, !collapsedGroups.has(group.id), open => {
+      if (open) collapsedGroups.delete(group.id); else collapsedGroups.add(group.id);
+    });
+    draggableRow(summary, members.map((node) => node.id), group.id, group.label);
+    children.classList.add('group-actions');
     children.append(...members.map((node) => actionItem(node)));
     details.append(summary, children);
     item.append(details);
@@ -1128,12 +1222,13 @@ export function renderActionTree(
   for (const group of groups)
     if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
   list.replaceChildren(...items);
+  treeController = createTree(list, treeItems, { selectedIds, focusedKey });
   list.ondragover = (event) => {
     if (!dragged || unavailable()) {
       clearDrop();
       return;
     }
-    const row = event.target.closest('.action-drop-target');
+    const row = dropRowAt(event.target, event.clientX, event.clientY);
     updateDrop(row, event.clientY, event.dataTransfer);
     if (dropSlot !== null) event.preventDefault();
   };

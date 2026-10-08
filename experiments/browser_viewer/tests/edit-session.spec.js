@@ -61,7 +61,7 @@ test('explicit editing opens a popup and Apply retains its owner after tree sele
 test('double-click opens feature Edit and respects draft guards while single-click selects', async ({ page }) => {
   await ready(page);
   await feature(page, 'end').click();
-  await expect(feature(page, 'end')).toHaveAttribute('aria-pressed', 'true');
+  await expect(feature(page, 'end').locator('xpath=ancestor::li[1]')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#edit-popup')).toBeHidden();
   await feature(page, 'end').dblclick();
   await expect(page.locator('#edit-popup')).toBeVisible();
@@ -234,7 +234,7 @@ test('organizational groups open Edit through mouse and keyboard context menus w
   await group.press('Shift+F10');
   await expect(page.locator('#group-context-menu')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(group).toBeFocused();
+  await expect(group.locator('xpath=ancestor::li[1]')).toBeFocused();
   await group.press('Shift+F10');
   await page.locator('#group-context-edit').click();
   await expect(page.locator('#feature-group-label')).toHaveValue('Test group');

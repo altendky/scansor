@@ -15,7 +15,7 @@ import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
-  forceEndEditSession } from './workspace.js';
+  forceEndEditSession, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
@@ -1648,11 +1648,16 @@ function openFeatureGroup(groupId = null) {
 }
 async function removeFeatureGroup(groupId) {
   if (featureTreeLocked()) return;
+  if (editingGroupId === groupId && activeEditWorkflow()?.id === 'feature-group-dialog' &&
+      !prepareEditSession()) return;
   const recipe = structuredClone(graphState.recipe);
   recipe.groups = (recipe.groups || []).filter((group) => group.id !== groupId);
   for (const node of recipe.nodes)
     if (node.group_id === groupId) node.group_id = null;
-  await replaceRecipe(recipe, false);
+  featureOrganizationPending = true;
+  updateEvaluationControls();
+  try { await replaceRecipe(recipe, false); }
+  finally { featureOrganizationPending = false; updateEvaluationControls(); }
 }
 function showCreateDialog(dialogId, labelId, defaultLabel) {
   const input = $(labelId);
@@ -2404,7 +2409,7 @@ function featureTreeLocked() {
 function focusContextFeature() {
   const target = [...$('action-list').querySelectorAll('.action-select, .managed-owner-summary')]
     .find((element) => element.dataset.actionId === featureContextAnchor);
-  (target || $('features-panel')).focus();
+  (target?.closest('.tree-item') || $('features-panel')).focus();
 }
 function canEvaluateFeature(node) {
   return node && !['source', 'selection', 'coaxial', 'perpendicular',
@@ -2471,7 +2476,7 @@ function openFeatureContextMenu(id, { x, y }) {
 function focusContextGroup() {
   const target = [...$('action-list').querySelectorAll('summary[data-group-id]')]
     .find(element => element.dataset.groupId === groupContextAnchor);
-  (target || $('features-panel')).focus();
+  (target?.closest('.tree-item') || $('features-panel')).focus();
 }
 function openGroupContextMenu(id, { x, y }) {
   if (featureTreeLocked()) return;
@@ -2554,6 +2559,7 @@ function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
   $('clear-feature-selection').disabled = !selectedFeatureIds.size;
   updateActionTreeLocks = renderActionTree($('action-list'), {
+    createTree: createHeadlessFeatureTree,
     scrollContainer: $('features-panel'),
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
@@ -2575,7 +2581,6 @@ function renderActions() {
       status(message, error);
     },
     groupContextMenu: openGroupContextMenu,
-    removeGroup: (groupId) => void removeFeatureGroup(groupId),
     contextMenu: openFeatureContextMenu,
     qualities: currentFitQualities(),
   });
@@ -6082,6 +6087,11 @@ async function start() {
     const id = groupContextAnchor;
     $('group-context-menu').hidePopover();
     openFeatureGroup(id);
+  };
+  $('group-context-ungroup').onclick = () => {
+    const id = groupContextAnchor;
+    $('group-context-menu').hidePopover();
+    void removeFeatureGroup(id);
   };
   $('feature-context-inspect').onclick = () => {
     const id = featureContextAnchor;

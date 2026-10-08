@@ -306,6 +306,17 @@ const reusedSelection = {
   target_selection: 'b',
 };
 assert.deepEqual(nodeReferences(reuse), ['fit', 'source', 'a', 'b', 'c']);
+const secondFit = { ...fit, id: 'second-fit', label: 'Second fit', selections: ['b'] },
+  twoInputReuse = { ...reuse, fits: ['fit', 'second-fit'],
+    lineage: ['source', 'a', 'b', 'fit', 'second-fit'], target_selections: ['c'] },
+  reuseInputs = [source, a, b, c, fit, secondFit, twoInputReuse],
+  reorderedInputs = actionMove(reuseInputs, 'b', 1);
+assert.equal(reorderedInputs.changed, true);
+assert.deepEqual(reorderedInputs.nodes.at(-1).lineage, ['source', 'b', 'a', 'fit', 'second-fit']);
+assert.deepEqual(twoInputReuse.lineage, ['source', 'a', 'b', 'fit', 'second-fit']);
+assert.deepEqual(reorderedInputs.nodes.at(-1).fits, twoInputReuse.fits);
+assert.deepEqual(reorderedInputs.nodes.at(-1).target_selections, twoInputReuse.target_selections);
+assert.equal(actionMove(reorderedInputs.nodes, 'b', 1).changed, false);
 assert.deepEqual(nodeReferences(reusedSelection), ['reuse', 'fit', 'a', 'b']);
 assert.equal(managedOwnerId(reusedSelection, [reuse, reusedSelection]), 'reuse');
 const inferredFit = {

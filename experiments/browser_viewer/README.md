@@ -81,6 +81,25 @@ An edit stays attached to its original feature while tree selection or model
 picking changes. Background graph publication retains parameter drafts. Switching
 or closing workflows asks before discarding unapplied changes.
 
+The feature tree uses chevrons to expand organizational groups and generated
+outputs. Click a row to toggle its selection; click its chevron to expand or
+collapse. Drag a row to reorder it with its generated outputs, subject to the
+dependency order. Dragging a selected row moves the selected features together
+in their existing order. Generated leaves stay with their owner. Groups offer
+**Ungroup** in their context menu, which keeps all their features.
+
+Keyboard focus follows visible rows: Up/Down moves between rows, Right expands
+or enters a branch, Left collapses or returns to its parent, and Home/End moves
+to the first/last visible row. Space/Enter toggles feature selection; Alt+Up/Down
+reorders the focused row. Shift+F10 opens its context menu. Focus and multiselection
+remain separate, so navigating does not change selected features.
+
+The current tree trial uses Headless Tree's core for hierarchy, visible ordering,
+focus, expansion, selection metadata, and keyboard navigation. A DOM adapter
+preserves Scansor's toggle selection and explicit editing. Pointer dragging and
+dependency validation remain in Scansor so wheel scrolling during a drag is
+available.
+
 Open **Icon legend** from the Project toolbar (or the workspace panel picker) to
 see the current feature, fit, relationship, status and control symbols. The
 read-only legend can dock or float alongside the tree and edit dialogs. It uses

@@ -11,6 +11,7 @@ import { preserveModelSpace } from './workspace-sizing.js';
 import { TOOLBAR_IDS } from './toolbar-state.js';
 import { renderIconLegend } from './icon-legend.js';
 import { createEditHost } from './edit-host.js';
+export { createHeadlessFeatureTree } from './headless-feature-tree.js';
 
 let controller, editHost;
 const byId = id => document.getElementById(id);
