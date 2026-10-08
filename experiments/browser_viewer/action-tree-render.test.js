@@ -86,6 +86,7 @@ function event(target, options = {}) {
   };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+const dragContent = row => row.querySelectorAll('.tree-row-content')[0];
 const source = { id: 'source', label: 'Scan', operation: 'source' };
 const cylinder = { id: 'wall', label: 'Wall', operation: 'fit', kind: 'cylinder', selections: [] };
 const plane = { id: 'shoulder', label: 'Shoulder', operation: 'fit', kind: 'plane', selections: [] };
@@ -280,12 +281,15 @@ test('lifecycle lock updates preserve tree controls and empty-group restrictions
   state.locked = true;
   updateLocks();
   assert.equal(mover.draggable, false);
+  assert.equal(dragContent(mover).draggable, false);
   assert.equal(mover.classList.contains('row-draggable'), false);
   state.locked = false;
   updateLocks();
-  assert.equal(mover.draggable, true);
+  assert.equal(mover.draggable, false);
+  assert.equal(dragContent(mover).draggable, true);
   assert.equal(mover.classList.contains('row-draggable'), true);
   assert.equal(emptyMover.draggable, false);
+  assert.equal(dragContent(emptyMover).draggable, false);
   assert.deepEqual(state.list.children, items);
   assert.equal(state.mover('a'), mover);
 });
@@ -479,6 +483,7 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
   state.locked = true;
   state.render();
   assert.equal(state.mover('wall').draggable, false);
+  assert.equal(dragContent(state.mover('wall')).draggable, false);
   assert.equal(state.mover('wall').classList.contains('row-draggable'), false);
   const inspect = state.list.querySelectorAll('.action-select')
     .find((element) => element.dataset.actionId === 'wall');
@@ -497,7 +502,8 @@ test('evaluation locks mutation controls but leaves feature inspection and expan
   assert.deepEqual(state.moves, []);
   state.locked = false;
   state.render();
-  assert.equal(state.mover('wall').draggable, true);
+  assert.equal(state.mover('wall').draggable, false);
+  assert.equal(dragContent(state.mover('wall')).draggable, true);
   assert.equal(state.mover('wall').classList.contains('row-draggable'), true);
   state.row('group').oncontextmenu(event(state.row('group')));
   assert.deepEqual(state.groupContexts.map(context => context.id), ['group']);
@@ -834,7 +840,8 @@ test('managed and organizational headers expose whole-block drop bounds collapse
       assert.equal(row.classList.contains('action-drop-target'), true);
       assert.equal(row.dataset.dropStart, start);
       assert.equal(row.dataset.dropEnd, end);
-      assert.equal(mover.draggable, true);
+      assert.equal(mover.draggable, false);
+      assert.equal(dragContent(mover).draggable, true);
       const click = event(mover);
       mover.onclick(click);
       assert.equal(click.prevented && click.stopped, true);
@@ -885,7 +892,7 @@ test('dragging a selected owner and descendant moves the owner once with all its
   const state = fixture();
   state.selected = new Set(['batch', 'edge']);
   state.render();
-  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.mover('batch').ondragstart(event(dragContent(state.mover('batch'))));
   state.list.ondragover(event(state.row('other'), { clientY: 129 }));
   state.list.ondrop(event(state.row('other')));
   await settle();
@@ -898,7 +905,7 @@ test('ordinary rows remain drop targets and dragging an owner after one carries 
   const state = fixture();
   const target = state.row('other');
   assert.equal(target.classList.contains('action-drop-target'), true);
-  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.mover('batch').ondragstart(event(dragContent(state.mover('batch'))));
   const over = event(target, { clientY: 129 });
   state.list.ondragover(over);
   assert.equal(target.classList.contains('drop-after'), true);
@@ -912,7 +919,7 @@ test('ordinary rows remain drop targets and dragging an owner after one carries 
 test('ordinary blocks can drop before a collapsed managed owner without splitting it', async () => {
   const state = fixture();
   const target = state.row('batch');
-  state.mover('other').ondragstart(event(state.mover('other')));
+  state.mover('other').ondragstart(event(dragContent(state.mover('other'))));
   state.list.ondragover(event(target, { clientY: 101 }));
   assert.equal(target.classList.contains('drop-before'), true);
   state.list.ondrop(event(target));
@@ -923,7 +930,7 @@ test('ordinary blocks can drop before a collapsed managed owner without splittin
 test('invalid highlights clear when drag crosses a generated scope or leaves the list', async () => {
   const state = fixture();
   const invalid = state.row('shoulder');
-  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.mover('batch').ondragstart(event(dragContent(state.mover('batch'))));
   const over = event(invalid);
   state.list.ondragover(over);
   assert.equal(invalid.classList.contains('drop-invalid'), true);
@@ -946,13 +953,13 @@ test('busy locks prevent keyboard, drag startup, and committing a prepared drop'
   const state = fixture();
   state.locked = true;
   state.mover('batch').onkeydown(event(state.mover('batch'), { key: 'ArrowDown', altKey: true }));
-  const start = event(state.mover('batch'));
+  const start = event(dragContent(state.mover('batch')));
   state.mover('batch').ondragstart(start);
   assert.equal(start.prevented, true);
   await settle();
   assert.equal(state.moves.length, 0);
   state.locked = false;
-  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.mover('batch').ondragstart(event(dragContent(state.mover('batch'))));
   state.list.ondragover(event(state.row('other'), { clientY: 129 }));
   state.locked = true;
   state.list.ondrop(event(state.row('other')));
@@ -980,7 +987,7 @@ test('generated target headers reorder sibling blocks only, preserving input/fit
   assert.deepEqual(state.ids().slice(5), ['reuse', 'second-selection', 'second-fit',
     'first-selection', 'first-fit', 'other']);
   assert.equal(document.activeElement, state.item('target/reuse/first'));
-  state.mover('reuse/first').ondragstart(event(state.mover('reuse/first')));
+  state.mover('reuse/first').ondragstart(event(dragContent(state.mover('reuse/first'))));
   const outside = event(state.row('other'), { clientY: 129 });
   state.list.ondragover(outside);
   assert.equal(outside.prevented, false);
@@ -992,7 +999,7 @@ test('generated target headers reorder sibling blocks only, preserving input/fit
 test('dropping on an invalid dependency boundary never mutates actions', async () => {
   const state = fixture();
   const original = state.nodes;
-  state.mover('batch').ondragstart(event(state.mover('batch')));
+  state.mover('batch').ondragstart(event(dragContent(state.mover('batch'))));
   state.list.ondragover(event(state.row('shoulder')));
   state.list.ondrop(event(state.row('shoulder')));
   await settle();
