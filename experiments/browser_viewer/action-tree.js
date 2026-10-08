@@ -651,6 +651,7 @@ export function renderActionTree(
     errors,
     locked,
     select,
+    clearSelection = () => {},
     edit = () => {},
     move,
     announce,
@@ -708,6 +709,10 @@ export function renderActionTree(
       event.preventDefault();
       event.stopPropagation();
       if (suppressClick === row) { suppressClick = null; return; }
+      if (!contentClick(row, event)) { clearSelection(); return; }
+      // Selection rebuilds the rows, which can prevent a native dblclick from
+      // reaching the second row. The browser still supplies the click count.
+      if (event.detail === 2 && row.ondblclick) { row.ondblclick(event); return; }
       treeController.activate(key, event);
     };
     const keydown = event => {
@@ -723,6 +728,16 @@ export function renderActionTree(
     };
     item.onkeydown = row.onkeydown = keydown;
     return entry;
+  }
+  function contentClick(row, event) {
+    if (event.detail === 0 && ['click', 'dblclick'].includes(event.type)) return true;
+    // Pointer capture targets the outer row even when a click began on an icon
+    // or label. Use the visible content bounds rather than the event target.
+    const content = row.querySelectorAll('.tree-row-content')[0];
+    if (!content) return true;
+    const bounds = content.getBoundingClientRect();
+    return event.clientX >= bounds.left && event.clientX <= bounds.right &&
+      event.clientY >= bounds.top && event.clientY <= bounds.bottom;
   }
   function branch(entry, details, expanded, remember) {
     const toggle = document.createElement('span');
@@ -948,8 +963,11 @@ export function renderActionTree(
       block = { ids, key, label, scope };
     row.dataset.reorderKey = key;
     const updateLock = () => {
-      row.draggable = !!ids.length && !unavailable();
-      row.classList.toggle('row-draggable', row.draggable);
+      const draggable = !!ids.length && !unavailable(),
+        content = row.querySelectorAll('.tree-row-content')[0];
+      row.draggable = false;
+      if (content) content.draggable = draggable;
+      row.classList.toggle('row-draggable', draggable);
     };
     lockControls.push(updateLock);
     updateLock();
@@ -967,7 +985,7 @@ export function renderActionTree(
     row.dataset.dropEnd = end;
     row.dataset.dropScope = scope || '';
     row.onpointerdown = (event) => {
-      if (event.button !== 0 || unavailable() || event.target.closest('.tree-toggle')) return;
+      if (event.button !== 0 || unavailable() || !contentClick(row, event)) return;
       row.closest('.tree-item')?.focus();
       finishDrag();
       suppressClick = null;
@@ -1035,7 +1053,7 @@ export function renderActionTree(
       // Real mouse/touch gestures use pointer capture so wheel scrolling stays
       // available. Retain native handlers for non-pointer/synthetic clients.
       if (pointerDrag) { event.preventDefault(); return; }
-      if (unavailable()) { event.preventDefault(); return; }
+      if (unavailable() || !event.target.closest('.tree-row-content')) { event.preventDefault(); return; }
       dragged = selectionDragBlock(row, block);
       if (!dragged) { event.preventDefault(); return; }
       event.dataTransfer.effectAllowed = 'move';
@@ -1089,7 +1107,8 @@ export function renderActionTree(
     button.ondblclick = event => {
       event.preventDefault();
       event.stopPropagation();
-      if (unavailable() || event.target.closest('.tree-toggle')) return;
+      if (event.type === 'dblclick' && event.detail > 0) return;
+      if (unavailable() || event.target.closest('.tree-toggle') || !contentClick(contextRow, event)) return;
       edit(node.id);
     };
     const label = document.createElement('span');
@@ -1259,6 +1278,12 @@ export function renderActionTree(
     if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
   list.replaceChildren(...items);
   for (const entry of treeItems) {
+    const content = document.createElement('span');
+    content.className = 'tree-row-content';
+    content.draggable = entry.row.classList.contains('row-draggable');
+    const contents = [...entry.row.children].filter(child => !child.classList.contains('tree-toggle'));
+    content.append(...contents);
+    entry.row.replaceChildren(...[...entry.row.children].filter(child => child.classList.contains('tree-toggle')), content);
     const title = entry.row.title, description = entry.item.getAttribute('aria-description') || '';
     entry.refreshRelations = () => {
       const id = entry.row.dataset.actionId, selected = selectedIds.has(id),

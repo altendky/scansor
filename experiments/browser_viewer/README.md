@@ -95,6 +95,10 @@ shows the color key, and related rows describe their relationship in tooltips an
 accessible descriptions. Collapsed branches show a tint when they contain related
 features. These hints follow declared inputs and generated ownership; drop
 validation still checks the proposed order and generated-output boundaries.
+Highlights cover the feature icon through its status icon, leaving chevrons and
+tree guides outside. Click inactive workspace space, including tree gutters and
+guides, to clear feature selection. Controls and model interactions keep their
+usual behavior. Selection and dragging share the same highlighted row area.
 
 Keyboard focus follows visible rows: Up/Down moves between rows, Right expands
 or enters a branch, Left collapses or returns to its parent, and Home/End moves

@@ -51,6 +51,7 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   await expect(page.locator('#build-faces-surfaces')).toBeDisabled();
   const row = page.locator('#action-list .tree-row[data-reorder-key="end"]');
   await expect(row).toHaveAttribute('draggable', 'false');
+  await expect(row.locator('.tree-row-content')).toHaveAttribute('draggable', 'false');
   await expect(row).not.toHaveClass(/row-draggable/);
   // Preview readiness does not enter the explicit evaluator's busy/finally path.
   await expect(page.locator('#evaluate-all')).toBeEnabled();
@@ -69,7 +70,8 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   await expect(page.locator('#build-faces-surfaces')).toBeEnabled();
   await expect(page.locator('#preview-build-faces')).toBeEnabled();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
-  await expect(row).toHaveAttribute('draggable', 'true');
+  await expect(row).toHaveAttribute('draggable', 'false');
+  await expect(row.locator('.tree-row-content')).toHaveAttribute('draggable', 'true');
   await expect(row).toHaveClass(/row-draggable/);
   expect(await page.evaluate(() => window.originalReadinessRow ===
     document.querySelector('#action-list .tree-row[data-reorder-key="end"]'))).toBe(true);
