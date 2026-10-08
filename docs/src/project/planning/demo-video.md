@@ -1,24 +1,28 @@
 # Two-workflow demo video
 
-**Planned, 2026-09-24.** This is a production plan for one concise Scansor
-prototype walkthrough. It does not establish product readiness, physical
-accuracy, supported input formats, or a public recipe schema.
+**Production plan, updated 2026-10-08.** This is a concise walkthrough of
+Scansor's selection, fitting, relationships, and CAD handoff workflow.
 
 ## Purpose and audience
 
-The video should let a technically interested viewer understand the current
-interaction model without requiring a live presenter. It will use two different
-examples because they carry complementary evidence:
+The video should help a prospective user see how to turn scan observations into
+a model with cleanly aligned planes and features. Show painting a selection and
+choosing geometry directly in the Model view, then explain the result of each
+relationship in terms of the part: common centers, square shoulders, parallel
+planes, shared surfaces, and matching radii. Use two complementary examples:
 
-- the captured nozzle scan shows retained user selection effort and local
-  analytic surface fitting on imperfect real-world geometry;
-- the generated repeated-boss scan shows feature reuse, generated subtrees,
-  exact relationships, reference geometry, calibration, and an applied output
-  transform in a controlled example.
+- the captured nozzle scan begins bare and focuses on its bayonet mount: create
+  representative wall, rim, and repeated locking-feature selections, fit those
+  observations through Model picks, and align the surfaces with relationships;
+- the generated repeated-boss scan shows reusing selection work, picking fitted
+  planes for a relationship, and inspecting aligned surfaces before choosing
+  output orientation and CAD export settings.
 
-The target is an approximately **5:15** silent master at `1920x1080`, accompanied by a
-timestamped TTS script and WebVTT or SRT captions. Use Kokoro's `af_heart` voice
-for the working voiced edition, pronouncing the project name as “SCAN-sor.”
+Keep the narration below **500 words**, with enough time for real interactions
+and pauses to inspect their results. Produce a silent master at `1920x1080`, a
+working voiced edition, a timestamped script, and SRT captions. Use Kokoro's
+`af_heart` voice, pronouncing the project name as “SCAN-sor.” Final timing follows
+the dry-run capture and synthesized narration rather than a fixed runtime.
 
 ## Named inputs
 
@@ -30,74 +34,108 @@ names, never the old Downloads filenames:
 | Nozzle selection and fitting | [`nozzle-selection-and-fitting-demo.json`](../../../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json) | Checked-in captured nozzle example |
 | Repeated-boss reuse and alignment | [`repeated-boss-reuse-and-alignment-demo.json`](../../../../examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json) | Generated `scan-coarse` realization |
 
-The boss realization must be regenerated and hash-checked before capture. Both
-recipes must validate and complete **Evaluate all** without errors.
+Generate the boss realization in the session's temporary directory and hash-check
+it before capture. Both recipes must validate; every fit and relationship shown
+must evaluate successfully. The current boss recipe also includes constructed
+faces and a Body feature. Verify their actual evaluated state before showing
+them or making an assembly claim; a saved Body definition alone does not prove a
+closed solid.
 
 ## Storyboard
 
-| Time | Picture and interaction | Narration purpose |
+| Shot | Picture and interaction | User-facing purpose |
 | --- | --- | --- |
-| 0:00–0:12 | Title: **Scansor — selections, fits, reuse, and alignment** over a clean oblique mesh view | State that this is a working exploratory prototype, not a product or accuracy claim. |
-| 0:12–0:38 | Nozzle scan alone with a restrained orbit | Introduce captured, irregular geometry and the evidence layer. |
-| 0:38–0:58 | Add `outer`, `recesses`, and three slope selections one at a time | Show retained selections accumulating as reusable feature inputs. |
-| 0:58–1:19 | Add `the middle`, `outer cone fit`, and `recess cone fit`, then make a small view adjustment | Build the distinction between observations, datums, and independently recomputable primitives. |
-| 1:19–1:43 | Highlight the three repeated recess-slope selections | Explain exact threefold rotational symmetry as an explicit relationship around an axis. |
-| 1:43–2:03 | Enable residual colors and pause on the signed scale | Show local signed deviation without describing it as physical error or acceptance. |
-| 2:03–2:13 | Transition card: **Reuse and coordinate recovery** | Mark the move to a generated controlled example. |
-| 2:13–2:32 | Rotated noisy boss plate with a restrained orbit | Establish the source scan frame and repeated but imperfect features. |
-| 2:32–2:54 | Add source selections, its axis, a plane, and a cylinder fit | Partially build the general feature lineage that will be reused. |
-| 2:54–3:20 | Expand `Feature reuse`, select it, and enable reuse volumes | Show approximate placement producing target-local selections and fresh local fits. |
-| 3:20–3:42 | Inspect equal-radius and parallel-plane relationships, then show residuals | Distinguish independent local fits from optional exact relationships. |
-| 3:42–4:07 | Add sphere fits, point datums, directed axis, `Output frame`, and `Output scale` | Explain measurable landmarks, orientation, and multi-reading uniform scale. |
-| 4:07–4:30 | Select `Output transform`, switch to Top, and make one small view adjustment | Deliver the visible before/after alignment while preserving source-coordinate fit values. |
-| 4:30–4:50 | Open CAD export and show Transform and units | Show the explicit STEP-bundle handoff boundary without implying production CAD integration. |
-| 4:50–5:15 | Closing card | Recap retained observations, primitives, relationships, reuse, and explicit output coordinates. |
+| 00 | Title: **Scansor — clean, aligned geometry** | Introduce the modeling task. |
+| 01 | Bare captured nozzle with a restrained orbit | Introduce its bayonet mount before selections and fits exist. |
+| 02 | Create outer-wall, top-rim, and one repeated-slope selection through real strokes | Show how useful modeling inputs are chosen. |
+| 03 | Pick those selections in Model and create representative cone and plane fits | Turn the actual recorded observations into simple surfaces. |
+| 04 | Clearly cut to the remaining prepared fits, create a representative relationship through Model picks, and inspect the common-axis, perpendicular, and threefold results | Show how relationships align the mount's body, rim, and repeated bayonet features without recording every feature's creation. |
+| 05 | Enable residual colors with the signed scale visible | Briefly check fitted geometry against the scan. |
+| 06 | Transition card: **Repeated features, aligned surfaces** | Identify the generated example. |
+| 07 | Rotated boss plate with a restrained orbit | Introduce four bosses, including a taller one. |
+| 08 | Show the first boss's cylinder fits, common axis, and shoulder plane | Show a coherent round feature with a square shoulder. |
+| 09 | Expand Feature reuse and briefly show reuse volumes | Carry selection effort to other bosses while fitting their own observations. |
+| 10 | Choose a parallel-plane relationship, pick its fitted participants in Model, and apply; inspect existing coincident-plane and equal-radius relationships | Explain shared directions, shared surfaces, and matching sizes using visible results. |
+| 11 | Inspect aligned shoulder and plate planes, round features, and evaluated constructed faces where available | Show a well-organized model that keeps the taller boss's distinct height. |
+| 12 | Apply Output transform continuously, then show an aligned view | Choose useful orientation and scale without losing the scan reference. |
+| 13 | Open Export CAD and select an available scope, Transform, and units | Make the CAD handoff choices visible. |
+| 14 | Closing card | Recap selecting evidence, fitting surfaces, and connecting them with relationships. |
 
-The cut must not remove rotational symmetry, the nozzle residual view, boss
-reuse volumes, or visible transform application. Those moments distinguish the
-two workflows and the kinds of geometric intent they demonstrate. The graph
-workspace is intentionally omitted from this cut so the available time stays on
-the primary modeling workflow.
+Retain rotational symmetry, the nozzle residual check, boss reuse volumes, and
+visible transform application. Give selection painting and fitted-surface picking
+enough screen time to see the pointer, input selection, and resulting geometry.
+Keep the Graph panel closed so the emphasis stays on modeling the part.
 
 ## Capture staging
 
 Capture the two applications on separate local ports so one continuous browser
 automation can move between them without shell windows appearing onscreen. Use a
 fresh browser profile, fixed viewport, 100% page zoom, hidden bookmarks and
-developer UI, and a deterministic feature-panel split. Do not capture the
+developer UI, and deterministic Features, Model, and Edit placement. Use the
+current dockable toolbar and input-selection controls. Do not capture the
 desktop, terminal, Downloads directory, or unrelated browser content.
 
-The nozzle segment loads its checked-in recipe directly. The boss segment needs
-two staged states:
+The nozzle segment starts with only the source node from its checked-in recipe.
+Create genuine outer-wall, top-rim, and repeated-slope selections through the UI;
+use those recorded memberships in the fits shown immediately afterward. Gather
+the wall observations from more than one viewing direction so its cone fit has
+useful coverage. The rim selection should stay on the flat face.
+
+Save that filmed-stage recipe separately. Use a clear cut and “With the remaining
+surfaces prepared…” to move to the remaining features. Keep the actual recorded
+selection memberships and fits in that checkpoint, remapping the prepared
+features to use them. Record both checkpoints in the manifest. Do not silently
+substitute the saved selections for the recorded ones.
+
+The boss segment needs two staged states:
 
 1. an establishing state in the source scan frame, before the output transform
    is active in the view;
-2. the complete checked-in graph with every action evaluated, where selecting
-   `Output transform` visibly applies it.
+2. the evaluated model, where selecting `Output transform` visibly applies it.
 
 The staging script may change the in-memory graph output pointer for the first
-boss shot, but it must not rewrite the checked-in recipe. The visible workflow
-must use actual application behavior; no geometry or result may be composited to
-fake a successful fit, relationship, or transform.
+boss shot. Painting, fitting, and relationship creation may add features through
+the real UI on these disposable servers. Preserve the checked-in recipes and
+record the resulting session recipes with the capture artifacts. No geometry or
+result may be composited to fake a successful fit, relationship, or transform.
 
-Use slow eased cursor motion, a visible click indicator, and at least `500 ms`
-after tree expansion or camera motion and `900 ms` after meaningful result
-changes. Record those interactions as live application clips. Extend the last
-frame when narration outlasts a clip; do not loop the cursor or camera motion.
+Find eligible model targets through the application's hover and picking behavior,
+then record actual pointer clicks. Show an overlapping-item chooser when the
+application needs one. Confirm that picked inputs contain the intended features
+before applying the form, and wait for the resulting fit or relationship to
+finish evaluating.
+
+Use brisk eased cursor motion and a visible click indicator. Keep painting,
+geometry picks, Apply, and their results readable. Shorten navigation, repeated
+tree clicks, and idle time when they create gaps after the narration; an overlong
+clip should be edited or recaptured rather than automatically retaining all of
+its quiet time. Record those interactions as live application clips. Extend the
+last frame when narration outlasts a clip; do not loop the cursor or camera motion.
 Avoid scrolling while narration asks the viewer to inspect geometry. Camera
 presets should do most of the movement; free orbit is reserved for opening views
 and one restrained post-transform adjustment.
 
 ## Narration and captions
 
-Write the final narration after a dry-run capture establishes real interaction
-durations. The script should contain one block per storyboard row with:
+Adjust the working narration after a dry-run capture establishes real interaction
+durations. Keep one block per storyboard row with:
 
 - shot ID and time window;
 - plain text for TTS;
 - optional SSML pronunciation and pause hints;
 - the matching caption text;
 - the intended on-screen focus.
+
+Preserve section IDs `00` through `14` and their existing capture filenames so
+the renderer can assemble the revised shots. No segment may cut off painting,
+input picking, applying a form, or the visible result; allow additional quiet
+screen time when an interaction outlasts its narration.
+Modest acceleration of an overlong recorded clip is allowed to tighten the
+pacing, with its rate recorded in the manifest. Keep strokes, input choices,
+and results readable; do not imply that the cut measures evaluation speed.
+Long evaluation waits may be shortened while retaining the submitted action and
+the real evaluated result. Record those omissions in the capture manifest;
+do not imply that the edited video demonstrates evaluation speed.
 
 Target `125–140` spoken words per minute and leave approximately `500 ms` of
 silence around section transitions. Pronounce **Scansor** consistently as
@@ -159,8 +197,17 @@ linked into, bundled with, or distributed as part of Scansor.
 
 ## Acceptance checklist
 
-- Both named checked-in recipes validate and evaluate without errors.
+- Both named checked-in recipes validate, and all demonstrated geometry and
+  relationships evaluate successfully; any assembly failure remains explicit.
 - No source selection IDs, fit results, or transforms are fabricated for video.
+- Representative selections are visibly created from the bare scan and then
+  used by their demonstrated fits.
+- The transition to prepared remaining features is clear.
+- Navigation and pauses do not leave long quiet tails after the narration.
+- A fit input and relationship participants are visibly picked in Model, and
+  the recorded form selections match the geometry being discussed.
+- Common-axis, perpendicular, parallel, coincident, and equal-radius examples
+  show their intended geometric effect without implying unverified solids.
 - Text remains readable at `1920x1080` without depending on fullscreen playback.
 - Cursor, camera, and tree motion are real application capture and never compete
   with narration.

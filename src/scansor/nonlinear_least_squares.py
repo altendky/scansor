@@ -121,7 +121,7 @@ def solve_least_squares(
     geometry_is_valid: Callable[[Array], bool] | None = None,
     gradient_tolerance: float = 1e-10,
     rank_tolerance: float = 1e-12,
-    max_iterations: int = 100,
+    max_iterations: int = 300,
     max_trials: int = 32,
 ) -> LeastSquaresResult:
     """Minimize ``0.5 * ||weighted_residual / residual_scale||**2``.
