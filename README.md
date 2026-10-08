@@ -5,9 +5,9 @@ scan observations. It keeps selections, analytic primitives, reference geometry,
 exact relationships, reuse lineage, residuals, and output coordinates explicit
 instead of treating scan-to-CAD as an opaque automatic conversion.
 
-[![Scansor repeated-feature reuse demonstration](docs/assets/readme/repeated-boss-fitted-surfaces-and-reuse-volumes.jpg)](https://youtu.be/oP44yI9DAoE)
+[![Scansor repeated-feature reuse demonstration](docs/assets/readme/repeated-boss-fitted-surfaces-and-reuse-volumes.jpg)](https://youtu.be/KLs3RinJzSg)
 
-**[Watch the narrated Scansor prototype demonstration](https://youtu.be/oP44yI9DAoE)**
+**[Watch the narrated Scansor prototype demonstration](https://youtu.be/KLs3RinJzSg)**
 
 The current local browser prototype demonstrates:
 

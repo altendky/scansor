@@ -132,6 +132,11 @@ and consistent round features. The taller boss stays taller. You choose
 which dimensions and directions belong together rather than accepting a
 collection of unrelated fits.
 
+Small gaps between faces that should align, off-center bores, or end faces not
+quite perpendicular to their cylinder axes make sketches and mating parts
+awkward to work with.
+Scansor's relationships give you the control to eliminate that mess.
+
 ## 12 — Choose the output orientation
 
 **Focus:** Apply Output transform continuously, then show an aligned view.
