@@ -23,7 +23,7 @@ scansor = "scansor.cli:main"
 [dependency-groups]
 dev = [
   "basedpyright>=1.31",
-  "cadquery-ocp-stubs==8.0.1.0.0",
+  "cadquery-ocp-stubs==8.0.1.1.0",
   "pytest>=8.4",
   "pytest-cov>=7.0",
   "pytest-xdist>=3.8",
