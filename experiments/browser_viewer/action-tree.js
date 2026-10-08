@@ -279,6 +279,37 @@ export function managedSubtreeIds(ownerId, nodes) {
   return result;
 }
 
+// Follow declared input and ownership edges, matching reorder validation. This
+// is relationship guidance, not a replacement for validating a proposed drop.
+export function featureSelectionRelations(nodes, selected, owners = new Map(
+  nodes.map(node => [node.id, managedOwnerId(node, nodes)]),
+)) {
+  const ids = new Set(nodes.map(node => node.id)), roots = new Set([...selected].filter(id => ids.has(id))),
+    inputs = new Map(), consumers = new Map();
+  if (!roots.size) return { inputs: new Set(), dependents: new Set() };
+  for (const node of nodes) {
+    const references = [...new Set([...nodeReferences(node), owners.get(node.id)])].filter(id => ids.has(id));
+    inputs.set(node.id, references);
+    for (const reference of references) {
+      if (!consumers.has(reference)) consumers.set(reference, []);
+      consumers.get(reference).push(node.id);
+    }
+  }
+  function closure(edges) {
+    const visited = new Set(roots), pending = [...roots];
+    while (pending.length) {
+      for (const id of edges.get(pending.pop()) || []) {
+        if (visited.has(id)) continue;
+        visited.add(id);
+        pending.push(id);
+      }
+    }
+    for (const id of roots) visited.delete(id);
+    return visited;
+  }
+  return { inputs: closure(inputs), dependents: closure(consumers) };
+}
+
 // Plan one atomic deletion. Additional dependents require explicit UI approval;
 // generated features cannot be removed independently of their owning action.
 export function featureDeletionPlan(recipe, selected) {
@@ -650,6 +681,7 @@ export function renderActionTree(
     if (!managed.has(owner)) managed.set(owner, []);
     managed.get(owner).push(node);
   }
+  const relations = featureSelectionRelations(nodes, selectedIds, ownerById);
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
   const lockControls = [], treeItems = [];
   let treeController;
@@ -704,6 +736,7 @@ export function renderActionTree(
       entry.item.setAttribute('aria-expanded', String(details.open));
       toggle.title = `${details.open ? 'Collapse' : 'Expand'} ${entry.row.getAttribute('aria-label')}`;
       remember(details.open);
+      entry.refreshRelations?.();
     };
     entry.renderExpanded = open => { details.open = open; sync(); };
     entry.setExpanded = open => treeController.setExpanded(entry.key, open);
@@ -1105,6 +1138,7 @@ export function renderActionTree(
         icon(summaryState, `action-state state-${summaryState}`),
       );
       const entry = treeItem(item, summary, `feature/${node.id}`, () => select(node.id), openContextMenu);
+      entry.relatedIds = [...managedSubtreeIds(node.id, nodes)];
       branch(entry, details, expandedManaged.has(node.id), open => {
         if (open) expandedManaged.add(node.id); else expandedManaged.delete(node.id);
       });
@@ -1149,6 +1183,7 @@ export function renderActionTree(
           icon(targetState, `action-state state-${targetState}`),
         );
         const targetEntry = treeItem(targetItem, targetSummary, `target/${targetKey}`);
+        targetEntry.relatedIds = children.flatMap(child => [...managedSubtreeIds(child.id, nodes)]);
         branch(targetEntry, targetDetails, expandedTargets.has(targetKey), open => {
           if (open) expandedTargets.add(targetKey); else expandedTargets.delete(targetKey);
         });
@@ -1192,6 +1227,7 @@ export function renderActionTree(
     summary.append(icon('group', 'group-icon'), label, ...(quality ? [qualityBadge(quality)] : []),
       icon(groupState, `action-state state-${groupState}`));
     const entry = treeItem(item, summary, `group/${group.id}`, null, openContextMenu);
+    entry.relatedIds = members.flatMap(member => [...managedSubtreeIds(member.id, nodes)]);
     branch(entry, details, !collapsedGroups.has(group.id), open => {
       if (open) collapsedGroups.delete(group.id); else collapsedGroups.add(group.id);
     });
@@ -1222,6 +1258,26 @@ export function renderActionTree(
   for (const group of groups)
     if (!renderedGroups.has(group.id)) items.push(groupItem(group, []));
   list.replaceChildren(...items);
+  for (const entry of treeItems) {
+    const title = entry.row.title, description = entry.item.getAttribute('aria-description') || '';
+    entry.refreshRelations = () => {
+      const id = entry.row.dataset.actionId, selected = selectedIds.has(id),
+        ownInput = relations.inputs.has(id), ownDependent = relations.dependents.has(id),
+        contains = !selected && !ownInput && !ownDependent && entry.details && !entry.details.open,
+        ids = selected ? [] : contains ? entry.relatedIds || [] : [id],
+        input = ids.some(id => relations.inputs.has(id)), dependent = ids.some(id => relations.dependents.has(id)),
+        relationship = input && dependent ? 'Inputs and dependents of selected features.'
+          : input ? 'Inputs used by selected features.' : dependent ? 'Depends on selected features.' : '',
+        hint = relationship ? `${contains ? 'Contains features: ' : ''}${relationship} Includes indirect relationships.` : '';
+      entry.row.classList.toggle('feature-input', input);
+      entry.row.classList.toggle('feature-dependent', dependent);
+      entry.row.title = [title, hint].filter(Boolean).join('\n');
+      const accessible = [description, hint].filter(Boolean).join(' ');
+      if (accessible) entry.item.setAttribute('aria-description', accessible);
+      else entry.item.removeAttribute('aria-description');
+    };
+    entry.refreshRelations();
+  }
   treeController = createTree(list, treeItems, { selectedIds, focusedKey });
   list.ondragover = (event) => {
     if (!dragged || unavailable()) {

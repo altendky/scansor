@@ -2558,6 +2558,7 @@ function currentFitQualities() {
 function renderActions() {
   $('feature-selection-count').textContent = `${selectedFeatureIds.size} selected`;
   $('clear-feature-selection').disabled = !selectedFeatureIds.size;
+  $('feature-relation-legend').setAttribute('aria-hidden', String(!selectedFeatureIds.size));
   updateActionTreeLocks = renderActionTree($('action-list'), {
     createTree: createHeadlessFeatureTree,
     scrollContainer: $('features-panel'),
