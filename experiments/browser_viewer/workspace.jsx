@@ -7,7 +7,7 @@ import './workspace.css';
 import { ToolbarHostMarker, ToolbarWorkspace, useToolbarHost } from './toolbar-prototype.jsx';
 import { DIALOG_PANELS, PANEL_NAMES, PERMANENT_PANELS, WORKSPACE_STORAGE_KEY,
   initialWorkspace, panelTab } from './workspace-state.js';
-import { preserveModelSpace } from './workspace-sizing.js';
+import { createWorkspaceModel } from './workspace-model.js';
 import { TOOLBAR_IDS } from './toolbar-state.js';
 import { renderIconLegend } from './icon-legend.js';
 import { createEditHost } from './edit-host.js';
@@ -66,8 +66,9 @@ const defaultWorkspace = initialWorkspace;
 function loadModel() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (saved?.version !== 1) return Model.fromJson(defaultWorkspace());
-    const model = Model.fromJson(saved.layout), view = model.getNodeById('view'), ids = [];
+    if (saved?.version !== 1) return createWorkspaceModel(defaultWorkspace());
+    const model = createWorkspaceModel(saved.layout, byId('workspace-root').getBoundingClientRect()),
+      view = model.getNodeById('view'), ids = [];
     // Preserve the user's panels while retiring the old toolbar tabsets.
     for (const id of TOOLBAR_IDS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
     // Split the old combined view without discarding the user's panel placement.
@@ -80,26 +81,20 @@ function loadModel() {
     if (model.getNodeById('editor')) model.doAction(Actions.updateNodeAttributes('editor', {
       name: PANEL_NAMES.editor, enableClose: true,
     }));
-    const releaseMigrationSizing = preserveModelSpace(model);
-    try {
-      for (const id of ['build-faces-dialog', 'relationship-dialog']) {
-        const node = model.getNodeById(id);
-        if (!node) continue;
-        if (!model.getNodeById('editor')) model.doAction(Actions.addTab(panelTab('editor'),
-          node.getParent().getId(), DockLocation.CENTER, -1, false));
-        model.doAction(Actions.deleteTab(id));
-      }
-    } finally { releaseMigrationSizing(); }
+    for (const id of ['build-faces-dialog', 'relationship-dialog']) {
+      const node = model.getNodeById(id);
+      if (!node) continue;
+      if (!model.getNodeById('editor')) model.doAction(Actions.addTab(panelTab('editor'),
+        node.getParent().getId(), DockLocation.CENTER, -1, false));
+      model.doAction(Actions.deleteTab(id));
+    }
     model.visitNodes(node => { if (node.getType() === 'tab') ids.push(node.getId()); });
     if (ids.some(id => !Object.hasOwn(PANEL_NAMES, id)) || new Set(ids).size !== ids.length ||
         PERMANENT_PANELS.some(id => !ids.includes(id))) throw new Error('Unknown workspace panels');
     // Layout preferences are not permission to reopen a face/relationship draft.
-    const releaseSizing = preserveModelSpace(model);
-    try {
-      for (const id of DIALOG_PANELS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
-    } finally { releaseSizing(); }
+    for (const id of DIALOG_PANELS) if (model.getNodeById(id)) model.doAction(Actions.deleteTab(id));
     return model;
-  } catch { return Model.fromJson(defaultWorkspace()); }
+  } catch { return createWorkspaceModel(defaultWorkspace()); }
 }
 
 function Workspace({ elements, parking }) {
@@ -109,7 +104,6 @@ function Workspace({ elements, parking }) {
   const [toolbarReset, setToolbarReset] = useState(0);
   const modelRef = useRef(model);
   modelRef.current = model;
-  useLayoutEffect(() => preserveModelSpace(model, byId('workspace-root').querySelector('.flexlayout__layout')), [model]);
   const save = next => {
     try {
       localStorage.setItem(storageKey, JSON.stringify({ version: 1, layout: next.toJson() }));
@@ -166,7 +160,7 @@ function Workspace({ elements, parking }) {
       },
       reset() {
         if (!editHost.prepare()) return;
-        const next = Model.fromJson(defaultWorkspace(DIALOG_PANELS.filter(id => elements[id].open)));
+        const next = createWorkspaceModel(defaultWorkspace(DIALOG_PANELS.filter(id => elements[id].open)));
         setToolbarReset(value => value + 1);
         setModel(next);
         save(next);

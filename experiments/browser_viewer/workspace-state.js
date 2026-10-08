@@ -26,9 +26,9 @@ export function initialWorkspace(openDialogs = []) {
     borders: [],
     layout: { type: 'row', children: [
       { type: 'row', weight: 88, children: [
-        tabset('tree', 24, { width: 310 }),
+        tabset('tree', 24, { preferredWidth: 310 }),
         tabset('view', 76, { children: [panelTab('view'), panelTab('graph')] }),
-        ...openDialogs.map(id => tabset(id, 28, { width: 350 })),
+        ...openDialogs.map(id => tabset(id, 28, { preferredWidth: 350 })),
       ] },
     ] },
   };

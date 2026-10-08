@@ -174,6 +174,43 @@ test('omitting workflow panels on reload gives saved space back to Model', async
   expect((await tabset(page, 'Model').boundingBox()).width).toBeGreaterThan(model.width + legend.width - 2);
 });
 
+test('weight-only saved widths migrate before omitted workflow panels release space', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
+  const boxes = {};
+  for (const [id, name] of [['tree', 'Features'], ['view', 'Model'], ['icon-legend-dialog', 'Icon legend']]) {
+    boxes[id] = await tabset(page, name).boundingBox();
+  }
+  await page.evaluate(({ key, boxes }) => {
+    const saved = JSON.parse(localStorage.getItem(key));
+    const legacy = node => {
+      delete node.preferredWidth;
+      delete node.preferredHeight;
+      if (node.type === 'tabset' && boxes[node.children[0]?.id]) node.weight = boxes[node.children[0].id].width;
+      for (const child of node.children || []) legacy(child);
+    };
+    legacy(saved.layout.layout);
+    localStorage.setItem(key, JSON.stringify(saved));
+  }, { key: storageKey, boxes });
+  await page.reload();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toHaveCount(0);
+  expect(Math.abs((await tabset(page, 'Features').boundingBox()).width - boxes.tree.width)).toBeLessThan(2);
+  expect((await tabset(page, 'Model').boundingBox()).width).toBeGreaterThan(boxes.view.width + boxes['icon-legend-dialog'].width - 2);
+});
+
+test('Model stays flexible after joining an auxiliary tabset', async ({ page }) => {
+  await ready(page);
+  const features = await tabset(page, 'Features').boundingBox();
+  await drag(page, page.getByRole('tab', { name: 'Model', exact: true }),
+    features.x + features.width / 2, features.y + features.height / 2);
+  const model = await tabset(page, 'Model').boundingBox();
+  const graph = await tabset(page, 'Graph').boundingBox();
+  await page.setViewportSize({ width: 1640, height: 1000 });
+  await expect.poll(async () => (await tabset(page, 'Model').boundingBox()).width).toBeCloseTo(model.width + 200, 0);
+  expect(Math.abs((await tabset(page, 'Graph').boundingBox()).width - graph.width)).toBeLessThan(2);
+});
+
 test('window resizing gives Model the width change, preserving chosen splitter sizes', async ({ page }) => {
   await ready(page);
   await page.getByRole('button', { name: 'Icon legend', exact: true }).click();
