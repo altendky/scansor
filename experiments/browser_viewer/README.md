@@ -125,8 +125,20 @@ dependencies are MIT-licensed; their added runtime dependencies use MIT or 0BSD.
 
 Panel layout uses `scansor.flexlayout.workspace.v1` and toolbar placements use
 `scansor.toolbars.v1`, independently of action recipes. Existing saved panel
-layouts migrate by removing only the old toolbar tabs. Reset layout restores
+layouts preserve placement and migrate weight-only auxiliary sizes to native
+FlexLayout preferences before omitted workflow panels release their space.
+Reset layout restores
 both the panels and all five toolbar placements. No URL parameter is required.
+
+The viewer currently uses the `feat/preferred-panel-sizes` branch from
+[FlexLayout PR #530](https://github.com/caplin/FlexLayout/pull/530), pinned to
+`6b947d0261d95800a9d1c10378bac3639c1b0d3c` in the dependency and lockfile.
+FlexLayout's native preferred sizes keep auxiliary panels at their chosen sizes
+while Model absorbs available space changes. Scansor assigns preferences at
+docking boundaries; it no longer corrects weights or intercepts window resizing.
+The branch is installed from its source archive. `npm run check` and
+`npm run build` first compile its runtime using the viewer's existing Vite
+dependency, so `npm ci --ignore-scripts` remains supported.
 
 Strips can also dock at any **tabset's outer edge**, outside its tab bar and content.
 Drag near that local edge, or choose a **Docking host** in the options menu, then
