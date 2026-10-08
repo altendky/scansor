@@ -1575,6 +1575,11 @@ function refreshFeatureSelection(scroll = false) {
   paint();
   if (transformChanged) home('oblique');
 }
+function clearFeatureSelection() {
+  if (!selectedFeatureIds.size || selectionDrawing || selectionPending || featureDeletionPending || modelPickMode) return;
+  selectOnly(null);
+  refreshFeatureSelection();
+}
 function featureGraphOptions() {
   return {
     lens: $('feature-graph-lens').value,
@@ -2565,6 +2570,7 @@ function renderActions() {
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
     selected: selectedFeatureIds,
+    clearSelection: clearFeatureSelection,
     states: graphState.states,
     errors: graphState.errors,
     locked: () => featureTreeLocked() || !!modelPickMode,
@@ -4271,16 +4277,13 @@ async function start() {
     } catch { /* A session-only threshold is still useful. */ }
     renderActions();
   };
-  $('action-list').onclick = (event) => {
-    if (event.target !== $('action-list')) return;
-    selectOnly(null);
-    refreshFeatureSelection();
-  };
-  $('features-panel').onclick = (event) => {
-    if (event.target !== $('features-panel')) return;
-    selectOnly(null);
-    refreshFeatureSelection();
-  };
+  document.addEventListener('click', event => {
+    if (event.defaultPrevented || event.button !== 0 || !selectedFeatureIds.size) return;
+    const target = event.target;
+    if (target.closest('button, input, select, textarea, label, a[href], summary, canvas, [contenteditable], [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"], dialog, [popover], .tree-row-content, .tree-toggle, .flexlayout__tab_button, .flexlayout__border_button, .flexlayout__tabset_tabbar_outer, .flexlayout__splitter, .toolbar-grip')) return;
+    if (document.querySelector('[popover]:popover-open')) return;
+    clearFeatureSelection();
+  });
   $('new-relationship').onclick = () => {
     if (relationshipApplying) return;
     if ($('build-faces-dialog').open) {

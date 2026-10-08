@@ -45,6 +45,10 @@ test('explicit editing opens a popup and Apply retains its owner after tree sele
     await feature(page, 'outer_band').click();
     await expect(page.locator('#properties-title')).toHaveText('End surface');
     await expect(page.locator('#axial-start')).toHaveValue('-1');
+    await page.locator('#status').click();
+    await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+    await expect(page.locator('#properties-title')).toHaveText('End surface');
+    await expect(page.locator('#axial-start')).toHaveValue('-1');
     const savedResponse = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
       response.request().method() === 'POST');
     await page.locator('#apply-properties').click();

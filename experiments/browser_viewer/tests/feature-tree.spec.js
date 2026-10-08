@@ -88,6 +88,93 @@ test('selection highlights inputs and dependents across multiple rows, collapsed
   expect(state.writes).toHaveLength(0);
 });
 
+test('highlights exclude the gutter and chevron but contain the feature and status icons', async ({ page }) => {
+  await ready(page, true);
+  await row(page, 'a').locator('.action-type').click();
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  for (const target of [row(page, 'a'), row(page, 'scan'), row(page, 'tree-reuse')]) {
+    const outer = await target.boundingBox(), content = await target.locator('.tree-row-content').boundingBox(),
+      icon = await target.locator('.action-type').boundingBox(), status = await target.locator('.action-state').boundingBox();
+    expect(content.x - outer.x).toBe(22);
+    expect(icon.x - content.x).toBeGreaterThanOrEqual(0);
+    expect(icon.x - content.x).toBeLessThanOrEqual(6);
+    expect(content.x + content.width - status.x - status.width).toBeLessThanOrEqual(6);
+    expect(await target.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  }
+  const branch = row(page, 'tree-reuse'),
+    toggle = await branch.locator('.tree-toggle').boundingBox(), content = await branch.locator('.tree-row-content').boundingBox();
+  expect(toggle.x + toggle.width).toBeLessThanOrEqual(content.x);
+  await row(page, 'c').locator('.action-state').click();
+  await expect(item(page, 'c')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('inactive gutters, guides and workspace space clear selection while controls and disclosures preserve it', async ({ page }) => {
+  await ready(page, true);
+  await row(page, 'a').click();
+  await row(page, 'c').click();
+  await page.locator('#fit-quality-limit').click();
+  await expect(page.locator('#feature-selection-count')).toHaveText('2 selected');
+  await groupRow(page).locator('.tree-toggle').click();
+  await expect(page.locator('#feature-selection-count')).toHaveText('2 selected');
+  const gutter = await row(page, 'c').boundingBox();
+  await page.mouse.click(gutter.x + 5, gutter.y + gutter.height / 2);
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+  await expect(page.locator('#action-list .feature-selected, #action-list .feature-input, #action-list .feature-dependent')).toHaveCount(0);
+  await groupRow(page).locator('.tree-toggle').click();
+  await row(page, 'c').click();
+  const leaf = await row(page, 'a').boundingBox();
+  await page.mouse.click(leaf.x - 6, leaf.y + leaf.height / 2);
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+  await row(page, 'c').click();
+  await page.locator('#feature-selection-count').click();
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+  await row(page, 'c').click();
+  // Passive space outside Features follows the same rule; the model canvas
+  // remains owned by camera/drawing/picking interactions.
+  await page.locator('#viewport canvas').click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('#feature-selection-count')).toHaveText('1 selected');
+  await page.locator('#status').click();
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+});
+
+test('dragging starts only inside the selection highlight and moves the full selected block', async ({ page }) => {
+  const state = await ready(page);
+  await row(page, 'a').click();
+  await row(page, 'c').click();
+  const source = await row(page, 'c').boundingBox(), target = await row(page, 'side').boundingBox();
+  await page.mouse.move(source.x + 5, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + 2, { steps: 12 });
+  await expect(page.locator('#action-list .dragging, #action-list .drop-before, #action-list .drop-after')).toHaveCount(0);
+  await page.mouse.up();
+  expect(state.writes).toHaveLength(0);
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+  await row(page, 'a').click();
+  await row(page, 'c').click();
+  await expect(row(page, 'c')).toHaveAttribute('draggable', 'false');
+  await expect(row(page, 'c').locator('.tree-row-content')).toHaveAttribute('draggable', 'true');
+  expect(await row(page, 'c').evaluate(element => getComputedStyle(element).cursor)).not.toBe('grab');
+  expect(await row(page, 'c').locator('.tree-row-content').evaluate(element => getComputedStyle(element).cursor)).toBe('grab');
+  const content = await row(page, 'c').locator('.tree-row-content').boundingBox();
+  await page.mouse.move(content.x + 1, content.y + content.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + 2, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => state.writes.length).toBe(1);
+  expect(state.graph.recipe.nodes.filter(node => ['a', 'b', 'c'].includes(node.id)).map(node => node.id)).toEqual(['a', 'c', 'b']);
+  await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
+  await expect(item(page, 'c')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('double clicking the gutter clears selection without launching an editor', async ({ page }) => {
+  await ready(page);
+  await row(page, 'c').click();
+  const gutter = await row(page, 'side').boundingBox();
+  await page.mouse.dblclick(gutter.x + 5, gutter.y + gutter.height / 2);
+  await expect(page.locator('#feature-selection-count')).toHaveText('0 selected');
+  await expect(page.locator('#edit-popup')).toBeHidden();
+});
+
 test('whole rows preserve clicks and double-click editing while drag suppresses selection', async ({ page }) => {
   const state = await ready(page);
   const gamma = row(page, 'c');
