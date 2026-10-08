@@ -88,6 +88,14 @@ dependency order. Dragging a selected row moves the selected features together
 in their existing order. Generated leaves stay with their owner. Groups offer
 **Ungroup** in their context menu, which keeps all their features.
 
+Selecting features adds mild row tints: cool for their inputs, warm for their
+dependents, including indirect relationships. Multiple selections combine these
+relationships; selected rows keep their stronger highlight. The selection bar
+shows the color key, and related rows describe their relationship in tooltips and
+accessible descriptions. Collapsed branches show a tint when they contain related
+features. These hints follow declared inputs and generated ownership; drop
+validation still checks the proposed order and generated-output boundaries.
+
 Keyboard focus follows visible rows: Up/Down moves between rows, Right expands
 or enters a branch, Left collapses or returns to its parent, and Home/End moves
 to the first/last visible row. Space/Enter toggles feature selection; Alt+Up/Down

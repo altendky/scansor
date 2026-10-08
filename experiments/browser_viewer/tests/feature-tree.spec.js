@@ -51,6 +51,43 @@ async function dragRow(page, from, to, after = false) {
   await page.mouse.up();
 }
 
+test('selection highlights inputs and dependents across multiple rows, collapsed branches and clearing', async ({ page }) => {
+  const state = await ready(page, true);
+  await expect(page.locator('#feature-relation-legend')).toBeHidden();
+  const initialTop = (await row(page, 'a').boundingBox()).y;
+  await row(page, 'a').click();
+  expect((await row(page, 'a').boundingBox()).y).toBe(initialTop);
+  await expect(row(page, 'scan')).toHaveClass(/feature-input/);
+  await expect(row(page, 'tree-reuse')).toHaveClass(/feature-dependent/);
+  await expect(row(page, 'a')).toHaveClass(/feature-selected/);
+  await expect(row(page, 'a')).not.toHaveClass(/feature-input|feature-dependent/);
+  await expect(row(page, 'c')).not.toHaveClass(/feature-input|feature-dependent/);
+  await expect(item(page, 'scan')).toHaveAttribute('aria-description', /Drag to reorder.*Inputs used by selected/);
+  await expect(page.locator('#feature-relation-legend')).toBeVisible();
+  await row(page, 'side').click();
+  await expect(row(page, 'outer_band')).toHaveClass(/feature-input/);
+  await expect(row(page, 'tree-reuse')).toHaveClass(/feature-dependent/);
+  await expect(page.locator('#feature-selection-count')).toHaveText('2 selected');
+  await page.locator('#clear-feature-selection').click();
+  await expect(page.locator('#action-list .feature-input, #action-list .feature-dependent')).toHaveCount(0);
+  await expect(page.locator('#feature-relation-legend')).toBeHidden();
+  await row(page, 'tree-reuse').click();
+  await groupRow(page).locator('.tree-toggle').click();
+  await expect(groupRow(page)).toHaveClass(/feature-input/);
+  await expect(groupItem(page)).toHaveAttribute('aria-description', /Contains features: Inputs/);
+  await groupRow(page).locator('.tree-toggle').click();
+  await expect(groupRow(page)).not.toHaveClass(/feature-input/);
+  await expect(row(page, 'a')).toHaveClass(/feature-input/);
+  await row(page, 'tree-reuse').locator('.tree-toggle').click();
+  const target = page.locator('#action-list .managed-target > details > summary');
+  await expect(target).toHaveClass(/feature-dependent/);
+  await target.locator('.tree-toggle').click();
+  await expect(target).not.toHaveClass(/feature-dependent/);
+  await expect(row(page, 'tree-output')).toHaveClass(/feature-dependent/);
+  await expect(item(page, 'tree-output')).toHaveAttribute('aria-selected', 'false');
+  expect(state.writes).toHaveLength(0);
+});
+
 test('whole rows preserve clicks and double-click editing while drag suppresses selection', async ({ page }) => {
   const state = await ready(page);
   const gamma = row(page, 'c');

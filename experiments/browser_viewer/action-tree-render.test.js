@@ -98,6 +98,30 @@ const face = { id: 'face', label: 'Wall face', operation: 'trimmed_face', surfac
 const point = (id, group_id = null) => ({ id, label: id, operation: 'point', group_id });
 const base = [source, cylinder, plane, owner, edge, face, point('other')];
 
+test('selected rows keep precedence when other rows are both inputs and dependents', () => {
+  const state = fixture();
+  state.selected = new Set(['wall', 'face']);
+  state.render();
+  const rows = state.list.querySelectorAll('.tree-row'),
+    row = id => rows.find(row => row.dataset.actionId === id);
+  for (const id of ['wall', 'face']) {
+    assert.ok(row(id).classList.contains('feature-selected'));
+    assert.equal(row(id).classList.contains('feature-input'), false);
+    assert.equal(row(id).classList.contains('feature-dependent'), false);
+  }
+  for (const id of ['batch', 'edge']) {
+    assert.ok(row(id).classList.contains('feature-input'));
+    assert.ok(row(id).classList.contains('feature-dependent'));
+  }
+  assert.match(state.item('feature/batch').getAttribute('aria-description'), /Drag to reorder.*Inputs and dependents/);
+  assert.equal(row('other').classList.contains('feature-input'), false);
+  assert.equal(row('other').classList.contains('feature-dependent'), false);
+  state.selected.clear();
+  state.render();
+  assert.equal(state.list.querySelectorAll('.feature-input').length, 0);
+  assert.equal(state.list.querySelectorAll('.feature-dependent').length, 0);
+});
+
 test('relationship choices only expose physical fits and required datums, not graph contexts', () => {
   const sphere = { id: 'ball', operation: 'fit', kind: 'sphere' },
     bound = { ...cylinder, id: 'bound', axis: 'axis' },
