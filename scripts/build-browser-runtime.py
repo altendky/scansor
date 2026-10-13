@@ -129,6 +129,10 @@ def build(output: Path, cache: Path | None, cad: bool, native_python: Path) -> N
         target = output / "notices/scansor" / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / filename, target)
+    for filename in ("README.md", "validation.md", "decision.md"):
+        target = output / "cancellation" / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PROBE / "cancellation" / filename, target)
     notices = inventory_wheel_notices(output, records)
     # Use the packaged source, not the editable checkout, for the reference run.
     with tempfile.TemporaryDirectory(prefix="native-", dir=output) as temporary:

@@ -1,0 +1,26 @@
+<!doctype html><title>Disposable Scansor cancellation probe</title><script>
+window.events = [];window.workers = {};window.interrupts = {};window.cancelled = new Set();window.tickGaps = [];
+let last = performance.now();setInterval(() => { const now = performance.now();tickGaps.push(now-last);last = now; }, 16);
+window.create = (id, probeRecord, useInterrupt) => {
+ const worker = new Worker('./worker.mjs', {type:'module'});workers[id] = worker;
+ worker.onmessage = ({data}) => {
+  events.push({owner:id, received_ms:performance.now(), ...data,
+   ...(data.type==='result' ? {publication_allowed:!cancelled.has(`${id}:${data.id}`)} : {})});
+  if (data.type==='ready' && useInterrupt) {
+   const interrupt = new Uint8Array(new SharedArrayBuffer(1));interrupts[id] = interrupt;
+   worker.postMessage({type:'configure', interrupt});
+  }
+ };
+ worker.onerror = event => events.push({owner:id,type:'fatal',error:event.message,received_ms:performance.now()});
+ worker.postMessage({type:'initialize',probe_record:probeRecord});
+};
+window.action = (owner,data) => { events.push({owner,type:'sent',data,received_ms:performance.now()});workers[owner].postMessage(data); };
+window.polite = (owner,id) => { cancelled.add(`${owner}:${id}`);action(owner,{type:'cancel',id:`${id}-cancel`}); };
+window.signal = (owner,id) => {
+ // Explicit investigative SIGINT action, not an OCCT UserBreak implementation.
+ cancelled.add(`${owner}:${id}`);events.push({owner,type:'signal-sent',id,received_ms:performance.now()});Atomics.store(interrupts[owner],0,2);
+};
+window.force = owner => {
+ const t=performance.now();workers[owner].terminate();events.push({owner,type:'forced',received_ms:performance.now(),call_ms:performance.now()-t});delete workers[owner];
+};
+</script>
