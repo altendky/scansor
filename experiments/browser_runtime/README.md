@@ -110,6 +110,8 @@ its virtual filesystem and runtime. It handles worker startup/message failures;
 the runner always closes the browser/server and has a bounded watchdog.
 
 The full application cancellation/recovery contract belongs to #203/#208.
+The [cancellation investigation](cancellation/README.md) records the portable
+probe, measured findings and selected bounded-worker policy.
 Prior OCP checks had two failures caused by Python thread creation in
 `test_face_arrangement.py`: those environment assumptions cannot run in this
 single-worker runtime. Their ownership protections must be checked with worker
