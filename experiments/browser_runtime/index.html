@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scansor browser runtime probe</title>
+<h1>Scansor browser runtime probe</h1>
+<p>Runs the pinned, bounded numerical probe in a worker. Optional CAD runs afterwards. This is not the application UI.</p>
+<pre id="status">Starting…</pre>
+<script type="module">
+  const worker = new Worker(new URL('./worker.mjs', import.meta.url), { type: 'module' });
+  const pending = new Map();
+  let nextID = 0;
+  window.events = [];
+  window.heartbeat = { ticks: 0, max_gap_ms: 0 };
+  let previous = performance.now();
+  const timer = setInterval(() => {
+    const now = performance.now();
+    window.heartbeat.ticks += 1;
+    window.heartbeat.max_gap_ms = Math.max(window.heartbeat.max_gap_ms, now - previous);
+    previous = now;
+  }, 16);
+  const fail = error => {
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  };
+  worker.onerror = event => fail(new Error(event.message || 'Worker failed'));
+  worker.onmessageerror = () => fail(new Error('Cannot deserialize worker response'));
+  worker.onmessage = ({ data }) => {
+    if (data.phase) {
+      window.events.push(data);
+      document.querySelector('#status').textContent = data.phase;
+    } else if (data.fatal) fail(new Error(data.fatal));
+    else {
+      const request = pending.get(data.id);
+      if (!request) return;
+      pending.delete(data.id);
+      if (data.ok) request.resolve(data);
+      else request.reject(new Error(data.error));
+    }
+  };
+  const request = operation => new Promise((resolve, reject) => {
+    const id = ++nextID;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, operation });
+  });
+  const start = performance.now();
+  try {
+    const numeric = await request('numeric');
+    const numeric_ms = performance.now() - start;
+    let cad = null;
+    if (new URL(location.href).searchParams.has('cad')) cad = await request('cad');
+    window.finished = { ok: true, numeric, cad, numeric_ms, total_ms: performance.now() - start };
+  } catch (error) {
+    window.finished = { ok: false, error: String(error), total_ms: performance.now() - start };
+  } finally {
+    clearInterval(timer);
+    fail(new Error('Probe complete'));
+    worker.terminate();
+    document.querySelector('#status').textContent = JSON.stringify(window.finished, null, 2);
+  }
+</script>
+</html>

@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "versions": {
+    "pyodide": "314.0.7",
+    "python": "3.14.2",
+    "abi": "2026_0",
+    "numpy": "2.4.6",
+    "pydantic": "2.12.5",
+    "ocp_wasm": "8.0.1.1.post202609241841",
+    "ocp": "8.0.1.1"
+  },
+  "assets": [
+    {
+      "path": "runtime/pyodide.mjs",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs",
+      "sha256": "6f1d60f7bf529beb300f0f47983c921d3982363640ba20af0e38efdddbc66109",
+      "bytes": 17931,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/pyodide.asm.mjs",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.asm.mjs",
+      "sha256": "f7cdc8ece80678ceb712f8e65ebe6d3a83203a180c399865f49612a051693635",
+      "bytes": 1250344,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/pyodide.asm.wasm",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.asm.wasm",
+      "sha256": "cc36e3cab04fdfc9a63ff13eb52eae2b911bf46c025cc7b281f394bd3de1d5e6",
+      "bytes": 9598218,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/python_stdlib.zip",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/python_stdlib.zip",
+      "sha256": "fa1957e5777068fc4f7437f96d860ae2fbe9c19732ba06c84e004ec16dd7dd7a",
+      "bytes": 2545637,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/pyodide-lock.json",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide-lock.json",
+      "sha256": "5dc2fc119108bc148c7457dc86e7675b5c87e1cafd420b9c34c1eaef7b36c010",
+      "bytes": 119077,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "sha256": "a292c1f5d7d8a2208cd5e94fc467604c131cabcd2fc14fed6eefde121e7fabdf",
+      "bytes": 2960568,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/pydantic-2.12.5-py3-none-any.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pydantic-2.12.5-py3-none-any.whl",
+      "sha256": "04854875001e07a8a74d87b7c80296cba168773d8c9804e232d695f82484d7d7",
+      "bytes": 463578,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/pydantic_core-2.41.5-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pydantic_core-2.41.5-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "sha256": "54703fa42a0d4d574283cfb8f08050ba7820c9a42b0a21bc1286407d9a9e54da",
+      "bytes": 1310164,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/annotated_types-0.7.0-py3-none-any.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/annotated_types-0.7.0-py3-none-any.whl",
+      "sha256": "6541523b4b16c1953d2fc9b82fb86c540eea9f78fca329ab371ed13a8b0faa51",
+      "bytes": 11963,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/typing_extensions-4.15.0-py3-none-any.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/typing_extensions-4.15.0-py3-none-any.whl",
+      "sha256": "4fec68770a05408e668a4fa53d6bf4f0f684b9dacf820c7c5d6e97d3ad225e29",
+      "bytes": 44613,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/typing_inspection-0.4.2-py3-none-any.whl",
+      "url": "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/typing_inspection-0.4.2-py3-none-any.whl",
+      "sha256": "deb989630985f7a7296b90357a947a804a7612cecbb6439d6e71128e01f61051",
+      "bytes": 14610,
+      "group": "numeric"
+    },
+    {
+      "path": "runtime/cadquery_ocp_novtk_ocp_wasm-8.0.1.1.post202609241841-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "url": "https://files.pythonhosted.org/packages/0b/84/74f748a3232155a19f09c74cdf7f19cb07623542c48c01a8d06b4f98c836/cadquery_ocp_novtk_ocp_wasm-8.0.1.1.post202609241841-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "sha256": "1bc957b6574c8a62a5fb33f03d054af41febbeb809a89bd08b045b17ec3e90d5",
+      "bytes": 22714552,
+      "group": "cad"
+    }
+  ],
+  "sources": {
+    "numeric": [
+      "experiments/__init__.py",
+      "experiments/feature_graph.py",
+      "experiments/feature_inputs.py",
+      "experiments/feature_reuse.py",
+      "experiments/fit_coordinates.py",
+      "experiments/fit_relationship_component.py",
+      "experiments/fit_solver.py",
+      "experiments/mesh_coaxial_fit.py",
+      "experiments/mesh_cone_plane_fit.py",
+      "experiments/mesh_cylinder_fit.py",
+      "experiments/mesh_cylinder_plane_fit.py",
+      "experiments/mesh_mirror_surfaces.py",
+      "experiments/mesh_rotational_planes.py",
+      "experiments/mesh_sphere_fit.py",
+      "experiments/native_replay.py",
+      "experiments/nozzle_coaxial.py",
+      "experiments/nozzle_joint_view.py",
+      "experiments/nozzle_session.py",
+      "experiments/run_nozzle_cylinder.py",
+      "experiments/run_nozzle_cylinder_plane.py",
+      "experiments/selection_growth.py",
+      "experiments/selection_region.py",
+      "experiments/surface_extents.py",
+      "experiments/surface_primitives.py",
+      "src/scansor/__init__.py",
+      "src/scansor/_plyio/__init__.py",
+      "src/scansor/_plyio/format.py",
+      "src/scansor/_plyio/stream.py",
+      "src/scansor/constrained_least_squares.py",
+      "src/scansor/nonlinear_least_squares.py"
+    ],
+    "cad": [
+      "experiments/arrangement_face_proposals.py",
+      "experiments/body_geometry.py",
+      "experiments/face_adjacency.py",
+      "experiments/face_arrangement.py",
+      "experiments/face_building_limits.py",
+      "experiments/face_geometry.py",
+      "experiments/face_proposals.py",
+      "experiments/general_face_geometry.py",
+      "experiments/general_face_proposals.py",
+      "experiments/nozzle_cad.py",
+      "experiments/ocp_geometry.py",
+      "experiments/shared_face_boundaries.py"
+    ],
+    "fixtures": [
+      "examples/nozzle-bayonette-simplified/manifest.json",
+      "examples/nozzle-bayonette-simplified/nozzle-bayonette-simplified.ply",
+      "examples/nozzle-bayonette-simplified/nozzle-bayonette-simplified.ply.rsInfo",
+      "examples/nozzle-bayonette-simplified/models/cone-plane.json",
+      "examples/nozzle-bayonette-simplified/selections/outer-band.json",
+      "examples/nozzle-bayonette-simplified/selections/outer-band-vertex-ids.txt",
+      "examples/nozzle-bayonette-simplified/selections/top-face.json",
+      "examples/nozzle-bayonette-simplified/selections/top-face-vertex-ids.txt",
+      "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
+    ]
+  },
+  "licenses": [
+    {
+      "path": "notices/core/pyodide-MPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/pyodide/pyodide/314.0.7/LICENSE",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/CPython.txt",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.14.2/LICENSE",
+      "bytes": 13804,
+      "sha256": "b0e25a78cffb43f4d92de8b61ccfa1f1f98ecbc22330b54b5251e7b6ba010231",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/CPython-incorporated-software.rst",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.14.2/Doc/license.rst",
+      "bytes": 57595,
+      "sha256": "c695d550b135e53e38807e76496d1db17d22c40e461d1f3f354c86188d3305dd",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/hiwire-MPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/pyodide/hiwire/6a1e67280a15d929ebeceee54a6358c9c8d5f697/LICENSE",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/libffi.txt",
+      "url": "https://raw.githubusercontent.com/libffi/libffi/f08493d249d2067c8b3207ba46693dd858f95db3/LICENSE",
+      "bytes": 1132,
+      "sha256": "2c9c2acb9743e6b007b91350475308aee44691d96aa20eacef8e199988c8c388",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/Emscripten.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/LICENSE",
+      "bytes": 5093,
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/musl-COPYRIGHT.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/system/lib/libc/musl/COPYRIGHT",
+      "bytes": 6204,
+      "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/compiler-rt.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/system/lib/compiler-rt/LICENSE.TXT",
+      "bytes": 16708,
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/libcxx.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/system/lib/libcxx/LICENSE.TXT",
+      "bytes": 16703,
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/libcxxabi.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/system/lib/libcxxabi/LICENSE.TXT",
+      "bytes": 16706,
+      "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/bzip2.txt",
+      "url": "https://raw.githubusercontent.com/emscripten-ports/bzip2/1.0.6/LICENSE",
+      "bytes": 1901,
+      "sha256": "4919cfb14a73cd64fcef67b107613970cf1659a09aa675dba31314f373bc7204",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/zlib.txt",
+      "url": "https://raw.githubusercontent.com/madler/zlib/v1.3.1/LICENSE",
+      "bytes": 1002,
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/zstd-BSD.txt",
+      "url": "https://raw.githubusercontent.com/facebook/zstd/v1.5.7/LICENSE",
+      "bytes": 1549,
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/XZ-component-inventory.txt",
+      "url": "https://raw.githubusercontent.com/tukaani-project/xz/v5.2.2/COPYING",
+      "bytes": 2774,
+      "sha256": "c4f8e14fafe458d84808a4cd8b69f94673ebe2bf8fc992291629a69ac12218f8",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/MiniLZ4-source-notice.js",
+      "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/5.0.3/third_party/mini-lz4.js",
+      "bytes": 10269,
+      "sha256": "ac1eaa04b68d792d962d5946504ee5141ef58a9df86a0dfcf0ffa63d08634e46",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/expat.txt",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.14.2/Modules/expat/COPYING",
+      "bytes": 1144,
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/mpdecimal-source-notice.c",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.14.2/Modules/_decimal/libmpdec/mpdecimal.c",
+      "bytes": 247346,
+      "sha256": "4f89b8095e408a18deff79cfb605299e615bae747898eb105d8936064f7fb626",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/HACL-source-notice.c",
+      "url": "https://raw.githubusercontent.com/python/cpython/v3.14.2/Modules/_hacl/Hacl_Hash_SHA2.c",
+      "bytes": 44266,
+      "sha256": "f8af382de7e29a73c726f9c70770498ddd99e2c4702489ed6e634f0b68597c95",
+      "group": "notice"
+    },
+    {
+      "path": "notices/core/pydantic_core-2.41.5.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/source/p/pydantic_core/pydantic_core-2.41.5.tar.gz",
+      "bytes": 460952,
+      "sha256": "08daa51ea16ad373ffd5e7606252cc32f07bc72b28284b6bc9c6df804816476e",
+      "group": "notice"
+    }
+  ]
+}
