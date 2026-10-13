@@ -1,5 +1,9 @@
 # Nozzle browser selection experiment
 
+The UI uses an internal [backend operation interface](backend.md). The current
+implementation keeps HTTP/native Python as the default; worker execution and
+static hosting remain separate experiments.
+
 **Provisional.** A local browser frontend for the captured simplified nozzle and
 bounded generated fixture examples.
 This is an experiment in selection and fitting interaction, not a browser-only

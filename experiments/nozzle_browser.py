@@ -220,6 +220,8 @@ class Handler(BaseHTTPRequestHandler):
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/surface-trims.js": ("surface-trims.js", "text/javascript"),
         "/graph-evaluation.js": ("graph-evaluation.js", "text/javascript"),
+        "/backend.js": ("backend.js", "text/javascript"),
+        "/http-backend.js": ("http-backend.js", "text/javascript"),
         "/edge-highlight.js": ("edge-highlight.js", "text/javascript"),
         "/fit-footprint.js": ("fit-footprint.js", "text/javascript"),
         "/model-picking.js": ("model-picking.js", "text/javascript"),
@@ -354,8 +356,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_reply(200, {"status": "failed", "error": str(error)})
         elif self.path in self.app.buffers:
             self.reply(200, self.app.buffers[self.path], "application/octet-stream")
-        elif self.path in self.files:
-            filename, mime = self.files[self.path]
+        elif (asset_path := urlsplit(self.path).path) in self.files:
+            filename, mime = self.files[asset_path]
             try:
                 self.reply(200, (ASSETS / filename).read_bytes(), mime)
             except FileNotFoundError:

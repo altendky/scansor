@@ -18,10 +18,9 @@ import('/workspace.js').then(({ initializeWorkspace }) => {
 document.getElementById('recover-actions').onclick = async () => {
   const message = document.getElementById('startup-detail');
   try {
-    const response = await fetch('/api/graph');
-    if (!response.ok) throw new Error('Could not read the current session. Keep the server running.');
-    const state = await response.json();
-    const url = URL.createObjectURL(new Blob([JSON.stringify(state.recipe, null, 2) + '\n'], { type: 'application/json' }));
+    const { getBackend } = await import('./backend.js');
+    const backend = getBackend(), recipe = await backend.exportRecipe(await backend.getGraph());
+    const url = URL.createObjectURL(new Blob([JSON.stringify(recipe, null, 2) + '\n'], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
     link.download = 'nozzle-actions-recovery.json';

@@ -18,6 +18,7 @@ import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, wo
   forceEndEditSession, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
+import { getBackend } from './backend.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
 import { exportInputIssues, exportScopePlan } from './cad-export.js';
@@ -61,6 +62,7 @@ import {
 } from './selection.js';
 
 const $ = (id) => document.getElementById(id);
+const backend = getBackend();
 const viewport = $('viewport');
 viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
@@ -600,21 +602,6 @@ function pickFeatureInput(id) {
     clientY: bounds?.top || innerHeight / 2 });
   return true;
 }
-async function request(path, value) {
-  const response = await fetch(
-    path,
-    value === undefined
-      ? {}
-      : {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Scansor-Request': '1' },
-          body: JSON.stringify(value),
-        },
-  );
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-  return body;
-}
 function draw() {
   if (pending) return;
   pending = true;
@@ -934,7 +921,7 @@ async function loadFaceCandidates(previous = null, approvedSources = null, exact
   const token = graphState.token, requestId = buildFacesRequest;
   const target = structuredClone(buildFacesTarget);
   try {
-    const candidates = await request('/api/graph/build-faces/candidates', {
+    const candidates = await backend.faceCandidates({
       token, target, owner_id: buildFacesOwnerId,
       surfaces: choices.map((choice) => choice.reference),
     });
@@ -2253,19 +2240,19 @@ async function change(next, region, depth) {
 }
 async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphState.token) {
   try {
-    acceptGraph(await request('/api/graph', { token: expectedToken, recipe }));
+    acceptGraph(await backend.replaceRecipe({ token: expectedToken, recipe }));
     status('Actions updated. Evaluate to refresh dependent results.');
     if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
     return true;
   } catch (error) {
-    acceptGraph(await request('/api/graph'));
+    acceptGraph(await backend.getGraph());
     status(error.message, true);
     return false;
   }
 }
 async function applyFeatureReuse(reuseId, changes, create = false) {
   try {
-    const state = await request('/api/graph/feature-reuse/apply', {
+    const state = await backend.applyFeatureReuse({
       token: graphState.token, reuse_id: reuseId, changes,
       allocation_seed: uid('reuse_ids'), create,
     });
@@ -2278,7 +2265,7 @@ async function applyFeatureReuse(reuseId, changes, create = false) {
       ?.scrollIntoView({ block: 'nearest' });
     return true;
   } catch (error) {
-    acceptGraph(await request('/api/graph'));
+    acceptGraph(await backend.getGraph());
     status(error.message, true);
     return false;
   }
@@ -3905,7 +3892,7 @@ async function evaluateGraph(allActions, target = null, retry = true) {
   finally { activeGraphEvaluation = null; }
 }
 async function ensureCurrent(targets, { token = graphState.token, isCurrent } = {}) {
-  return ensureGraphCurrent({ targets, token, request, acceptState: acceptGraph,
+  return ensureGraphCurrent({ targets, token, backend, acceptState: acceptGraph,
     getState: () => graphState, acceptEvaluationStatus, isCurrent });
 }
 function acceptEvaluationStatus(state) {
@@ -3931,12 +3918,12 @@ async function runGraphEvaluation(allActions, target, retry) {
     if (retry) {
       // Evaluate buttons are the explicit retry path; Auto and output consumers
       // only ensure current work, preserving failures until inputs change.
-      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph,
+      await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
         getState: () => graphState, acceptEvaluationStatus });
-      await request('/api/graph/evaluate', {
+      await backend.evaluateGraph({
         token, ...(allActions ? { all_actions: true } : { target }),
       });
-      await waitForGraphEvaluation({ token, request, acceptState: acceptGraph,
+      await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
         getState: () => graphState, acceptEvaluationStatus });
     }
     const state = await ensureCurrent(allActions ? graphState.recipe.nodes.map((node) => node.id) : [target]);
@@ -4061,14 +4048,9 @@ function focusGeometryBox(box, panelElement) {
   draw();
 }
 async function start() {
-  metadata = await request('/api/meta');
-  const [pb, ib] = await Promise.all(
-    [metadata.positions.url, metadata.indices.url].map(async (url) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Could not load mesh buffers');
-      return response.arrayBuffer();
-    }),
-  );
+  const workspace = await backend.loadWorkspace();
+  metadata = workspace.metadata;
+  const { positions: pb, indices: ib } = workspace;
   positions = new Float32Array(pb);
   session = structuredClone(metadata.session);
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -4456,7 +4438,7 @@ async function start() {
         ...buildFacesBoundarySources,
         ...scopes.flatMap((scope) => scope.faces),
       ], { token, isCurrent: () => requestId === buildFacesRequest && $('build-faces-dialog').open });
-      const proposal = await request('/api/graph/build-faces/preview', {
+      const proposal = await backend.previewFaces({
         token, owner_id: buildFacesOwnerId, surfaces,
         target: buildFacesMode === 'guided' ? buildFacesTarget : null,
         adjacencies: guidedAdjacencies(),
@@ -4502,7 +4484,7 @@ async function start() {
       .map((control) => ({ control, disabled: control.disabled }));
     for (const { control } of disabledControls) control.disabled = true;
     try {
-      const state = await request('/api/graph/build-faces/apply', {
+      const state = await backend.applyFaces({
         token: buildFacesProposal.token, proposal_token: buildFacesProposal.proposal_token,
         owner_id: buildFacesOwnerId, label: $('build-faces-label').value.trim(),
         surfaces: buildFacesSelectedSurfaces(), choices,
@@ -4570,7 +4552,7 @@ async function start() {
     } catch (error) {
       const message = error.message;
       try {
-        acceptGraph(await request('/api/graph'));
+        acceptGraph(await backend.getGraph());
         $('build-faces-error').textContent = message;
         if (buildFacesProposal) paintBuildFacesPreview();
       } catch (recoveryError) {
@@ -4771,21 +4753,16 @@ async function start() {
         ? $('export-origin-plane').value || null : null;
       const state = await ensureCurrent([...plan.roots, transform, originPlane]);
       $('export-error').textContent = 'Preparing STEP export bundle…';
-      const response = await fetch('/api/export/cad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Scansor-Request': '1' },
-        body: JSON.stringify({
-          token: state.token,
-          ...plan.payload,
-          units: $('export-units').value,
-          axis_up: scope === 'target' && !transform && $('export-axis-up').checked,
-          origin_plane: originPlane,
-          transform,
-          include_mesh: $('export-mesh').checked,
-        }),
+      const bytes = await backend.exportCad({
+        token: state.token,
+        ...plan.payload,
+        units: $('export-units').value,
+        axis_up: scope === 'target' && !transform && $('export-axis-up').checked,
+        origin_plane: originPlane,
+        transform,
+        include_mesh: $('export-mesh').checked,
       });
-      if (!response.ok) throw new Error((await response.json()).error || 'Export failed');
-      const url = URL.createObjectURL(await response.blob());
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
       const link = document.createElement('a');
       link.href = url;
       link.download = 'scansor-cad.zip';
@@ -5795,12 +5772,12 @@ async function start() {
     recipe.nodes = [...recipe.nodes.filter((n) => n.id !== joint.id), ...relations, joint];
     await replaceRecipe(recipe);
   };
-  $('reset').onclick = async () => replaceRecipe(await request('/api/graph/example'));
+  $('reset').onclick = async () => replaceRecipe(await backend.getExampleRecipe());
   $('choose-example').onclick = async () => {
     if (featureTreeLocked()) return;
     $('choose-example').disabled = true;
     try {
-      exampleCatalogue = await request('/api/examples');
+      exampleCatalogue = await backend.listExamples();
       const choices = exampleCatalogue.examples.map(example => new Option(example.label, example.id));
       if (exampleCatalogue.active === null) {
         const current = new Option('Current workspace', '', true, true);
@@ -5838,7 +5815,7 @@ async function start() {
     renderActions();
     paint();
     try {
-      await request('/api/examples/select', { example, token: graphState.token });
+      await backend.selectExample({ example, token: graphState.token });
       location.reload();
     } catch (error) {
       $('example-error').textContent = error.message;
@@ -6291,8 +6268,7 @@ async function start() {
   };
   $('save').onclick = async () => {
     try {
-      if (!graphState?.recipe) throw new Error('Actions have not finished loading yet.');
-      downloadJson('nozzle-actions.json', graphState.recipe);
+      downloadJson('nozzle-actions.json', await backend.exportRecipe(graphState));
       status('Actions downloaded as nozzle-actions.json.');
     } catch (error) {
       status(error.message, true);
@@ -6307,9 +6283,9 @@ async function start() {
       if (file.size > 1_000_000) throw new Error('Recipe must be under 1 MB');
       const recipe = JSON.parse(await file.text());
       let state;
-      try { state = await request('/api/graph/import', { token: graphState.token, recipe }); }
+      try { state = await backend.importRecipe({ token: graphState.token, recipe }); }
       catch (error) {
-        try { acceptGraph(await request('/api/graph')); }
+        try { acceptGraph(await backend.getGraph()); }
         catch (refreshError) {
           throw new Error(`${error.message} Could not refresh current actions: ${refreshError.message}`);
         }
@@ -6626,7 +6602,7 @@ async function start() {
       }
     };
   }
-  const state = await request('/api/graph');
+  const state = await backend.getGraph();
   acceptGraph(state);
   if (location.hash === '#graph') revealWorkspacePanel('graph');
   $('save').disabled = false;

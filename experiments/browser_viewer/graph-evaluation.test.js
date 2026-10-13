@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
+import { createHttpBackend } from './http-backend.js';
 
 function snapshot(states = { face: 'ready', transform: 'ready' }, extra = {}) {
   return { token: 'recipe', recipe: { nodes: Object.keys(states).map((id) => ({ id, label: id })) },
@@ -15,6 +16,11 @@ function fixture(responses, targets = ['face']) {
       return responses.shift();
     }, acceptState: (state) => accepted.push(state),
   };
+  options.backend = createHttpBackend({
+    fetch: async (path, init) => Response.json(await options.request(path,
+      init.body === undefined ? undefined : JSON.parse(init.body))),
+    wait: () => options.pause(),
+  });
   return { options, requests, accepted };
 }
 

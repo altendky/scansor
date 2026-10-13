@@ -4,15 +4,15 @@ function checkCurrent(state, token, isCurrent) {
   if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
   if (state.token !== token) throw new Error('Actions changed. Try again with the current actions.');
 }
-export async function waitForGraphEvaluation({ token, request, acceptState,
-  getState = () => null, acceptEvaluationStatus = () => {}, isCurrent = () => true,
-  pause = () => new Promise((resolve) => setTimeout(resolve, 150)) }) {
-  let state = getState();
-  do {
+export async function waitForGraphEvaluation({ token, backend, acceptState,
+  getState = () => null, acceptEvaluationStatus = () => {}, isCurrent = () => true }) {
+  let state = getState(), received = false;
+  if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
+  for await (const response of backend.graphUpdates({ revision: state?.revision, isCurrent })) {
+    received = true;
     if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
     const revision = state?.revision,
-      conditional = Number.isSafeInteger(revision) && revision >= 0,
-      response = await request(conditional ? `/api/graph?revision=${revision}` : '/api/graph');
+      conditional = Number.isSafeInteger(revision) && revision >= 0;
     checkCurrent(response, token, isCurrent);
     if (response.unchanged) {
       if (!conditional || response.revision !== revision || !state.recipe)
@@ -26,25 +26,26 @@ export async function waitForGraphEvaluation({ token, request, acceptState,
       state = response;
       acceptState(state);
     }
-    if (state.evaluation_running) await pause();
-  } while (state.evaluation_running);
+    if (!state.evaluation_running) break;
+  }
+  if (!received || state.evaluation_running)
+    throw new Error('Backend stopped before graph evaluation completed.');
   return state;
 }
 
-export async function ensureGraphCurrent({ targets, token, request, acceptState,
-  getState = () => null, acceptEvaluationStatus = () => {}, isCurrent = () => true,
-  pause = () => new Promise((resolve) => setTimeout(resolve, 150)) }) {
+export async function ensureGraphCurrent({ targets, token, backend, acceptState,
+  getState = () => null, acceptEvaluationStatus = () => {}, isCurrent = () => true }) {
   const ids = [...new Set(targets.filter(Boolean))];
   let state;
   do {
     if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
-    state = await request('/api/graph/ensure', { token, targets: ids });
+    state = await backend.ensureGraph({ token, targets: ids });
     if (state.recipe) {
       checkCurrent(state, token, isCurrent);
       acceptState(state);
     }
     if (!state.evaluation_running) break;
-    await waitForGraphEvaluation({ token, request, acceptState, getState, acceptEvaluationStatus, isCurrent, pause });
+    await waitForGraphEvaluation({ token, backend, acceptState, getState, acceptEvaluationStatus, isCurrent });
     // A joined job can have different targets. Ask the backend again after it
     // finishes, so that available geometry does not bypass required validation.
   } while (true);
