@@ -1,5 +1,9 @@
 # Nozzle browser selection experiment
 
+The separate [browser runtime probe](../browser_runtime/README.md) packages the
+bounded numerical/CAD source and tests Pyodide worker parity. It does not yet
+connect this UI to that worker; the HTTP adapter remains the current UI backend.
+
 The UI uses an internal [backend operation interface](backend.md). The current
 implementation keeps HTTP/native Python as the default; worker execution and
 static hosting remain separate experiments.
