@@ -26,3 +26,23 @@ test('an unavailable selected backend fails without HTTP fallback during startup
   await expect(page.locator('#startup-detail')).toContainText('Backend "unavailable" is unavailable');
   expect(requests).toBe(0);
 });
+
+test('native startup does not require the worker-only module', async ({ page }) => {
+  let workerRequests = 0;
+  await page.route('**/worker-backend.js', route => { workerRequests++; return route.abort(); });
+  await page.goto('/');
+  await expect(page.locator('[data-command-id="new-fit"]')).toBeEnabled();
+  await expect(page.locator('#startup-error')).toBeHidden();
+  expect(workerRequests).toBe(0);
+});
+
+test('configuration fetch failure displays a startup error without computation fallback', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/backend-config.js', route => route.abort());
+  await page.route('**/api/**', route => { requests++; return route.abort(); });
+  await page.goto('/');
+  await expect(page.locator('#startup-error')).toBeVisible();
+  await expect(page.locator('#startup-detail')).not.toBeEmpty();
+  await expect(page.locator('#recover-actions')).toBeDisabled();
+  expect(requests).toBe(0);
+});

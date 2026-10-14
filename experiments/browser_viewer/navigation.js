@@ -1,7 +1,7 @@
 import { MOUSE, Vector3 } from 'three';
 import { anchorRotation, anchorZoom, panByPixels } from './navigation-math.js';
-import { TrackballControls } from '/vendor/TrackballControls.js';
-import { OrbitControls } from '/vendor/OrbitControls.js';
+import { TrackballControls } from './vendor/TrackballControls.js';
+import { OrbitControls } from './vendor/OrbitControls.js';
 
 // Onshape-style mouse mapping. Keep navigation separate from selection and fitting.
 // Free rotation can roll; Alt rotation keeps the example's Z axis upright.
