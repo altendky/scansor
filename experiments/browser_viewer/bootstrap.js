@@ -82,6 +82,7 @@ async function start() {
   }
   getBackend({ type });
   await import('./app.js');
+  byId('load').disabled = false;
   ready();
 }
 

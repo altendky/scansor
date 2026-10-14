@@ -11,6 +11,7 @@ async function loadFile(page, recipe) {
 }
 
 async function ready(page) {
+  await expect(page.getByRole('button', { name: 'Save actions', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeEnabled();
   await expect.poll(async () => (await read(page)).evaluation_running).toBe(false);
 }

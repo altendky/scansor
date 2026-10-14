@@ -58,6 +58,16 @@ workspace browser tests passed; the expanded four-test startup suite then passed
 including worker-module independence and configuration failure. Configured
 Python types reported zero errors and warnings after fixture annotations.
 
+The first PR CI run passed 300 JavaScript checks and 98 UI cases, but a
+recipe-import case timed out. Logs showed the test treating the raw HTML's
+enabled Load button plus idle server as readiness before the file-change handler
+existed; a local run reproduced the race in another import case. Load now starts
+disabled and is enabled only after application startup. Recipe tests also wait
+for initialized Save readiness. A regression holds metadata loading, verifies
+Load remains disabled, then releases it and successfully imports a recipe.
+All eight targeted startup/import cases passed after this correction. Fresh
+full CI is required before merge; the failed run is not bypassed.
+
 Sandboxed loopback listeners were denied; server/browser checks ran with the
 authorized local-network execution permission. Sandboxed interpreter discovery
 omitted installed packages; the type checker passed with access to the existing

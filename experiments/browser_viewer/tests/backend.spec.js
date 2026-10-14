@@ -46,3 +46,27 @@ test('configuration fetch failure displays a startup error without computation f
   await expect(page.locator('#recover-actions')).toBeDisabled();
   expect(requests).toBe(0);
 });
+
+test('recipe loading stays disabled until delayed workspace startup installs its handler', async ({ page }) => {
+  let release, requested;
+  const gate = new Promise(resolve => { release = resolve; }),
+    entered = new Promise(resolve => { requested = resolve; });
+  await page.route('**/api/meta', async route => {
+    requested();
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto('/');
+    await entered;
+    await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeDisabled();
+    release();
+    await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeEnabled();
+    const recipe = (await (await page.request.get('/api/graph')).json()).recipe;
+    const imported = page.waitForResponse(response => response.url().endsWith('/api/graph/import') &&
+      response.request().method() === 'POST');
+    await page.locator('#file').setInputFiles({ name: 'actions.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(recipe)) });
+    expect((await imported).ok()).toBe(true);
+  } finally { release(); }
+});
