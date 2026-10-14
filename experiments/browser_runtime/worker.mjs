@@ -42,6 +42,11 @@ async function handle({ id, operation }) {
   // A failed initialization stays failed; never reuse a partially loaded runtime.
   initialization ??= initialize();
   await initialization;
+  if (operation === 'initialize') {
+    return { ready: true, versions: manifest.versions,
+      source_revision: manifest.source_revision,
+      source_worktree_dirty: manifest.source_worktree_dirty };
+  }
   if (operation === 'numeric') {
     if (cadLoaded) throw new Error('Run numerical startup in a fresh worker before importing CAD');
     phase('synthetic fitting, retained nozzle and graph replay');

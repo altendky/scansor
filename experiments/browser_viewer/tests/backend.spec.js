@@ -26,3 +26,47 @@ test('an unavailable selected backend fails without HTTP fallback during startup
   await expect(page.locator('#startup-detail')).toContainText('Backend "unavailable" is unavailable');
   expect(requests).toBe(0);
 });
+
+test('native startup does not require the worker-only module', async ({ page }) => {
+  let workerRequests = 0;
+  await page.route('**/worker-backend.js', route => { workerRequests++; return route.abort(); });
+  await page.goto('/');
+  await expect(page.locator('[data-command-id="new-fit"]')).toBeEnabled();
+  await expect(page.locator('#startup-error')).toBeHidden();
+  expect(workerRequests).toBe(0);
+});
+
+test('configuration fetch failure displays a startup error without computation fallback', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/backend-config.js', route => route.abort());
+  await page.route('**/api/**', route => { requests++; return route.abort(); });
+  await page.goto('/');
+  await expect(page.locator('#startup-error')).toBeVisible();
+  await expect(page.locator('#startup-detail')).not.toBeEmpty();
+  await expect(page.locator('#recover-actions')).toBeDisabled();
+  expect(requests).toBe(0);
+});
+
+test('recipe loading stays disabled until delayed workspace startup installs its handler', async ({ page }) => {
+  let release, requested;
+  const gate = new Promise(resolve => { release = resolve; }),
+    entered = new Promise(resolve => { requested = resolve; });
+  await page.route('**/api/meta', async route => {
+    requested();
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto('/');
+    await entered;
+    await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeDisabled();
+    release();
+    await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeEnabled();
+    const recipe = (await (await page.request.get('/api/graph')).json()).recipe;
+    const imported = page.waitForResponse(response => response.url().endsWith('/api/graph/import') &&
+      response.request().method() === 'POST');
+    await page.locator('#file').setInputFiles({ name: 'actions.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(recipe)) });
+    expect((await imported).ok()).toBe(true);
+  } finally { release(); }
+});

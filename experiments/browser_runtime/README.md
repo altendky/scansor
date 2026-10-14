@@ -103,7 +103,9 @@ between reads.
 ## Ownership, progress and limitations
 
 One worker executes requests serially. Initialization reports honest phases;
-synchronous fitting and native kernel calls do not offer granular progress in
+the `initialize` operation reports readiness without running numerical or CAD
+smoke tests, supporting the static UI bootstrap.
+Synchronous fitting and native kernel calls do not offer granular progress in
 this harness. Results cross the boundary as JSON strings, avoiding retained
 Python result proxies. The page terminates the worker after the probe, releasing
 its virtual filesystem and runtime. It handles worker startup/message failures;
