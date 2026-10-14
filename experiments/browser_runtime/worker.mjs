@@ -9,6 +9,10 @@ let initialization;
 let numericComplete = false;
 let cadLoaded = false;
 let workspaceLoaded = false;
+let workspaceCadEnabled = false;
+let cadInitialization;
+const cadOperations = new Set(['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']);
+const cadActions = new Set(['surface_intersection', 'trimmed_face', 'arranged_face', 'build_faces', 'body']);
 let chain = Promise.resolve();
 
 async function initialize() {
@@ -39,11 +43,15 @@ async function initialize() {
   for (const key of ['python', 'numpy', 'pydantic']) if (versions[key] !== manifest.versions[key]) throw new Error(`Incompatible ${key}: ${versions[key]}`);
 }
 
-function workspaceCall(method, operation, payload) {
+function ensureWorkspace() {
   if (!workspaceLoaded) {
     python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; browser_workspace = BrowserWorkspace(Path('/app/examples/nozzle-bayonette-simplified'))");
     workspaceLoaded = true;
   }
+}
+
+function workspaceCall(method, operation, payload) {
+  ensureWorkspace();
   python.globals.set('browser_operation', operation);
   python.globals.set('browser_payload', JSON.stringify(payload || {}));
   const envelope = JSON.parse(python.runPython(method === 'finish_evaluation_json'
@@ -57,7 +65,7 @@ function workspaceCall(method, operation, payload) {
   return envelope.result;
 }
 
-function displayBuffer(name) {
+function ownedBuffer(name) {
   const proxy = python.runPython(`browser_workspace.${name}`);
   let view;
   try {
@@ -66,6 +74,35 @@ function displayBuffer(name) {
     // the independently owned JS buffer; never detach the Python runtime's memory.
     return new Uint8Array(view.data).buffer;
   } finally { view?.release(); proxy.destroy(); }
+}
+
+async function loadCad({ workspace = false } = {}) {
+  if (!manifest.cad) {
+    const error = new Error('CAD assets are not included. Build the browser runtime with --cad.');
+    error.code = 'unsupported_capability';
+    throw error;
+  }
+  cadInitialization ??= (async () => {
+    phase('optional CAD asset verification and extraction');
+    const wheel = manifest.assets.find(r => r.group === 'cad');
+    if (!wheel) throw new Error('Missing CAD wheel record');
+    const site = python.runPython('import site; site.getsitepackages()[0]');
+    python.unpackArchive(await checkedFetch(wheel, base), 'zip', { extractDir: site });
+    phase('CAD kernel');
+    const version = python.runPython('import OCP; OCP.__version__');
+    if (version !== manifest.versions.ocp) throw new Error(`Incompatible OCP: ${version}`);
+    cadLoaded = true;
+  })().catch(cause => {
+    const error = new Error(`CAD tools could not load: ${cause.message}. Numerical work remains available; reload after fixing the CAD assets.`);
+    error.code = 'cad_startup_failed';
+    throw error;
+  });
+  await cadInitialization;
+  if (workspace && !workspaceCadEnabled) {
+    ensureWorkspace();
+    python.runPython('browser_workspace.enable_cad()');
+    workspaceCadEnabled = true;
+  }
 }
 
 async function handle({ operation }) {
@@ -86,15 +123,7 @@ async function handle({ operation }) {
   }
   if (operation === 'cad') {
     if (!numericComplete) throw new Error('Numerical parity must succeed before the optional CAD smoke test');
-    if (!manifest.cad) throw new Error('CAD assets were not included; rebuild with --cad');
-    if (!cadLoaded) {
-      phase('optional CAD asset verification and extraction');
-      const wheel = manifest.assets.find(r => r.group === 'cad');
-      if (!wheel) throw new Error('Missing CAD wheel record');
-      const site = python.runPython('import site; site.getsitepackages()[0]');
-      python.unpackArchive(await checkedFetch(wheel, base), 'zip', { extractDir: site });
-      cadLoaded = true;
-    }
+    await loadCad();
     phase('Scansor CAD, tessellation and named STEP smoke test');
     const result = JSON.parse(python.runPython("from experiments.browser_runtime.probe import browser_cad; browser_cad()"));
     if (result.version !== manifest.versions.ocp) throw new Error(`Incompatible OCP: ${result.version}`);
@@ -111,12 +140,30 @@ async function dispatch(request) {
   }
   initialization ??= initialize();
   await initialization;
+  if (operation === 'cad-regressions') {
+    await loadCad();
+    const result = JSON.parse(python.runPython('from experiments.browser_runtime.cad_cases import run_cases; json.dumps(run_cases(), allow_nan=False)'));
+    postMessage({ id, ok: true, result });
+    return;
+  }
+  if (cadOperations.has(operation) || (['replaceRecipe', 'importRecipe'].includes(operation) &&
+    Array.isArray(payload?.recipe?.nodes) && payload.recipe.nodes.some(node => cadActions.has(node?.operation))))
+    await loadCad({ workspace: true });
   if (operation === 'loadWorkspace') {
     const metadata = workspaceCall('call_json', operation, payload);
-    const positions = displayBuffer('display_positions'), indices = displayBuffer('display_indices');
+    const positions = ownedBuffer('display_positions'), indices = ownedBuffer('display_indices');
     postMessage({ id, ok: true, result: { metadata, positions, indices } }, [positions, indices]);
     postMessage({ id, kind: 'transfer-confirmed', positions_bytes_after: positions.byteLength,
       indices_bytes_after: indices.byteLength });
+  } else if (operation === 'exportCad') {
+    const descriptor = workspaceCall('call_json', operation, payload);
+    let bytes;
+    try {
+      bytes = ownedBuffer('export_buffer');
+      if (bytes.byteLength !== descriptor.bytes) throw new Error('Invalid export byte count');
+    } finally { python.runPython('browser_workspace.clear_export()'); }
+    postMessage({ id, ok: true, result: bytes }, [bytes]);
+    postMessage({ id, kind: 'transfer-confirmed', export_bytes_after: bytes.byteLength });
   } else if (['evaluateGraph', 'ensureGraph'].includes(operation)) {
     const prepared = workspaceCall('prepare_evaluation_json', operation, payload);
     postMessage({ id, ok: true, result: prepared.state });

@@ -8,6 +8,7 @@ the JavaScript adapter. There are no threads, HTTP handlers or cancellation here
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -78,6 +79,8 @@ class BrowserWorkspace:
     """
 
     def __init__(self, example: Path) -> None:
+        self.cad_enabled = False
+        self._export_buffer = b""
         self.workspace = NozzleWorkspace(example)
         default = load_recipe(example / DEFAULT_RECIPE)
         self._check_capabilities(default)
@@ -109,8 +112,9 @@ class BrowserWorkspace:
         self._job_errors: dict[tuple[str, frozenset[str]], str] = {}
         self._closed = False
 
-    @staticmethod
-    def _check_capabilities(recipe: Recipe) -> None:
+    def _check_capabilities(self, recipe: Recipe) -> None:
+        if self.cad_enabled:
+            return
         unsupported = [node for node in recipe.nodes if node.operation in CAD_ACTIONS]
         if unsupported:
             names = "; ".join(
@@ -185,7 +189,41 @@ class BrowserWorkspace:
             )
 
     def call_json(self, operation: str, payload_json: str = "{}") -> str:
+        if operation == "exportCad":
+            # Even malformed or rejected requests must not expose a prior ZIP.
+            self.clear_export()
         return self._json(lambda: self._call(operation, self._payload(payload_json)))
+
+    def enable_cad(self) -> None:
+        """Enable existing CAD paths after the host verifies/extracts the wheel.
+
+        A missing or incompatible import leaves the numerical workspace usable.
+        This method does not install packages or alter the current recipe.
+        """
+        self._check_open()
+        try:
+            ocp = importlib.import_module("OCP")
+        except ImportError as error:
+            raise WorkspaceError(
+                "Browser CAD runtime is unavailable; load the verified OCP assets first.",
+                "cad_runtime_unavailable",
+                503,
+            ) from error
+        if getattr(ocp, "__version__", None) != "8.0.1.1":
+            raise WorkspaceError(
+                "Browser CAD requires the investigated OCP 8.0.1.1 runtime.",
+                "cad_runtime_incompatible",
+                503,
+            )
+        self.cad_enabled = True
+
+    @property
+    def export_buffer(self) -> bytes:
+        """Most recent successful ZIP; the host copies then clears this buffer."""
+        return self._export_buffer
+
+    def clear_export(self) -> None:
+        self._export_buffer = b""
 
     def _call(self, operation: str, payload: dict[str, Any]) -> Any:
         if operation == "close":
@@ -193,6 +231,7 @@ class BrowserWorkspace:
             self._closed = True
             self._pending = None
             self._job_errors.clear()
+            self.clear_export()
             return None
         self._check_open()
         if operation == "loadWorkspace":
@@ -265,13 +304,98 @@ class BrowserWorkspace:
             state = apply_feature_reuse(self.graph, request)
             return {**self._snapshot(), "reuse_authoring": state["reuse_authoring"]}
         if operation in {"faceCandidates", "previewFaces", "applyFaces", "exportCad"}:
+            return self._cad_call(operation, payload)
+        raise WorkspaceError(
+            f"Unknown browser operation: {operation}", "unsupported_operation"
+        )
+
+    def _cad_call(self, operation: str, payload: dict[str, Any]) -> Any:
+        if not self.cad_enabled:
             raise WorkspaceError(
                 "Browser CAD is not enabled in this deployment.",
                 "unsupported_capability",
             )
-        raise WorkspaceError(
-            f"Unknown browser operation: {operation}", "unsupported_operation"
+        if operation == "exportCad":
+            return self._export_cad(payload)
+        if self._pending is not None:
+            raise WorkspaceError(
+                "Wait for graph evaluation before building faces.",
+                "evaluation_busy",
+                409,
+            )
+        if operation == "faceCandidates":
+            from experiments.guided_face_candidates import (
+                FaceCandidatesRequest,
+                candidate_faces,
+            )
+
+            return candidate_faces(
+                self.graph, FaceCandidatesRequest.model_validate(payload)
+            )
+        from experiments.face_builder import (
+            FacesApplyRequest,
+            FacesPreviewRequest,
+            apply_faces,
+            preview_faces,
         )
+
+        if operation == "previewFaces":
+            return preview_faces(
+                self.graph, FacesPreviewRequest.model_validate(payload)
+            )
+        _ = apply_faces(self.graph, FacesApplyRequest.model_validate(payload))
+        return self._snapshot()
+
+    def _export_cad(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from experiments.nozzle_cad import (
+            CadExportRequest,
+            export_cad,
+            export_face_targets,
+        )
+
+        request = CadExportRequest.model_validate(payload)
+        snapshot = self._snapshot()
+        if request.scope != "target":
+            if self._pending is not None:
+                raise WorkspaceError(
+                    "Wait for graph evaluation before exporting geometry.",
+                    "evaluation_busy",
+                    409,
+                )
+            roots = export_face_targets(snapshot, request)
+            roots.extend(request.review_owners)
+            if request.scope == "all_faces":
+                roots.extend(
+                    node["id"]
+                    for node in snapshot["recipe"]["nodes"]
+                    if node["operation"] == "build_faces"
+                )
+            if request.transform is not None:
+                roots.append(request.transform)
+            needed, current = self.graph.readiness_status(request.token, roots)
+            if needed or current is None:
+                raise ValueError(
+                    "export inputs are not current; evaluate them before exporting geometry"
+                )
+            snapshot = cast(dict[str, Any], current)
+            failed = snapshot["required_failures"]
+            if failed:
+                labels = {
+                    node["id"]: node["label"] for node in snapshot["recipe"]["nodes"]
+                }
+                raise ValueError(
+                    (
+                        "cannot export Body: "
+                        if request.scope == "body"
+                        else "cannot export built faces: "
+                    )
+                    + "; ".join(
+                        f"{labels.get(key, key)!r}: {snapshot['errors'].get(key, snapshot['states'][key])}"
+                        for key in failed
+                    )
+                )
+        self._export_buffer = export_cad(self.workspace, snapshot, request)
+        return {"bytes": len(self._export_buffer), "content_type": "application/zip"}
 
     def prepare_evaluation_json(self, operation: str, payload_json: str) -> str:
         return self._json(lambda: self._prepare(operation, self._payload(payload_json)))

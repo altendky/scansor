@@ -3,12 +3,14 @@
 The [browser runtime probe](../browser_runtime/README.md) packages bounded
 numerical/CAD source and tests Pyodide worker parity. The
 [static application experiment](../browser_static/README.md) connects this docking
-UI to the numerical worker with versioned assets and verified startup.
+UI to the worker with versioned assets and verified startup.
 The HTTP adapter remains the default operational UI backend. The static worker
 experiment opens the retained nozzle, edits selections, evaluates the existing
-numerical graph, and downloads/uploads actions. CAD remains a separate integration
-stage. See the [static experiment](../browser_static/README.md) for assembly and
-validation; this is not general scan ingestion or a browser-only product decision.
+numerical graph, and downloads/uploads actions. Including the approved CAD wheel
+also exposes existing supported face/body workflows and STEP bundles, with the
+kernel loaded when first needed. See the
+[static experiment](../browser_static/README.md) for assembly and validation;
+this is not general scan ingestion or a browser-only product decision.
 
 The UI uses an internal [backend operation interface](backend.md). The current
 implementation keeps HTTP/native Python as the default; worker execution and

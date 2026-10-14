@@ -74,9 +74,10 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
     manifest = {
         "schema_version": 1,
         "worker_protocol": {
-            "version": 2,
+            "version": 3,
             "bootstrap": "initialize",
             "workspace": "retained-nozzle-numerical",
+            "cad": "lazy-approved-ocp",
         },
         "source_revision": "native-revision",
         "source_worktree_dirty": False,
@@ -123,7 +124,7 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
     assert manifest["capabilities"] == {
         "runtime_bootstrap": True,
         "numerical": True,
-        "cad": False,
+        "cad": True,
     }
     assert manifest["bounded_examples"][0]["vertices"] == 24999
     assert manifest["bounded_examples"][0]["units"] == "unknown source units"
@@ -152,6 +153,18 @@ def test_corrupt_runtime_fails_without_creating_output(inputs: Inputs):
     with pytest.raises(ValueError, match="asset integrity failure"):
         BUILDER.build(output, runtime, root=root)
     assert not output.exists()
+
+
+def test_numerical_profile_disables_cad_in_config_and_manifest(inputs: Inputs):
+    root, runtime, output = inputs
+    target = runtime / "manifest.json"
+    manifest = json.loads(target.read_text())
+    manifest["cad"] = False
+    _ = target.write_text(json.dumps(manifest))
+    built = BUILDER.build(output, runtime, root=root)
+    assert built["capabilities"]["numerical"] is True
+    assert built["capabilities"]["cad"] is False
+    assert '"cad": false' in (output / "app/backend-config.js").read_text()
 
 
 def test_missing_ui_input_fails_without_creating_output(inputs: Inputs):

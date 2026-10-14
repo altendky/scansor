@@ -135,12 +135,15 @@
     "cad": [
       "experiments/arrangement_face_proposals.py",
       "experiments/body_geometry.py",
+      "experiments/browser_runtime/cad_cases.py",
       "experiments/face_adjacency.py",
       "experiments/face_arrangement.py",
+      "experiments/face_builder.py",
       "experiments/face_geometry.py",
       "experiments/face_proposals.py",
       "experiments/general_face_geometry.py",
       "experiments/general_face_proposals.py",
+      "experiments/guided_face_candidates.py",
       "experiments/nozzle_cad.py",
       "experiments/ocp_geometry.py",
       "experiments/shared_face_boundaries.py"

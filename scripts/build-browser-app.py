@@ -105,9 +105,10 @@ def read_runtime(runtime: Path) -> tuple[bytes, dict, dict[str, bytes]]:
     ):
         raise ValueError("unsupported runtime manifest")
     if manifest.get("worker_protocol") != {
-        "version": 2,
+        "version": 3,
         "bootstrap": "initialize",
         "workspace": "retained-nozzle-numerical",
+        "cad": "lazy-approved-ocp",
     }:
         raise ValueError(
             "runtime lacks the supported numerical workspace protocol; rebuild it"
@@ -252,12 +253,16 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
             "role": "native-default-overridden",
         }
     )
-    config = {"type": "worker", "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs"}
+    config = {
+        "type": "worker",
+        "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
+        "cad": bool(runtime_manifest["cad"]),
+    }
     files["app/backend-config.js"] = (
         "export default " + json.dumps(config, sort_keys=True) + ";\n"
     ).encode()
     files["index.html"] = (
-        b'<!doctype html><meta charset="utf-8"><title>Scansor experiment</title><h1>Scansor browser experiment</h1><p>Retained nozzle selection and numerical fitting. CAD is introduced separately.</p><a href="./app/">Open Scansor</a>\n'
+        b'<!doctype html><meta charset="utf-8"><title>Scansor experiment</title><h1>Scansor browser experiment</h1><p>Retained nozzle selection and fitting. CAD is available when included in the artifact.</p><a href="./app/">Open Scansor</a>\n'
     )
     for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
         path = checked_path(root, filename)
@@ -278,7 +283,11 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         "schema_version": 1,
         "kind": "scansor-static-app",
         "entry": "app/index.html",
-        "capabilities": {"runtime_bootstrap": True, "numerical": True, "cad": False},
+        "capabilities": {
+            "runtime_bootstrap": True,
+            "numerical": True,
+            "cad": bool(runtime_manifest["cad"]),
+        },
         "source_revision": state["revision"],
         "source_worktree_dirty": state["worktree_dirty"],
         "source_files": source_files,

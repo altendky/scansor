@@ -211,7 +211,7 @@ try {
   });
   report.workspace = workspace;
   assert.equal(workspace.capabilities.numerical, true);
-  assert.equal(workspace.capabilities.cad, false);
+  assert.equal(workspace.capabilities.cad, site.manifest.capabilities.cad);
   assert.equal(workspace.positions_bytes, 24999 * 3 * 4);
   assert.equal(workspace.indices_bytes, 49994 * 3 * 4);
   assert.equal(workspace.transferOwnership.sender_detached, true);
@@ -233,12 +233,13 @@ try {
   report.checks.real_fit_residual_display = true;
 
   for (const id of ['new-build-faces', 'new-surface-intersection', 'new-trimmed-face', 'new-body', 'export-cad']) {
+    if (workspace.capabilities.cad) continue;
     assert.ok(await page.locator('#' + id).isDisabled(), `CAD control ${id} must be disabled`);
     const rendered = page.locator(`[data-command-id="${id}"]`);
     for (let index = 0; index < await rendered.count(); index++)
       assert.ok(await rendered.nth(index).isDisabled(), `Rendered CAD control ${id} must be disabled`);
   }
-  report.checks.cad_controls_disabled = true;
+  report.checks.cad_controls_match_capabilities = true;
   await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
   const selected = initial.recipe.nodes.filter(node => node.operation === 'selection')
     .sort((left, right) => right.ids.length - left.ids.length)[0];
@@ -330,11 +331,13 @@ try {
       recipe.nodes.find(node => node.operation === 'source')[key] = '0'.repeat(64);
       await test(key, 'importRecipe', { token: current.token, recipe });
     }
-    const recipe = structuredClone(current.recipe), fits = recipe.nodes.filter(node => node.operation === 'fit');
-    recipe.nodes.push({ id: 'unavailable_cad_probe', label: 'Unavailable CAD probe', operation: 'surface_intersection',
-      first: { feature: fits[0].id }, second: { feature: fits[1].id } });
-    await test('CAD recipe', 'importRecipe', { token: current.token, recipe });
-    await test('CAD export', 'exportCad', { token: current.token });
+    if (!backend.capabilities.cad) {
+      const recipe = structuredClone(current.recipe), fits = recipe.nodes.filter(node => node.operation === 'fit');
+      recipe.nodes.push({ id: 'unavailable_cad_probe', label: 'Unavailable CAD probe', operation: 'surface_intersection',
+        first: { feature: fits[0].id }, second: { feature: fits[1].id } });
+      await test('CAD recipe', 'importRecipe', { token: current.token, recipe });
+      await test('CAD export', 'exportCad', { token: current.token });
+    }
     await test('other source', 'selectExample', { token: current.token, example: 'repeated-boss' });
     return { results, examples: await backend.listExamples() };
   });
