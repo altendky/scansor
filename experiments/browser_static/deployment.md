@@ -1,11 +1,64 @@
 # Manual GitHub Pages deployment
 
-**Prepared, not published.** GitHub Pages is the selected initial host for
-`scansor.app`. The manual workflow verifies an already-tested main CI artifact;
-it does not rebuild the application. Merging this preparation grants no
-publication, Pages configuration or DNS authority. Leave issue #211 and
-tracker #200 open until the authorized deployment and domain checks are recorded.
-The existing HTTP/native deployment remains available.
+**Published bounded experiment:** <https://scansor.app/> and its
+[/app/](https://scansor.app/app/) interface. The manual GitHub Pages workflow
+verifies an already-tested main CI artifact; it does not rebuild the application.
+Future publication and external configuration changes still require authority;
+merging preparation alone does not grant it. The existing HTTP/native deployment
+remains available.
+
+## Initial publication record
+
+The user authorized publication, verified the account domain and saved the apex
+DNS records on 2026-10-14. The initial release selected source
+`cb2ead3b4d611c76aa0dbf014a4ca0e8e60881a6`, successful main CI
+[run 38624257462](https://github.com/altendky/scansor/actions/runs/38624257462),
+artifact `11924122131`. The 101,726,881-byte ZIP matched its API/reviewed SHA-256:
+`d2c31a2c357a1e2d3427752e69fa38a89660b48d3cd2bd4bf368568fe481b4f5`.
+The site manifest matched
+`e6fc5a38a3adad54fe9e0deac9517b371f80986fe1c6c1e85c966942a8a5c64a`.
+The validator accepted all 20 CI steps and exactly 417 site files, 110,302,903
+bytes. The artifact expires at 2026-10-28T19:39:30Z.
+
+The final selection
+[dry run](https://github.com/altendky/scansor/actions/runs/38625807024) passed.
+Authorized [publication](https://github.com/altendky/scansor/actions/runs/38630640083)
+then succeeded with the same tested bytes and maintainer review in the main-only
+`github-pages` environment. Pages uses GitHub Actions as its source and the
+publication variable is enabled. Account/repository domain verification passed;
+both authoritative nameservers returned all four configured A and four AAAA
+records. GitHub's domain certificate was approved and HTTPS enforced; the actual
+HTTPS endpoint returned 200 and HTTP redirected to HTTPS. The certificate's
+observed expiry was 2027-01-12, not a guarantee of future certificate state.
+
+Eight actual public-site checks passed in desktop Chromium 156 on Linux between
+20:35:59Z and 20:36:47Z on 2026-10-14:
+
+- Landing, manifest identity, worker startup, nozzle fitting and Wasm MIME.
+- Polite numerical Cancel preserved the recipe; explicit Force recovered the
+  worker and reevaluation succeeded.
+- Recipe save, reload, upload and numerical replay preserved committed actions,
+  token, states and results.
+- Lazy OCP loading, intersection, trimmed-face construction and tessellation
+  produced a 590,237-byte export ZIP. Native OCP 8.0.1.1 read back the actual
+  public STEP export, verifying the Unicode face name, centimeter units, exact
+  recipe and float64 source mesh with 24,999 vertices.
+- Requests used same-origin static assets without computation API or external
+  fallback; there were no page errors. The secure context was true and
+  `crossOriginIsolated` false. HTML used the observed Pages cache response
+  `max-age=600`; custom isolation headers were absent.
+
+The local resolver retained an earlier negative DNS result during this smoke.
+The probe therefore mapped `scansor.app` to authoritative/public-DNS-verified
+`185.199.108.153` within its own HTTP client and browser processes. It kept the
+original hostname, SNI and full certificate validation; no global DNS change,
+response mock or TLS bypass was used. Public recursive A answers were positive,
+but ordinary local resolution and every IPv6 route were not demonstrated.
+
+The prior main artifact `11921096972` passed a separate rollback-selection
+[dry run](https://github.com/altendky/scansor/actions/runs/38624532024).
+An actual provider rollback was not exercised. The bounded workload and browser
+limitations below still apply; this is not a full-scan or WAN performance result.
 
 ## Artifact selection and dry run
 
@@ -80,9 +133,9 @@ it is local recovery evidence, not a clean release or real Pages deployment.
 After the CAD failure popup, the status text could still say it was unpacking
 CAD while the runtime footer was ready; the next numerical operation reset it.
 That display inconsistency is tracked in #230; committed work was preserved.
-Final main CI and the workflow dry run must accept the merged preparation's
-artifact before publication approval. Actual Pages/DNS/TLS, provider rollback,
-WAN performance and other browsers remain untested.
+Final main CI, the workflow dry run and actual Pages/DNS/TLS checks subsequently
+passed as recorded above. Provider rollback, WAN performance and other browsers
+remain untested.
 
 ## Final approval record
 
@@ -111,18 +164,20 @@ has read access to contents/actions; only deployment has `pages:write` and
 The upload/deploy actions are pinned, and the ordinary release workflow remains
 separate. No 1Password credential or new paid service is needed for this workflow.
 
-## Proposed domain configuration
+## Domain configuration
 
-Read-only public DNS on 2026-10-14 returned no apex A/AAAA answers and nameservers
-`dns1.registrar-servers.com` and `dns2.registrar-servers.com`. This is not access
+Preparation's read-only public DNS on 2026-10-14 returned no apex A/AAAA answers.
+Nameservers were `dns1.registrar-servers.com` and `dns2.registrar-servers.com`.
+This is not access
 to the provider configuration or proof that other records are absent. No DNS,
 domain verification, Pages setup or TLS changes were made during preparation.
 
-For the chosen apex host, the proposed records are:
+The user subsequently saved the following records for the chosen apex host;
+GitHub reports the domain as verified. Preserve the existing verification TXT:
 
-| Type | Name | Proposed value |
+| Type | Name | Configured value |
 | --- | --- | --- |
-| TXT | `_github-pages-challenge-altendky` | Actual GitHub-issued challenge; pending |
+| TXT | `_github-pages-challenge-altendky` | `a91e7ef99fefa6c3a7fed849c9fa75` |
 | A | `@` | `185.199.108.153` |
 | A | `@` | `185.199.109.153` |
 | A | `@` | `185.199.110.153` |
@@ -138,7 +193,7 @@ or repository path belongs in that target. Verify the account domain first,
 configure the repository domain before pointing traffic, then check propagation
 and HTTPS. Actions publishing ignores a `CNAME` file, so the tested artifact
 needs no domain-specific mutation. Recheck the current provider instructions
-before executing these proposed changes. See GitHub's
+before executing future domain changes. See GitHub's
 [domain management](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
 and [domain verification](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/verifying-your-custom-domain-for-github-pages)
 documentation, checked 2026-10-14.
@@ -196,9 +251,9 @@ After an authorized deploy or rollback, record:
 
 The [workload validation](workload-validation.md) defines the current bounded
 evidence. Other engines, mobile, realistic full scans, real-network startup and
-offline use remain unverified. Actual domain checks and a provider rollback
-are pending authorization; local preview and adversarial validator tests do not
-demonstrate them. GitHub's
+offline use remain unverified. Actual domain checks passed with the resolution
+caveat above; an actual provider rollback remains unexercised. Local preview and
+adversarial validator tests do not demonstrate provider rollback. GitHub's
 [workflow requirements](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
 and [Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
 remain applicable, including the 1 GB published-site limit and commercial-SaaS
