@@ -320,7 +320,8 @@ def test_failed_driver_does_not_leave_a_stubborn_descendant(tmp_path: Path):
     while time.monotonic() < deadline:
         try:
             state = status.read_text().split(") ", 1)[1].split()[0]
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # procfs can lose the process between opening and reading stat.
             state = None
             break
         if state == "Z":
