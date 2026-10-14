@@ -11,7 +11,7 @@
 .workspace-toolbar.prototype-toolbar[hidden] { display: none; }
 .prototype-toolbar[data-edge="float"] { box-shadow: 0 3px 12px #0008; }
 .prototype-toolbar[data-orientation="vertical"] { flex-direction: column; }
-.prototype-commands { display: flex; gap: 2px; min-width: 0; min-height: 0; overflow: auto; }
+.prototype-commands { display: flex; gap: 2px; min-width: 0; min-height: 0; overflow: hidden; }
 .prototype-toolbar[data-orientation="vertical"] .prototype-commands { flex-direction: column; }
 .prototype-toolbar button { display: flex; align-items: center; justify-content: center; gap: 4px;
   flex: none; margin: 0; padding: 5px; height: 30px; min-width: 30px; border: 0; border-radius: 3px;
