@@ -19,6 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5
@@ -37,3 +38,57 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:browser
+
+  static:
+    name: Static worker Chromium verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHON_VERSION: ${{ inputs.primary-python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5
+
+      - name: Install locked project and browser dependencies
+        run: |
+          uv sync --locked --python "$PYTHON_VERSION"
+          npm ci --ignore-scripts --no-audit --no-fund --prefix experiments/browser_viewer
+          npm run build --prefix experiments/browser_viewer
+
+      - name: Install the demonstrated browser engine
+        working-directory: experiments/browser_viewer
+        run: npx playwright install --with-deps chromium
+
+      - name: Build once and verify actual static workers
+        id: static
+        env:
+          STATIC_CHECK_DIRECTORY: ${{ runner.temp }}/agents/scansor-static
+        run: >-
+          uv run scripts/check-browser-static.py
+          --output "$STATIC_CHECK_DIRECTORY"
+          --native-python .venv/bin/python --measurements
+
+      - name: Upload allowlisted verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: static-browser-evidence
+          path: ${{ runner.temp }}/agents/scansor-static/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Public Actions artifacts distribute binaries too. No binary cache or
+      # trace ZIP is uploaded while the recorded source/notice gate is closed.
+      - name: Upload the exact tested site when redistribution is ready
+        if: ${{ success() && steps.static.outputs.redistribution_ready == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validated-static-browser
+          path: ${{ runner.temp }}/agents/scansor-static/release/
+          include-hidden-files: false
+          if-no-files-found: error
+          retention-days: 14

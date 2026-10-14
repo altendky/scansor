@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { verifySite, startPreview, prepareReports } from './server.mjs';
 
@@ -19,7 +20,8 @@ const site = await verifySite(directory);
 assert.equal(site.manifest.capabilities.cad, true, 'Build this profile with --cad');
 const playwrightDirectory = path.resolve(argument('--playwright-directory', 'experiments/browser_viewer'));
 const repository = path.resolve(argument('--repository', path.join(playwrightDirectory, '../..')));
-const output = await prepareReports(outputArgument, [site.root, repository]);
+const harnessRepository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const output = await prepareReports(outputArgument, [site.root, repository, harnessRepository]);
 const nativePython = path.resolve(argument('--native-python', path.join(repository, '.venv/bin/python')));
 const browserName = argument('--browser', 'chromium');
 if (!['chromium', 'firefox', 'webkit'].includes(browserName)) throw new Error(`Unsupported browser ${browserName}`);
@@ -28,7 +30,7 @@ const report = {
   started_utc: new Date().toISOString(), manifest_sha256: site.manifest_sha256,
   source_revision: site.manifest.source_revision, runtime: site.manifest.runtime,
   capabilities: site.manifest.capabilities, requests: [], external_requests: [], api_requests: [],
-  page_errors: [], checks: {},
+  page_errors: [], checks: {}, cleanup_attempts: [],
   inventory: { ui: 'Retained nozzle: shared intersection, bounded Unicode plane face, tessellation and ZIP export.',
     synthetic: 'Cylinder/cone sides, holes, oblique ellipse, periodic band, closed hollow body, open assembly failure, serial replay ownership, transformed STEP in three units. No UI-authored closed nozzle body claim.' },
 };
@@ -77,22 +79,41 @@ with tempfile.TemporaryDirectory(prefix='native-cad-', dir=output) as temporary:
     (output / 'native-cad.json').write_text(json.dumps(result,allow_nan=False))
 `;
 
-async function nativeReference() {
+let stopNative;
+async function nativeReference({ timeoutMs = 180000, graceMs = 2000 } = {}) {
   await new Promise((resolve, reject) => {
     const child = spawn(nativePython, ['-I', '-c', nativeCode,
       path.join(site.root, site.manifest.runtime.path), output], {
       cwd: output, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1', OPENBLAS_NUM_THREADS: '1', TMPDIR: output },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let messages = '', timedOut = false;
+    let messages = '', failure, killTimer, closed = false;
+    const attempt = { started_utc: new Date().toISOString(), pid: child.pid,
+      timeout_ms: timeoutMs, termination_grace_ms: graceMs, timed_out: false };
+    report.native_process = attempt;
     const collect = data => { messages = (messages + data.toString()).slice(-12000); };
     child.stdout.on('data', collect); child.stderr.on('data', collect);
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 180000);
-    child.once('error', error => { clearTimeout(timer); reject(error); });
-    child.once('close', code => {
-      clearTimeout(timer);
-      if (code || timedOut) reject(new Error(`Native CAD reference failed (${code}, timeout=${timedOut}): ${messages}`));
-      else resolve();
+    const terminate = error => {
+      failure ??= error;
+      if (closed || killTimer) return;
+      attempt.sigterm_sent = child.kill('SIGTERM');
+      killTimer = setTimeout(() => { attempt.sigkill_sent = child.kill('SIGKILL'); }, graceMs);
+    };
+    stopNative = terminate;
+    const timer = setTimeout(() => {
+      attempt.timed_out = true;
+      terminate(new Error(`Native CAD reference timed out after ${timeoutMs}ms: ${messages}`));
+    }, timeoutMs);
+    child.once('error', error => { failure ??= error; attempt.process_error = String(error); });
+    child.stdout.once('error', terminate); child.stderr.once('error', terminate);
+    // Await actual close even after spawn error, signal termination or escalation.
+    child.once('close', (code, signal) => {
+      closed = true; clearTimeout(timer); clearTimeout(killTimer);
+      if (stopNative === terminate) stopNative = undefined;
+      Object.assign(attempt, { closed_utc: new Date().toISOString(), exit_code: code, signal, messages });
+      if (code !== 0 || signal !== null || attempt.timed_out)
+        failure ??= new Error(`Native CAD reference failed (status=${code}, signal=${signal}, timeout=${attempt.timed_out}): ${messages}`);
+      failure ? reject(failure) : resolve();
     });
   });
   return JSON.parse(await readFile(path.join(output, 'native-cad.json'), 'utf8'));
@@ -143,8 +164,28 @@ async function chooseSurface(page, selector, feature) {
   await page.locator(selector).selectOption(value);
 }
 
-let browser, preview;
-const watchdog = setTimeout(() => { report.failure = 'CAD harness exceeded 15 minutes'; void browser?.close(); }, 900000);
+async function cleanup(name, action) {
+  const attempt = { name, started_utc: new Date().toISOString() };
+  report.cleanup_attempts.push(attempt);
+  let timer;
+  try {
+    await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${name} cleanup exceeded 10 seconds`)), 10000);
+    })]);
+    attempt.closed_utc = new Date().toISOString();
+  } catch (error) {
+    attempt.failure = String(error);
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
+let browser, preview, failure;
+const watchdog = setTimeout(() => {
+  failure ??= new Error('CAD harness exceeded 15 minutes');
+  report.failure = String(failure);
+  stopNative?.(failure);
+  void browser?.close().catch(error => { report.watchdog_browser_error = String(error); });
+}, 900000);
 try {
   preview = await startPreview(site, { prefix: '/cad/deep/', isolation: args.includes('--isolation') });
   browser = await playwright[browserName].launch({ headless: true });
@@ -441,14 +482,24 @@ try {
   report.checks.no_external_or_computation_http = true;
   report.finished_utc = new Date().toISOString();
   await context.close();
-} catch (error) { report.failure = String(error); throw error; }
+} catch (error) { failure ??= error; report.failure = String(failure); }
 finally {
   clearTimeout(watchdog);
-  if (browser) await browser.close();
-  if (preview) { report.static_requests = preview.requests; await preview.close(); }
+  if (browser) {
+    try { await cleanup('browser', () => browser.close()); }
+    catch (error) { failure ??= error; }
+  }
+  if (preview) {
+    report.static_requests = preview.requests;
+    try { await cleanup('preview', () => preview.close()); }
+    catch (error) { failure ??= error; }
+  }
   try { report.artifact_unchanged = (await verifySite(directory)).manifest_sha256 === site.manifest_sha256; }
-  catch (error) { report.artifact_unchanged = false; report.artifact_error = String(error); }
-  await writeFile(path.join(output, 'cad.json'), JSON.stringify(report, null, 2) + '\n');
-  if (!report.artifact_unchanged) throw new Error('Artifact changed during CAD validation');
+  catch (error) { report.artifact_unchanged = false; report.artifact_error = String(error); failure ??= error; }
+  if (!report.artifact_unchanged) failure ??= new Error('Artifact changed during CAD validation');
+  if (failure) report.failure = String(failure);
+  try { await writeFile(path.join(output, 'cad.json'), JSON.stringify(report, null, 2) + '\n'); }
+  catch (error) { failure ??= error; console.error('CAD report could not be written:', String(error)); }
 }
+if (failure) throw failure;
 console.log(JSON.stringify({ browser: report.browser, checks: report.checks, report: path.join(output, 'cad.json') }, null, 2));

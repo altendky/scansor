@@ -1,6 +1,7 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
 
 const args = process.argv.slice(2);
@@ -16,7 +17,8 @@ if (!directory || !outputArgument)
 const site = await verifySite(directory);
 const playwrightDirectory = path.resolve(argument('--playwright-directory', 'experiments/browser_viewer'));
 const repository = path.resolve(argument('--repository', path.join(playwrightDirectory, '../..')));
-const output = await prepareReports(outputArgument, [site.root, repository]);
+const harnessRepository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const output = await prepareReports(outputArgument, [site.root, repository, harnessRepository]);
 const browserName = argument('--browser', 'chromium');
 if (!['chromium', 'firefox', 'webkit'].includes(browserName))
   throw new Error(`Unsupported browser ${browserName}`);
@@ -32,6 +34,13 @@ const runtimeAsset = [...site.records.keys()].find(name => /\/runtime\/pyodide\.
 if (!runtimeAsset) throw new Error('Missing hashed Pyodide WASM asset for failure-injection case');
 const runtimeWorker = `${site.manifest.runtime?.path}/worker.mjs`;
 if (!site.records.has(runtimeWorker)) throw new Error('Missing runtime worker for post-ready failure case');
+const runtimeBytes = await readFile(path.join(site.root, runtimeAsset));
+const runtimeRecord = site.records.get(runtimeAsset);
+if (!runtimeBytes.length || runtimeBytes.length !== runtimeRecord.bytes || sha256(runtimeBytes) !== runtimeRecord.sha256)
+  throw new Error('Runtime asset changed before fault injection');
+const corruptRuntimeBytes = Buffer.from(runtimeBytes);
+corruptRuntimeBytes[corruptRuntimeBytes.length - 1] ^= 1;
+const corruptRuntimeSha256 = sha256(corruptRuntimeBytes);
 const injectedFailure = 'Injected runtime worker failure after readiness.';
 const injectionDelay = 1000;
 let browser;
@@ -41,7 +50,7 @@ try {
   for (const prefix of ['/', '/preview/nested/']) {
     const preview = await startPreview(site, { prefix, isolation });
     try {
-      for (const scenario of ['ready', 'missing-runtime', 'unsupported-backend', 'post-ready-failure']) {
+      for (const scenario of ['ready', 'missing-runtime', 'missing-worker', 'corrupt-runtime', 'unsupported-backend', 'post-ready-failure']) {
         const entry = {
           prefix, scenario, requests: [], unexpected_requests: [], api_requests: [],
           page_errors: [], console_errors: [], response_modifications: [], checks: {},
@@ -50,7 +59,7 @@ try {
         const context = await browser.newContext({ serviceWorkers: 'block' });
         const targetMissing = preview.origin + prefix + runtimeAsset;
         const targetWorker = preview.origin + prefix + runtimeWorker;
-        let missingRuntime = 0;
+        let missingRuntime = 0, missingWorker = 0;
         await context.route('**/*', async route => {
           const url = route.request().url();
           entry.requests.push(url);
@@ -67,6 +76,21 @@ try {
           if (scenario === 'missing-runtime' && url === targetMissing) {
             missingRuntime++;
             await route.fulfill({ status: 404, contentType: 'text/plain', body: 'Missing runtime asset' });
+            return;
+          }
+          if (scenario === 'missing-worker' && url === targetWorker) {
+            missingWorker++;
+            entry.response_modifications.push({ path: runtimeWorker, kind: 'worker URL HTTP404', status: 404 });
+            await route.fulfill({ status: 404, contentType: 'text/plain', body: 'Missing worker (harness injection)' });
+            return;
+          }
+          if (scenario === 'corrupt-runtime' && url === targetMissing) {
+            entry.response_modifications.push({
+              path: runtimeAsset, kind: 'HTTP200 same-size corrupted runtime bytes', status: 200,
+              bytes: corruptRuntimeBytes.length, original_sha256: runtimeRecord.sha256,
+              modified_sha256: corruptRuntimeSha256,
+            });
+            await route.fulfill({ status: 200, contentType: 'application/wasm', body: corruptRuntimeBytes });
             return;
           }
           if (scenario === 'post-ready-failure' && url === targetWorker) {
@@ -123,7 +147,7 @@ self.postMessage = (message, ...options) => {
               // running; both that race and a later failure must retire the UI.
             }
             await page.locator('#startup-error').waitFor({ state: 'visible',
-              timeout: scenario === 'missing-runtime' ? 60000 : 15000 });
+              timeout: ['missing-runtime', 'corrupt-runtime'].includes(scenario) ? 60000 : 15000 });
             entry.startup_detail = await page.locator('#startup-detail').textContent();
             entry.status = await page.locator('#status').textContent();
             entry.checks.startup_detail_present = !!entry.startup_detail.trim();
@@ -132,6 +156,15 @@ self.postMessage = (message, ...options) => {
             if (scenario === 'missing-runtime')
               entry.checks.missing_runtime_reported = missingRuntime > 0 &&
                 /missing asset.*404/i.test(entry.startup_detail);
+            else if (scenario === 'missing-worker')
+              entry.checks.missing_worker_reported = missingWorker > 0 &&
+                /worker|runtime|start|module|load|fetch|404/i.test(entry.startup_detail);
+            else if (scenario === 'corrupt-runtime') {
+              entry.checks.corrupt_runtime_rejected_by_integrity = entry.response_modifications.length > 0 &&
+                corruptRuntimeSha256 !== runtimeRecord.sha256 &&
+                /asset integrity failure/i.test(entry.startup_detail) &&
+                entry.startup_detail.includes(path.basename(runtimeAsset));
+            }
             else if (scenario === 'post-ready-failure') {
               entry.checks.injected_failure_reported = entry.response_modifications.length === 1 &&
                 entry.startup_detail.includes(injectedFailure);
@@ -152,6 +185,7 @@ self.postMessage = (message, ...options) => {
         } catch (error) { entry.failure = String(error); throw error; }
         finally {
           entry.missing_runtime_requests = missingRuntime;
+          entry.missing_worker_requests = missingWorker;
           await context.close();
           await writeFile(path.join(output, 'browser-static.json'), JSON.stringify(report, null, 2) + '\n');
         }
