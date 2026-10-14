@@ -63,6 +63,14 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const backend = getBackend();
+let evaluationIntent = 0;
+window.addEventListener('scansor-computation-stop', () => { evaluationIntent++; });
+function queueEnsureAll() {
+  const intent = evaluationIntent;
+  setTimeout(() => {
+    if (intent === evaluationIntent && $('auto-evaluate').checked) void ensureAll();
+  }, 0);
+}
 const viewport = $('viewport');
 viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
@@ -2242,7 +2250,7 @@ async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphS
   try {
     acceptGraph(await backend.replaceRecipe({ token: expectedToken, recipe }));
     status('Actions updated. Evaluate to refresh dependent results.');
-    if (autoEvaluate && $('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+    if (autoEvaluate && $('auto-evaluate').checked) queueEnsureAll();
     return true;
   } catch (error) {
     acceptGraph(await backend.getGraph());
@@ -2259,7 +2267,7 @@ async function applyFeatureReuse(reuseId, changes, create = false) {
     if (create) selectOnly(state.reuse_authoring.selected_id);
     acceptGraph(state);
     status('Actions updated. Evaluate to refresh dependent results.');
-    if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+    if ($('auto-evaluate').checked) queueEnsureAll();
     if (create) $('action-list')
       .querySelector(`[data-action-id="${CSS.escape(selectedFeatureId)}"].action-select`)
       ?.scrollIntoView({ block: 'nearest' });
@@ -3885,9 +3893,10 @@ async function ensureAll() {
   return evaluateGraph(true, null, false);
 }
 async function evaluateGraph(allActions, target = null, retry = true) {
+  const intent = evaluationIntent;
   while (activeGraphEvaluation) await activeGraphEvaluation;
-  if (busy) return;
-  activeGraphEvaluation = runGraphEvaluation(allActions, target, retry);
+  if (busy || intent !== evaluationIntent) return;
+  activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
   try { await activeGraphEvaluation; }
   finally { activeGraphEvaluation = null; }
 }
@@ -3906,7 +3915,8 @@ function acceptEvaluationStatus(state) {
     syncModelPickControls();
   }
 }
-async function runGraphEvaluation(allActions, target, retry) {
+async function runGraphEvaluation(allActions, target, retry, intent) {
+  const isCurrent = () => intent === evaluationIntent;
   busy = true;
   const toolbars = workspaceToolbars(), previousInert = toolbars.map(panel => panel.inert);
   toolbars.forEach(panel => { panel.inert = true; });
@@ -3919,14 +3929,15 @@ async function runGraphEvaluation(allActions, target, retry) {
       // Evaluate buttons are the explicit retry path; Auto and output consumers
       // only ensure current work, preserving failures until inputs change.
       await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
-        getState: () => graphState, acceptEvaluationStatus });
+        getState: () => graphState, acceptEvaluationStatus, isCurrent });
+      if (!isCurrent()) throw new Error('Computation was cancelled. Evaluate again when ready.');
       await backend.evaluateGraph({
         token, ...(allActions ? { all_actions: true } : { target }),
       });
       await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
-        getState: () => graphState, acceptEvaluationStatus });
+        getState: () => graphState, acceptEvaluationStatus, isCurrent });
     }
-    const state = await ensureCurrent(allActions ? graphState.recipe.nodes.map((node) => node.id) : [target]);
+    const state = await ensureCurrent(allActions ? graphState.recipe.nodes.map((node) => node.id) : [target], { isCurrent });
     const failed = Object.values(state.states).filter((value) => value === 'failed').length,
       blocked = Object.values(state.states).filter((value) => value === 'blocked').length;
     if (failed || blocked) {
@@ -4047,7 +4058,8 @@ function focusGeometryBox(box, panelElement) {
   controls.update();
   draw();
 }
-async function start() {
+let viewerSetup = false;
+async function start(recoveredState) {
   if (!backend.capabilities.cad) {
     for (const id of ['new-build-faces', 'new-surface-intersection', 'new-trimmed-face',
       'new-body', 'export-cad', 'review-build-faces', 'faces-only']) {
@@ -4557,7 +4569,7 @@ async function start() {
       } else $('build-faces-dialog').close();
       status('Reviewed faces applied. Existing manual geometry retained.');
       editWorkflowApplied();
-      if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+      if ($('auto-evaluate').checked) queueEnsureAll();
     } catch (error) {
       const message = error.message;
       try {
@@ -6303,7 +6315,7 @@ async function start() {
       acceptGraph(state);
       showImportWarnings(state.import_warnings || []);
       status('Actions loaded. Evaluate to refresh dependent results.');
-      if ($('auto-evaluate').checked) setTimeout(() => void ensureAll(), 0);
+      if ($('auto-evaluate').checked) queueEnsureAll();
     } catch (error) {
       status(error.message, true);
     } finally {
@@ -6611,11 +6623,37 @@ async function start() {
       }
     };
   }
-  const state = await backend.getGraph();
+  viewerSetup = true;
+  const state = recoveredState || await backend.getGraph();
   acceptGraph(state);
   if (location.hash === '#graph') revealWorkspacePanel('graph');
   $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');
-  if ($('auto-evaluate').checked) await ensureAll();
+  if (!recoveredState && $('auto-evaluate').checked) await ensureAll();
 }
-await start();
+let viewerInitialization;
+export function initializeViewer({ recoveredState, isCurrent = () => true } = {}) {
+  // Force can arrive while bootstrap is importing this module or awaiting the
+  // display source. Serialize callers so setup never duplicates the renderer.
+  const previous = viewerInitialization || Promise.resolve();
+  viewerInitialization = previous.catch(() => {}).then(async () => {
+    if (!isCurrent()) return;
+    if (!viewerSetup) return start(recoveredState);
+    // Recovery reuses the renderer, immutable source and event bindings.
+    if (activeGraphEvaluation) await activeGraphEvaluation.catch(() => {});
+    if (!isCurrent()) return;
+    if (recoveredState) {
+      invalidateBuildFaces('Computation stopped. Find candidates and preview again before applying faces.');
+      buildFacesCandidates = null;
+      buildFacesInspected = null;
+      buildFacesAcceptedContext = [];
+      $('build-faces-candidates').replaceChildren();
+      clearBodyInspection();
+      setModelPickMode(null);
+    }
+    acceptGraph(recoveredState || await backend.getGraph());
+    $('save').disabled = false;
+    status('Committed actions restored. Derived results were discarded; evaluate when ready.');
+  });
+  return viewerInitialization;
+}

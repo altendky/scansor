@@ -3,7 +3,8 @@
 JSON methods return ``{ok: true, result: ...}`` or a bounded structured error.
 Only display derivatives are exposed as NumPy buffers; fitting retains float64
 source arrays. Scheduling, pushed snapshots and request generations belong to
-the JavaScript adapter. There are no threads, HTTP handlers or cancellation here.
+the JavaScript adapter. Cancellation recovery discards disposable computation;
+there are no threads or HTTP handlers here.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from pydantic import ValidationError
 from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.feature_graph import (
     FeatureGraph,
+    GraphFailureCheckpoint,
     GraphRequest,
     Recipe,
     Record,
@@ -63,6 +65,14 @@ class _Evaluation:
     operation: str
     request: GraphRequest
     roots: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _OperationCheckpoint:
+    graph: GraphFailureCheckpoint
+    job_errors: dict[tuple[str, frozenset[str]], str]
+    last_token: str
+    last_error: str | None
 
 
 @final
@@ -111,6 +121,62 @@ class BrowserWorkspace:
         self._last_error: str | None = None
         self._job_errors: dict[tuple[str, frozenset[str]], str] = {}
         self._closed = False
+        self._operation_checkpoint: _OperationCheckpoint | None = None
+
+    def checkpoint_operation(self) -> None:
+        """Capture committed failure evidence before a cancellable operation.
+
+        Scheduling and interrupt delivery belong to JavaScript. Call this before
+        preparation, because explicit retry intentionally clears error memoization.
+        """
+        self._check_open()
+        if self._pending is not None:
+            raise WorkspaceError(
+                "Cannot checkpoint an active evaluation.", "evaluation_busy", 409
+            )
+        self._operation_checkpoint = _OperationCheckpoint(
+            self.graph.failure_checkpoint(),
+            self._job_errors.copy(),
+            self._last_token,
+            self._last_error,
+        )
+
+    def restore_cancelled_json(self, recipe_json: str) -> str:
+        """Restore after computation stops and the host clears its interrupt flag.
+
+        The recipe is the host's last accepted committed recipe, without import
+        collision renaming. The host starts a new publication epoch for the
+        returned graph; source arrays and CAD enablement retain their identities.
+        """
+        self.clear_export()
+        return self._json(lambda: self._restore_cancelled(recipe_json))
+
+    def _restore_cancelled(self, recipe_json: str) -> dict[str, Any]:
+        self._check_open()
+        checkpoint = self._operation_checkpoint
+        if checkpoint is None:
+            raise WorkspaceError(
+                "No operation checkpoint is available.", "checkpoint_missing", 409
+            )
+        recipe = Recipe.model_validate(self._payload(recipe_json))
+        self._check_capabilities(recipe)
+        graph = FeatureGraph(self.workspace, checkpoint.graph.recipe)
+        graph.restore_failures(checkpoint.graph)
+        restored = graph.replace(recipe, checkpoint.graph.token)
+        token = str(restored["token"])
+        self.graph = graph
+        self._pending = None
+        self._job_errors = {
+            key: error
+            for key, error in checkpoint.job_errors.items()
+            if key[0] == token
+        }
+        self._last_token = checkpoint.last_token
+        self._last_error = (
+            checkpoint.last_error if checkpoint.last_token == token else None
+        )
+        self._operation_checkpoint = None
+        return self._snapshot()
 
     def _check_capabilities(self, recipe: Recipe) -> None:
         if self.cad_enabled:
@@ -183,6 +249,19 @@ class BrowserWorkspace:
     def _json(self, operation: Callable[[], Any]) -> str:
         try:
             return json.dumps({"ok": True, "result": operation()}, allow_nan=False)
+        except KeyboardInterrupt:
+            self.clear_export()
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "computation_cancelled",
+                        "status": 409,
+                        "message": "Browser computation was cancelled.",
+                    },
+                },
+                allow_nan=False,
+            )
         except Exception as error:
             return json.dumps(
                 {"ok": False, "error": self._error(error)}, allow_nan=False
@@ -231,6 +310,7 @@ class BrowserWorkspace:
             self._closed = True
             self._pending = None
             self._job_errors.clear()
+            self._operation_checkpoint = None
             self.clear_export()
             return None
         self._check_open()

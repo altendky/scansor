@@ -21,6 +21,16 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
   const selected = Object.fromEntries(operations.map(operation =>
     [operation, backend[operation].bind(backend)]));
   selected.capabilities = backend.capabilities;
+  // Lifecycle controls are optional capabilities. HTTP keeps its existing
+  // request-abort behavior and native shutdown contract.
+  for (const method of ['cancelComputation', 'forceRestart']) {
+    selected[method] = typeof backend[method] === 'function' ? backend[method].bind(backend)
+      : async () => { throw new BackendError('This backend does not support runtime control.',
+        { code: 'unsupported_capability' }); };
+  }
+  selected.getLifecycle = typeof backend.getLifecycle === 'function' ? backend.getLifecycle.bind(backend)
+    : () => { throw new BackendError('This backend does not support runtime control.',
+      { code: 'unsupported_capability' }); };
   for (const [capability, methods] of Object.entries({
     cad: ['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad'],
     examples: ['listExamples', 'selectExample', 'getExampleRecipe'],

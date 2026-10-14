@@ -26,6 +26,8 @@ test('HTTP mutations preserve payloads, headers, errors and request identities',
     return true;
   });
   assert.equal(backend.capabilities.cancelComputation, false);
+  await assert.rejects(backend.cancelComputation(), error => error.code === 'unsupported_capability');
+  await assert.rejects(backend.forceRestart(), error => error.code === 'unsupported_capability');
 });
 
 test('workspace and CAD results expose owned buffers rather than URLs or HTTP responses', async () => {

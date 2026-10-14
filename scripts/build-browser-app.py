@@ -105,7 +105,7 @@ def read_runtime(runtime: Path) -> tuple[bytes, dict, dict[str, bytes]]:
     ):
         raise ValueError("unsupported runtime manifest")
     if manifest.get("worker_protocol") != {
-        "version": 3,
+        "version": 4,
         "bootstrap": "initialize",
         "workspace": "retained-nozzle-numerical",
         "cad": "lazy-approved-ocp",

@@ -2500,6 +2500,18 @@ class SharedBoundaryInputs:
 
 
 @final
+@dataclass(frozen=True)
+class GraphFailureCheckpoint:
+    """Failure-only recovery evidence; contains no numerical or native caches."""
+
+    recipe: Recipe
+    token: str
+    states: dict[str, str]
+    errors: dict[str, str]
+    diagnostics: dict[str, dict[str, Any]]
+
+
+@final
 class FeatureGraph:
     def __init__(self, workspace: NozzleWorkspace, recipe: Recipe) -> None:
         self.workspace = workspace
@@ -2525,6 +2537,41 @@ class FeatureGraph:
         self._validation_reviews: dict[
             tuple[str, bool], tuple[str, dict[str, Any]]
         ] = {}
+
+    def failure_checkpoint(self) -> GraphFailureCheckpoint:
+        """Retain unchanged failures when disposable computation is discarded."""
+        with self.lock:
+            states = {
+                key: state
+                for key, state in self._states.items()
+                if state in {"failed", "blocked"}
+            }
+            return GraphFailureCheckpoint(
+                self._recipe.model_copy(deep=True),
+                self._token(),
+                states,
+                {key: error for key, error in self._errors.items() if key in states},
+                deepcopy(
+                    {
+                        key: diagnostic
+                        for key, diagnostic in self._diagnostics.items()
+                        if key in states
+                    }
+                ),
+            )
+
+    def restore_failures(self, checkpoint: GraphFailureCheckpoint) -> None:
+        """Restore failure evidence onto a fresh graph with the same recipe."""
+        with self.lock:
+            if checkpoint.token != self._token():
+                raise StaleGraph("failure checkpoint belongs to another recipe")
+            if any(state != "unevaluated" for state in self._states.values()):
+                raise ValueError("failure restoration requires a fresh graph")
+            self._states.update(checkpoint.states)
+            self._errors.update(checkpoint.errors)
+            self._diagnostics.update(deepcopy(checkpoint.diagnostics))
+            if checkpoint.states:
+                self._revision += 1
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
