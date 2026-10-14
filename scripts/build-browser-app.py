@@ -8,11 +8,13 @@
 import argparse
 import hashlib
 import json
+import runpy
 import subprocess
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+REDISTRIBUTION_LOCK = ROOT / "scripts/browser-redistribution-lock.json"
 VIEWER = "experiments/browser_viewer"
 EXAMPLE = "examples/nozzle-bayonette-simplified"
 BUILD_INPUTS = (
@@ -214,13 +216,105 @@ def verify(output: Path) -> dict:
             raise ValueError(f"duplicate app asset: {record['path']}")
         seen.add(record["path"])
         read_asset(output, record)
+    if manifest.get("redistribution_ready") is True and not isinstance(
+        manifest.get("redistribution"), dict
+    ):
+        raise ValueError("ready static app lacks redistribution evidence")
+    if manifest.get("redistribution") is not None:
+        validate_redistribution(output, manifest)
     return manifest
 
 
-def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
+def validate_redistribution(output: Path, manifest: dict) -> None:
+    runtime_builder = runpy.run_path(str(ROOT / "scripts/build-browser-runtime.py"))
+    runtime = checked_path(output, manifest["runtime"]["path"])
+    raw, runtime_manifest, _ = read_runtime(runtime)
+    if digest(raw) != manifest["runtime"]["manifest_sha256"]:
+        raise ValueError("static runtime manifest identity mismatch")
+    ui_locks = [
+        record["sha256"]
+        for record in manifest["build_inputs"]
+        if record["path"] == f"{VIEWER}/package-lock.json"
+    ]
+    if len(ui_locks) != 1:
+        raise ValueError("static UI lacks one package-lock identity")
+    supplement, _ = runtime_builder["read_redistribution"](
+        checked_path(output, "redistribution"),
+        ["ui"],
+        REDISTRIBUTION_LOCK,
+        {
+            "runtime_lock_sha256": runtime_manifest.get("runtime_lock_sha256"),
+            "ui_package_lock_sha256": ui_locks[0],
+        },
+    )
+    metadata = manifest["redistribution"]
+    expected_requirements = runtime_builder["complete_requirements"](
+        supplement, ["ui"], set()
+    )
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("inventory_sha256") != supplement["inventory_sha256"]
+        or metadata.get("path") != "redistribution"
+        or metadata.get("requirements") != expected_requirements
+        or metadata.get("manifest_sha256")
+        != digest(checked_path(output, "redistribution/manifest.json").read_bytes())
+    ):
+        raise ValueError("static UI redistribution evidence mismatch")
+    ready = runtime_manifest.get("redistribution_ready") is True
+    if ready:
+        runtime_builder["validate_runtime_redistribution"](
+            runtime, runtime_manifest, REDISTRIBUTION_LOCK
+        )
+    if (
+        manifest.get("redistribution_ready") is not ready
+        or manifest.get("runtime_redistribution_ready")
+        != runtime_manifest.get("redistribution_ready", False)
+        or manifest.get("redistribution_gaps")
+        != runtime_manifest.get("redistribution_gaps", [])
+    ):
+        raise ValueError("static redistribution readiness mismatch")
+
+
+def build(
+    output: Path,
+    runtime: Path,
+    *,
+    root: Path = ROOT,
+    redistribution: Path | None = None,
+) -> dict:
     runtime = runtime.resolve()
     output = check_output(output, root, runtime)
     raw, runtime_manifest, runtime_files = read_runtime(runtime)
+    supplement = None
+    supplemental_assets = []
+    requirements = []
+    ui_lock_hash = None
+    ui_lock_raw = None
+    if redistribution is not None:
+        redistribution = redistribution.resolve()
+        if output.is_relative_to(redistribution) or redistribution.is_relative_to(
+            output
+        ):
+            raise ValueError("output and redistribution input must not overlap")
+        runtime_builder = runpy.run_path(str(ROOT / "scripts/build-browser-runtime.py"))
+        ui_lock_raw = checked_path(root, f"{VIEWER}/package-lock.json").read_bytes()
+        ui_lock_hash = digest(ui_lock_raw)
+        supplement, supplemental_assets = runtime_builder["read_redistribution"](
+            redistribution,
+            ["ui"],
+            REDISTRIBUTION_LOCK,
+            {
+                "runtime_lock_sha256": runtime_manifest.get("runtime_lock_sha256"),
+                "ui_package_lock_sha256": ui_lock_hash,
+            },
+        )
+        requirements = runtime_builder["complete_requirements"](
+            supplement, ["ui"], set()
+        )
+        if runtime_manifest.get("redistribution_ready") is True:
+            runtime_builder["validate_runtime_redistribution"](
+                runtime, runtime_manifest, REDISTRIBUTION_LOCK
+            )
     inventory = example_inventory(runtime, runtime_manifest)
     runtime_hash = digest(raw)
     runtime_prefix = f"app/runtime/{runtime_hash}"
@@ -269,6 +363,14 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         if not path.is_file():
             raise ValueError(f"missing UI notice: {filename}")
         files[f"notices/scansor/{filename}"] = path.read_bytes()
+    if supplement is not None:
+        for record in supplemental_assets:
+            files["redistribution/" + record["path"]] = read_asset(
+                redistribution, record
+            )
+        files["redistribution/manifest.json"] = (
+            json.dumps(supplement, indent=2, sort_keys=True) + "\n"
+        ).encode()
     state = repository_state(root)
     build_inputs = []
     for name in BUILD_INPUTS:
@@ -276,9 +378,17 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         build_inputs.append(
             {
                 "path": relative,
-                "sha256": digest(checked_path(root, relative).read_bytes()),
+                "sha256": digest(ui_lock_raw)
+                if name == "package-lock.json" and ui_lock_raw is not None
+                else digest(checked_path(root, relative).read_bytes()),
             }
         )
+    if (
+        supplement is not None
+        and digest(checked_path(root, f"{VIEWER}/package-lock.json").read_bytes())
+        != ui_lock_hash
+    ):
+        raise ValueError("UI package lock changed during assembly")
     package = {
         "schema_version": 1,
         "kind": "scansor-static-app",
@@ -302,13 +412,26 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         },
         "bounded_examples": [inventory],
         "backend": config,
-        "redistribution_ready": False,
+        "redistribution_ready": supplement is not None
+        and runtime_manifest.get("redistribution_ready") is True,
+        "redistribution": {
+            "inventory_sha256": supplement["inventory_sha256"],
+            "manifest_sha256": digest(files["redistribution/manifest.json"]),
+            "requirements": requirements,
+            "path": "redistribution",
+        }
+        if supplement is not None
+        else None,
         "runtime_redistribution_ready": runtime_manifest.get(
             "redistribution_ready", False
         ),
         "redistribution_gaps": [
             *runtime_manifest.get("redistribution_gaps", []),
-            "Static UI dependency notices require publication review; this package does not authorize publication.",
+            *(
+                []
+                if supplement is not None
+                else ["Static UI dependency notice/source supplement is missing."]
+            ),
         ],
         "assets": [
             {"path": name, "bytes": len(data), "sha256": digest(data)}
@@ -336,6 +459,11 @@ def main() -> None:
         "--runtime", type=Path, help="existing hash-verified #201 artifact"
     )
     parser.add_argument(
+        "--redistribution",
+        type=Path,
+        help="verified UI notice supplement from the reviewed redistribution lock",
+    )
+    parser.add_argument(
         "--verify", action="store_true", help="verify an existing assembled artifact"
     )
     args = parser.parse_args()
@@ -345,13 +473,13 @@ def main() -> None:
     else:
         if args.runtime is None:
             parser.error("--runtime is required when assembling")
-        package = build(args.output, args.runtime)
+        package = build(args.output, args.runtime, redistribution=args.redistribution)
         print(
             json.dumps(
                 {
                     "output": str(args.output.resolve()),
                     "runtime": package["runtime"],
-                    "redistribution_ready": False,
+                    "redistribution_ready": package["redistribution_ready"],
                 }
             )
         )

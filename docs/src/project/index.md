@@ -49,6 +49,11 @@ outside the intended boundary.
     families, implicit unions, and nested-shell cavity assembly remain deferred;
     frontend-independent sessions and Python adapter;
     browser-first exploration does not select a browser-only product architecture
+- [Browser hosting investigation](experiments/browser-hosting.md)
+  - **Research finding and selected experiment host:** GitHub Pages selected for
+    the initial bounded experiment with optional isolation; measured runtime
+    inventory and Cloudflare Workers Static Assets comparison; redistribution
+    completion, release validation, DNS and publication remain explicit gates
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,

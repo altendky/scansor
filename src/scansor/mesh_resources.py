@@ -330,8 +330,14 @@ class ResourceMonitor:
         self.sample()
         self.check()
         if self.callback is not None:
-            self._emit("phase", boundary_ns=self._phase_started_ns)
-            self.check()
+            try:
+                self._emit("phase", boundary_ns=self._phase_started_ns)
+                self.check()
+            except BaseException as error:
+                # Context entry has not registered __exit__ yet. Attempt final
+                # telemetry through its existing failure-preserving path.
+                self.__exit__(type(error), error, error.__traceback__)
+                raise
         self._thread = threading.Thread(
             target=self._run, name="scansor-mesh-monitor", daemon=True
         )

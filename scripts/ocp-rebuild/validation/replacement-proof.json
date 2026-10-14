@@ -1,0 +1,210 @@
+{
+  "backend_command": [
+    "pyodide",
+    "build",
+    "--exports=pyinit",
+    "--no-isolation",
+    "--skip-emscripten-install",
+    "-Ccmake.define.ENABLE_IPO=OFF",
+    "-v"
+  ],
+  "boundaries": [
+    "Candidate source worktree was dirty on recorded base; no clean release claim.",
+    "Only the disposable candidate replaces the CAD wheel and appends a marker assertion; published runtime lock remains unchanged.",
+    "Actual UI face/export cases and synthetic body/STEP cases are distinct; no full-resolution or arbitrary scan claim.",
+    "Compilation was completed before the timed final optimizer retry; 9.71 minutes is not full clean rebuild time.",
+    "Original publisher toolchain and byte identity remain unknown; no O4 or performance equivalence claim.",
+    "No new copyleft component, alternative binding, publication or DNS change."
+  ],
+  "browser_native_checks": {
+    "artifact_unchanged": true,
+    "browser": {
+      "name": "chromium",
+      "version": "156.0.8078.4"
+    },
+    "checks": {
+      "frozen_numeric_then_cad_serial_and_new_worker": true,
+      "injected_body_zip_native_reopen_transform_provenance_tolerance": true,
+      "missing_cad_numeric_remains_available": true,
+      "modified_library_marker_in_real_cad_worker": true,
+      "native_geometry_step_units_unicode_and_float64_reference": true,
+      "no_external_or_computation_http": true,
+      "numeric_startup_without_ocp": true,
+      "real_ui_face_authoring_tessellation": true,
+      "real_ui_open_body_diagnostic_export_refusal": true,
+      "stale_export_atomic": true,
+      "worker_face_candidates_preview_apply_atomic_rejections": true,
+      "zip_buffer_sender_detached": true
+    },
+    "finished_utc": "2026-10-14T17:38:29.069Z",
+    "inventory": {
+      "synthetic": "Cylinder/cone sides, holes, oblique ellipse, periodic band, closed hollow body, open assembly failure, serial replay ownership, transformed STEP in three units. No UI-authored closed nozzle body claim.",
+      "ui": "Retained nozzle: shared intersection, bounded Unicode plane face, tessellation and ZIP export."
+    },
+    "manifest_sha256": "b460d9190d0d715c94d2f44525097e4dea938ba395fedaf8ec0b9120ba38dad6",
+    "native_cases": {
+      "atol": 1e-08,
+      "max_difference": 4.547473508864641e-13,
+      "max_difference_path": "cases.periodic_band.area",
+      "numbers": 5908,
+      "rtol": 1e-08
+    },
+    "native_versions": {
+      "numpy": "2.5.1",
+      "ocp": "8.0.1.1",
+      "pydantic": "2.13.4",
+      "python": "3.12.14"
+    },
+    "new_worker": {
+      "atol": 1e-08,
+      "max_difference": 0,
+      "max_difference_path": null,
+      "numbers": 5908,
+      "rtol": 1e-08
+    },
+    "serial_repeated": {
+      "atol": 1e-08,
+      "max_difference": 0,
+      "max_difference_path": null,
+      "numbers": 5908,
+      "rtol": 1e-08
+    },
+    "source_revision": "9ff8e0cee6bcf3ea5af6a2047a389838a2578201",
+    "started_utc": "2026-10-14T17:37:11.490Z"
+  },
+  "build": {
+    "all_recorded_owned_processes_exited": true,
+    "cache_reuse": "Only final directory-based repair/optimization target ran; cached C++ objects and linked side module reused by supported backend",
+    "environment_sha256": "f2809d819ad5a7e2747a99ff3888bf375f55cd5af81e308c152940b2ea95cc71",
+    "ninja_steps": [
+      "[1/1] Generating OCP-wasm-opt"
+    ],
+    "optimization_profile": "Release CI=0 final repair O1; CFLAGS/CXXFLAGS=-O3, LDFLAGS=-O1, IPO off, Binaryen cores1, Ninja2 unchanged",
+    "repaired_spans_inclusive": [
+      [
+        186822080,
+        186822085
+      ],
+      [
+        188576481,
+        188576487
+      ]
+    ]
+  },
+  "build_result": {
+    "elapsed_seconds": 582.5330247131642,
+    "finished": true,
+    "limits": {
+      "aggregate_rss": 12884901888,
+      "minimum_disk_free": 8589934592,
+      "minimum_mem_available": 5368709120,
+      "per_process_address_space": 15032385536,
+      "timeout_seconds": 21600
+    },
+    "peak_rss_bytes": 4226932736,
+    "returncode": 0,
+    "started_utc": "2026-10-14T17:25:11.240674+00:00",
+    "stop_reason": null
+  },
+  "candidate": {
+    "candidate_driver_sha256": "8561ab3e41c6303615b9a970df298fd15cdc836f6a863651113076e57db8f624",
+    "candidate_redistribution_ready": false,
+    "candidate_runtime_manifest_sha256": "8dc98503575ea4e8af67af26eea2d9153f5cc8ca91f4d1cc48eaed19e5a8d571",
+    "candidate_site_manifest_sha256": "b460d9190d0d715c94d2f44525097e4dea938ba395fedaf8ec0b9120ba38dad6",
+    "hook_sha256": "39b7330378903945f6d2074f475eff83cb60907d61b9445a027f417f19395a7a",
+    "parent_driver_sha256": "3fe108a4925da3dce7651421aa0b2b505715dc842a50394a21ac36ed93352b6c",
+    "parent_site_manifest_sha256": "cd90d4578897027240bece9b39940b7a9bb983917e34503343f2fcbde57ff647",
+    "preparation_script_sha256": "96a14a3e09ec3a3ba56582babc687203fa2afe4dfea008ed850ad9ff1882bf88",
+    "production_runtime_lock_changed": false,
+    "runtime_lock_sha256": "3ca6e4b89d28b0bd8dd25d2dcd94fd059b28807615ed6e55b8f5db1d113576ef",
+    "wheel_sha256": "e4df301c538617bc2a53cbe28cd44b222bb7b180677b8bc672c4e8a9e0d76762",
+    "wheel_tags": [
+      "cp314-cp314-pyemscripten_2026_0_wasm32"
+    ],
+    "wheel_version": "8.0.1.1"
+  },
+  "retained_raw_evidence": [
+    {
+      "bytes": 319516,
+      "name": "cad.json",
+      "sha256": "6dc5ec0e27b4e01ce341b4b6208346a91df294a2bca4ce62315db5cb93b4e227"
+    },
+    {
+      "bytes": 6569,
+      "name": "candidate-build-proof.json",
+      "sha256": "399d5ef2f7352f1cd9db2c0df2109c2691e36fe0ec1518d07f4bfc8b88c182c9"
+    },
+    {
+      "bytes": 1789,
+      "name": "candidate-wheel.json",
+      "sha256": "78e031b62fca4ee30a555e0cef6ed8b381c23f4d0421783738567a20bdb3d742"
+    },
+    {
+      "bytes": 1054,
+      "name": "preparation.json",
+      "sha256": "f88a6e7d6ec45b7d9b29673b3f77ba958e667a29c128c89ae5da0ba97e909ead"
+    },
+    {
+      "bytes": 3504,
+      "name": "patch-route-review.json",
+      "sha256": "3faeb5be922c19aee4bff7186b958cc13293168aabea49b369132ea354cb365c"
+    },
+    {
+      "bytes": 5529,
+      "name": "release-o1-ci-review.md",
+      "sha256": "d6c46c47cf75361aec10cdfe715e34de34d0e32d895a796aab01e40efbd43613"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "Executed modified approved OCP/OCCT source replacement; bounded Scansor CAD and native readback. Not a release artifact or publisher O4/performance equivalence.",
+  "wheel_inventory": {
+    "members": [
+      {
+        "bytes": 155714742,
+        "path": "OCP.cpython-314-wasm32-emscripten.so",
+        "sha256": "c9211867771b70fd78752720d4ce399439897535a7224e7a9797e2222cf6602e"
+      },
+      {
+        "bytes": 159,
+        "path": "cadquery_ocp_novtk_ocp_wasm-8.0.1.1.dist-info/METADATA",
+        "sha256": "2fd618e1e669a1cde72beac431ef437663ee015d6186da8f8da0e8795dc55ab5"
+      },
+      {
+        "bytes": 122,
+        "path": "cadquery_ocp_novtk_ocp_wasm-8.0.1.1.dist-info/WHEEL",
+        "sha256": "77f45cb8d2ea151cc29748dba7fd1dae36dea2c1109d181336f7cc23d5f5c0fd"
+      },
+      {
+        "bytes": 370,
+        "path": "cadquery_ocp_novtk_ocp_wasm-8.0.1.1.dist-info/RECORD",
+        "sha256": "390d575ddca5ff86e02adf1e19be38f27da6ce4b71dd52a01608a654419bf554"
+      }
+    ],
+    "metadata": {
+      "cadquery_ocp_novtk_ocp_wasm-8.0.1.1.dist-info/METADATA": "Metadata-Version: 2.2\nName: cadquery-ocp-novtk-OCP.wasm\nVersion: 8.0.1.1\nSummary: Python bindings for OCP using scikit-build-core\nAuthor: Yeicor\nLicense: MIT\n\n",
+      "cadquery_ocp_novtk_ocp_wasm-8.0.1.1.dist-info/WHEEL": "Wheel-Version: 1.0\nGenerator: scikit-build-core 1.0.3\nRoot-Is-Purelib: false\nTag: cp314-cp314-pyemscripten_2026_0_wasm32\n\n"
+    },
+    "module": {
+      "bytes": 155714742,
+      "path": "OCP.cpython-314-wasm32-emscripten.so",
+      "sha256": "c9211867771b70fd78752720d4ce399439897535a7224e7a9797e2222cf6602e"
+    },
+    "notice_members": [],
+    "schema_version": 1,
+    "scope": "Candidate identity and metadata only; worker marker and actual CAD/native readback remain required.",
+    "wheel": {
+      "bytes": 22723862,
+      "path": "src/ocp-wasm/cadquery-ocp-novtk/dist/cadquery_ocp_novtk_ocp_wasm-8.0.1.1-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+      "sha256": "e4df301c538617bc2a53cbe28cd44b222bb7b180677b8bc672c4e8a9e0d76762"
+    }
+  },
+  "worker_marker": {
+    "distinct_workers": 3,
+    "observations": 9,
+    "ocp_versions": [
+      "8.0.1.1"
+    ],
+    "value": "scansor-226-relinked-occt",
+    "wheel_sha256": "e4df301c538617bc2a53cbe28cd44b222bb7b180677b8bc672c4e8a9e0d76762"
+  }
+}

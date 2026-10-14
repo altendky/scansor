@@ -1,0 +1,64 @@
+[
+  {
+    "name": "ocp-wasm.tar.gz",
+    "url": "https://codeload.github.com/yeicor/OCP.wasm/tar.gz/6be21f668a33c86fd58675d8e551dff8817b0e58",
+    "sha256": "f5943e282369f7b026018d36073d5878b2bbdeeaf576d7041ead81667312eab4"
+  },
+  {
+    "name": "occt.tar.gz",
+    "url": "https://codeload.github.com/Open-Cascade-SAS/OCCT/tar.gz/b8f597c677811d1f9f4d8a97f5ae2825c0353a42",
+    "sha256": "dba62b81078dd43cec23feba89432be301582341001edad1b93342ad8bda35ea"
+  },
+  {
+    "name": "ocp-generated.zip",
+    "url": "https://github.com/CadQuery/OCP/releases/download/8.0.1.1/OCP_src_stubs_Linux.zip",
+    "sha256": "bbab4dc85fdba87ac8f024e13a3e9dba0e268f4b204c9c60c53edf2522ced46e"
+  },
+  {
+    "name": "pybind11.tar.gz",
+    "url": "https://codeload.github.com/pybind/pybind11/tar.gz/97bf890db679505a14dfe547a5e77bb2bd05dc90",
+    "sha256": "6368877d3f241f283e010d858af27a6934ac45f7cbb5c68d2518b11bf64a113f"
+  },
+  {
+    "name": "fmt.tar.gz",
+    "url": "https://codeload.github.com/fmtlib/fmt/tar.gz/1be298e1bd68957e4cd352e1f676f00e07dcfb57",
+    "sha256": "d041f836d9b2a3c1c0fe3cce81ffe6a4a257028faa2f4af0dd20d7e58b493766"
+  },
+  {
+    "name": "rapidjson.tar.gz",
+    "url": "https://codeload.github.com/Tencent/rapidjson/tar.gz/24b5e7a8b27f42fa16b96fc70aade9106cf7102f",
+    "sha256": "2d2601a82d2d3b7e143a3c8d43ef616671391034bc46891a9816b79cf2d3e7a8"
+  },
+  {
+    "name": "xbuildenv.tar.gz",
+    "url": "https://github.com/pyodide/pyodide/releases/download/314.0.7/xbuildenv-314.0.7.tar.gz",
+    "sha256": "682bc46d63b860cbc17af17531718dd741d0b9e68de598874280f06706f7d58d"
+  },
+  {
+    "name": "emsdk.tar.gz",
+    "url": "https://codeload.github.com/emscripten-core/emsdk/tar.gz/5.0.3",
+    "sha256": "9a44a58bca0a3ea594ea7340d9a726cb58c772144dd37406d1c4e921823a75eb"
+  },
+  {
+    "name": "binaryen.tar.gz",
+    "url": "https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz",
+    "sha256": "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489"
+  },
+  {
+    "name": "sdk-binaries.tar.xz",
+    "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/065bfade0ee2c02138b83cb10049d8be95e146b6/wasm-binaries.tar.xz",
+    "sha256": "7ae996db24911edc535cccf069fb8a3ed63e8dac7abe58e758431abfe3255165"
+  },
+  {
+    "name": "freetype.zip",
+    "url": "https://github.com/freetype/freetype/archive/VER-2-13-3.zip",
+    "sha256": "a7165cb405dfce349ae64d6f59efb2567565ca8edbacbeff2a8d0e4cfa779cf5",
+    "sha512": "ce413487c24e689631d705f53b64725256f89fffe9aade7cf07bbd785a9cd49eb6b8d2297a55554f3fee0a50b17e8af78f505cdab565768afab833794f968c2f"
+  },
+  {
+    "name": "zlib.tar.gz",
+    "url": "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz",
+    "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
+    "sha512": "8c9642495bafd6fad4ab9fb67f09b268c69ff9af0f4f20cf15dfc18852ff1f312bd8ca41de761b3f8d8e90e77d79f2ccacd3d4c5b19e475ecf09d021fdfe9088"
+  }
+]
