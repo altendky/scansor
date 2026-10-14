@@ -1,9 +1,9 @@
 # Browser backend boundary
 
 This is an internal interface for the bounded viewer experiment. HTTP/native
-Python remains the default implementation. A worker backend and static hosting
-remain separate implementation work; this interface does not select a
-browser-only product architecture.
+Python remains the default implementation. The static experiment supplies a
+worker backend for the retained nozzle's numerical graph. This interface does
+not select a browser-only product architecture.
 
 The UI calls Scansor operations through `backend.js`. `http-backend.js` owns
 HTTP URLs, mutation headers, response decoding, and polling. Neither the UI nor
@@ -60,9 +60,9 @@ The native server's legacy session/fit endpoints and unused reuse-preview
 endpoint are not mirrored solely to reproduce every HTTP route.
 
 The current HTTP example selector changes server-owned state and reloads the
-page. A future worker implementation must retain the selected source across
-that bootstrap or replace the reload lifecycle explicitly. Merely implementing
-`selectExample` does not make ephemeral worker state survive a reload.
+page. The worker exposes only the retained nozzle and restores its packaged
+default on selection/reload. Download actions first to preserve edits; the worker
+does not offer additional sources or persist ephemeral state across reload.
 
 ## Revisions, progress, and readiness
 
@@ -100,6 +100,24 @@ These are display derivatives, never replacements for authoritative float64
 fitting inputs. A worker implementation must document transferred/detached
 buffers and retain its fitting inputs independently. Shared memory is a later
 data-transfer choice; no zero-copy claim is made here.
+
+The worker reads contiguous float32/uint32 display derivatives with a Pyodide
+buffer view, copies their exact bytes into JavaScript-owned buffers, releases
+the views/proxies, and transfers those copies. A following worker acknowledgement
+confirms the sender buffers are detached before `loadWorkspace` resolves. The
+returned `transferOwnership` records detached status and copied byte counts.
+Python source positions/weights remain immutable float64. Main-thread typed
+arrays view the received buffers; Three.js still builds normals/colors and
+uploads geometry to the GPU. This is not an end-to-end zero-copy path.
+
+Worker requests are serialized. Evaluation replies acknowledge running state
+before computation and push terminal snapshots afterward. The adapter retains
+terminal state for late subscribers, fences old publications when mutations
+are requested, and settles requests/observers on closure or runtime failure.
+This stage reports coarse lifecycle snapshots, not progress within synchronous
+solver calls. Abort stops waiting; cancellation and worker restoration remain
+the dedicated follow-up. A cached copy of the last accepted recipe can be
+downloaded after failure, but it excludes unfinished UI drafts and solver caches.
 
 Recipe export clones the accepted recipe without a new server read, preserving
 the existing Save actions behavior. Recipe import still validates against the

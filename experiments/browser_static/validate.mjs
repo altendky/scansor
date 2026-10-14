@@ -107,9 +107,10 @@ self.postMessage = (message, ...options) => {
             const status = await page.locator('#status').textContent();
             entry.status = status;
             entry.checks.runtime_ready = await page.locator('#status').getAttribute('data-runtime-ready') === 'true';
-            entry.checks.honest_unavailable_status = /fit/i.test(status) && /cad/i.test(status) &&
-              /unavailable|not (?:yet )?available|not implemented/i.test(status);
-            entry.checks.fit_disabled = await page.locator('#new-fit').isDisabled();
+            entry.checks.numerical_workspace_ready = site.manifest.capabilities.numerical === true &&
+              await page.locator('canvas').count() === 1 && await page.locator('#save').isEnabled();
+            entry.checks.fit_enabled = await page.locator('#new-fit').isEnabled();
+            entry.checks.cad_disabled = await page.locator('#export-cad').isDisabled();
             const show = page.getByRole('button', { name: 'Show panel', exact: true });
             entry.checks.layout_show_enabled = await show.isEnabled();
             await show.click();
@@ -117,11 +118,8 @@ self.postMessage = (message, ...options) => {
               request === preview.origin + prefix + runtimeAsset);
           } else {
             if (scenario === 'post-ready-failure') {
-              await page.waitForFunction(() => document.querySelector('#status')?.dataset.runtimeReady === 'true',
-                null, { timeout: 180000 });
-              entry.initial_status = await page.locator('#status').textContent();
-              entry.checks.initial_runtime_ready =
-                await page.locator('#status').getAttribute('data-runtime-ready') === 'true';
+              // The worker can fail while workspace initialization is still
+              // running; both that race and a later failure must retire the UI.
             }
             await page.locator('#startup-error').waitFor({ state: 'visible',
               timeout: scenario === 'missing-runtime' ? 60000 : 15000 });

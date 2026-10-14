@@ -1,11 +1,14 @@
 # Nozzle browser selection experiment
 
-The separate [browser runtime probe](../browser_runtime/README.md) packages the
-bounded numerical/CAD source and tests Pyodide worker parity. It does not yet
-connect workspace operations to that worker. The [static application bootstrap](../browser_static/README.md)
-assembles this docking UI with versioned assets and verified worker startup;
-selection, fitting, recipes and CAD are disabled in that staged artifact.
-The HTTP adapter remains the default operational UI backend.
+The [browser runtime probe](../browser_runtime/README.md) packages bounded
+numerical/CAD source and tests Pyodide worker parity. The
+[static application experiment](../browser_static/README.md) connects this docking
+UI to the numerical worker with versioned assets and verified startup.
+The HTTP adapter remains the default operational UI backend. The static worker
+experiment opens the retained nozzle, edits selections, evaluates the existing
+numerical graph, and downloads/uploads actions. CAD remains a separate integration
+stage. See the [static experiment](../browser_static/README.md) for assembly and
+validation; this is not general scan ingestion or a browser-only product decision.
 
 The UI uses an internal [backend operation interface](backend.md). The current
 implementation keeps HTTP/native Python as the default; worker execution and

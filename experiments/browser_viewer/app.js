@@ -4048,6 +4048,15 @@ function focusGeometryBox(box, panelElement) {
   draw();
 }
 async function start() {
+  if (!backend.capabilities.cad) {
+    for (const id of ['new-build-faces', 'new-surface-intersection', 'new-trimmed-face',
+      'new-body', 'export-cad', 'review-build-faces', 'faces-only']) {
+      const control = $(id);
+      control.inert = true;
+      control.disabled = true;
+      control.title = 'CAD is unavailable in this numerical browser experiment.';
+    }
+  }
   const workspace = await backend.loadWorkspace();
   metadata = workspace.metadata;
   const { positions: pb, indices: ib } = workspace;

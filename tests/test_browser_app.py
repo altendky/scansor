@@ -73,7 +73,11 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
         _ = target.write_bytes(data)
     manifest = {
         "schema_version": 1,
-        "worker_protocol": {"version": 1, "bootstrap": "initialize"},
+        "worker_protocol": {
+            "version": 2,
+            "bootstrap": "initialize",
+            "workspace": "retained-nozzle-numerical",
+        },
         "source_revision": "native-revision",
         "source_worktree_dirty": False,
         "versions": {"pyodide": "test"},
@@ -118,7 +122,7 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
     assert manifest["redistribution_ready"] is False
     assert manifest["capabilities"] == {
         "runtime_bootstrap": True,
-        "numerical": False,
+        "numerical": True,
         "cad": False,
     }
     assert manifest["bounded_examples"][0]["vertices"] == 24999
@@ -230,12 +234,18 @@ def test_duplicate_runtime_records_fail_before_copying(inputs: Inputs):
     assert not output.exists()
 
 
-def test_old_probe_runtime_fails_before_creating_an_application(inputs: Inputs):
+@pytest.mark.parametrize("bootstrap_only", [False, True])
+def test_old_probe_runtime_fails_before_creating_an_application(
+    inputs: Inputs, bootstrap_only: bool
+):
     root, runtime, output = inputs
     target = runtime / "manifest.json"
     manifest = json.loads(target.read_text())
-    del manifest["worker_protocol"]
+    if bootstrap_only:
+        manifest["worker_protocol"] = {"version": 1, "bootstrap": "initialize"}
+    else:
+        del manifest["worker_protocol"]
     _ = target.write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="bootstrap protocol"):
+    with pytest.raises(ValueError, match="workspace protocol"):
         BUILDER.build(output, runtime, root=root)
     assert not output.exists()
