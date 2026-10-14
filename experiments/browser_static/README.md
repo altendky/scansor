@@ -126,6 +126,43 @@ The CAD profile's separate case inventory and limits are recorded in
 Fixture tests alone do not demonstrate worker/UI startup or rendering, practical
 scan capacity, memory budgets, project recovery or other browser engines.
 
+## Workload measurements
+
+The [workload evidence and limits](workload-validation.md) distinguish actual
+fresh graph fitting from cached publication, display mesh size from selected
+observations, and Wasm capacity from overlapping JavaScript/array/GPU counters.
+Run measurements serially with fresh external output paths and the existing
+native interpreter/Playwright installation:
+
+```sh
+node experiments/browser_static/measure.mjs --directory "$TASK_SITE" \
+  --output "$TASK_TIMING_REPORTS" --native-python .venv/bin/python
+node experiments/browser_static/measure-memory.mjs --directory "$TASK_SITE" \
+  --output "$TASK_MEMORY_REPORTS"
+node experiments/browser_static/measure-fitting.mjs --directory "$TASK_SITE" \
+  --output "$TASK_FITTING_REPORTS" --native-python .venv/bin/python
+node experiments/browser_static/measure-generated.mjs --directory "$TASK_SITE" \
+  --output "$TASK_GENERATED_REPORTS" --native-python .venv/bin/python
+```
+
+The timing/memory drivers require a CAD-profile site. The fitting driver freezes
+three deterministic float64 component fixtures into its output (or reuses
+`--fixtures <directory>`); the generated driver creates three explicitly
+test-only fixture-remapped artifacts inside its output. Neither changes the
+input site or fitting objective. Native source/fixture/asset hashes are retained.
+Use `--playwright-directory <installed viewer>` and `--repository <checkout>`
+when tools are outside the measuring checkout. Output guards exclude both the
+tool checkout and the harness checkout. No dependency installation is performed.
+
+These measurement drivers use Chromium; memory inspection uses its CDP API.
+Other installed engines can run the existing correctness validators with
+`--browser firefox|webkit`; unavailable engines remain reported gaps.
+Memory/component instrumentation is explicit and disables HTTP caching.
+The UI timing driver does not intercept requests; its existing preview still
+uses `no-store`, so it cannot demonstrate warm HTTP-cache benefit. Local timings
+and sampled memory observations are advisory evidence, not CI latency/peak
+budgets, support expansion, or publication authorization.
+
 ## Publication boundary
 
 The package deliberately retains `redistribution_ready: false`. Complete the
