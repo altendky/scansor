@@ -134,14 +134,48 @@ def test_initial_and_final_callback_cancellation_cannot_return_success(
         lambda: {"rss_bytes": 100, "os_peak_rss_bytes": 100},
     )
     monitor = ResourceMonitor(200, tmp_path)
+    events: list[dict[str, Control]] = []
 
     def callback(record: dict[str, Control]) -> None:
+        events.append(record)
         if record["event"] == event:
             monitor.cancel()
 
     monitor.callback = callback
     with pytest.raises(MeshImportError, match="cancelled"), monitor:
         pass
+    assert events[0]["event"] == "phase"
+    assert sum(record["event"] == "final" for record in events) == 1
+    assert not any(
+        thread.name == "scansor-mesh-monitor" for thread in threading.enumerate()
+    )
+
+
+@pytest.mark.parametrize("final_delivery_fails", (False, True))
+def test_initial_callback_failure_emits_final_and_preserves_original_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, final_delivery_fails: bool
+) -> None:
+    monkeypatch.setattr(
+        mesh_resources,
+        "memory_snapshot",
+        lambda: {"rss_bytes": 100, "os_peak_rss_bytes": 100},
+    )
+    initiating = RuntimeError("initial phase delivery failed")
+    secondary = RuntimeError("final delivery also failed")
+    events: list[dict[str, Control]] = []
+
+    def callback(record: dict[str, Control]) -> None:
+        events.append(record)
+        if record["event"] == "phase":
+            raise initiating
+        if final_delivery_fails:
+            raise secondary
+
+    monitor = ResourceMonitor(200, tmp_path, callback=callback)
+    with pytest.raises(RuntimeError) as caught, monitor:
+        pytest.fail("failed monitor entry returned successfully")
+    assert caught.value is initiating
+    assert [record["event"] for record in events] == ["phase", "final"]
     assert not any(
         thread.name == "scansor-mesh-monitor" for thread in threading.enumerate()
     )
