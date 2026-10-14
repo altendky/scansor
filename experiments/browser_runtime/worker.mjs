@@ -10,10 +10,25 @@ let numericComplete = false;
 let cadLoaded = false;
 let workspaceLoaded = false;
 let workspaceCadEnabled = false;
+let workspaceHasCad = false;
 let cadInitialization;
 const cadOperations = new Set(['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']);
 const cadActions = new Set(['surface_intersection', 'trimmed_face', 'arranged_face', 'build_faces', 'body']);
 let chain = Promise.resolve();
+let interruptBuffer;
+let minimumGeneration = 0;
+let boundary;
+const lifecycle = (request, state, interruptible = false) => postMessage({
+  kind: 'lifecycle', id: request.id, operation: request.operation,
+  generation: request.generation, state, interruptible,
+});
+const cancellationError = error => {
+  // SIGINT can be raised in Python call setup before the JSON envelope begins.
+  // The second byte proves that this was the coordinator's explicit request.
+  if (interruptBuffer && Atomics.load(interruptBuffer, 1) && /KeyboardInterrupt/.test(error.message))
+    return Object.assign(error, { code: 'computation_cancelled', status: 409 });
+  return error;
+};
 
 async function initialize() {
   phase('manifest');
@@ -62,6 +77,8 @@ function workspaceCall(method, operation, payload) {
     Object.assign(error, envelope.error);
     throw error;
   }
+  const recipe = envelope.result?.recipe || envelope.result?.state?.recipe;
+  if (recipe) workspaceHasCad = recipe.nodes.some(node => cadActions.has(node.operation));
   return envelope.result;
 }
 
@@ -110,9 +127,12 @@ async function handle({ operation }) {
   initialization ??= initialize();
   await initialization;
   if (operation === 'initialize') {
+    const graph = workspaceCall('call_json', 'getGraph');
+    python.runPython('browser_workspace.checkpoint_operation()');
     return { ready: true, versions: manifest.versions,
       source_revision: manifest.source_revision,
-      source_worktree_dirty: manifest.source_worktree_dirty };
+      source_worktree_dirty: manifest.source_worktree_dirty,
+      source_identity: graph.recipe.nodes.find(node => node.operation === 'source'), graph };
   }
   if (operation === 'numeric') {
     if (cadLoaded) throw new Error('Run numerical startup in a fresh worker before importing CAD');
@@ -140,15 +160,37 @@ async function dispatch(request) {
   }
   initialization ??= initialize();
   await initialization;
+  if (generation < minimumGeneration) return;
+  if (operation === 'cancel') {
+    // The coordinator already fenced all replies. Reconstruct only at a safe
+    // boundary, after native cleanup, and before allowing the next operation.
+    if (interruptBuffer) { Atomics.store(interruptBuffer, 0, 0); Atomics.store(interruptBuffer, 1, 0); }
+    ensureWorkspace();
+    python.globals.set('browser_committed_recipe', JSON.stringify(payload.recipe));
+    const envelope = JSON.parse(python.runPython('browser_workspace.restore_cancelled_json(browser_committed_recipe)'));
+    if (!envelope.ok) throw Object.assign(new Error(envelope.error.message), envelope.error);
+    workspaceHasCad = envelope.result.recipe.nodes.some(node => cadActions.has(node.operation));
+    python.runPython('browser_workspace.checkpoint_operation()');
+    postMessage({ id, ok: true, result: envelope.result });
+    return;
+  }
   if (operation === 'cad-regressions') {
     await loadCad();
     const result = JSON.parse(python.runPython('from experiments.browser_runtime.cad_cases import run_cases; json.dumps(run_cases(), allow_nan=False)'));
     postMessage({ id, ok: true, result });
     return;
   }
+  ensureWorkspace();
+  python.runPython('browser_workspace.checkpoint_operation()');
   if (cadOperations.has(operation) || (['replaceRecipe', 'importRecipe'].includes(operation) &&
     Array.isArray(payload?.recipe?.nodes) && payload.recipe.nodes.some(node => cadActions.has(node?.operation))))
     await loadCad({ workspace: true });
+  if (generation < minimumGeneration) return;
+  const interruptible = ['evaluateGraph', 'ensureGraph'].includes(operation) && !workspaceHasCad;
+  // Main-thread lifecycle delivery can lag behind the worker. Eligibility must
+  // be enforced here so a late numerical Cancel never injects SIGINT into CAD.
+  python.setInterruptBuffer(interruptible ? interruptBuffer?.subarray(0, 1) : undefined);
+  if (request.managed) lifecycle(request, 'running', interruptible);
   if (operation === 'loadWorkspace') {
     const metadata = workspaceCall('call_json', operation, payload);
     const positions = ownedBuffer('display_positions'), indices = ownedBuffer('display_indices');
@@ -177,7 +219,7 @@ async function dispatch(request) {
       } catch (error) {
         // The request was already acknowledged. A fatal message settles every
         // observer rather than leaving it waiting for a nonexistent terminal reply.
-        postMessage({ fatal: error.message });
+        if (cancellationError(error).code !== 'computation_cancelled') postMessage({ fatal: error.message });
       }
     }
   } else postMessage({ id, ok: true, result: workspaceCall('call_json', operation, payload) });
@@ -186,10 +228,48 @@ async function dispatch(request) {
 // Queue all requests; an async message handler alone would allow overlapping setup.
 self.onmessage = event => {
   const request = event.data;
+  if (request.operation === 'accept-boundary') {
+    if (boundary?.id === request.id && boundary.generation === request.generation) {
+      try {
+        if (request.accepted) python.runPython('browser_workspace.checkpoint_operation()');
+      } catch (error) { postMessage({ fatal: error.message }); }
+      finally { boundary.resolve(); boundary = undefined; }
+    }
+    return;
+  }
+  if (request.operation === 'initialize') interruptBuffer = request.interruptBuffer;
+  if (request.operation === 'cancel') {
+    minimumGeneration = Math.max(minimumGeneration, request.generation);
+    // Receiving this event means synchronous Python/native work has returned.
+    if (interruptBuffer) Atomics.store(interruptBuffer, 0, 0);
+    boundary?.resolve();
+    boundary = undefined;
+  } else if (request.managed && request.operation !== 'initialize') lifecycle(request, 'queued');
   chain = chain.then(async () => {
+    // Yield between serialized requests so Cancel can fence queued work before
+    // the next synchronous Python call. This is not a checkpoint inside OCCT.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (request.generation < minimumGeneration) return;
     try { await dispatch(request); }
-    catch (error) { postMessage({ id: request.id, ok: false,
-      error: { code: error.code || 'worker_error', status: error.status, message: error.message } }); }
+    catch (cause) {
+      const error = cancellationError(cause);
+      postMessage({ id: request.id, ok: false,
+        error: { code: error.code || 'worker_error', status: error.status, message: error.message } });
+    }
+    finally {
+      python?.setInterruptBuffer(undefined);
+      if (interruptBuffer) Atomics.store(interruptBuffer, 0, 0);
+      if (request.managed && !['initialize', 'cancel'].includes(request.operation)) {
+        // Wait for coordinator acceptance before the next operation can replace
+        // the failure checkpoint. Cancel releases this boundary without adopting
+        // failed/ready work whose publication was fenced on the main thread.
+        await new Promise(resolve => {
+          boundary = { id: request.id, generation: request.generation, resolve };
+          postMessage({ kind: 'lifecycle', id: request.id, operation: request.operation,
+            generation: request.generation, state: 'complete', boundary: true });
+        });
+      } else if (request.managed && request.operation !== 'initialize') lifecycle(request, 'complete');
+    }
   });
 };
 self.onmessageerror = () => postMessage({ fatal: 'Worker could not deserialize a request' });

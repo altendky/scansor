@@ -74,7 +74,7 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
     manifest = {
         "schema_version": 1,
         "worker_protocol": {
-            "version": 3,
+            "version": 4,
             "bootstrap": "initialize",
             "workspace": "retained-nozzle-numerical",
             "cad": "lazy-approved-ocp",
@@ -247,15 +247,17 @@ def test_duplicate_runtime_records_fail_before_copying(inputs: Inputs):
     assert not output.exists()
 
 
-@pytest.mark.parametrize("bootstrap_only", [False, True])
+@pytest.mark.parametrize("protocol", ["missing", "bootstrap", "previous-workspace"])
 def test_old_probe_runtime_fails_before_creating_an_application(
-    inputs: Inputs, bootstrap_only: bool
+    inputs: Inputs, protocol: str
 ):
     root, runtime, output = inputs
     target = runtime / "manifest.json"
     manifest = json.loads(target.read_text())
-    if bootstrap_only:
+    if protocol == "bootstrap":
         manifest["worker_protocol"] = {"version": 1, "bootstrap": "initialize"}
+    elif protocol == "previous-workspace":
+        manifest["worker_protocol"]["version"] = 3
     else:
         del manifest["worker_protocol"]
     _ = target.write_text(json.dumps(manifest))

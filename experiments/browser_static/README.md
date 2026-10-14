@@ -55,9 +55,10 @@ startup timeouts fail explicitly and terminate the failed worker. The timeout
 bounds initialization only, not active computation. Startup/runtime failures
 retire the UI. Worker recovery download uses the last accepted recipe kept
 outside the worker; it does not preserve drafts, results, or reload state.
-Production cancellation and restoration remain separate work. Cross-origin
+The [worker recovery controls](recovery.md) implement polite cancellation and
+explicit Force/restart with the same source and committed recipe. Cross-origin
 isolation is optional. A CAD-loading failure leaves numerical operations usable;
-reload after repairing the assets to retry CAD. It does not select another
+Force/restart after repairing the assets retries CAD. It does not select another
 backend or substitute approximate geometry.
 
 ## Verification

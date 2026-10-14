@@ -166,7 +166,7 @@ def build(output: Path, cache: Path | None, cad: bool, native_python: Path) -> N
     provenance = {
         "schema_version": 1,
         "worker_protocol": {
-            "version": 3,
+            "version": 4,
             "bootstrap": "initialize",
             "workspace": "retained-nozzle-numerical",
             "cad": "lazy-approved-ocp",

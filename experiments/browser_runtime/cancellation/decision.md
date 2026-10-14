@@ -1,9 +1,10 @@
 # Bounded worker cancellation policy
 
 The maintainer selected this policy on 2026-10-13. It is an implementation
-contract for the bounded browser experiment, not a claim that the application
-already implements it. The [probe](README.md) and [executed results](validation.md)
-establish the evidence and remaining gaps.
+contract for the bounded browser experiment. The
+[viewer implementation](../../browser_static/recovery.md) follows it. The
+[probe](README.md) and [executed results](validation.md) establish the original
+evidence and remaining gaps.
 
 ## Selected behavior
 
