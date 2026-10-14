@@ -192,15 +192,112 @@ def test_failed_build_stops_drivers_and_records_closed_release_gate(
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--output", str(output)])
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    with pytest.raises(RuntimeError, match="build-runtime failed"):
+    with pytest.raises(RuntimeError, match="build-redistribution failed"):
         CI.main()
     assert len(calls) == 1
     report = json.loads((output / "evidence/verification.json").read_text())
     assert report["verified"] is False
     assert report["redistribution_ready"] is False
     assert report["steps"][0]["exit_code"] == 7
+    assert report["steps"][0]["name"] == "build-redistribution"
     assert github_output.read_text() == "redistribution_ready=false\n"
     assert not (output / "release").exists()
+
+
+def test_missing_supplement_manifest_keeps_release_gate_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    output = tmp_path / "run"
+    calls: list[list[str]] = []
+
+    def missing(command: list[str], log: Path, _temporary: Path) -> dict[str, object]:
+        calls.append(command)
+        _ = log.write_text("No verified package manifest produced")
+        return {"exit_code": 0, "log": str(log)}
+
+    monkeypatch.setattr(CI, "execute", missing)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--output", str(output)])
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    with pytest.raises(ValueError, match="required JSON report"):
+        CI.main()
+    assert len(calls) == 1
+    report = json.loads((output / "evidence/verification.json").read_text())
+    assert report["redistribution_ready"] is False
+    assert not (output / "release").exists()
+
+
+def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    output, github_output = tmp_path / "run", tmp_path / "github-output"
+    calls: list[list[str]] = []
+
+    def successful(
+        command: list[str], log: Path, _temporary: Path
+    ) -> dict[str, object]:
+        calls.append(command)
+        _ = log.write_text("Simulated command boundary; not runtime validation")
+        script = Path(command[1]).name
+        destination = Path(command[command.index("--output") + 1])
+        if "--verify" not in command:
+            destination.mkdir(parents=True)
+            if script == "build-browser-redistribution.py":
+                # The runtime, not this supplemental flag, fulfills core notices.
+                _ = (destination / "manifest.json").write_text(
+                    json.dumps({"redistribution_ready": False})
+                )
+            elif script == "build-browser-runtime.py":
+                _ = (destination / "manifest.json").write_text(json.dumps(ready()))
+            elif script == "build-browser-app.py":
+                asset = destination / "index.html"
+                _ = asset.write_text("tested static fixture")
+                _ = (destination / "manifest.json").write_text(
+                    json.dumps(
+                        ready()
+                        | {"assets": [{"path": "index.html", **CI.identity(asset)}]}
+                    )
+                )
+            else:
+                name = {
+                    "validate.mjs": "browser-static.json",
+                    "validate-workspace.mjs": "workspace.json",
+                    "validate-cad.mjs": "cad.json",
+                    "validate-recovery.mjs": "recovery.json",
+                }[script]
+                _ = (destination / name).write_text('{"simulated":true}\n')
+        return {"exit_code": 0, "log": str(log)}
+
+    monkeypatch.setattr(CI, "execute", successful)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--output", str(output)])
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    CI.main()
+    assert len(calls) == 16
+    assert Path(calls[0][1]).name == "build-browser-redistribution.py"
+    assert calls[0][calls[0].index("--cache") + 1] == str(
+        output / "work/redistribution-cache"
+    )
+    builders = [
+        command
+        for command in calls
+        if Path(command[1]).name in ("build-browser-runtime.py", "build-browser-app.py")
+        and "--verify" not in command
+    ]
+    assert len(builders) == 4
+    assert all(
+        command[command.index("--redistribution") + 1]
+        == str(output / "work/redistribution")
+        for command in builders
+    )
+    report = json.loads((output / "evidence/verification.json").read_text())
+    assert report["verified"] and report["redistribution_ready"]
+    assert report["redistribution-manifest"] == CI.identity(
+        output / "evidence/build-redistribution.json"
+    )
+    assert github_output.read_text() == "redistribution_ready=true\n"
+    assert (output / "release/site/index.html").read_text() == "tested static fixture"
+    assert (output / "release/evidence/build-redistribution.json").is_file()
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group cleanup")

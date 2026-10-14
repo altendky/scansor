@@ -192,6 +192,11 @@ def main() -> None:
         "--cache", type=Path, help="optional existing hash-verified download cache"
     )
     parser.add_argument(
+        "--redistribution-cache",
+        type=Path,
+        help="optional private source/notice acquisition cache, separate from runtime assets",
+    )
+    parser.add_argument(
         "--measurements",
         action="store_true",
         help="include the four advisory workload drivers",
@@ -209,6 +214,7 @@ def main() -> None:
     # loses its installed project packages. Preserve the user-selected path.
     native = str(args.native_python.absolute())
     runtime, site = work / "runtime", work / "site"
+    redistribution = work / "redistribution"
     numerical_runtime, numerical_site = (
         work / "numerical-runtime",
         work / "numerical-site",
@@ -283,16 +289,47 @@ def main() -> None:
 
     failure = None
     try:
+        redistribution_cache = (
+            args.redistribution_cache.resolve()
+            if args.redistribution_cache is not None
+            else work / "redistribution-cache"
+        )
+        run(
+            "build-redistribution",
+            [
+                sys.executable,
+                str(ROOT / "scripts/build-browser-redistribution.py"),
+                "--inventory",
+                str(ROOT / "scripts/browser-redistribution-lock.json"),
+                "--output",
+                str(redistribution),
+                "--cache",
+                str(redistribution_cache),
+            ],
+            redistribution / "manifest.json",
+        )
+        report["redistribution-manifest"] = identity(
+            evidence / "build-redistribution.json"
+        )
+        supplement = ["--redistribution", str(redistribution)]
         cache = [] if args.cache is None else ["--cache", str(args.cache.resolve())]
         python(
             "build-runtime",
             "build-browser-runtime.py",
-            ["--output", str(runtime), "--cad", "--native-python", native, *cache],
+            [
+                "--output",
+                str(runtime),
+                "--cad",
+                "--native-python",
+                native,
+                *cache,
+                *supplement,
+            ],
         )
         python(
             "build-site",
             "build-browser-app.py",
-            ["--runtime", str(runtime), "--output", str(site)],
+            ["--runtime", str(runtime), "--output", str(site), *supplement],
         )
         python(
             "verify-runtime",
@@ -333,12 +370,19 @@ def main() -> None:
                 str(runtime),
                 "--native-python",
                 native,
+                *supplement,
             ],
         )
         python(
             "build-numerical-site",
             "build-browser-app.py",
-            ["--runtime", str(numerical_runtime), "--output", str(numerical_site)],
+            [
+                "--runtime",
+                str(numerical_runtime),
+                "--output",
+                str(numerical_site),
+                *supplement,
+            ],
         )
         driver(
             "numerical-workspace",

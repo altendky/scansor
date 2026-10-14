@@ -135,10 +135,11 @@ Actual executed checks and limitations are recorded in [validation](validation.m
 The CAD profile's separate case inventory and limits are recorded in
 [CAD validation](cad-validation.md).
 
-## Static CI preparation
+## Static CI artifact verification
 
 The reusable Browser workflow preserves the native HTTP integration job and
-adds a separate Linux/Chromium static-worker job. It builds the locked CAD
+adds a separate Linux/Chromium static-worker job. It first assembles and verifies
+the reviewed locked notice/source package, then builds the locked CAD
 runtime and UI once, verifies manifests, runs all six startup cases at root and
 nested paths with and without isolation, numerical workspace/native parity,
 CAD download/native STEP readback, both recovery modes, and a numerical-only
@@ -157,24 +158,29 @@ uv run scripts/check-browser-static.py --output "$TASK_STATIC_CHECK" \
 ```
 
 Output must be empty and external. `--cache "$TASK_RUNTIME"` reuses only
-hash-verified downloads. The script installs nothing, invokes no Python API
+hash-verified runtime downloads. `--redistribution-cache "$TASK_NOTICE_CACHE"`
+can reuse a separate private hash-verified source/notice cache; otherwise that
+cache stays inside `work/`. The package is passed to both CAD and numerical
+runtime/UI builders. Its standalone core requirement remains external until
+the consuming runtime verifies its actual locked bytes and component notices.
+The script installs nothing, invokes no Python API
 server, performs no OCP source build and configures no host. It is a Linux
 orchestrator: its 30-minute per-command watchdog terminates an entire disposable
 process group. UI cancellation and Force policy are unchanged.
 
 `evidence/verification.json` records actual step exits, elapsed time, source and
-site/runtime manifest hashes. Named JSON reports retain requests, fault checks,
-parity, browser/CPU versions and measurement caveats; local logs and downloaded
+site/runtime and selected source/notice manifest hashes. Named JSON reports
+retain requests, fault checks, parity, browser/CPU versions and measurement
+caveats; local logs and downloaded
 binaries stay in `work/`. CI uploads only allowlisted JSON evidence, even on
 failure, for 14 days. Trace ZIPs can contain downloaded runtime bytes and are
 not uploaded. No persistent binary cache is shared with other workflow runs.
 
-**The reusable binary artifact is currently blocked.** Both builders retain
-`redistribution_ready: false`: complete runtime/Rust/UI notices and the approved
-OCP/OCCT corresponding-source/build/relink route remain prerequisites. This
-applies to public Actions uploads as well as Pages. Verification success does
-not mark #210 complete or authorize redistribution. Once both manifests record
-explicit clean readiness with no gaps and matching revisions, the script stages
+The [reviewed redistribution package](../browser_runtime/redistribution-package.md)
+preserves component notices, covered sources and the executed approved OCP/OCCT
+replacement evidence. Supplying it permits requirement-based readiness; it does
+not bypass the artifact gate or authorize Pages publication. Once both manifests
+record explicit clean readiness with no gaps and matching revisions, the script stages
 only hash-verified listed assets plus JSON evidence in `release/`; the workflow
 can upload that exact tested package as `validated-static-browser`. Deployment
 must consume that artifact and its manifest, without rebuilding. No release is
