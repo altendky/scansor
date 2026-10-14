@@ -32,6 +32,11 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
     root, runtime = tmp_path / "repo", tmp_path / "runtime"
     root.mkdir()
     runtime.mkdir()
+    landing = root / "experiments/browser_static/landing.html"
+    landing.parent.mkdir(parents=True)
+    _ = landing.write_bytes(
+        (BUILDER.ROOT / "experiments/browser_static/landing.html").read_bytes()
+    )
     mappings = {name: name for name in BUILDER.UI_FILES} | {
         "workspace.js": "dist/workspace.js",
         "workspace.css": "dist/workspace.css",
@@ -116,8 +121,11 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
     assert manifest["source_revision"] == "ui-revision"
     assert {entry["path"] for entry in manifest["build_inputs"]} == {
         f"{BUILDER.VIEWER}/{name}" for name in BUILDER.BUILD_INPUTS
-    }
+    } | {"experiments/browser_static/landing.html"}
     assert manifest["source_worktree_dirty"] is True
+    assert (output / "index.html").read_bytes() == (
+        root / "experiments/browser_static/landing.html"
+    ).read_bytes()
     assert manifest["runtime"]["source_revision"] == "native-revision"
     assert manifest["runtime"]["source_worktree_dirty"] is False
     assert manifest["redistribution_ready"] is False

@@ -228,6 +228,11 @@ budgets, support expansion, or publication authorization.
 
 ## Publication boundary
 
+The [manual Pages deployment runbook](deployment.md) consumes only a verified
+successful main CI artifact, preserves its exact site bytes and keeps publication
+disabled until separate approval. Its landing page links to `/app/`; provider
+setup, domain verification, DNS, HTTPS and actual-host smoke checks remain gated.
+
 The default package retains `redistribution_ready: false`. The verified
 [notice/source package](../browser_runtime/redistribution-package.md) supplies
 selected runtime and UI requirements before redistribution. Hashes record
