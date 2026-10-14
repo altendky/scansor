@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "controls": [
+    {
+      "path": "controls/acquire.py",
+      "bytes": 2868,
+      "sha256": "538d2411a6a26d0f90d338af42f672dbeb95fbbf1bf4f026d3a7b108326de442",
+      "probe_original_sha256": "9bc9c045da8fca2b695e1099868cc65ee3081df23c88814c052c5517ab77b156",
+      "probe_original_bytes": 2559
+    },
+    {
+      "path": "controls/prepare.py",
+      "bytes": 2296,
+      "sha256": "c8e964b6ef3b15cd33f36f280874dd1f13847f13cedd63b81f7f5ac5d6ee62ae",
+      "probe_original_sha256": "e04fe56f2690cbca3a73d237e8e85254edd23dc844af00d66b3e3927047707b2",
+      "probe_original_bytes": 2325
+    },
+    {
+      "path": "controls/stage_sdk.py",
+      "bytes": 1509,
+      "sha256": "71c6be58d93111afaf60fb2ff8c7d4d324284856ccda320969f8d974774150ac",
+      "probe_original_sha256": "c3e638272f9156eb7a56e39ffa367ace506908ee1a0bcb7ae5d15047c41c7a40",
+      "probe_original_bytes": 1377
+    },
+    {
+      "path": "controls/configure_sdk.py",
+      "bytes": 2547,
+      "sha256": "81a792d821f425bab1786f26381794937ef9276cb199d65f5ef68fc9b6c19a1e",
+      "probe_original_sha256": "fb47dcf533b6c93250306dcdd85f8ae625674f188005e4e1ac77dc328dc4d7d6",
+      "probe_original_bytes": 2164
+    },
+    {
+      "path": "controls/adapt.py",
+      "bytes": 3783,
+      "sha256": "8d4d91ae81f04702415b52460a45f0621816b8042454a13a3e9edddc1fa79993",
+      "probe_original_sha256": "7314292b5b23f783ba789351ab8f6bbb753d10988c4d475ddaae56be62689db5",
+      "probe_original_bytes": 3682
+    },
+    {
+      "path": "controls/preflight.py",
+      "bytes": 1032,
+      "sha256": "206bb4c2b4415b7f65768f356b2caf6fe50e0350514837b60e7982b70992dd24",
+      "probe_original_sha256": "395936c6a2cfa404c08b7b166ef9034c3dec9db425bc9c0df236cfe4985b3d39",
+      "probe_original_bytes": 991
+    },
+    {
+      "path": "controls/build_monitored.py",
+      "bytes": 7159,
+      "sha256": "3d53aa750d7bd5f54bde88f5c5b4ed639a85396bf5566aa3afaa87154518ef2c",
+      "probe_original_sha256": "e9e8ecc281739a3f449bab5a5c1d87fe94317cd72f84fb86d67bd3ecc0dbe164",
+      "probe_original_bytes": 5749
+    },
+    {
+      "path": "controls/tools.in",
+      "bytes": 51,
+      "sha256": "e81c90a2992fccd69abbd84cb381116202b2a9442e75581856d482dc15ab2d9c",
+      "probe_original_sha256": "e81c90a2992fccd69abbd84cb381116202b2a9442e75581856d482dc15ab2d9c",
+      "probe_original_bytes": 51
+    },
+    {
+      "path": "controls/tools.lock",
+      "bytes": 21345,
+      "sha256": "564830ad073150b84fd8141947604d7f23121869d88d21901b93b551f5ba9838",
+      "probe_original_sha256": "564830ad073150b84fd8141947604d7f23121869d88d21901b93b551f5ba9838",
+      "probe_original_bytes": 21345
+    },
+    {
+      "path": "controls/sources.json",
+      "bytes": 2970,
+      "sha256": "b6fbfc64566817ca9366baec547a7280c5a77cf61207df67939faf0d6c643780",
+      "probe_original_sha256": "b6fbfc64566817ca9366baec547a7280c5a77cf61207df67939faf0d6c643780",
+      "probe_original_bytes": 2970
+    },
+    {
+      "path": "controls/tool-audit.json",
+      "bytes": 17287,
+      "sha256": "baaa9866fb2d6287fc863a01c2bf02d227dfe1535443e87ad18631df69fedf52",
+      "probe_original_sha256": "baaa9866fb2d6287fc863a01c2bf02d227dfe1535443e87ad18631df69fedf52",
+      "probe_original_bytes": 17287
+    }
+  ],
+  "upstream_build_controls": [
+    {
+      "path": "cadquery-ocp-novtk/CMakeLists.txt",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/CMakeLists.txt",
+      "bytes": 10015,
+      "sha256": "3e64cdbe1e23cf655fc0775950fe67407a7d46621a65653ee1cb2ad1998e38fd"
+    },
+    {
+      "path": "cadquery-ocp-novtk/pyproject.toml",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/pyproject.toml",
+      "bytes": 1045,
+      "sha256": "cd733e3754708ba4ad8c446244de05e7bb54851ee975840e4473a70ed230f6f3"
+    },
+    {
+      "path": "cadquery-ocp-novtk/patch_OpenCASCADE.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/patch_OpenCASCADE.cmake",
+      "bytes": 3561,
+      "sha256": "50bf006f0aaa2f1a80f1bd74e71bee4a0f6028d9f90b2d6aba73547787e65995"
+    },
+    {
+      "path": "cadquery-ocp-novtk/patch_OCP.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/patch_OCP.cmake",
+      "bytes": 4306,
+      "sha256": "07ed296266f88f9a125f2631b4e77c4a00cd03dfb19af56ce032bf6250ae7c58"
+    },
+    {
+      "path": "cadquery-ocp-novtk/patch_pybind11.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/patch_pybind11.cmake",
+      "bytes": 1635,
+      "sha256": "7f63c86d0fab02f8fec09ba5ee256b4700217917ad003796a824b3c4fa428924"
+    },
+    {
+      "path": "cadquery-ocp-novtk/patch_rapidjson.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/patch_rapidjson.cmake",
+      "bytes": 722,
+      "sha256": "d9469b3b365deca84e1fad247eaf33ce8dd083ba76bdf6e2bef3a91fd6e4746a"
+    },
+    {
+      "path": "cadquery-ocp-novtk/repair_wasm.py",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/cadquery-ocp-novtk/repair_wasm.py",
+      "bytes": 4383,
+      "sha256": "2c1e4f43341381967ec925b92a1604822e2ee467ceba960caa55a3f34391ebef"
+    },
+    {
+      "path": "util/Findfmt.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/util/Findfmt.cmake",
+      "bytes": 1132,
+      "sha256": "952b69256c3f06e35ed806954e0b52717864c40edb13c1304906182d60394e77"
+    },
+    {
+      "path": "util/Findpybind11.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/util/Findpybind11.cmake",
+      "bytes": 863,
+      "sha256": "138dd98be3b182afcc3afdc5f133024bcb620906987bbb7415719eb859a55a16"
+    },
+    {
+      "path": "util/set_timestamps.py",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/util/set_timestamps.py",
+      "bytes": 2146,
+      "sha256": "7625222d1d64590e9879fee393b8fd7b345391fdcf0c08893f51a354fd11fc42"
+    },
+    {
+      "path": "util/common.cmake",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/util/common.cmake",
+      "bytes": 6264,
+      "sha256": "4b2566c049ada53f8a162d43e83404af27652840193e694856148c7af847e8b9"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/LICENSE",
+      "bytes": 1054,
+      "sha256": "68dcc575fcc5c6644c2c74bbc43b1001663fe2f9cfa4428aa3faba56a61666b6"
+    },
+    {
+      "path": "requirements.txt",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/requirements.txt",
+      "bytes": 66,
+      "sha256": "af8a04b2f80ab60d4f7db6970dcde88cca13f237ce08f8d6d002855733d90ff3"
+    },
+    {
+      "path": ".github/scripts/xbuildenv_data.sh",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/.github/scripts/xbuildenv_data.sh",
+      "bytes": 1113,
+      "sha256": "2610642519d6a1b5a7a922f0f46e39a253a914a273cf38d7cdb2da13c51e579f"
+    },
+    {
+      "path": ".github/workflows/main.yml",
+      "url": "https://raw.githubusercontent.com/yeicor/OCP.wasm/6be21f668a33c86fd58675d8e551dff8817b0e58/.github/workflows/main.yml",
+      "bytes": 11660,
+      "sha256": "7553d3179f1f1d2d8bba3bc0fdfff9dce60ec93855b9cad067f87ff34351a669"
+    }
+  ],
+  "toolchain_retrieval": [
+    {
+      "name": "xbuildenv.tar.gz",
+      "url": "https://github.com/pyodide/pyodide/releases/download/314.0.7/xbuildenv-314.0.7.tar.gz",
+      "sha256": "682bc46d63b860cbc17af17531718dd741d0b9e68de598874280f06706f7d58d",
+      "bytes": 7588627,
+      "include_in_static_package": false
+    },
+    {
+      "name": "emsdk.tar.gz",
+      "url": "https://codeload.github.com/emscripten-core/emsdk/tar.gz/5.0.3",
+      "sha256": "9a44a58bca0a3ea594ea7340d9a726cb58c772144dd37406d1c4e921823a75eb",
+      "bytes": 171370,
+      "include_in_static_package": false
+    },
+    {
+      "name": "sdk-binaries.tar.xz",
+      "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/065bfade0ee2c02138b83cb10049d8be95e146b6/wasm-binaries.tar.xz",
+      "sha256": "7ae996db24911edc535cccf069fb8a3ed63e8dac7abe58e758431abfe3255165",
+      "bytes": 354893508,
+      "include_in_static_package": false
+    },
+    {
+      "name": "binaryen.tar.gz",
+      "url": "https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz",
+      "sha256": "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489",
+      "bytes": 111200018,
+      "include_in_static_package": false
+    }
+  ],
+  "build_profile": {
+    "python": "3.14.2",
+    "abi": "2026_0",
+    "emscripten": "5.0.3",
+    "emscripten_source_commit": "285c424dfa9e83b03cf8490c65ceadb7c45f28eb",
+    "binaryen": "133",
+    "cflags": "-O3",
+    "cxxflags": "-O3",
+    "ldflags": "-O1",
+    "exports": "pyinit",
+    "lto": false,
+    "initial_ninja_jobs": 1,
+    "maximum_ninja_jobs": 4,
+    "four_job_resumption_preconditions": "At least four available CPUs and 16 GiB available memory; all runtime resource guards remain unchanged",
+    "binaryen_cores": 1,
+    "optimizer_flags": "Pinned upstream repair_wasm.py --post-emscripten -O1 through its supported nonempty CI=0 local-release branch; optional O4 uses CI=1",
+    "optimizer_retry_basis": "Initial unset-thread O4 hit unchanged aggregate RSS guard; single-thread O4 was stopped after 94.7 minutes below guards. Supported local-release O1 final target completed in 582.533 seconds at 3.94 GiB peak RSS with cached objects reused; exact candidate then passed three-worker marker and 12 browser/native CAD checks. These are not clean full-build timings or publisher O4 equivalence."
+  },
+  "acquisition_adaptation": "adapt.py reconstructs local-only checked-source links with no shallow clones, Git operations or mutable recipe acquisition",
+  "marker_adaptation": "Emscripten OSD_Process::UserName compiled return string; geometry unchanged",
+  "historical_unknowns": [
+    "original Binaryen latest binary",
+    "historical mutable Pyodide metadata bytes",
+    "original emsdk checkout and CI cache provenance",
+    "original CMake/Ninja/backend transitive tool versions"
+  ],
+  "historical_reproduction_claim": "No byte-identical original-wheel claim; newly pinned source/relink route must be executed and validated",
+  "distribution_wrapper_changes": "Formatting/import order, datetime.UTC alias and equivalent acquire conditional/ProcessLookupError suppression; configure_sdk adds guarded four-job host resumption, defaults Binaryen concurrency to one and exposes the pinned repair script's supported local-release O1 or CI O4 optimization branch. The default probe profile is now O1 via nonempty CI=0; publisher O4 equivalence is not claimed. Build monitor records source paths for identity-verified owned compilers. No kernel, tool, C++ compiler/link flags, patch or safety-limit changes. Probe originals retain separate hashes."
+}

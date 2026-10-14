@@ -31,6 +31,12 @@ startup; the first CAD action verifies and loads it. Omit it for a numerical-onl
 artifact. Runtime assets can be reused
 through the runtime builder's hash-checked `--cache`.
 
+The default package retains `redistribution_ready: false`. Assemble the reviewed
+[notice/source package](../browser_runtime/redistribution-package.md) and pass
+`--redistribution "$TASK_NOTICES"` to both builders to provide the selected
+runtime and UI requirements. This option supplies evidence, not publication
+authorization. Numerical-only packages omit CAD sources and build controls.
+
 ## Package and startup
 
 The site contains a landing page, `/app/` HTML/CSS, bundled React workspace,
@@ -165,8 +171,9 @@ budgets, support expansion, or publication authorization.
 
 ## Publication boundary
 
-The package deliberately retains `redistribution_ready: false`. Complete the
-[runtime redistribution inventory](../browser_runtime/redistribution.md) and
-static UI dependency notices before publishing. Hashes are provenance, not a
-signed deployment trust root. This build does not authorize hosting, DNS or
-publication, select a browser-only architecture, or demonstrate offline use.
+The default package retains `redistribution_ready: false`. The verified
+[notice/source package](../browser_runtime/redistribution-package.md) supplies
+selected runtime and UI requirements before redistribution. Hashes record
+provenance, not a signed deployment trust root. This build does not authorize
+hosting, DNS or publication, select a browser-only architecture, or demonstrate
+offline use.

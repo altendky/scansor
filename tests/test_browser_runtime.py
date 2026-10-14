@@ -80,6 +80,46 @@ def test_source_archive_is_identical_despite_input_order_and_mtime(tmp_path: Pat
         )
 
 
+def test_core_requirement_checks_actual_locked_wheel_notices(tmp_path: Path):
+    wheel = tmp_path / "runtime/numeric.whl"
+    wheel.parent.mkdir()
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("example.dist-info/licenses/LICENSE", b"original notice")
+    core = tmp_path / "notices/core/LICENSE"
+    core.parent.mkdir(parents=True)
+    _ = core.write_bytes(b"core notice")
+    lock = {
+        "assets": [
+            record("runtime/numeric.whl", wheel.read_bytes()) | {"group": "numeric"}
+        ],
+        "licenses": [record("notices/core/LICENSE", core.read_bytes())],
+    }
+    with pytest.raises(ValueError, match="missing or changed wheel notice"):
+        BUILDER["validate_core_notices"](tmp_path, lock, False)
+    BUILDER["inventory_wheel_notices"](tmp_path, lock["assets"])
+    BUILDER["validate_core_notices"](tmp_path, lock, False)
+    notice = tmp_path / "notices/numeric/example.dist-info/licenses/LICENSE"
+    _ = notice.write_bytes(b"tampered notice")
+    with pytest.raises(ValueError, match="missing or changed wheel notice"):
+        BUILDER["validate_core_notices"](tmp_path, lock, False)
+
+
+def test_external_requirement_is_never_fulfilled_by_an_unknown_claim():
+    manifest = {
+        "groups": {
+            "numeric": {
+                "requirements": [
+                    {"id": "unreviewed", "status": "external_required", "evidence": []}
+                ]
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="unfulfilled redistribution requirement"):
+        BUILDER["complete_requirements"](
+            manifest, ["numeric"], {"existing-core-and-wheel-notices"}
+        )
+
+
 def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
     first, second = tmp_path / "first.npz", tmp_path / "second.npz"
     create_fixture(first)

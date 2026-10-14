@@ -247,6 +247,22 @@ def test_duplicate_runtime_records_fail_before_copying(inputs: Inputs):
     assert not output.exists()
 
 
+@pytest.mark.parametrize("metadata", ["null", "missing"])
+def test_ready_flag_alone_never_passes_artifact_verification(
+    inputs: Inputs, metadata: str
+):
+    root, runtime, output = inputs
+    BUILDER.build(output, runtime, root=root)
+    path = output / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["redistribution_ready"] = True
+    if metadata == "missing":
+        del manifest["redistribution"]
+    _ = path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="lacks redistribution evidence"):
+        BUILDER.verify(output)
+
+
 @pytest.mark.parametrize("protocol", ["missing", "bootstrap", "previous-workspace"])
 def test_old_probe_runtime_fails_before_creating_an_application(
     inputs: Inputs, protocol: str

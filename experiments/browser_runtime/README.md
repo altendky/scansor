@@ -31,8 +31,11 @@ Pyodide 314.0.7, Python 3.14.2, NumPy 2.4.6 and Pydantic 2.12.5.
 
 For the separately loaded, approved OCP/OCCT lineage, use `--cad` in both
 commands with a fresh output directory. Numeric fitting completes before OCP
-is imported. Missing CAD assets fail explicitly. The CAD profile is for local
-investigation; redistribution obligations remain pending as recorded below.
+is imported. Missing CAD assets fail explicitly. The default CAD profile is for
+local investigation. A separate verified
+[notice/source package](redistribution-package.md) can supply selected-artifact
+redistribution evidence through `--redistribution`; publication authorization
+remains separate.
 
 The runner supports `--browser chromium`, `firefox` or `webkit` when that engine
 is installed. A failure or unavailable engine is not evidence of support. It
