@@ -108,6 +108,7 @@ assert:
 
 ```python
 from OCP.OSD import OSD_Process
+
 assert OSD_Process().UserName().ToCString() == "scansor-226-relinked-occt"
 ```
 

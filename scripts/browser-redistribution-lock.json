@@ -3834,11 +3834,11 @@
       "url": "https://raw.githubusercontent.com/CadQuery/OCP/a6d078cfda3e5e695c68d2bfbfe38e91b0ccb566/LICENSE"
     },
     {
-      "bytes": 7983,
+      "bytes": 7984,
       "group": "cad",
       "path": "rebuild/cad/REBUILD.md",
       "purpose": "Pinned approved lineage source/build/relink route",
-      "sha256": "0cc22270c2a2ffabba3e453990c752c0cc4e105aae6d3f314103209fcaf2fb96",
+      "sha256": "4617948af6686c59fc964e708876bc74e74ccb662a39dfb52aa28802d0a35214",
       "source_file": "ocp-rebuild/REBUILD.md"
     },
     {
