@@ -309,6 +309,13 @@ try {
   await page.locator(`.action-select[data-action-id="${failedBody.id}"]`).dblclick();
   await page.locator('#body-diagnostics').waitFor({ state: 'visible' });
   assert.match(await page.locator('#body-diagnostics').innerText(), /open|free|closed|edge/i);
+  // The undocked inspector can overlap the toolbar at the CI viewport. Finish
+  // inspection through its user control before starting the export workflow.
+  report.ui_failed_body.inspector_popup_used = await page.locator('#edit-popup').isVisible();
+  if (report.ui_failed_body.inspector_popup_used)
+    await page.locator('#close-edit').click();
+  await page.locator('#edit-popup').waitFor({ state: 'hidden' });
+  report.ui_failed_body.inspector_closed_before_export = true;
   await page.getByRole('button', { name: 'Export CAD…', exact: true }).click();
   await page.locator('#export-scope').selectOption('body');
   await page.locator('#export-target').selectOption(failedBody.id);
