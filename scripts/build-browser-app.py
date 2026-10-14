@@ -355,9 +355,8 @@ def build(
     files["app/backend-config.js"] = (
         "export default " + json.dumps(config, sort_keys=True) + ";\n"
     ).encode()
-    files["index.html"] = (
-        b'<!doctype html><meta charset="utf-8"><title>Scansor experiment</title><h1>Scansor browser experiment</h1><p>Retained nozzle selection and fitting. CAD is available when included in the artifact.</p><a href="./app/">Open Scansor</a>\n'
-    )
+    landing_path = "experiments/browser_static/landing.html"
+    files["index.html"] = checked_path(root, landing_path).read_bytes()
     for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
         path = checked_path(root, filename)
         if not path.is_file():
@@ -383,6 +382,7 @@ def build(
                 else digest(checked_path(root, relative).read_bytes()),
             }
         )
+    build_inputs.append({"path": landing_path, "sha256": digest(files["index.html"])})
     if (
         supplement is not None
         and digest(checked_path(root, f"{VIEWER}/package-lock.json").read_bytes())

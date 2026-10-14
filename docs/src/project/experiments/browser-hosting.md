@@ -160,17 +160,20 @@ document those permissions. A Cloudflare token must be narrowly scoped and kept
 out of browser assets and logs. First deployment must include smoke and rollback
 checks and must wait for separate external-configuration/publication authority.
 
-The runtime manifest deliberately reports `redistribution_ready: false`.
-[Redistribution gaps](../../../../experiments/browser_runtime/redistribution.md)
-must be closed before either provider distributes it, including retained
-notices and applicable corresponding source/build/relink provisions. Existing
-OCCT approval does not erase those obligations or approve alternative bindings.
+Without the verified notice/source package, the runtime manifest deliberately
+reports `redistribution_ready: false`. The
+[redistribution package](../../../../experiments/browser_runtime/redistribution-package.md)
+now records the completed source/notice and approved OCP replacement evidence.
+Readiness must still be verified for the selected artifact; existing OCCT
+approval does not erase those obligations or approve alternative bindings.
 
 The provider-selection gate is resolved: GitHub Pages is selected for the
 initial bounded experiment, with plain hosting and optional isolation. The
-remaining publication gates are completion of redistribution obligations and
-application release validation, followed by separate authority for provider
-setup, DNS and first publication. Selecting Pages grants none of that external
+remaining publication gates are selection of the validated ready main artifact
+and separate authority for provider setup, DNS and first publication. The
+[manual deployment runbook](../../../../experiments/browser_static/deployment.md)
+records the preparation, exact-byte selection, rollback window and stale-tab
+limitation. Selecting Pages grants none of that external
 configuration or publication authority. This experiment selection does not
 select the host for a future commercial SaaS product. Preserve portable static
 assembly, worker operation and the existing HTTP/native deployment; reconsider

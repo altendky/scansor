@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Scansor — browser experiment</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #111923; color: #e9eef4; line-height: 1.6; }
+      main { max-width: 44rem; margin: 8vh auto; padding: 2rem; }
+      h1 { font-size: clamp(2.5rem, 8vw, 4rem); line-height: 1.1; margin: 0; }
+      h2 { font-size: 1.2rem; margin-top: 2rem; }
+      .intro { font-size: 1.3rem; }
+      a { color: #a7d9ff; }
+      .open { display: inline-block; background: #a7d9ff; color: #101923;
+              border-radius: .4rem; padding: .7rem 1.2rem; font-weight: 650; }
+      .scope { color: #b9c9d8; }
+      footer { border-top: 1px solid #435363; margin-top: 2.5rem; padding-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Scansor</h1>
+      <p class="intro">Explore fitting CAD surfaces to a scan, in your browser.</p>
+      <p>
+        Select points on a simplified nozzle, fit geometric features, and build
+        a recipe you can edit and replay. When CAD is enabled, try surface
+        construction and STEP downloads in this bounded experiment.
+      </p>
+      <p><a class="open" href="./app/">Open the browser experiment</a></p>
+      <h2>A small example, with clear limits</h2>
+      <p class="scope">
+        The experiment opens the packaged nozzle. General scan uploads and
+        full-resolution scans are future work. CAD operations have limits;
+        fitting this example does not guarantee a complete closed solid.
+        Tested in desktop Chromium on Linux; other browsers and mobile remain
+        unverified. Initial loading and CAD can take time and use substantial
+        memory.
+      </p>
+      <h2>Computation stays on your device</h2>
+      <p>
+        The site downloads the application, example and runtime files. Selection,
+        fitting and CAD computation run in a browser worker on your device,
+        without a Python computation server. The experiment has no analytics
+        or scan-upload service; the hosting provider still receives ordinary
+        requests for the site files.
+      </p>
+      <h2>Keep your recipe</h2>
+      <p>
+        Download your recipe before reloading or leaving. You can upload it to
+        replay committed actions on the same example. Draft edits and computed
+        results are not saved automatically. Cancel requests a safe stop;
+        Force and restart is a separate choice when computation does not respond.
+      </p>
+      <footer>
+        <a href="https://github.com/altendky/scansor">Project and source</a>
+        · <a href="./manifest.json">Release and runtime inventory</a>
+        · <a href="./redistribution/manifest.json">UI dependency notices and sources</a>
+      </footer>
+    </main>
+  </body>
+</html>
