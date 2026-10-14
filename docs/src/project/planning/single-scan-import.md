@@ -1,0 +1,278 @@
+# Single-scan import contract
+
+## Status and authority
+
+**Evidence and proposed contract, 2026-10-14, baseline `80788df`.** This records
+the investigation for [#238](https://github.com/altendky/scansor/issues/238).
+User-file import is not implemented by this document. The recommendations below
+remain proposals until the user decides them; neither merging this document nor
+an `agent` label approves those policies.
+
+Already agreed: a scan is a Source feature; initially each project has zero or
+one scan; native HTTP and browser workers use interchangeable operations and
+shared Python import/workspace/fitting semantics. Preserve original coordinates,
+ordering and source provenance. Actions files reference original source bytes
+rather than embedding them. Multiple-scan UX remains
+[#237](https://github.com/altendky/scansor/issues/237). No automatic repair,
+decimation, autosave, remote computation fallback or new site publication is
+authorized here. Existing examples and supported numerical/CAD behavior remain
+regression requirements.
+
+## Observed source and implementation
+
+The retained [manifest](../../../../examples/nozzle-bayonette-simplified/manifest.json)
+identifies actual simplified RealityScan output, with unknown source units and
+incompletely recorded simplification settings. Its raw PLY is implementation
+evidence from a real file, not generated geometry or physical-accuracy truth.
+The `.rsInfo` sidecar is provenance; opening the raw PLY must not require it.
+
+The inspected file has 1,250,160 bytes, a 262-byte LF-terminated header, and SHA-256
+`537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358`.
+Its header is:
+
+```text
+ply
+format binary_little_endian 1.0
+comment Created in RealityScan
+element vertex 24999
+property float x
+property float y
+property float z
+property float nx
+property float ny
+property float nz
+element face 49994
+property list uchar int vertex_indices
+end_header
+```
+
+Each vertex occupies 24 bytes; each face occupies 13 bytes with a list count of
+three and three signed little-endian int32 indices. The exact length is
+`262 + 24 * 24999 + 13 * 49994`. This already matches
+[`binary-triangle-ply-v1`](../../../../src/scansor/mesh_ply.py).
+The distinct [point inspection reader](../../../../src/scansor/ply.py) is not
+the mesh-import profile and must not supply its unit-conversion semantics.
+
+All 24,999 positions and normals are finite, and every normal is nonzero.
+Normal lengths range approximately from `0.9999998903` to `1.0000001374`.
+Coordinate bounds, in original unknown units, are:
+
+| Axis | Minimum | Maximum |
+| --- | ---: | ---: |
+| X | -9.868260383605957 | 9.098114967346191 |
+| Y | -10.770027160644531 | 8.148521423339844 |
+| Z | 21.880172729492188 | 32.007484436035156 |
+
+All 49,994 faces have in-range distinct indices and positive computed area.
+There are no isolated vertices or vertices without usable incident area.
+These observations describe this retained file only.
+
+Reproduce structural validation from the repository root with the locked project
+environment:
+
+```sh
+uv run --locked python -c '
+from pathlib import Path
+from scansor.mesh_ply import MeshPlyReader
+path = Path("examples/nozzle-bayonette-simplified/nozzle-bayonette-simplified.ply")
+with path.open("rb") as stream:
+    reader = MeshPlyReader(stream, max_range_bytes=2_000_000)
+    reader.validate_all(chunk_rows=5_000)
+    print(reader.layout.header.raw.decode("ascii"), reader.layout.byte_count)
+'
+```
+
+Current implementation gaps:
+
+- [`NozzleWorkspace`](../../../../experiments/nozzle_session.py) requires
+  manifests, saved selections, a fit frame and model support. The
+  [example loader](../../../../experiments/run_nozzle_cylinder.py) additionally
+  verifies saved IDs and geometric selection gates. These are example factories,
+  not a generic source contract.
+- [`Source` and workspace reference identity](../../../../experiments/feature_graph.py)
+  currently bind both source bytes and fixture selection/model configuration.
+  Ordinary fits also read the fixture's initial parameters.
+- [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
+  centers and scales numerical coordinates but does not rotate the positive-Z
+  axis chart. Arbitrarily oriented imported cylinders need additional work.
+- [Native example switching](../../../../experiments/nozzle_browser.py)
+  constructs a candidate before assigning accepted state, but does so under the
+  server lock. Scan preparation needs a separate staging lifetime.
+- [Worker recovery](../../../../experiments/browser_static/recovery.md)
+  retains the accepted recipe and reconstructs the packaged nozzle. It does not
+  yet retain or reconstruct an arbitrary user source.
+
+## Policy recommendations awaiting decision
+
+The following package is deliberately bounded. Each row needs an explicit user
+decision before its implementation can be treated as agreed. Existing
+[full-resolution ingestion](full-resolution-mesh-ingestion.md) dispositions are
+separate from admission to this interactive fitting experiment.
+
+| ID | Recommended initial policy | Consequence or alternative |
+| --- | --- | --- |
+| P1: formats and attributes | Use the existing strict binary little-endian triangle profile with ordered float32 XYZ and complete normals. Reject extra properties/elements, other encodings/types, partial/missing normals and non-triangle lists with actionable diagnostics. | Broader PLY and missing-normal support require a separately specified admission policy; no silently ignored colors or attributes. |
+| P2: invalid geometry and weights | Reject nonfinite positions, invalid indices and zero/nonfinite normals. Retain and count zero-area/repeated-index faces without area contribution; preserve all source row IDs. Use one third of each usable incident triangle's area as the relative observation weight; zero-area-only and isolated vertices cannot enter a fit. | This follows bounded example fitting rather than silently adopting the storage importer's more permissive normal policy. No welding, deduplication, winding repair or residual trimming. |
+| P3: units | Default to explicitly unknown source units and preserve coordinates. Require an explicit output interpretation/calibration for physical-unit export; do not infer units from file names or `.rsInfo`. | Requiring physical units at import is an alternative. Existing explicit Frame/Scale/Transform and export behavior must be reconciled before a new physical-unit claim. |
+| P4: initialization and support | Initialize from each fit's selected observations and explicit references, with an explicit solve-local chart mapped back to source coordinates. Require user-supplied reference/initialization when a deterministic seed is ambiguous; derive finite support from the selected region and expose it for review/override. | No whole-scan principal-axis guess, hidden nozzle seed or inference of model intent. Algorithm/rank checks and cone support remain evidence gates in #240. |
+| P5: source lifecycle | Keep source settings read-only after acceptance. Add scan only in an empty project. New project/source removal explicitly clears dependent actions after a work-loss confirmation; no in-place replacement or implicit rebinding. | Editable units/import settings and dependent-preserving source replacement are deferred. A cancelled confirmation or file picker preserves all accepted work and drafts. |
+| P6: resource policy | Use explicit per-adapter byte, vertex, face, staging and estimated-working-set caps, verified before dangerous allocations. Choose initial values from executed import/worker measurements; reject unsupported sizes rather than reduce observations. | No universal scan-size promise or invented memory guarantee. The existing 25,000-ID per-selection cap remains separate from whole-source capacity. |
+
+For P2, preserve raw source normals; use separately normalized float64 directions
+for normal-dependent algorithms, recording that interpretation. Mesh normals
+computed for display are not fitting evidence. Duplicate usable face records
+retain their multiplicity. Report counted noncontributing faces/vertices to the
+user; no hidden geometry repair occurs. Relative area weights do not establish
+measurement uncertainty, independent held-out validation or fit acceptance.
+Any change from the existing accumulation order must be documented and compared
+numerically in example regressions; do not claim identity with the separate
+ordered full-resolution contribution implementation without checking it.
+
+P4 authorizes no automatic success on insufficient or ill-conditioned data.
+Plane/cylinder/cone/sphere and fixed/free reference relationships must retain
+their current meanings. A generated independently posed cylinder and plane must
+verify chart/world conversions; nozzle replay alone cannot establish that gate.
+Result publication must explicitly bind chart-dependent parameters to their
+chart, including fit-derived axes, fixed/free constrained groups, reuse and CAD.
+Mapping display vectors alone is insufficient. Test a cylinder perpendicular to
+source Z, its derived axis, a fit constrained to that axis and exported geometry;
+no downstream consumer may silently interpret rotated parameters in the old
+workspace positive-Z chart.
+
+## Proposed common source and workspace contract
+
+This section describes the proposed operation semantics; method names and record
+fields are internal design suggestions, not a published schema or compatibility
+promise. Policy-dependent details remain gated by P1–P6.
+
+### Descriptor and identities
+
+Separate these records rather than including fixture selections in source identity:
+
+- Exact-byte identity: SHA-256 and byte length of the original PLY, independent
+  of file name, path and adapter. Never hash only a normalized geometry array.
+- Interpretation identity: versioned accepted mesh profile, importer semantic
+  policy, normal/weight rules, units declaration and any relevant settings.
+  Canonicalize/hash shared semantic fields consistently in native and worker
+  execution. Adapter paths, chunking and runtime resource budgets are not
+  semantic identity unless they change interpretation.
+- Source descriptor: both identities, original counts/order, diagnostics and a
+  file-name/relative-path locating hint. Original row number is the vertex ID,
+  scoped to that exact source and interpretation. Hint edits do not rebind IDs.
+- Workspace: immutable authoritative float64 coordinates/directions/weights and
+  original triangle connectivity, plus separate float32/uint32 display
+  derivatives. Camera fitting does not change source coordinates or units.
+
+The PLY I/O layer remains independent of Scansor feature records, units and
+admission policy. Reuse project-owned parsing rather than introduce a second
+JavaScript reader. No new dependency is needed for this contract.
+
+An empty workspace has no source, selection or fit; it remains a valid UI state.
+Adding a scan creates exactly one Source and no example starter actions.
+Enforce zero/one source in shared Python validation. Choosing an example uses
+the same source factory boundary with an explicitly optional starter recipe.
+Existing example hashes/actions require either preserved behavior or a documented
+experimental migration/rejection; do not fabricate a manifest for a user scan.
+
+### Import transaction and observable lifecycle
+
+Extend the [backend boundary](../../../../experiments/browser_viewer/backend.md)
+with a common add/open-source operation. The UI supplies a file handle/payload
+and semantic options to the adapter, with the expected accepted workspace
+generation/token. HTTP owns upload framing/staging; workers own byte delivery and
+virtual files. No endpoint, arbitrary server path or worker message belongs in
+graph semantics. Bulk original bytes remain separate from JSON control messages.
+
+The operation moves through reading/staging, profile validation, geometry and
+weight preparation, candidate construction, then accepted commit or terminal
+failure/cancellation. Expose counts/byte progress where known and coarse phases
+elsewhere; do not invent solver/CAD percentages or cancellation guarantees.
+Capabilities describe formats, limits, progress, cancellation and recovery
+support with matching meanings across adapters.
+
+Prepare outside the graph's long-held lock and without changing its accepted
+source, recipe, display, drafts or recovery checkpoint. Validate the entire
+payload, counts, settings, geometry, source-only graph and display buffers before
+commit. Recheck generation/token and one-source preconditions at commit; stale
+or competing candidates cannot overwrite accepted work. Publish descriptor,
+workspace, graph, buffers and recovery reference as one accepted generation.
+Do not replace an actively evaluating graph: require idle state or an explicitly
+requested cancellation completed at a safe boundary, and recheck at commit.
+
+Failure, resource rejection, stale requests and cancellation discard only owned
+candidate state. Release staging/proxies/buffer views on every terminal path.
+Distinguish cancelling an observation from cancelling import work. Polite Cancel
+fences publication and stops preparation at safe boundaries; Force occurs only
+on explicit request, with no timeout escalation. Current native solver/OCCT
+limitations remain visible rather than reporting an invented successful stop.
+
+### Recovery, saved actions and source lookup
+
+Retain an accepted browser `File`/equivalent original-source reference outside
+the disposable worker, alongside cloned interpretation and committed recipe.
+Force reconstructs that source, verifies exact bytes and interpretation, then
+replays the recipe through normal validation with derived state dirty. It never
+substitutes the packaged nozzle. Keep the accepted checkpoint available when
+reconstruction/replay fails. Fence old worker generations and late binary replies.
+
+Native adapters retain an owned immutable source snapshot for the active
+workspace lifetime, with explicit cleanup. An actions-file locator must never
+grant arbitrary server-file access. Download actions preserve definitions and
+source references, not source bytes, unsaved UI drafts, solver caches or a
+self-contained project. Browser source/recipe retention is memory-only; reload,
+tab closure and browser/process loss require source reacquisition and saved
+actions. No automatic source persistence or autosave is implied.
+
+Load actions validates the descriptor/schema/settings before changing accepted
+state. With a matching active source, validate and replay normally. Otherwise
+ask the user to locate the exact bytes and stage source plus recipe as one
+transaction, subject to the explicit work-loss decision. A rename/move can
+match; same-name different bytes, reordered/re-encoded geometry and changed
+interpretation cannot silently match. Cancellation or failed replay preserves
+the earlier accepted project and drafts. Legacy example actions need explicit
+bounded recognition/migration or a clear rejection, never example substitution.
+
+Here replay during import/recovery means structural, binding and capability
+validation followed by installation of definitions with computed outputs dirty.
+Failure before that acceptance preserves the previous checkpoint. Numerical/CAD
+evaluation follows through the normal graph operation; a subsequent fit failure
+appears in the newly accepted graph and does not roll back definitions or
+silently reinstate an older project. Complete precommit numerical evaluation is
+not proposed as an additional import transaction requirement.
+
+## Readiness and acceptance gates
+
+[#238](https://github.com/altendky/scansor/issues/238) remains open until the
+required policy decisions are recorded. The dependent queue is:
+
+| Issue | Deliverable | Readiness gate |
+| --- | --- | --- |
+| [#239](https://github.com/altendky/scansor/issues/239) | Generic source/workspace | P1–P3, P5 and resource policy; shared descriptor/transaction recorded |
+| [#240](https://github.com/altendky/scansor/issues/240) | Selection/reference fit initialization | #239 and P4; independent arbitrary-pose evidence |
+| [#241](https://github.com/altendky/scansor/issues/241) | Native import adapter | #239–#240; native staging/cancellation and measured caps |
+| [#242](https://github.com/altendky/scansor/issues/242) | Worker import and recovery | #239–#240; worker source ownership, measured caps and Force evidence |
+| [#243](https://github.com/altendky/scansor/issues/243) | Source authoring UI | #241–#242 and P5; empty state, drafts and keyboard/focus checks |
+| [#244](https://github.com/altendky/scansor/issues/244) | Source-aware saved actions | #239/#243; transactional lookup and legacy behavior |
+| [#245](https://github.com/altendky/scansor/issues/245) | Complete workflow gates | #240/#244 plus actual native and worker UI paths |
+
+For both adapters, exercise fresh project → raw retained PLY without sidecars →
+Source → manual selection → plane and arbitrarily oriented cylinder → supported
+CAD/STEP readback → save actions → locate/reopen/replay. Add an independently
+constructed non-nozzle fixture, explicitly labeled generated. Compare source and
+interpretation identities, ordered row IDs, weights, numerical results and world
+geometry through the shared Python path; no external computation fallback.
+
+Negative cases include unsupported attributes/encoding, malformed lengths/list
+counts, invalid geometry/normals, counted zero-area faces/isolated vertices,
+zero/one-source guards, oversized declarations before allocation, changed file
+bytes/settings, stale token/generation, concurrent import, picker/lookup cancel,
+failed candidate and failed replay. Test Cancel/Force before and after candidate
+preparation and during publication; the accepted project must survive rejection.
+
+Measure import/startup, UI responsiveness, and input/staging/float64 temporary/
+display/GPU memory categories on stated runtimes. Existing browser measurements
+are not new-import capacity evidence. Keep source-size, selected-ID and solver
+capacity limits distinct. Extend deterministic CI/static artifact verification
+and source/notice closure after implementation. Preserve example/reference/CAD
+regressions and mark untested engines/larger files explicitly. A new public site
+artifact still requires separate publication authorization.

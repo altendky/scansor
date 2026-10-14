@@ -35,6 +35,10 @@ probes do not implement ingestion or establish external-source fitting evidence.
 
 ## Tracks
 
+- [Single-scan import contract](single-scan-import.md)
+  - observed retained RealityScan PLY profile, proposed shared source/workspace,
+    import/recovery/reopen semantics, and user policy decisions gating the
+    single-scan implementation queue
 - [Two-workflow demo video](demo-video.md)
   - planned narrated walkthrough of the retained nozzle selection/fitting graph
     and generated repeated-boss reuse/alignment graph, with reproducible browser
