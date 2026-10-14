@@ -8,6 +8,7 @@ let python;
 let initialization;
 let numericComplete = false;
 let cadLoaded = false;
+let workspaceLoaded = false;
 let chain = Promise.resolve();
 
 async function initialize() {
@@ -38,7 +39,36 @@ async function initialize() {
   for (const key of ['python', 'numpy', 'pydantic']) if (versions[key] !== manifest.versions[key]) throw new Error(`Incompatible ${key}: ${versions[key]}`);
 }
 
-async function handle({ id, operation }) {
+function workspaceCall(method, operation, payload) {
+  if (!workspaceLoaded) {
+    python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; browser_workspace = BrowserWorkspace(Path('/app/examples/nozzle-bayonette-simplified'))");
+    workspaceLoaded = true;
+  }
+  python.globals.set('browser_operation', operation);
+  python.globals.set('browser_payload', JSON.stringify(payload || {}));
+  const envelope = JSON.parse(python.runPython(method === 'finish_evaluation_json'
+    ? 'browser_workspace.finish_evaluation_json()'
+    : `browser_workspace.${method}(browser_operation, browser_payload)`));
+  if (!envelope.ok) {
+    const error = new Error(envelope.error.message);
+    Object.assign(error, envelope.error);
+    throw error;
+  }
+  return envelope.result;
+}
+
+function displayBuffer(name) {
+  const proxy = python.runPython(`browser_workspace.${name}`);
+  let view;
+  try {
+    view = proxy.getBuffer('u8');
+    // Wasm owns view.data.buffer. Copy only this contiguous derivative, then transfer
+    // the independently owned JS buffer; never detach the Python runtime's memory.
+    return new Uint8Array(view.data).buffer;
+  } finally { view?.release(); proxy.destroy(); }
+}
+
+async function handle({ operation }) {
   // A failed initialization stays failed; never reuse a partially loaded runtime.
   initialization ??= initialize();
   await initialization;
@@ -73,12 +103,46 @@ async function handle({ id, operation }) {
   throw new Error(`Unknown probe operation: ${operation}`);
 }
 
+async function dispatch(request) {
+  const { id, operation, payload, generation } = request;
+  if (['initialize', 'numeric', 'cad'].includes(operation)) {
+    postMessage({ id, ok: true, ...await handle(request) });
+    return;
+  }
+  initialization ??= initialize();
+  await initialization;
+  if (operation === 'loadWorkspace') {
+    const metadata = workspaceCall('call_json', operation, payload);
+    const positions = displayBuffer('display_positions'), indices = displayBuffer('display_indices');
+    postMessage({ id, ok: true, result: { metadata, positions, indices } }, [positions, indices]);
+    postMessage({ id, kind: 'transfer-confirmed', positions_bytes_after: positions.byteLength,
+      indices_bytes_after: indices.byteLength });
+  } else if (['evaluateGraph', 'ensureGraph'].includes(operation)) {
+    const prepared = workspaceCall('prepare_evaluation_json', operation, payload);
+    postMessage({ id, ok: true, result: prepared.state });
+    if (prepared.run) {
+      postMessage({ kind: 'graph', generation, state: prepared.state });
+      // Keep the serial dispatch queue occupied until Python has finished. The
+      // early acknowledgement permits UI observation without overlapping jobs.
+      try {
+        const state = workspaceCall('finish_evaluation_json', operation, payload);
+        postMessage({ kind: 'graph', generation, state });
+      } catch (error) {
+        // The request was already acknowledged. A fatal message settles every
+        // observer rather than leaving it waiting for a nonexistent terminal reply.
+        postMessage({ fatal: error.message });
+      }
+    }
+  } else postMessage({ id, ok: true, result: workspaceCall('call_json', operation, payload) });
+}
+
 // Queue all requests; an async message handler alone would allow overlapping setup.
 self.onmessage = event => {
   const request = event.data;
   chain = chain.then(async () => {
-    try { postMessage({ id: request.id, ok: true, ...await handle(request) }); }
-    catch (error) { postMessage({ id: request.id, ok: false, error: String(error), stack: error.stack }); }
+    try { await dispatch(request); }
+    catch (error) { postMessage({ id: request.id, ok: false,
+      error: { code: error.code || 'worker_error', status: error.status, message: error.message } }); }
   });
 };
 self.onmessageerror = () => postMessage({ fatal: 'Worker could not deserialize a request' });

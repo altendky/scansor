@@ -20,7 +20,7 @@ function fixture(options = {}) {
 const ready = { id: 1, ok: true, ready: true, versions: { python: '3.14.2' },
   source_revision: 'revision', source_worktree_dirty: false };
 
-test('one worker initialization reports phases and cannot enable unfinished operations', async () => {
+test('one worker initialization reports phases and declares the bounded numerical capabilities', async () => {
   const phases = [], { worker, backend } = fixture({ onPhase: phase => phases.push(phase) });
   const pending = backend.initialize();
   assert.equal(backend.initialize(), pending);
@@ -31,9 +31,9 @@ test('one worker initialization reports phases and cannot enable unfinished oper
   assert.deepEqual(worker.calls, [{ id: 1, operation: 'initialize' }]);
   assert.deepEqual(phases, ['Python runtime']);
   const selected = createBackend({ type: 'worker', factories: { worker: () => backend } });
-  assert.equal(selected.capabilities.numerical, false);
-  await assert.rejects(selected.loadWorkspace(), error => error.code === 'unsupported_capability');
-  await assert.rejects(selected.graphUpdates().next(), /not available/);
+  assert.equal(selected.capabilities.numerical, true);
+  assert.equal(selected.capabilities.cad, false);
+  await assert.rejects(selected.exportCad(), error => error.code === 'unsupported_capability');
   selected.close();
   assert.equal(worker.terminated, 1);
 });
@@ -89,4 +89,161 @@ test('fatal errors after readiness retire the runtime and notify the UI', async 
   await assert.rejects(backend.initialize(), /Runtime lost/);
   assert.deepEqual(failures, ['Runtime lost']);
   assert.equal(worker.terminated, 1);
+});
+
+async function initialized() {
+  const value = fixture(), pending = value.backend.initialize();
+  value.worker.reply(ready);
+  await pending;
+  return value;
+}
+const graph = (extra = {}) => ({ token: 'token', revision: 3,
+  recipe: { nodes: [{ id: 'source', operation: 'source' }] },
+  states: {}, results: {}, evaluation_running: false, ...extra });
+const tick = () => Promise.resolve();
+async function requestReply(value, operation, payload, result) {
+  const pending = value.backend[operation](payload);
+  await tick();
+  const request = value.worker.calls.at(-1);
+  assert.equal(request.operation, operation);
+  value.worker.reply({ id: request.id, ok: true, result });
+  return pending;
+}
+
+test('workspace waits for actual sender detachment and returns independently owned buffers', async () => {
+  const value = await initialized(), pending = value.backend.loadWorkspace();
+  await tick();
+  const id = value.worker.calls.at(-1).id;
+  const positions = new ArrayBuffer(12), indices = new ArrayBuffer(12);
+  let settled = false;
+  pending.then(() => { settled = true; });
+  value.worker.reply({ id, ok: true, result: { metadata: {}, positions, indices } });
+  await tick();
+  assert.equal(settled, false);
+  value.worker.reply({ id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+  const result = await pending;
+  assert.equal(result.positions, positions);
+  assert.deepEqual(result.transferOwnership, { sender_detached: true, positions_bytes: 12,
+    indices_bytes: 12, copied_js_bytes: 24, strategy: 'copy-contiguous-wasm-view-then-transfer' });
+  value.backend.close();
+});
+
+test('pushed running acknowledgements and completion before subscription cannot miss terminal status', async () => {
+  const value = await initialized();
+  await requestReply(value, 'getGraph', {}, graph());
+  await requestReply(value, 'ensureGraph', { token: 'token' },
+    { token: 'token', status: 'running', evaluation_running: true });
+  const stream = value.backend.graphUpdates();
+  assert.equal((await stream.next()).value.evaluation_running, true);
+  const next = stream.next();
+  value.worker.reply({ kind: 'graph', generation: 0, state: graph({ revision: 4 }) });
+  assert.equal((await next).value.revision, 4);
+  assert.equal((await stream.next()).done, true);
+  const late = value.backend.graphUpdates();
+  assert.equal((await late.next()).value.evaluation_running, false);
+  assert.equal((await late.next()).done, true);
+  value.backend.close();
+});
+
+test('an observer without a cached snapshot requests its first graph', async () => {
+  const value = await initialized(), stream = value.backend.graphUpdates();
+  const first = stream.next();
+  await tick();
+  await tick();
+  const request = value.worker.calls.at(-1);
+  assert.equal(request.operation, 'getGraph');
+  value.worker.reply({ id: request.id, ok: true, result: graph() });
+  assert.equal((await first).value.token, 'token');
+  assert.equal((await stream.next()).done, true);
+  value.backend.close();
+});
+
+test('mutation fences obsolete graph publication and wakes superseded observers', async () => {
+  const value = await initialized();
+  await requestReply(value, 'getGraph', {}, graph({ evaluation_running: true }));
+  const stream = value.backend.graphUpdates();
+  await stream.next();
+  const observed = stream.next();
+  const mutation = value.backend.replaceRecipe({ token: 'token', recipe: {} });
+  await tick();
+  const request = value.worker.calls.at(-1);
+  value.worker.reply({ kind: 'graph', generation: 0, state: graph({ revision: 99 }) });
+  await assert.rejects(observed, error => error.code === 'observation_superseded');
+  value.worker.reply({ id: request.id, ok: true, result: graph({ token: 'new', revision: 5 }) });
+  await mutation;
+  assert.equal((await value.backend.graphUpdates().next()).value.revision, 5);
+  value.backend.close();
+});
+
+test('structured rejected mutations preserve committed recipe and recovery survives runtime loss', async () => {
+  const value = await initialized();
+  await requestReply(value, 'getGraph', {}, graph());
+  const pending = value.backend.importRecipe({ token: 'token', recipe: {} });
+  await tick();
+  value.worker.reply({ id: value.worker.calls.at(-1).id, ok: false,
+    error: { code: 'unsupported_capability', status: 422, message: 'Unsupported CAD action' } });
+  await assert.rejects(pending, error => error.code === 'unsupported_capability' && error.status === 422);
+  value.worker.reply({ fatal: 'lost' });
+  const recovered = await value.backend.exportRecipe();
+  assert.deepEqual(recovered, graph().recipe);
+  recovered.nodes.length = 0;
+  assert.equal((await value.backend.exportRecipe()).nodes.length, 1);
+});
+
+test('close and fatal settle concurrent operations and waiting observers', async () => {
+  for (const fatal of [false, true]) {
+    const value = await initialized();
+    await requestReply(value, 'getGraph', {}, graph({ evaluation_running: true }));
+    const stream = value.backend.graphUpdates();
+    await stream.next();
+    const observed = stream.next(), first = value.backend.getGraph(), second = value.backend.listExamples();
+    await tick();
+    if (fatal) value.worker.reply({ fatal: 'runtime lost' });
+    else value.backend.close();
+    for (const pending of [observed, first, second])
+      await assert.rejects(pending, error => error.code === (fatal ? 'worker_failed' : 'backend_closed'));
+    assert.equal(value.worker.terminated, 1);
+  }
+});
+
+test('aborting observation stops waiting without terminating computation', async () => {
+  const value = await initialized(), controller = new AbortController();
+  await requestReply(value, 'getGraph', {}, graph({ evaluation_running: true }));
+  const stream = value.backend.graphUpdates({ signal: controller.signal });
+  await stream.next();
+  const observed = stream.next();
+  controller.abort(new Error('stop waiting'));
+  await assert.rejects(observed, /stop waiting/);
+  assert.equal(value.worker.terminated, 0);
+  value.backend.close();
+});
+
+test('stale pending graph replies cannot publish after a mutation starts', async () => {
+  const value = await initialized();
+  const read = value.backend.getGraph();
+  await tick();
+  const old = value.worker.calls.at(-1);
+  const change = value.backend.replaceRecipe({ token: 'token', recipe: {} });
+  await tick();
+  const mutation = value.worker.calls.at(-1);
+  value.worker.reply({ id: old.id, ok: true, result: graph() });
+  await assert.rejects(read, error => error.code === 'observation_superseded');
+  value.worker.reply({ id: mutation.id, ok: true, result: graph({ token: 'new' }) });
+  await change;
+  value.backend.close();
+});
+
+test('abort during shared startup settles only that observation immediately', async () => {
+  for (const stream of [false, true]) {
+    const controller = new AbortController(), value = fixture();
+    const observation = stream ? value.backend.graphUpdates({ signal: controller.signal }).next()
+      : value.backend.getGraph({ signal: controller.signal });
+    controller.abort(new Error('leave startup'));
+    await assert.rejects(observation, /leave startup/);
+    assert.equal(value.worker.terminated, 0);
+    const initialization = value.backend.initialize();
+    value.worker.reply(ready);
+    await initialization;
+    value.backend.close();
+  }
 });

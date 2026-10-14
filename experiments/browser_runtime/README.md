@@ -63,11 +63,13 @@ not demonstrate every operation it implements:
   validity/area, tessellation and named millimeter STEP. Browser-produced STEP
   is reopened natively to verify validity, area and its Unicode name.
 
-No DuckDB, PyArrow, psutil, CLI imports, Linux ingestion supervision, threads,
-subprocesses, arbitrary file loading, full-resolution scans or UI authoring
-helpers are bundled. The numerical probe asserts that unrelated dependencies,
+No DuckDB, PyArrow, psutil, CLI imports, Linux ingestion supervision, thread creation,
+subprocesses, arbitrary file loading or full-resolution scans are bundled. The
+worker workspace adds recipe import and feature-reuse authoring helpers through
+the same numerical graph. The numerical probe asserts that unrelated dependencies,
 including OCP, have not been imported. General CAD/body/export coverage and
-actual UI integration belong to subsequent issues.
+integration remain subsequent work. The bounded numerical
+UI integration is documented in the [static experiment](../browser_static/README.md).
 
 ## Reproducibility and integrity
 

@@ -104,9 +104,13 @@ def read_runtime(runtime: Path) -> tuple[bytes, dict, dict[str, bytes]]:
         manifest.get("assets"), list
     ):
         raise ValueError("unsupported runtime manifest")
-    if manifest.get("worker_protocol") != {"version": 1, "bootstrap": "initialize"}:
+    if manifest.get("worker_protocol") != {
+        "version": 2,
+        "bootstrap": "initialize",
+        "workspace": "retained-nozzle-numerical",
+    }:
         raise ValueError(
-            "runtime lacks the supported worker bootstrap protocol; rebuild it"
+            "runtime lacks the supported numerical workspace protocol; rebuild it"
         )
     files = {"manifest.json": raw}
     for record in manifest["assets"]:
@@ -253,7 +257,7 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         "export default " + json.dumps(config, sort_keys=True) + ";\n"
     ).encode()
     files["index.html"] = (
-        b'<!doctype html><meta charset="utf-8"><title>Scansor experiment</title><h1>Scansor browser experiment</h1><p>Local static bootstrap artifact. Workspace computation is introduced separately.</p><a href="./app/">Open Scansor</a>\n'
+        b'<!doctype html><meta charset="utf-8"><title>Scansor experiment</title><h1>Scansor browser experiment</h1><p>Retained nozzle selection and numerical fitting. CAD is introduced separately.</p><a href="./app/">Open Scansor</a>\n'
     )
     for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
         path = checked_path(root, filename)
@@ -274,7 +278,7 @@ def build(output: Path, runtime: Path, *, root: Path = ROOT) -> dict:
         "schema_version": 1,
         "kind": "scansor-static-app",
         "entry": "app/index.html",
-        "capabilities": {"runtime_bootstrap": True, "numerical": False, "cad": False},
+        "capabilities": {"runtime_bootstrap": True, "numerical": True, "cad": False},
         "source_revision": state["revision"],
         "source_worktree_dirty": state["worktree_dirty"],
         "source_files": source_files,

@@ -98,9 +98,13 @@
   "sources": {
     "numeric": [
       "experiments/__init__.py",
+      "experiments/browser_runtime/workspace.py",
+      "experiments/face_building_limits.py",
       "experiments/feature_graph.py",
       "experiments/feature_inputs.py",
+      "experiments/feature_recipe_import.py",
       "experiments/feature_reuse.py",
+      "experiments/feature_reuse_authoring.py",
       "experiments/fit_coordinates.py",
       "experiments/fit_relationship_component.py",
       "experiments/fit_solver.py",
@@ -133,7 +137,6 @@
       "experiments/body_geometry.py",
       "experiments/face_adjacency.py",
       "experiments/face_arrangement.py",
-      "experiments/face_building_limits.py",
       "experiments/face_geometry.py",
       "experiments/face_proposals.py",
       "experiments/general_face_geometry.py",
@@ -151,7 +154,8 @@
       "examples/nozzle-bayonette-simplified/selections/outer-band-vertex-ids.txt",
       "examples/nozzle-bayonette-simplified/selections/top-face.json",
       "examples/nozzle-bayonette-simplified/selections/top-face-vertex-ids.txt",
-      "examples/nozzle-bayonette-simplified/recipes/cone-plane.json"
+      "examples/nozzle-bayonette-simplified/recipes/cone-plane.json",
+      "examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json"
     ]
   },
   "licenses": [

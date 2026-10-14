@@ -1,11 +1,12 @@
 # Static browser application experiment
 
-This assembles the real docking UI and a worker-initialized Python runtime into
-a provider-neutral static site under `/app/`. This stage initializes Pyodide,
-NumPy, Pydantic and packaged Scansor/example resources; it does not load or
-evaluate a workspace. Selection, fitting, recipes and CAD controls are explicitly
-unavailable until subsequent integration issues. The native HTTP viewer retains
-its capabilities. Readiness proves runtime startup, not a complete application.
+This assembles the real docking UI and a numerical Python worker into a
+provider-neutral static site under `/app/`. It opens the retained nozzle using
+the native 30-action default, edits selections, evaluates numerical graph
+actions, and downloads/uploads recipes. CAD actions and export are unavailable
+in this stage; importing a CAD-containing recipe fails without replacing current
+actions. The native HTTP viewer retains its capabilities. This is a bounded
+experiment, not general scan ingestion or a browser-only product decision.
 
 ## Build and preview
 
@@ -35,7 +36,8 @@ application/helper modules, Three.js and its required controls/lines, and runtim
 assets under `app/runtime/<runtime-manifest-sha256>/`. Relative application URLs
 and import-map entries also work at nested paths. Native `backend-config.js`
 defaults to HTTP; assembly generates a worker config with the versioned URL.
-HTTP downloads assets in worker mode; `postMessage` initializes the worker.
+HTTP downloads assets in worker mode; `postMessage` carries computation requests
+and pushed graph snapshots between the UI and worker.
 No computation API server is started or used as a fallback.
 
 One `site/manifest.json` records separate UI/runtime revisions and dirty status,
@@ -48,9 +50,11 @@ with schema_version 1, kind `scansor-static-app`, `entry: app/index.html`, and
 runtime assets are listed. Browser startup verifies numerical assets before
 loading. Missing/corrupt assets, incompatible versions, worker failures and
 startup timeouts fail explicitly and terminate the failed worker. The timeout
-bounds initialization only, not active computation. HTTP startup failures retain
-recipe-recovery download; worker mode explains that no workspace actions exist
-in this stage and offers no false server recovery.
+bounds initialization only, not active computation. Startup/runtime failures
+retire the UI. Worker recovery download uses the last accepted recipe kept
+outside the worker; it does not preserve drafts, results, or reload state.
+Production cancellation and restoration remain separate work. Cross-origin
+isolation is optional and is not required for this numerical integration.
 
 ## Verification
 
@@ -62,6 +66,8 @@ node experiments/browser_static/validate.mjs --directory "$TASK_SITE" \
   --playwright-directory experiments/browser_viewer --output "$TASK_REPORTS"
 node experiments/browser_static/validate.mjs --directory "$TASK_SITE" \
   --output "$TASK_ISOLATED_REPORTS" --isolation
+node experiments/browser_static/validate-workspace.mjs --directory "$TASK_SITE" \
+  --output "$TASK_WORKSPACE_REPORTS" --native-python .venv/bin/python
 node --test experiments/browser_static/server.test.mjs
 ```
 
@@ -81,16 +87,17 @@ computation server or API handler is started. It listens on loopback only.
 
 The driver tests `/app/` and `/preview/nested/app/`, each with four cases:
 
-1. Real worker bootstrap reaches `#status.dataset.runtimeReady='true'`, honest
-   fitting/CAD unavailable copy, disabled `#new-fit`, and enabled/clickable Show
-   panel layout control.
+1. Real workspace startup reaches `#status.dataset.runtimeReady='true'`, a mesh
+   canvas, initialized Save, enabled fitting, disabled CAD export, and a working
+   Show panel layout control.
 2. A Pyodide WASM request deliberately returns HTTP 404; visible `#startup-error`
    and nonempty `#startup-detail` identify the missing asset. The artifact stays
    unchanged.
 3. `?backend=unavailable` produces an explicit startup error without an HTTP
    computation fallback.
-4. An injected fatal message after actual runtime readiness clears the ready
-   status and disables the failed workspace. Only this fault case changes the
+4. An injected fatal message after actual runtime initialization clears any
+   ready status and disables the failed workspace, including failure during
+   workspace startup. Only this fault case changes the
    served worker response; original/modified hashes and the delay are recorded.
    The artifact on disk and ordinary readiness cases remain unchanged.
 

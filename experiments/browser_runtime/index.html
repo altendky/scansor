@@ -35,7 +35,7 @@
       if (!request) return;
       pending.delete(data.id);
       if (data.ok) request.resolve(data);
-      else request.reject(new Error(data.error));
+      else request.reject(new Error(data.error?.message || data.error));
     }
   };
   const request = operation => new Promise((resolve, reject) => {
