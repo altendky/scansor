@@ -110,7 +110,8 @@ self.postMessage = (message, ...options) => {
             entry.checks.numerical_workspace_ready = site.manifest.capabilities.numerical === true &&
               await page.locator('canvas').count() === 1 && await page.locator('#save').isEnabled();
             entry.checks.fit_enabled = await page.locator('#new-fit').isEnabled();
-            entry.checks.cad_disabled = await page.locator('#export-cad').isDisabled();
+            entry.checks.cad_matches_artifact = await page.locator('#export-cad').isDisabled() ===
+              !site.manifest.capabilities.cad;
             const show = page.getByRole('button', { name: 'Show panel', exact: true });
             entry.checks.layout_show_enabled = await show.isEnabled();
             await show.click();

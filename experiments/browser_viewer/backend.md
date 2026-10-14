@@ -2,8 +2,8 @@
 
 This is an internal interface for the bounded viewer experiment. HTTP/native
 Python remains the default implementation. The static experiment supplies a
-worker backend for the retained nozzle's numerical graph. This interface does
-not select a browser-only product architecture.
+worker backend for the retained nozzle's graph and optional approved CAD runtime.
+This interface does not select a browser-only product architecture.
 
 The UI calls Scansor operations through `backend.js`. `http-backend.js` owns
 HTTP URLs, mutation headers, response decoding, and polling. Neither the UI nor
@@ -118,6 +118,22 @@ This stage reports coarse lifecycle snapshots, not progress within synchronous
 solver calls. Abort stops waiting; cancellation and worker restoration remain
 the dedicated follow-up. A cached copy of the last accepted recipe can be
 downloaded after failure, but it excludes unfinished UI drafts and solver caches.
+
+With the CAD profile, the first face operation, CAD recipe import or export
+verifies/extracts the pinned OCP wheel and checks its version before enabling
+the Python adapter's CAD paths. Numerical startup does not import OCP. Missing
+or incompatible CAD produces an operation error and leaves numerical work
+available; its failed initialization remains failed until reload. The numerical
+profile rejects CAD actions without changing the current recipe.
+
+Face proposals and application reuse the native helpers and their recipe/geometry
+tokens. Export preserves the native readiness and required-failure closure,
+units, transforms, physical bounds and Body validation. ZIP bytes use a separate
+Python buffer, copied and transferred like display data; the Python view/proxy
+and retained export bytes are released before delivery. A failed or stale request
+cannot deliver a previous export. STEP writing uses the existing virtual
+temporary-directory path and restores its global units in `finally`. Native
+shapes remain within replay scopes in the worker and never enter control JSON.
 
 Recipe export clones the accepted recipe without a new server read, preserving
 the existing Save actions behavior. Recipe import still validates against the

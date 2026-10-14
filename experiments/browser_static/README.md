@@ -3,10 +3,11 @@
 This assembles the real docking UI and a numerical Python worker into a
 provider-neutral static site under `/app/`. It opens the retained nozzle using
 the native 30-action default, edits selections, evaluates numerical graph
-actions, and downloads/uploads recipes. CAD actions and export are unavailable
-in this stage; importing a CAD-containing recipe fails without replacing current
-actions. The native HTTP viewer retains its capabilities. This is a bounded
-experiment, not general scan ingestion or a browser-only product decision.
+actions, and downloads/uploads recipes. A `--cad` runtime additionally exposes
+the existing supported face/body workflows and STEP bundle export. A numerical
+artifact disables those controls and rejects CAD recipes without replacing
+current actions. The native HTTP viewer retains its capabilities. This is a
+bounded experiment, not general scan ingestion or a browser-only product decision.
 
 ## Build and preview
 
@@ -26,7 +27,8 @@ The variables denote chosen paths, not existing session files. The stdlib-only
 app builder consumes an already built workspace and verified runtime; it does
 not install dependencies or invoke Vite. Rebuild the UI before assembly after
 changes. `--cad` includes the approved optional wheel without importing it at
-startup; omit it for a numerical-only artifact. Runtime assets can be reused
+startup; the first CAD action verifies and loads it. Omit it for a numerical-only
+artifact. Runtime assets can be reused
 through the runtime builder's hash-checked `--cache`.
 
 ## Package and startup
@@ -54,7 +56,9 @@ bounds initialization only, not active computation. Startup/runtime failures
 retire the UI. Worker recovery download uses the last accepted recipe kept
 outside the worker; it does not preserve drafts, results, or reload state.
 Production cancellation and restoration remain separate work. Cross-origin
-isolation is optional and is not required for this numerical integration.
+isolation is optional. A CAD-loading failure leaves numerical operations usable;
+reload after repairing the assets to retry CAD. It does not select another
+backend or substitute approximate geometry.
 
 ## Verification
 
@@ -68,6 +72,8 @@ node experiments/browser_static/validate.mjs --directory "$TASK_SITE" \
   --output "$TASK_ISOLATED_REPORTS" --isolation
 node experiments/browser_static/validate-workspace.mjs --directory "$TASK_SITE" \
   --output "$TASK_WORKSPACE_REPORTS" --native-python .venv/bin/python
+node experiments/browser_static/validate-cad.mjs --directory "$TASK_SITE" \
+  --output "$TASK_CAD_REPORTS" --native-python .venv/bin/python
 node --test experiments/browser_static/server.test.mjs
 ```
 
@@ -88,7 +94,8 @@ computation server or API handler is started. It listens on loopback only.
 The driver tests `/app/` and `/preview/nested/app/`, each with four cases:
 
 1. Real workspace startup reaches `#status.dataset.runtimeReady='true'`, a mesh
-   canvas, initialized Save, enabled fitting, disabled CAD export, and a working
+   canvas, initialized Save, enabled fitting, CAD capability matching the
+   packaged runtime, and a working
    Show panel layout control.
 2. A Pyodide WASM request deliberately returns HTTP 404; visible `#startup-error`
    and nonempty `#startup-detail` identify the missing asset. The artifact stays
@@ -113,6 +120,8 @@ unlisted files. The self-tests validate serving/MIME, allowlist and method
 boundaries, corruption/path rejection, symlinks, changed assets/manifests, and
 report output guards without modifying excluded directories.
 Actual executed checks and limitations are recorded in [validation](validation.md).
+The CAD profile's separate case inventory and limits are recorded in
+[CAD validation](cad-validation.md).
 Fixture tests alone do not demonstrate worker/UI startup or rendering, practical
 scan capacity, memory budgets, project recovery or other browser engines.
 

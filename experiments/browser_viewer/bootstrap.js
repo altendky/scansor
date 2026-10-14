@@ -52,7 +52,8 @@ async function start() {
   if (type === 'worker') {
     const status = byId('status');
     const scope = document.createElement('span');
-    scope.textContent = 'Bounded browser experiment · retained nozzle · CAD unavailable';
+    scope.textContent = configuration.cad ? 'Bounded browser experiment · retained nozzle · CAD loads on demand'
+      : 'Bounded browser experiment · retained nozzle · CAD unavailable';
     status.closest('footer').append(scope);
     byId('status').textContent = 'Starting browser runtime…';
     const { createWorkerBackend } = await import('./worker-backend.js');
@@ -63,7 +64,9 @@ async function start() {
           'numeric asset verification': 'Verifying runtime files',
           'Python runtime': 'Starting computation engine',
           'NumPy and Pydantic': 'Loading numerical tools',
-          'Scansor source and frozen fixture': 'Loading example resources' };
+          'Scansor source and frozen fixture': 'Loading example resources',
+          'optional CAD asset verification and extraction': 'Verifying and unpacking CAD tools',
+          'CAD kernel': 'Starting CAD tools' };
         byId('status').textContent = `${labels[phase] || 'Starting browser runtime'}…`;
       } });
     getBackend({ type, factories: { worker: () => workerBackend } });

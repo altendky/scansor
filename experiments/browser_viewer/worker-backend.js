@@ -12,6 +12,7 @@ function abortable(promise, signal) {
 }
 
 export function createWorkerBackend({ runtimeURL,
+  cad = false,
   workerFactory = (url, options) => new Worker(url, options),
   onPhase = () => {}, onFailure = () => {}, startupTimeout = 180_000 } = {}) {
   if (!runtimeURL) throw new BackendError('Browser runtime assets are not configured.',
@@ -19,7 +20,7 @@ export function createWorkerBackend({ runtimeURL,
   const url = new URL(runtimeURL, import.meta.url), pending = new Map(), observers = new Set();
   let worker, initialization, timer, terminalError, closed = false, nextId = 1;
   let generation = 0, latestGraph, committedRecipe;
-  const mutations = new Set(['replaceRecipe', 'importRecipe', 'selectExample', 'applyFeatureReuse']);
+  const mutations = new Set(['replaceRecipe', 'importRecipe', 'selectExample', 'applyFeatureReuse', 'applyFaces']);
   const superseded = () => new BackendError('The requested operation changed. Try again.',
     { code: 'observation_superseded' });
   const errorFor = (error, requestId) => new BackendError(String(error?.message || error),
@@ -55,7 +56,7 @@ export function createWorkerBackend({ runtimeURL,
     wake();
   };
   const backend = {
-    capabilities: Object.freeze({ numerical: true, cad: false, examples: true,
+    capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'snapshots', cancelComputation: false, sources: 'retained-nozzle' }),
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -84,6 +85,18 @@ export function createWorkerBackend({ runtimeURL,
                 return;
               }
               if (data.kind === 'transfer-confirmed') {
+                if (request.generation !== generation) {
+                  pending.delete(data.id);
+                  request.reject(superseded());
+                  return;
+                }
+                if (request.operation === 'exportCad') {
+                  if (!(request.transfer instanceof ArrayBuffer) || data.export_bytes_after !== 0)
+                    throw new Error('CAD export bytes were not transferred.');
+                  pending.delete(data.id);
+                  request.resolve(request.transfer);
+                  return;
+                }
                 if (!request.transfer || data.positions_bytes_after !== 0 || data.indices_bytes_after !== 0)
                   throw new Error('Workspace display buffers were not transferred.');
                 const result = request.transfer;
@@ -112,6 +125,11 @@ export function createWorkerBackend({ runtimeURL,
               if (request.operation === 'loadWorkspace') {
                 if (!(data.result?.positions instanceof ArrayBuffer) || !(data.result?.indices instanceof ArrayBuffer))
                   throw new Error('Invalid workspace display buffers.');
+                request.transfer = data.result;
+                return;
+              }
+              if (request.operation === 'exportCad') {
+                if (!(data.result instanceof ArrayBuffer)) throw new Error('Invalid CAD export bytes.');
                 request.transfer = data.result;
                 return;
               }
@@ -173,7 +191,8 @@ export function createWorkerBackend({ runtimeURL,
     close() { closed = true; stop(unavailable()); },
   };
   for (const operation of ['loadWorkspace', 'getGraph', 'replaceRecipe', 'importRecipe',
-    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse']) {
+    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse',
+    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']) {
     backend[operation] = async (payload = {}, options = {}) => {
       const signal = options.signal || payload.signal;
       signal?.throwIfAborted();
@@ -196,7 +215,7 @@ export function createWorkerBackend({ runtimeURL,
       });
     };
   }
-  for (const operation of ['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad'])
+  if (!cad) for (const operation of ['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad'])
     backend[operation] = async () => { throw new BackendError('CAD is unavailable in this numerical browser slice.',
       { code: 'unsupported_capability' }); };
   return backend;

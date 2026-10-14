@@ -67,9 +67,10 @@ No DuckDB, PyArrow, psutil, CLI imports, Linux ingestion supervision, thread cre
 subprocesses, arbitrary file loading or full-resolution scans are bundled. The
 worker workspace adds recipe import and feature-reuse authoring helpers through
 the same numerical graph. The numerical probe asserts that unrelated dependencies,
-including OCP, have not been imported. General CAD/body/export coverage and
-integration remain subsequent work. The bounded numerical
-UI integration is documented in the [static experiment](../browser_static/README.md).
+including OCP, have not been imported. The optional CAD source closure includes
+the native face-authoring/export helpers and deterministic geometry cases.
+The bounded UI integration and its separate CAD case inventory are documented
+in the [static experiment](../browser_static/README.md).
 
 ## Reproducibility and integrity
 

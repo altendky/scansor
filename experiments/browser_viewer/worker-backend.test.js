@@ -91,8 +91,8 @@ test('fatal errors after readiness retire the runtime and notify the UI', async 
   assert.equal(worker.terminated, 1);
 });
 
-async function initialized() {
-  const value = fixture(), pending = value.backend.initialize();
+async function initialized(options) {
+  const value = fixture(options), pending = value.backend.initialize();
   value.worker.reply(ready);
   await pending;
   return value;
@@ -246,4 +246,48 @@ test('abort during shared startup settles only that observation immediately', as
     await initialization;
     value.backend.close();
   }
+});
+
+test('CAD profile transfers binary exports and waits for sender detachment', async () => {
+  const value = await initialized({ cad: true });
+  const selected = createBackend({ type: 'worker', factories: { worker: () => value.backend } });
+  assert.equal(selected.capabilities.cad, true);
+  const pending = selected.exportCad({ token: 'token' });
+  await tick();
+  const id = value.worker.calls.at(-1).id, bytes = new Uint8Array([80, 75, 3, 4]).buffer;
+  let settled = false;
+  pending.then(() => { settled = true; });
+  value.worker.reply({ id, ok: true, result: bytes });
+  await tick();
+  assert.equal(settled, false);
+  value.worker.reply({ id, kind: 'transfer-confirmed', export_bytes_after: 0 });
+  assert.equal(await pending, bytes);
+  selected.close();
+});
+
+test('optional CAD loading failure leaves numerical operations available', async () => {
+  const value = await initialized({ cad: true });
+  const pending = value.backend.faceCandidates({ token: 'token' });
+  await tick();
+  value.worker.reply({ id: value.worker.calls.at(-1).id, ok: false,
+    error: { code: 'cad_startup_failed', message: 'Missing CAD asset; numerical work remains available' } });
+  await assert.rejects(pending, error => error.code === 'cad_startup_failed');
+  assert.equal(value.worker.terminated, 0);
+  assert.deepEqual(await requestReply(value, 'getGraph', {}, graph()), graph());
+  value.backend.close();
+});
+
+test('a mutation during binary transfer confirmation rejects the obsolete export', async () => {
+  const value = await initialized({ cad: true }), exported = value.backend.exportCad({ token: 'token' });
+  await tick();
+  const id = value.worker.calls.at(-1).id;
+  value.worker.reply({ id, ok: true, result: new ArrayBuffer(4) });
+  const applied = value.backend.applyFaces({ token: 'token' });
+  await tick();
+  const mutation = value.worker.calls.at(-1);
+  value.worker.reply({ id, kind: 'transfer-confirmed', export_bytes_after: 0 });
+  await assert.rejects(exported, error => error.code === 'observation_superseded');
+  value.worker.reply({ id: mutation.id, ok: true, result: graph({ token: 'new' }) });
+  await applied;
+  value.backend.close();
 });
