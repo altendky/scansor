@@ -33,6 +33,15 @@ async function command(page,name){
   await page.getByRole('button',{name:'Project toolbar options',exact:true}).click();
   await page.getByRole('menuitem',{name,exact:true}).click();
 }
+const projectLayout=page=>page.evaluate(()=>{
+  const rect=element=>{if(!element)return null;const r=element.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+  const trigger=document.querySelector('[aria-label="Project toolbar options"]'),r=trigger.getBoundingClientRect();
+  const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+  return {viewport:{width:innerWidth,height:innerHeight},trigger:rect(trigger),popup:rect(document.getElementById('edit-popup')),
+    popup_open:document.getElementById('edit-popup').open,header:rect(document.querySelector('.edit-popup-header')),
+    center_hit:{tag:hit?.tagName,id:hit?.id,class:hit?.className},center_reachable:hit===trigger||trigger.contains(hit),
+    placement:JSON.parse(localStorage.getItem('scansor.toolbars.v1'))};
+});
 function sameWork(actual,reference,{recipe=true}={}){
   assert.equal(actual.generation,reference.generation);assert.deepEqual(actual.metadata.source,reference.metadata.source);
   if(recipe)assert.deepEqual(actual.graph.recipe,reference.graph.recipe);
@@ -300,7 +309,23 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
       assert.equal(await trigger.evaluate(element=>element===document.activeElement),true);
       observation.after_settled=await focusState();assert.equal(observation.after_settled.menu_open,false);
     }
-    await trigger.click();await page.getByRole('menuitem',{name:'Dock top',exact:true}).click();await page.setViewportSize({width:1440,height:1000});
+    await trigger.click();await page.getByRole('menuitem',{name:'Dock top',exact:true}).click();
+    await page.getByRole('menu').waitFor({state:'hidden'});
+    // Returning to a different rail appends the toolbar. Restore its original
+    // first position before testing pointer commands beside a live popup.
+    const restoration=result.evidence.toolbar_order_restoration={before:await projectLayout(page),moves:0};
+    const moveLimit=await page.locator('.prototype-toolbar').count()-1;
+    for(;;){
+      await trigger.click();const earlier=page.getByRole('menuitem',{name:'Move earlier',exact:true});
+      if(await earlier.getAttribute('data-disabled')===''){
+        restoration.first_position_disabled=true;await page.keyboard.press('Escape');await page.getByRole('menu').waitFor({state:'hidden'});break;
+      }
+      assert.ok(restoration.moves<moveLimit,'Project toolbar order restoration must be bounded');
+      await earlier.click();restoration.moves++;await page.getByRole('menu').waitFor({state:'hidden'});
+    }
+    await page.setViewportSize({width:1440,height:1000});await frames(page);
+    restoration.after=await projectLayout(page);assert.equal(restoration.after.placement.project.order,0);
+    assert.equal(restoration.after.placement.project.edge,'top');assert.equal(restoration.after.center_reachable,true);
     sameWork(await coherent(),keyboardBefore);
     assert.equal(await page.evaluate(()=>window.__authoringTransport243.requests.filter(name=>['evaluateGraph','ensureGraph'].includes(name)).length),requestsBefore);
     result.cases.push({name:'imported-source-keyboard-menu',complete:true,source_tree_keyboard_inspection:true,menu_enter_escape_focus:true,narrow_rotated_docked_commands_reachable:true,no_unrequested_evaluation_or_source_change:true});
@@ -322,9 +347,12 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     assert.ok(Math.abs(geometry.axial_domain[0]-Math.min(...heights))<=1e-12&&Math.abs(geometry.axial_domain[1]-Math.max(...heights))<=1e-12);
     result.cases.push({name:'generated-pointer-plane-cylinder',complete:true,exact_independent_memberships:true,actual_fit_dialogs_and_evaluation:true,independent_geometry_objective_support:true,automatic_support_and_seed_free_actions:true});
 
+    result.evidence.draft_project_layout=[];
     for(const docked of [false,true]){
       result.phase=docked?'docked-dependent-work-guards':'popup-dependent-work-guards';const label='Keep '+result.phase;
       await pointDraft(page,docked,label);const prior=await coherent();
+      const layout={host:docked?'docked':'popup',...await projectLayout(page)};result.evidence.draft_project_layout.push(layout);
+      assert.equal(layout.center_reachable,true,'Project pointer command must remain reachable beside the draft');
       for(const name of ['New project','Remove scan…']){
         confirmations.push(true,false);await command(page,name);assert.equal(confirmations.length,0);
         await checkDraft(page,label);sameWork(await coherent(),prior);
