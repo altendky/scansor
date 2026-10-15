@@ -365,6 +365,9 @@ dialog input { width: 100%; padding: 8px; }
 #source-progress, #source-unavailable { padding: 8px 0; }
 #source-progress output { margin-right: 12px; overflow-wrap: anywhere; }
 #source-unavailable { color: #ffccad; }
+#locate-source-hint, #locate-source-error { overflow-wrap: anywhere; }
+#locate-source-dialog .row { flex-wrap: wrap; }
+#locate-source-dialog .row button { min-width: 0; white-space: normal; }
 
 @media(max-width: 900px) {
   .feature-graph-toolbar { gap: 8px 12px; }

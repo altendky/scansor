@@ -97,9 +97,83 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       throw error;
     }
   }
+  function validateFile(file) {
+    if (!file || typeof file.arrayBuffer !== 'function' || !Number.isSafeInteger(file.size) || file.size <= 0)
+      throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
+    const limit = acceptedMetadata?.capabilities?.source_import?.limits?.max_source_bytes;
+    if (Number.isSafeInteger(limit) && file.size > limit)
+      throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
+  }
+  async function observeSourceOperation(operation, { generation, token, file, signal,
+    onProgress = () => {}, publication, purpose } = {}) {
+    const active = signalFor(signal), operationId = operation.operationId;
+    const invalidOperation = (value, cause = new BackendError('Invalid source operation response.', { code: 'invalid_operation' })) => {
+      if (value.status !== 'accepted') return cause;
+      const error = new BackendError('The operation reports acceptance, but its workspace receipt is invalid. Load the current project.',
+        { code: 'accepted_workspace_unavailable' });
+      error.cause = cause; error.acceptedOperation = structuredClone(value);
+      return error;
+    };
+    let path;
+    try { path = operationPath(operationId); }
+    catch (error) { throw invalidOperation(operation, error); }
+    const upload = new AbortController();
+    const publish = value => {
+      checkPublication(publication);
+      active.throwIfAborted();
+      if (value.operationId !== operationId || value.generation !== generation || value.token !== token
+        || !Number.isSafeInteger(value.revision) || value.revision < 0 || typeof value.terminal !== 'boolean'
+        || value.status === 'accepted' && (!value.terminal || !Number.isSafeInteger(value.acceptedGeneration)
+          || value.acceptedGeneration <= generation)
+        || purpose && (value.purpose !== purpose || value.uploadRequired !== !!file
+          || value.status === 'accepted' && (value.acceptedGeneration !== generation + 1
+            || !Number.isSafeInteger(value.import_warning_count) || value.import_warning_count < 0)))
+        throw invalidOperation(value);
+      if (value !== operation && (operation.terminal || value.revision <= operation.revision)) return;
+      operation = value;
+      onProgress(structuredClone(operation));
+    };
+    const deliver = async () => {
+      const bundle = await deliverAccepted(operation, { signal: active }, publication);
+      if (!purpose) return bundle;
+      const warnings = bundle.metadata.import_warnings;
+      if (!Array.isArray(warnings) || warnings.length !== operation.import_warning_count) {
+        const cause = new BackendError('Accepted actions warnings do not match their workspace receipt.', { code: 'invalid_workspace' });
+        const error = new BackendError(cause.message, { code: 'accepted_workspace_unavailable' });
+        error.acceptedOperation = structuredClone(operation); error.cause = cause;
+        throw error;
+      }
+      return { ...bundle, import_warnings: warnings };
+    };
+    publish(operation);
+    if (operation.terminal) {
+      if (operation.status !== 'accepted') throw operationFailure(operation);
+      return deliver();
+    }
+    let uploadError;
+    const transfer = file ? request(`${path}/bytes`, file,
+      { signal: AbortSignal.any([active, upload.signal]), raw: true, publication, sourceMutation: true })
+      .then(publish).catch(error => { uploadError = error; }) : Promise.resolve();
+    try {
+      while (!operation.terminal) {
+        await wait(pollInterval, active);
+        if (!operation.terminal) {
+          // Independent operation status remains authoritative after a lost reply.
+          try { publish(await request(path, undefined, { signal: active, publication, sourceMutation: true })); }
+          catch (error) { throw uploadError || error; }
+        }
+      }
+      if (operation.status !== 'accepted') throw operationFailure(operation);
+      return await deliver();
+    } finally {
+      upload.abort();
+      void transfer;
+    }
+  }
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
-      progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples', sourceImport: true }),
+      progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
+      sourceImport: true, sourceActions: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -127,6 +201,25 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       undefined, { ...options, generation: acceptedGeneration }),
     replaceRecipe: (payload, options) => graphRequest('/api/graph', payload, options),
     importRecipe: (payload, options) => graphRequest('/api/graph/import', payload, options),
+    async inspectActions(payload, options) {
+      const result = await graphRequest('/api/actions/inspect', payload, options);
+      if (result.generation !== payload.generation || result.token !== payload.token
+        || !['matching', 'locate', 'empty'].includes(result.classification)
+        || result.uploadRequired !== (result.classification === 'locate')
+        || !result.recipe || !Array.isArray(result.import_warnings)
+        || result.classification === 'locate' && !result.descriptor)
+        throw new BackendError('Invalid actions inspection response.', { code: 'invalid_operation' });
+      return result;
+    },
+    async openActions({ recipe, file, generation, token, confirmedDiscard }, { signal, onProgress } = {}) {
+      if (file !== undefined) validateFile(file);
+      const publication = ++sourcePublication;
+      const operation = await request('/api/actions/open', { recipe, generation, token, confirmedDiscard,
+        ...(file === undefined ? {} : { source: { filename: file.name || 'scan.ply', size: file.size } }) },
+      { signal, generation: acceptedGeneration, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, file, signal, onProgress,
+        publication, purpose: 'open-actions' });
+    },
     async exportRecipe(state) {
       lifetime.signal.throwIfAborted();
       if (!state?.recipe) throw new BackendError('Actions have not finished loading yet.');
@@ -160,56 +253,12 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         acceptedGeneration: result.project_generation }, options, publication);
     },
     async addScan({ file, generation, token }, { signal, onProgress = () => {} } = {}) {
-      if (!file || typeof file.arrayBuffer !== 'function' || !Number.isSafeInteger(file.size) || file.size <= 0)
-        throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
-      const limit = acceptedMetadata?.capabilities?.source_import?.limits?.max_source_bytes;
-      if (Number.isSafeInteger(limit) && file.size > limit)
-        throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
-      const publication = ++sourcePublication, active = signalFor(signal);
-      let operation = await request('/api/sources/imports',
+      validateFile(file);
+      const publication = ++sourcePublication;
+      const operation = await request('/api/sources/imports',
         { generation, token, filename: file.name || 'scan.ply', size: file.size },
-        { signal: active, publication, sourceMutation: true });
-      const operationId = operation.operationId;
-      const path = operationPath(operationId), upload = new AbortController();
-      const publish = value => {
-        checkPublication(publication);
-        active.throwIfAborted();
-        if (value.operationId !== operationId || value.generation !== generation || value.token !== token
-          || !Number.isSafeInteger(value.revision) || value.revision < 0 || typeof value.terminal !== 'boolean'
-          || value.status === 'accepted' && (!value.terminal || !Number.isSafeInteger(value.acceptedGeneration)
-            || value.acceptedGeneration <= generation))
-          throw new BackendError('Invalid scan operation response.', { code: 'invalid_operation' });
-        if (value !== operation && (operation.terminal || value.revision <= operation.revision)) return;
-        operation = value;
-        onProgress(structuredClone(operation));
-      };
-      publish(operation);
-      if (operation.terminal) {
-        if (operation.status !== 'accepted') throw operationFailure(operation);
-        return deliverAccepted(operation, { signal: active }, publication);
-      }
-      let uploadError;
-      const transfer = request(`${path}/bytes`, file,
-        { signal: AbortSignal.any([active, upload.signal]), raw: true, publication, sourceMutation: true })
-        .then(publish).catch(error => { uploadError = error; });
-      try {
-        while (!operation.terminal) {
-          await wait(pollInterval, active);
-          if (!operation.terminal) {
-            // A lost upload reply is not proof that the accepted transaction
-            // failed. Its independently queryable record remains authoritative.
-            try { publish(await request(path, undefined, { signal: active, publication, sourceMutation: true })); }
-            catch (error) { throw uploadError || error; }
-          }
-        }
-        if (operation.status !== 'accepted') throw operationFailure(operation);
-        return await deliverAccepted(operation, { signal: active }, publication);
-      } finally {
-        upload.abort();
-        // Handlers are attached before polling; a late upload failure cannot
-        // become an unhandled rejection or undo an accepted terminal record.
-        void transfer;
-      }
+        { signal, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, file, signal, onProgress, publication });
     },
     async *graphUpdates({ revision, signal, isCurrent = () => true } = {}) {
       const active = signalFor(signal), publication = sourcePublication;

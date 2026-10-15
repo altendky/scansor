@@ -39,8 +39,10 @@ bounded file import, source inspection and confirmed New/remove through common
 backend capabilities. Full both-backend UI acceptance remains
 [#243](https://github.com/altendky/scansor/issues/243).
 Worker import/Force retention is [#242](https://github.com/altendky/scansor/issues/242),
-transactional source-aware actions reopening is
-[#244](https://github.com/altendky/scansor/issues/244), and full imported numerical
+the native/shared source-aware actions child is
+[#280](https://github.com/altendky/scansor/issues/280), with full both-backend
+reopening tracked by [#244](https://github.com/altendky/scansor/issues/244).
+Full imported numerical
 delivery remains [#240](https://github.com/altendky/scansor/issues/240).
 
 ## Native UI workflow
@@ -69,9 +71,58 @@ scene; Restore example applies only to a retained example.
 If acceptance is known or delivery becomes uncertain, the old display is fenced
 as unverified. **Load current project** explicitly retries delivery; **Download
 prior actions** retains the previous authored recipe for recovery. Actions do
-not include original scan bytes or unfinished UI drafts. Source-aware actions
-lookup/reopening remains #244. Worker source commands stay unavailable until
-the worker backend advertises delivered support; no HTTP fallback is added.
+not include original scan bytes or unfinished UI drafts. Worker source commands
+stay unavailable until the worker backend advertises delivered support; no HTTP
+fallback is added.
+
+## Reopening native saved actions
+
+**Load actions** preflights the saved schema, interpretation and source binding
+without discarding an edit. A matching active source needs no file upload. For
+another generic source, **Locate source scan** requests the exact original bytes;
+the saved filename is advisory text, never a server path. Renamed/moved files
+can match. Same-name different bytes, reordered or re-encoded geometry, and
+changed interpretation cannot silently match. Cancelling lookup, cancelling the
+file picker, malformed actions or rejected bytes preserves the earlier project
+and actual editor controls. The lookup can retry after a wrong file.
+
+After an explicit work-loss decision, the native service prepares the complete
+source and saved definitions privately, validates structural/binding/capability
+requirements, removes staging, and installs one new accepted owner. Add Scan's
+empty-project restriction is unchanged. Matching-source reopening reuses its
+immutable arrays with a fresh graph. Every whole-project opening advances the
+public epoch, including matching and empty actions, so stale requests cannot
+cross an empty/same-source cycle. An active computation/CAD lease prevents opening.
+Matching legacy actions work only against the explicitly loaded compatible
+example; lookup never chooses an example automatically.
+
+Computed outputs are dirty on acceptance. Normal later evaluation may fail in
+the newly accepted graph without restoring an older project. Duplicate display
+names receive the existing import warnings without changing feature IDs; warnings
+remain attached to the accepted generation for explicit lost-delivery recovery.
+Accepted-but-unavailable delivery uses **Load current project**, retaining the
+prior actions and draft until a complete replacement display can be installed.
+There is no automatic source persistence, server-file lookup, settings migration
+or dependent-preserving source replacement. Worker reopening and its Force
+retention remain the separate #242/#244 gates.
+
+Old and candidate sources coexist during located reopening. The existing caps
+bound the candidate import's incremental estimate, not their combined process
+memory or a browser/GPU peak. Matching reopening shares authoritative immutable
+source/display arrays; a complete UI installation still prepares its display
+resources before releasing the prior scene.
+
+A local Linux HTTP measurement started with the retained raw nozzle already
+loaded (24,999 vertices, 49,994 triangles), then located the independent
+512×256 grid (131,072 vertices, 260,610 triangles; 6,533,891 source bytes).
+Inspection through accepted status took 108 ms. The separate server process
+started at 73,166,848 bytes RSS; its lifetime high-water mark reached
+99,688,448 bytes. A 1 ms sampler observed 98,693,120 bytes at its highest sample
+(25,526,272 above the loaded baseline), with 95,817,728 bytes RSS afterward.
+The HTTP client ran in a separate process. Sampling can miss short peaks, and
+the lifetime high-water mark includes earlier work. This single source-only
+measurement is not a browser/GPU, fit/CAD, maximum combined-state or memory-release
+guarantee, and does not increase the existing caps.
 
 ## Initial native resource policy
 

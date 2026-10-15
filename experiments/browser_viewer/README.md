@@ -58,9 +58,14 @@ read-only. Accepted work and live drafts survive cancelled/failed transitions.
 Its measured initial caps,
 ownership and cancellation boundaries are recorded in the
 [native import evidence](../../docs/src/project/planning/native-scan-import.md).
-Worker file opening, source-aware actions reopening and full both-backend UI
-acceptance remain separate delivery gates. Actions downloads do not save the
-original scan bytes or unfinished editor drafts.
+Native **Load actions** validates the saved source descriptor before changing
+the project. It reuses a matching active source or asks for the exact original
+file, then accepts the source and definitions together. A renamed file can match;
+changed bytes cannot. Cancel or a validation failure preserves the current
+project and unfinished edit. Matching legacy example actions require that actual
+example to be loaded. Worker file opening and full both-backend reopening remain
+separate delivery gates. Actions downloads do not save original scan bytes or
+unfinished editor drafts.
 
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)

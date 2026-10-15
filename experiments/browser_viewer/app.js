@@ -2605,6 +2605,8 @@ function showSourceProperties(node) {
     ['Vertices', metadata.vertices.toLocaleString()],
     ['Triangles', metadata.triangles.toLocaleString()],
   ];
+  if (metadata.source?.filename && metadata.source.filename !== descriptor?.filename)
+    values.push(['Loaded filename', metadata.source.filename]);
   if (descriptor) {
     values.push(
       ['Source bytes', descriptor.source_bytes.toLocaleString()],
@@ -4164,7 +4166,7 @@ function prepareWorkspace(bundle) {
     $('faces-only').checked = false;
     $('tool').value = 'orbit';
     $('mesh-info').textContent = `${metadata.vertices.toLocaleString()} vertices · ${metadata.triangles.toLocaleString()} triangles`;
-    $('import-warning').hidden = true;
+    showImportWarnings(bundle.metadata.import_warnings || []);
     acceptGraph(nextGraph);
     oldGeometry.forEach(value => value.dispose());
     home('oblique');
@@ -4422,7 +4424,7 @@ async function start(recoveredState) {
   document.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button || !(button.id.startsWith('new-') ||
-      ['add-selection', 'load'].includes(button.id))) return;
+      button.id === 'add-selection')) return;
     if (button.id === 'new-project') return;
     if (!prepareEditSession()) {
       event.preventDefault();
@@ -6481,33 +6483,7 @@ async function start(recoveredState) {
       status(error.message, true);
     }
   };
-  $('load').onclick = () => $('file').click();
   $('dismiss-import-warning').onclick = () => { $('import-warning').hidden = true; };
-  $('file').onchange = async () => {
-    try {
-      const file = $('file').files[0];
-      if (!file) return;
-      if (file.size > 1_000_000) throw new Error('Recipe must be under 1 MB');
-      const recipe = JSON.parse(await file.text());
-      let state;
-      try { state = await backend.importRecipe({ token: graphState.token, recipe }); }
-      catch (error) {
-        try { acceptGraph(await backend.getGraph()); }
-        catch (refreshError) {
-          throw new Error(`${error.message} Could not refresh current actions: ${refreshError.message}`);
-        }
-        throw error;
-      }
-      acceptGraph(state);
-      showImportWarnings(state.import_warnings || []);
-      status('Actions loaded. Evaluate to refresh dependent results.');
-      if ($('auto-evaluate').checked) queueEnsureAll();
-    } catch (error) {
-      status(error.message, true);
-    } finally {
-      $('file').value = '';
-    }
-  };
   let stroke = null,
     projectionCache = null;
   const canvas = renderer.domElement;
@@ -6830,6 +6806,10 @@ async function start(recoveredState) {
     },
     prepareTransition: prepareWorkspaceTransition,
     status,
+    onActionsLoaded: warnings => {
+      showImportWarnings(warnings);
+      if ($('auto-evaluate').checked) queueEnsureAll();
+    },
   });
   sourceProject.refresh();
   if (location.hash === '#graph') revealWorkspacePanel('graph');

@@ -97,8 +97,11 @@ support reuse and independently authored target bounds remain available.
 [#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
 target override authority and its fixed/free/group/replay verification.
 
-Worker delivery/Force source retention, source-aware reopening and worker
-measured caps remain their listed tickets. Native defaults have executed
+Worker delivery/Force source retention, both-backend source-aware reopening and
+worker measured caps remain their listed tickets. The native/shared reopening
+child [#280](https://github.com/altendky/scansor/issues/280) uses private source
+and recipe preparation before one native owner installation; full #244 includes
+the worker path. Native defaults have executed
 source-only import evidence; byte/count caps and the loader's incremental
 allocation estimate are admission checks, not a measured total-runtime memory
 guarantee. Input snapshots and authoritative/display copies are accounted for

@@ -25,7 +25,10 @@ fails rather than falling back to native computation.
 Each backend declares `capabilities`. HTTP supports numerical graph operations,
 CAD, retained examples and the bounded native single-scan transport. It reports
 snapshot progress and no computation cancellation. `sourceImport` gates the
-separate source transaction methods. The retained worker declares it false;
+separate source transaction methods. Optional `sourceActions` independently gates
+descriptor inspection and atomic saved-project opening. Operation status and
+Cancel are available when either source capability is advertised. The retained
+worker declares these false;
 missing capability declarations in older factories also reject those operations.
 An implementation advertising source import must implement every source method.
 `createBackend` rejects CAD-only and example operations
@@ -61,6 +64,8 @@ Optional operation options can carry an `AbortSignal`.
 | `getSourceOperation({operationId}, {signal})` | Status/progress for one opaque source operation |
 | `cancelSourceOperation({operationId, generation, token}, {signal})` | Explicit cooperative import Cancel, using the reservation's original cursor |
 | `resetProject({generation, token, confirmedDiscard:true}, {signal})` | Explicit empty-project transaction; accepted empty workspace bundle |
+| `inspectActions({recipe, generation, token}, {signal})` | Read-only source/schema classification and normalized definitions; no reservation |
+| `openActions({recipe, file?, generation, token, confirmedDiscard:true}, {signal, onProgress})` | Atomic whole-project opening, with optional explicitly located original File; accepted workspace bundle |
 | `close()` | Stop this connection's requests/observations |
 
 Selections remain recipe edits; authoritative fitting remains graph evaluation.
@@ -79,7 +84,8 @@ does not offer additional sources or persist ephemeral state across reload.
 The initial native Add Scan operation requires an empty project and accepts the
 shared strict binary-triangle PLY profile with complete normals and unknown
 units. It creates a Source alone. It does not replace an existing source, change
-settings, load actions against a different source or add starter selections.
+settings or add starter selections. Source-aware actions opening is a separate
+operation, sharing the bounded active slot, upload stream, status and Cancel.
 Reset requires the caller's explicit confirmed-discard intent; confirmation UI
 belongs to the source-authoring integration.
 
@@ -125,7 +131,19 @@ the operation after a lost upload reply; a later workspace delivery failure uses
 `accepted_workspace_unavailable` with its `acceptedOperation` record and cause.
 Callers can query status and reacquire the current workspace; definitions are not
 silently rolled back. The native workspace retains its immutable original bytes
-for its active lifetime; durable persistence/reopening is not supplied here.
+for its active lifetime; durable persistence is not supplied here.
+
+Actions inspection validates the original raw recipe through shared Python
+preflight and classifies it as matching, locate or empty against the actual
+current workspace. Unsupported legacy context fails explicitly. Opening repeats
+validation with the original cursor and recipe, preserving normalization warnings.
+Matching and empty actions need no upload; locate supplies File metadata through
+JSON and exact bytes through the existing bounded source stream. Native prepares
+a complete private owner, cleans staging and publishes once after final
+owner/cursor/lease/Cancel checks. Every successful opening advances the epoch.
+Generation-scoped metadata retains import warnings for lost-reply recovery;
+bounded terminal records retain only the warning count. Precommit validation
+installs definitions with outputs dirty; it does not pre-run numerical/CAD work.
 
 ## Revisions, progress, and readiness
 
