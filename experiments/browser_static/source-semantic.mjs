@@ -2,7 +2,7 @@
 // explicit while retaining the complete, unprojected graphs in the report.
 import assert from 'node:assert/strict';
 
-export const SOURCE_GRAPH_SCHEMA = 'scansor-source-graph-semantic-v1';
+export const SOURCE_GRAPH_SCHEMA = 'scansor-source-graph-semantic-v2';
 export const SOURCE_GRAPH_PROJECTION = Object.freeze([
   'recipe', 'token', 'states', 'errors', 'diagnostics', 'memberships',
   'results', 'result', 'derived', 'input_catalogue', 'input_requirements',
@@ -44,5 +44,9 @@ export function sourceSemanticCases(snapshots) {
       actual: projectSourceGraph(snapshots.scene), expected: projectSourceGraph(snapshots.native_scene) },
     { id: 'scene-replayed', profile: 'graph-snapshot', path: 'scene.replayed_graph',
       actual: projectSourceGraph(snapshots.scene_replayed), expected: projectSourceGraph(snapshots.native_scene) },
+    { id: 'scene-actions', profile: 'graph-snapshot', path: 'actions.scene_opened',
+      actual: projectSourceGraph(snapshots.scene_actions), expected: projectSourceGraph(snapshots.native_scene) },
+    { id: 'scene-actions-replayed', profile: 'graph-snapshot', path: 'actions.scene_replayed',
+      actual: projectSourceGraph(snapshots.scene_actions_replayed), expected: projectSourceGraph(snapshots.native_scene) },
   ];
 }

@@ -95,7 +95,7 @@ SOURCE_GRAPH_DRIVERS = (
     "numerical-source-import",
     "numerical-source-import-isolated",
 )
-SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v1"
+SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v2"
 SOURCE_GRAPH_PROJECTION = (
     "recipe",
     "token",
@@ -116,6 +116,53 @@ SOURCE_GRAPH_TRANSPORT = {
     "evaluation_running",
     "evaluation_error",
 }
+SOURCE_ACTION_CASES = {
+    "explicit-matching-legacy": ("no_source_lookup", "recipe_preserved"),
+    "raw-save-new-renamed-locate": ("source_only", "strict_source_rows"),
+    "scene-located-fresh-graph-real-evaluate": (
+        "strict_source_rows",
+        "fresh_dirty_graph",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "matching-no-upload-real-evaluate": (
+        "no_source_upload",
+        "new_epoch_and_dirty_graph",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "matching-force-replayed": (
+        "original_file_recovered",
+        "strict_source_rows",
+        "accepted_epoch_preserved",
+        "derived_results_cleared",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "popup-failure-preservation": (
+        "picker_cancel",
+        "locator_cancel",
+        "wrong_same_name_preserves_work",
+        "settings_rejected_before_prepare",
+    ),
+    "docked-failure-preservation": (
+        "picker_cancel",
+        "locator_cancel",
+        "wrong_same_name_preserves_work",
+        "settings_rejected_before_prepare",
+    ),
+    "stale-inspection": ("newer_actions_preserved", "no_source_prepare"),
+    "cancel-before-adoption": ("prior_source_actions_and_draft_preserved",),
+    "force-before-adoption": ("old_file_and_live_docked_draft_preserved",),
+    "force-after-adoption-lost-ack": (
+        "accepted_file_retained",
+        "prior_actions_downloaded",
+        "draft_preserved_until_explicit_retry",
+        "warnings_recovered",
+    ),
+    "incompatible-legacy": ("no_example_guessing_or_source_prepare",),
+    "empty-actions": ("new_epoch_and_empty_arrays",),
+}
 SEMANTIC_DRIVERS = {
     "workspace": ("graph-snapshot", ("replay", "default", "edited", "replayed")),
     "numerical-workspace": (
@@ -125,7 +172,10 @@ SEMANTIC_DRIVERS = {
     "recovery": ("result-map", ("crash-force",)),
     "recovery-isolated": ("result-map", ("crash-force",)),
     **{
-        name: ("graph-snapshot", ("scene", "scene-replayed"))
+        name: (
+            "graph-snapshot",
+            ("scene", "scene-replayed", "scene-actions", "scene-actions-replayed"),
+        )
         for name in SOURCE_GRAPH_DRIVERS
     },
 }
@@ -414,7 +464,14 @@ def validate_source_graph_evidence(
     )
     snapshots = object_value(item.get("source_graph_snapshots"))
     require(
-        set(snapshots) == {"scene", "scene_replayed", "native_scene"},
+        set(snapshots)
+        == {
+            "scene",
+            "scene_replayed",
+            "scene_actions",
+            "scene_actions_replayed",
+            "native_scene",
+        },
         "source graph snapshots incomplete",
     )
     projected: dict[str, dict[str, Any]] = {}
@@ -440,8 +497,46 @@ def validate_source_graph_evidence(
         type(generation) is int and 0 <= generation <= 2**53 - 1,
         "invalid source graph accepted generation",
     )
-    for key in ("scene", "scene_replayed"):
+    actions = object_value(item.get("ui_actions"))
+    require(actions.get("complete") is True, "source actions evidence incomplete")
+    action_cases = [object_value(value) for value in array_value(actions.get("cases"))]
+    require(
+        [case.get("name") for case in action_cases] == list(SOURCE_ACTION_CASES),
+        "source actions case coverage incomplete or substituted",
+    )
+    for case in action_cases:
+        require(
+            case.get("complete") is True
+            and all(
+                case.get(field) is True for field in SOURCE_ACTION_CASES[case["name"]]
+            ),
+            "source actions case failed or incomplete",
+        )
+    require(
+        exact_json(action_cases[2].get("generation"))
+        == exact_json(actions.get("scene_opened_generation"))
+        and exact_json(action_cases[4].get("generation"))
+        == exact_json(actions.get("scene_replayed_generation")),
+        "source actions case does not match accepted generation",
+    )
+    generations = {
+        "scene": generation,
+        "scene_replayed": generation,
+        "scene_actions": actions.get("scene_opened_generation"),
+        "scene_actions_replayed": actions.get("scene_replayed_generation"),
+    }
+    for key, generation in generations.items():
+        require(
+            type(generation) is int and 0 <= generation <= 2**53 - 1,
+            "invalid source graph accepted generation",
+        )
         graph = object_value(snapshots[key])
+        if key in ("scene_actions", "scene_actions_replayed"):
+            observed = "scene_opened" if key == "scene_actions" else "scene_replayed"
+            require(
+                exact_json(graph) == exact_json(actions.get(observed)),
+                "source actions snapshot differs from full UI observations",
+            )
         states = object_value(graph.get("states"))
         require(
             type(graph.get("project_generation")) is int
@@ -459,8 +554,13 @@ def validate_source_graph_evidence(
         )
     for case, key, path in zip(
         cases,
-        ("scene", "scene_replayed"),
-        ("scene.graph", "scene.replayed_graph"),
+        ("scene", "scene_replayed", "scene_actions", "scene_actions_replayed"),
+        (
+            "scene.graph",
+            "scene.replayed_graph",
+            "actions.scene_opened",
+            "actions.scene_replayed",
+        ),
         strict=True,
     ):
         require(
@@ -755,6 +855,7 @@ def validate_evidence(
                     "cleanup_failure_recovery",
                     "ui_source_recovery",
                     "ui_legacy_startup",
+                    "ui_source_actions",
                 }
                 if name != "source-import-memory"
                 else {
@@ -819,6 +920,11 @@ def validate_semantics(
         == runtime_manifest["worker_protocol"]["source_import"],
         "site/runtime source capability mismatch",
     )
+    require(
+        exact_json(object_value(manifest.get("capabilities")).get("source_actions"))
+        == exact_json(runtime_manifest["worker_protocol"]["source_actions"]),
+        "site/runtime source-actions capability mismatch",
+    )
     runtime_assets = records(runtime_manifest.get("assets"))
     site_assets = records(manifest.get("assets"))
     expected_runtime = {f"{prefix}/{name}" for name in runtime_assets} | {
@@ -843,19 +949,25 @@ def validate_semantics(
         "deployment requires the verified CAD runtime profile",
     )
     require(
-        manifest.get("backend")
-        == {
-            "type": "worker",
-            "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
-            "cad": True,
-        }
-        and manifest.get("capabilities")
-        == {
-            "runtime_bootstrap": True,
-            "numerical": True,
-            "cad": True,
-            "source_import": runtime_manifest["worker_protocol"]["source_import"],
-        },
+        exact_json(manifest.get("backend"))
+        == exact_json(
+            {
+                "type": "worker",
+                "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
+                "cad": True,
+                "sourceActions": True,
+            }
+        )
+        and exact_json(manifest.get("capabilities"))
+        == exact_json(
+            {
+                "runtime_bootstrap": True,
+                "numerical": True,
+                "cad": True,
+                "source_import": runtime_manifest["worker_protocol"]["source_import"],
+                "source_actions": runtime_manifest["worker_protocol"]["source_actions"],
+            }
+        ),
         "unexpected application backend/capabilities",
     )
     for value in (manifest, runtime_manifest, runtime_record):
