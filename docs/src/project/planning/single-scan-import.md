@@ -2,11 +2,14 @@
 
 ## Status and authority
 
-**Evidence and proposed contract, 2026-10-14, baseline `80788df`.** This records
+**Agreed bounded implementation contract, 2026-10-15; evidence baseline
+`80788df`.** This records
 the investigation for [#238](https://github.com/altendky/scansor/issues/238).
-User-file import is not implemented by this document. The recommendations below
-remain proposals until the user decides them; neither merging this document nor
-an `agent` label approves those policies.
+The user accepted the strict initial input policy and source lifecycle with
+improvement follow-ups, then approved keeping computed solver seeds out of saved
+actions while preserving explicit reference geometry. User-file import is not
+implemented by this document; algorithms, resource caps and workflow claims still
+require the implementation evidence below.
 
 Already agreed: a scan is a Source feature; initially each project has zero or
 one scan; native HTTP and browser workers use interchangeable operations and
@@ -102,19 +105,23 @@ Current implementation gaps:
   retains the accepted recipe and reconstructs the packaged nozzle. It does not
   yet retain or reconstruct an arbitrary user source.
 
-## Policy recommendations awaiting decision
+## Agreed initial policies
 
-The following package is deliberately bounded. Each row needs an explicit user
-decision before its implementation can be treated as agreed. Existing
+The initial workflow is deliberately bounded. Broader formats, attributes and
+normal handling are tracked in
+[#247](https://github.com/altendky/scansor/issues/247); safe source replacement
+and setting edits are tracked in
+[#248](https://github.com/altendky/scansor/issues/248). Those improvement issues
+record later design work and do not block the initial slice. Existing
 [full-resolution ingestion](full-resolution-mesh-ingestion.md) dispositions are
 separate from admission to this interactive fitting experiment.
 
-| ID | Recommended initial policy | Consequence or alternative |
+| ID | Initial policy | Consequence and deferred work |
 | --- | --- | --- |
 | P1: formats and attributes | Use the existing strict binary little-endian triangle profile with ordered float32 XYZ and complete normals. Reject extra properties/elements, other encodings/types, partial/missing normals and non-triangle lists with actionable diagnostics. | Broader PLY and missing-normal support require a separately specified admission policy; no silently ignored colors or attributes. |
 | P2: invalid geometry and weights | Reject nonfinite positions, invalid indices and zero/nonfinite normals. Retain and count zero-area/repeated-index faces without area contribution; preserve all source row IDs. Use one third of each usable incident triangle's area as the relative observation weight; zero-area-only and isolated vertices cannot enter a fit. | This follows bounded example fitting rather than silently adopting the storage importer's more permissive normal policy. No welding, deduplication, winding repair or residual trimming. |
 | P3: units | Default to explicitly unknown source units and preserve coordinates. Require an explicit output interpretation/calibration for physical-unit export; do not infer units from file names or `.rsInfo`. | Requiring physical units at import is an alternative. Existing explicit Frame/Scale/Transform and export behavior must be reconciled before a new physical-unit claim. |
-| P4: initialization and support | Initialize from each fit's selected observations and explicit references, with an explicit solve-local chart mapped back to source coordinates. Require user-supplied reference/initialization when a deterministic seed is ambiguous; derive finite support from the selected region and expose it for review/override. | No whole-scan principal-axis guess, hidden nozzle seed or inference of model intent. Algorithm/rank checks and cone support remain evidence gates in #240. |
+| P4: initialization and support | Compute numerical starts from the current fit selections and explicit references. Keep computed seeds out of actions files. Use bounded automatic fresh initialization/retries for poor nonlinear starts, with explicit solve-local charts mapped back to source coordinates. Derive proposed finite support from selected geometry and retain explicit user support/reference intent. | No hidden nozzle seed, required manual seed-entry workflow, whole-scan model-intent inference or universal convergence claim. Report insufficient/ambiguous data or exhausted search explicitly. Family algorithms, rank checks and cone support remain evidence gates in #240 and its children. |
 | P5: source lifecycle | Keep source settings read-only after acceptance. Add scan only in an empty project. New project/source removal explicitly clears dependent actions after a work-loss confirmation; no in-place replacement or implicit rebinding. | Editable units/import settings and dependent-preserving source replacement are deferred. A cancelled confirmation or file picker preserves all accepted work and drafts. |
 | P6: resource policy | Use explicit per-adapter byte, vertex, face, staging and estimated-working-set caps, verified before dangerous allocations. Choose initial values from executed import/worker measurements; reject unsupported sizes rather than reduce observations. | No universal scan-size promise or invented memory guarantee. The existing 25,000-ID per-selection cap remains separate from whole-source capacity. |
 
@@ -139,11 +146,37 @@ source Z, its derived axis, a fit constrained to that axis and exported geometry
 no downstream consumer may silently interpret rotated parameters in the old
 workspace positive-Z chart.
 
-## Proposed common source and workspace contract
+### Saved intent and computed starts
 
-This section describes the proposed operation semantics; method names and record
-fields are internal design suggestions, not a published schema or compatibility
-promise. Policy-dependent details remain gated by P1–P6.
+Actions files save source/selection bindings, fit families, explicit reference
+geometry, constraints and semantic settings. They do not save computed solver
+starts or require a previous fitted result. Recompute initialization from the
+current selected data when fitting. Optional internal caches are disposable and
+bound to their inputs/policy; a stale or misleading cached start cannot be the
+only route to a solution. Record actual attempted starts, initialization policy
+identity, retries, validity/conditioning and termination with result diagnostics
+when useful for explanation and reproduction.
+
+An axis or point explicitly created by the user remains saved reference geometry,
+even when its current schema field is named `initial_parameters` or
+`initial_coordinates`. Preserve fixed/free roles and hard constraints exactly;
+automatic recovery cannot move a fixed reference, change the declared family,
+drop observations, alter relative weights or silently change declared support.
+The intended interaction remains select a patch and Fit. Insufficient information
+produces a meaningful diagnostic rather than a mandatory numerical-seed editor.
+
+Plane fitting may retain its direct weighted-covariance solution, and sphere
+fitting its selection-derived algebraic initializer and geometric refinement.
+Cylinder/cone fitting needs family-specific candidates, orientation charts and
+bounded restart behavior. Deterministic candidate comparison uses the same
+selected objective and checked geometry. The best attempted solution is not a
+certificate of global optimality or physical validity.
+
+## Common source and workspace contract
+
+This section defines the internal operation semantics. Method names and record
+fields remain implementation suggestions, not a published schema or compatibility
+promise. Implementations must satisfy P1–P6 and the acceptance evidence below.
 
 ### Descriptor and identities
 
@@ -242,18 +275,29 @@ not proposed as an additional import transaction requirement.
 
 ## Readiness and acceptance gates
 
-[#238](https://github.com/altendky/scansor/issues/238) remains open until the
-required policy decisions are recorded. The dependent queue is:
+The recorded decisions complete the policy gate in
+[#238](https://github.com/altendky/scansor/issues/238). The dependent queue is:
 
 | Issue | Deliverable | Readiness gate |
 | --- | --- | --- |
 | [#239](https://github.com/altendky/scansor/issues/239) | Generic source/workspace | P1–P3, P5 and resource policy; shared descriptor/transaction recorded |
-| [#240](https://github.com/altendky/scansor/issues/240) | Selection/reference fit initialization | #239 and P4; independent arbitrary-pose evidence |
+| [#240](https://github.com/altendky/scansor/issues/240) | Selection/reference fit integration | #239 and the initialization/family children below; independent arbitrary-pose, graph/reference/joint/reuse/CAD evidence |
 | [#241](https://github.com/altendky/scansor/issues/241) | Native import adapter | #239–#240; native staging/cancellation and measured caps |
 | [#242](https://github.com/altendky/scansor/issues/242) | Worker import and recovery | #239–#240; worker source ownership, measured caps and Force evidence |
 | [#243](https://github.com/altendky/scansor/issues/243) | Source authoring UI | #241–#242 and P5; empty state, drafts and keyboard/focus checks |
 | [#244](https://github.com/altendky/scansor/issues/244) | Source-aware saved actions | #239/#243; transactional lookup and legacy behavior |
 | [#245](https://github.com/altendky/scansor/issues/245) | Complete workflow gates | #240/#244 plus actual native and worker UI paths |
+
+The fit implementation is split into
+[#249](https://github.com/altendky/scansor/issues/249) for shared initialization,
+bounded recovery and diagnostics,
+[#250](https://github.com/altendky/scansor/issues/250) for plane,
+[#251](https://github.com/altendky/scansor/issues/251) for sphere,
+[#252](https://github.com/altendky/scansor/issues/252) for cylinder, and
+[#253](https://github.com/altendky/scansor/issues/253) for cone/frustum. The cone
+child reuses the cylinder child's agreed axis/chart boundary where appropriate;
+it must not require cylinder convergence as a universal cone prerequisite.
+The shared contract and generic source boundary precede the family work.
 
 For both adapters, exercise fresh project → raw retained PLY without sidecars →
 Source → manual selection → plane and arbitrarily oriented cylinder → supported
