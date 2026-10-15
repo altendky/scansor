@@ -349,6 +349,9 @@ def build(
         "type": "worker",
         "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
         "cad": bool(runtime_manifest["cad"]),
+        "sourceActions": runtime_manifest["worker_protocol"]["source_actions"][
+            "supported"
+        ],
     }
     files["app/backend-config.js"] = (
         "export default " + json.dumps(config, sort_keys=True) + ";\n"
@@ -396,6 +399,7 @@ def build(
             "numerical": True,
             "cad": bool(runtime_manifest["cad"]),
             "source_import": runtime_manifest["worker_protocol"]["source_import"],
+            "source_actions": runtime_manifest["worker_protocol"]["source_actions"],
         },
         "source_revision": state["revision"],
         "source_worktree_dirty": state["worktree_dirty"],

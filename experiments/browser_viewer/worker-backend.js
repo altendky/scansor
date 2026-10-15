@@ -11,11 +11,13 @@ function abortable(promise, signal) {
   });
 }
 
-export function createWorkerBackend({ runtimeURL, cad = false,
+export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = false,
   workerFactory = (url, options) => new Worker(url, options),
   onPhase = () => {}, onFailure = () => {}, onLifecycle = () => {},
   startupTimeout = 180_000, initialMode = 'example' } = {}) {
   if (!runtimeURL) throw new BackendError('Browser runtime assets are not configured.', { code: 'missing_runtime' });
+  if (typeof sourceActions !== 'boolean')
+    throw new BackendError('Invalid source actions capability.', { code: 'unsupported_capability' });
   if (!['empty', 'example'].includes(initialMode))
     throw new BackendError('Invalid initial workspace mode.', { code: 'invalid_source' });
   const url = new URL(runtimeURL, import.meta.url), pending = new Map(), observers = new Set();
@@ -35,6 +37,13 @@ export function createWorkerBackend({ runtimeURL, cad = false,
   const unavailable = () => terminalError || new BackendError('The backend is closed.', { code: 'backend_closed' });
   const wake = () => { for (const notify of observers) notify(); };
   const sourceBusy = () => new BackendError('A source operation is still active.', { code: 'source_busy', status: 409 });
+  const actionsProfile = value => value && Object.keys(value).length === 2
+    && value.supported === true && value.version === 1;
+  const unsupportedActions = () => new BackendError('This worker does not support source actions.', { code: 'unsupported_capability' });
+  const identityJSON = value => JSON.stringify(value, function(key, item) {
+    return item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item;
+  });
   const sourceRecord = operation => structuredClone(operation.record);
   const recordSource = (operation, changes) => {
     Object.assign(operation.record, changes, { revision: operation.record.revision + 1 });
@@ -111,6 +120,7 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       const request = { operation, generation: activeGeneration, source,
         resolve: result => { cleanup(); resolve(result); },
         reject: error => { cleanup(); reject(error); } };
+      if (operation === 'inspect-actions') request.cursor = { generation: payload.generation, token: payload.token };
       pending.set(id, request);
       if (source) { source.request = request; source.requestId = id; }
       signal?.addEventListener('abort', abort, { once: true });
@@ -165,8 +175,35 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       }
       const expected = operation.recoveryGeneration ?? operation.baseGeneration + 1;
       const bundle = validateBundle(request.transfer, expected);
-      if (bundle.operationId !== operation.record.operationId || bundle.source_mode?.kind !== operation.kind)
+      if (bundle.operationId !== operation.record.operationId)
         throw new Error('Source candidate identity changed.');
+      if (sourceActions && (!Array.isArray(bundle.metadata.import_warnings)
+        || operation.recoveryGeneration !== undefined && (
+          identityJSON(bundle.source_identity) !== identityJSON(operation.recoveryIdentity)
+          || identityJSON(bundle.metadata.import_warnings) !== identityJSON(operation.recoveryWarnings))))
+        throw new Error('Source recovery metadata differs from the accepted checkpoint.');
+      let acceptedFile = operation.file;
+      if (operation.purpose === 'open-actions') {
+        const kind = { generic: 'scan', legacy: 'example', empty: 'empty' }[bundle.sourceKind];
+        if (bundle.purpose !== 'open-actions' || !kind || bundle.source_mode?.kind !== kind
+          || typeof bundle.uploadRequired !== 'boolean' || bundle.uploadRequired !== (operation.file !== undefined)
+          || bundle.uploadRequired && kind !== 'scan'
+          || !Array.isArray(bundle.metadata.import_warnings)
+          || !Number.isSafeInteger(bundle.import_warning_count)
+          || bundle.import_warning_count !== bundle.metadata.import_warnings.length)
+          throw new Error('Invalid actions candidate publication.');
+        if (kind === 'scan' && !bundle.uploadRequired) {
+          if (!operation.retainedFile || identityJSON(bundle.source_identity) !== identityJSON(operation.baseIdentity))
+            throw new Error('Matching actions lost their accepted source authority.');
+          acceptedFile = operation.retainedFile;
+        } else if (kind !== 'scan') {
+          if (kind === 'example' && (operation.baseMode?.kind !== 'example'
+            || identityJSON(bundle.source_identity) !== identityJSON(operation.baseIdentity)))
+            throw new Error('Legacy actions do not match the explicitly accepted example.');
+          acceptedFile = undefined;
+        }
+      } else if (bundle.source_mode?.kind !== operation.kind) throw new Error('Source candidate kind changed.');
+      const importWarnings = structuredClone(bundle.metadata.import_warnings || []);
       bundle.transferOwnership = { sender_detached: true, positions_bytes: bundle.positions.byteLength,
         indices_bytes: bundle.indices.byteLength, copied_js_bytes: bundle.positions.byteLength + bundle.indices.byteLength,
         strategy: 'copy-contiguous-wasm-view-then-transfer' };
@@ -178,9 +215,12 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       sourceIdentity = structuredClone(bundle.source_identity);
       committedRecipe = structuredClone(bundle.graph.recipe);
       checkpoint = { mode: structuredClone(bundle.source_mode), identity: sourceIdentity,
-        generation: expected, file: operation.file, recipe: committedRecipe, revision: sourceRevision };
+        generation: expected, file: acceptedFile, recipe: committedRecipe, revision: sourceRevision,
+        import_warnings: importWarnings };
       latestGraph = bundle.graph;
-      recordSource(operation, { status: 'accepted', phase: 'complete', terminal: true, acceptedGeneration: expected });
+      recordSource(operation, { status: 'accepted', phase: 'complete', terminal: true, acceptedGeneration: expected,
+        ...(operation.purpose === 'open-actions' ? { uploadRequired: bundle.uploadRequired,
+          import_warning_count: importWarnings.length } : {}) });
       owner.postMessage({ operation: 'accept-source-boundary', id: data.id, generation: request.generation,
         operationId: operation.record.operationId, workspaceGeneration: expected, accepted: true });
       wake();
@@ -219,11 +259,13 @@ export function createWorkerBackend({ runtimeURL, cad = false,
     signal?.throwIfAborted();
     if (closed || terminalError) throw unavailable();
     if (!sourceProfile?.supported) throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
+    const opening = payload.purpose === 'open-actions';
+    if (opening && !sourceActions) throw unsupportedActions();
     if (sourceOperation) throw sourceBusy();
     if (payload.generation !== acceptedGeneration || payload.token !== latestGraph?.token) throw superseded();
     if (latestGraph.evaluation_running || pending.size) throw sourceBusy();
     const file = payload.file;
-    if (kind === 'scan') {
+    if (kind === 'scan' || opening && file !== undefined) {
       if (!file || typeof file.slice !== 'function' || typeof file.arrayBuffer !== 'function'
         || !Number.isSafeInteger(file.size) || file.size <= 0)
         throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
@@ -231,19 +273,31 @@ export function createWorkerBackend({ runtimeURL, cad = false,
         throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
     }
     const operationId = `source_${lifetime}_${++sourceSequence}`;
-    const operation = { kind, file, onProgress, baseGeneration: acceptedGeneration, baseToken: latestGraph.token,
+    const operation = { kind, purpose: opening ? 'open-actions' : 'source', file, onProgress,
+      retainedFile: opening ? checkpoint?.file : undefined, baseIdentity: structuredClone(sourceIdentity),
+      baseMode: opening ? structuredClone(checkpoint?.mode) : undefined,
+      baseGeneration: acceptedGeneration, baseToken: latestGraph.token,
       recoveryGeneration: restore?.generation, record: { operationId, generation: payload.generation,
         token: payload.token, revision: 0, status: 'reserved', phase: 'reserved', completed: 0,
-        total: file?.size || 0, unit: 'bytes', terminal: false } };
+        total: file?.size || 0, unit: 'bytes', terminal: false,
+        ...(opening ? { purpose: 'open-actions' } : {}) } };
+    if (restore) {
+      operation.recoveryIdentity = structuredClone(restore.identity);
+      operation.recoveryWarnings = structuredClone(restore.import_warnings || []);
+    }
     operation.completion = new Promise(resolve => { operation.finish = resolve; });
     sourceOperation = operation;
     generation++;
     wake();
-    const value = { operationId, kind, generation: payload.generation, token: payload.token,
+    const value = { operationId, ...(opening ? { purpose: 'open-actions', recipe: payload.recipe,
+      confirmedDiscard: payload.confirmedDiscard,
+      ...(file === undefined ? {} : { file, source: { filename: file.name || 'scan.ply', size: file.size } }) } : { kind }),
+      generation: payload.generation, token: payload.token,
       ...(kind === 'scan' ? { file, filename: file.name || 'scan.ply' } : {}),
       ...(kind === 'empty' ? { confirmedDiscard: payload.confirmedDiscard } : {}),
       ...(kind === 'example' ? { example: payload.example } : {}),
-      ...(restore ? { recovery: { generation: restore.generation, identity: restore.identity, recipe: restore.recipe } } : {}) };
+      ...(restore ? { recovery: { generation: restore.generation, identity: restore.identity, recipe: restore.recipe,
+        import_warnings: structuredClone(restore.import_warnings || []) } } : {}) };
     const promise = send('prepare-source', value, signal, operation);
     recordSource(operation, {});
     notifySource(operation);
@@ -260,7 +314,7 @@ export function createWorkerBackend({ runtimeURL, cad = false,
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -319,17 +373,23 @@ export function createWorkerBackend({ runtimeURL, cad = false,
                 }
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
-                if (sourceProfile?.supported && (data.worker_protocol?.version !== 5
+                if (sourceProfile?.supported && (![5, 6].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
+                if (sourceActions && (data.worker_protocol?.version !== 6
+                  || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
+                  || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
+                  || data.graph.project_generation < 0 || !data.graph.token || !Array.isArray(data.graph.recipe?.nodes)))
+                  throw new Error('Invalid worker source actions profile.');
                 if (!recovering) {
                   sourceIdentity = structuredClone(data.source_identity);
                   sourceRevision = data.source_revision;
                   acceptedGeneration = data.graph?.project_generation;
                   if (acceptedGeneration !== undefined) checkpoint = {
                     mode: structuredClone(data.source_mode), identity: structuredClone(data.source_identity),
-                    generation: acceptedGeneration, recipe: structuredClone(data.graph.recipe), revision: sourceRevision };
+                    generation: acceptedGeneration, recipe: structuredClone(data.graph.recipe), revision: sourceRevision,
+                    import_warnings: [] };
                   remember(data.graph);
                   publishLifecycle('complete');
                 }
@@ -385,7 +445,15 @@ export function createWorkerBackend({ runtimeURL, cad = false,
                 request.transfer = data.result;
                 return;
               }
-              remember(data.result);
+              if (request.operation === 'inspect-actions') {
+                const result = data.result;
+                if (result?.generation !== request.cursor.generation || result?.token !== request.cursor.token
+                  || !['matching', 'locate', 'empty'].includes(result?.classification)
+                  || result.uploadRequired !== (result.classification === 'locate')
+                  || !result.recipe || !Array.isArray(result.recipe.nodes) || !Array.isArray(result.import_warnings)
+                  || result.classification === 'locate' && !result.descriptor)
+                  throw new Error('Invalid actions inspection response.');
+              } else remember(data.result);
               pending.delete(data.id);
               request.resolve(data.result);
             } catch (error) { failure(error); }
@@ -455,7 +523,8 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       if (closed) return Promise.reject(unavailable());
       const recipe = committedRecipe && structuredClone(committedRecipe);
       const identity = sourceIdentity, revision = sourceRevision;
-      const retained = checkpoint && { ...checkpoint, recipe: structuredClone(checkpoint.recipe) };
+      const retained = checkpoint && { ...checkpoint, recipe: structuredClone(checkpoint.recipe),
+        import_warnings: structuredClone(checkpoint.import_warnings || []) };
       if (retained) bootstrapMode = 'empty';
       generation++;
       const serial = ++cancellationSerial;
@@ -571,6 +640,25 @@ export function createWorkerBackend({ runtimeURL, cad = false,
     };
   }
   backend.addScan = (payload, options) => startSource('scan', payload, options);
+  backend.inspectActions = async ({ recipe, generation: cursor, token }, { signal } = {}) => {
+    if (!sourceActions) throw unsupportedActions();
+    const raw = structuredClone(recipe), serial = cancellationSerial;
+    signal?.throwIfAborted();
+    await abortable(recovery || cancellation || backend.initialize(), signal);
+    if (closed || terminalError) throw unavailable();
+    if (serial !== cancellationSerial) throw cancelled();
+    if (sourceOperation) throw sourceBusy();
+    if (cursor !== acceptedGeneration || token !== latestGraph?.token) throw superseded();
+    return send('inspect-actions', { recipe: raw, generation: cursor, token }, signal);
+  };
+  backend.openActions = async ({ recipe, file, generation: cursor, token, confirmedDiscard }, options) => {
+    if (!sourceActions) throw unsupportedActions();
+    const raw = structuredClone(recipe);
+    if (confirmedDiscard !== true) throw new BackendError('Confirm discarding the current project.',
+      { code: 'confirmation_required', status: 422 });
+    return startSource(undefined, { purpose: 'open-actions', recipe: raw, file,
+      generation: cursor, token, confirmedDiscard }, options);
+  };
   backend.resetProject = (payload, options) => {
     if (payload?.confirmedDiscard !== true) return Promise.reject(new BackendError('Confirm discarding the current project.',
       { code: 'confirmation_required', status: 422 }));

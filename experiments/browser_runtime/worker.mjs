@@ -71,9 +71,10 @@ function ensureWorkspace() {
     const profile = manifest.worker_protocol?.source_import;
     python.globals.set('browser_source_limits', JSON.stringify(profile?.limits || null));
     python.globals.set('browser_initial_mode', initialMode);
+    python.globals.set('browser_cad_available', manifest.cad === true);
     try {
-      python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; from experiments.scan_workspace import ScanLimits; browser_workspace = BrowserWorkspace(None if browser_initial_mode == 'empty' else Path('/app/examples/nozzle-bayonette-simplified'), scan_limits=ScanLimits(**json.loads(browser_source_limits)) if json.loads(browser_source_limits) else None)");
-    } finally { python.runPython("del browser_source_limits, browser_initial_mode"); }
+      python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; from experiments.scan_workspace import ScanLimits; browser_workspace = BrowserWorkspace(None if browser_initial_mode == 'empty' else Path('/app/examples/nozzle-bayonette-simplified'), scan_limits=ScanLimits(**json.loads(browser_source_limits)) if json.loads(browser_source_limits) else None, cad_available=browser_cad_available)");
+    } finally { python.runPython("del browser_source_limits, browser_initial_mode, browser_cad_available"); }
     workspaceLoaded = true;
   }
 }
@@ -86,8 +87,10 @@ function sourceCall(method, payload, { path = '', recovery, progress, cancelled 
   python.globals.set('browser_source_cancelled', cancelled || (() => false));
   try {
     const expression = method === 'prepare_source_json'
-      ? "browser_workspace.prepare_source_json(browser_source_payload, browser_source_path, progress=lambda p: browser_source_progress(json.dumps({'phase':p.phase,'completed':p.completed,'total':p.total})), cancelled=browser_source_cancelled, **({'recovery_generation':json.loads(browser_source_recovery)['generation'],'recovery_identity':json.loads(browser_source_recovery)['identity'],'recovery_recipe':json.loads(browser_source_recovery)['recipe']} if json.loads(browser_source_recovery) else {}))"
-      : method === 'discard_source_json'
+      ? "browser_workspace.prepare_source_json(browser_source_payload, browser_source_path, progress=lambda p: browser_source_progress(json.dumps({'phase':p.phase,'completed':p.completed,'total':p.total})), cancelled=browser_source_cancelled, **({'recovery_generation':json.loads(browser_source_recovery)['generation'],'recovery_identity':json.loads(browser_source_recovery)['identity'],'recovery_recipe':json.loads(browser_source_recovery)['recipe'],'recovery_import_warnings':json.loads(browser_source_recovery).get('import_warnings',[])} if json.loads(browser_source_recovery) else {}))"
+      : method === 'preflight_actions_json'
+        ? 'browser_workspace.preflight_actions_json(browser_source_payload)'
+        : method === 'discard_source_json'
         ? 'browser_workspace.discard_source_json(json.loads(browser_source_payload))'
         : 'browser_workspace.promote_source_json(browser_source_payload)';
     const envelope = JSON.parse(python.runPython(expression));
@@ -129,7 +132,22 @@ async function prepareSource(request) {
     if (!manifest.worker_protocol?.source_import?.supported || !limits)
       throw Object.assign(new Error('This runtime does not support source import.'), { code: 'unsupported_capability' });
     check();
-    if (payload.kind === 'scan') {
+    const { file: ignoredFile, recovery, ...sourcePayload } = payload;
+    void ignoredFile;
+    let uploadRequired = payload.kind === 'scan';
+    if (payload.purpose === 'open-actions') {
+      if (manifest.worker_protocol?.source_actions?.supported !== true)
+        throw Object.assign(new Error('This runtime does not support source actions.'), { code: 'unsupported_capability' });
+      const preflight = sourceCall('preflight_actions_json', sourcePayload);
+      uploadRequired = preflight.uploadRequired;
+      if (typeof uploadRequired !== 'boolean' || uploadRequired !== (payload.file !== undefined))
+        throw Object.assign(new Error('Source upload does not match the saved actions.'), { code: 'unexpected_source' });
+      if (uploadRequired && payload.file?.size !== preflight.descriptor?.source_bytes)
+        throw Object.assign(new Error('Located file length differs from the saved source.'), { code: 'source_mismatch', status: 422 });
+      if (preflight.requiresCad) await loadCad({ workspace: true });
+      check();
+    }
+    if (uploadRequired) {
       const file = payload.file;
       if (!file || !Number.isSafeInteger(file.size) || file.size <= 0 || typeof file.slice !== 'function')
         throw Object.assign(new Error('Invalid scan file.'), { code: 'invalid_source', status: 422 });
@@ -164,8 +182,6 @@ async function prepareSource(request) {
     check();
     if (payload.recovery?.recipe?.nodes?.some(node => cadActions.has(node.operation))) await loadCad({ workspace: true });
     check();
-    const { file: ignoredFile, recovery, ...sourcePayload } = payload;
-    void ignoredFile;
     let prepared;
     try {
       prepared = sourceCall('prepare_source_json', sourcePayload, { path, recovery,
@@ -176,7 +192,8 @@ async function prepareSource(request) {
         }, cancelled: () => control.cancelled });
       candidate = true;
       prepared.metadata.capabilities = { ...prepared.metadata.capabilities,
-        source_import: manifest.worker_protocol.source_import };
+        source_import: manifest.worker_protocol.source_import,
+        source_actions: manifest.worker_protocol.source_actions };
     } finally {
       cleanupStaging();
     }
@@ -280,6 +297,7 @@ async function handle({ operation }) {
       source_worktree_dirty: manifest.source_worktree_dirty,
       worker_protocol: manifest.worker_protocol,
       source_import: manifest.worker_protocol?.source_import,
+      source_actions: manifest.worker_protocol?.source_actions,
       source_mode: JSON.parse(python.runPython('json.dumps(browser_workspace.source_mode)')),
       source_identity: JSON.parse(python.runPython('json.dumps(browser_workspace.source_identity)')), graph };
   }
@@ -334,6 +352,12 @@ async function dispatch(request) {
     && request.workspaceGeneration !== python.runPython('browser_workspace.workspace_generation'))
     throw Object.assign(new Error('The accepted workspace changed.'), { code: 'stale_source', status: 409 });
   if (operation === 'prepare-source') { await prepareSource(request); return; }
+  if (operation === 'inspect-actions') {
+    if (manifest.worker_protocol?.source_actions?.supported !== true)
+      throw Object.assign(new Error('This runtime does not support source actions.'), { code: 'unsupported_capability' });
+    postMessage({ id, ok: true, result: workspaceCall('call_json', 'inspectActions', payload) });
+    return;
+  }
   python.runPython('browser_workspace.checkpoint_operation()');
   if (cadOperations.has(operation) || (['replaceRecipe', 'importRecipe'].includes(operation) &&
     Array.isArray(payload?.recipe?.nodes) && payload.recipe.nodes.some(node => cadActions.has(node?.operation))))
@@ -346,7 +370,8 @@ async function dispatch(request) {
   if (request.managed) lifecycle(request, 'running', interruptible);
   if (operation === 'loadWorkspace') {
     const metadata = workspaceCall('call_json', operation, payload);
-    metadata.capabilities = { ...metadata.capabilities, source_import: manifest.worker_protocol?.source_import };
+    metadata.capabilities = { ...metadata.capabilities, source_import: manifest.worker_protocol?.source_import,
+      source_actions: manifest.worker_protocol?.source_actions };
     const positions = ownedBuffer('display_positions'), indices = ownedBuffer('display_indices');
     postMessage({ id, ok: true, result: { metadata, positions, indices,
       generation: metadata.project_generation, graph: metadata.graph } }, [positions, indices]);
@@ -434,7 +459,7 @@ self.onmessage = event => {
     boundary = undefined;
     if (activeSource) activeSource.cancelled = true;
     sourceBoundary?.resolve(false);
-  } else if (request.managed && request.operation !== 'initialize') lifecycle(request, 'queued');
+  } else if (request.managed && !['initialize', 'inspect-actions'].includes(request.operation)) lifecycle(request, 'queued');
   chain = chain.then(async () => {
     // Yield between serialized requests so Cancel can fence queued work before
     // the next synchronous Python call. This is not a checkpoint inside OCCT.
@@ -453,7 +478,7 @@ self.onmessage = event => {
       if (activeSource?.id === request.id) activeSource = undefined;
       python?.setInterruptBuffer(undefined);
       if (interruptBuffer) Atomics.store(interruptBuffer, 0, 0);
-      if (request.managed && !['initialize', 'cancel', 'prepare-source'].includes(request.operation)) {
+      if (request.managed && !['initialize', 'cancel', 'prepare-source', 'inspect-actions'].includes(request.operation)) {
         // Wait for coordinator acceptance before the next operation can replace
         // the failure checkpoint. Cancel releases this boundary without adopting
         // failed/ready work whose publication was fenced on the main thread.
@@ -462,7 +487,7 @@ self.onmessage = event => {
           postMessage({ kind: 'lifecycle', id: request.id, operation: request.operation,
             generation: request.generation, state: 'complete', boundary: true });
         });
-      } else if (request.managed && request.operation !== 'initialize') lifecycle(request, 'complete');
+      } else if (request.managed && !['initialize', 'inspect-actions'].includes(request.operation)) lifecycle(request, 'complete');
     }
   });
 };
