@@ -12,6 +12,7 @@ import io
 import json
 import platform
 import re
+import runpy
 import sys
 import tempfile
 import time
@@ -149,8 +150,10 @@ def prepare(repository: Path, site: Path, output: Path) -> list[dict[str, Any]]:
     if digest(runtime_bytes) != site_manifest["runtime"]["manifest_sha256"]:
         raise ValueError("runtime manifest identity mismatch")
     original: dict[str, Any] = json.loads(runtime_bytes)
-    if original["worker_protocol"]["version"] != 4:
-        raise ValueError("expected the supported production worker protocol")
+    runtime_builder = runpy.run_path(
+        str(repository / "scripts/build-browser-runtime.py")
+    )
+    runtime_builder["validate_worker_protocol"](original.get("worker_protocol"))
     runtime_files = {
         record["path"]: checked_bytes(site / runtime_prefix, record)
         for record in original["assets"]
