@@ -6,6 +6,7 @@ import math
 import runpy
 import zipfile
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from experiments.browser_runtime.probe import (
     compare_imported_cylinders,
     compare_imported_planes,
     compare_imported_spheres,
+    compare_local_replay,
     compare_numeric,
     compare_session,
     compare_support_transfers,
@@ -27,7 +29,10 @@ from experiments.browser_runtime.probe import (
     imported_sphere_probe,
     support_transfer_probe,
 )
+from experiments.browser_runtime.semantic_parity import SemanticParityError
+from experiments.fit_initialization import DEFAULT_POLICY
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION
+from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION
 
 BUILDER = runpy.run_path(
     str(Path(__file__).resolve().parents[1] / "scripts/build-browser-runtime.py")
@@ -144,12 +149,26 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["plane"].shape == (64, 3)
         assert data["imported_spheres"].shape == (3, 35, 3)
         assert data["imported_sphere_normals"].shape == (3, 35, 3)
-        assert data["imported_cylinders"].shape == (3, 60, 3)
-        assert data["imported_cylinder_normals"].shape == (3, 60, 3)
-        assert data["imported_cylinder_axes"].shape == (3, 3)
+        assert data["imported_cylinders"].shape == (4, 60, 3)
+        assert data["imported_cylinder_normals"].shape == (4, 60, 3)
+        assert data["imported_cylinder_axes"].shape == (4, 3)
+        long_cylinder = data["imported_cylinders"][-1]
+        assert np.ptp(long_cylinder[:, 0]) == 6e5
+        np.testing.assert_allclose(
+            np.linalg.norm(
+                (long_cylinder - data["imported_cylinder_origins"][-1])[:, 1:], axis=1
+            ),
+            2.5,
+            atol=1e-14,
+        )
         assert data["imported_cones"].shape == (3, 60, 3)
         assert data["imported_cone_normals"].shape == (3, 60, 3)
         assert data["imported_cone_axes"].shape == (3, 3)
+        assert data["support_points"].shape == (2, 60, 3)
+        assert data["support_normals"].shape == (2, 60, 3)
+        np.testing.assert_allclose(
+            np.linalg.norm(data["support_normals"], axis=2), 1, atol=1e-14
+        )
         np.testing.assert_array_equal(data["imported_cone_slopes"], [0.15, -0.2, 1e-7])
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_cone_normals"], axis=2), 1, atol=1e-14
@@ -359,7 +378,7 @@ def test_imported_plane_parity_rejects_errors_in_normalized_length_and_area_fiel
     else:
         actual["results"]["grown"]["added_area"] += 1e-6 * scale**2
     with pytest.raises(AssertionError):
-        compare_imported_planes([actual], [expected])
+        _ = compare_imported_planes([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -382,7 +401,7 @@ def test_imported_plane_parity_keeps_geometry_directions_ids_and_bindings_strict
     else:
         actual["results"]["plane"]["axial_domain"][0] += 1e-6
     with pytest.raises(AssertionError):
-        compare_imported_planes([actual], [expected])
+        _ = compare_imported_planes([actual], [expected])
 
 
 def test_imported_plane_parity_accepts_reported_large_scale_rounding_difference() -> (
@@ -400,7 +419,7 @@ def test_imported_plane_parity_accepts_reported_large_scale_rounding_difference(
             atol=1e-10,
         )
     before_actual, before_expected = deepcopy(actual), deepcopy(expected)
-    compare_imported_planes([actual], [expected])
+    _ = compare_imported_planes([actual], [expected])
     assert actual == before_actual
     assert expected == before_expected
 
@@ -410,7 +429,7 @@ def test_imported_plane_parity_cannot_normalize_with_an_untrusted_actual_scale()
 ):
     # Independently normalizing each report would hide this coordinate change.
     with pytest.raises(AssertionError):
-        compare_imported_planes(
+        _ = compare_imported_planes(
             [imported_plane_record(2.0)], [imported_plane_record(1.0)]
         )
 
@@ -422,7 +441,57 @@ def test_imported_plane_parity_rejects_invalid_frozen_expected_scale(
     expected = imported_plane_record(1.0)
     expected["comparison_length_scale"] = scale
     with pytest.raises(ValueError, match="finite and positive"):
-        compare_imported_planes([imported_plane_record(1.0)], [expected])
+        _ = compare_imported_planes([imported_plane_record(1.0)], [expected])
+
+
+def bounded_fixture_recovery(
+    parameters: list[float], rank: int, chart: str
+) -> dict[str, Any]:
+    """Complete bounded schema, independent of dimensional comparison helpers."""
+    return {
+        "policy": asdict(DEFAULT_POLICY),
+        "binding_sha256": "b" * 64,
+        "selected": "fresh-0",
+        "selected_role": "fresh",
+        "termination": "best-attempted-local-solution",
+        "attempts": [
+            {
+                "candidate": {
+                    "id": "fresh-0",
+                    "parameters": parameters,
+                    "derivation": "prescribed selected-data fixture",
+                    "chart": chart,
+                    "binding_sha256": "b" * 64,
+                },
+                "role": "fresh",
+                "outcome": "locally-converged",
+                "evaluations": 3,
+                "assessment": {
+                    "objective": 0.001,
+                    "valid": True,
+                    "rank": rank,
+                    "condition": 2.0,
+                    "termination": "projected-gradient",
+                    "iterations": 2,
+                },
+                "solver": None,
+            }
+        ],
+    }
+
+
+def fixture_solver(scale: float, rank: int) -> dict[str, Any]:
+    return {
+        "implementation": "scaled-svd-least-squares-v1",
+        "termination": "projected-gradient",
+        "coordinate_origin": [3 * scale, -4 * scale, 2 * scale],
+        "coordinate_length": 2 * scale,
+        "rank": rank,
+        "iterations": 2,
+        "evaluations": 3,
+        "scaled_jacobian_condition": 2.0,
+        "scaled_projected_gradient_infinity_norm": 5e-11,
+    }
 
 
 def imported_sphere_record(scale: float) -> dict[str, Any]:
@@ -454,12 +523,7 @@ def imported_sphere_record(scale: float) -> dict[str, Any]:
                     "algebraic_rank": 4,
                     "algebraic_condition": 2.0,
                 },
-                "solver": {
-                    "coordinate_origin": [3 * scale, -4 * scale, 2 * scale],
-                    "coordinate_length": 2 * scale,
-                    "rank": 4,
-                    "iterations": 2,
-                },
+                "solver": fixture_solver(scale, 4),
             },
             "grown": {
                 "ids": [4, 9, 12],
@@ -476,17 +540,14 @@ def imported_sphere_record(scale: float) -> dict[str, Any]:
         "point_display": [3 * scale, -4 * scale, 2 * scale],
         "coordinates": [3 * scale, -4 * scale, 2 * scale],
     }
-    shared["results"]["sphere"]["initialization"]["recovery"] = {
-        "binding_sha256": "b" * 64,
-        "selected": "fresh",
-        "selected_role": "fresh",
-        "attempts": [
-            {
-                "candidate": {"parameters": [0.1, 0.2, 0.3, 1.2]},
-                "assessment": {"objective": 0.001, "rank": 4},
-            }
-        ],
-    }
+    shared["results"]["sphere"]["initialization"]["recovery"] = (
+        bounded_fixture_recovery([0.1, 0.2, 0.3, 1.2], 4, "normalized-center-radii-v1")
+    )
+    shared["results"]["sphere"]["initialization"].update(
+        algorithm="joint-algebraic-shared-sphere-v1",
+        chart="normalized-center-radii-v1",
+    )
+    del shared["results"]["sphere"]["initialization"]["initial_parameters"]
     return {
         "comparison_length_scale": scale,
         "standalone": standalone,
@@ -540,7 +601,7 @@ def test_imported_sphere_parity_rejects_dimensional_errors_at_every_scale(
     else:
         actual["standalone"]["results"]["grown"]["added_area"] += 1e-6 * scale**2
     with pytest.raises(AssertionError):
-        compare_imported_spheres([actual], [expected])
+        _ = compare_imported_spheres([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -584,7 +645,7 @@ def test_imported_sphere_parity_keeps_intent_and_normalized_evidence_strict(
     else:
         sphere["solver"]["rank"] = 3
     with pytest.raises(AssertionError):
-        compare_imported_spheres([actual], [expected])
+        _ = compare_imported_spheres([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -595,21 +656,21 @@ def test_imported_sphere_parity_accepts_roundoff_without_mutating_records(
     actual = deepcopy(expected)
     actual["standalone"]["results"]["sphere"]["residuals"][0] += 3e-16 * scale
     before_actual, before_expected = deepcopy(actual), deepcopy(expected)
-    compare_imported_spheres([actual], [expected])
+    _ = compare_imported_spheres([actual], [expected])
     assert actual == before_actual
     assert expected == before_expected
 
 
 def test_imported_sphere_parity_requires_the_frozen_expected_scale() -> None:
     with pytest.raises(AssertionError):
-        compare_imported_spheres(
+        _ = compare_imported_spheres(
             [imported_sphere_record(2.0)], [imported_sphere_record(1.0)]
         )
     for scale in (0.0, -1.0, float("inf"), float("nan")):
         expected = imported_sphere_record(1.0)
         expected["comparison_length_scale"] = scale
         with pytest.raises(ValueError, match="finite and positive"):
-            compare_imported_spheres([imported_sphere_record(1.0)], [expected])
+            _ = compare_imported_spheres([imported_sphere_record(1.0)], [expected])
 
 
 @pytest.mark.parametrize("coordinate", [1.0, 1e100])
@@ -627,7 +688,7 @@ def test_imported_sphere_parity_keeps_authored_coordinates_exact_after_json_roun
         0.0,
     )
     # Native model tuples and serialized arrays carry the same exact intent.
-    compare_imported_spheres([actual], [expected])
+    _ = compare_imported_spheres([actual], [expected])
     actual["shared_center"]["recipe"]["nodes"][-1]["initial_coordinates"] = (
         math.nextafter(coordinate, math.inf),
         0.0,
@@ -637,7 +698,7 @@ def test_imported_sphere_parity_keeps_authored_coordinates_exact_after_json_roun
         AssertionError,
         match=r"imported_spheres\[0\]\.shared_center\.recipe\.nodes\[1\]\.initial_coordinates\[0\]",
     ):
-        compare_imported_spheres([actual], [expected])
+        _ = compare_imported_spheres([actual], [expected])
 
 
 @pytest.mark.parametrize("index", range(3))
@@ -657,7 +718,7 @@ def test_frozen_imported_spheres_fit_grow_recover_and_replay(
     encoded = json.loads(json.dumps(report, allow_nan=False))
     # This is the worker's real comparison shape: live model tuples against
     # the native JSON reference, while every authored number remains exact.
-    compare_imported_spheres([report], [encoded])
+    _ = compare_imported_spheres([report], [encoded])
     assert encoded["standalone"]["results"]["grown"]["ids"] == list(range(35))
     recovered = encoded["shared_center"]["results"]["sphere"]["initialization"][
         "recovery"
@@ -686,32 +747,16 @@ def imported_cylinder_record(scale: float) -> dict[str, Any]:
         "residuals": [0.001 * scale, -0.002 * scale],
         "weighted_rms": 0.0015 * scale,
         "initialization": {
-            "algorithm": "selected-cylinder-recovery-v1",
+            "algorithm": CYLINDER_POLICY_VERSION,
             "chart": "rotated-normalized-cylinder-v1",
             "origin": [3 * scale, -4 * scale, 2 * scale],
             "length": 2 * scale,
             "coverage_ratio": 0.1,
-            "recovery": {
-                "binding_sha256": "b" * 64,
-                "selected": "fresh-0",
-                "selected_role": "fresh",
-                "attempts": [
-                    {
-                        "candidate": {"parameters": [0.1, 0.2, 0.0, 0.0, 1.2]},
-                        "role": "fresh",
-                        "evaluations": 3,
-                        "assessment": {"objective": 0.001, "condition": 2.0},
-                        "solver": {"rank": 5, "iterations": 2},
-                    }
-                ],
-            },
+            "recovery": bounded_fixture_recovery(
+                [0.1, 0.2, 0.0, 0.0, 1.2], 5, "normal-moment-0"
+            ),
         },
-        "solver": {
-            "coordinate_origin": [3 * scale, -4 * scale, 2 * scale],
-            "coordinate_length": 2 * scale,
-            "rank": 5,
-            "iterations": 2,
-        },
+        "solver": fixture_solver(scale, 5),
     }
     standalone: dict[str, Any] = {
         "recipe": {
@@ -812,7 +857,7 @@ def test_imported_cylinder_parity_rejects_dimensional_errors_at_every_scale(
     else:
         actual["standalone"]["results"]["grown"]["added_area"] += 1e-6 * scale**2
     with pytest.raises(AssertionError):
-        compare_imported_cylinders([actual], [expected])
+        _ = compare_imported_cylinders([actual], [expected])
 
 
 @pytest.mark.parametrize(
@@ -855,13 +900,13 @@ def test_imported_cylinder_parity_preserves_identity_and_full_normalized_evidenc
     elif field == "objective":
         recovery["attempts"][0]["assessment"]["objective"] += 1e-6
     elif field == "rank":
-        recovery["attempts"][0]["solver"]["rank"] = 4
+        cylinder["solver"]["rank"] = 4
     elif field == "evaluations":
-        recovery["attempts"][0]["evaluations"] = 4
+        recovery["attempts"][0]["evaluations"] = 513
     else:
         recovery["selected_role"] = "hint"
     with pytest.raises(AssertionError):
-        compare_imported_cylinders([actual], [expected])
+        _ = compare_imported_cylinders([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -872,20 +917,31 @@ def test_imported_cylinder_parity_accepts_roundoff_without_mutating_inputs(
     actual = deepcopy(expected)
     actual["hinted"]["result"]["residuals"][0] += 3e-16 * scale
     before_actual, before_expected = deepcopy(actual), deepcopy(expected)
-    compare_imported_cylinders([actual], [expected])
+    _ = compare_imported_cylinders([actual], [expected])
+    assert actual == before_actual and expected == before_expected
+
+
+def test_imported_cylinder_parity_accepts_bounded_realized_evaluation_drift() -> None:
+    expected = imported_cylinder_record(1.0)
+    actual = deepcopy(expected)
+    fitted = actual["standalone"]["results"]["cylinder"]
+    fitted["initialization"]["recovery"]["attempts"][0]["evaluations"] = 4
+    fitted["solver"]["evaluations"] = 4
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    _ = compare_imported_cylinders([actual], [expected])
     assert actual == before_actual and expected == before_expected
 
 
 def test_imported_cylinder_parity_requires_the_frozen_expected_scale() -> None:
     with pytest.raises(AssertionError):
-        compare_imported_cylinders(
+        _ = compare_imported_cylinders(
             [imported_cylinder_record(2.0)], [imported_cylinder_record(1.0)]
         )
     for scale in (0.0, -1.0, float("inf"), float("nan"), True):
         expected = imported_cylinder_record(1.0)
         expected["comparison_length_scale"] = scale
         with pytest.raises(ValueError, match="finite and positive"):
-            compare_imported_cylinders([imported_cylinder_record(1.0)], [expected])
+            _ = compare_imported_cylinders([imported_cylinder_record(1.0)], [expected])
 
 
 def test_numeric_parity_checks_imported_cylinders_before_legacy_results() -> None:
@@ -915,12 +971,13 @@ def test_numeric_parity_checks_imported_cylinders_before_legacy_results() -> Non
         _ = compare_numeric(actual, expected)
 
 
-@pytest.mark.parametrize("index", range(3))
+@pytest.mark.parametrize("index", range(4))
 def test_frozen_imported_cylinders_fit_grow_recover_and_replay(
     index: int, tmp_path: Path
 ) -> None:
     fixture = tmp_path / "fixture.npz"
     create_fixture(fixture)
+    replay_evidence: list[dict[str, Any]] = []
     with np.load(fixture, allow_pickle=False) as data:
         report = imported_cylinder_probe(
             data["imported_cylinders"][index],
@@ -928,9 +985,21 @@ def test_frozen_imported_cylinders_fit_grow_recover_and_replay(
             data["imported_cylinder_origins"][index],
             data["imported_cylinder_axes"][index],
             float(data["imported_cylinder_scales"][index]),
+            replay_evidence=replay_evidence,
         )
     encoded = json.loads(json.dumps(report, allow_nan=False))
-    compare_imported_cylinders([report], [encoded])
+    receipts = compare_imported_cylinders([report], [encoded])
+    assert len(receipts) == 1 and receipts[0]["semantic_complete"] is True
+    assert [item["path"] for item in replay_evidence] == [
+        "cylinder.replay.False",
+        "cylinder.replay.True",
+    ]
+    assert all(
+        item["receipt"]["semantic_complete"] is True
+        and "memberships" in item["actual"]
+        and "memberships" in item["expected"]
+        for item in replay_evidence
+    )
     assert encoded["standalone"]["results"]["grown"]["ids"] == list(range(60))
     recovered = encoded["hinted"]["result"]["initialization"]["recovery"]
     assert recovered["selected_role"] == "fresh"
@@ -954,7 +1023,10 @@ def imported_cone_record(scale: float) -> dict[str, Any]:
         fitted["analytic"].update(kind="cone", slope=0.15)
         fitted["initialization"]["algorithm"] = CONE_POLICY_VERSION
         fitted["initialization"]["chart"] = "rotated-normalized-cone-v1"
-        fitted["solver"]["rank"] = 6
+        fitted["initialization"]["recovery"] = bounded_fixture_recovery(
+            [0.1, 0.2, 0.0, 0.0, 1.2, 0.15], 6, "normal-moment-0"
+        )
+        fitted["solver"] = fixture_solver(scale, 6)
     return report
 
 
@@ -965,17 +1037,70 @@ def test_frozen_support_transfer_preserves_physical_bounds_and_recipe(
     fixture = tmp_path / "fixture.npz"
     create_fixture(fixture)
     index = 0 if kind == "cylinder" else 1
+    replay_evidence: list[dict[str, Any]] = []
     with np.load(fixture, allow_pickle=False) as data:
         report = support_transfer_probe(
             data["support_points"][index],
             data["support_normals"][index],
             "cylinder" if kind == "cylinder" else "cone",
+            replay_evidence=replay_evidence,
         )
     encoded = json.loads(json.dumps(report, allow_nan=False))
-    compare_support_transfers([report], [encoded])
+    receipts = compare_support_transfers([report], [encoded])
+    assert len(receipts) == 1
+    assert receipts[0]["semantic_complete"] is True
+    assert receipts[0]["budgets_validated"] is True
+    assert receipts[0]["budget_records_validated"] > 0
+    assert len(replay_evidence) == 1
+    replay = replay_evidence[0]
+    assert replay["path"] == f"support.{kind}.replay"
+    assert replay["receipt"]["semantic_complete"] is True
+    assert replay["receipt"]["budgets_validated"] is True
+    assert replay["receipt"]["budget_records_validated"] > 0
+    for side in ("actual", "expected"):
+        assert {
+            "memberships",
+            "derived",
+            "input_catalogue",
+            "input_requirements",
+        } <= replay[side].keys()
+        for key in report["state"]:
+            assert json.loads(json.dumps(replay[side][key])) == encoded["state"][key]
     assert encoded["state"]["results"][report["clone"]]["support_intent"][
         "interval"
     ] == [1.0, 9.0]
+
+
+@pytest.mark.parametrize("field", ["memberships", "derived"])
+def test_local_replay_failure_retains_full_independent_operands_and_receipt(
+    field: str,
+) -> None:
+    expected: dict[str, Any] = {
+        "recipe": {"nodes": []},
+        "results": {},
+        "memberships": {"patch": [1, 2]},
+        "derived": {"axis": {"axis_display": [1.0, 0.0, 0.0]}},
+    }
+    actual = deepcopy(expected)
+    if field == "memberships":
+        actual[field]["patch"] = [1]
+    else:
+        actual[field]["axis"]["axis_display"][0] = 0.0
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    evidence: list[dict[str, Any]] = []
+    with pytest.raises(SemanticParityError, match=field) as failure:
+        compare_local_replay(actual, expected, "support.failure.replay", evidence)
+    assert len(evidence) == 1
+    retained = evidence[0]
+    assert retained["actual"] == before_actual
+    assert retained["expected"] == before_expected
+    assert retained["receipt"] == failure.value.receipt
+    assert retained["receipt"]["complete"] is False
+    assert actual == before_actual and expected == before_expected
+    actual["memberships"]["patch"].clear()
+    expected["derived"]["axis"]["axis_display"][0] = 42.0
+    assert retained["actual"] == before_actual
+    assert retained["expected"] == before_expected
 
 
 @pytest.mark.parametrize(
@@ -1025,7 +1150,23 @@ def test_support_transfer_parity_rejects_changed_intent_geometry_and_identity(
     else:
         actual["state"]["results"]["copy"]["ids"] = [60]
     with pytest.raises(AssertionError, match="support_transfers"):
-        compare_support_transfers([actual], [expected])
+        _ = compare_support_transfers([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+def test_imported_cone_parity_valid_six_parameter_records(scale: float) -> None:
+    expected = imported_cone_record(scale)
+    before = deepcopy(expected)
+    fitted = expected["standalone"]["results"]["cone"]
+    attempt = fitted["initialization"]["recovery"]["attempts"][0]
+    assert len(attempt["candidate"]["parameters"]) == 6
+    assert attempt["assessment"]["rank"] == fitted["solver"]["rank"] == 6
+    receipts = compare_imported_cones([expected], [json.loads(json.dumps(expected))])
+    assert len(receipts) == 1
+    assert receipts[0]["semantic_complete"] is True
+    assert receipts[0]["budgets_validated"] is True
+    assert receipts[0]["budget_records_validated"] > 0
+    assert expected == before
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -1056,7 +1197,7 @@ def test_imported_cone_parity_checks_geometry_intent_and_recovery(
     else:
         actual["standalone"]["recipe"]["output"] = "changed"
     with pytest.raises(AssertionError, match="imported_cones"):
-        compare_imported_cones([actual], [expected])
+        _ = compare_imported_cones([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
@@ -1065,7 +1206,7 @@ def test_imported_cone_parity_accepts_unit_scaled_roundoff(scale: float) -> None
     actual = deepcopy(expected)
     actual["standalone"]["results"]["cone"]["residuals"][0] += 1e-12 * scale
     original = deepcopy(actual)
-    compare_imported_cones([actual], [json.loads(json.dumps(expected))])
+    _ = compare_imported_cones([actual], [json.loads(json.dumps(expected))])
     assert actual == original
 
 
@@ -1075,6 +1216,7 @@ def test_frozen_imported_cones_fit_grow_recover_and_replay(
 ) -> None:
     fixture = tmp_path / "fixture.npz"
     create_fixture(fixture)
+    replay_evidence: list[dict[str, Any]] = []
     with np.load(fixture, allow_pickle=False) as data:
         report = imported_cone_probe(
             data["imported_cones"][index],
@@ -1083,9 +1225,21 @@ def test_frozen_imported_cones_fit_grow_recover_and_replay(
             data["imported_cone_axes"][index],
             float(data["imported_cone_slopes"][index]),
             float(data["imported_cone_scales"][index]),
+            replay_evidence=replay_evidence,
         )
     encoded = json.loads(json.dumps(report, allow_nan=False))
-    compare_imported_cones([report], [encoded])
+    receipts = compare_imported_cones([report], [encoded])
+    assert len(receipts) == 1 and receipts[0]["semantic_complete"] is True
+    assert [item["path"] for item in replay_evidence] == [
+        "cone.replay.False",
+        "cone.replay.True",
+    ]
+    assert all(
+        item["receipt"]["semantic_complete"] is True
+        and "memberships" in item["actual"]
+        and "memberships" in item["expected"]
+        for item in replay_evidence
+    )
     fitted = encoded["standalone"]["results"]["cone"]
     assert fitted["kind"] == "cone"
     assert "parameters" not in fitted

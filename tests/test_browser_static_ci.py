@@ -264,6 +264,7 @@ def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
                     "validate-workspace.mjs": "workspace.json",
                     "validate-cad.mjs": "cad.json",
                     "validate-recovery.mjs": "recovery.json",
+                    "validate-source-import.mjs": "source-import.json",
                 }[script]
                 _ = (destination / name).write_text('{"simulated":true}\n')
         return {"exit_code": 0, "log": str(log)}
@@ -273,7 +274,7 @@ def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     CI.main()
-    assert len(calls) == 16
+    assert len(calls) == 20
     assert Path(calls[0][1]).name == "build-browser-redistribution.py"
     assert calls[0][calls[0].index("--cache") + 1] == str(
         output / "work/redistribution-cache"

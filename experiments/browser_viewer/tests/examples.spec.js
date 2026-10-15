@@ -18,10 +18,9 @@ async function openExample(page, id) {
   const dialog = page.getByRole('dialog', { name: 'Choose example', exact: true });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('combobox', { name: 'Example', exact: true }).selectOption(id);
-  await Promise.all([
-    page.waitForEvent('load'),
-    dialog.getByRole('button', { name: 'Open example', exact: true }).click(),
-  ]);
+  page.once('dialog', confirmation => confirmation.accept());
+  await dialog.getByRole('button', { name: 'Open example', exact: true }).click();
+  await expect(dialog).toBeHidden();
   await ready(page);
 }
 
@@ -62,6 +61,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     expect((await read(page)).recipe.nodes).toHaveLength(132);
     const restored = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
       response.request().method() === 'POST');
+    page.once('dialog', confirmation => confirmation.accept());
     await page.getByRole('button', { name: 'Restore example', exact: true }).click();
     expect((await restored).ok()).toBe(true);
     expect((await read(page)).recipe).toEqual(repeated.recipe);
@@ -88,6 +88,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     await ready(page);
     const restoredNozzle = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
       response.request().method() === 'POST');
+    page.once('dialog', confirmation => confirmation.accept());
     await page.getByRole('button', { name: 'Restore example', exact: true }).click();
     expect((await restoredNozzle).ok()).toBe(true);
     expect((await read(page)).recipe).toEqual(nozzle.recipe);
@@ -121,18 +122,19 @@ test('failed switch pauses editing and preserves the current mesh and actions', 
   await page.getByRole('button', { name: 'Choose example…', exact: true }).click();
   await page.locator('#example-choice').selectOption('repeated-boss');
   const requested = page.waitForRequest(request => request.url().endsWith('/api/examples/select'));
+  page.once('dialog', confirmation => confirmation.accept());
   await page.getByRole('button', { name: 'Open example', exact: true }).click();
   expect((await requested).postDataJSON()).toEqual({ example: 'repeated-boss', token: original.token });
   await expect(page.locator('#example-choice')).toBeDisabled();
   await expect(page.locator('#cancel-example')).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Choose example…', exact: true })).toBeDisabled();
-  await expect(page.locator('#viewport')).toHaveJSProperty('inert', true);
+  await expect.poll(() => page.locator('#viewport').evaluate(element => !!element.closest('[inert]'))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(page.locator('#example-dialog')).toBeVisible();
   release();
   await expect(page.locator('#example-error')).toHaveText('Example unavailable for this test');
   await expect(page.locator('#cancel-example')).toBeEnabled();
-  await expect(page.locator('#viewport')).toHaveJSProperty('inert', false);
+  await expect.poll(() => page.locator('#viewport').evaluate(element => !!element.closest('[inert]'))).toBe(false);
   expect((await read(page)).recipe).toEqual(original.recipe);
   expect((await read(page)).token).toBe(original.token);
   expect((await (await page.request.get('/mesh/positions')).body()).equals(mesh)).toBe(true);

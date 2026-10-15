@@ -510,27 +510,55 @@ def resolve_output(
         return {"point_display": list(raw["point_display"])}
     if reference.output == "plane":
         equation = raw.get("plane_equation", raw.get("parameters"))
+        if equation is not None:
+            coefficients = np.asarray(equation, dtype=float)
+            if "plane_equation" not in raw and coefficients.shape == (7,):
+                from experiments.surface_primitives import primitive
+
+                if not np.isfinite(coefficients).all():
+                    raise ValueError("plane joint parameters must be finite")
+                plane = primitive({"kind": "plane", "parameters": coefficients})
+                equation = [*plane["axis"], plane["offset"]]
+                coefficients = np.asarray(equation, dtype=float)
+            if coefficients.shape != (4,) or not np.isfinite(coefficients).all():
+                raise ValueError("plane equation must contain four finite values")
+            length = float(np.linalg.norm(coefficients[:3]))
+            if not np.isfinite(length) or length <= 0:
+                raise ValueError("plane equation must have a nonzero finite normal")
         normal = raw.get(
             "normal_display", equation[:3] if equation is not None else None
         )
         if normal is None:
             raise ValueError("plane output has no normal")
         normal_array = np.asarray(normal, dtype=float)
+        if normal_array.shape != (3,) or not np.isfinite(normal_array).all():
+            raise ValueError("plane normal must contain three finite values")
+        normal_length = float(np.linalg.norm(normal_array))
+        if not np.isfinite(normal_length) or normal_length <= 0:
+            raise ValueError("plane normal must be nonzero and finite")
         if equation is None:
+            point_array = np.asarray(raw["point_display"], dtype=float)
+            if point_array.shape != (3,) or not np.isfinite(point_array).all():
+                raise ValueError("plane point must contain three finite values")
             equation = [
                 *normal_array.tolist(),
-                float(normal_array @ np.asarray(raw["point_display"])),
+                float(normal_array @ point_array),
             ]
+            if not np.isfinite(equation).all():
+                raise ValueError("plane equation must contain four finite values")
         point = raw.get(
             "point_display",
             (
                 normal_array * float(equation[3]) / float(normal_array @ normal_array)
             ).tolist(),
         )
+        point_array = np.asarray(point, dtype=float)
+        if point_array.shape != (3,) or not np.isfinite(point_array).all():
+            raise ValueError("plane point must contain three finite values")
         return {
             "normal_display": normal_array.tolist(),
             "plane_equation": list(equation),
-            "point_display": list(point),
+            "point_display": point_array.tolist(),
         }
     if reference.output == "axis":
         return {

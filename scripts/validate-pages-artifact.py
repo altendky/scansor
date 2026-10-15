@@ -29,6 +29,7 @@ MAX_ARCHIVE = 512 * 1024 * 1024
 MAX_TOTAL = 768 * 1024 * 1024
 MAX_MEMBER = 256 * 1024 * 1024
 MAX_JSON = 32 * 1024 * 1024
+MAX_SOURCE_GRAPH_JSON = 64 * 1024 * 1024
 MAX_FILES = 4096
 LOCK_NAMES = (
     "runtime-lock.json",
@@ -47,13 +48,18 @@ STEPS = (
     "cad",
     "recovery",
     "recovery-isolated",
+    "source-import",
+    "source-import-isolated",
     "build-numerical-runtime",
     "build-numerical-site",
     "numerical-workspace",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
     "timing",
     "memory",
     "fitting",
     "generated",
+    "source-import-memory",
     "verify-site-after",
     "verify-numerical-site-after",
 )
@@ -64,11 +70,16 @@ DRIVERS = (
     "cad",
     "recovery",
     "recovery-isolated",
+    "source-import",
+    "source-import-isolated",
     "numerical-workspace",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
     "timing",
     "memory",
     "fitting",
     "generated",
+    "source-import-memory",
 )
 EVIDENCE = {
     *(f"{name}.json" for name in DRIVERS),
@@ -76,6 +87,181 @@ EVIDENCE = {
     "build-redistribution.json",
     "site-manifest.json",
     "runtime-manifest.json",
+    "numerical-site-manifest.json",
+}
+SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
+SOURCE_GRAPH_DRIVERS = (
+    "source-import",
+    "source-import-isolated",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
+)
+SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v2"
+WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v1"
+SOURCE_GRAPH_PROJECTION = (
+    "recipe",
+    "token",
+    "states",
+    "errors",
+    "diagnostics",
+    "memberships",
+    "results",
+    "result",
+    "derived",
+    "input_catalogue",
+    "input_requirements",
+)
+SOURCE_GRAPH_TRANSPORT = {
+    "revision",
+    "project_generation",
+    "required_failures",
+    "evaluation_running",
+    "evaluation_error",
+}
+SOURCE_AUTHORING_SCHEMA = "scansor-source-ui-authoring-v1"
+SOURCE_AUTHORING_CASES = {
+    "empty-entry-controls": (
+        "empty_controls_honest",
+        "camera_preserves_empty",
+        "narrow_entry_reachable",
+    ),
+    "invalid-and-limit-picker-preservation": (
+        "synthetic_picker_cancel_preserves_empty",
+        "advertised_limit_before_prepare",
+        "malformed_preserves_owner",
+        "staging_released",
+    ),
+    "visible-import-cancel-retry": (
+        "real_progress_cancel_reachable",
+        "preaccept_owner_preserved",
+        "late_candidate_inert",
+        "ordinary_retry_accepted",
+    ),
+    "raw-file-source-inspection": (
+        "source_only_without_starters",
+        "strict_original_rows",
+        "readonly_metadata",
+        "camera_preserves_source",
+        "stale_second_picker_rejected",
+    ),
+    "raw-pointer-plane-authoring": (
+        "actual_pointer_membership",
+        "ordinary_fit_dialog_and_evaluation",
+        "every_original_row_weight_accounted",
+        "seed_free_actions",
+    ),
+    "raw-fit-edit": (
+        "actual_property_apply_and_rename",
+        "original_selection_ids_preserved",
+        "ordinary_reevaluation",
+        "source_epoch_preserved",
+    ),
+    "imported-source-keyboard-menu": (
+        "source_tree_keyboard_inspection",
+        "menu_enter_escape_focus",
+        "narrow_rotated_docked_commands_reachable",
+        "no_unrequested_evaluation_or_source_change",
+    ),
+    "generated-pointer-plane-cylinder": (
+        "exact_independent_memberships",
+        "actual_fit_dialogs_and_evaluation",
+        "independent_geometry_objective_support",
+        "automatic_support_and_seed_free_actions",
+    ),
+    "popup-dependent-work-guards": (
+        "live_dom_and_host_preserved",
+        "declined_new_remove_example_preserve_dependents",
+        "example_cancel_escape_preserves_work",
+        "focus_reachable",
+    ),
+    "docked-dependent-work-guards": (
+        "live_dom_and_host_preserved",
+        "declined_new_remove_example_preserve_dependents",
+        "example_cancel_escape_preserves_work",
+        "focus_reachable",
+    ),
+    "accepted-dependent-removal": (
+        "old_work_and_draft_until_acceptance",
+        "dependents_removed_atomically",
+        "different_source_has_no_old_actions",
+    ),
+    "explicit-example-roundtrip": (
+        "empty_and_scan_catalogue_unselected",
+        "actual_chooser_accepts_example",
+        "retained_recipe_restore_preserved",
+        "return_to_user_source_honest",
+    ),
+}
+SOURCE_AUTHORING_GRAPHS = ("raw", "raw_edited", "scene")
+SOURCE_AUTHORING_IDS = ("authoring-raw", "authoring-raw-edited", "authoring-scene")
+SOURCE_ACTION_CASES = {
+    "explicit-matching-legacy": ("no_source_lookup", "recipe_preserved"),
+    "raw-save-new-renamed-locate": ("source_only", "strict_source_rows"),
+    "scene-located-fresh-graph-real-evaluate": (
+        "strict_source_rows",
+        "fresh_dirty_graph",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "matching-no-upload-real-evaluate": (
+        "no_source_upload",
+        "new_epoch_and_dirty_graph",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "matching-force-replayed": (
+        "original_file_recovered",
+        "strict_source_rows",
+        "accepted_epoch_preserved",
+        "derived_results_cleared",
+        "real_ui_evaluation",
+        "independent_geometry_objective_and_support",
+    ),
+    "popup-failure-preservation": (
+        "picker_cancel",
+        "locator_cancel",
+        "wrong_same_name_preserves_work",
+        "settings_rejected_before_prepare",
+    ),
+    "docked-failure-preservation": (
+        "picker_cancel",
+        "locator_cancel",
+        "wrong_same_name_preserves_work",
+        "settings_rejected_before_prepare",
+    ),
+    "stale-inspection": ("newer_actions_preserved", "no_source_prepare"),
+    "cancel-before-adoption": ("prior_source_actions_and_draft_preserved",),
+    "force-before-adoption": ("old_file_and_live_docked_draft_preserved",),
+    "force-after-adoption-lost-ack": (
+        "accepted_file_retained",
+        "prior_actions_downloaded",
+        "draft_preserved_until_explicit_retry",
+        "warnings_recovered",
+    ),
+    "incompatible-legacy": ("no_example_guessing_or_source_prepare",),
+    "empty-actions": ("new_epoch_and_empty_arrays",),
+}
+SEMANTIC_DRIVERS = {
+    "workspace": ("graph-snapshot", ("replay", "default", "edited", "replayed")),
+    "numerical-workspace": (
+        "graph-snapshot",
+        ("replay", "default", "edited", "replayed"),
+    ),
+    "recovery": ("result-map", ("crash-force",)),
+    "recovery-isolated": ("result-map", ("crash-force",)),
+    **{
+        name: (
+            "graph-snapshot",
+            (
+                "scene",
+                "scene-replayed",
+                "scene-actions",
+                "scene-actions-replayed",
+                *SOURCE_AUTHORING_IDS,
+            ),
+        )
+        for name in SOURCE_GRAPH_DRIVERS
+    },
 }
 
 
@@ -102,8 +288,13 @@ def array_value(value: Any) -> list[Any]:
     return cast(list[Any], value)
 
 
-def object_json(data: bytes) -> dict[str, Any]:
-    require(len(data) <= MAX_JSON, "JSON input exceeds size limit")
+def driver_json_limit(name: str) -> int:
+    # Source UI reports retain raw source arrays and all seven graph pairs.
+    return MAX_SOURCE_GRAPH_JSON if name in SOURCE_GRAPH_DRIVERS else MAX_JSON
+
+
+def object_json(data: bytes, *, limit: int = MAX_JSON) -> dict[str, Any]:
+    require(len(data) <= limit, "JSON input exceeds size limit")
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -338,6 +529,667 @@ def records(value: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def exact_json(value: Any) -> str:
+    """Compare JSON types too: a numeric 1 must never stand in for true."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def trusted_semantic_policy() -> dict[str, Any]:
+    # Execute only the reviewed checkout helper, never a downloaded archive member.
+    path = ROOT / SEMANTIC_POLICY
+    expected_hash = sha256(regular_bytes(path))
+    policy = runpy.run_path(str(path))
+    require(policy["policy_sha256"]() == expected_hash, "trusted policy changed")
+    return policy
+
+
+def validate_source_graph_evidence(
+    item: dict[str, Any], cases: list[dict[str, Any]]
+) -> None:
+    require(
+        item.get("source_graph_schema") == SOURCE_GRAPH_SCHEMA
+        and item.get("source_graph_projection") == list(SOURCE_GRAPH_PROJECTION),
+        "unsupported source graph evidence schema/projection",
+    )
+    snapshots = object_value(item.get("source_graph_snapshots"))
+    require(
+        set(snapshots)
+        == {
+            "scene",
+            "scene_replayed",
+            "scene_actions",
+            "scene_actions_replayed",
+            "native_scene",
+        },
+        "source graph snapshots incomplete",
+    )
+    projected: dict[str, dict[str, Any]] = {}
+    for key, value in snapshots.items():
+        graph = object_value(value)
+        require(
+            set(SOURCE_GRAPH_PROJECTION)
+            <= set(graph)
+            <= set(SOURCE_GRAPH_PROJECTION) | SOURCE_GRAPH_TRANSPORT,
+            "source graph snapshot has unknown/missing projection fields",
+        )
+        projected[key] = {field: graph[field] for field in SOURCE_GRAPH_PROJECTION}
+    scene_cases = [
+        object_value(value)
+        for value in array_value(item.get("cases"))
+        if object_value(value).get("name") == "horizontal-scene"
+    ]
+    require(
+        len(scene_cases) == 1, "source graph accepted scene case missing/duplicated"
+    )
+    generation = scene_cases[0].get("generation")
+    require(
+        type(generation) is int and 0 <= generation <= 2**53 - 1,
+        "invalid source graph accepted generation",
+    )
+    actions = object_value(item.get("ui_actions"))
+    require(actions.get("complete") is True, "source actions evidence incomplete")
+    action_cases = [object_value(value) for value in array_value(actions.get("cases"))]
+    require(
+        [case.get("name") for case in action_cases] == list(SOURCE_ACTION_CASES),
+        "source actions case coverage incomplete or substituted",
+    )
+    for case in action_cases:
+        require(
+            case.get("complete") is True
+            and all(
+                case.get(field) is True for field in SOURCE_ACTION_CASES[case["name"]]
+            ),
+            "source actions case failed or incomplete",
+        )
+    require(
+        exact_json(action_cases[2].get("generation"))
+        == exact_json(actions.get("scene_opened_generation"))
+        and exact_json(action_cases[4].get("generation"))
+        == exact_json(actions.get("scene_replayed_generation")),
+        "source actions case does not match accepted generation",
+    )
+    generations = {
+        "scene": generation,
+        "scene_replayed": generation,
+        "scene_actions": actions.get("scene_opened_generation"),
+        "scene_actions_replayed": actions.get("scene_replayed_generation"),
+    }
+    for key, generation in generations.items():
+        require(
+            type(generation) is int and 0 <= generation <= 2**53 - 1,
+            "invalid source graph accepted generation",
+        )
+        graph = object_value(snapshots[key])
+        if key in ("scene_actions", "scene_actions_replayed"):
+            observed = "scene_opened" if key == "scene_actions" else "scene_replayed"
+            require(
+                exact_json(graph) == exact_json(actions.get(observed)),
+                "source actions snapshot differs from full UI observations",
+            )
+        states = object_value(graph.get("states"))
+        require(
+            type(graph.get("project_generation")) is int
+            and graph["project_generation"] == generation,
+            "source graph does not match accepted generation",
+        )
+        require(
+            graph.get("evaluation_running") is False
+            and graph.get("required_failures") == []
+            and object_value(graph.get("errors")) == {}
+            and bool(states)
+            and all(state == "ready" for state in states.values())
+            and graph.get("evaluation_error") is None,
+            "source graph is not a successful terminal publication",
+        )
+    for case, key, path in zip(
+        cases,
+        ("scene", "scene_replayed", "scene_actions", "scene_actions_replayed"),
+        (
+            "scene.graph",
+            "scene.replayed_graph",
+            "actions.scene_opened",
+            "actions.scene_replayed",
+        ),
+        strict=True,
+    ):
+        require(
+            case.get("path") == path
+            and exact_json(case["actual"]) == exact_json(projected[key])
+            and exact_json(case["expected"]) == exact_json(projected["native_scene"]),
+            "source semantic evidence differs from full snapshots/projection",
+        )
+
+
+def validate_source_authoring_evidence(
+    item: dict[str, Any], cases: list[dict[str, Any]]
+) -> None:
+    require(
+        isinstance(item.get("ui_authoring"), dict), "source authoring evidence missing"
+    )
+    authoring = object_value(item.get("ui_authoring"))
+    require(
+        authoring.get("schema") == SOURCE_AUTHORING_SCHEMA
+        and authoring.get("complete") is True,
+        "source authoring evidence incomplete",
+    )
+    observations = [
+        object_value(value) for value in array_value(authoring.get("cases"))
+    ]
+    require(
+        [value.get("name") for value in observations] == list(SOURCE_AUTHORING_CASES),
+        "source authoring case coverage/order changed",
+    )
+    for observation, (name, fields) in zip(
+        observations, SOURCE_AUTHORING_CASES.items(), strict=True
+    ):
+        require(
+            set(observation) == {"name", "complete", *fields}
+            and observation["name"] == name
+            and observation.get("complete") is True
+            and all(observation.get(field) is True for field in fields),
+            "source authoring case oracle missing/false/unknown",
+        )
+    graphs = object_value(authoring.get("graphs"))
+    native = object_value(authoring.get("native_graphs"))
+    generations = object_value(authoring.get("graph_generations"))
+    for records in (graphs, native, generations):
+        require(
+            set(records) == set(SOURCE_AUTHORING_GRAPHS),
+            "source authoring graphs incomplete",
+        )
+
+    def epoch(value: Any) -> int:
+        require(
+            type(value) is int and 0 <= value <= 2**53 - 1,
+            "invalid source authoring epoch",
+        )
+        return cast(int, value)
+
+    def number(value: Any) -> bool:
+        try:
+            return type(value) in (int, float) and math.isfinite(value)
+        except OverflowError:
+            return False
+
+    def project(value: Any) -> dict[str, Any]:
+        graph = object_value(value)
+        require(
+            set(SOURCE_GRAPH_PROJECTION)
+            <= set(graph)
+            <= set(SOURCE_GRAPH_PROJECTION) | SOURCE_GRAPH_TRANSPORT,
+            "source authoring graph has unknown/missing semantic fields",
+        )
+        return {field: graph[field] for field in SOURCE_GRAPH_PROJECTION}
+
+    def seed_free(value: Any) -> None:
+        forbidden = {
+            "initial_parameters",
+            "initialization",
+            "seed",
+            "fit_geometry",
+            "solver",
+            "residuals",
+            "weighted_rms",
+        }
+        if isinstance(value, dict):
+            for key, child in value.items():
+                require(
+                    key not in forbidden, "computed starts in source authoring recipe"
+                )
+                seed_free(child)
+        elif isinstance(value, list):
+            for child in value:
+                seed_free(child)
+
+    evidence = object_value(authoring.get("evidence"))
+    sources: dict[str, dict[str, Any]] = {}
+    for name in ("raw_source", "scene_source"):
+        source = object_value(evidence.get(name))
+        descriptor = object_value(source.get("descriptor"))
+        require(
+            set(descriptor)
+            == {
+                "version",
+                "profile",
+                "source_sha256",
+                "source_bytes",
+                "interpretation_sha256",
+                "vertices",
+                "triangles",
+                "filename",
+                "units",
+            },
+            "source authoring descriptor fields changed",
+        )
+        _ = digest_value(source.get("source_sha256"))
+        _ = digest_value(descriptor.get("interpretation_sha256"))
+        vertices, faces = epoch(source.get("vertices")), epoch(source.get("faces"))
+        require(
+            vertices > 0
+            and type(source.get("original_bytes")) is int
+            and 0 < source["original_bytes"] <= 2**53 - 1
+            and descriptor["source_sha256"] == source["source_sha256"]
+            and type(descriptor["source_bytes"]) is int
+            and descriptor["source_bytes"] == source["original_bytes"]
+            and type(descriptor["vertices"]) is int
+            and descriptor["vertices"] == vertices
+            and type(descriptor["triangles"]) is int
+            and descriptor["triangles"] == faces
+            and descriptor["version"] == "interactive-triangle-scan-v1"
+            and descriptor["profile"] == "binary-triangle-ply-v1"
+            and descriptor["units"] == "unknown"
+            and isinstance(descriptor["filename"], str)
+            and 0 < len(descriptor["filename"]) <= 512
+            and exact_json(source.get("source_mode")) == exact_json({"kind": "scan"}),
+            "source authoring evidence identity/count/interpretation changed",
+        )
+        _ = epoch(source.get("project_generation"))
+        require(
+            type(source.get("owned_fs_bytes")) is int
+            and source["owned_fs_bytes"] == 0
+            and source.get("owned_fs_files") == [],
+            "source authoring staging not released",
+        )
+        for field in ("positions", "normals"):
+            rows = array_value(source.get(field))
+            require(len(rows) == vertices, "source authoring source rows missing")
+            for row in rows:
+                require(
+                    isinstance(row, list)
+                    and len(row) == 3
+                    and all(number(value) for value in row),
+                    "source authoring source vector is not finite",
+                )
+                if field == "normals":
+                    require(
+                        any(value != 0 for value in row),
+                        "source authoring source normal is zero",
+                    )
+        triangles = array_value(source.get("triangles"))
+        require(len(triangles) == faces, "source authoring triangle rows missing")
+        for row in triangles:
+            require(
+                isinstance(row, list)
+                and len(row) == 3
+                and all(type(value) is int and 0 <= value < vertices for value in row),
+                "source authoring triangle index invalid",
+            )
+        weights = array_value(source.get("weights"))
+        require(
+            len(weights) == vertices
+            and all(number(value) and value >= 0 for value in weights)
+            and any(value > 0 for value in weights),
+            "source authoring weights missing/nonfinite/invalid",
+        )
+        sources[name] = source
+    require(
+        epoch(generations["raw"]) == epoch(generations["raw_edited"]),
+        "source authoring edit changed accepted epoch",
+    )
+    for case, key in zip(cases, SOURCE_AUTHORING_GRAPHS, strict=True):
+        actual, expected = object_value(graphs[key]), object_value(native[key])
+        projected, reference = project(actual), project(expected)
+        source = sources["scene_source" if key == "scene" else "raw_source"]
+        generation = epoch(generations[key])
+        require(
+            epoch(actual.get("project_generation"))
+            == generation
+            == source["project_generation"],
+            "source authoring graph differs from accepted epoch",
+        )
+        descriptor = object_value(source["descriptor"])
+        binding = sha256(
+            json.dumps(
+                {key: value for key, value in descriptor.items() if key != "filename"},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        for graph, worker in ((actual, True), (expected, False)):
+            states = object_value(graph.get("states"))
+            require(
+                graph.get("required_failures") == []
+                and (
+                    graph.get("evaluation_running") is False
+                    if worker
+                    else "evaluation_running" not in graph
+                    or graph["evaluation_running"] is False
+                )
+                and graph.get("evaluation_error") is None
+                and object_value(graph.get("errors")) == {}
+                and bool(states)
+                and all(value == "ready" for value in states.values()),
+                "source authoring graph is not a successful terminal publication",
+            )
+            recipe = object_value(graph.get("recipe"))
+            seed_free(recipe)
+            nodes = [object_value(node) for node in array_value(recipe.get("nodes"))]
+            authored_sources = [
+                node for node in nodes if node.get("operation") == "source"
+            ]
+            require(
+                len(authored_sources) == 1,
+                "source authoring source binding missing/duplicated",
+            )
+            authored_source = authored_sources[0]
+            require(
+                authored_source.get("id") == "scan"
+                and authored_source.get("source_sha256") == source["source_sha256"]
+                and authored_source.get("reference_sha256") == binding
+                and exact_json(authored_source.get("descriptor"))
+                == exact_json(descriptor),
+                "source authoring authored binding differs from source evidence",
+            )
+            for node in nodes:
+                if node.get("operation") == "selection":
+                    ids = array_value(node.get("ids"))
+                    require(
+                        node.get("source") == authored_source["id"]
+                        and all(
+                            type(value) is int and 0 <= value < source["vertices"]
+                            for value in ids
+                        ),
+                        "source authoring selection binding/IDs invalid",
+                    )
+        require(
+            exact_json(actual["recipe"]) == exact_json(expected["recipe"])
+            and exact_json(actual["token"]) == exact_json(expected["token"]),
+            "source authoring native authored intent differs",
+        )
+        require(
+            case.get("path") == "ui_authoring." + key
+            and exact_json(case["actual"]) == exact_json(projected)
+            and exact_json(case["expected"]) == exact_json(reference),
+            "source authoring semantic operands differ from full raw graphs",
+        )
+
+
+def validate_workspace_graph_evidence(
+    item: dict[str, Any], cases: list[dict[str, Any]]
+) -> None:
+    require(
+        item.get("workspace_graph_schema") == WORKSPACE_GRAPH_SCHEMA
+        and item.get("workspace_graph_projection") == list(SOURCE_GRAPH_PROJECTION),
+        "unsupported workspace graph evidence schema/projection",
+    )
+
+    def projected(value: Any) -> dict[str, Any]:
+        graph = object_value(value)
+        require(
+            set(SOURCE_GRAPH_PROJECTION)
+            <= set(graph)
+            <= set(SOURCE_GRAPH_PROJECTION) | SOURCE_GRAPH_TRANSPORT,
+            "workspace snapshot has unknown/missing semantic fields",
+        )
+        return {field: graph[field] for field in SOURCE_GRAPH_PROJECTION}
+
+    def epoch(value: Any) -> int:
+        require(
+            type(value) is int and 0 <= value <= 2**53 - 1,
+            "invalid workspace accepted generation",
+        )
+        return cast(int, value)
+
+    def bundle(value: Any) -> dict[str, Any]:
+        proof = object_value(value)
+        require(
+            set(proof) == {"generation", "metadata", "graph"},
+            "workspace bundle evidence incomplete",
+        )
+        generation = epoch(proof["generation"])
+        metadata, graph = object_value(proof["metadata"]), object_value(proof["graph"])
+        _ = projected(graph)
+        require(
+            epoch(metadata.get("project_generation")) == generation
+            and epoch(graph.get("project_generation")) == generation
+            and exact_json(metadata.get("graph")) == exact_json(graph),
+            "workspace graph does not match accepted bundle generation",
+        )
+        require(
+            exact_json(metadata.get("source_mode"))
+            == exact_json({"kind": "example", "example": "nozzle"}),
+            "workspace bundle source mode changed",
+        )
+        identity = object_value(metadata.get("source_identity"))
+        _ = digest_value(identity.get("source_sha256"))
+        _ = digest_value(identity.get("reference_sha256"))
+        require(
+            "descriptor" in identity and identity["descriptor"] is None,
+            "workspace example source identity changed",
+        )
+        sources = [
+            object_value(node)
+            for node in array_value(object_value(graph.get("recipe")).get("nodes"))
+            if object_value(node).get("operation") == "source"
+        ]
+        require(len(sources) == 1, "workspace source binding missing/duplicated")
+        require(
+            all(
+                key in identity
+                and key in sources[0]
+                and exact_json(identity[key]) == exact_json(sources[0][key])
+                for key in ("source_sha256", "reference_sha256", "descriptor")
+            ),
+            "workspace source identity differs from authored binding",
+        )
+        return proof
+
+    browser = object_value(item.get("browser_snapshots"))
+    native = object_value(item.get("native_snapshots"))
+    require(
+        set(browser) == {"default", "edited", "replayed"}
+        and set(native) == {"default", "edited"},
+        "workspace raw snapshots incomplete",
+    )
+    browser_proofs, native_proofs = (
+        object_value(item.get("browser_workspace")),
+        object_value(item.get("native_workspace")),
+    )
+    require(
+        set(browser_proofs) == {"default", "edited", "replay_before", "replay_after"}
+        and set(native_proofs) == {"default", "edited"},
+        "workspace accepted bundle coverage incomplete",
+    )
+    accepted = {key: bundle(value) for key, value in browser_proofs.items()}
+    references = {key: bundle(value) for key, value in native_proofs.items()}
+    for key, proof in (*accepted.items(), *references.items()):
+        graph = object_value(proof["graph"])
+        states = object_value(graph.get("states"))
+        require(
+            graph.get("evaluation_running") is False
+            and graph.get("evaluation_error") is None
+            and object_value(graph.get("errors")) == {}
+            and ("required_failures" not in graph or graph["required_failures"] == [])
+            and (
+                key == "replay_after"
+                or (bool(states) and all(value == "ready" for value in states.values()))
+            ),
+            "workspace accepted bundle is not settled or ready",
+        )
+    fresh = accepted["replay_after"]["graph"]
+    require(
+        bool(fresh["states"])
+        and set(fresh["states"])
+        == {object_value(node).get("id") for node in fresh["recipe"]["nodes"]}
+        and all(state == "unevaluated" for state in fresh["states"].values())
+        and fresh["results"] == {}
+        and fresh["derived"] == {}
+        and fresh["result"] is None,
+        "workspace actions reopen retained computed state",
+    )
+    identity = accepted["default"]["metadata"]["source_identity"]
+    require(
+        all(
+            exact_json(proof["metadata"]["source_identity"]) == exact_json(identity)
+            for proof in (*accepted.values(), *references.values())
+        ),
+        "workspace accepted source identity changed",
+    )
+    require(
+        accepted["default"]["generation"] == accepted["edited"]["generation"]
+        and accepted["replay_after"]["generation"]
+        == accepted["replay_before"]["generation"] + 1,
+        "workspace replay did not advance exactly one accepted generation",
+    )
+    require(
+        all(proof["generation"] == 0 for proof in references.values()),
+        "workspace native fresh-owner generation changed",
+    )
+    for snapshots, proofs in ((browser, accepted), (native, references)):
+        for key, value in snapshots.items():
+            graph = object_value(value)
+            _ = projected(graph)
+            proof = proofs["replay_after" if key == "replayed" else key]
+            require(
+                epoch(graph.get("project_generation")) == proof["generation"],
+                "workspace snapshot accepted generation differs",
+            )
+            states = object_value(graph.get("states"))
+            require(
+                graph.get("evaluation_running") is False
+                and graph.get("evaluation_error") is None
+                and object_value(graph.get("errors")) == {}
+                and bool(states)
+                and all(value == "ready" for value in states.values())
+                and (
+                    "required_failures" not in graph or graph["required_failures"] == []
+                ),
+                "workspace snapshot is not a successful terminal publication",
+            )
+            if key == "replayed":
+                require(
+                    all(
+                        exact_json(graph[field]) == exact_json(proof["graph"][field])
+                        for field in ("recipe", "token")
+                    ),
+                    "workspace replay differs from accepted authored intent",
+                )
+            else:
+                require(
+                    exact_json(projected(graph))
+                    == exact_json(projected(proof["graph"])),
+                    "workspace snapshot differs from accepted full bundle",
+                )
+    evaluations = object_value(item.get("native_evaluation_responses"))
+    require(
+        set(evaluations) == {"default", "edited"},
+        "workspace native evaluation evidence incomplete",
+    )
+    for key, value in evaluations.items():
+        evaluation = object_value(value)
+        _ = projected(evaluation)
+        states = object_value(evaluation.get("states"))
+        require(
+            evaluation.get("required_failures") == []
+            and evaluation.get("evaluation_running") is False
+            and evaluation.get("evaluation_error") is None
+            and epoch(evaluation.get("project_generation"))
+            == references[key]["generation"]
+            and object_value(evaluation.get("errors")) == {}
+            and bool(states)
+            and all(state == "ready" for state in states.values())
+            and all(
+                exact_json(evaluation[field]) == exact_json(native[key][field])
+                for field in ("recipe", "token")
+            ),
+            "workspace native evaluation failed",
+        )
+        require(
+            exact_json(projected(evaluation)) == exact_json(projected(native[key])),
+            "workspace native evaluation differs from retained snapshot",
+        )
+    pairs = (
+        (browser["replayed"], browser["edited"]),
+        (browser["default"], native["default"]),
+        (browser["edited"], native["edited"]),
+        (browser["replayed"], native["edited"]),
+    )
+    for case, (actual, expected) in zip(cases, pairs, strict=True):
+        require(
+            exact_json(case["actual"]) == exact_json(projected(actual))
+            and exact_json(case["expected"]) == exact_json(projected(expected)),
+            "workspace semantic evidence differs from full snapshots/projection",
+        )
+
+
+def validate_semantic_parity(
+    item: dict[str, Any], name: str, policy: dict[str, Any]
+) -> None:
+    receipt = object_value(item.get("semantic_parity"))
+    for field in ("complete", "semantic_complete", "budgets_validated"):
+        require(receipt.get(field) is True, f"{name} semantic {field} is not true")
+    for record in [
+        receipt,
+        *(object_value(value) for value in array_value(receipt.get("cases"))),
+    ]:
+        for field, minimum in (
+            ("strict_fields_compared", 1),
+            ("budget_records_validated", 0),
+            ("diagnostic_difference_count", 0),
+        ):
+            require(
+                type(record.get(field)) is int and record[field] >= minimum,
+                f"{name} invalid semantic {field} count",
+            )
+    require(
+        receipt.get("policy_version") == policy["POLICY_VERSION"]
+        and receipt.get("policy_sha256") == policy["policy_sha256"](),
+        f"{name} semantic policy differs from trusted checkout",
+    )
+    evidence = object_value(item.get("semantic_parity_evidence"))
+    require(set(evidence) == {"json", "bytes", "sha256"}, "invalid semantic evidence")
+    text = evidence.get("json")
+    require(isinstance(text, str), "missing full semantic evidence JSON")
+    raw = cast(str, text).encode("utf-8")
+    require(
+        type(evidence.get("bytes")) is int
+        and evidence["bytes"] == len(raw)
+        and evidence.get("sha256") == sha256(raw)
+        and receipt.get("input_sha256") == sha256(raw),
+        f"{name} semantic evidence identity mismatch",
+    )
+    batch = object_json(raw, limit=driver_json_limit(name))
+    require(set(batch) == {"cases"}, "unexpected semantic batch fields")
+    cases = [object_value(case) for case in array_value(batch.get("cases"))]
+    profile, ids = SEMANTIC_DRIVERS[name]
+    require(
+        [case.get("id") for case in cases] == list(ids),
+        f"{name} semantic comparison cases differ",
+    )
+    for case in cases:
+        require(
+            {"id", "profile", "actual", "expected"} <= set(case)
+            and set(case) <= {"id", "profile", "actual", "expected", "path"}
+            and case["profile"] == profile,
+            f"{name} invalid semantic comparison profile",
+        )
+        require(
+            bool(object_value(case["actual"])) and bool(object_value(case["expected"])),
+            f"{name} missing full semantic comparison records",
+        )
+    if name in SOURCE_GRAPH_DRIVERS:
+        try:
+            validate_source_graph_evidence(item, cases[:4])
+            validate_source_authoring_evidence(item, cases[4:])
+        except ValueError as error:
+            raise ValueError(f"{name}: {error}") from error
+    elif profile == "graph-snapshot":
+        validate_workspace_graph_evidence(item, cases)
+    # Raw JSON is data. Recompute using the trusted, stdlib-only policy rather
+    # than trusting success flags, accounting or a self-declared diagnostic ledger.
+    try:
+        recomputed = policy["compare_batch"](cases)
+    except policy["SemanticParityError"] as error:
+        raise ValueError(
+            f"{name} trusted semantic comparison failed: {error}"
+        ) from error
+    submitted = {key: value for key, value in receipt.items() if key != "input_sha256"}
+    require(
+        exact_json(submitted) == exact_json(recomputed),
+        f"{name} semantic receipt differs from trusted recomparison",
+    )
+
+
 def validate_evidence(
     evidence: dict[str, bytes], site_raw: bytes, runtime_raw: bytes
 ) -> None:
@@ -355,7 +1207,7 @@ def validate_evidence(
     steps = [object_value(value) for value in array_value(report.get("steps"))]
     require(
         [s.get("name") for s in steps] == list(STEPS),
-        "requires exactly all 20 ordered CI steps",
+        "requires exactly all ordered CI steps",
     )
     require(
         evidence["site-manifest.json"] == site_raw
@@ -365,6 +1217,7 @@ def validate_evidence(
     for key, filename in (
         ("site-manifest", "site-manifest.json"),
         ("runtime-manifest", "runtime-manifest.json"),
+        ("numerical-site-manifest", "numerical-site-manifest.json"),
         ("redistribution-manifest", "build-redistribution.json"),
     ):
         require(
@@ -407,8 +1260,34 @@ def validate_evidence(
         "CI verification finished before steps",
     )
     site = object_json(site_raw)
+    numerical_raw = evidence["numerical-site-manifest.json"]
+    numerical = object_json(numerical_raw)
+    require(
+        numerical.get("kind") == "scansor-static-app"
+        and numerical.get("source_revision") == site["source_revision"]
+        and numerical.get("source_worktree_dirty") == site.get("source_worktree_dirty"),
+        "numerical site source mismatch",
+    )
+    policy = trusted_semantic_policy()
+    runtime = object_json(runtime_raw)
+    helper_records = [
+        object_value(value)
+        for value in array_value(runtime.get("source_files"))
+        if object_value(value).get("archive_path") == SEMANTIC_POLICY
+    ]
+    require(
+        helper_records
+        == [
+            {
+                "path": SEMANTIC_POLICY,
+                "archive_path": SEMANTIC_POLICY,
+                "sha256": policy["policy_sha256"](),
+            }
+        ],
+        "packaged semantic policy differs from trusted checkout",
+    )
     for name in DRIVERS:
-        item = object_json(evidence[f"{name}.json"])
+        item = object_json(evidence[f"{name}.json"], limit=driver_json_limit(name))
         require(
             "failure" not in item and "error" not in item, f"driver failure: {name}"
         )
@@ -418,8 +1297,20 @@ def validate_evidence(
             "unexpected_requests",
             "external_requests",
             "api_requests",
+            "page_errors",
         ):
             require(not item.get(key), f"driver {name} has {key}")
+        if name in SEMANTIC_DRIVERS:
+            validate_semantic_parity(item, name, policy)
+            require(
+                item.get("source_revision") == site["source_revision"],
+                f"driver {name} source mismatch",
+            )
+            if name in ("workspace", "numerical-workspace"):
+                require(
+                    item.get("source_worktree_dirty") is False,
+                    f"driver {name} tested dirty source",
+                )
         if name == "generated":
             require(
                 item.get("complete") is True
@@ -439,21 +1330,97 @@ def validate_evidence(
                 item.get("artifact_unchanged") is True,
                 f"driver {name} changed artifact",
             )
-        if name != "numerical-workspace":
+        if "source-import" in name:
+            require(not item.get("page_errors"), f"source-import page errors: {name}")
+            require(
+                not item.get("native_parity_errors"),
+                f"source-import parity errors: {name}",
+            )
+            require(
+                item.get("complete") is True and bool(item.get("cases")),
+                f"source-import evidence incomplete: {name}",
+            )
+            checks = object_value(item.get("checks"))
+            if name == "source-import-memory":
+                require(
+                    item.get("isolation") is False,
+                    "source-import memory isolation mismatch",
+                )
+                cases = [
+                    object_value(value) for value in array_value(item.get("cases"))
+                ]
+                require(
+                    [case.get("name") for case in cases]
+                    == [
+                        "raw-nozzle",
+                        "horizontal-scene",
+                        "grid-256x128",
+                        "grid-512x256",
+                    ]
+                    and all(case.get("complete") is True for case in cases),
+                    "source-import memory cases incomplete",
+                )
+            else:
+                requested = name.endswith("-isolated")
+                actual = object_value(item.get("isolation_actual"))
+                require(
+                    item.get("isolation_requested") is requested
+                    and actual.get("page") is requested
+                    and actual.get("worker") is requested,
+                    f"source-import isolation mismatch: {name}",
+                )
+            require(
+                checks.get("isolation_matches") is True,
+                f"source-import isolation check missing: {name}",
+            )
+            required_checks = (
+                {
+                    "source_import",
+                    "source_identity",
+                    "recovery",
+                    "cleanup",
+                    "cancel_before_adoption",
+                    "force_after_adoption",
+                    "cleanup_failure_recovery",
+                    "ui_source_recovery",
+                    "ui_legacy_startup",
+                    "ui_source_authoring",
+                    "ui_source_actions",
+                }
+                if name != "source-import-memory"
+                else {
+                    "source_import",
+                    "recovery",
+                    "cleanup",
+                    "all_cases_complete",
+                    "capacity_nonzero",
+                    "chunk_reads_bounded",
+                    "terminal_staging_released",
+                    "isolation_matches",
+                    "no_external_computation",
+                    "no_page_errors",
+                    "artifact_unchanged",
+                }
+            )
+            require(
+                all(checks.get(key) is True for key in required_checks),
+                f"source-import checks incomplete: {name}",
+            )
+        if name != "generated":
             field = (
                 "site_manifest_sha256"
                 if name in ("timing", "memory", "fitting")
                 else "manifest_sha256"
             )
-            if name != "generated":
-                require(
-                    item.get(field) == sha256(site_raw),
-                    f"driver {name} tested another site",
-                )
-                require(
-                    item.get("source_revision") == site["source_revision"],
-                    f"driver {name} source mismatch",
-                )
+            require(
+                item.get(field)
+                == sha256(numerical_raw if name.startswith("numerical-") else site_raw),
+                f"driver {name} tested another site",
+            )
+            require(
+                item.get("source_revision") == site["source_revision"],
+                f"driver {name} source mismatch",
+            )
 
 
 def validate_semantics(
@@ -477,15 +1444,16 @@ def validate_semantics(
     raw = regular_bytes(runtime / "manifest.json")
     require(sha256(raw) == runtime_hash, "runtime manifest SHA-256 mismatch")
     runtime_manifest = object_json(raw)
+    runtime_builder["validate_worker_protocol"](runtime_manifest.get("worker_protocol"))
     require(
-        runtime_manifest.get("worker_protocol")
-        == {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
-        "unsupported runtime worker protocol",
+        object_value(manifest.get("capabilities")).get("source_import")
+        == runtime_manifest["worker_protocol"]["source_import"],
+        "site/runtime source capability mismatch",
+    )
+    require(
+        exact_json(object_value(manifest.get("capabilities")).get("source_actions"))
+        == exact_json(runtime_manifest["worker_protocol"]["source_actions"]),
+        "site/runtime source-actions capability mismatch",
     )
     runtime_assets = records(runtime_manifest.get("assets"))
     site_assets = records(manifest.get("assets"))
@@ -511,14 +1479,25 @@ def validate_semantics(
         "deployment requires the verified CAD runtime profile",
     )
     require(
-        manifest.get("backend")
-        == {
-            "type": "worker",
-            "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
-            "cad": True,
-        }
-        and manifest.get("capabilities")
-        == {"runtime_bootstrap": True, "numerical": True, "cad": True},
+        exact_json(manifest.get("backend"))
+        == exact_json(
+            {
+                "type": "worker",
+                "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
+                "cad": True,
+                "sourceActions": True,
+            }
+        )
+        and exact_json(manifest.get("capabilities"))
+        == exact_json(
+            {
+                "runtime_bootstrap": True,
+                "numerical": True,
+                "cad": True,
+                "source_import": runtime_manifest["worker_protocol"]["source_import"],
+                "source_actions": runtime_manifest["worker_protocol"]["source_actions"],
+            }
+        ),
         "unexpected application backend/capabilities",
     )
     for value in (manifest, runtime_manifest, runtime_record):
@@ -756,7 +1735,11 @@ def validate(
             )
             require(set(files) == expected, "unexpected or missing archive payload")
             evidence = {
-                name: read_member(archive, files[f"evidence/{name}"])
+                name: read_member(
+                    archive,
+                    files[f"evidence/{name}"],
+                    driver_json_limit(name.removesuffix(".json")),
+                )
                 for name in EVIDENCE
             }
             runtime_hash = digest_value(

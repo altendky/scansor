@@ -195,7 +195,7 @@ try {
   assert.equal(fixtureManifest.kind,'component-scaling-fixture');
   assert.equal(fixtureManifest.schema_version,1);
   assert.equal(fixtureManifest.source_revision,site.manifest.source_revision);
-  assert.equal(fixtureManifest.worker_protocol.version,4);
+  assert.deepEqual(fixtureManifest.worker_protocol,currentSource.worker_protocol);
   assert.deepEqual(fixtureManifest.source_closure,currentSource.source_closure);
   assert.equal(currentSource.source_revision,site.manifest.source_revision);
   assert.deepEqual(fixtureManifest.fixtures.map(f=>f.tier),[496,4096,16384]);

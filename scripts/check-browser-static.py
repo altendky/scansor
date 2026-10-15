@@ -359,6 +359,13 @@ def main() -> None:
             "recovery.json",
             extra=("--isolation",),
         )
+        driver("source-import", "validate-source-import.mjs", "source-import.json")
+        driver(
+            "source-import-isolated",
+            "validate-source-import.mjs",
+            "source-import.json",
+            extra=("--isolation",),
+        )
         # Reuse downloads within this job; never expose a persistent binary cache.
         python(
             "build-numerical-runtime",
@@ -384,17 +391,38 @@ def main() -> None:
                 *supplement,
             ],
         )
+        numerical_manifest = evidence / "numerical-site-manifest.json"
+        numerical_manifest.write_bytes((numerical_site / "manifest.json").read_bytes())
+        report["numerical-site-manifest"] = identity(numerical_manifest)
         driver(
             "numerical-workspace",
             "validate-workspace.mjs",
             "workspace.json",
             numerical_site,
         )
+        driver(
+            "numerical-source-import",
+            "validate-source-import.mjs",
+            "source-import.json",
+            numerical_site,
+        )
+        driver(
+            "numerical-source-import-isolated",
+            "validate-source-import.mjs",
+            "source-import.json",
+            numerical_site,
+            extra=("--isolation",),
+        )
         if args.measurements:
             driver("timing", "measure.mjs", "report.json")
             driver("memory", "measure-memory.mjs", "memory.json")
             driver("fitting", "measure-fitting.mjs", "report.json")
             driver("generated", "measure-generated.mjs", "generated.json")
+            driver(
+                "source-import-memory",
+                "measure-source-import.mjs",
+                "source-import-memory.json",
+            )
         python(
             "verify-site-after",
             "build-browser-app.py",
@@ -407,6 +435,11 @@ def main() -> None:
         )
         if identity(site / "manifest.json") != report["site-manifest"]:
             raise ValueError("tested site manifest changed")
+        if (
+            identity(numerical_site / "manifest.json")
+            != report["numerical-site-manifest"]
+        ):
+            raise ValueError("tested numerical site manifest changed")
         report["verified"] = True
         gaps = redistribution_gaps(
             read_json(site / "manifest.json"), read_json(runtime / "manifest.json")
