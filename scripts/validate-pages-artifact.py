@@ -88,6 +88,7 @@ EVIDENCE = {
     "site-manifest.json",
     "runtime-manifest.json",
     "numerical-site-manifest.json",
+    "numerical-runtime-manifest.json",
 }
 SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
 SOURCE_GRAPH_DRIVERS = (
@@ -1218,6 +1219,7 @@ def validate_evidence(
         ("site-manifest", "site-manifest.json"),
         ("runtime-manifest", "runtime-manifest.json"),
         ("numerical-site-manifest", "numerical-site-manifest.json"),
+        ("numerical-runtime-manifest", "numerical-runtime-manifest.json"),
         ("redistribution-manifest", "build-redistribution.json"),
     ):
         require(
@@ -1268,24 +1270,33 @@ def validate_evidence(
         and numerical.get("source_worktree_dirty") == site.get("source_worktree_dirty"),
         "numerical site source mismatch",
     )
-    policy = trusted_semantic_policy()
-    runtime = object_json(runtime_raw)
-    helper_records = [
-        object_value(value)
-        for value in array_value(runtime.get("source_files"))
-        if object_value(value).get("archive_path") == SEMANTIC_POLICY
-    ]
+    numerical_runtime_raw = evidence["numerical-runtime-manifest.json"]
+    numerical_runtime = object_value(numerical.get("runtime"))
     require(
-        helper_records
-        == [
-            {
-                "path": SEMANTIC_POLICY,
-                "archive_path": SEMANTIC_POLICY,
-                "sha256": policy["policy_sha256"](),
-            }
-        ],
-        "packaged semantic policy differs from trusted checkout",
+        numerical_runtime.get("manifest_sha256") == sha256(numerical_runtime_raw),
+        "numerical runtime manifest identity mismatch",
     )
+    policy = trusted_semantic_policy()
+    for runtime in (
+        object_json(runtime_raw),
+        object_json(evidence["numerical-runtime-manifest.json"]),
+    ):
+        helper_records = [
+            object_value(value)
+            for value in array_value(runtime.get("source_files"))
+            if object_value(value).get("archive_path") == SEMANTIC_POLICY
+        ]
+        require(
+            helper_records
+            == [
+                {
+                    "path": SEMANTIC_POLICY,
+                    "archive_path": SEMANTIC_POLICY,
+                    "sha256": policy["policy_sha256"](),
+                }
+            ],
+            "packaged semantic policy differs from trusted checkout",
+        )
     for name in DRIVERS:
         item = object_json(evidence[f"{name}.json"], limit=driver_json_limit(name))
         require(
@@ -1300,6 +1311,17 @@ def validate_evidence(
             "page_errors",
         ):
             require(not item.get(key), f"driver {name} has {key}")
+        if name.startswith("numerical-"):
+            require(
+                exact_json(item.get("runtime")) == exact_json(numerical_runtime),
+                f"driver {name} runtime mismatch",
+            )
+            if name == "numerical-workspace":
+                require(
+                    exact_json(item.get("capabilities"))
+                    == exact_json(numerical.get("capabilities")),
+                    "numerical workspace capabilities mismatch",
+                )
         if name in SEMANTIC_DRIVERS:
             validate_semantic_parity(item, name, policy)
             require(
@@ -1428,6 +1450,8 @@ def validate_semantics(
     manifest: dict[str, Any],
     locks: Path,
     assembled_evidence: dict[str, Any],
+    *,
+    expected_cad: bool = True,
 ) -> bytes:
     """Use trusted current verification code with selected-source locks as data."""
     runtime_builder = runpy.run_path(str(ROOT / "scripts/build-browser-runtime.py"))
@@ -1474,9 +1498,9 @@ def validate_semantics(
             "site/runtime asset identity mismatch",
         )
     require(
-        runtime_manifest.get("cad") is True
+        runtime_manifest.get("cad") is expected_cad
         and runtime_manifest.get("schema_version") == 1,
-        "deployment requires the verified CAD runtime profile",
+        "unexpected runtime CAD profile",
     )
     require(
         exact_json(manifest.get("backend"))
@@ -1484,7 +1508,7 @@ def validate_semantics(
             {
                 "type": "worker",
                 "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
-                "cad": True,
+                "cad": expected_cad,
                 "sourceActions": True,
             }
         )
@@ -1493,7 +1517,7 @@ def validate_semantics(
             {
                 "runtime_bootstrap": True,
                 "numerical": True,
-                "cad": True,
+                "cad": expected_cad,
                 "source_import": runtime_manifest["worker_protocol"]["source_import"],
                 "source_actions": runtime_manifest["worker_protocol"]["source_actions"],
             }
@@ -1521,7 +1545,7 @@ def validate_semantics(
     require(
         runtime_manifest.get("versions") == runtime_lock.get("versions")
         and runtime_record.get("versions") == runtime_lock.get("versions")
-        and runtime_record.get("cad_assets_present") is True,
+        and runtime_record.get("cad_assets_present") is expected_cad,
         "runtime versions/profile differ from selected source lock",
     )
     ui_hash = sha256(regular_bytes(locks / "package-lock.json"))
@@ -1541,7 +1565,7 @@ def validate_semantics(
     ]
     require(ui_inputs == [ui_hash], "selected UI lock mismatch")
     runtime_builder["validate_runtime_profile"](runtime_manifest, runtime_lock)
-    runtime_builder["validate_core_notices"](runtime, runtime_lock, True)
+    runtime_builder["validate_core_notices"](runtime, runtime_lock, expected_cad)
     require(
         {"worker.mjs", "integrity.mjs", "scansor.zip", "runtime/pyodide.mjs"}.issubset(
             runtime_assets
@@ -1583,7 +1607,7 @@ def validate_semantics(
         (
             runtime / "redistribution",
             runtime_manifest,
-            ["numeric", "cad"],
+            ["numeric", "cad"] if expected_cad else ["numeric"],
             {"existing-core-and-wheel-notices"},
         ),
         (site / "redistribution", manifest, ["ui"], set()),
@@ -1728,12 +1752,10 @@ def validate(
             )
             assets = records(manifest.get("assets"))
             require("app/index.html" in assets, "missing application entry")
-            expected = (
-                {f"site/{name}" for name in assets}
-                | {"site/manifest.json"}
-                | {f"evidence/{name}" for name in EVIDENCE}
+            required_evidence = {f"evidence/{name}" for name in EVIDENCE}
+            require(
+                required_evidence <= set(files), "unexpected or missing archive payload"
             )
-            require(set(files) == expected, "unexpected or missing archive payload")
             evidence = {
                 name: read_member(
                     archive,
@@ -1742,6 +1764,26 @@ def validate(
                 )
                 for name in EVIDENCE
             }
+            numerical_raw = evidence["numerical-site-manifest.json"]
+            numerical = object_json(numerical_raw)
+            require(
+                numerical.get("schema_version") == 1
+                and numerical.get("kind") == "scansor-static-app"
+                and numerical.get("entry") == "app/index.html",
+                "unsupported numerical site manifest",
+            )
+            numerical_assets = records(numerical.get("assets"))
+            require(
+                "app/index.html" in numerical_assets,
+                "missing numerical application entry",
+            )
+            expected = (
+                {f"site/{name}" for name in assets}
+                | {"site/manifest.json"}
+                | required_evidence
+                | {f"evidence/numerical-assets/{name}" for name in numerical_assets}
+            )
+            require(set(files) == expected, "unexpected or missing archive payload")
             runtime_hash = digest_value(
                 object_value(manifest.get("runtime")).get("manifest_sha256")
             )
@@ -1760,35 +1802,57 @@ def validate(
                 for name, data in lock_bytes.items():
                     _ = (locks / name).write_bytes(data)
                 site = staging / "site"
-                site.mkdir()
-                _ = (site / "manifest.json").write_bytes(site_raw)
-                for name, record in assets.items():
-                    target = site / name
-                    require(
-                        files[f"site/{name}"].file_size == record["bytes"],
-                        "manifest/archive size mismatch",
-                    )
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with (
-                        archive.open(files[f"site/{name}"]) as source,
-                        target.open("xb") as destination,
-                    ):
-                        shutil.copyfileobj(source, destination, 1024 * 1024)
-                    require(
-                        target.stat().st_size == record["bytes"],
-                        f"asset byte count mismatch: {name}",
-                    )
-                    with target.open("rb") as data:
+                for directory, value, raw, listed, archive_prefix, cad in (
+                    (site, manifest, site_raw, assets, "site", True),
+                    (
+                        staging / "numerical-site",
+                        numerical,
+                        numerical_raw,
+                        numerical_assets,
+                        "evidence/numerical-assets",
+                        False,
+                    ),
+                ):
+                    directory.mkdir()
+                    _ = (directory / "manifest.json").write_bytes(raw)
+                    for name, record in listed.items():
+                        target = directory / name
+                        info = files[f"{archive_prefix}/{name}"]
                         require(
-                            hash_stream(data) == record["sha256"],
-                            f"asset SHA-256 mismatch: {name}",
+                            info.file_size == record["bytes"],
+                            "manifest/archive size mismatch",
                         )
-                _ = validate_semantics(
-                    site,
-                    manifest,
-                    locks,
-                    object_json(evidence["build-redistribution.json"]),
-                )
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with (
+                            archive.open(info) as source,
+                            target.open("xb") as destination,
+                        ):
+                            shutil.copyfileobj(source, destination, 1024 * 1024)
+                        require(
+                            target.stat().st_size == record["bytes"],
+                            f"asset byte count mismatch: {name}",
+                        )
+                        with target.open("rb") as data:
+                            require(
+                                hash_stream(data) == record["sha256"],
+                                f"asset SHA-256 mismatch: {name}",
+                            )
+                    checked_runtime = validate_semantics(
+                        directory,
+                        value,
+                        locks,
+                        object_json(evidence["build-redistribution.json"]),
+                        expected_cad=cad,
+                    )
+                    require(
+                        checked_runtime
+                        == (
+                            runtime_raw
+                            if cad
+                            else evidence["numerical-runtime-manifest.json"]
+                        ),
+                        "packaged runtime differs from retained manifest evidence",
+                    )
                 result = {
                     "schema_version": 1,
                     "kind": "scansor-pages-artifact-selection",
