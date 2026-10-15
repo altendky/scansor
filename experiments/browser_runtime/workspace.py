@@ -1131,7 +1131,7 @@ class BrowserWorkspace:
         if operation == "listExamples":
             self._keys(payload, set())
             return {
-                "active": "nozzle",
+                "active": "nozzle" if self._source.legacy is not None else None,
                 "examples": [{"id": "nozzle", "label": "Nozzle"}],
             }
         if operation == "selectExample":

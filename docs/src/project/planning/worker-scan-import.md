@@ -16,11 +16,13 @@ comparison. Delivery requires rebuilt current-head native/worker verification.
 The native/common UI already supplies empty projects, the source picker and
 read-only Source inspection, gated by backend capabilities. Worker import/recovery
 implements the bounded source tier; full both-backend UI acceptance remains
-[#243](https://github.com/altendky/scansor/issues/243). Native transactional
-source-aware actions reopening is delivered. Its bounded worker adapter is
-implemented under [#244](https://github.com/altendky/scansor/issues/244), with
-explicit versioned capability gating; actual both-mode reopening and recovery
-acceptance remain delivery gates.
+[#243](https://github.com/altendky/scansor/issues/243). Its authoring acceptance
+slice has executed native and CAD/plain worker diagnostics; clean-head profile
+and CI gates remain required before its delivery. Native transactional
+source-aware actions reopening and the bounded #244 worker adapter are delivered,
+the latter through [#291](https://github.com/altendky/scansor/pull/291), with
+explicit versioned capability gating and actual both-mode reopening/recovery
+acceptance. Combined changes still require rebuilt current-head workflow gates.
 This work adds neither persistence nor broader numerical-family support. The
 full numerical delivery gate in #240 and its draft stack remain separate.
 
@@ -117,13 +119,15 @@ semantic policy. Source arrays remain strict. Its coverage includes raw-source
 save/reopen, renamed lookup, matching reuse, unsupported settings, wrong bytes,
 empty and explicit legacy actions, stale inspection, popup and docked drafts,
 Cancel, pre-adoption Force, and accepted-but-undisplayed recovery with explicit
-Retry. A completed probe and current-head CI are required before delivery; its
-test hooks observe the shipped application and disclose transport holds.
+Retry. Delivery through #291 passed the completed probe and CI; subsequent changes
+require fresh current-head gates. Its test hooks observe the shipped application
+and disclose transport holds.
 
 ## Measured initial browser tier
 
-The protocol-5 runtime profile declares the source policy and injects its limits
-into both JavaScript byte preflight and shared Python admission. Initial limits
+The initial protocol-5 measurements used the same source policy now declared by
+the protocol-6 runtime profile, which injects its limits into both JavaScript byte
+preflight and shared Python admission. Initial limits
 are 8 MiB original bytes, 131,072 vertices, 262,144 triangle records, a 96 MiB
 incremental loader estimate and 65,536-byte chunks. These values were evaluated
 independently from the native measurements, despite selecting the same bounded
@@ -215,6 +219,48 @@ do not establish them.
 Numerical/CAD profiles and plain/isolated runs are distinct required gates. A
 diagnostic run may collect remaining lifecycle evidence after a parity failure,
 but must retain that failure, incomplete status and nonzero exit.
+
+## Source authoring acceptance
+
+The [authoring helper](../../../../experiments/browser_static/source-ui-authoring.mjs)
+uses actual File pickers, pointer gestures, fit/property dialogs and the shipped
+singleton worker. It adds twelve required scenario groups: empty controls,
+invalid/over-limit/cancelled input, raw inspection, raw pointer fitting/editing,
+keyboard commands, generated plane/cylinder authoring, popup/docked work guards,
+dependent removal and explicit examples. The example catalogue reports an active
+example only for the accepted example owner. Private or cancelled candidates
+do not change that status. Empty and imported scan owners have no active example
+and cannot falsely disable opening the retained example.
+
+The raw gesture selects all 24,999 original RealityScan rows without a starter
+recipe or injected memberships. Its ordinary least-squares plane is checked
+against every selected row and independently decoded incident-area weights;
+this rough full-source fit makes no metrology or planar-quality claim. Generated
+Side-view gestures must select exactly the independent fixture's twelve plane
+and seventy-two cylinder rows before fitting. Original coordinates, finite
+support, weighted objectives and source identities remain checked. Dialog
+selectors distinguish live drafts from modal project commands, and Escape waits
+for actual chooser opening and closure.
+
+Complete original, edited and generated UI-authored graphs are retained with
+independently observed accepted generations and full source evidence. Native
+execution reconstructs each authored recipe from the same frozen bytes using
+the identical packaged Python core. Failed native graphs are retained before
+the reference run rejects them. All three native/worker pairs enter one seven-pair
+trusted semantic batch with the four source import/replay and saved-actions pairs;
+source arrays, recipe bindings, selected geometry, acceptance and finite budgets
+remain gates.
+Computed starts remain absent from actions. The trusted verifier requires all
+twelve ordered cases, literal successful oracles, terminal readiness and exact
+raw graph operands; refreshed-hash mutations must still reject changed results
+and budgets. Both native popup/docked dependent-fit removal and raw pointer
+authoring have actual Chromium coverage.
+
+These diagnostic results do not replace the four numerical/CAD and
+plain/isolated profiles or complete current-head CI. Read-only interpretation,
+empty-only Add and confirmed whole-project removal retain the agreed scope;
+settings/replacement and wider numerical/resource delivery remain separately
+tracked. Bounded source-aware saved-actions reopening is delivered through #291.
 
 The static checker and trusted release verifier require the new reports and
 explicit source/recovery/cleanup checks. Numerical-profile reports bind their

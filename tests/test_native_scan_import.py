@@ -339,32 +339,50 @@ def test_commit_wins_cancel_without_retroactive_rollback(
     entered, release, requested, cancelled = Event(), Event(), Event(), Event()
     commit = world.project.commit
     records: list[dict[str, object]] = []
+    uploads: list[dict[str, object]] = []
+    errors: list[BaseException] = []
 
     def gated(*args: Any, **kwargs: Any) -> AcceptedScan:
         entered.set()
         assert files(staging) == []
-        assert release.wait(5)
+        _ = release.wait()
         return commit(*args, **kwargs)
 
     monkeypatch.setattr(world.project, "commit", gated)
     operation = world.reserve(service)
-    _ = upload(service, operation)
+
+    def receiving() -> None:
+        try:
+            uploads.append(upload(service, operation))
+        except BaseException as error:
+            errors.append(error)
 
     def cancelling() -> None:
         requested.set()
-        records.append(cancel(service, operation))
-        cancelled.set()
+        try:
+            records.append(cancel(service, operation))
+            cancelled.set()
+        except BaseException as error:
+            errors.append(error)
 
+    receiver = Thread(target=receiving)
     thread = Thread(target=cancelling)
     try:
+        # receive() may wait for the commit lock again in its finally block.
+        # Keep its caller separate from the thread responsible for releasing it.
+        receiver.start()
         assert entered.wait(5)
         thread.start()
         assert requested.wait(5)
         assert not cancelled.wait(0.02)
     finally:
         release.set()
-        if thread.ident is not None:
-            thread.join(5)
+        for worker in (receiver, thread):
+            if worker.ident is not None:
+                worker.join(5)
+    assert errors == [] and len(uploads) == 1
+    assert uploads[0]["status"] == "preparing"
+    assert not receiver.is_alive()
     assert cancelled.is_set() and not thread.is_alive()
     result = terminal(service, operation)
     assert result["status"] == "accepted" and records == [result]

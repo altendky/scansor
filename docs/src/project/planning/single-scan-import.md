@@ -27,7 +27,10 @@ cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
 for bounded native source authoring through #278. The common UI exposes empty
 projects, a file picker and read-only Source inspection where backend
-capabilities permit them. Full both-backend UI acceptance remains #243.
+capabilities permit them. The #243 authoring slice now has actual native and
+worker diagnostics for raw pointer selection/fitting, dependent action and
+draft safeguards, explicit examples and keyboard commands; clean-head profile
+and CI gates remain required for full both-backend UI acceptance.
 Worker import/recovery implements the bounded source tier in #242. Source arrays
 remain strict; fit verification uses the selected bounded semantic contract
 from #266 and requires rebuilt current-head evidence. See the
@@ -122,9 +125,10 @@ target override authority and its fixed/free/group/replay verification.
 The native/shared reopening child
 [#280](https://github.com/altendky/scansor/issues/280), delivered by #281, uses
 private source and recipe preparation before one native owner installation;
-the bounded #244 worker adapter is implemented with explicit versioned
-capabilities and retains fresh both-backend reopening/replay acceptance as a
-delivery gate. Worker import/Force
+the bounded #244 worker adapter is delivered through
+[#291](https://github.com/altendky/scansor/pull/291), with explicit versioned
+capabilities and executed both-backend reopening/replay acceptance. Subsequent
+changes retain fresh current-head workflow gates. Worker import/Force
 recovery implements the bounded tier in #242; current-head bounded semantic
 parity and full workflow validation remain delivery gates. Native and worker
 defaults have executed source-only import evidence; byte/count caps and the

@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import io
 import json
 import shutil
 import stat
@@ -88,7 +89,7 @@ def semantic_report(name: str) -> dict[str, Any]:
                 },
             }
             for case_id, key, path in zip(
-                ids,
+                ids[:4],
                 ("scene", "scene_replayed", "scene_actions", "scene_actions_replayed"),
                 (
                     "scene.graph",
@@ -99,8 +100,10 @@ def semantic_report(name: str) -> dict[str, Any]:
                 strict=True,
             )
         ]
+        authoring = source_authoring_fixture()
         return {
-            **semantic_evidence(cases),
+            **semantic_evidence([*cases, *authoring_batch(authoring)]),
+            "ui_authoring": authoring,
             "source_graph_schema": VALIDATOR.SOURCE_GRAPH_SCHEMA,
             "source_graph_projection": list(VALIDATOR.SOURCE_GRAPH_PROJECTION),
             "source_graph_snapshots": snapshots,
@@ -186,6 +189,144 @@ def semantic_report(name: str) -> dict[str, Any]:
     return copy.deepcopy(result)
 
 
+def source_authoring_fixture() -> dict[str, Any]:
+    sources: dict[str, Any] = {}
+    graphs: dict[str, Any] = {}
+    native: dict[str, Any] = {}
+    generations = {"raw": 3, "raw_edited": 3, "scene": 5}
+    for key, generation in generations.items():
+        scene = key == "scene"
+        descriptor = {
+            "version": "interactive-triangle-scan-v1",
+            "profile": "binary-triangle-ply-v1",
+            "source_sha256": ("a" if scene else "b") * 64,
+            "source_bytes": 100,
+            "interpretation_sha256": "c" * 64,
+            "vertices": 3,
+            "triangles": 1,
+            "filename": "scene.ply" if scene else "raw.ply",
+            "units": "unknown",
+        }
+        binding = VALIDATOR.sha256(
+            json.dumps(
+                {
+                    name: value
+                    for name, value in descriptor.items()
+                    if name != "filename"
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        source = {
+            "id": "scan",
+            "operation": "source",
+            "label": descriptor["filename"],
+            "descriptor": copy.deepcopy(descriptor),
+            "source_sha256": descriptor["source_sha256"],
+            "reference_sha256": binding,
+        }
+        graph = {
+            "recipe": {
+                "schema_version": 2,
+                "groups": [],
+                "nodes": [
+                    source,
+                    {
+                        "id": "picked",
+                        "operation": "selection",
+                        "source": "scan",
+                        "ids": [0, 1, 2],
+                    },
+                    {
+                        "id": "plane",
+                        "operation": "fit",
+                        "kind": "plane",
+                        "label": "Edited" if key == "raw_edited" else "Plane",
+                        "selections": ["picked"],
+                    },
+                ],
+                "output": "plane",
+            },
+            "token": "2" * 64,
+            "revision": 1,
+            "states": {"scan": "ready", "picked": "ready", "plane": "ready"},
+            "errors": {},
+            "diagnostics": {},
+            "memberships": {"picked": [0, 1, 2]},
+            "result": None,
+            "derived": {},
+            "results": {
+                "plane": {
+                    "kind": "plane",
+                    "parameters": [0.0, 0.0, 1.0, 0.0],
+                    "ids": [0, 1, 2],
+                    "residuals": [0.0, 0.0, 0.0],
+                    "weighted_rms": 0.0,
+                }
+            },
+            "input_catalogue": [],
+            "input_requirements": {},
+            "required_failures": [],
+        }
+        native[key] = copy.deepcopy(graph)
+        graphs[key] = {
+            **copy.deepcopy(graph),
+            "project_generation": generation,
+            "evaluation_running": False,
+        }
+        sources["scene_source" if scene else "raw_source"] = {
+            "descriptor": descriptor,
+            "source_sha256": descriptor["source_sha256"],
+            "project_generation": generation,
+            "source_mode": {"kind": "scan"},
+            "original_bytes": 100,
+            "vertices": 3,
+            "faces": 1,
+            "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            "normals": [[0.0, 0.0, 1.0]] * 3,
+            "triangles": [[0, 1, 2]],
+            "weights": [1 / 6] * 3,
+            "owned_fs_files": [],
+            "owned_fs_bytes": 0,
+        }
+    return {
+        "schema": VALIDATOR.SOURCE_AUTHORING_SCHEMA,
+        "complete": True,
+        "cases": [
+            {"name": name, "complete": True, **dict.fromkeys(fields, True)}
+            for name, fields in VALIDATOR.SOURCE_AUTHORING_CASES.items()
+        ],
+        "graphs": graphs,
+        "native_graphs": native,
+        "graph_generations": generations,
+        "evidence": sources,
+    }
+
+
+def authoring_batch(authoring: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": identity,
+            "profile": "graph-snapshot",
+            "path": "ui_authoring." + key,
+            "actual": {
+                field: authoring["graphs"][key][field]
+                for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+            },
+            "expected": {
+                field: authoring["native_graphs"][key][field]
+                for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+            },
+        }
+        for identity, key in zip(
+            VALIDATOR.SOURCE_AUTHORING_IDS,
+            VALIDATOR.SOURCE_AUTHORING_GRAPHS,
+            strict=True,
+        )
+    ]
+
+
 def semantic_evidence(cases: list[dict[str, Any]]) -> dict[str, Any]:
     raw = encoded({"cases": cases})
     receipt = VALIDATOR.trusted_semantic_policy()["compare_batch"](cases)
@@ -238,6 +379,7 @@ def source_batch(report: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
         ]
+        + authoring_batch(report["ui_authoring"])
     }
 
 
@@ -876,6 +1018,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
                     {
                         "ui_source_recovery": True,
                         "ui_legacy_startup": True,
+                        "ui_source_authoring": True,
                         "ui_source_actions": True,
                     }
                     if name != "source-import-memory"
@@ -1259,6 +1402,251 @@ def test_source_semantics_bind_worker_generation_without_borrowing_native_epoch(
 
 
 @pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_authoring_retains_all_seven_full_pairs_and_native_readiness(name: str):
+    report = semantic_report(name)
+    before = copy.deepcopy(report)
+    assert [
+        case["id"]
+        for case in json.loads(report["semantic_parity_evidence"]["json"])["cases"]
+    ] == [
+        "scene",
+        "scene-replayed",
+        "scene-actions",
+        "scene-actions-replayed",
+        "authoring-raw",
+        "authoring-raw-edited",
+        "authoring-scene",
+    ]
+    assert all(
+        "evaluation_running" not in graph
+        for graph in report["ui_authoring"]["native_graphs"].values()
+    )
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    assert report == before
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "case,oracle",
+    [
+        (name, field)
+        for name, fields in VALIDATOR.SOURCE_AUTHORING_CASES.items()
+        for field in ("complete", *fields)
+    ],
+)
+@pytest.mark.parametrize("value", [False, 1])
+def test_source_authoring_each_case_oracle_requires_literal_true(
+    name: str, case: str, oracle: str, value: Any
+):
+    report = semantic_report(name)
+    next(item for item in report["ui_authoring"]["cases"] if item["name"] == case)[
+        oracle
+    ] = value
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="source authoring case oracle"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "schema",
+        "incomplete",
+        "not-bool",
+        "case-missing",
+        "case-order",
+        "case-extra",
+        "oracle-extra",
+        "graph-missing",
+        "native-missing",
+        "epoch-missing",
+    ],
+)
+def test_source_authoring_coverage_is_not_a_self_declared_success_flag(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    if fault == "missing":
+        del report["ui_authoring"]
+    elif fault == "schema":
+        authoring["schema"] = "unknown-v2"
+    elif fault == "incomplete":
+        authoring["complete"] = False
+    elif fault == "not-bool":
+        authoring["complete"] = 1
+    elif fault == "case-missing":
+        authoring["cases"].pop()
+    elif fault == "case-order":
+        authoring["cases"].reverse()
+    elif fault == "case-extra":
+        authoring["cases"].append(copy.deepcopy(authoring["cases"][0]))
+    elif fault == "oracle-extra":
+        authoring["cases"][0]["new_claim"] = True
+    elif fault == "graph-missing":
+        del authoring["graphs"]["raw_edited"]
+    elif fault == "native-missing":
+        del authoring["native_graphs"]["scene"]
+    else:
+        del authoring["graph_generations"]["scene"]
+    with pytest.raises(ValueError, match="source authoring"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("value", [True, -1, 2**53, "3", 3.0])
+def test_source_authoring_epoch_cannot_hide_in_projected_comparands(
+    name: str, value: Any
+):
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    for key in ("raw", "raw_edited"):
+        authoring["graph_generations"][key] = value
+        authoring["graphs"][key]["project_generation"] = value
+    authoring["evidence"]["raw_source"]["project_generation"] = value
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="source authoring epoch"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "graph-epoch",
+        "edit-epoch",
+        "native-failed",
+        "native-running",
+        "worker-running",
+        "worker-failed",
+        "source-sha",
+        "source-reference",
+        "source-descriptor",
+        "source-rows",
+        "source-weights",
+        "source-normals",
+        "triangle-index",
+        "source-bytes",
+        "staging",
+        "selection-source",
+        "selection-id",
+        "computed-start",
+        "unknown-semantic",
+        "operand",
+        "case-path",
+    ],
+)
+def test_source_authoring_meaningful_failures_reject_after_evidence_hash_refresh(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    a = report["ui_authoring"]
+    raw, native = a["graphs"]["raw"], a["native_graphs"]["raw"]
+    evidence = a["evidence"]["raw_source"]
+    if fault == "graph-epoch":
+        raw["project_generation"] += 1
+    elif fault == "edit-epoch":
+        a["graph_generations"]["raw_edited"] += 1
+        a["graphs"]["raw_edited"]["project_generation"] += 1
+    elif fault == "native-failed":
+        native["required_failures"] = ["plane"]
+    elif fault == "native-running":
+        native["evaluation_running"] = True
+    elif fault == "worker-running":
+        raw["evaluation_running"] = True
+    elif fault == "worker-failed":
+        raw["states"]["plane"] = "blocked"
+    elif fault == "source-sha":
+        raw["recipe"]["nodes"][0]["source_sha256"] = "d" * 64
+    elif fault == "source-reference":
+        raw["recipe"]["nodes"][0]["reference_sha256"] = "d" * 64
+    elif fault == "source-descriptor":
+        raw["recipe"]["nodes"][0]["descriptor"]["filename"] = "substituted.ply"
+    elif fault == "source-rows":
+        evidence["positions"].pop()
+    elif fault == "source-weights":
+        evidence["weights"][0] = "NaN"
+    elif fault == "source-normals":
+        evidence["normals"][0] = [0, 0, 0]
+    elif fault == "triangle-index":
+        evidence["triangles"][0][0] = 3
+    elif fault == "source-bytes":
+        evidence["original_bytes"] += 1
+    elif fault == "staging":
+        evidence["owned_fs_files"] = [{"path": "/owned.ply", "bytes": 1}]
+    elif fault == "selection-source":
+        raw["recipe"]["nodes"][1]["source"] = "other"
+    elif fault == "selection-id":
+        raw["recipe"]["nodes"][1]["ids"][0] = True
+    elif fault == "computed-start":
+        raw["recipe"]["nodes"][-1]["initial_parameters"] = [0, 0, 1, 0]
+    elif fault == "unknown-semantic":
+        for graph in [*a["graphs"].values(), *a["native_graphs"].values()]:
+            graph["new_policy"] = "rejected"
+    if fault in {
+        "source-sha",
+        "source-reference",
+        "source-descriptor",
+        "selection-source",
+        "selection-id",
+        "computed-start",
+    }:
+        native["recipe"] = copy.deepcopy(raw["recipe"])
+    if fault == "worker-failed":
+        native["states"] = copy.deepcopy(raw["states"])
+    batch = copy.deepcopy(source_batch(report))
+    if fault == "operand":
+        next(case for case in batch["cases"] if case["id"] == "authoring-raw")[
+            "actual"
+        ]["results"]["plane"]["weighted_rms"] = 1.0
+    elif fault == "case-path":
+        next(case for case in batch["cases"] if case["id"] == "authoring-raw")[
+            "path"
+        ] = "other.raw"
+    refresh_semantic_input(report, batch, recompute=fault != "operand")
+    with pytest.raises(ValueError, match="source authoring"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("fault", ["geometry", "budget"])
+def test_source_authoring_shared_policy_still_recomputes_geometry_and_budgets(
+    name: str, fault: str
+):
+    from tests.test_semantic_parity import constrained
+
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    if fault == "budget":
+        for collection in (authoring["graphs"], authoring["native_graphs"]):
+            for graph in collection.values():
+                graph["result"] = constrained()
+        refresh_semantic_input(report, source_batch(report), recompute=True)
+        authoring["graphs"]["raw"]["result"]["initialization"]["recovery"]["attempts"][
+            0
+        ]["evaluations"] = 513
+    else:
+        authoring["graphs"]["raw"]["results"]["plane"]["parameters"][3] = 1.0
+    refresh_semantic_input(report, source_batch(report))
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
 @pytest.mark.parametrize("field", VALIDATOR.SOURCE_GRAPH_PROJECTION)
 def test_source_projection_cannot_delete_fields_from_every_operand(
     name: str, field: str
@@ -1633,7 +2021,13 @@ def test_source_import_evidence_requires_executed_complete_checks(
 )
 @pytest.mark.parametrize("fault", ["missing", "failed", "not-boolean"])
 @pytest.mark.parametrize(
-    "check", ["ui_source_recovery", "ui_legacy_startup", "ui_source_actions"]
+    "check",
+    [
+        "ui_source_recovery",
+        "ui_legacy_startup",
+        "ui_source_actions",
+        "ui_source_authoring",
+    ],
 )
 def test_source_evidence_requires_executed_ui_recovery(
     selected: dict[str, Any], driver: str, fault: str, check: str
@@ -2059,3 +2453,112 @@ def test_actions_capability_types_remain_bound_after_all_envelope_hashes_are_ref
     ):
         _ = validate(selected)
     assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_source_graph_json_limit_is_exactly_scoped() -> None:
+    assert VALIDATOR.MAX_JSON == 32 * 1024 * 1024
+    assert VALIDATOR.MAX_SOURCE_GRAPH_JSON == 64 * 1024 * 1024
+    assert VALIDATOR.MAX_MEMBER == 256 * 1024 * 1024
+    assert VALIDATOR.MAX_TOTAL == 768 * 1024 * 1024
+    assert VALIDATOR.MAX_ARCHIVE == 512 * 1024 * 1024
+    for name in VALIDATOR.DRIVERS:
+        assert VALIDATOR.driver_json_limit(name) == (
+            VALIDATOR.MAX_SOURCE_GRAPH_JSON
+            if name in VALIDATOR.SOURCE_GRAPH_DRIVERS
+            else VALIDATOR.MAX_JSON
+        )
+    for name in (
+        "verification",
+        "site-manifest",
+        "runtime-manifest",
+        "source-import-memory",
+        "source-import-extra",
+    ):
+        assert VALIDATOR.driver_json_limit(name) == VALIDATOR.MAX_JSON
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("extra", [0, 1])
+def test_source_graph_json_parser_and_archive_exact_boundary(
+    name: str, extra: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Small equivalent boundaries keep this test independent of fixture volume.
+    monkeypatch.setattr(VALIDATOR, "MAX_JSON", 64)
+    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", 128)
+    raw = b"{}" + b" " * (126 + extra)
+    limit = VALIDATOR.driver_json_limit(name)
+    if extra:
+        with pytest.raises(ValueError, match="JSON input exceeds size limit"):
+            _ = VALIDATOR.object_json(raw, limit=limit)
+    else:
+        assert VALIDATOR.object_json(raw, limit=limit) == {}
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(name + ".json", raw)
+    _ = buffer.seek(0)
+    with zipfile.ZipFile(buffer) as archive:
+        info = archive.getinfo(name + ".json")
+        if extra:
+
+            def unexpected_open(*_args: Any, **_kwargs: Any) -> Any:
+                raise AssertionError("oversize member must reject before opening")
+
+            monkeypatch.setattr(archive, "open", unexpected_open)
+            with pytest.raises(ValueError, match="archive JSON exceeds limit"):
+                _ = VALIDATOR.read_member(archive, info, limit)
+        else:
+            assert VALIDATOR.read_member(archive, info, limit) == raw
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_32mib(
+    selected: dict[str, Any], name: str
+) -> None:
+    filename = "evidence/" + name + ".json"
+    report = json.loads(selected["members"][filename])
+    original = report["semantic_parity_evidence"]["json"]
+    # Whitespace changes neither graphs nor receipt semantics, but exercises
+    # BOTH real report parsing and its nested exact-byte semantic input path.
+    text = original + " " * (VALIDATOR.MAX_JSON + 1 - len(original.encode()))
+    raw = text.encode()
+    report["semantic_parity_evidence"] = {"json": text, **VALIDATOR.identity(raw)}
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    selected["members"][filename] = encoded(report)
+    assert (
+        VALIDATOR.MAX_JSON
+        < len(selected["members"][filename])
+        < VALIDATOR.MAX_SOURCE_GRAPH_JSON
+    )
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == name)["evidence"] = {
+        "path": name + ".json",
+        **VALIDATOR.identity(selected["members"][filename]),
+    }
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    assert validate(selected)["verified"] is True
+    assert json.loads(raw)["cases"] == json.loads(original)["cases"]
+    assert len(json.loads(raw)["cases"]) == 7
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_graph_full_archive_rejects_above_its_cap_before_output(
+    selected: dict[str, Any], name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The archive selection path must actually pass the named cap to read_member.
+    raw = selected["members"]["evidence/" + name + ".json"]
+    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", len(raw) - 1)
+    with pytest.raises(ValueError, match="archive JSON exceeds limit"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_metadata_json_parser_and_file_reader_keep_32mib_limit(tmp_path: Path) -> None:
+    raw = b"{}" + b" " * (VALIDATOR.MAX_JSON - 1)
+    assert len(raw) == VALIDATOR.MAX_JSON + 1
+    with pytest.raises(ValueError, match="JSON input exceeds size limit"):
+        _ = VALIDATOR.object_json(raw)
+    path = tmp_path / "metadata.json"
+    _ = path.write_bytes(raw)
+    with pytest.raises(ValueError, match="input exceeds size limit"):
+        _ = VALIDATOR.regular_bytes(path)

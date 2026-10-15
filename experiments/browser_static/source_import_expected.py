@@ -168,6 +168,75 @@ def expected(runtime: Path, sources: Path, output: Path) -> None:
         _ = output.write_text(json.dumps(results, allow_nan=False) + "\n")
 
 
+def authored(runtime: Path, sources: Path, recipes_path: Path, output: Path) -> None:
+    """Evaluate actual UI-authored recipes using the identical packaged core."""
+    manifest = json.loads((runtime / "manifest.json").read_text())
+    recipes = json.loads(recipes_path.read_text())
+    names = {
+        "raw": "raw-nozzle",
+        "raw_edited": "raw-nozzle",
+        "scene": "horizontal-scene",
+    }
+    if set(recipes) != set(names):
+        raise ValueError("Incomplete UI-authored recipe coverage")
+    with tempfile.TemporaryDirectory(
+        prefix="source-authored-reference-", dir=output.parent
+    ) as temporary:
+        root = Path(temporary)
+        with zipfile.ZipFile(runtime / "scansor.zip") as archive:
+            if any(
+                not (root / name).resolve().is_relative_to(root)
+                for name in archive.namelist()
+            ):
+                raise ValueError("Packaged source escapes reference directory")
+            archive.extractall(root)
+        sys.path.insert(0, str(root))
+        from experiments.feature_graph import Recipe
+        from experiments.scan_project import ScanProject
+        from experiments.scan_workspace import ScanLimits
+
+        results: dict[str, Any] = {}
+        for name, source in names.items():
+            raw = (sources / f"{source}.ply").read_bytes()
+            if hashlib.sha256(raw).hexdigest() != FROZEN[source]:
+                raise ValueError("UI-authored reference source changed")
+            project = ScanProject()
+            empty = project.accepted
+            prepared = project.prepare_add(
+                io.BytesIO(raw),
+                f"{source}.ply",
+                ScanLimits(**manifest["worker_protocol"]["source_import"]["limits"]),
+                generation=empty.generation,
+                token=str(empty.graph.snapshot()["token"]),
+            )
+            accepted = project.commit(prepared)
+            before = accepted.graph.snapshot()
+            graph = accepted.graph.replace(
+                Recipe.model_validate(recipes[name]), str(before["token"])
+            )
+            try:
+                _ = accepted.graph.evaluate(str(graph["token"]), all_actions=True)
+            finally:
+                graph = cast(
+                    dict[str, Any],
+                    accepted.graph.readiness_snapshot(
+                        str(graph["token"]), all_actions=True
+                    ),
+                )
+                # A failed native reference is evidence too. Keep the complete
+                # observation and earlier cases before rejecting this run.
+                results[name] = graph
+                _ = output.write_text(json.dumps(results, allow_nan=False) + "\n")
+            if (
+                graph["errors"]
+                or graph["required_failures"]
+                or graph.get("evaluation_running", False) is not False
+                or not graph["states"]
+                or any(state != "ready" for state in graph["states"].values())
+            ):
+                raise ValueError(f"Native UI-authored reference failed: {name}")
+
+
 def cad_readback(bundle: Path, reference: Path, output: Path) -> None:
     import numpy as np
     from OCP.BRepAdaptor import BRepAdaptor_Surface
@@ -244,10 +313,11 @@ def cad_readback(bundle: Path, reference: Path, output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    _ = parser.add_argument("mode", choices=("inputs", "expected", "cad"))
+    _ = parser.add_argument("mode", choices=("inputs", "expected", "authored", "cad"))
     _ = parser.add_argument("--repository", type=Path)
     _ = parser.add_argument("--runtime", type=Path)
     _ = parser.add_argument("--inputs", type=Path)
+    _ = parser.add_argument("--recipes", type=Path)
     _ = parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "inputs":
@@ -256,6 +326,10 @@ def main() -> None:
     elif args.mode == "expected":
         assert args.runtime is not None and args.inputs is not None
         expected(args.runtime, args.inputs, args.output)
+    elif args.mode == "authored":
+        assert args.runtime is not None and args.inputs is not None
+        assert args.recipes is not None
+        authored(args.runtime, args.inputs, args.recipes, args.output)
     else:
         assert args.runtime is not None and args.inputs is not None
         cad_readback(args.runtime, args.inputs, args.output)

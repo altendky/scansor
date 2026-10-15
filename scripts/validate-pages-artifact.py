@@ -29,6 +29,7 @@ MAX_ARCHIVE = 512 * 1024 * 1024
 MAX_TOTAL = 768 * 1024 * 1024
 MAX_MEMBER = 256 * 1024 * 1024
 MAX_JSON = 32 * 1024 * 1024
+MAX_SOURCE_GRAPH_JSON = 64 * 1024 * 1024
 MAX_FILES = 4096
 LOCK_NAMES = (
     "runtime-lock.json",
@@ -117,6 +118,82 @@ SOURCE_GRAPH_TRANSPORT = {
     "evaluation_running",
     "evaluation_error",
 }
+SOURCE_AUTHORING_SCHEMA = "scansor-source-ui-authoring-v1"
+SOURCE_AUTHORING_CASES = {
+    "empty-entry-controls": (
+        "empty_controls_honest",
+        "camera_preserves_empty",
+        "narrow_entry_reachable",
+    ),
+    "invalid-and-limit-picker-preservation": (
+        "synthetic_picker_cancel_preserves_empty",
+        "advertised_limit_before_prepare",
+        "malformed_preserves_owner",
+        "staging_released",
+    ),
+    "visible-import-cancel-retry": (
+        "real_progress_cancel_reachable",
+        "preaccept_owner_preserved",
+        "late_candidate_inert",
+        "ordinary_retry_accepted",
+    ),
+    "raw-file-source-inspection": (
+        "source_only_without_starters",
+        "strict_original_rows",
+        "readonly_metadata",
+        "camera_preserves_source",
+        "stale_second_picker_rejected",
+    ),
+    "raw-pointer-plane-authoring": (
+        "actual_pointer_membership",
+        "ordinary_fit_dialog_and_evaluation",
+        "every_original_row_weight_accounted",
+        "seed_free_actions",
+    ),
+    "raw-fit-edit": (
+        "actual_property_apply_and_rename",
+        "original_selection_ids_preserved",
+        "ordinary_reevaluation",
+        "source_epoch_preserved",
+    ),
+    "imported-source-keyboard-menu": (
+        "source_tree_keyboard_inspection",
+        "menu_enter_escape_focus",
+        "narrow_rotated_docked_commands_reachable",
+        "no_unrequested_evaluation_or_source_change",
+    ),
+    "generated-pointer-plane-cylinder": (
+        "exact_independent_memberships",
+        "actual_fit_dialogs_and_evaluation",
+        "independent_geometry_objective_support",
+        "automatic_support_and_seed_free_actions",
+    ),
+    "popup-dependent-work-guards": (
+        "live_dom_and_host_preserved",
+        "declined_new_remove_example_preserve_dependents",
+        "example_cancel_escape_preserves_work",
+        "focus_reachable",
+    ),
+    "docked-dependent-work-guards": (
+        "live_dom_and_host_preserved",
+        "declined_new_remove_example_preserve_dependents",
+        "example_cancel_escape_preserves_work",
+        "focus_reachable",
+    ),
+    "accepted-dependent-removal": (
+        "old_work_and_draft_until_acceptance",
+        "dependents_removed_atomically",
+        "different_source_has_no_old_actions",
+    ),
+    "explicit-example-roundtrip": (
+        "empty_and_scan_catalogue_unselected",
+        "actual_chooser_accepts_example",
+        "retained_recipe_restore_preserved",
+        "return_to_user_source_honest",
+    ),
+}
+SOURCE_AUTHORING_GRAPHS = ("raw", "raw_edited", "scene")
+SOURCE_AUTHORING_IDS = ("authoring-raw", "authoring-raw-edited", "authoring-scene")
 SOURCE_ACTION_CASES = {
     "explicit-matching-legacy": ("no_source_lookup", "recipe_preserved"),
     "raw-save-new-renamed-locate": ("source_only", "strict_source_rows"),
@@ -175,7 +252,13 @@ SEMANTIC_DRIVERS = {
     **{
         name: (
             "graph-snapshot",
-            ("scene", "scene-replayed", "scene-actions", "scene-actions-replayed"),
+            (
+                "scene",
+                "scene-replayed",
+                "scene-actions",
+                "scene-actions-replayed",
+                *SOURCE_AUTHORING_IDS,
+            ),
         )
         for name in SOURCE_GRAPH_DRIVERS
     },
@@ -205,8 +288,13 @@ def array_value(value: Any) -> list[Any]:
     return cast(list[Any], value)
 
 
-def object_json(data: bytes) -> dict[str, Any]:
-    require(len(data) <= MAX_JSON, "JSON input exceeds size limit")
+def driver_json_limit(name: str) -> int:
+    # Source UI reports retain raw source arrays and all seven graph pairs.
+    return MAX_SOURCE_GRAPH_JSON if name in SOURCE_GRAPH_DRIVERS else MAX_JSON
+
+
+def object_json(data: bytes, *, limit: int = MAX_JSON) -> dict[str, Any]:
+    require(len(data) <= limit, "JSON input exceeds size limit")
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -572,6 +660,250 @@ def validate_source_graph_evidence(
         )
 
 
+def validate_source_authoring_evidence(
+    item: dict[str, Any], cases: list[dict[str, Any]]
+) -> None:
+    require(
+        isinstance(item.get("ui_authoring"), dict), "source authoring evidence missing"
+    )
+    authoring = object_value(item.get("ui_authoring"))
+    require(
+        authoring.get("schema") == SOURCE_AUTHORING_SCHEMA
+        and authoring.get("complete") is True,
+        "source authoring evidence incomplete",
+    )
+    observations = [
+        object_value(value) for value in array_value(authoring.get("cases"))
+    ]
+    require(
+        [value.get("name") for value in observations] == list(SOURCE_AUTHORING_CASES),
+        "source authoring case coverage/order changed",
+    )
+    for observation, (name, fields) in zip(
+        observations, SOURCE_AUTHORING_CASES.items(), strict=True
+    ):
+        require(
+            set(observation) == {"name", "complete", *fields}
+            and observation["name"] == name
+            and observation.get("complete") is True
+            and all(observation.get(field) is True for field in fields),
+            "source authoring case oracle missing/false/unknown",
+        )
+    graphs = object_value(authoring.get("graphs"))
+    native = object_value(authoring.get("native_graphs"))
+    generations = object_value(authoring.get("graph_generations"))
+    for records in (graphs, native, generations):
+        require(
+            set(records) == set(SOURCE_AUTHORING_GRAPHS),
+            "source authoring graphs incomplete",
+        )
+
+    def epoch(value: Any) -> int:
+        require(
+            type(value) is int and 0 <= value <= 2**53 - 1,
+            "invalid source authoring epoch",
+        )
+        return cast(int, value)
+
+    def number(value: Any) -> bool:
+        try:
+            return type(value) in (int, float) and math.isfinite(value)
+        except OverflowError:
+            return False
+
+    def project(value: Any) -> dict[str, Any]:
+        graph = object_value(value)
+        require(
+            set(SOURCE_GRAPH_PROJECTION)
+            <= set(graph)
+            <= set(SOURCE_GRAPH_PROJECTION) | SOURCE_GRAPH_TRANSPORT,
+            "source authoring graph has unknown/missing semantic fields",
+        )
+        return {field: graph[field] for field in SOURCE_GRAPH_PROJECTION}
+
+    def seed_free(value: Any) -> None:
+        forbidden = {
+            "initial_parameters",
+            "initialization",
+            "seed",
+            "fit_geometry",
+            "solver",
+            "residuals",
+            "weighted_rms",
+        }
+        if isinstance(value, dict):
+            for key, child in value.items():
+                require(
+                    key not in forbidden, "computed starts in source authoring recipe"
+                )
+                seed_free(child)
+        elif isinstance(value, list):
+            for child in value:
+                seed_free(child)
+
+    evidence = object_value(authoring.get("evidence"))
+    sources: dict[str, dict[str, Any]] = {}
+    for name in ("raw_source", "scene_source"):
+        source = object_value(evidence.get(name))
+        descriptor = object_value(source.get("descriptor"))
+        require(
+            set(descriptor)
+            == {
+                "version",
+                "profile",
+                "source_sha256",
+                "source_bytes",
+                "interpretation_sha256",
+                "vertices",
+                "triangles",
+                "filename",
+                "units",
+            },
+            "source authoring descriptor fields changed",
+        )
+        _ = digest_value(source.get("source_sha256"))
+        _ = digest_value(descriptor.get("interpretation_sha256"))
+        vertices, faces = epoch(source.get("vertices")), epoch(source.get("faces"))
+        require(
+            vertices > 0
+            and type(source.get("original_bytes")) is int
+            and 0 < source["original_bytes"] <= 2**53 - 1
+            and descriptor["source_sha256"] == source["source_sha256"]
+            and type(descriptor["source_bytes"]) is int
+            and descriptor["source_bytes"] == source["original_bytes"]
+            and type(descriptor["vertices"]) is int
+            and descriptor["vertices"] == vertices
+            and type(descriptor["triangles"]) is int
+            and descriptor["triangles"] == faces
+            and descriptor["version"] == "interactive-triangle-scan-v1"
+            and descriptor["profile"] == "binary-triangle-ply-v1"
+            and descriptor["units"] == "unknown"
+            and isinstance(descriptor["filename"], str)
+            and 0 < len(descriptor["filename"]) <= 512
+            and exact_json(source.get("source_mode")) == exact_json({"kind": "scan"}),
+            "source authoring evidence identity/count/interpretation changed",
+        )
+        _ = epoch(source.get("project_generation"))
+        require(
+            type(source.get("owned_fs_bytes")) is int
+            and source["owned_fs_bytes"] == 0
+            and source.get("owned_fs_files") == [],
+            "source authoring staging not released",
+        )
+        for field in ("positions", "normals"):
+            rows = array_value(source.get(field))
+            require(len(rows) == vertices, "source authoring source rows missing")
+            for row in rows:
+                require(
+                    isinstance(row, list)
+                    and len(row) == 3
+                    and all(number(value) for value in row),
+                    "source authoring source vector is not finite",
+                )
+                if field == "normals":
+                    require(
+                        any(value != 0 for value in row),
+                        "source authoring source normal is zero",
+                    )
+        triangles = array_value(source.get("triangles"))
+        require(len(triangles) == faces, "source authoring triangle rows missing")
+        for row in triangles:
+            require(
+                isinstance(row, list)
+                and len(row) == 3
+                and all(type(value) is int and 0 <= value < vertices for value in row),
+                "source authoring triangle index invalid",
+            )
+        weights = array_value(source.get("weights"))
+        require(
+            len(weights) == vertices
+            and all(number(value) and value >= 0 for value in weights)
+            and any(value > 0 for value in weights),
+            "source authoring weights missing/nonfinite/invalid",
+        )
+        sources[name] = source
+    require(
+        epoch(generations["raw"]) == epoch(generations["raw_edited"]),
+        "source authoring edit changed accepted epoch",
+    )
+    for case, key in zip(cases, SOURCE_AUTHORING_GRAPHS, strict=True):
+        actual, expected = object_value(graphs[key]), object_value(native[key])
+        projected, reference = project(actual), project(expected)
+        source = sources["scene_source" if key == "scene" else "raw_source"]
+        generation = epoch(generations[key])
+        require(
+            epoch(actual.get("project_generation"))
+            == generation
+            == source["project_generation"],
+            "source authoring graph differs from accepted epoch",
+        )
+        descriptor = object_value(source["descriptor"])
+        binding = sha256(
+            json.dumps(
+                {key: value for key, value in descriptor.items() if key != "filename"},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        for graph, worker in ((actual, True), (expected, False)):
+            states = object_value(graph.get("states"))
+            require(
+                graph.get("required_failures") == []
+                and (
+                    graph.get("evaluation_running") is False
+                    if worker
+                    else "evaluation_running" not in graph
+                    or graph["evaluation_running"] is False
+                )
+                and graph.get("evaluation_error") is None
+                and object_value(graph.get("errors")) == {}
+                and bool(states)
+                and all(value == "ready" for value in states.values()),
+                "source authoring graph is not a successful terminal publication",
+            )
+            recipe = object_value(graph.get("recipe"))
+            seed_free(recipe)
+            nodes = [object_value(node) for node in array_value(recipe.get("nodes"))]
+            authored_sources = [
+                node for node in nodes if node.get("operation") == "source"
+            ]
+            require(
+                len(authored_sources) == 1,
+                "source authoring source binding missing/duplicated",
+            )
+            authored_source = authored_sources[0]
+            require(
+                authored_source.get("id") == "scan"
+                and authored_source.get("source_sha256") == source["source_sha256"]
+                and authored_source.get("reference_sha256") == binding
+                and exact_json(authored_source.get("descriptor"))
+                == exact_json(descriptor),
+                "source authoring authored binding differs from source evidence",
+            )
+            for node in nodes:
+                if node.get("operation") == "selection":
+                    ids = array_value(node.get("ids"))
+                    require(
+                        node.get("source") == authored_source["id"]
+                        and all(
+                            type(value) is int and 0 <= value < source["vertices"]
+                            for value in ids
+                        ),
+                        "source authoring selection binding/IDs invalid",
+                    )
+        require(
+            exact_json(actual["recipe"]) == exact_json(expected["recipe"])
+            and exact_json(actual["token"]) == exact_json(expected["token"]),
+            "source authoring native authored intent differs",
+        )
+        require(
+            case.get("path") == "ui_authoring." + key
+            and exact_json(case["actual"]) == exact_json(projected)
+            and exact_json(case["expected"]) == exact_json(reference),
+            "source authoring semantic operands differ from full raw graphs",
+        )
+
+
 def validate_workspace_graph_evidence(
     item: dict[str, Any], cases: list[dict[str, Any]]
 ) -> None:
@@ -816,7 +1148,7 @@ def validate_semantic_parity(
         and receipt.get("input_sha256") == sha256(raw),
         f"{name} semantic evidence identity mismatch",
     )
-    batch = object_json(raw)
+    batch = object_json(raw, limit=driver_json_limit(name))
     require(set(batch) == {"cases"}, "unexpected semantic batch fields")
     cases = [object_value(case) for case in array_value(batch.get("cases"))]
     profile, ids = SEMANTIC_DRIVERS[name]
@@ -837,7 +1169,8 @@ def validate_semantic_parity(
         )
     if name in SOURCE_GRAPH_DRIVERS:
         try:
-            validate_source_graph_evidence(item, cases)
+            validate_source_graph_evidence(item, cases[:4])
+            validate_source_authoring_evidence(item, cases[4:])
         except ValueError as error:
             raise ValueError(f"{name}: {error}") from error
     elif profile == "graph-snapshot":
@@ -954,7 +1287,7 @@ def validate_evidence(
         "packaged semantic policy differs from trusted checkout",
     )
     for name in DRIVERS:
-        item = object_json(evidence[f"{name}.json"])
+        item = object_json(evidence[f"{name}.json"], limit=driver_json_limit(name))
         require(
             "failure" not in item and "error" not in item, f"driver failure: {name}"
         )
@@ -1051,6 +1384,7 @@ def validate_evidence(
                     "cleanup_failure_recovery",
                     "ui_source_recovery",
                     "ui_legacy_startup",
+                    "ui_source_authoring",
                     "ui_source_actions",
                 }
                 if name != "source-import-memory"
@@ -1401,7 +1735,11 @@ def validate(
             )
             require(set(files) == expected, "unexpected or missing archive payload")
             evidence = {
-                name: read_member(archive, files[f"evidence/{name}"])
+                name: read_member(
+                    archive,
+                    files[f"evidence/{name}"],
+                    driver_json_limit(name.removesuffix(".json")),
+                )
                 for name in EVIDENCE
             }
             runtime_hash = digest_value(
