@@ -63,9 +63,15 @@ the project. It reuses a matching active source or asks for the exact original
 file, then accepts the source and definitions together. A renamed file can match;
 changed bytes cannot. Cancel or a validation failure preserves the current
 project and unfinished edit. Matching legacy example actions require that actual
-example to be loaded. Worker file opening and full both-backend reopening remain
-separate delivery gates. Actions downloads do not save original scan bytes or
-unfinished editor drafts.
+example to be loaded.
+
+Worker source operations and Force retention have a draft implementation with
+[measured source-only evidence](../../docs/src/project/planning/worker-scan-import.md).
+Strict imported-fit parity remains blocked by #266. Worker source-aware actions
+opening and full both-backend workflow acceptance remain separate delivery gates;
+the worker's `sourceActions` capability is still unavailable.
+
+Actions downloads do not save original scan bytes or unfinished editor drafts.
 
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)

@@ -1,4 +1,4 @@
-"""Serial, fixed-example Python operations for the bounded browser worker.
+"""Serial source and graph operations for the bounded browser worker.
 
 JSON methods return ``{ok: true, result: ...}`` or a bounded structured error.
 Only display derivatives are exposed as NumPy buffers; fitting retains float64
@@ -12,7 +12,9 @@ from __future__ import annotations
 import importlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import ExitStack
+from copy import deepcopy
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, cast, final
 
@@ -35,6 +37,14 @@ from experiments.feature_reuse_authoring import (
     apply_feature_reuse,
 )
 from experiments.nozzle_session import NozzleWorkspace
+from experiments.scan_project import ScanProject
+from experiments.scan_workspace import (
+    ScanImportError,
+    ScanLimits,
+    ScanProgress,
+    ScanWorkspace,
+    check_cancelled,
+)
 
 CAD_ACTIONS = frozenset(
     {"surface_intersection", "trimmed_face", "arranged_face", "build_faces", "body"}
@@ -73,11 +83,67 @@ class _OperationCheckpoint:
     job_errors: dict[tuple[str, frozenset[str]], str]
     last_token: str
     last_error: str | None
+    source: _BrowserSource
+    generation: int
+
+
+@dataclass(frozen=True)
+class _LegacySource:
+    workspace: NozzleWorkspace
+    graph: FeatureGraph[NozzleWorkspace]
+    positions: NDArray[np.float32]
+    indices: NDArray[np.uint32]
+    recipe: Recipe
+    identity: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _BrowserSource:
+    project: ScanProject | None
+    legacy: _LegacySource | None
+
+    @property
+    def workspace(self) -> ScanWorkspace | NozzleWorkspace:
+        if self.project is not None:
+            return self.project.accepted.workspace
+        assert self.legacy is not None
+        return self.legacy.workspace
+
+    @property
+    def graph(self) -> FeatureGraph[Any]:
+        if self.project is not None:
+            return self.project.accepted.graph
+        assert self.legacy is not None
+        return self.legacy.graph
+
+    @property
+    def positions(self) -> NDArray[np.float32]:
+        if self.project is not None:
+            return self.project.accepted.positions
+        assert self.legacy is not None
+        return self.legacy.positions
+
+    @property
+    def indices(self) -> NDArray[np.uint32]:
+        if self.project is not None:
+            return self.project.accepted.indices
+        assert self.legacy is not None
+        return self.legacy.indices
+
+
+@dataclass(frozen=True)
+class _SourceCandidate:
+    operation_id: str
+    previous: _BrowserSource
+    previous_generation: int
+    previous_token: str
+    generation: int
+    source: _BrowserSource
 
 
 @final
 class BrowserWorkspace:
-    """One retained nozzle, one current recipe and one serialized evaluation.
+    """One accepted source, one private candidate and one serialized evaluation.
 
     ``call_json('loadWorkspace')`` returns transport-neutral metadata. Retrieve
     ``display_positions`` and ``display_indices`` separately and copy their
@@ -88,40 +154,430 @@ class BrowserWorkspace:
     a running acknowledgement without scheduling a second computation.
     """
 
-    def __init__(self, example: Path) -> None:
+    def __init__(
+        self, example: Path | None, *, scan_limits: ScanLimits | None = None
+    ) -> None:
         self.cad_enabled = False
         self._export_buffer = b""
-        self.workspace = NozzleWorkspace(example)
-        default = load_recipe(example / DEFAULT_RECIPE)
-        self._check_capabilities(default)
-        self.example_recipe = default.model_copy(deep=True)
-        self.graph = FeatureGraph(self.workspace, default)
-        # Immutable source/solver evidence is never detached or rounded for display.
-        for array in (
-            self.workspace.local,
-            self.workspace.origin,
-            self.workspace.frame,
-            self.workspace.data.xyz,
-            self.workspace.data.normals,
-            self.workspace.data.triangles,
-            self.workspace.data.weights,
-            self.workspace.data.ids,
-        ):
-            array.flags.writeable = False
-        self.display_positions: NDArray[np.float32] = np.ascontiguousarray(
-            self.workspace.local, dtype="<f4"
+        self._example_path = example or (
+            Path(__file__).resolve().parents[2] / "examples/nozzle-bayonette-simplified"
         )
-        self.display_indices: NDArray[np.uint32] = np.ascontiguousarray(
-            self.workspace.data.triangles, dtype="<u4"
+        self._scan_limits = scan_limits
+        self._source = (
+            _BrowserSource(ScanProject(), None)
+            if example is None
+            else self._example_source()
         )
-        self.display_positions.flags.writeable = False
-        self.display_indices.flags.writeable = False
+        self.example_recipe = (
+            Recipe(schema_version=2, nodes=[], output=None)
+            if self._source.legacy is None
+            else self._source.legacy.recipe.model_copy(deep=True)
+        )
+        self._workspace_generation = 0
+        self._candidate: _SourceCandidate | None = None
+        self._preparing_source = False
+        self._last_discarded: str | None = None
+        self._pristine = True
+        self._evaluation_lease: ExitStack | None = None
         self._pending: _Evaluation | None = None
         self._last_token = ""
         self._last_error: str | None = None
         self._job_errors: dict[tuple[str, frozenset[str]], str] = {}
         self._closed = False
         self._operation_checkpoint: _OperationCheckpoint | None = None
+
+    def _example_source(self) -> _BrowserSource:
+        workspace = NozzleWorkspace(self._example_path)
+        default = load_recipe(self._example_path / DEFAULT_RECIPE)
+        self._check_capabilities(default)
+        graph = FeatureGraph(workspace, default)
+        # Immutable source/solver evidence is never detached or rounded for display.
+        for array in (
+            workspace.local,
+            workspace.origin,
+            workspace.frame,
+            workspace.data.xyz,
+            workspace.data.normals,
+            workspace.data.triangles,
+            workspace.data.weights,
+            workspace.data.ids,
+        ):
+            array.flags.writeable = False
+        positions: NDArray[np.float32] = np.ascontiguousarray(
+            workspace.local, dtype="<f4"
+        )
+        indices: NDArray[np.uint32] = np.ascontiguousarray(
+            workspace.data.triangles, dtype="<u4"
+        )
+        positions.flags.writeable = False
+        indices.flags.writeable = False
+        identity = next(
+            node.model_dump(mode="json")
+            for node in default.nodes
+            if node.operation == "source"
+        )
+        return _BrowserSource(
+            None, _LegacySource(workspace, graph, positions, indices, default, identity)
+        )
+
+    @property
+    def workspace(self) -> Any:
+        # Existing retained-example clients have legacy workspace methods. Generic
+        # state is always the actual shared ScanWorkspace, without fake fields.
+        return self._source.workspace
+
+    @property
+    def graph(self) -> FeatureGraph[Any]:
+        return self._source.graph
+
+    @property
+    def display_positions(self) -> NDArray[np.float32]:
+        return self._source.positions
+
+    @property
+    def display_indices(self) -> NDArray[np.uint32]:
+        return self._source.indices
+
+    @property
+    def workspace_generation(self) -> int:
+        return self._workspace_generation
+
+    @staticmethod
+    def _mode(source: _BrowserSource) -> dict[str, str]:
+        if source.legacy is not None:
+            return {"kind": "example", "example": "nozzle"}
+        assert source.project is not None
+        return {
+            "kind": "empty"
+            if source.project.accepted.workspace.descriptor is None
+            else "scan"
+        }
+
+    @staticmethod
+    def _identity(source: _BrowserSource) -> dict[str, Any]:
+        if source.legacy is not None:
+            return deepcopy(source.legacy.identity)
+        assert source.project is not None
+        workspace = source.project.accepted.workspace
+        if workspace.descriptor is None:
+            return {}
+        return {
+            "descriptor": workspace.descriptor.semantic_record(),
+            "reference_sha256": workspace.reference_sha256,
+        }
+
+    @property
+    def source_mode(self) -> dict[str, str]:
+        return self._mode(self._source)
+
+    @property
+    def source_identity(self) -> dict[str, Any]:
+        return self._identity(self._source)
+
+    @property
+    def candidate_display_positions(self) -> NDArray[np.float32]:
+        return self._require_candidate().source.positions
+
+    @property
+    def candidate_display_indices(self) -> NDArray[np.uint32]:
+        return self._require_candidate().source.indices
+
+    def _require_candidate(self) -> _SourceCandidate:
+        self._check_open()
+        if self._candidate is None:
+            raise ScanImportError(
+                "No source candidate is prepared.", "unknown_operation"
+            )
+        return self._candidate
+
+    def _source_metadata(
+        self, source: _BrowserSource, generation: int
+    ) -> dict[str, Any]:
+        metadata = source.workspace.metadata()
+        for name in ("positions", "indices"):
+            descriptor = cast(dict[str, Any], metadata[name])
+            _ = descriptor.pop("url", None)
+        graph = (
+            self._snapshot()
+            if source is self._source
+            else {
+                **source.graph.snapshot(),
+                "project_generation": generation,
+                "evaluation_running": False,
+            }
+        )
+        capabilities = cast(dict[str, Any], metadata.get("capabilities", {}))
+        source_import: dict[str, Any] = {
+            "supported": self._scan_limits is not None,
+            "max_sources": 1,
+            "cancel": True,
+        }
+        if self._scan_limits is not None:
+            source_import["limits"] = asdict(self._scan_limits)
+        return {
+            **metadata,
+            "graph": graph,
+            "project_generation": generation,
+            "source_mode": self._mode(source),
+            "source_identity": self._identity(source),
+            "capabilities": {**capabilities, "source_import": source_import},
+            "face_building_limits": {
+                "max_pair_checks": MAX_PAIRS,
+                "max_regions": MAX_REGIONS,
+            },
+        }
+
+    def prepare_source_json(
+        self,
+        payload_json: str,
+        source_path: str = "",
+        *,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        recovery_generation: int | None = None,
+        recovery_identity: dict[str, Any] | None = None,
+        recovery_recipe: dict[str, Any] | None = None,
+    ) -> str:
+        """Prepare privately; the worker owns and deletes the staged input path.
+
+        Recovery overrides are trusted host inputs used only on a fresh runtime.
+        A successful envelope does not change the accepted source or graph.
+        """
+
+        def prepare() -> dict[str, Any]:
+            if self._preparing_source:
+                raise ScanImportError("Source preparation is active.", "source_busy")
+            self._preparing_source = True
+            try:
+                return self._prepare_source(
+                    self._payload(payload_json),
+                    source_path,
+                    progress,
+                    cancelled,
+                    recovery_generation,
+                    recovery_identity,
+                    recovery_recipe,
+                )
+            finally:
+                self._preparing_source = False
+
+        return self._json(prepare)
+
+    def _prepare_source(
+        self,
+        payload: dict[str, Any],
+        source_path: str,
+        progress: Callable[[ScanProgress], None] | None,
+        cancelled: Callable[[], bool] | None,
+        recovery_generation: int | None,
+        recovery_identity: dict[str, Any] | None,
+        recovery_recipe: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        self._check_open()
+        self._keys(
+            payload,
+            {
+                "operationId",
+                "kind",
+                "generation",
+                "token",
+                "filename",
+                "example",
+                "confirmedDiscard",
+            },
+        )
+        if self._pending is not None or self._candidate is not None:
+            raise ScanImportError("Source work or evaluation is active.", "source_busy")
+        operation_id, generation, token = (
+            payload.get("operationId"),
+            payload.get("generation"),
+            payload.get("token"),
+        )
+        if (
+            not isinstance(operation_id, str)
+            or not 0 < len(operation_id) <= 128
+            or any(
+                not (c.isascii() and (c.isalnum() or c in "_-")) for c in operation_id
+            )
+        ):
+            raise ScanImportError(
+                "Expected a bounded source operation ID.", "invalid_source"
+            )
+        if (
+            type(generation) is not int
+            or generation != self._workspace_generation
+            or token != self.graph.snapshot()["token"]
+        ):
+            raise ScanImportError(
+                "Project changed before source preparation.", "stale_source"
+            )
+        recovering = any(
+            value is not None
+            for value in (recovery_generation, recovery_identity, recovery_recipe)
+        )
+        if recovering and (
+            not self._pristine
+            or type(recovery_generation) is not int
+            or recovery_generation < 0
+            or recovery_identity is None
+            or recovery_recipe is None
+        ):
+            raise ScanImportError(
+                "Source recovery requires a pristine runtime and complete checkpoint.",
+                "invalid_recovery",
+            )
+        check_cancelled(cancelled)
+        kind = payload.get("kind")
+        project: ScanProject | None = None
+        if kind == "scan":
+            if self._scan_limits is None:
+                raise ScanImportError(
+                    "Browser source limits were not configured.",
+                    "unsupported_capability",
+                )
+            if not recovering:
+                if self._source.project is None:
+                    raise ScanImportError(
+                        "Add scan requires an empty project.", "source_exists"
+                    )
+                current = self._source.project.accepted
+                self._source.project.check_add(
+                    generation=current.generation, token=str(token)
+                )
+            filename = payload.get("filename")
+            if (
+                not isinstance(filename, str)
+                or not 0 < len(filename) <= 512
+                or not source_path
+            ):
+                raise ScanImportError(
+                    "Expected a staged scan and filename hint.", "invalid_source"
+                )
+            project = ScanProject()
+            empty = project.accepted
+            try:
+                with Path(source_path).open("rb") as stream:
+                    candidate = project.prepare_add(
+                        stream,
+                        filename,
+                        self._scan_limits,
+                        generation=empty.generation,
+                        token=str(empty.graph.snapshot()["token"]),
+                        progress=progress,
+                        cancelled=cancelled,
+                    )
+            except OSError as error:
+                raise ScanImportError(
+                    f"Staged source is unavailable: {error}", "source_unavailable"
+                ) from error
+            _ = project.commit(candidate, cancelled=cancelled)
+            source = _BrowserSource(project, None)
+        elif kind == "empty":
+            if not recovering and payload.get("confirmedDiscard") is not True:
+                raise ScanImportError(
+                    "New project requires discard confirmation.", "discard_required"
+                )
+            project = ScanProject()
+            source = _BrowserSource(project, None)
+        elif kind == "example":
+            if payload.get("example") != "nozzle":
+                raise ScanImportError(
+                    "Only the retained nozzle is available.", "unsupported_capability"
+                )
+            source = self._example_source()
+        else:
+            raise ScanImportError("Unknown source candidate kind.", "invalid_source")
+        if recovering:
+            if self._identity(source) != recovery_identity:
+                raise ScanImportError(
+                    "Recovery source content or interpretation changed.",
+                    "recovery_source_mismatch",
+                )
+            recipe = Recipe.model_validate(recovery_recipe)
+            self._check_capabilities(recipe)
+            _ = source.graph.replace(recipe, str(source.graph.snapshot()["token"]))
+        check_cancelled(cancelled)
+        proposed_generation = (
+            recovery_generation if recovering else self._workspace_generation + 1
+        )
+        assert proposed_generation is not None
+        metadata = self._source_metadata(source, proposed_generation)
+        result = {
+            "operationId": operation_id,
+            "workspaceGeneration": proposed_generation,
+            "metadata": metadata,
+            "graph": metadata["graph"],
+            "source_mode": self._mode(source),
+            "source_identity": self._identity(source),
+        }
+        self._check_open()
+        self._candidate = _SourceCandidate(
+            operation_id,
+            self._source,
+            self._workspace_generation,
+            str(token),
+            proposed_generation,
+            source,
+        )
+        return result
+
+    def promote_source_json(self, payload_json: str) -> str:
+        return self._json(lambda: self._promote_source(self._payload(payload_json)))
+
+    def _promote_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._keys(payload, {"operationId", "workspaceGeneration"})
+        candidate = self._require_candidate()
+        if (
+            payload.get("operationId") != candidate.operation_id
+            or type(payload.get("workspaceGeneration")) is not int
+            or payload["workspaceGeneration"] != candidate.generation
+        ):
+            raise ScanImportError(
+                "Source promotion does not match its candidate.", "invalid_candidate"
+            )
+        if (
+            self._source is not candidate.previous
+            or self._workspace_generation != candidate.previous_generation
+            or self.graph.snapshot()["token"] != candidate.previous_token
+        ):
+            raise ScanImportError(
+                "Project changed before source promotion.", "stale_source"
+            )
+        self._source, self._workspace_generation = (
+            candidate.source,
+            candidate.generation,
+        )
+        self.example_recipe = (
+            Recipe(schema_version=2, nodes=[], output=None)
+            if self._source.legacy is None
+            else self._source.legacy.recipe.model_copy(deep=True)
+        )
+        self._candidate = None
+        self._pristine = False
+        self.clear_export()
+        self._operation_checkpoint = None
+        self._last_token, self._last_error = "", None
+        self._job_errors.clear()
+        return self._snapshot()
+
+    def discard_source_json(self, operation_id: str) -> str:
+        def discard() -> dict[str, Any]:
+            self._check_open()
+            if self._candidate is None:
+                if self._last_discarded == operation_id:
+                    return self._snapshot()
+                raise ScanImportError(
+                    "No matching source candidate.", "unknown_operation"
+                )
+            if operation_id != self._candidate.operation_id:
+                raise ScanImportError(
+                    "No matching source candidate.", "unknown_operation"
+                )
+            self._candidate = None
+            self._last_discarded = operation_id
+            return self._snapshot()
+
+        return self._json(discard)
 
     def checkpoint_operation(self) -> None:
         """Capture committed failure evidence before a cancellable operation.
@@ -130,7 +586,11 @@ class BrowserWorkspace:
         preparation, because explicit retry intentionally clears error memoization.
         """
         self._check_open()
-        if self._pending is not None:
+        if (
+            self._pending is not None
+            or self._candidate is not None
+            or self._preparing_source
+        ):
             raise WorkspaceError(
                 "Cannot checkpoint an active evaluation.", "evaluation_busy", 409
             )
@@ -139,6 +599,8 @@ class BrowserWorkspace:
             self._job_errors.copy(),
             self._last_token,
             self._last_error,
+            self._source,
+            self._workspace_generation,
         )
 
     def restore_cancelled_json(self, recipe_json: str) -> str:
@@ -158,13 +620,36 @@ class BrowserWorkspace:
             raise WorkspaceError(
                 "No operation checkpoint is available.", "checkpoint_missing", 409
             )
+        if (
+            checkpoint.source is not self._source
+            or checkpoint.generation != self._workspace_generation
+        ):
+            raise ScanImportError(
+                "Cancellation checkpoint belongs to another source.", "stale_source"
+            )
         recipe = Recipe.model_validate(self._payload(recipe_json))
         self._check_capabilities(recipe)
-        graph = FeatureGraph(self.workspace, checkpoint.graph.recipe)
-        graph.restore_failures(checkpoint.graph)
-        restored = graph.replace(recipe, checkpoint.graph.token)
+        if self._evaluation_lease is not None:
+            self._evaluation_lease.close()
+            self._evaluation_lease = None
+        if self._source.project is not None:
+            current = self._source.project.accepted
+            accepted = self._source.project.recover_graph(
+                generation=current.generation,
+                token=str(current.graph.snapshot()["token"]),
+                recipe=recipe,
+                checkpoint=checkpoint.graph,
+            )
+            restored = accepted.graph.snapshot()
+        else:
+            assert self._source.legacy is not None
+            graph = FeatureGraph(self._source.legacy.workspace, checkpoint.graph.recipe)
+            graph.restore_failures(checkpoint.graph)
+            restored = graph.replace(recipe, checkpoint.graph.token)
+            self._source = replace(
+                self._source, legacy=replace(self._source.legacy, graph=graph)
+            )
         token = str(restored["token"])
-        self.graph = graph
         self._pending = None
         self._job_errors = {
             key: error
@@ -211,8 +696,16 @@ class BrowserWorkspace:
                 "The browser backend is closed.", "backend_closed", 409
             )
 
+    def _check_mutation(self) -> None:
+        if self._candidate is not None or self._preparing_source:
+            raise ScanImportError(
+                "A source candidate awaits its publication decision.", "source_busy"
+            )
+        self._pristine = False
+
     def _snapshot(self, revision: int | None = None) -> dict[str, Any]:
         state = cast(dict[str, Any], self.graph.snapshot(if_revision=revision))
+        state["project_generation"] = self._workspace_generation
         state["evaluation_running"] = self._pending is not None
         if (
             self._pending is None
@@ -226,6 +719,21 @@ class BrowserWorkspace:
     def _error(error: Exception) -> dict[str, Any]:
         if isinstance(error, WorkspaceError):
             code, status = error.code, error.status
+            message = str(error)
+        elif isinstance(error, ScanImportError):
+            code = error.code
+            status = (
+                409
+                if code
+                in {
+                    "stale_source",
+                    "source_busy",
+                    "source_exists",
+                    "unknown_operation",
+                    "invalid_candidate",
+                }
+                else 422
+            )
             message = str(error)
         elif isinstance(error, StaleGraph):
             code, status, message = "stale_graph", 409, str(error)
@@ -311,22 +819,16 @@ class BrowserWorkspace:
             self._pending = None
             self._job_errors.clear()
             self._operation_checkpoint = None
+            self._candidate = None
+            if self._evaluation_lease is not None:
+                self._evaluation_lease.close()
+                self._evaluation_lease = None
             self.clear_export()
             return None
         self._check_open()
         if operation == "loadWorkspace":
             self._keys(payload, set())
-            metadata = self.workspace.metadata()
-            for name in ("positions", "indices"):
-                descriptor = cast(dict[str, Any], metadata[name])
-                _ = descriptor.pop("url")
-            return {
-                **metadata,
-                "face_building_limits": {
-                    "max_pair_checks": MAX_PAIRS,
-                    "max_regions": MAX_REGIONS,
-                },
-            }
+            return self._source_metadata(self._source, self._workspace_generation)
         if operation == "getGraph":
             self._keys(payload, {"revision"})
             revision = payload.get("revision")
@@ -334,6 +836,7 @@ class BrowserWorkspace:
                 raise ValueError("expected a nonnegative integer revision")
             return self._snapshot(revision)
         if operation == "replaceRecipe":
+            self._check_mutation()
             request = GraphRequest.model_validate(payload)
             if request.recipe is None:
                 raise ValueError("expected a current recipe")
@@ -341,6 +844,7 @@ class BrowserWorkspace:
             _ = self.graph.replace(request.recipe, request.token)
             return self._snapshot()
         if operation == "importRecipe":
+            self._check_mutation()
             imported = _ImportRequest.model_validate(payload)
             recipe, warnings = import_recipe(imported.recipe)
             self._check_capabilities(recipe)
@@ -359,6 +863,7 @@ class BrowserWorkspace:
                 "examples": [{"id": "nozzle", "label": "Nozzle"}],
             }
         if operation == "selectExample":
+            self._check_mutation()
             request = _ExampleRequest.model_validate(payload)
             if request.token != self._snapshot()["token"]:
                 raise StaleGraph("graph changed before switching examples")
@@ -373,17 +878,33 @@ class BrowserWorkspace:
                     "Only the retained nozzle is available in this browser deployment.",
                     "unsupported_capability",
                 )
-            self.graph = FeatureGraph(
-                self.workspace, self.example_recipe.model_copy(deep=True)
+            if self._source.legacy is None:
+                raise WorkspaceError(
+                    "Example transitions require a source candidate.",
+                    "unsupported_operation",
+                )
+            self._source = replace(
+                self._source,
+                legacy=replace(
+                    self._source.legacy,
+                    graph=FeatureGraph(
+                        self._source.legacy.workspace,
+                        self.example_recipe.model_copy(deep=True),
+                    ),
+                ),
             )
+            self._workspace_generation += 1
             self._last_token, self._last_error = "", None
             self._job_errors.clear()
             return {"active": "nozzle"}
         if operation == "applyFeatureReuse":
+            self._check_mutation()
             request = ReuseAuthoringRequest.model_validate(payload)
             state = apply_feature_reuse(self.graph, request)
             return {**self._snapshot(), "reuse_authoring": state["reuse_authoring"]}
         if operation in {"faceCandidates", "previewFaces", "applyFaces", "exportCad"}:
+            if operation == "applyFaces":
+                self._check_mutation()
             return self._cad_call(operation, payload)
         raise WorkspaceError(
             f"Unknown browser operation: {operation}", "unsupported_operation"
@@ -482,6 +1003,10 @@ class BrowserWorkspace:
 
     def _prepare(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._check_open()
+        if self._candidate is not None or self._preparing_source:
+            raise ScanImportError(
+                "A source candidate awaits its publication decision.", "source_busy"
+            )
         if operation not in {"evaluateGraph", "ensureGraph"}:
             raise WorkspaceError(
                 "Expected evaluateGraph or ensureGraph.", "unsupported_operation"
@@ -512,6 +1037,7 @@ class BrowserWorkspace:
                     "state": {
                         "status": "running",
                         "token": request.token,
+                        "project_generation": self._workspace_generation,
                         "evaluation_running": True,
                     },
                 }
@@ -525,6 +1051,7 @@ class BrowserWorkspace:
                     ),
                 )
                 state["evaluation_running"] = False
+                state["project_generation"] = self._workspace_generation
                 if job_error is not None:
                     state["evaluation_error"] = job_error
                 return {"run": False, "state": state}
@@ -543,13 +1070,19 @@ class BrowserWorkspace:
                 request.all_actions,
             )
             self._job_errors.clear()
+        lease = ExitStack()
+        if self._source.project is not None:
+            _ = lease.enter_context(self._source.project.evaluation())
+        self._evaluation_lease = lease
         self._pending = _Evaluation(operation, request, roots)
+        self._pristine = False
         self._last_token, self._last_error = request.token, None
         return {
             "run": True,
             "state": {
                 "status": "running",
                 "token": request.token,
+                "project_generation": self._workspace_generation,
                 "evaluation_running": True,
             },
         }
@@ -583,11 +1116,15 @@ class BrowserWorkspace:
             self._job_errors[(request.token, pending.roots)] = message
         finally:
             self._pending = None
+            if self._evaluation_lease is not None:
+                self._evaluation_lease.close()
+                self._evaluation_lease = None
         state = cast(
             dict[str, Any],
             self.graph.readiness_snapshot(request.token, sorted(pending.roots)),
         )
         state["evaluation_running"] = False
+        state["project_generation"] = self._workspace_generation
         if self._last_error is not None:
             state["evaluation_error"] = self._last_error
         return state

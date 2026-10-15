@@ -2,7 +2,8 @@
 
 This is an internal interface for the bounded viewer experiment. HTTP/native
 Python remains the default implementation. The static experiment supplies a
-worker backend for the retained nozzle's graph and optional approved CAD runtime.
+worker backend for retained examples, an empty project, one imported scan and the
+optional approved CAD runtime.
 This interface does not select a browser-only product architecture.
 
 The UI calls Scansor operations through `backend.js`. `http-backend.js` owns
@@ -27,10 +28,11 @@ CAD, retained examples and the bounded native single-scan transport. It reports
 snapshot progress and no computation cancellation. `sourceImport` gates the
 separate source transaction methods. Optional `sourceActions` independently gates
 descriptor inspection and atomic saved-project opening. Operation status and
-Cancel are available when either source capability is advertised. The retained
-worker declares these false;
-missing capability declarations in older factories also reject those operations.
-An implementation advertising source import must implement every source method.
+Cancel are available when either source capability is advertised. The
+source-capable worker declares `sourceImport:true`; `sourceActions` remains
+unavailable until its source-aware opening path is implemented. Missing
+capability declarations in older factories reject the corresponding operations.
+An implementation must provide the methods required by each advertised capability.
 `createBackend` rejects CAD-only and example operations
 when their corresponding capabilities are unavailable. A reduced backend must
 also diagnose unsupported graph action families during validation/evaluation;
@@ -72,12 +74,12 @@ Selections remain recipe edits; authoritative fitting remains graph evaluation.
 The native server's legacy session/fit endpoints and unused reuse-preview
 endpoint are not mirrored solely to reproduce every HTTP route.
 
-The HTTP example selector changes server-owned state and reloads the page.
-Source import operations do not introduce a picker, work-loss dialog or source
-authoring UI; those are a separate integration. The worker exposes only the
-retained nozzle and restores its packaged
-default on selection/reload. Download actions first to preserve edits; the worker
-does not offer additional sources or persist ephemeral state across reload.
+The common source controller owns the picker, work-loss confirmation and source
+authoring. Explicit example selection replaces the source and optional saved
+recipe through that controller without reloading the page. The worker defaults
+to the retained nozzle; `createWorkerBackend({initialMode:'empty'})` explicitly
+starts empty. Download actions to preserve edits. Reload does not retain imported
+File references or ephemeral work; this interface supplies no durable persistence.
 
 ## Native source transactions
 
@@ -145,6 +147,59 @@ Generation-scoped metadata retains import warnings for lost-reply recovery;
 bounded terminal records retain only the warning count. Precommit validation
 installs definitions with outputs dirty; it does not pre-run numerical/CAD work.
 
+## Worker source transactions and recovery
+
+Protocol 5 advertises `single-scan-candidate-transactions` and the same
+`source_import` metadata shape as native. The pinned manifest supplies limits to
+both Python validation and JS preflight; browser capacities require their own
+actual-runtime measurements. The worker reads bounded File slices into an owned
+MEMFS staging file. The main thread retains a File/Blob reference and never reads
+the whole source for transport. Cloning a File reference is not a zero-copy claim.
+Staging, Python streams, buffer views and proxies are released on terminal paths.
+If staging cannot be released, `source_cleanup_failed` takes precedence over
+Cancel, remains in operation history and retires the runtime. Import stays fenced
+until explicit Force reconstructs the accepted checkpoint in a fresh worker.
+
+One pending source operation owns its File independently of the 64-request quota.
+Its slot remains occupied until cleanup/promotion, even if its observer aborts.
+Status history holds at most 64 detached records, without source bytes or buffers.
+Explicit source Cancel is separate from AbortSignal and from numerical SIGINT.
+Without isolation, synchronous preparation reaches a safe boundary before posted
+Cancel can be received; the host fences publication immediately and reports
+`cancelling` until cleanup. Force remains explicit.
+
+Preparation creates a private candidate project. Current source, graph, display
+and cancellation checkpoint remain unchanged. The worker finishes validation and
+staging cleanup, transfers the candidate's full metadata/graph/display bundle,
+confirms detachment, then waits at a dedicated source boundary. The coordinator
+validates request ownership, original cursor, candidate identity, logical source
+generation and display sizes. In one synchronous handler it adopts the accepted
+File, source mode/identity, recipe, generation and bundle before callbacks or
+promise settlement. This is the public acceptance point. Its approval then
+promotes the already-validated Python project pointer before queued work resumes.
+Rejecting a candidate discards it; it does not roll back accepted state.
+
+Cancel/Force before that adoption preserves the old accepted checkpoint. Cancel
+after adoption reports accepted. If a worker crashes or loses its promotion reply
+after adoption, the new File/recipe remains accepted and the observer receives
+`accepted_workspace_unavailable`. Force reconstructs that new checkpoint. Aborting
+only an observer likewise cannot suppress valid accepted source adoption or lose
+its recovery File. Generic graph operations remain fenced while the source
+boundary is pending. Accepted workspace generation is independent of request
+generation, runtime lifetime and cancellation serial, including empty/same-byte
+ABA transitions.
+
+Force retains the accepted mode: empty, packaged example, or imported File/Blob.
+It starts a fresh pinned runtime, rereads the retained source, verifies its exact
+semantic identity and validates/replays the saved recipe on a private candidate
+before publishing a recovered bundle. Logical source generation is preserved;
+runtime/request fences advance. Same-source computation Cancel uses the shared
+project graph-recovery transaction and preserves immutable geometry/display.
+Failed, changed or unreadable File recovery leaves the accepted File/recipe
+available for download/retry. A filename is a hint, and retaining a File is not a
+guarantee that disk-backed bytes can always be reread. No fallback source or
+transport is substituted.
+
 ## Revisions, progress, and readiness
 
 The recipe `token`, source hashes, vertex IDs, graph `revision`, diagnostic
@@ -196,9 +251,8 @@ before computation and push terminal snapshots afterward. The adapter retains
 terminal state for late subscribers, fences old publications when mutations
 are requested, and settles requests/observers on closure or runtime failure.
 This stage reports coarse lifecycle snapshots, not progress within synchronous
-solver calls. Abort stops waiting; the worker's existing Cancel/Force restoration
-is limited to its retained source. Imported-source restoration remains the worker
-import follow-up. A cached copy of the last accepted recipe can be
+solver calls. Abort stops waiting; explicit Cancel/Force follows the accepted
+source checkpoint described above. A cached copy of the last accepted recipe can be
 downloaded after failure, but it excludes unfinished UI drafts and solver caches.
 
 With the CAD profile, the first face operation, CAD recipe import or export
@@ -239,5 +293,8 @@ Run `npm run check` and `npm run build` in this directory, then the existing
 `npm run test:browser` HTTP integration suite. `backend.test.js` verifies JSON
 and binary behavior, observation lifecycle/abort, unsupported capabilities,
 and readiness through an injected push backend with no HTTP calls.
+`worker-backend.test.js` covers source candidate/adoption/promotion ordering,
+explicit Cancel, observer Abort, capacity preflight, stale generations, empty
+reset, accepted-but-unavailable delivery and source-aware Force/retry.
 `graph-evaluation.test.js` retains graph-revision and required-root regression
 coverage through the extracted HTTP adapter.

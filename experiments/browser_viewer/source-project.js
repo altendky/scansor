@@ -1,9 +1,11 @@
 // Source transitions retain the accepted scene and live edit controls until a
 // complete backend bundle and its display resources are ready to install.
 export function createSourceProjectController({ backend, getCurrent, canTransition,
-  setTransitionBusy, prepareWorkspace, inspectSource, prepareTransition, status, onActionsLoaded = () => {} }) {
+  setTransitionBusy, prepareWorkspace, inspectSource, prepareTransition, status,
+  onActionsLoaded = () => {}, onWorkspaceReady = () => {} }) {
   const $ = id => document.getElementById(id);
   let active = null, unavailable = null, releaseFence = null;
+  let runtimeLocked = false, deferredRelease = null;
   let actionsIntent = 0, pendingActions = null;
   const empty = document.createElement('section');
   empty.id = 'empty-project';
@@ -15,7 +17,13 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   const current = before => {
     const now = cursor(); return now.generation === before.generation && now.token === before.token;
   };
-  const locked = () => !!active || !!unavailable || !canTransition();
+  const locked = () => runtimeLocked || !!active || !!unavailable || !canTransition();
+  function lockRuntime() {
+    runtimeLocked = true;
+    setTransitionBusy(true);
+    $('retry-source-workspace').disabled = true;
+    refresh();
+  }
   function refresh() {
     const hasSource = !!source(), supported = !!backend.capabilities.sourceImport;
     $('load').disabled = locked();
@@ -39,8 +47,11 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     const elements = [...new Set(document.querySelectorAll(
       'main, #project-toolbar, .workspace-toolbar, #edit-popup, #edit-host, .workspace-edit-workflow, #example-dialog'))];
     const previous = elements.map(element => element.inert);
-    elements.forEach(element => { element.inert = true; });
-    return () => elements.forEach((element, index) => { element.inert = previous[index]; });
+    const hold = () => elements.forEach(element => { element.inert = true; });
+    hold();
+    const release = () => elements.forEach((element, index) => { element.inert = previous[index]; });
+    release.hold = hold;
+    return release;
   }
   function progress(record) {
     if (!active) return;
@@ -85,6 +96,26 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     $('source-unavailable').hidden = false;
     status('The project change may have been accepted, but its display is unavailable. Load the current project to continue; prior actions and unfinished edits are retained.', true);
   }
+  async function prepareRuntimeRestore(graph, restoreControls = () => {}, isCurrent = () => true) {
+    while (active) await active.settled;
+    if (!isCurrent()) return false;
+    const displayed = getCurrent().generation, recovered = graph?.project_generation;
+    const legacy = !backend.capabilities.sourceImport && !backend.capabilities.sourceActions;
+    const graphSafe = !unavailable && (legacy || Number.isSafeInteger(displayed) && displayed >= 0
+      && Number.isSafeInteger(recovered) && recovered === displayed);
+    // Transfer the bootstrap lock synchronously after deciding, before taking a
+    // new source fence snapshot. No event can observe an unlocked source fence.
+    restoreControls();
+    runtimeLocked = false;
+    deferredRelease?.(); deferredRelease = null;
+    $('retry-source-workspace').disabled = false;
+    if (graphSafe) { setTransitionBusy(false); refresh(); return true; }
+    if (!unavailable) fence(Error('Recovered source requires a complete workspace.'), getCurrent(), lockSurfaces(), 'recovery');
+    else releaseFence.hold();
+    setTransitionBusy(true);
+    refresh();
+    return false;
+  }
   async function run(kind, request, { expected = cursor(), replacesSource = true, onFailure } = {}) {
     if (locked()) return false;
     if (kind !== 'actions') invalidateActions();
@@ -95,7 +126,9 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       status('The project or unfinished edit changed. Review it and try again.', true);
       return false;
     }
-    const operation = active = { kind, cursor: expected, record: null, accepted: false, mutationStarted: false };
+    let settled;
+    const operation = active = { kind, cursor: expected, record: null, accepted: false, mutationStarted: false,
+      settled: new Promise(resolve => { settled = resolve; }) };
     const release = lockSurfaces();
     setTransitionBusy(true);
     $('source-progress').hidden = !['scan', 'actions'].includes(kind) || kind === 'actions' && !backend.capabilities.sourceActions;
@@ -124,13 +157,18 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       onFailure?.(error);
       return false;
     } finally {
-      install?.dispose?.();
-      active = null;
-      setTransitionBusy(!!unavailable);
-      $('source-progress').hidden = true;
-      if (!unavailable) release();
-      refresh();
-      if (actionsWarnings && !unavailable) onActionsLoaded(actionsWarnings);
+      try {
+        install?.dispose?.();
+        active = null;
+        setTransitionBusy(runtimeLocked || !!unavailable);
+        $('source-progress').hidden = true;
+        if (!unavailable) {
+          if (runtimeLocked) deferredRelease = release;
+          else release();
+        }
+        refresh();
+        if (actionsWarnings && !unavailable) onActionsLoaded(actionsWarnings);
+      } finally { settled(); }
     }
   }
   async function addScan(file) {
@@ -305,7 +343,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   for (const button of document.querySelectorAll('[data-choose-example]')) button.onclick = () => $('choose-example').click();
   for (const button of document.querySelectorAll('[data-remove-scan]')) button.onclick = () => $('remove-scan').click();
   $('retry-source-workspace').onclick = async () => {
-    if (!unavailable) return;
+    if (!unavailable || runtimeLocked) return;
     const proof = prepareTransition();
     if (!proof) return;
     $('retry-source-workspace').disabled = true;
@@ -322,6 +360,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       setTransitionBusy(false);
       $('source-unavailable').hidden = true;
       status('Current project loaded.');
+      onWorkspaceReady();
       if (actions) onActionsLoaded(bundle.metadata.import_warnings || []);
     } catch (error) { status(`Could not load the current project: ${error.message}`, true); }
     finally { install?.dispose?.(); $('retry-source-workspace').disabled = false; refresh(); }
@@ -337,5 +376,5 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       status('Prior actions downloaded. This does not save the scan file or unfinished edits.');
     } catch (error) { status(error.message, true); }
   };
-  return { refresh, addScan, resetProject, selectExample, restoreExample, cancel, loadActions, loadActionsFile };
+  return { refresh, addScan, resetProject, selectExample, restoreExample, cancel, loadActions, loadActionsFile, lockRuntime, prepareRuntimeRestore };
 }
