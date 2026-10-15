@@ -140,15 +140,225 @@ def test_plane_region_transfers_footprint_and_normal_side() -> None:
     ) == [0, 1, 2, 3]
 
 
-def test_cone_region_reports_bounded_first_slice() -> None:
-    with pytest.raises(ValueError, match="cone selection regions"):
+@pytest.mark.parametrize("slope", [0.2, -0.2, 1e-7, 0.0])
+def test_cone_region_rigidly_transfers_a_positive_sheet_and_normal_side(
+    slope: float,
+) -> None:
+    theta, height = np.meshgrid(np.linspace(-0.4, 0.8, 5), np.linspace(-1, 2, 4))
+    radial = np.column_stack(
+        (np.cos(theta.ravel()), np.sin(theta.ravel()), np.zeros(theta.size))
+    )
+    source = (3 + slope * height.ravel())[:, None] * radial + height.ravel()[
+        :, None
+    ] * [0, 0, 1]
+    normals = (radial - slope * np.array([0, 0, 1])) / np.hypot(1, slope)
+    fit = {
+        "kind": "cone",
+        "analytic": {
+            "kind": "cone",
+            "origin": [0, 0, 0],
+            "axis": [0, 0, 1],
+            "radius": 3.0,
+            "slope": slope,
+            "axial_domain": [-1.0, 2.0],
+        },
+    }
+    region = build_selection_region(
+        source,
+        normals,
+        fit,
+        np.zeros(3),
+        np.eye(3),
+        tangent_margin=0.05,
+        normal_margin=0.03,
+        normal_angle_degrees=10,
+    )
+    assert region["kind"] == "cone" and region["slope"] == slope
+    np.testing.assert_allclose(
+        region["generator_bounds"],
+        [-np.hypot(1, slope) - 0.05, 2 * np.hypot(1, slope) + 0.05],
+    )
+    rotation = np.array([[0.0, 0, 1], [1.0, 0, 0], [0.0, 1, 0]])
+    origin = np.array([10.0, -20, 30])
+    local = np.vstack(
+        (
+            source,
+            source[0] + 0.2 * normals[0],
+            source[0],
+            [0, 0, 0],
+            [3 * np.cos(2.5), 3 * np.sin(2.5), 0],
+            [3 + 5 * slope, 0, 5],
+        )
+    )
+    local_normals = np.vstack(
+        (
+            normals,
+            normals[0],
+            -normals[0],
+            [1, 0, 0],
+            [np.cos(2.5), np.sin(2.5), -slope],
+            [1, 0, -slope],
+        )
+    )
+    selected = apply_selection_region(
+        local @ rotation.T + origin,
+        local_normals @ rotation.T,
+        np.ones(len(local)),
+        region,
+        origin,
+        rotation,
+    )
+    assert selected == list(range(len(source)))
+
+
+def test_cone_region_allows_negative_anchor_radius_but_rejects_apex_crossing_margin() -> (
+    None
+):
+    angles = np.array([-0.3, 0.0, 0.3])
+    height = np.array([6.0, 7.0, 8.0])
+    radial = np.column_stack((np.cos(angles), np.sin(angles), np.zeros(3)))
+    points = (-2 + 0.5 * height)[:, None] * radial + height[:, None] * [0, 0, 1]
+    normals = (radial - [0, 0, 0.5]) / np.hypot(1, 0.5)
+    fit = {
+        "kind": "cone",
+        "analytic": {
+            "kind": "cone",
+            "origin": [0, 0, 0],
+            "axis": [0, 0, 1],
+            "radius": -2.0,
+            "slope": 0.5,
+            "axial_domain": [6.0, 8.0],
+        },
+    }
+    region = build_selection_region(
+        points,
+        normals,
+        fit,
+        np.zeros(3),
+        np.eye(3),
+        tangent_margin=0.1,
+        normal_margin=0.05,
+        normal_angle_degrees=10,
+    )
+    assert region["radius"] == -2
+    assert apply_selection_region(
+        points, normals, np.ones(3), region, np.zeros(3), np.eye(3)
+    ) == [0, 1, 2]
+    with pytest.raises(ValueError, match="margin crosses the apex"):
         _ = build_selection_region(
-            np.eye(3),
-            np.eye(3),
-            {"kind": "cone", "parameters": [0, 0, 0, 0, 5, 0, 0.1]},
+            points,
+            normals,
+            fit,
             np.zeros(3),
             np.eye(3),
-            tangent_margin=0.1,
-            normal_margin=0.2,
-            normal_angle_degrees=20.0,
+            tangent_margin=3.0,
+            normal_margin=0.05,
+            normal_angle_degrees=10,
         )
+
+
+def test_cone_region_does_not_mirror_the_negative_sheet_into_its_footprint() -> None:
+    region = {
+        "format": "scansor-fitted-selection-region-v1",
+        "kind": "cone",
+        "radius": 1.0,
+        "slope": 1.0,
+        "angle_start": 0.0,
+        "angle_span": 2 * np.pi,
+        "generator_bounds": [-100.0, 100.0],
+        "normal_bounds": [-100.0, 100.0],
+        "normal_sign": 1.0,
+        "normal_angle_degrees": 90.0,
+    }
+    points = np.array([[1.0, 0, -5], [1.0, 0, 0]])
+    normals = np.tile(np.array([1.0, 0, -1]) / np.sqrt(2), (2, 1))
+    assert apply_selection_region(
+        points, normals, np.ones(2), region, np.zeros(3), np.eye(3)
+    ) == [1]
+
+
+def test_finite_steep_cone_region_preserves_projection_and_signed_normal_side() -> None:
+    slope = 1e160
+    height = np.array([1e-160, 2e-160, 3e-160])
+    theta = np.array([-0.2, 0.0, 0.2])
+    radial = np.column_stack((np.cos(theta), np.sin(theta), np.zeros(3)))
+    points = (1 + slope * height)[:, None] * radial + height[:, None] * [0, 0, 1]
+    scale = np.hypot(1.0, slope)
+    outward = radial / scale - np.array([0.0, 0.0, slope / scale])
+    fit = {
+        "kind": "cone",
+        "analytic": {
+            "kind": "cone",
+            "origin": [0, 0, 0],
+            "axis": [0, 0, 1],
+            "radius": 1.0,
+            "slope": slope,
+            "axial_domain": [1e-160, 3e-160],
+        },
+    }
+    assert np.isfinite(points).all() and np.isfinite(outward).all()
+    for sign in (1.0, -1.0):
+        normals = sign * outward
+        region = build_selection_region(
+            points,
+            normals,
+            fit,
+            np.zeros(3),
+            np.eye(3),
+            tangent_margin=0.01,
+            normal_margin=0.01,
+            normal_angle_degrees=10,
+        )
+        assert region["normal_sign"] == sign
+        np.testing.assert_allclose(region["generator_bounds"], [0.99, 3.01])
+        assert apply_selection_region(
+            points, normals, np.ones(3), region, np.zeros(3), np.eye(3)
+        ) == [0, 1, 2]
+        assert (
+            apply_selection_region(
+                points, -normals, np.ones(3), region, np.zeros(3), np.eye(3)
+            )
+            == []
+        )
+
+
+def test_negative_anchor_cone_region_rebases_to_shifted_and_reversed_datum() -> None:
+    height = np.array([8.0, 10.0, 12.0, 15.0])
+    theta = np.linspace(-0.4, 0.4, 4)
+    radial = np.column_stack((np.cos(theta), np.sin(theta), np.zeros(4)))
+    points = (-1 + 0.5 * height)[:, None] * radial + height[:, None] * [0, 0, 1]
+    normals = (radial - np.array([0, 0, 0.5])) / np.hypot(1.0, 0.5)
+    fit = {
+        "kind": "cone",
+        "analytic": {
+            "kind": "cone",
+            "origin": [0, 0, 0],
+            "axis": [0, 0, 1],
+            "radius": -1.0,
+            "slope": 0.5,
+            "axial_domain": [8.0, 15.0],
+        },
+    }
+    origin = np.array([0.0, 0.0, 10.0])
+    for direction in (1.0, -1.0):
+        rotation = np.diag([1.0, direction, direction])
+        region = build_selection_region(
+            points,
+            normals,
+            fit,
+            origin,
+            rotation,
+            tangent_margin=0.1,
+            normal_margin=0.1,
+            normal_angle_degrees=10,
+        )
+        assert region["radius"] == 4.0
+        assert region["slope"] == direction * 0.5
+        expected_generator = direction * (height - 10) * np.hypot(1.0, 0.5)
+        np.testing.assert_allclose(
+            region["generator_bounds"],
+            [expected_generator.min() - 0.1, expected_generator.max() + 0.1],
+        )
+        assert apply_selection_region(
+            points, normals, np.ones(4), region, origin, rotation
+        ) == [0, 1, 2, 3]

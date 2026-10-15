@@ -2877,7 +2877,7 @@ function showProperties(force = false) {
       earlier.filter(
         (n) =>
           n.operation === 'fit' &&
-          ['cylinder', 'plane'].includes(n.kind) &&
+          ['cylinder', 'cone', 'plane'].includes(n.kind) &&
           n.selections.includes(node.selection),
       ),
       [node.fit],
@@ -2932,7 +2932,7 @@ function showProperties(force = false) {
       'feature-reuse-fits',
       available.filter(
         (candidate) =>
-          candidate.operation === 'fit' && ['cylinder', 'plane'].includes(candidate.kind),
+          candidate.operation === 'fit' && ['cylinder', 'cone', 'plane'].includes(candidate.kind),
       ),
       node.fits,
     );
@@ -5030,13 +5030,13 @@ async function start(recoveredState) {
   };
   $('new-feature-reuse').onclick = () => {
     const fits = graphState.recipe.nodes.filter(
-        (node) => node.operation === 'fit' && ['cylinder', 'plane'].includes(node.kind),
+        (node) => node.operation === 'fit' && ['cylinder', 'cone', 'plane'].includes(node.kind),
       ),
       selections = graphState.recipe.nodes.filter(
         (node) => selectionOperations.includes(node.operation),
       );
     if (!fits.length || selections.length < 2) {
-      status('Feature reuse needs at least one cylinder or plane fit and two selections.', true);
+      status('Feature reuse needs at least one cylinder, cone or plane fit and two selections.', true);
       return;
     }
     const selected = graphNode(selectedFeatureId),
@@ -5061,7 +5061,7 @@ async function start(recoveredState) {
     nodes.filter(
       (node) =>
         node.operation === 'fit' &&
-        ['cylinder', 'plane'].includes(node.kind) &&
+        ['cylinder', 'cone', 'plane'].includes(node.kind) &&
         node.selections.includes(selectionId),
     );
   const updateNewRegionFitChoices = () =>
@@ -5078,7 +5078,7 @@ async function start(recoveredState) {
         (node) => selectionOperations.includes(node.operation),
       ),
       fits = graphState.recipe.nodes.filter(
-        (node) => node.operation === 'fit' && ['cylinder', 'plane'].includes(node.kind),
+        (node) => node.operation === 'fit' && ['cylinder', 'cone', 'plane'].includes(node.kind),
       ),
       axial = axialDatumPlanes(graphState.recipe.nodes),
       clock = clockDatumPlanes(graphState.recipe.nodes);

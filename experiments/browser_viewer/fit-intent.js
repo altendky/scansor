@@ -14,5 +14,5 @@ export function parseFitDomain(start, end) {
 }
 
 export function defaultFitDomain(kind, sourceDescriptor) {
-  return kind === 'cylinder' && sourceDescriptor != null ? null : [-2, 5];
+  return ['cylinder', 'cone'].includes(kind) && sourceDescriptor != null ? null : [-2, 5];
 }

@@ -185,6 +185,23 @@ def test_create_is_pure_deterministic_and_preserves_append_output_contract() -> 
     assert reuse.lineage == ["scan", "a", "outer"]
 
 
+def test_cone_reuse_preserves_family_and_automatic_support() -> None:
+    recipe = _recipe()
+    payload = recipe.model_dump(mode="json")
+    next(node for node in payload["nodes"] if node["id"] == "outer")["kind"] = "cone"
+    recipe = Recipe.model_validate(payload)
+    original = recipe.model_dump(mode="json")
+
+    plan = _create(recipe)
+
+    copied = _owned(plan.recipe, "fit/b/outer")
+    assert copied.kind == "cone"
+    assert copied.axial_domain is None
+    assert copied.selections == [_owned(plan.recipe, "selection/b/outer/a").id]
+    assert Recipe.model_validate_json(plan.recipe.model_dump_json()) == plan.recipe
+    assert recipe.model_dump(mode="json") == original
+
+
 def test_all_datum_factor_and_relationship_references_are_remapped() -> None:
     recipe = _recipe(constrained=True)
     plan = _create(recipe, equal=True)
