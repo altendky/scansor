@@ -133,10 +133,8 @@ def execute(
     return step
 
 
-def stage_release(
-    site: Path, evidence: Path, destination: Path, expected_manifest_sha256: str
-) -> None:
-    """Copy only hash-verified manifest members, never unlisted harness files."""
+def tested_site_files(site: Path, expected_manifest_sha256: str) -> dict[str, bytes]:
+    """Read exact tested bytes before staging either profile."""
     manifest_path = site / "manifest.json"
     if manifest_path.is_symlink() or not manifest_path.is_file():
         raise ValueError("expected regular tested site manifest")
@@ -168,10 +166,31 @@ def stage_release(
             raise ValueError(f"release asset integrity failure: {relative}")
         files[relative] = data
     files["manifest.json"] = manifest_bytes
+    return files
+
+
+def stage_release(
+    site: Path,
+    evidence: Path,
+    destination: Path,
+    expected_manifest_sha256: str,
+    *,
+    numerical_site: Path,
+    expected_numerical_manifest_sha256: str,
+) -> None:
+    """Stage CAD publication and separate validation-only numerical asset proof."""
+    files = tested_site_files(site, expected_manifest_sha256)
+    numerical = tested_site_files(numerical_site, expected_numerical_manifest_sha256)
+    # The exact numerical site manifest already has its named evidence record.
+    del numerical["manifest.json"]
     if destination.exists():
         raise ValueError("release output already exists")
     for name, data in files.items():
         target = destination / "site" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    for name, data in numerical.items():
+        target = destination / "evidence" / "numerical-assets" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     for source in sorted(evidence.glob("*.json")):
@@ -229,7 +248,7 @@ def main() -> None:
         "redistribution_gaps": [],
         "browser_matrix": ["desktop Chromium, Linux CI, retained bounded example"],
         "measurement_policy": "Serial loopback diagnostics; no latency or peak-memory thresholds. Counts overlap and are not summed. No WAN/offline/other-engine claims.",
-        "evidence_policy": "Only named driver JSON reports and metadata manifests are copied. No wheel, wasm, trace ZIP, source archive, screenshot, generated benchmark site or log upload.",
+        "evidence_policy": "Named driver JSON and manifests plus exact manifest-listed numerical assets are retained for validation only; only the CAD site is published. No unlisted files, trace ZIP, screenshots, generated benchmark sites or logs.",
     }
 
     def run(name: str, command: list[str], result: Path | None = None) -> None:
@@ -359,6 +378,13 @@ def main() -> None:
             "recovery.json",
             extra=("--isolation",),
         )
+        driver("source-import", "validate-source-import.mjs", "source-import.json")
+        driver(
+            "source-import-isolated",
+            "validate-source-import.mjs",
+            "source-import.json",
+            extra=("--isolation",),
+        )
         # Reuse downloads within this job; never expose a persistent binary cache.
         python(
             "build-numerical-runtime",
@@ -384,17 +410,43 @@ def main() -> None:
                 *supplement,
             ],
         )
+        numerical_manifest = evidence / "numerical-site-manifest.json"
+        numerical_manifest.write_bytes((numerical_site / "manifest.json").read_bytes())
+        report["numerical-site-manifest"] = identity(numerical_manifest)
+        numerical_runtime_manifest = evidence / "numerical-runtime-manifest.json"
+        numerical_runtime_manifest.write_bytes(
+            (numerical_runtime / "manifest.json").read_bytes()
+        )
+        report["numerical-runtime-manifest"] = identity(numerical_runtime_manifest)
         driver(
             "numerical-workspace",
             "validate-workspace.mjs",
             "workspace.json",
             numerical_site,
         )
+        driver(
+            "numerical-source-import",
+            "validate-source-import.mjs",
+            "source-import.json",
+            numerical_site,
+        )
+        driver(
+            "numerical-source-import-isolated",
+            "validate-source-import.mjs",
+            "source-import.json",
+            numerical_site,
+            extra=("--isolation",),
+        )
         if args.measurements:
             driver("timing", "measure.mjs", "report.json")
             driver("memory", "measure-memory.mjs", "memory.json")
             driver("fitting", "measure-fitting.mjs", "report.json")
             driver("generated", "measure-generated.mjs", "generated.json")
+            driver(
+                "source-import-memory",
+                "measure-source-import.mjs",
+                "source-import-memory.json",
+            )
         python(
             "verify-site-after",
             "build-browser-app.py",
@@ -407,6 +459,16 @@ def main() -> None:
         )
         if identity(site / "manifest.json") != report["site-manifest"]:
             raise ValueError("tested site manifest changed")
+        if (
+            identity(numerical_site / "manifest.json")
+            != report["numerical-site-manifest"]
+        ):
+            raise ValueError("tested numerical site manifest changed")
+        if (
+            identity(numerical_runtime / "manifest.json")
+            != report["numerical-runtime-manifest"]
+        ):
+            raise ValueError("tested numerical runtime manifest changed")
         report["verified"] = True
         gaps = redistribution_gaps(
             read_json(site / "manifest.json"), read_json(runtime / "manifest.json")
@@ -426,6 +488,10 @@ def main() -> None:
                     evidence,
                     output / "release",
                     report["site-manifest"]["sha256"],
+                    numerical_site=numerical_site,
+                    expected_numerical_manifest_sha256=report[
+                        "numerical-site-manifest"
+                    ]["sha256"],
                 )
             except Exception as error:
                 failure = error

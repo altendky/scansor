@@ -16,9 +16,76 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "experiments/browser_runtime"
+SOURCE_IMPORT_PROFILE = {
+    "supported": True,
+    "formats": ["binary-triangle-ply-v1"],
+    "max_sources": 1,
+    "limits": {
+        "max_source_bytes": 8 * 1024**2,
+        "max_vertices": 131_072,
+        "max_faces": 262_144,
+        "max_estimated_bytes": 96 * 1024**2,
+        "chunk_bytes": 65_536,
+    },
+    "cancel": True,
+    "recovery": "outside-worker-original-file",
+}
+
+
+def worker_protocol() -> dict[str, Any]:
+    return {
+        "version": 6,
+        "bootstrap": "initialize",
+        "workspace": "single-scan-candidate-transactions",
+        "cad": "lazy-approved-ocp",
+        "source_import": json.loads(json.dumps(SOURCE_IMPORT_PROFILE)),
+        "source_actions": {"supported": True, "version": 1},
+    }
+
+
+def validate_worker_protocol(value: object) -> None:
+    expected = worker_protocol()
+    if not isinstance(value, dict) or set(value) != set(expected):
+        raise ValueError("unsupported worker workspace protocol; rebuild it")
+    if any(
+        value[key] != expected[key]
+        for key in expected
+        if key not in ("source_import", "source_actions")
+    ):
+        raise ValueError("unsupported worker workspace protocol; rebuild it")
+    actions = value["source_actions"]
+    if (
+        not isinstance(actions, dict)
+        or actions != expected["source_actions"]
+        or type(actions["supported"]) is not bool
+        or type(actions["version"]) is not int
+    ):
+        raise ValueError("unsupported worker source-actions capability")
+    profile = value["source_import"]
+    reference = expected["source_import"]
+    if (
+        not isinstance(profile, dict)
+        or set(profile) != set(reference)
+        or any(profile[key] != reference[key] for key in reference if key != "limits")
+    ):
+        raise ValueError("unsupported worker source-import capability")
+    if (
+        type(profile["supported"]) is not bool
+        or type(profile["cancel"]) is not bool
+        or type(profile["max_sources"]) is not int
+    ):
+        raise ValueError("invalid worker source-import capability types")
+    limits = profile["limits"]
+    if not isinstance(limits, dict) or set(limits) != set(reference["limits"]):
+        raise ValueError("invalid worker source-import limits")
+    for key, number in limits.items():
+        minimum = 24 if key == "chunk_bytes" else 1
+        if type(number) is not int or number < minimum or number > 2**53 - 1:
+            raise ValueError("invalid worker source-import limits")
 
 
 def digest(data: bytes) -> str:
@@ -357,12 +424,7 @@ def build(
         )
     provenance = {
         "schema_version": 1,
-        "worker_protocol": {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
+        "worker_protocol": worker_protocol(),
         "versions": lock["versions"],
         "cad": cad,
         "redistribution_ready": supplement is not None,

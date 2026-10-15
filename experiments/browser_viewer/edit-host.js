@@ -87,12 +87,33 @@ export function createEditHost({ parking, hasEditor, revealEditor, dockEditor })
   }
   function prepare() {
     if (!active) return true;
-    const closeEvent = new Event('workspace-before-close', { cancelable: true });
-    if (!active.dispatchEvent(closeEvent)) return false;
-    if (!closeEvent.editDiscardConfirmed && (faceInputsDirty || editFormValues(active) !== baseline) &&
-        !window.confirm('Discard unapplied changes in this edit?')) return false;
-    finish();
+    const proof = prepareTransition();
+    if (!proof) return false;
+    proof.finish();
     return true;
+  }
+  function prepareTransition() {
+    const original = active;
+    const snapshot = () => active && JSON.stringify({
+      values: [...active.querySelectorAll('input, select, textarea')].map(control =>
+        [control.id, control.type, control.value, control.checked,
+          control.tagName === 'SELECT' ? [...control.selectedOptions].map(option => option.value) : null]),
+      baseline, faceInputsDirty,
+    });
+    if (active) {
+      const closeEvent = new Event('workspace-before-close', { cancelable: true });
+      if (!active.dispatchEvent(closeEvent)) return null;
+      if (!closeEvent.editDiscardConfirmed && (faceInputsDirty || editFormValues(active) !== baseline) &&
+          !window.confirm('Discard unapplied changes in this edit?')) return null;
+    }
+    const values = snapshot();
+    return {
+      isCurrent: () => active === original && snapshot() === values,
+      finish() {
+        if (!this.isCurrent()) throw new Error('The unfinished edit changed. Review it before changing projects.');
+        finish();
+      },
+    };
   }
   function present() {
     if (hasEditor()) {
@@ -116,6 +137,7 @@ export function createEditHost({ parking, hasEditor, revealEditor, dockEditor })
   return {
     host,
     prepare,
+    prepareTransition,
     finish,
     active: () => active,
     applied() { if (active) baseline = editFormValues(active); faceInputsDirty = false; },

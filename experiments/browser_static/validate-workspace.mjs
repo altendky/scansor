@@ -4,6 +4,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
+import { compareSemanticBatch } from './semantic-parity.mjs';
+import { WORKSPACE_GRAPH_SCHEMA, WORKSPACE_GRAPH_PROJECTION, workspaceSemanticCases } from './workspace-semantic.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -30,6 +32,8 @@ const report = {
   runtime: site.manifest.runtime, capabilities: site.manifest.capabilities,
   requests: [], unexpected_requests: [], api_requests: [], page_errors: [], checks: {},
   artifact_unchanged: null,
+  workspace_graph_schema: WORKSPACE_GRAPH_SCHEMA, workspace_graph_projection: WORKSPACE_GRAPH_PROJECTION,
+  browser_workspace: {}, native_workspace: {},
 };
 const saveReport = () => writeFile(path.join(output, 'workspace.json'), JSON.stringify(report, null, 2) + '\n');
 
@@ -55,21 +59,36 @@ with tempfile.TemporaryDirectory(prefix='native-workspace-', dir=output) as temp
         archive.extractall(root)
     sys.path.insert(0, str(root))
     from experiments.browser_runtime.workspace import BrowserWorkspace
-    snapshots = {}
-    for name, recipe in recipes.items():
-        workspace = BrowserWorkspace(root / 'examples/nozzle-bayonette-simplified')
-        current = unpack(workspace.call_json('getGraph'))
-        current = unpack(workspace.call_json('replaceRecipe', json.dumps({'token': current['token'], 'recipe': recipe})))
-        prepared = unpack(workspace.prepare_evaluation_json('evaluateGraph', json.dumps({'token': current['token'], 'all_actions': True})))
-        snapshots[name] = unpack(workspace.finish_evaluation_json()) if prepared['run'] else prepared['state']
-        assert not snapshots[name]['evaluation_running']
-        assert workspace.workspace.local.dtype == np.dtype('float64')
-        assert not workspace.workspace.local.flags.writeable
-        assert workspace.display_positions.dtype == np.dtype('<f4')
-        assert workspace.display_indices.dtype == np.dtype('<u4')
-    assert not any(name in sys.modules for name in ('OCP', 'duckdb', 'pyarrow', 'psutil'))
-    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots}
-    (output / 'native-workspace.json').write_text(json.dumps(result, allow_nan=False))
+    snapshots, evaluations, proofs = {}, {}, {}
+    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots, 'evaluation_responses': evaluations, 'workspace': proofs}
+    try:
+        for name, recipe in recipes.items():
+            workspace = BrowserWorkspace(root / 'examples/nozzle-bayonette-simplified')
+            current = unpack(workspace.call_json('getGraph'))
+            current = unpack(workspace.call_json('replaceRecipe', json.dumps({'token': current['token'], 'recipe': recipe})))
+            prepared = unpack(workspace.prepare_evaluation_json('evaluateGraph', json.dumps({'token': current['token'], 'all_actions': True})))
+            evaluations[name] = unpack(workspace.finish_evaluation_json()) if prepared['run'] else prepared['state']
+            # Match the browser's idleGraph observation, retaining the distinct
+            # evaluation response and independently enforcing its acceptance.
+            snapshots[name] = unpack(workspace.call_json('getGraph'))
+            metadata = unpack(workspace.call_json('loadWorkspace'))
+            proofs[name] = {'generation': workspace.workspace_generation, 'metadata': metadata, 'graph': metadata['graph']}
+            assert evaluations[name]['required_failures'] == []
+            assert evaluations[name]['evaluation_running'] is False
+            assert 'evaluation_error' not in evaluations[name]
+            assert snapshots[name]['evaluation_running'] is False
+            assert snapshots[name]['errors'] == {}
+            assert all(state == 'ready' for state in snapshots[name]['states'].values())
+            assert workspace.workspace.local.dtype == np.dtype('float64')
+            assert not workspace.workspace.local.flags.writeable
+            assert workspace.display_positions.dtype == np.dtype('<f4')
+            assert workspace.display_indices.dtype == np.dtype('<u4')
+        assert not any(name in sys.modules for name in ('OCP', 'duckdb', 'pyarrow', 'psutil'))
+    except Exception as error:
+        result['failure'] = str(error)
+        raise
+    finally:
+        (output / 'native-workspace.json').write_text(json.dumps(result, allow_nan=False))
 `;
 
 async function nativeReference(runtime) {
@@ -88,45 +107,13 @@ async function nativeReference(runtime) {
       if (code !== 0 || timedOut) reject(new Error(`Native workspace reference failed (${code}, timeout=${timedOut}): ${messages}`));
       else resolve();
     });
+  }).catch(async error => {
+    try {
+      report.native_reference_failure_evidence = JSON.parse(await readFile(path.join(output, 'native-workspace.json'), 'utf8'));
+    } catch (evidenceError) { report.native_reference_evidence_error = String(evidenceError); }
+    throw error;
   });
   return JSON.parse(await readFile(path.join(output, 'native-workspace.json'), 'utf8'));
-}
-
-function compareSnapshot(actual, expected) {
-  for (const key of ['recipe', 'token', 'states', 'errors', 'memberships'])
-    assert.deepEqual(actual[key], expected[key], `${key} must preserve exact identity and control semantics`);
-  let numbers = 0, maxAbsoluteDifference = 0, maxDifferencePath = null,
-    maxParameterDifference = 0, maxResidualDifference = 0;
-  const compare = (value, reference, location) => {
-    if (typeof reference === 'number') {
-      assert.equal(typeof value, 'number', location);
-      assert.ok(Number.isFinite(value) && Number.isFinite(reference), location);
-      const difference = Math.abs(value - reference);
-      assert.ok(difference <= 1e-10 + 1e-10 * Math.abs(reference), `${location}: ${value} != ${reference}`);
-      numbers++;
-      if (difference > maxAbsoluteDifference) {
-        maxAbsoluteDifference = difference;
-        maxDifferencePath = location;
-      }
-      if (/parameters\[/.test(location)) maxParameterDifference = Math.max(maxParameterDifference, difference);
-      if (/residual/i.test(location)) maxResidualDifference = Math.max(maxResidualDifference, difference);
-    } else if (Array.isArray(reference)) {
-      assert.ok(Array.isArray(value), location);
-      assert.equal(value.length, reference.length, location);
-      reference.forEach((item, index) => compare(value[index], item, `${location}[${index}]`));
-    } else if (reference !== null && typeof reference === 'object') {
-      assert.deepEqual(Object.keys(value).sort(), Object.keys(reference).sort(), location);
-      for (const [key, item] of Object.entries(reference)) compare(value[key], item, `${location}.${key}`);
-    } else assert.deepEqual(value, reference, location);
-  };
-  // Publication revisions count scheduling, not numerical results. All identity,
-  // recipe, state, diagnostics, membership and result fields remain compared.
-  for (const key of ['recipe', 'token', 'states', 'errors', 'diagnostics', 'memberships',
-    'result', 'results', 'derived', 'input_catalogue', 'input_requirements'])
-    compare(actual[key], expected[key], key);
-  return { numbers_compared: numbers, max_absolute_difference: maxAbsoluteDifference,
-    max_difference_path: maxDifferencePath, max_parameter_difference: maxParameterDifference,
-    max_residual_difference: maxResidualDifference, rtol: 1e-10, atol: 1e-10 };
 }
 
 async function boundedEvaluate(page, operation, value, timeout = 30000) {
@@ -142,6 +129,11 @@ const readGraph = page => boundedEvaluate(page, async () => {
   const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
   return getBackend().getGraph();
 });
+const workspaceProof = page => boundedEvaluate(page, async () => {
+  const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
+  const bundle = await getBackend().loadWorkspace();
+  return { generation: bundle.generation, metadata: bundle.metadata, graph: bundle.graph };
+});
 async function idleGraph(page) {
   await page.waitForFunction(async () => {
     const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
@@ -149,7 +141,11 @@ async function idleGraph(page) {
     return state.recipe && !state.evaluation_running &&
       Object.values(state.states).every(value => ['ready', 'failed', 'blocked'].includes(value));
   }, null, { timeout: 120000, polling: 100 });
-  return readGraph(page);
+  const state = await readGraph(page);
+  assert.equal(state.evaluation_running, false);
+  assert.deepEqual(state.errors, {});
+  assert.ok(Object.values(state.states).every(value => value === 'ready'), 'Evaluated fixture actions must all be ready');
+  return state;
 }
 
 let browser, preview;
@@ -199,6 +195,7 @@ try {
   };
   const page = await makePage();
   const initial = await idleGraph(page);
+  report.browser_workspace.default = await workspaceProof(page);
   report.checks.default_thirty_nodes = initial.recipe.nodes.length === 30;
   assert.ok(report.checks.default_thirty_nodes, 'The packaged default must retain all 30 numeric actions');
   report.readiness = await page.evaluate(() => window.workspaceWorkerReadiness);
@@ -277,6 +274,7 @@ try {
   await page.locator('#tool').selectOption('orbit');
   await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
   edited = await idleGraph(page);
+  report.browser_workspace.edited = await workspaceProof(page);
   report.checks.ui_selection_edit_and_evaluation = true;
 
   const downloadPromise = page.waitForEvent('download');
@@ -291,26 +289,41 @@ try {
   await page.close();
   const replayPage = await makePage();
   await idleGraph(replayPage);
+  report.browser_workspace.replay_before = await workspaceProof(replayPage);
   await replayPage.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  const approveReplay = replayPage.waitForEvent('dialog').then(async dialog => {
+    assert.equal(dialog.type(), 'confirm');
+    assert.match(dialog.message(), /Replace the current actions\?/);
+    await dialog.accept();
+  });
   await replayPage.locator('#file').setInputFiles({ name: 'replayed-actions.json', mimeType: 'application/json', buffer: recipeBytes });
+  await approveReplay;
+  report.checks.explicit_replay_discard_confirmation = true;
+  await replayPage.waitForFunction(() => !document.querySelector('main').inert
+    && !document.querySelector('#load').disabled && document.querySelector('#source-progress').hidden,
+  null, { timeout: 30000 });
   await replayPage.waitForFunction(async token => {
     const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
     return (await getBackend().getGraph()).token === token;
   }, edited.token, { timeout: 30000 });
+  report.browser_workspace.replay_after = await workspaceProof(replayPage);
   await replayPage.getByRole('button', { name: 'Evaluate all', exact: true }).click();
   const replayed = await idleGraph(replayPage);
-  report.replay_comparison = compareSnapshot(replayed, edited);
-  report.checks.recipe_download_new_worker_replay = true;
-
   const browserSnapshots = JSON.stringify({ default: initial, edited, replayed });
   await writeFile(path.join(output, 'browser-graphs.json'), browserSnapshots);
   report.browser_graphs_sha256 = sha256(Buffer.from(browserSnapshots));
   await writeFile(path.join(output, 'recipes.json'), JSON.stringify({ default: initial.recipe, edited: edited.recipe }, null, 2));
+  report.browser_snapshots = { default: initial, edited, replayed };
   const runtime = path.join(site.root, site.manifest.runtime.path);
   const native = await nativeReference(runtime);
   report.native_versions = native.versions;
-  report.native_comparison = { default: compareSnapshot(initial, native.snapshots.default),
-    edited: compareSnapshot(edited, native.snapshots.edited), replayed: compareSnapshot(replayed, native.snapshots.edited) };
+  report.native_evaluation_responses = native.evaluation_responses;
+  report.native_snapshots = native.snapshots;
+  report.native_workspace = native.workspace;
+  const receipt = await compareSemanticBatch({ nativePython, site, output, report, cases: workspaceSemanticCases(report) });
+  report.replay_comparison = receipt.cases[0];
+  report.native_comparison = { default: receipt.cases[1], edited: receipt.cases[2], replayed: receipt.cases[3] };
+  report.checks.recipe_download_new_worker_replay = true;
   report.checks.actual_native_adapter_parity = true;
 
   report.rejections = await boundedEvaluate(replayPage, async () => {
