@@ -32,19 +32,30 @@ growth rejects it rather than arbitrarily favoring one normal direction. No
 numerical seed or model support is read for an independent plane. Existing
 explicit reference-plane orientation remains authoritative.
 
+Standalone sphere fitting also reads only the selected positions and weights.
+It retains the centered algebraic initializer followed by geometric refinement,
+with explicit rank/conditioning evidence for insufficient curvature. A shared
+free center is initialized from all participating sphere patches together: two
+individually planar circular patches can identify a center jointly. Its bounded
+recovery compares a fresh joint solution with an optional authored free-point
+hint; a distant or invalid hint cannot prevent a fresh fit. Fixed and
+source-fit-derived centers remain exact, and radius-equality relationships retain
+their existing meaning. Computed starts and recovery evidence are derived
+results, not saved actions. Authored point definitions remain in actions.
+
 The frozen native/Pyodide numerical probe includes independently posed imported
-planes, nonuniform cells, multiple scales, growth and recipe replay against
-renamed identical source bytes. This verifies shared numerical semantics through
-the worker parity gate. Its distance and area comparisons use the frozen case's
+planes and spheres, nonuniform cells, multiple scales, growth and recipe replay
+against renamed identical source bytes. This verifies shared numerical semantics
+through the worker parity gate. Its distance and area comparisons use the frozen case's
 length scale while retaining the same dimensionless tolerances; source identity,
 membership and dimensionless evidence are compared separately. Adapter/UI file
 opening remains separate. Kernel/STEP
 geometry tests use practical scales; tiny-scale numerical fitting does not imply
 CAD-kernel capability or physical accuracy.
 
-The remaining fixture-dependent standalone fitting paths reject generic sources
-until their dedicated integration work lands. HTTP/worker delivery, Force source
-retention, source-aware reopening and per-backend measured caps remain their
+The remaining fixture-dependent standalone cylinder/cone paths reject generic
+sources until their dedicated integration work lands. HTTP/worker delivery,
+Force source retention, source-aware reopening and per-backend measured caps remain their
 listed tickets. Caller-provided byte/count caps and the loader's incremental
 allocation estimate are admission checks, not a measured total-runtime memory
 guarantee. Input snapshots and authoritative/display copies are accounted for
@@ -133,8 +144,8 @@ Current implementation gaps:
   not a generic source contract.
 - Legacy example [`Source` reference identity](../../../../experiments/feature_graph.py)
   still includes fixture selection/model configuration through its explicit
-  adapter. Independent plane fits use generic source identity; standalone
-  sphere/cylinder/cone graph paths still read the fixture's initial parameters
+  adapter. Independent plane/sphere fits use generic source identity; standalone
+  cylinder/cone graph paths still read the fixture's initial parameters
   until their family tickets land.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
   centers and scales numerical coordinates but does not rotate the positive-Z

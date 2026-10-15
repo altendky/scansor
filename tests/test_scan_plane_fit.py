@@ -252,7 +252,7 @@ def test_imported_graph_growth_and_saved_recipe_need_no_fixture_metadata(
     assert results(reopened)["plane"] == fitted
 
 
-@pytest.mark.parametrize("kind", ["sphere", "cylinder", "cone"])
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
 def test_enabling_imported_planes_does_not_enable_pending_fit_families(
     kind: str,
 ) -> None:

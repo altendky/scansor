@@ -40,7 +40,9 @@ from experiments.feature_reuse import (
     surface_region_frame,
     transformed_fit_seed,
 )
-from experiments.fit_initialization import RecoveryFailure
+from experiments.fit_initialization import RecoveryFailure, initialization_binding
+from experiments.fit_solver import normalized_weights
+from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
 from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
     FitSelection,
@@ -1782,7 +1784,7 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
     """Keep solver evidence separate from geometry and safe for strict JSON."""
     if isinstance(error, SelectionOverlap):
         return deepcopy(error.diagnostic)
-    if isinstance(error, PlaneFitFailure):
+    if isinstance(error, (PlaneFitFailure, SphereFitFailure)):
         return deepcopy(error.diagnostic)
     if isinstance(error, RecoveryFailure):
         return {
@@ -2111,9 +2113,9 @@ def fit_sphere_at_point(
     center = np.asarray(point["point_display"], dtype=float)
     if center.shape != (3,) or not np.isfinite(center).all():
         raise ValueError(f"{surface.label}: point result is unavailable")
-    weights = workspace.data.weights[ids]
+    weights = normalized_weights(workspace.data.weights[ids])
     distances = np.linalg.norm(workspace.local[ids] - center, axis=1)
-    radius = float(weights @ distances / float(weights.sum()))
+    radius = float(weights @ distances)
     if not np.isfinite(radius) or radius <= 0:
         raise ValueError(f"{surface.label}: sphere radius must be positive")
     residuals = distances - radius
@@ -2123,7 +2125,7 @@ def fit_sphere_at_point(
         "parameters": [*center.tolist(), radius],
         "axial_domain": surface.axial_domain,
         "residuals": residuals.tolist(),
-        "weighted_rms": float(np.sqrt(weights @ residuals**2 / float(weights.sum()))),
+        "weighted_rms": float(np.sqrt(weights @ residuals**2)),
         "condition": 1.0,
         "point": surface.point,
     }
@@ -2134,74 +2136,33 @@ def fit_spheres_to_free_point(
     point_id: str,
     surfaces: list[SurfaceFit],
     ids: list[list[int]],
-    initial_center: np.ndarray,
+    initial_center: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Jointly fit one exact center and an independent radius per sphere."""
-    if initial_center.shape != (3,) or not np.isfinite(initial_center).all():
-        raise ValueError("free point initialization must be a finite XYZ value")
+    """Derive a shared free center; preserve authored coordinates as optional hints."""
     points = [workspace.local[surface_ids] for surface_ids in ids]
     weights = [workspace.data.weights[surface_ids] for surface_ids in ids]
-    if any(len(surface_points) < 4 for surface_points in points):
-        raise ValueError("each point-bound sphere needs at least four observations")
-    total_weight = sum(float(surface_weights.sum()) for surface_weights in weights)
-    if not np.isfinite(total_weight) or total_weight <= 0:
-        raise ValueError("point-bound spheres need positive-area observations")
-    normalized_weights = [surface_weights / total_weight for surface_weights in weights]
-    radii = [
-        float(surface_weights @ np.linalg.norm(surface_points - initial_center, axis=1))
-        / float(surface_weights.sum())
-        for surface_points, surface_weights in zip(points, weights, strict=True)
-    ]
-    parameters = np.asarray([*initial_center, *radii], dtype=float)
-    condition = float("inf")
-    for _ in range(60):
-        residual_parts: list[np.ndarray] = []
-        jacobian_parts: list[np.ndarray] = []
-        for index, surface_points in enumerate(points):
-            delta = surface_points - parameters[:3]
-            distance = np.linalg.norm(delta, axis=1)
-            if np.any(distance <= np.finfo(float).eps):
-                raise ValueError(
-                    "sphere observations cannot coincide with their center"
-                )
-            residual_parts.append(distance - parameters[3 + index])
-            jacobian = np.zeros((len(surface_points), len(parameters)))
-            jacobian[:, :3] = -delta / distance[:, None]
-            jacobian[:, 3 + index] = -1.0
-            jacobian_parts.append(jacobian)
-        residual = np.concatenate(residual_parts)
-        jacobian = np.concatenate(jacobian_parts)
-        combined_weights = np.concatenate(normalized_weights)
-        objective = float(combined_weights @ residual**2)
-        normal = jacobian.T @ (combined_weights[:, None] * jacobian)
-        condition = float(np.linalg.cond(normal))
-        if not np.isfinite(condition) or condition > 1e12:
-            raise ValueError(
-                "point-bound sphere geometry is ill-conditioned; select a wider curved patch"
-            )
-        gradient = jacobian.T @ (combined_weights * residual)
-        step = np.linalg.solve(normal, -gradient)
-        scale = max(1.0, *parameters[3:])
-        if np.max(np.abs(step)) <= 1e-10 * scale:
-            break
-        for power in range(25):
-            candidate = parameters + step * 2.0**-power
-            if np.any(candidate[3:] <= 0):
-                continue
-            candidate_residual = np.concatenate(
-                [
-                    np.linalg.norm(surface_points - candidate[:3], axis=1)
-                    - candidate[3 + index]
-                    for index, surface_points in enumerate(points)
-                ]
-            )
-            if float(combined_weights @ candidate_residual**2) < objective:
-                parameters = candidate
-                break
-        else:
-            if np.linalg.norm(gradient, ord=np.inf) <= 1e-10 * scale:
-                break
-            raise ValueError("point-bound sphere fit failed to decrease objective")
+    descriptor = workspace.source_descriptor
+    source_sha256 = workspace.source_sha256
+    if source_sha256 is None:
+        raise ValueError("point-bound spheres require an accepted source")
+    binding = initialization_binding(
+        source_sha256,
+        descriptor.interpretation_sha256
+        if descriptor is not None
+        else workspace.reference_sha256,
+        list(dict.fromkeys(vertex for group in ids for vertex in group)),
+        {
+            "family": "sphere",
+            "point": {"id": point_id, "role": "free-shared-center"},
+            "surfaces": [surface.model_dump(mode="json") for surface in surfaces],
+            "memberships": ids,
+        },
+        policy_version="joint-algebraic-shared-sphere-v1",
+    )
+    fitted = fit_shared_sphere_center(
+        points, weights, binding, hint_center=initial_center
+    )
+    parameters = np.asarray(fitted["parameters"])
     adjusted: dict[str, dict[str, Any]] = {}
     for index, (surface, surface_points, surface_ids, surface_weights) in enumerate(
         zip(surfaces, points, ids, weights, strict=True)
@@ -2215,9 +2176,11 @@ def fit_spheres_to_free_point(
             "axial_domain": surface.axial_domain,
             "residuals": residuals.tolist(),
             "weighted_rms": float(
-                np.sqrt(surface_weights @ residuals**2 / float(surface_weights.sum()))
+                np.sqrt(normalized_weights(surface_weights) @ residuals**2)
             ),
-            "condition": condition,
+            "condition": fitted["normal_matrix_condition"],
+            "solver": fitted["solver"],
+            "initialization": fitted["initialization"],
             "point": point_id,
             "resolved_by": "connected_fits",
         }
@@ -2527,6 +2490,21 @@ WorkspaceType = TypeVar(
 )
 
 
+def recipe_content_token(recipe: Recipe) -> str:
+    """Hash semantic content independently of Pydantic's JSON number spelling.
+
+    Native and browser Pydantic versions can spell the same float as 1e+100
+    and 1e100. Tokens must bind the same authored actions in either runtime.
+    """
+    encoded = json.dumps(
+        recipe.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
 @final
 class FeatureGraph(Generic[WorkspaceType]):
     def __init__(self, workspace: WorkspaceType, recipe: Recipe) -> None:
@@ -2536,9 +2514,7 @@ class FeatureGraph(Generic[WorkspaceType]):
         self.reference_sha256 = workspace_reference_sha256(workspace)
         self.lock = RLock()
         self._recipe = self.validate(recipe)
-        self._content_token = hashlib.sha256(
-            self._recipe.model_dump_json().encode()
-        ).hexdigest()
+        self._content_token = recipe_content_token(self._recipe)
         self._revision = 0  # Observable publications, independent of recipe edits.
         self._states: dict[str, str] = dict.fromkeys(
             (n.id for n in recipe.nodes), "unevaluated"
@@ -3662,9 +3638,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for key, value in self._states.items()
             }
             self._recipe = recipe
-            self._content_token = hashlib.sha256(
-                recipe.model_dump_json().encode()
-            ).hexdigest()
+            self._content_token = recipe_content_token(recipe)
             self._epoch += 1
             self._revision += 1
             self._validation_reviews = {
@@ -4967,7 +4941,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         ]
                         initial = (
                             None
-                            if node.kind == "plane"
+                            if node.kind in ("plane", "sphere")
                             else np.array(
                                 example_workspace(self.workspace).data.selection[
                                     "initial_parameters"
