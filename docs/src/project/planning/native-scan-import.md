@@ -197,6 +197,113 @@ allocation categories and process measurements. `--mode core` isolates shared
 preparation/staging from HTTP. Generated sources are written beside the output
 under `native-measure-sources/`; remove that directory and the report after use.
 
+## Actual native UI resource observations
+
+The [native UI driver](../../../../scripts/measure-native-source-ui.py) observes
+imported-source display and repeated use of the common UI, separately
+from the source-only measurements above. Its fixture generation, measured native
+server, RSS monitor and browser run in separate processes. One server and one
+browser page remain alive across the raw RealityScan nozzle, independently
+generated cylinder/plane scene and within-cap generated grid, with confirmed
+reset between imports. The default is two cycles of all three inputs.
+
+The [browser driver](../../../../experiments/browser_static/measure-native-source-ui.mjs)
+uses the actual File picker, Source inspection and reset commands. Read-only
+observations check source/display identities, counts and logical generations;
+generated scene/grid cases also exercise a bounded real selection overlay.
+Original source rows remain intact. This measures no fitting, CAD or worker
+execution and changes neither the source caps nor the 25,000-ID selection limit.
+
+To collect a report, select an existing **absolute** project interpreter path and
+a fresh output directory outside the repository:
+
+```sh
+uv run scripts/measure-native-source-ui.py \
+  --native-python "$TASK_NATIVE_PYTHON" --output "$TASK_NATIVE_UI_REPORTS" \
+  --cycles 2 --sample-interval 0.02
+```
+
+The combined `native-source-ui.json` report retains stage observations alongside
+browser details in `browser/browser-report.json`, process logs and timestamped
+event/RSS streams. The requested RSS sampling interval is 20 ms; actual gaps,
+unavailable intervals and errors must remain visible. Sampled server RSS and
+lifetime process high-water are separate from browser heap/backing counters,
+named scene typed-array buffers, File/HTTP payload sizes and logical WebGL
+allocations. Shared backing stores and overlapping categories must not be summed
+into total memory or a peak. Reset does not promise allocator or RSS shrinkage.
+
+Observation hooks, checksums, stage acknowledgements and headless browser routing
+affect timings. Pre-run source hash verification reads the files, so the run does
+not establish cold filesystem performance. File delivery is not an
+operating-system picker benchmark, and input-to-render correlation is not
+physical presentation latency. These methods
+do not capture every synchronous allocation peak, driver/GPU allocation or
+browser process, and impose no latency/RSS threshold or per-device capacity
+guarantee.
+
+### Executed native UI observation, 2026-10-15
+
+Run 1 completed two cycles and 36 stages on Linux x86-64, an Intel Core
+i9-9880H host, Python 3.12.14, NumPy 2.5.1, Pydantic 2.13.4, psutil 7.2.2 and
+headless Chromium 156.0.8078.4 using ANGLE/SwiftShader. One native server and one
+page remained alive throughout. All 12 browser checks passed, with no page or
+external-request errors. Six accepted imports preserved every source row and
+triangle; full source and display position/index SHA-256 hashes matched the
+frozen input manifest. Project generations advanced from 0 to 12 across imports
+and confirmed resets. No fitting, CAD or worker execution was measured.
+
+All sizes below are bytes. Named CPU backing stores deduplicate shared buffers;
+native stores exclude the separately retained original file. Browser stores are
+the currently attached scene arrays, before and after the generated selection.
+Counts and these CPU sizes were identical in both cycles.
+
+| Source | Full source/display vertices / triangles | Original file | Native named CPU backing | Browser named CPU backing, imported → overlay | Selected original IDs |
+| --- | --- | --- | --- | --- | --- |
+| Raw RealityScan nozzle | 24,999 / 49,994 | 1,250,160 | 3,249,770 | 2,099,868 → skipped | Skipped |
+| Generated cylinder/plane | 84 / 132 | 3,958 | 10,020 | 6,624 → 7,128 | 84 |
+| Generated grid | 131,072 / 260,610 | 6,533,891 | 17,001,010 | 10,991,640 → 11,011,224 | 1,632 |
+
+The overlays use 168 and 3,264 render indices respectively, duplicating selected
+IDs for drawing. They do not add source observations. Logical WebGL values below
+include buffers still observed from earlier cases in the same page. Sampled RSS
+maxima cover each empty-baseline-to-reset interval. The server's separately
+reported lifetime `ru_maxrss` at reset includes earlier cases and startup.
+
+| Source / cycle | Logical WebGL live, imported → overlay → reset | Sampled native RSS maximum | Server lifetime high-water at reset |
+| --- | --- | --- | --- |
+| Raw / 1 | 2,099,868 → skipped → 0 | 76,423,168 | 75,628,544 |
+| Scene / 1 | 6,624 → 7,128 → 1,008 | 76,460,032 | 75,628,544 |
+| Grid / 1 | 10,992,648 → 11,011,224 → 39,168 | 102,883,328 | 102,019,072 |
+| Raw / 2 | 2,139,036 → skipped → 39,168 | 86,937,600 | 102,019,072 |
+| Scene / 2 | 45,792 → 46,296 → 40,176 | 86,945,792 | 102,019,072 |
+| Grid / 2 | 11,031,816 → 11,051,400 → 79,344 | 107,974,656 | 107,069,440 |
+
+The monitor recorded 840 valid RSS samples, zero sampling errors and a maximum
+observed gap of 23.968 ms. Four short stage intervals contained no sample and
+retain null interval extrema. RSS and boundary high-water observations have
+different timing and accounting; neither establishes every allocation peak.
+Every reset released the accepted source, original bytes and current named
+CPU arrays, with no active import or staging files. Terminal operation records
+retained no project/context/recipe/path references. The final reset still showed
+79,344 logical WebGL bytes and CDP `backingStorageSize` of 36,365,743 bytes
+(`usedSize`: 70,226,292). These overlapping counters do not establish total memory
+or heap/GPU reclamation; two cycles do not establish a leak verdict. Node, its six
+observed descendants and the native server exited normally without forced
+cleanup; descendant tracking remains bounded by polling coverage.
+
+With warm input reads and instrumentation, import-event-to-stable-render
+observation bounds were 419.3–473.6 ms for raw, 277.7–281.7 ms for scene and
+947.3–1,050.7 ms for grid. These include stage snapshot/acknowledgement dwell and
+are not isolated import latency or a capacity guarantee.
+
+The retained run reports bind these scalars to the frozen drivers, input/display
+hashes and 50 loaded repository module hashes at base revision
+`53036a5d040c032083de92595ea7a51bdf238ec1`:
+
+- `native-source-ui.json`: SHA-256 `5f70b58feeab4db482e45b2946bae96293e223f8f6db5bd0f6022d033e872846`.
+- `browser/browser-report.json`: SHA-256 `bf8f731be1bebb97f487721536fd3b2862053a061f57681a3c35cd11225993be`.
+- `inputs.json`: SHA-256 `f91672f9da1cd4a2f9fb83a7cc4c4c3951eb7c5b15b137c73d4e08194f100f6e`.
+
 ## Acceptance evidence
 
 Native service/HTTP tests cover bounded reads, incorrect/short/disconnected
