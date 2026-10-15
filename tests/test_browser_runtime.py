@@ -147,10 +147,13 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["imported_cylinders"].shape == (3, 60, 3)
         assert data["imported_cylinder_normals"].shape == (3, 60, 3)
         assert data["imported_cylinder_axes"].shape == (3, 3)
-        assert data["imported_cones"].shape == (3, 60, 3)
-        assert data["imported_cone_normals"].shape == (3, 60, 3)
-        assert data["imported_cone_axes"].shape == (3, 3)
-        np.testing.assert_array_equal(data["imported_cone_slopes"], [0.15, -0.2, 1e-7])
+        assert data["imported_cones"].shape == (4, 60, 3)
+        assert data["imported_cone_normals"].shape == (4, 60, 3)
+        assert data["imported_cone_axes"].shape == (4, 3)
+        np.testing.assert_array_equal(
+            data["imported_cone_slopes"], [0.15, -0.2, 1e-7, 1e-7]
+        )
+        np.testing.assert_allclose(np.ptp(data["imported_cones"][3, :, 2]), 6e6)
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_cone_normals"], axis=2), 1, atol=1e-14
         )

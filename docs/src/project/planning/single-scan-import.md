@@ -72,23 +72,39 @@ support representation; no nozzle seed or model interval is read. Shared
 cone/cylinder groups initialize together, fixed axes remain exact, and
 cone-plane/reference relationships retain their hard equations.
 
-Cone admission separately checks selected position coverage above 1e-10 and a
-final fitted-axis geometric Jacobian condition at most 1e6. These provisional
-limits are backed by generated full/partial, noisy, degenerate and apex-adjacent
-cases rather than a physical acceptance claim. Finite support endpoints and every
-selected observation's orthogonal projection must remain on the positive-radius
-sheet. A negative radius at an extrapolated anchor can be valid when the finite
-segment is positive; a distant apex is not mandatory saved state. Normals supply
-proposals and oriented growth evidence, not hard positional constraints.
-[#267](https://github.com/altendky/scansor/issues/267) tracks the cone-specific
-admission improvement: an independently generated long near-cylinder frustum
-fails the raw extent gate despite an aligned condition about 1.46. The initial
-conservative slice does not claim support for every aspect ratio.
-The packaged worker executes the new cone cases and matches selected geometry,
-source bindings, selections and hard constraints. Complete recovery-trace parity
-remains blocked by [#266](https://github.com/altendky/scansor/issues/266): discarded
-inferior attempts can take different bounded line-search paths near the
-floating-point objective floor. The existing parity gate remains in force.
+Cone admission policy `selected-cone-recovery-v2` checks post-fit affine position
+coverage above 1e-10 and retains the independent fitted-axis geometric Jacobian
+condition cap of 1e6. One global projected positive-radius RMS and one axial RMS
+scale the original positions; raw covariance remains labeled evidence rather
+than an early aspect-ratio gate. These provisional limits are backed by generated
+full/partial, noisy, degenerate, steep and apex-adjacent cases rather than a
+physical acceptance claim. Finite support endpoints and every selected
+observation's orthogonal projection must remain on the positive-radius sheet.
+A negative radius at an extrapolated anchor can be valid when the finite segment
+is positive; a distant apex is not mandatory saved state. Normals supply proposals
+and oriented growth evidence, not hard positional constraints.
+
+The [cone admission investigation](../experiments/cone-admission.md) records
+[#267](https://github.com/altendky/scansor/issues/267)'s independently executed
+baseline and preregistered matrix: a long near-cylinder frustum failed the old
+raw gate despite an aligned condition about 1.46. The bounded implementation
+uses cone-specific tilt/residual scales, independent final fitted-geometry
+stationarity, extent-aware equivalence and resolved hard-support endpoint checks.
+Per-row nonlinear radius normalization is excluded by an exact-plane
+counterexample. All 32 independent admission tests, 13 high-precision projection
+regressions and 218 native runtime tests pass; this does not establish physical
+acceptance or every aspect ratio.
+
+Actual packaged Chromium/Pyodide execution of policy v2, including the added long
+raw-float32 source, agrees on selected initializer/attempt evidence, geometry,
+support, IDs, bindings, growth and replay under the existing strict limits. A
+shared meridian-projection arithmetic correction resolves an observed support
+boundary discrepancy; both runtimes now classify all 60 long-source rows inside,
+without changing intervals or tolerances. The complete strict verifier still
+fails on discarded-attempt traces, inactive algebraic initializer conditioning
+and known registration diagnostics. [#266](https://github.com/altendky/scansor/issues/266)
+retains that unresolved comparison contract; selected-result agreement does not
+establish full parity or change the gate.
 
 Cylinder admission is deliberately conservative: selected positional covariance
 must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted

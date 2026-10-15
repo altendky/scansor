@@ -260,7 +260,8 @@ def test_planar_observations_do_not_become_an_imported_cone() -> None:
     graph = FeatureGraph(workspace, Recipe.model_validate(payload))
     with pytest.raises(ConeFitFailure) as failure:
         _ = graph.evaluate(str(graph.snapshot()["token"]))
-    assert failure.value.code == "insufficient-coverage"
+    assert failure.value.code == "no-valid-candidates"
+    assert failure.value.diagnostic["recovery"]["selected"] is None
     _ = json.dumps(failure.value.diagnostic, allow_nan=False)
 
 

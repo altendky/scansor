@@ -151,15 +151,16 @@ def create_fixture(path: Path) -> None:
         cylinder_normals.append(radial)
         cylinder_origins.append(origin)
     cone_axes = np.asarray(
-        [[1.0, 0, 0], [0.2, -0.7, 0.3], [1e-8, 0.2, 1.0]], dtype=np.float64
+        [[1.0, 0, 0], [0.2, -0.7, 0.3], [1e-8, 0.2, 1.0], [0, 0, 1.0]], dtype=np.float64
     )
     cone_axes /= np.linalg.norm(cone_axes, axis=1)[:, None]
-    cone_slopes = np.asarray([0.15, -0.2, 1e-7], dtype=np.float64)
+    cone_slopes = np.asarray([0.15, -0.2, 1e-7, 1e-7], dtype=np.float64)
+    cone_scales = np.r_[scales, 1.0]
     imported_cones: list[NDArray[np.float64]] = []
     cone_normals: list[NDArray[np.float64]] = []
     cone_origins: list[NDArray[np.float64]] = []
     for index, (direction, raw_taper, raw_scale) in enumerate(
-        zip(cone_axes, cone_slopes, scales, strict=True)
+        zip(cone_axes, cone_slopes, cone_scales, strict=True)
     ):
         taper, scale = float(raw_taper), float(raw_scale)
         first = np.cross(direction, np.eye(3)[int(np.argmin(np.abs(direction)))])
@@ -172,6 +173,11 @@ def create_fixture(path: Path) -> None:
         )
         origin = scale * np.array([3.0 + index, -4.0, 5.0 - index])
         heights = cylinder_heights.ravel()
+        if index == 3:
+            # Freeze an additional long raw-f32 source before backend execution.
+            # The original three cone fixtures remain byte-for-byte unchanged.
+            origin = np.array([80.0, -60, 40])
+            heights = heights * 1e6
         radius = scale * (
             2.5 + taper * heights + 0.001 * np.sin(np.arange(len(radial)) * 1.7)
         )
@@ -209,7 +215,7 @@ def create_fixture(path: Path) -> None:
         imported_cone_origins=np.asarray(cone_origins),
         imported_cone_axes=cone_axes,
         imported_cone_slopes=cone_slopes,
-        imported_cone_scales=scales,
+        imported_cone_scales=cone_scales,
         support_points=np.asarray(
             [
                 np.array([3.0, -4, 5])
@@ -590,6 +596,11 @@ def _imported_revolution_probe(
         assert not state["errors"] and not state["diagnostics"], state
         assert set(state["states"].values()) == {"ready"}
         fitted = state["results"][kind]
+        if kind == "cone" and float(np.ptp(points @ axis)) / scale > 1e6:
+            initialization = fitted["initialization"]
+            assert initialization["raw_coverage_ratio"] < 1e-10
+            chosen = initialization["recovery"]["selected"]
+            assert initialization["assessments"][chosen]["coverage_ratio"] > 1e-10
         analytic = fitted["analytic"]
         fitted_axis = np.asarray(analytic["axis"])
         assert np.linalg.norm(np.cross(fitted_axis, axis)) < 0.001

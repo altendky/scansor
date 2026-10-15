@@ -227,7 +227,7 @@ def test_partial_cone_is_selected_data_derived_at_arbitrary_pose_and_scale(
     assert (
         initialization["algorithm"]
         == CONE_POLICY_VERSION
-        == "selected-cone-recovery-v1"
+        == "selected-cone-recovery-v2"
     )
     assert initialization["observations"] == len(points)
     assert initialization["recovery"]["selected_role"] == "fresh"
@@ -759,7 +759,8 @@ def test_failed_imported_cone_preserves_saved_source_membership_and_intent() -> 
     before = graph.snapshot()
     with pytest.raises(ConeFitFailure) as failure:
         _ = graph.evaluate(str(before["token"]))
-    assert failure.value.code == "insufficient-coverage"
+    assert failure.value.code == "search-exhausted"
+    assert failure.value.diagnostic["recovery"]["selected"] is None
     assert graph.snapshot()["recipe"] == before["recipe"]
     assert graph.snapshot()["token"] == before["token"]
 
