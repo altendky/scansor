@@ -598,8 +598,8 @@ def test_canonical_only_result_exports_world_patch_and_step_without_numeric_char
         key: value for key, value in geometry.items() if key != "axial_domain"
     }
     assert_kernel_patch(surface_patch(fitted, workspace.local), geometry)
-    # A synthetic evaluated publication isolates the geometry boundary. Imported
-    # cylinder/cone numerical fitting remains gated by its separate issues.
+    # A synthetic evaluated publication isolates the geometry boundary from
+    # numerical fitting and deliberately includes contradictory legacy fields.
     snapshot: dict[str, Any] = {
         "token": "independent-canonical-publication",
         "recipe": recipe.model_dump(),
@@ -629,5 +629,14 @@ def test_canonical_only_result_exports_world_patch_and_step_without_numeric_char
     assert reader.TransferRoots() == 1
     assert_kernel_patch(reader.OneShape(), geometry)
     graph = FeatureGraph(workspace, recipe)
-    with pytest.raises(ValueError, match="not yet supported for imported scans"):
-        _ = graph.evaluate(str(graph.snapshot()["token"]))
+    if geometry["kind"] == "cone":
+        with pytest.raises(ValueError, match="not yet supported for imported scans"):
+            _ = graph.evaluate(str(graph.snapshot()["token"]))
+    else:
+        state = graph.evaluate(str(graph.snapshot()["token"]))
+        assert not state["errors"]
+        evaluated = cast(dict[str, Any], state["results"])["surface"]
+        actual = revolution_geometry(evaluated)
+        assert evaluated["weighted_rms"] < 1e-6
+        assert actual["radius"] == pytest.approx(geometry["radius"], abs=1e-6)
+        assert abs(float(np.asarray(actual["axis"]) @ geometry["axis"])) > 1 - 1e-10
