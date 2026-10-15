@@ -44,14 +44,16 @@
     worker.postMessage({ id, operation });
   });
   const start = performance.now();
+  let numeric = null;
   try {
-    const numeric = await request('numeric');
+    numeric = await request('numeric');
+    if (Object.hasOwn(numeric.result, 'parity_failure')) throw new Error(numeric.result.parity_failure);
     const numeric_ms = performance.now() - start;
     let cad = null;
     if (new URL(location.href).searchParams.has('cad')) cad = await request('cad');
     window.finished = { ok: true, numeric, cad, numeric_ms, total_ms: performance.now() - start };
   } catch (error) {
-    window.finished = { ok: false, error: String(error), total_ms: performance.now() - start };
+    window.finished = { ok: false, numeric, error: String(error), total_ms: performance.now() - start };
   } finally {
     clearInterval(timer);
     fail(new Error('Probe complete'));

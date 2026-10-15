@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
+import { compareSemanticBatch } from './semantic-parity.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -90,43 +91,6 @@ async function nativeReference(runtime) {
     });
   });
   return JSON.parse(await readFile(path.join(output, 'native-workspace.json'), 'utf8'));
-}
-
-function compareSnapshot(actual, expected) {
-  for (const key of ['recipe', 'token', 'states', 'errors', 'memberships'])
-    assert.deepEqual(actual[key], expected[key], `${key} must preserve exact identity and control semantics`);
-  let numbers = 0, maxAbsoluteDifference = 0, maxDifferencePath = null,
-    maxParameterDifference = 0, maxResidualDifference = 0;
-  const compare = (value, reference, location) => {
-    if (typeof reference === 'number') {
-      assert.equal(typeof value, 'number', location);
-      assert.ok(Number.isFinite(value) && Number.isFinite(reference), location);
-      const difference = Math.abs(value - reference);
-      assert.ok(difference <= 1e-10 + 1e-10 * Math.abs(reference), `${location}: ${value} != ${reference}`);
-      numbers++;
-      if (difference > maxAbsoluteDifference) {
-        maxAbsoluteDifference = difference;
-        maxDifferencePath = location;
-      }
-      if (/parameters\[/.test(location)) maxParameterDifference = Math.max(maxParameterDifference, difference);
-      if (/residual/i.test(location)) maxResidualDifference = Math.max(maxResidualDifference, difference);
-    } else if (Array.isArray(reference)) {
-      assert.ok(Array.isArray(value), location);
-      assert.equal(value.length, reference.length, location);
-      reference.forEach((item, index) => compare(value[index], item, `${location}[${index}]`));
-    } else if (reference !== null && typeof reference === 'object') {
-      assert.deepEqual(Object.keys(value).sort(), Object.keys(reference).sort(), location);
-      for (const [key, item] of Object.entries(reference)) compare(value[key], item, `${location}.${key}`);
-    } else assert.deepEqual(value, reference, location);
-  };
-  // Publication revisions count scheduling, not numerical results. All identity,
-  // recipe, state, diagnostics, membership and result fields remain compared.
-  for (const key of ['recipe', 'token', 'states', 'errors', 'diagnostics', 'memberships',
-    'result', 'results', 'derived', 'input_catalogue', 'input_requirements'])
-    compare(actual[key], expected[key], key);
-  return { numbers_compared: numbers, max_absolute_difference: maxAbsoluteDifference,
-    max_difference_path: maxDifferencePath, max_parameter_difference: maxParameterDifference,
-    max_residual_difference: maxResidualDifference, rtol: 1e-10, atol: 1e-10 };
 }
 
 async function boundedEvaluate(page, operation, value, timeout = 30000) {
@@ -306,9 +270,6 @@ try {
   }, edited.token, { timeout: 30000 });
   await replayPage.getByRole('button', { name: 'Evaluate all', exact: true }).click();
   const replayed = await idleGraph(replayPage);
-  report.replay_comparison = compareSnapshot(replayed, edited);
-  report.checks.recipe_download_new_worker_replay = true;
-
   const browserSnapshots = JSON.stringify({ default: initial, edited, replayed });
   await writeFile(path.join(output, 'browser-graphs.json'), browserSnapshots);
   report.browser_graphs_sha256 = sha256(Buffer.from(browserSnapshots));
@@ -316,8 +277,17 @@ try {
   const runtime = path.join(site.root, site.manifest.runtime.path);
   const native = await nativeReference(runtime);
   report.native_versions = native.versions;
-  report.native_comparison = { default: compareSnapshot(initial, native.snapshots.default),
-    edited: compareSnapshot(edited, native.snapshots.edited), replayed: compareSnapshot(replayed, native.snapshots.edited) };
+  report.browser_snapshots = { default: initial, edited, replayed };
+  report.native_snapshots = native.snapshots;
+  const receipt = await compareSemanticBatch({ nativePython, site, output, report, cases: [
+    { id: 'replay', profile: 'graph-snapshot', actual: replayed, expected: edited },
+    { id: 'default', profile: 'graph-snapshot', actual: initial, expected: native.snapshots.default },
+    { id: 'edited', profile: 'graph-snapshot', actual: edited, expected: native.snapshots.edited },
+    { id: 'replayed', profile: 'graph-snapshot', actual: replayed, expected: native.snapshots.edited },
+  ] });
+  report.replay_comparison = receipt.cases[0];
+  report.native_comparison = { default: receipt.cases[1], edited: receipt.cases[2], replayed: receipt.cases[3] };
+  report.checks.recipe_download_new_worker_replay = true;
   report.checks.actual_native_adapter_parity = true;
 
   report.rejections = await boundedEvaluate(replayPage, async () => {

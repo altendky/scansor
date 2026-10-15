@@ -3449,7 +3449,7 @@
     "primitive": "Extend current verified fetch/cache helper with explicit tar/zip member extraction; verify archive checksum/integrity before selection, reject unsafe/duplicate/symlink members, verify extracted member bytes/hash, and copy only pinned members."
   },
   "bindings": {
-    "runtime_lock_sha256": "a0a8d9f08f82c8bfba5bfb7b61fbfc016bf67431030de4210bfe7e2a511d9b16",
+    "runtime_lock_sha256": "9b6d16b7165824538291274d137bc8f178d1f5437b24b43215d6d62254cd7c4b",
     "ui_package_lock_sha256": "4fdab749dba0d3edb9b15ddf381f512eaef588d37832270b2b4a21eaee8c257f"
   },
   "covered_sources": [

@@ -70,7 +70,8 @@ not demonstrate every operation it implements:
   three scales, with nonuniform angular/axial cells, automatic support growth,
   renamed-source recipe replay and reversed fit-derived fixed axes. A separate
   extreme optional hint cannot suppress fresh fitting. Complete recovery
-  diagnostics participate in native/worker comparison.
+  diagnostics remain in both reports under the
+  [bounded semantic parity contract](../../docs/src/project/experiments/numerical-runtime-parity.md).
 - Canonical horizontal-cylinder and finite-cone spatial geometry, including
   negative extrapolated anchor radius, support-preserving rebasing/reversal and
   rigid transforms, normals and support membership. Stale legacy parameters
