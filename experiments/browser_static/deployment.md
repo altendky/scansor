@@ -73,11 +73,21 @@ The manual **Manual browser deployment** workflow accepts those four IDs/hashes.
 Run on `main` with `publish: false` to verify without Pages setup or publication.
 The preparation job downloads the exact ZIP, reads the selected source's runtime,
 UI and redistribution locks as data, checks provenance, archive digest, clean
-matching sources, all 20 CI steps, readiness and exact assets. It rejects unsafe,
+matching sources, all 25 CI steps, readiness and exact assets. It rejects unsafe,
 duplicate, hidden, linked, oversized or unlisted files. It executes no downloaded
 code and publishes neither evidence nor temporary build files. Its summary is
 the selection record. Source lock changes on today's main do not invalidate a
 valid older release; rollback uses the selected commit's approved inventory.
+
+Numerical-only workspace and source reports also bind to their own complete
+site and runtime manifests, capability profile and manifest-listed asset bytes.
+Those assets travel under `evidence/numerical-assets/` for validation, including
+the numerical source bundle and redistribution records. The trusted verifier
+requires a numerical-only profile there and a CAD profile for the deployed site;
+both use the selected source locks. It checks driver runtime identities and
+workspace capabilities against those exact manifests. Numerical proof assets
+are excluded from the Pages output, and the existing archive limits remain in
+force. A matching report hash alone does not establish that a run occurred.
 
 For a local rehearsal, use the same raw `gh api` run/artifact JSON and three
 raw lock files retrieved at that run's `head_sha`, in a disposable external

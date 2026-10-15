@@ -959,12 +959,63 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "assets": [record(name, data) for name, data in site_files.items()],
     }
     site_raw = encoded(site)
-    numerical_raw = encoded(
-        site | {"capabilities": site["capabilities"] | {"cad": False}}
+    # A genuinely distinct numerical profile: no CAD wheel or CAD supplement.
+    numeric_files, numeric_redistribution = supplement(["numeric"])
+    numeric_files.update(
+        {
+            name: data
+            for name, data in runtime_files.items()
+            if not name.startswith("redistribution/") and name != "runtime/cad.whl"
+        }
     )
+    numeric_runtime = copy.deepcopy(runtime_manifest)
+    numeric_runtime.update(
+        cad=False,
+        redistribution=numeric_redistribution,
+        assets=[
+            record(
+                name,
+                data,
+                group=next(
+                    (
+                        item["group"]
+                        for item in [*runtime_lock["assets"], *runtime_lock["licenses"]]
+                        if item["path"] == name
+                    ),
+                    "probe",
+                ),
+            )
+            for name, data in numeric_files.items()
+        ],
+    )
+    numeric_runtime_raw = encoded(numeric_runtime)
+    numeric_hash = VALIDATOR.sha256(numeric_runtime_raw)
+    numeric_prefix = f"app/runtime/{numeric_hash}"
+    numeric_site_files = {
+        name: data
+        for name, data in site_files.items()
+        if not name.startswith(prefix + "/")
+    }
+    numeric_site_files.update(
+        {f"{numeric_prefix}/{name}": data for name, data in numeric_files.items()}
+    )
+    numeric_site_files[f"{numeric_prefix}/manifest.json"] = numeric_runtime_raw
+    numeric_site = copy.deepcopy(site)
+    numeric_site["capabilities"]["cad"] = False
+    numeric_site["backend"].update(
+        cad=False, runtimeURL=f"./runtime/{numeric_hash}/worker.mjs"
+    )
+    numeric_site["runtime"].update(
+        cad_assets_present=False, path=numeric_prefix, manifest_sha256=numeric_hash
+    )
+    numeric_site["assets"] = [
+        record(name, data) for name, data in numeric_site_files.items()
+    ]
+    numerical_raw = encoded(numeric_site)
     evidence = {
         "site-manifest.json": site_raw,
         "numerical-site-manifest.json": numerical_raw,
+        "numerical-runtime-manifest.json": numeric_runtime_raw,
         "runtime-manifest.json": runtime_raw,
         "build-redistribution.json": encoded(assembled),
     }
@@ -1030,6 +1081,10 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         }
         if name in VALIDATOR.SEMANTIC_DRIVERS:
             report.update(semantic_report(name))
+        if name.startswith("numerical-"):
+            report["runtime"] = copy.deepcopy(numeric_site["runtime"])
+            if name == "numerical-workspace":
+                report["capabilities"] = copy.deepcopy(numeric_site["capabilities"])
         evidence[f"{name}.json"] = encoded(report)
     when = "2026-01-01T00:00:00Z"
     steps: list[dict[str, Any]] = []
@@ -1061,6 +1116,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "site-manifest": VALIDATOR.identity(site_raw),
             "runtime-manifest": VALIDATOR.identity(runtime_raw),
             "numerical-site-manifest": VALIDATOR.identity(numerical_raw),
+            "numerical-runtime-manifest": VALIDATOR.identity(numeric_runtime_raw),
             "redistribution-manifest": VALIDATOR.identity(
                 evidence["build-redistribution.json"]
             ),
@@ -1068,6 +1124,12 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     )
     members = {f"site/{name}": data for name, data in site_files.items()}
     members["site/manifest.json"] = site_raw
+    members.update(
+        {
+            f"evidence/numerical-assets/{name}": data
+            for name, data in numeric_site_files.items()
+        }
+    )
     members.update({f"evidence/{name}": data for name, data in evidence.items()})
     run, artifact = metadata()
     fixture = {
@@ -1363,7 +1425,7 @@ def test_packaged_policy_identity_is_bound_to_the_trusted_checkout(
     evidence = {
         name.removeprefix("evidence/"): raw
         for name, raw in selected["members"].items()
-        if name.startswith("evidence/")
+        if name.removeprefix("evidence/") in VALIDATOR.EVIDENCE
     }
     runtime = json.loads(evidence["runtime-manifest.json"])
     helper = runtime["source_files"][-1]
@@ -2562,3 +2624,316 @@ def test_metadata_json_parser_and_file_reader_keep_32mib_limit(tmp_path: Path) -
     _ = path.write_bytes(raw)
     with pytest.raises(ValueError, match="input exceeds size limit"):
         _ = VALIDATOR.regular_bytes(path)
+
+
+def rewrite_numerical_fixture(
+    selected: dict[str, Any],
+    manifest: dict[str, Any],
+    runtime: dict[str, Any],
+    files: dict[str, bytes],
+) -> None:
+    """Refresh all enclosing identities; never substitute a success receipt."""
+    members = selected["members"]
+    prior = json.loads(members["evidence/numerical-site-manifest.json"])
+    old_prefix = prior["runtime"]["path"]
+    for item in runtime["assets"]:
+        key = old_prefix + "/" + item["path"]
+        if key in files:
+            item.update(VALIDATOR.identity(files[key]))
+    runtime_raw = encoded(runtime)
+    digest = VALIDATOR.sha256(runtime_raw)
+    prefix = "app/runtime/" + digest
+    renamed = {
+        (
+            prefix + key[len(old_prefix) :] if key.startswith(old_prefix + "/") else key
+        ): value
+        for key, value in files.items()
+    }
+    renamed[prefix + "/manifest.json"] = runtime_raw
+    manifest["runtime"].update(path=prefix, manifest_sha256=digest)
+    manifest["backend"]["runtimeURL"] = "./runtime/" + digest + "/worker.mjs"
+    manifest["assets"] = [record(key, value) for key, value in renamed.items()]
+    raw = encoded(manifest)
+    for key in list(members):
+        if key.startswith("evidence/numerical-assets/"):
+            del members[key]
+    members.update(
+        {"evidence/numerical-assets/" + key: value for key, value in renamed.items()}
+    )
+    members["evidence/numerical-site-manifest.json"] = raw
+    members["evidence/numerical-runtime-manifest.json"] = runtime_raw
+    verification = json.loads(members["evidence/verification.json"])
+    verification["numerical-site-manifest"] = VALIDATOR.identity(raw)
+    verification["numerical-runtime-manifest"] = VALIDATOR.identity(runtime_raw)
+    for name in VALIDATOR.DRIVERS:
+        if name.startswith("numerical-"):
+            key = "evidence/" + name + ".json"
+            report = json.loads(members[key])
+            report.update(
+                manifest_sha256=VALIDATOR.sha256(raw),
+                runtime=copy.deepcopy(manifest["runtime"]),
+            )
+            if name == "numerical-workspace":
+                report["capabilities"] = copy.deepcopy(manifest["capabilities"])
+            members[key] = encoded(report)
+            next(step for step in verification["steps"] if step["name"] == name)[
+                "evidence"
+            ] = {"path": name + ".json", **VALIDATOR.identity(members[key])}
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+
+
+def numerical_fixture_parts(
+    selected: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, bytes]]:
+    members = selected["members"]
+    prefix = "evidence/numerical-assets/"
+    return (
+        json.loads(members["evidence/numerical-site-manifest.json"]),
+        json.loads(members["evidence/numerical-runtime-manifest.json"]),
+        {
+            key.removeprefix(prefix): value
+            for key, value in members.items()
+            if key.startswith(prefix)
+        },
+    )
+
+
+def test_genuine_numerical_profile_has_distinct_closure_and_is_never_published(
+    selected: dict[str, Any],
+) -> None:
+    manifest, runtime, files = numerical_fixture_parts(selected)
+    cad = json.loads(selected["members"]["site/manifest.json"])
+    assert runtime["cad"] is False and manifest["backend"]["cad"] is False
+    assert manifest["runtime"]["manifest_sha256"] != cad["runtime"]["manifest_sha256"]
+    assert not any(key.endswith("/runtime/cad.whl") for key in files)
+    rewrite_numerical_fixture(selected, manifest, runtime, files)
+    result = validate(selected)
+    assert result["verified"] is True
+    output = selected["tmp"] / "public-site"
+    assert not (output / manifest["runtime"]["path"]).exists()
+    assert (output / cad["runtime"]["path"] / "runtime/cad.whl").is_file()
+    assert not (output / "evidence").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "runtime-cad",
+        "site-cad",
+        "source-actions",
+        "source-import",
+        "backend",
+        "runtime-source",
+        "runtime-dirty",
+        "record-dirty",
+        "versions",
+        "lock",
+        "unreviewed-wasm",
+        "renamed-cad",
+        "missing-locked-asset",
+        "missing-notice",
+        "source-extra",
+        "source-bytes",
+        "helper-hash",
+        "redistribution-groups",
+        "redistribution-requirement",
+    ],
+)
+def test_numerical_profile_rejects_coherent_rehashed_bad_metadata_or_assets(
+    selected: dict[str, Any], fault: str
+) -> None:
+    manifest, runtime, files = numerical_fixture_parts(selected)
+    prefix = manifest["runtime"]["path"]
+    if fault == "runtime-cad":
+        runtime["cad"] = True
+    elif fault == "site-cad":
+        manifest["capabilities"]["cad"] = True
+    elif fault == "source-actions":
+        manifest["capabilities"]["source_actions"]["supported"] = False
+    elif fault == "source-import":
+        manifest["capabilities"]["source_import"]["limits"]["max_source_bytes"] += 1
+    elif fault == "backend":
+        manifest["backend"]["type"] = "http"
+    elif fault == "runtime-source":
+        runtime["source_revision"] = "b" * 40
+    elif fault == "runtime-dirty":
+        runtime["source_worktree_dirty"] = True
+    elif fault == "record-dirty":
+        manifest["runtime"]["source_worktree_dirty"] = True
+    elif fault == "versions":
+        runtime["versions"]["python"] = "not-selected"
+    elif fault == "lock":
+        runtime["runtime_lock_sha256"] = "0" * 64
+    elif fault in ("unreviewed-wasm", "renamed-cad"):
+        data = (
+            b"synthetic unreviewed wasm"
+            if fault == "unreviewed-wasm"
+            else b"synthetic locked CAD bytes; never installed"
+        )
+        name = (
+            "runtime/hidden.wasm"
+            if fault == "unreviewed-wasm"
+            else "runtime/renamed.dat"
+        )
+        files[prefix + "/" + name] = data
+        runtime["assets"].append(record(name, data, group="probe"))
+    elif fault in ("missing-locked-asset", "missing-notice"):
+        name = (
+            "runtime/pyodide.mjs"
+            if fault == "missing-locked-asset"
+            else "notices/core/LICENSE"
+        )
+        del files[prefix + "/" + name]
+        runtime["assets"] = [item for item in runtime["assets"] if item["path"] != name]
+    elif fault in ("source-extra", "source-bytes"):
+        buffer = io.BytesIO(files[prefix + "/scansor.zip"])
+        with zipfile.ZipFile(buffer) as archive:
+            payload = {name: archive.read(name) for name in archive.namelist()}
+        if fault == "source-extra":
+            payload["unlisted.py"] = b"never executed"
+        else:
+            payload[VALIDATOR.SEMANTIC_POLICY] += b"\n# changed bytes"
+        changed = io.BytesIO()
+        with zipfile.ZipFile(changed, "w") as archive:
+            for key, value in payload.items():
+                archive.writestr(key, value)
+        files[prefix + "/scansor.zip"] = changed.getvalue()
+    elif fault == "helper-hash":
+        runtime["source_files"][-1]["sha256"] = "0" * 64
+    elif fault == "redistribution-groups":
+        runtime["redistribution"]["requirements"] = []
+    elif fault == "redistribution-requirement":
+        manifest["redistribution"]["requirements"] = []
+    rewrite_numerical_fixture(selected, manifest, runtime, files)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing-runtime",
+        "runtime-identity",
+        "missing-asset",
+        "extra-asset",
+        "asset-bytes",
+        "asset-length",
+        "asset-traversal",
+    ],
+)
+def test_numerical_archive_intake_rejects_refreshed_outer_hash_mutations(
+    selected: dict[str, Any], fault: str
+) -> None:
+    members = selected["members"]
+    first = "evidence/numerical-assets/app/index.html"
+    if fault == "missing-runtime":
+        del members["evidence/numerical-runtime-manifest.json"]
+    elif fault == "runtime-identity":
+        report = json.loads(members["evidence/verification.json"])
+        report["numerical-runtime-manifest"]["sha256"] = "0" * 64
+        members["evidence/verification.json"] = encoded(report)
+    elif fault == "missing-asset":
+        del members[first]
+    elif fault == "extra-asset":
+        members["evidence/numerical-assets/extra.txt"] = b"not listed"
+    elif fault == "asset-bytes":
+        members[first] = b"x" * len(members[first])
+    elif fault == "asset-length":
+        members[first] += b"extra"
+    elif fault == "asset-traversal":
+        members["evidence/numerical-assets/../escaped"] = b"unsafe"
+    refresh(selected)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    ("driver", "fault"),
+    [
+        (name, fault)
+        for name in VALIDATOR.DRIVERS
+        if name.startswith("numerical-")
+        for fault in ("runtime", "runtime-missing")
+    ]
+    + [("numerical-workspace", "capabilities")],
+)
+def test_numerical_driver_copies_are_bound_to_own_profile(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    key = "evidence/" + driver + ".json"
+    report = json.loads(selected["members"][key])
+    if fault == "runtime":
+        report["runtime"]["manifest_sha256"] = "0" * 64
+    elif fault == "runtime-missing":
+        del report["runtime"]
+    else:
+        report["capabilities"]["cad"] = True
+    selected["members"][key] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][key])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "schema",
+        "entry",
+        "runtime-url",
+        "runtime-path",
+        "runtime-hash",
+        "runtime-versions",
+        "record-cad",
+    ],
+)
+def test_numerical_manifest_links_reject_after_all_report_copies_are_refreshed(
+    selected: dict[str, Any], fault: str
+) -> None:
+    manifest, _, _ = numerical_fixture_parts(selected)
+    if fault == "schema":
+        manifest["schema_version"] = 2
+    elif fault == "entry":
+        manifest["entry"] = "app/other.html"
+    elif fault == "runtime-url":
+        manifest["backend"]["runtimeURL"] = "./other/worker.mjs"
+    elif fault == "runtime-path":
+        manifest["runtime"]["path"] = "app/runtime/wrong"
+    elif fault == "runtime-hash":
+        manifest["runtime"]["manifest_sha256"] = "0" * 64
+    elif fault == "runtime-versions":
+        manifest["runtime"]["versions"]["python"] = "other"
+    else:
+        manifest["runtime"]["cad_assets_present"] = True
+    members = selected["members"]
+    raw = encoded(manifest)
+    members["evidence/numerical-site-manifest.json"] = raw
+    verification = json.loads(members["evidence/verification.json"])
+    verification["numerical-site-manifest"] = VALIDATOR.identity(raw)
+    for name in VALIDATOR.DRIVERS:
+        if name.startswith("numerical-"):
+            key = "evidence/" + name + ".json"
+            report = json.loads(members[key])
+            report.update(
+                manifest_sha256=VALIDATOR.sha256(raw),
+                runtime=copy.deepcopy(manifest["runtime"]),
+            )
+            if name == "numerical-workspace":
+                report["capabilities"] = copy.deepcopy(manifest["capabilities"])
+            members[key] = encoded(report)
+            next(step for step in verification["steps"] if step["name"] == name)[
+                "evidence"
+            ] = {"path": name + ".json", **VALIDATOR.identity(members[key])}
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
