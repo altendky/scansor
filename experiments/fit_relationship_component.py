@@ -432,6 +432,10 @@ def fit_relationship_component(
             "perpendicular_to_axis",
         }:
             raise RelationshipFailure("unsupported datum plane construction")
+        if (datum.axis is None) != (datum.construction is None):
+            raise RelationshipFailure(
+                "datum plane axis and construction must be declared together"
+            )
         provider_key = plane_roots[key]
         reference = plane_equations[provider_key]
         plane_alias_signs[key] = 1.0 if equation[:3] @ reference[:3] >= 0 else -1.0
@@ -1239,10 +1243,17 @@ def fit_relationship_component(
             value["coordinates"] = value["point_display"].copy()
     equations: dict[str, list[float]] = {}
     output_planes: dict[str, dict[str, Any]] = {}
-    for key, datum in planes.items():
+
+    def world_plane_equation(key: str) -> list[float]:
+        provider = plane_roots[key]
+        if provider in fixed_planes:
+            return (plane_alias_signs[key] * plane_equations[provider]).tolist()
         normal, offset, _, _ = plane_geometry(key, parameters)
-        world_offset = float(length * offset + normal @ origin)
-        equation = [*map(float, normal), world_offset]
+        return [*map(float, normal), float(length * offset + normal @ origin)]
+
+    for key, datum in planes.items():
+        equation = world_plane_equation(key)
+        normal, world_offset = np.asarray(equation[:3]), equation[3]
         equations[key] = equation
         record = {
             **deepcopy(datum.result),
@@ -1258,9 +1269,22 @@ def fit_relationship_component(
                 np.asarray(axis_record["axis_display"]),
             )
             first, second = basis(direction)
+            # Reference-plane clocking uses axis x reference; surface charts
+            # use the opposite transverse basis.
+            first, second = -first, -second
             radial = np.cross(normal, direction)
+            if construction == "perpendicular_to_axis":
+                plane_u = first
+                plane_v = np.cross(normal, plane_u)
+            else:
+                radial /= np.linalg.norm(radial)
+                plane_u, plane_v = direction, radial
+            plane_v /= np.linalg.norm(plane_v)
             record.update(
                 axis_display=direction.tolist(),
+                basis_u_display=plane_u.tolist(),
+                basis_v_display=plane_v.tolist(),
+                radial_display=plane_v.tolist(),
                 point_display=(
                     anchor + (world_offset - normal @ anchor) * normal
                 ).tolist(),
@@ -1272,12 +1296,24 @@ def fit_relationship_component(
             )
         else:
             record["point_display"] = (world_offset * normal).tolist()
+            plane_u, plane_v = basis(normal)
+            record.update(
+                basis_u_display=plane_u.tolist(),
+                basis_v_display=plane_v.tolist(),
+                radial_display=plane_v.tolist(),
+            )
+        if "parameters" in record:
+            record["parameters"] = equation.copy()
         output_planes[key] = record
     for surface in surfaces:
         result = deepcopy(surface.result)
         if surface.kind == "plane":
             normal, offset, _, _ = plane_geometry(plane_keys[surface.id], parameters)
-            equation = [*map(float, normal), float(length * offset + normal @ origin)]
+            equation = (
+                world_plane_equation(plane_keys[surface.id])
+                if symmetry
+                else [*map(float, normal), float(length * offset + normal @ origin)]
+            )
             equations[plane_keys[surface.id]] = equation
             result.update(parameters=equation, plane_equation=equation)
             residual = surface.points @ normal - equation[3]

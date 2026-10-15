@@ -80,7 +80,7 @@ evidence.
 
 ## Executed verification
 
-All 47 independent
+All 53 independent
 [symmetry cases](../../../../tests/test_relationship_symmetry.py) pass. They use
 their own Rodrigues/reflection construction rather than production transforms
 as geometry oracles. Cases cover horizontal members, oblique poses, fixed/free
@@ -98,6 +98,14 @@ parameters and reject inconsistent fixed geometry. Cancellation, evaluation
 quotas, preservation of input records and strict-JSON failure diagnostics are also
 covered.
 
+Publication regressions supply complete datum records, then verify that refined
+plane equations, point/normal vectors, tangent bases, radial guides and clocking
+agree. Clocking follows the existing reference-plane convention, which uses the
+opposite transverse basis from surface charts. Fixed normalized world equations
+are preserved in datum, alias and attached-surface outputs. Incomplete
+axis/construction pairs fail before callbacks instead of producing an undefined
+display frame.
+
 New symmetry attempts use normalized projected-gradient tolerance **1e-10**;
 the historical component default remains **1e-9**. An exact posed free-cylinder
 case stopped with RMS about 7.45e-8 at the old setting. The new setting reaches
@@ -108,7 +116,7 @@ No failed iterate is accepted as a fallback, and iteration/trial budgets and
 the complete weighted objective retain their existing meanings. This is a
 local numerical setting, not a physical error threshold.
 
-The full non-mesh suite passes **2,722 tests plus 32 subtests**, using four
+The final full non-mesh suite passes **2,728 tests plus 32 subtests**, using four
 workers with CI's mesh-suite isolation. Full types pass with zero errors or
 warnings. The separate 751-case serial mesh suite passed on the support-enabled
 base; this change does not modify that ingestion path. Graph/reuse/CAD symmetry

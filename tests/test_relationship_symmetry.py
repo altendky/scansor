@@ -685,7 +685,15 @@ def test_symmetry_callbacks_are_bounded_and_cancel_without_mutating_intent() -> 
 
 
 @pytest.mark.parametrize(
-    "defect", ["duplicate", "mixed-kind", "missing-axis", "missing-plane"]
+    "defect",
+    [
+        "duplicate",
+        "mixed-kind",
+        "missing-axis",
+        "missing-plane",
+        "datum-axis-only",
+        "datum-construction-only",
+    ],
 )
 def test_invalid_symmetry_has_typed_strict_json_diagnostic(defect: str) -> None:
     case = _case("cylinder", "rotation")
@@ -705,11 +713,26 @@ def test_invalid_symmetry_has_typed_strict_json_diagnostic(defect: str) -> None:
         rotations = (
             RotationInput("missing", cast(tuple[str, str, str], case.members)),
         )
-    else:
+    elif defect == "missing-plane":
         mirrors = (MirrorInput("missing", cast(tuple[str, str], case.members[:2])),)
+    else:
+        case.planes["broken"] = PlaneInput(
+            {"plane_equation": [0.0, 0.0, 1.0, 0.0]},
+            free=True,
+            axis="central" if defect == "datum-axis-only" else None,
+            construction="contains_axis"
+            if defect == "datum-construction-only"
+            else None,
+        )
     with pytest.raises(RelationshipFailure) as captured:
         _ = fit_relationship_component(
-            case.surfaces, case.axes, [], [], rotations=rotations, mirrors=mirrors
+            case.surfaces,
+            case.axes,
+            [],
+            [],
+            planes=case.planes,
+            rotations=rotations,
+            mirrors=mirrors,
         )
     assert captured.value.code
     _ = json.dumps(captured.value.diagnostic, allow_nan=False)
@@ -833,3 +856,88 @@ def test_rotational_lines_jointly_identify_plane_without_individual_plane_fits()
     _check_rows(case, fitted)
     for surface in case.surfaces:
         assert fitted["surfaces"][surface.id]["weighted_rms"] < 1e-8
+
+
+@pytest.mark.parametrize("kind", ["plane", "cylinder", "cone"])
+def test_refined_mirror_datum_republishes_complete_solved_display_frame(
+    kind: Kind,
+) -> None:
+    case = _case(kind, "mirror", oblique=True)
+    seed = deepcopy(case.planes["mirror"].result)
+    seed_normal = np.asarray(seed["plane_equation"])[:3]
+    seed_radial = _unit(np.cross(seed_normal, case.central_direction))
+    first, second = _frame(case.central_direction)
+    seed.update(
+        basis_u_display=case.central_direction.tolist(),
+        basis_v_display=seed_radial.tolist(),
+        radial_display=seed_radial.tolist(),
+        normal_display=seed_normal.tolist(),
+        point_display=case.center.tolist(),
+        axis_display=case.central_direction.tolist(),
+        offset=0.0,
+        construction="contains_axis",
+        angle_degrees=float(
+            np.degrees(np.arctan2(seed_radial @ second, seed_radial @ first))
+        ),
+    )
+    case.planes["mirror"] = replace(case.planes["mirror"], result=seed)
+    before = deepcopy(seed)
+    fitted = _fit(case, "mirror")
+    record = fitted["planes"]["mirror"]
+    equation = np.asarray(record["plane_equation"])
+    normal = equation[:3]
+    direction = np.asarray(fitted["axes"][case.central_key]["axis_display"])
+    # This must test moved clocking, rather than a seed coincident with truth.
+    assert np.linalg.norm(np.cross(seed_normal, normal)) > 0.005
+    basis_u = np.asarray(record["basis_u_display"])
+    basis_v = np.asarray(record["basis_v_display"])
+    frame = np.column_stack((basis_u, basis_v, normal))
+    np.testing.assert_allclose(frame.T @ frame, np.eye(3), atol=1e-10)
+    np.testing.assert_allclose(np.cross(basis_u, basis_v), normal, atol=1e-10)
+    np.testing.assert_allclose(basis_u, direction, atol=1e-10)
+    expected_radial = _unit(np.cross(normal, direction))
+    np.testing.assert_allclose(basis_v, expected_radial, atol=1e-10)
+    np.testing.assert_allclose(record["radial_display"], expected_radial, atol=1e-10)
+    np.testing.assert_allclose(record["normal_display"], normal, atol=1e-10)
+    point = np.asarray(record["point_display"])
+    assert normal @ point == pytest.approx(equation[3], abs=1e-10)
+    anchor = np.asarray(fitted["axes"][case.central_key]["point_display"])
+    assert record["offset"] == pytest.approx(equation[3] - normal @ anchor, abs=1e-10)
+    first, second = _frame(direction)
+    angle = np.radians(record["angle_degrees"])
+    np.testing.assert_allclose(
+        np.cos(angle) * first + np.sin(angle) * second, expected_radial, atol=1e-10
+    )
+    assert case.planes["mirror"].result == before
+    _ = json.dumps(record, allow_nan=False)
+
+
+def test_fixed_world_plane_publishes_its_exact_authored_equation_in_every_record() -> (
+    None
+):
+    equation = [0.0, 0.0, 1.0, 0.1]
+    points = np.array([[0.0, 0, 1], [1.0, 0, 2], [0.0, 1, 3]])
+    fitted = fit_relationship_component(
+        [
+            SurfaceInput(
+                "hard",
+                "plane",
+                points,
+                np.array([0.2, 1.0, 2.0]),
+                {"kind": "plane", "plane_equation": equation.copy()},
+                datum="fixed",
+            )
+        ],
+        {},
+        [],
+        [],
+        planes={"fixed": PlaneInput({"plane_equation": equation.copy()}, free=False)},
+    )
+    assert fitted["planes"]["fixed"]["plane_equation"] == equation
+    assert fitted["equations"]["fixed"] == equation
+    assert fitted["surfaces"]["hard"]["plane_equation"] == equation
+    assert fitted["surfaces"]["hard"]["parameters"] == equation
+    np.testing.assert_array_equal(
+        fitted["surfaces"]["hard"]["residuals"], points[:, 2] - 0.1
+    )
+    _ = json.dumps(fitted, allow_nan=False)
