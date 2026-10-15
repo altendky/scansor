@@ -52,8 +52,8 @@ new path only when finite support and selected projections remain on the positiv
 sheet. Pure [support mathematics](../../../../experiments/support_intent.py)
 supplies those coordinates. The extracted foundation alone did not enable
 [#264](https://github.com/altendky/scansor/issues/264)'s graph transfer or
-source-reuse workflow; the current integration includes that separately verified
-support-intent draft, whose delivery gates remain independent.
+source-reuse workflow. That support-intent workflow is now delivered separately;
+the current integration preserves its authority, provenance and support carriers.
 
 The optional `planes`, `rotations`, `mirrors` and `radius_distances` inputs select
 the canonical equation path when nonempty. At extraction, calls without them

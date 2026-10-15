@@ -394,9 +394,9 @@ own initialization and positive-sheet support evidence:
 | `fit_relationship_component` | A chart basis per free axis, semantic anchor/support rebasing and canonical constrained publication |
 | `feature_reuse` | Rigid canonical hints and axis geometry; legacy numerical helpers stay explicit |
 
-The internal numerical/graph cylinder and initial cone paths are delivered for
-independently tested eligible cases. The integrated support-transfer, long-cone
-admission and named symmetry drafts retain fresh verification and delivery gates.
+The internal numerical/graph cylinder, initial cone and support-transfer paths
+are delivered for independently tested eligible cases. Long-cone admission and
+named symmetry drafts retain fresh verification and delivery gates.
 The approved #266 semantic comparison preserves published results, intent,
 acceptance classifications and finite budgets while retaining diagnostic traces.
 Native/worker source import, common authoring and source-aware actions opening
