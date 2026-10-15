@@ -75,8 +75,25 @@ rotated charts. Publication uses canonical source-coordinate geometry, including
 horizontal axes; optional wrong/stale hints do not replace fresh attempts. Free
 shared cylinder groups use their combined observations and independent radii;
 fixed axes remain exact. Per-axis constrained charts, derived axes, radius
-equalities and rigid reuse consume the canonical geometry. Generic
-rotational/mirror groups remain guarded pending their integration work.
+equalities and rigid reuse consume the canonical geometry. Generic named
+rotational/mirror solves use selected observations through bounded joint
+recovery, without requiring independent member-fit admission. The
+[canonical symmetry integration](../experiments/generic-symmetry-fitting.md)
+also preserves exact provider roles and each member's hard support during CAD
+pooling. This is implemented in the draft #272/#273 stack; packaged parity and
+current-head CI remain delivery gates.
+
+The [raw-nozzle acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
+opens only the retained RealityScan PLY bytes into a source-only project, then
+fits an authored 803-row plane patch and 5,066-row cylinder patch. Example-file
+reads and the legacy workspace accessor are denied during fitting and replay.
+An independent raw-body calculation checks source coordinates, normals, triangle
+areas, every selected row and the full incident-area-weighted objective. Saved
+actions contain authored selections and fit declarations without computed seeds;
+reopening renamed identical bytes reproduces the results exactly. The rough real
+lateral patch mixes geometry, so this is implementation evidence without a fit
+quality threshold. Independent analytic fixtures remain the geometry oracle;
+adapter/UI opening and full native/worker acceptance remain separate gates.
 
 Standalone cones now derive a centered-normal axis proposal plus raw-normal and
 positional alternatives. A residualized projected-center solve followed by radial
@@ -290,6 +307,8 @@ Current implementation gaps:
   still includes fixture selection/model configuration through its explicit
   adapter. Independent plane/sphere/cylinder/cone fits use generic source
   identity and computed starts; nozzle examples retain their legacy adapter.
+  Generic named rotational/mirror integration is implemented in the draft stack;
+  fresh packaged execution and final current-head verification remain gates.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
   centers and scales legacy numerical coordinates. Generic cylinders and cones
   additionally rotate each proposal chart, while relationship components use one chart per
@@ -375,10 +394,14 @@ own initialization and positive-sheet support evidence:
 | `fit_relationship_component` | A chart basis per free axis, semantic anchor/support rebasing and canonical constrained publication |
 | `feature_reuse` | Rigid canonical hints and axis geometry; legacy numerical helpers stay explicit |
 
-The internal numerical/graph cylinder path is enabled for the independently
-tested eligible cases. Adapter/UI file import and full workflow acceptance remain
-in #240 and its integration children; this does not claim a completed end-user
-import feature. Cone dispatch remains guarded until its family gates pass.
+The internal numerical/graph cylinder, initial cone and support-transfer paths
+are delivered for independently tested eligible cases. Long-cone admission and
+named symmetry drafts retain fresh verification and delivery gates.
+The approved #266 semantic comparison preserves published results, intent,
+acceptance classifications and finite budgets while retaining diagnostic traces.
+Native/worker source import, common authoring and source-aware actions opening
+are delivered; full workflow acceptance remains #240/#245. None of these checks
+establishes physical accuracy or support for larger scans or additional formats.
 
 ### Saved intent and computed starts
 

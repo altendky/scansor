@@ -14,6 +14,8 @@ function unit(value, name, canonical = false) {
   if (!(length > 0) || !Number.isFinite(length) ||
       (canonical && Math.abs(length - 1) > 1e-10))
     invalid(`${name} must be ${canonical ? 'a unit direction' : 'nonzero and normalizable'}`);
+  // Preserve the rounded canonical direction used to resolve its hard caps.
+  if (canonical && Math.abs(length - 1) <= 4 * Number.EPSILON) return result;
   return result.map(component => component / length);
 }
 

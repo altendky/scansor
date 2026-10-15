@@ -77,6 +77,16 @@ not demonstrate every operation it implements:
   rigid transforms, normals and support membership. Stale legacy parameters
   cannot override the canonical record; these spatial cases remain separate
   from the selected-data cylinder fitting cases.
+- Six [frozen imported symmetry scenes](symmetry/README.md), covering each
+  plane/cylinder/cone family with ordered rotation and reflection. Named graph
+  solves consume original strict-PLY observations without standalone member
+  admission, then replay saved recipes over renamed identical bytes. The probe
+  independently checks raw coordinates/normals/triangles, incident weights,
+  every residual, known geometry and finite support. Truth is checked only after
+  solving. Complete graph and replay operands participate in the shared bounded
+  semantic comparison, with all attempt diagnostics retained. The six scenes
+  add six cross-runtime receipts and six local replay pairs per runtime; the
+  runtime imports no test generator.
 - Optional Scansor cylinder intersections, bounded face construction, kernel
   validity/area, tessellation and named millimeter STEP. Browser-produced STEP
   is reopened natively to verify validity, area and its Unicode name.

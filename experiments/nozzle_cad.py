@@ -37,7 +37,8 @@ from experiments.ocp_geometry import (
     transform_shape,
 )
 from experiments.scan_workspace import Workspace
-from experiments.surface_primitives import primitive
+from experiments.support_intent import SelectionSupport, support_from_result
+from experiments.surface_primitives import primitive, revolution_geometry
 from scansor._plyio import (
     Element,
     ListProperty,
@@ -210,10 +211,27 @@ def _preflight_faces(
         )
 
 
+def _pooled_lateral_patch(
+    surface: dict[str, Any], positions: np.ndarray
+) -> TopoDS_Shape:
+    """Pool display extents without borrowing another member's authored caps."""
+    temporary = {**surface, "ids": list(range(len(positions)))}
+    if "analytic" in surface and isinstance(
+        support_from_result(surface), SelectionSupport
+    ):
+        geometry = revolution_geometry(surface)
+        heights = (positions - geometry["origin"]) @ np.asarray(geometry["axis"])
+        temporary["analytic"] = {
+            **geometry,
+            "axial_domain": [float(heights.min()), float(heights.max())],
+        }
+    return surface_patch(temporary, positions)
+
+
 def joint_shapes(
     result: dict[str, Any], constraints: list[dict[str, Any]], positions: np.ndarray
 ) -> dict[str, TopoDS_Shape]:
-    """Bound symmetry members in slot zero's frame, then transform one patch."""
+    """Pool observation extents while retaining each lateral member's hard caps."""
     surfaces = result["surfaces"]
     patches: dict[str, TopoDS_Shape] = {}
     axis = np.asarray(result["axis_display"], dtype=float)
@@ -238,14 +256,19 @@ def joint_shapes(
                     for id, rotation in zip(ids, rotations, strict=True)
                 ]
             )
-            base = surface_patch(
-                {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
-            )
-            for id, rotation in zip(ids, rotations, strict=True):
-                matrix = np.eye(4)
-                matrix[:3, :3] = rotation
-                matrix[:3, 3] = center - rotation @ center
-                patches[id] = transform_shape(base, matrix)
+            if surfaces[ids[0]]["kind"] in {"cylinder", "cone"}:
+                for id, rotation in zip(ids, rotations, strict=True):
+                    pooled = center + (combined - center) @ rotation.T
+                    patches[id] = _pooled_lateral_patch(surfaces[id], pooled)
+            else:
+                base = surface_patch(
+                    {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
+                )
+                for id, rotation in zip(ids, rotations, strict=True):
+                    matrix = np.eye(4)
+                    matrix[:3, :3] = rotation
+                    matrix[:3, 3] = center - rotation @ center
+                    patches[id] = transform_shape(base, matrix)
         elif constraint["operation"] == "mirror_symmetry":
             ids = constraint["surfaces"]
             mirror = result.get("mirror_planes", {}).get(constraint["plane"])
@@ -268,12 +291,18 @@ def joint_shapes(
                     positions[surfaces[ids[1]]["ids"]] @ reflection.T + offset,
                 ]
             )
-            base = surface_patch(
-                {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
-            )
-            matrix = np.eye(4)
-            matrix[:3, :3], matrix[:3, 3] = reflection, offset
-            patches[ids[0]], patches[ids[1]] = base, transform_shape(base, matrix)
+            if surfaces[ids[0]]["kind"] in {"cylinder", "cone"}:
+                patches[ids[0]] = _pooled_lateral_patch(surfaces[ids[0]], combined)
+                patches[ids[1]] = _pooled_lateral_patch(
+                    surfaces[ids[1]], combined @ reflection.T + offset
+                )
+            else:
+                base = surface_patch(
+                    {**surfaces[ids[0]], "ids": list(range(len(combined)))}, combined
+                )
+                matrix = np.eye(4)
+                matrix[:3, :3], matrix[:3, 3] = reflection, offset
+                patches[ids[0]], patches[ids[1]] = base, transform_shape(base, matrix)
     for id, surface in surfaces.items():
         if id not in patches:
             patches[id] = surface_patch(surface, positions)

@@ -59,6 +59,41 @@ test('canonical unit-axis validation accepts only normalization roundoff', () =>
   assert.throws(() => revolutionGeometry(fitted), /unit direction/);
 });
 
+test('repeated canonical reads preserve the frozen symmetry axis and exact caps', () => {
+  for (const sign of [1, -1]) {
+    const geometry = {
+      kind: 'cylinder', origin: [11.4842720016505, -5.475575813806024, 10.441582089462466],
+      axis: [0.4877001918059968, 0.23200471461500444, 0.8416188777046322].map(v => sign * v),
+      radius: 2.0000000174407604, slope: 0,
+      axial_domain: sign === 1 ? [-8.006840652110514, -1.0068399598725697] :
+        [1.0068399598725697, 8.006840652110514],
+    }, before = structuredClone(geometry);
+    for (const repetitions of [1, 2, 8]) {
+      let current = structuredClone(geometry);
+      for (let index = 0; index < repetitions; index++) {
+        current = revolutionGeometry({ kind: 'cylinder', analytic: current });
+        assert.deepEqual(current, before);
+        assert.deepEqual(axisGeometry({ kind: 'cylinder', analytic: current }),
+          { origin: before.origin, axis: before.axis });
+      }
+    }
+    assert.deepEqual(geometry, before);
+  }
+});
+
+test('four-epsilon canonical preservation retains normalization and rejection beyond it', () => {
+  const fitted = canonical();
+  for (const ulps of [-4, 4]) {
+    fitted.analytic.axis = [1 + ulps * Number.EPSILON, 0, 0];
+    assert.deepEqual(revolutionGeometry(fitted).axis, fitted.analytic.axis);
+  }
+  fitted.analytic.axis = [1 + 5 * Number.EPSILON, 0, 0];
+  assert.deepEqual(revolutionGeometry(fitted).axis, [1, 0, 0]);
+  // Noncanonical axis access still normalizes even at one epsilon.
+  assert.deepEqual(axisGeometry({ point_display: [0, 0, 0],
+    axis_display: [1 + Number.EPSILON, 0, 0] }).axis, [1, 0, 0]);
+});
+
 test('malformed explicit analytic records fail without legacy fallback', () => {
   const legacy = { kind: 'cylinder', parameters: [0, 0, 0, 0, 2, 0, 0] },
     valid = canonical().analytic,

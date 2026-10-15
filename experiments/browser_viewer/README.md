@@ -65,11 +65,14 @@ changed bytes cannot. Cancel or a validation failure preserves the current
 project and unfinished edit. Matching legacy example actions require that actual
 example to be loaded.
 
-Worker source operations and Force retention have a draft implementation with
+Worker source operations and Force retention are delivered with
 [measured source-only evidence](../../docs/src/project/planning/worker-scan-import.md).
-Strict imported-fit parity remains blocked by #266. Worker source-aware actions
-opening and full both-backend workflow acceptance remain separate delivery gates;
-the worker's `sourceActions` capability is still unavailable.
+Worker source-aware actions opening is delivered through protocol 6. It retains
+the accepted source and definitions together, with explicit matching-file lookup
+when needed. The shared
+[bounded semantic parity contract](../../docs/src/project/experiments/numerical-runtime-parity.md)
+protects published results and retains diagnostic differences. Broader numerical
+integration and full both-backend workflow acceptance remain delivery gates.
 
 Actions downloads do not save original scan bytes or unfinished editor drafts.
 
@@ -552,8 +555,8 @@ panel is open; closing it clears the helper highlights.
    also be constructed through two point outputs, directed from the first toward
    the second. Every axis has an explicit **Flip positive direction** setting
    and is drawn with an arrowhead. Point-pair axes support arbitrary directions,
-   including horizontal ones; in this bounded slice they are datum-only and do
-   not yet drive surface fits.
+   including horizontal ones. The imported-source fitting path can use them as
+   fixed references; retained example fitting paths keep their chart limits.
 5. **Plane** creates an explicit reference plane from an earlier axis. Choose
    **Contains axis**, **Parallel to axis**, or **Perpendicular to axis**. The
    first two use a clocking angle; a parallel plane also has a signed normal
@@ -598,7 +601,7 @@ panel is open; closing it clears the helper highlights.
    Export applies the same matrix. Upstream fitted values remain in source
    coordinates, and the construction pieces remain independently inspectable.
 9. **Feature** is the high-level reuse workflow. Choose one or more existing
-   cylinder/plane fits, a painted reference selection on that occurrence, and
+   cylinder/cone/plane fits, a painted reference selection on that occurrence, and
    one or more painted target selections on similar occurrences. It estimates
    an independent approximate rigid transform for each target, captures the
    source fits' datum/relationship lineage, and generates a separate target
@@ -627,7 +630,7 @@ panel is open; closing it clears the helper highlights.
    token-bound preview/apply HTTP adapters validate against the current graph.
    A request's allocation seed makes preview and apply allocate the same new
    IDs. Loading or evaluating a recipe does not reconcile its managed children.
-10. **Region** lifts an earlier selection and its cylinder or plane fit into a
+10. **Region** lifts an earlier selection and its cylinder, cone or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,
    surface-normal, and normal-angle margins. **Apply** places that region in
@@ -635,8 +638,8 @@ panel is open; closing it clears the helper highlights.
    The applied selection is a normal input to later surface fits. Fit it
    standalone before using that fit to initialize a refined target axis; making
    the applied selection directly drive the same free frame would be circular.
-   This first slice does not yet support cones, target-pose discovery, or another
-   scan.
+   Cone regions follow generator length and reject margins crossing the apex.
+   Target-pose discovery and transfer to another scan remain outside this slice.
 11. **Relationship…** accepts either the features already selected in the tree or
    participants chosen entirely in its dialog. The currently implemented choices
    are exact coincident planes, parallel plane fits, equal sphere/cylinder radii,
@@ -714,8 +717,11 @@ and joint guides are brighter, and constraints show available standalone guides.
 Guides show through the mesh; their extents are display support, not inferred
 physical boundaries or uncertainty. Residual colors use independent symmetric
 blue/white/red scales per surface. Units remain unconfirmed and lower training
-residual is not physical validation. Cone/cylinder initialization and local frame
-remain specific to this example, including the default axial support `[-2, 5]`.
+residual is not physical validation. The retained example adapter supplies its
+own local frame and default axial support `[-2, 5]`. Imported-source fits instead
+derive numerical starts from their selected observations and publish canonical
+source-coordinate geometry. Native and worker file opening use the common source
+interface described above; full workflow acceptance remains a separate gate.
 
 ### Fitting support and numerical diagnostics
 
@@ -724,9 +730,12 @@ physical-edge constraints on the fixed observation factors. Cylinder and cone
 side factors evaluate the analytic surface on every selected observation with
 its original weight; a fitted-axis change does not silently remove a row or make
 an outside-support projection a line-search failure. Standalone and shared-axis
-fits use the same distinction. Cone radii at the reference and declared endpoints
-must remain positive, and undefined radial derivatives/apex-crossing projections
-remain invalid geometry. Growth continues to classify candidates against support.
+fits use the same distinction. Imported cone radii at the declared endpoints and
+selected orthogonal projections must remain positive; their extrapolated anchor
+radius can be negative. The legacy example chart retains its positive reference
+radius. Undefined radial derivatives/apex-crossing projections remain invalid
+geometry. Explicit authored bounds clip growth; automatic imported cylinder/cone
+growth does not clip to the seed's display endpoints.
 Standalone results report inside/outside support counts separately from residuals.
 
 The experimental nonlinear fitting paths now share centered/scaled coordinates
@@ -749,8 +758,15 @@ separate `blocked_by` causes. Readiness preserves failure records until a
 successful explicit retry or an edit invalidates them.
 
 No finite-edge/cap distance objective or general nonlinear-constrained optimum is
-implied. The positive-Z axis chart and cone positive-reference-radius restriction
-remain explicit limits; see the [cone fitting experiment](../mesh-cone-fit/README.md).
+implied. The positive-Z axis chart and positive reference-radius restriction
+remain limits of the legacy example relationship paths; see the
+[cone fitting experiment](../mesh-cone-fit/README.md). Imported standalone and
+fixed/free shared-axis fits use canonical arbitrary-pose geometry. Imported named
+rotational/mirror groups also derive joint starts from their selected rows.
+A member's failed standalone fit does not exclude its observations from a named
+solve. Named output contexts remain separate from raw member results. The draft
+integration preserves each lateral member's own hard support during CAD extent
+pooling; final packaged parity and CI remain delivery gates.
 
 ## Rotational surface symmetry
 
