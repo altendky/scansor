@@ -15,9 +15,10 @@ outside the intended boundary.
 ## Documentation
 
 - [Single-scan import contract](planning/single-scan-import.md)
-  - **Evidence and proposed policy:** verified raw RealityScan mesh profile,
-    shared source/workspace and transactional import/recovery recommendations,
-    explicit user decisions and dependency gates; user-file import remains
+  - **Agreed bounded contract and implementation gates:** verified raw RealityScan
+    mesh profile, shared source/workspace and transactional import/recovery,
+    computed seeds excluded from saved actions, and fit-family work breakdown;
+    user-file import remains
     unimplemented
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
