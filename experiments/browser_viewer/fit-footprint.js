@@ -1,5 +1,7 @@
 // Display-only boundaries of projected fitting observations, not physical trims.
 // Mesh connectivity preserves gaps/holes; the fallback convex envelope does not.
+import { revolutionGeometry } from './analytic-geometry.js';
+
 const TAU = 2 * Math.PI, ANGLE_STEP = Math.PI / 48;
 const knownTopologies = new WeakSet();
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -216,15 +218,17 @@ function planeFootprint(fitted, points) {
 }
 
 function axialFrame(fitted, first) {
-  const p = fitted.parameters;
-  if (!Array.isArray(p) || p.length !== 7 || ![...p].every(Number.isFinite) ||
-      (fitted.kind === 'cylinder' && !(p[4] > 0))) return null;
-  const axis = unit([p[2], p[3], 1]);
-  if (!axis) return null;
-  const [u, v] = chart(axis), origin = [p[0], p[1], 0], slope = fitted.kind === 'cone' ? p[6] : 0,
+  let geometry;
+  try { geometry = revolutionGeometry(fitted); }
+  catch (error) {
+    if (Object.hasOwn(fitted, 'analytic')) throw error;
+    return null; // Preserve the existing invalid-legacy display fallback.
+  }
+  const { axis, origin, slope, radius } = geometry,
+    [u, v] = chart(axis),
     firstHeight = dot(subtract(first, origin), axis),
     anchor = origin.map((value, index) => value + firstHeight * axis[index]),
-    firstRadial = subtract(first, anchor), baseRadius = p[4] + slope * firstHeight,
+    firstRadial = subtract(first, anchor), baseRadius = radius + slope * firstHeight,
     meridianLength = Math.hypot(1, slope), meridianH = 1 / meridianLength,
     meridianR = slope / meridianLength;
   if (!Number.isFinite(baseRadius)) return null;
@@ -327,6 +331,7 @@ function projectMeshLoops(fitted, points, loops) {
 }
 
 export function fittedSelectionFootprint(fitted, positions, topology = null) {
+  if (fitted && Object.hasOwn(fitted, 'analytic')) revolutionGeometry(fitted);
   if (!fitted || !['plane', 'cylinder', 'cone'].includes(fitted.kind)) return [];
   const points = selectedPoints(fitted, positions);
   if (!points) return [];

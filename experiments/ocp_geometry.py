@@ -41,7 +41,7 @@ from OCP.TopAbs import TopAbs_REVERSED
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Shape, TopoDS_Wire
 
-from experiments.surface_primitives import basis, primitive
+from experiments.surface_primitives import basis, primitive, revolution_geometry
 
 Array = NDArray[np.float64]
 KERNEL_TOLERANCE = 1e-9
@@ -346,8 +346,10 @@ def surface_patch(surface: dict[str, Any], positions: Array) -> TopoDS_Face:
     if upper - lower <= 1e-12:
         raise ValueError("lateral patch needs axial coverage")
     pad = (upper - lower) * 0.05
-    domain = surface["axial_domain"]
-    lower, upper = max(domain[0], lower - pad), min(domain[1], upper + pad)
+    domain = revolution_geometry(surface)["axial_domain"]
+    lower, upper = lower - pad, upper + pad
+    if domain is not None:
+        lower, upper = max(domain[0], lower), min(domain[1], upper)
     if upper <= lower:
         raise ValueError("surface observations lie outside axial support")
     return face_from_record(

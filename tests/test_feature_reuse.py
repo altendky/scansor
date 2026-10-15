@@ -12,10 +12,149 @@ from experiments.feature_graph import (
     reference_plane_result,
 )
 from experiments.feature_reuse import (
+    surface_region_frame,
     transformed_axis_initial,
     transformed_fit_seed,
     transformed_plane_initial,
+    transformed_surface_geometry,
 )
+from experiments.surface_primitives import basis
+
+
+@pytest.mark.parametrize("direction", [[1.0, 0, 0], [0.3, -0.8, 0.5]])
+def test_canonical_cylinder_region_frame_uses_world_axis(
+    direction: list[float],
+) -> None:
+    axis = np.asarray(direction, dtype=float)
+    axis /= np.linalg.norm(axis)
+    radial, tangential = basis(axis)
+    anchor = np.array([2.0, -3.0, 5.0])
+    points = np.array(
+        [anchor + height * axis + 3 * radial for height in (-1.0, 1.0, 3.0)]
+    )
+    fit = {
+        "kind": "cylinder",
+        "analytic": {
+            "kind": "cylinder",
+            "origin": anchor.tolist(),
+            "axis": axis.tolist(),
+            "radius": 3.0,
+            "slope": 0.0,
+            "axial_domain": [-2.0, 4.0],
+        },
+        # Canonical geometry is authoritative, even if stale legacy display
+        # fields are present. No legacy parameter array is required.
+        "axis_display": [0, 0, -1],
+        "point_display": [100, 200, 300],
+    }
+    original = deepcopy(fit)
+
+    origin, frame = surface_region_frame(points, fit)
+
+    np.testing.assert_allclose(origin, anchor + axis, atol=1e-14)
+    np.testing.assert_allclose(frame, np.column_stack((radial, tangential, axis)))
+    np.testing.assert_allclose(frame.T @ frame, np.eye(3), atol=1e-14)
+    assert np.linalg.det(frame) == pytest.approx(1)
+    assert fit == original
+
+
+def test_legacy_region_frame_retains_resolved_display_geometry() -> None:
+    fit = {
+        "kind": "cylinder",
+        "parameters": [0, 0, 0, 0, 3, 0, 0],
+        "axis_display": [1, 0, 0],
+        "point_display": [0, 2, 3],
+    }
+    points = np.array([[1.0, 5, 3], [2, 5, 3], [3, 5, 3]])
+
+    origin, frame = surface_region_frame(points, fit)
+
+    np.testing.assert_allclose(origin, [2, 2, 3])
+    np.testing.assert_allclose(frame[:, 2], [1, 0, 0])
+    np.testing.assert_allclose(frame[:, 0], [0, 1, 0])
+
+
+@pytest.mark.parametrize(
+    ("kind", "radius", "slope", "domain"),
+    [("cylinder", 3.0, 0.0, [-2.0, 4.0]), ("cone", -1.0, 1.0, [2.0, 4.0])],
+)
+def test_spatial_reuse_transforms_arbitrary_axis_and_finite_surface(
+    kind: str, radius: float, slope: float, domain: list[float]
+) -> None:
+    axis = np.array([1.0, 0, 0])
+    origin = np.array([2.0, -3, 5])
+    radial, _ = basis(axis)
+    geometry = {
+        "kind": kind,
+        "origin": origin.tolist(),
+        "axis": axis.tolist(),
+        "radius": radius,
+        "slope": slope,
+        "axial_domain": domain,
+    }
+    fit = {"kind": kind, "analytic": geometry}
+    original = deepcopy(fit)
+    rotation = np.array([[0.0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+    translation = np.array([7.0, -8, 9])
+
+    moved = transformed_surface_geometry(fit, rotation, translation)
+
+    np.testing.assert_allclose(moved["origin"], origin @ rotation + translation)
+    np.testing.assert_allclose(moved["axis"], axis @ rotation)
+    assert moved["radius"] == radius
+    assert moved["slope"] == slope
+    assert moved["axial_domain"] == domain
+    for height in domain:
+        source_point = origin + height * axis + (radius + slope * height) * radial
+        target_point = (
+            np.asarray(moved["origin"])
+            + height * np.asarray(moved["axis"])
+            + (moved["radius"] + moved["slope"] * height) * (radial @ rotation)
+        )
+        np.testing.assert_allclose(
+            target_point, source_point @ rotation + translation, atol=1e-14
+        )
+    assert fit == original
+    assert "parameters" not in moved
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
+def test_spatial_reuse_canonical_and_legacy_geometry_agree(kind: str) -> None:
+    slope = 0.2 if kind == "cone" else 0.0
+    axis = np.array([0.3, -0.5, 1.0])
+    axis /= np.linalg.norm(axis)
+    legacy = {
+        "kind": kind,
+        "parameters": [1, -2, 0.3, -0.5, 3, 0, slope],
+        "axial_domain": [-2.0, 4.0],
+    }
+    canonical = {
+        "kind": kind,
+        "analytic": {
+            "kind": kind,
+            "origin": [1.0, -2.0, 0.0],
+            "axis": axis.tolist(),
+            "radius": 3.0,
+            "slope": slope,
+            "axial_domain": [-2.0, 4.0],
+        },
+    }
+    angle = 0.7
+    rotation = np.array(
+        [
+            [np.cos(angle), 0, np.sin(angle)],
+            [0, 1, 0],
+            [-np.sin(angle), 0, np.cos(angle)],
+        ]
+    )
+    translation = np.array([4.0, 5, 6])
+
+    expected = transformed_surface_geometry(legacy, rotation, translation)
+    actual = transformed_surface_geometry(canonical, rotation, translation)
+
+    assert actual["kind"] == expected["kind"]
+    for name in ("origin", "axis", "radius", "slope", "axial_domain"):
+        np.testing.assert_allclose(actual[name], expected[name], atol=1e-14)
 
 
 @pytest.mark.parametrize("angle", [0.0, 0.7, np.pi])

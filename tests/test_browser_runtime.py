@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from experiments.browser_runtime.probe import (
+    analytic_geometry_probe,
     compare_imported_planes,
     compare_imported_spheres,
     compare_numeric,
@@ -222,6 +223,38 @@ def test_parity_rejects_changed_imported_plane_before_legacy_fit_comparison():
     actual = deepcopy(expected)
     actual["imported_planes"][0]["results"]["plane"]["parameters"][:3] = [0.0, 1, 0]
     with pytest.raises(AssertionError, match=r"imported_planes.*plane\.parameters"):
+        _ = compare_numeric(actual, expected)
+
+
+@pytest.mark.parametrize("mutation", ["axis", "normal", "support"])
+def test_worker_parity_rejects_changed_canonical_spatial_geometry(
+    mutation: str,
+) -> None:
+    expected: dict[str, Any] = {
+        "fixture_sha256": "fixture",
+        "counts": {},
+        "source_sha256": "source",
+        "model_sha256": "model",
+        "graph": {
+            "recipe": {},
+            "token": "token",
+            "states": {},
+            "errors": {},
+            "diagnostics": {},
+            "results": {},
+        },
+        "imported_planes": [],
+        "imported_spheres": [],
+        "analytic_geometry": analytic_geometry_probe(),
+    }
+    actual = deepcopy(expected)
+    if mutation == "axis":
+        actual["analytic_geometry"]["cylinder"][0]["geometry"]["axis"][0] = 0.0
+    elif mutation == "normal":
+        actual["analytic_geometry"]["cone"][1]["normals"][0][0] += 0.1
+    else:
+        actual["analytic_geometry"]["cone"][0]["inside"][0] = False
+    with pytest.raises(AssertionError, match="analytic_geometry"):
         _ = compare_numeric(actual, expected)
 
 

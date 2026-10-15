@@ -37,6 +37,7 @@ from experiments.ocp_geometry import (
     transform_shape,
 )
 from experiments.scan_workspace import Workspace
+from experiments.surface_primitives import primitive
 from scansor._plyio import (
     Element,
     ListProperty,
@@ -476,14 +477,19 @@ def export_cad(
         anchor = np.asarray(result["point_display"], dtype=float)
     else:
         surfaces = {target: result}
-        p = np.asarray(result.get("plane_equation", result["parameters"]), dtype=float)
         if node["kind"] == "plane":
+            p = np.asarray(
+                result.get("plane_equation", result["parameters"]), dtype=float
+            )
             axis = p[:3] / np.linalg.norm(p[:3])
             anchor = axis * (p[3] / np.linalg.norm(p[:3]))
         elif node["kind"] == "sphere":
+            p = np.asarray(result["parameters"], dtype=float)
             axis, anchor = np.array([0.0, 0.0, 1.0]), p[:3]
         else:
-            axis, anchor = np.array([p[2], p[3], 1.0]), np.array([p[0], p[1], 0.0])
+            geometry = primitive(result)
+            axis = np.asarray(geometry["axis"])
+            anchor = np.asarray(geometry["origin"])
     matrix = _export_transform(
         workspace, snapshot, request, nodes, surfaces, axis, anchor
     )

@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from experiments.surface_primitives import revolution_geometry
+
 FloatArray = NDArray[np.float64]
 
 
@@ -106,7 +108,7 @@ def build_selection_region(
         "normal_angle_degrees": float(normal_angle_degrees),
     }
     if kind == "cylinder":
-        radius = float(fit["parameters"][4])
+        radius = revolution_geometry(fit)["radius"]
         if not np.isfinite(radius) or radius <= 0.0:
             raise ValueError("a cylinder selection region requires a positive radius")
         radial = np.linalg.norm(local[:, :2], axis=1)
