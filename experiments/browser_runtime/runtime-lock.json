@@ -127,6 +127,7 @@
       "experiments/scan_workspace.py",
       "experiments/selection_growth.py",
       "experiments/selection_region.py",
+      "experiments/support_intent.py",
       "experiments/surface_extents.py",
       "experiments/surface_primitives.py",
       "src/scansor/__init__.py",

@@ -60,6 +60,10 @@ outside the intended boundary.
     the initial bounded experiment with optional isolation; measured runtime
     inventory and Cloudflare Workers Static Assets comparison; redistribution
     completion, release validation, DNS and publication remain explicit gates
+- [Generic symmetry equation foundation](experiments/generic-symmetry-fitting.md)
+  - **Bounded numerical foundation:** exact canonical rotation/mirror equations
+    and internal support mathematics; existing fitting paths remain unchanged,
+    while imported graph/recovery/reuse/CAD integration remains a separate gate
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,
