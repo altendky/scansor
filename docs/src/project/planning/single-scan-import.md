@@ -59,8 +59,36 @@ rotated charts. Publication uses canonical source-coordinate geometry, including
 horizontal axes; optional wrong/stale hints do not replace fresh attempts. Free
 shared cylinder groups use their combined observations and independent radii;
 fixed axes remain exact. Per-axis constrained charts, derived axes, radius
-equalities and rigid reuse consume the canonical geometry. Imported cones and
+equalities and rigid reuse consume the canonical geometry. Generic
 rotational/mirror groups remain guarded pending their integration work.
+
+Standalone cones now derive a centered-normal axis proposal plus raw-normal and
+positional alternatives. A residualized projected-center solve followed by radial
+radius/taper regression supplies starts without first fitting a cylinder. Bounded
+geometric refinement retains every selected observation and weight. Widening,
+narrowing, near-cylinder and exact zero-taper cases retain their declared cone
+family. Publication uses the same canonical source-coordinate axis and finite
+support representation; no nozzle seed or model interval is read. Shared
+cone/cylinder groups initialize together, fixed axes remain exact, and
+cone-plane/reference relationships retain their hard equations.
+
+Cone admission separately checks selected position coverage above 1e-10 and a
+final fitted-axis geometric Jacobian condition at most 1e6. These provisional
+limits are backed by generated full/partial, noisy, degenerate and apex-adjacent
+cases rather than a physical acceptance claim. Finite support endpoints and every
+selected observation's orthogonal projection must remain on the positive-radius
+sheet. A negative radius at an extrapolated anchor can be valid when the finite
+segment is positive; a distant apex is not mandatory saved state. Normals supply
+proposals and oriented growth evidence, not hard positional constraints.
+[#267](https://github.com/altendky/scansor/issues/267) tracks the cone-specific
+admission improvement: an independently generated long near-cylinder frustum
+fails the raw extent gate despite an aligned condition about 1.46. The initial
+conservative slice does not claim support for every aspect ratio.
+The packaged worker executes the new cone cases and matches selected geometry,
+source bindings, selections and hard constraints. Complete recovery-trace parity
+remains blocked by [#266](https://github.com/altendky/scansor/issues/266): discarded
+inferior attempts can take different bounded line-search paths near the
+floating-point objective floor. The existing parity gate remains in force.
 
 Cylinder admission is deliberately conservative: selected positional covariance
 must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
@@ -72,13 +100,21 @@ numerical limits are neither physical acceptance nor confidence estimates;
 improvement. Joint reference solves assess combined identifiability rather than
 requiring every participating surface to pass standalone admission.
 
-New cylinder actions use nullable support: absent bounds derive finite extent
+New imported cylinder/cone actions use nullable support: absent bounds derive finite extent
 from the selected observations. That automatic extent does not prevent axial
 selection growth. Previously authored bounds retain the legacy source-Z0
 meaning and still clip growth; an exactly or nearly horizontal axis cannot use
 that particular explicit chart and reports unsupported support. A fixed semantic
 anchor and its explicit support remain separate from disposable numerical hints.
 Computed starts and diagnostics remain derived results, outside saved actions.
+
+Automatic cone growth evaluates the positive analytic sheet without clipping to
+the seed's display extent. Reusable cone regions measure axial extent along the
+surface generator, orthogonal normal offset and angular footprint, and transform
+rigidly with occurrence frames. Margins crossing the apex fail explicitly rather
+than extending onto the other sheet. Kernel/STEP and source/replay tests verify
+bounded world geometry; broader free-form support and physical validation remain
+outside this slice.
 
 Generated reused imported lateral fits with explicitly inherited bounds are
 temporarily rejected: copying a source-Z0 interval into a translated/rotated

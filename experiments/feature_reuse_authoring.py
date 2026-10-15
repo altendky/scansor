@@ -134,10 +134,10 @@ def reconcile_feature_reuse(
             )
         if node["operation"] == "point" or (
             node["operation"] == "fit"
-            and (node["kind"] not in {"cylinder", "plane"} or node.get("point"))
+            and (node["kind"] not in {"cylinder", "cone", "plane"} or node.get("point"))
         ):
             raise ValueError(
-                "Feature reuse currently supports cylinder and plane fits, not point datums."
+                "Feature reuse currently supports cylinder, cone and plane fits, not point datums."
             )
         if node["operation"] == "axis" and node.get("source_points"):
             raise ValueError(

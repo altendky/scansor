@@ -564,8 +564,25 @@ def fit_relationship_component(
                 point, direction, _, _ = axis_geometry(surface.axis, p)
                 relative = points[surface.id] - point
                 radial = relative - (relative @ direction)[:, None] * direction
-                if np.any(np.linalg.norm(radial, axis=1) <= 0):
+                rho = np.linalg.norm(radial, axis=1)
+                if np.any(rho <= 0):
                     return False
+                if surface.kind == "cone":
+                    start = side_slots[surface.id]
+                    local_taper = p[start + 1]
+                    scale = float(np.hypot(1.0, local_taper))
+                    # Positive finite support does not establish that every
+                    # observation projects onto the positive cone sheet.
+                    with np.errstate(over="ignore", invalid="ignore"):
+                        projected_radius = (
+                            p[start] / scale / scale
+                            + (local_taper / scale) * ((relative @ direction) / scale)
+                            + (local_taper / scale) ** 2 * rho
+                        )
+                    if not np.isfinite(projected_radius).all() or np.any(
+                        projected_radius <= 0
+                    ):
+                        return False
                 continue
             _, direction, _, _ = axis_geometry(surface.axis, p)
             start = side_slots[surface.id]

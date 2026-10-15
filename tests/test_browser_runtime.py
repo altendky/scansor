@@ -14,15 +14,18 @@ import pytest
 
 from experiments.browser_runtime.probe import (
     analytic_geometry_probe,
+    compare_imported_cones,
     compare_imported_cylinders,
     compare_imported_planes,
     compare_imported_spheres,
     compare_numeric,
     compare_session,
     create_fixture,
+    imported_cone_probe,
     imported_cylinder_probe,
     imported_sphere_probe,
 )
+from experiments.mesh_cone_fit import CONE_POLICY_VERSION
 
 BUILDER = runpy.run_path(
     str(Path(__file__).resolve().parents[1] / "scripts/build-browser-runtime.py")
@@ -142,6 +145,13 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["imported_cylinders"].shape == (3, 60, 3)
         assert data["imported_cylinder_normals"].shape == (3, 60, 3)
         assert data["imported_cylinder_axes"].shape == (3, 3)
+        assert data["imported_cones"].shape == (3, 60, 3)
+        assert data["imported_cone_normals"].shape == (3, 60, 3)
+        assert data["imported_cone_axes"].shape == (3, 3)
+        np.testing.assert_array_equal(data["imported_cone_slopes"], [0.15, -0.2, 1e-7])
+        np.testing.assert_allclose(
+            np.linalg.norm(data["imported_cone_normals"], axis=2), 1, atol=1e-14
+        )
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_sphere_normals"], axis=2), 1, atol=1e-14
         )
@@ -251,6 +261,7 @@ def test_worker_parity_rejects_changed_canonical_spatial_geometry(
         "imported_planes": [],
         "imported_spheres": [],
         "imported_cylinders": [],
+        "imported_cones": [],
         "analytic_geometry": analytic_geometry_probe(),
     }
     actual = deepcopy(expected)
@@ -891,6 +902,7 @@ def test_numeric_parity_checks_imported_cylinders_before_legacy_results() -> Non
         "imported_planes": [],
         "imported_spheres": [],
         "imported_cylinders": [imported_cylinder_record(1.0)],
+        "imported_cones": [],
     }
     actual = deepcopy(expected)
     actual["imported_cylinders"][0]["standalone"]["results"]["cylinder"]["analytic"][
@@ -921,3 +933,91 @@ def test_frozen_imported_cylinders_fit_grow_recover_and_replay(
     assert recovered["selected_role"] == "fresh"
     assert recovered["attempts"][-1]["role"] == "hint"
     assert recovered["attempts"][-1]["evaluations"] == 0
+
+
+def imported_cone_record(scale: float) -> dict[str, Any]:
+    report = imported_cylinder_record(scale)
+    for mode in ("standalone", "axis_bound"):
+        record = report[mode]
+        record["results"]["cone"] = record["results"].pop("cylinder")
+        record["states"]["cone"] = record["states"].pop("cylinder")
+    for fitted in (
+        report["standalone"]["results"]["cone"],
+        report["axis_bound"]["results"]["cone"],
+        report["axis_bound"]["results"]["bound"],
+        report["hinted"]["result"],
+    ):
+        fitted["kind"] = "cone"
+        fitted["analytic"].update(kind="cone", slope=0.15)
+        fitted["initialization"]["algorithm"] = CONE_POLICY_VERSION
+        fitted["initialization"]["chart"] = "rotated-normalized-cone-v1"
+        fitted["solver"]["rank"] = 6
+    return report
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field",
+    ["radius", "residual", "area", "slope", "axis", "binding", "selected", "intent"],
+)
+def test_imported_cone_parity_checks_geometry_intent_and_recovery(
+    scale: float, field: str
+) -> None:
+    expected = imported_cone_record(scale)
+    actual = deepcopy(expected)
+    fitted = actual["standalone"]["results"]["cone"]
+    if field == "radius":
+        fitted["analytic"]["radius"] += 1e-6 * scale
+    elif field == "residual":
+        fitted["residuals"][0] += 1e-6 * scale
+    elif field == "area":
+        actual["standalone"]["results"]["grown"]["added_area"] += 1e-6 * scale**2
+    elif field == "slope":
+        fitted["analytic"]["slope"] += 1e-6
+    elif field == "axis":
+        fitted["analytic"]["axis"][0] = -1.0
+    elif field == "binding":
+        fitted["initialization"]["recovery"]["binding_sha256"] = "changed"
+    elif field == "selected":
+        fitted["ids"][0] = 5
+    else:
+        actual["standalone"]["recipe"]["output"] = "changed"
+    with pytest.raises(AssertionError, match="imported_cones"):
+        compare_imported_cones([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+def test_imported_cone_parity_accepts_unit_scaled_roundoff(scale: float) -> None:
+    expected = imported_cone_record(scale)
+    actual = deepcopy(expected)
+    actual["standalone"]["results"]["cone"]["residuals"][0] += 1e-12 * scale
+    original = deepcopy(actual)
+    compare_imported_cones([actual], [json.loads(json.dumps(expected))])
+    assert actual == original
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_frozen_imported_cones_fit_grow_recover_and_replay(
+    index: int, tmp_path: Path
+) -> None:
+    fixture = tmp_path / "fixture.npz"
+    create_fixture(fixture)
+    with np.load(fixture, allow_pickle=False) as data:
+        report = imported_cone_probe(
+            data["imported_cones"][index],
+            data["imported_cone_normals"][index],
+            data["imported_cone_origins"][index],
+            data["imported_cone_axes"][index],
+            float(data["imported_cone_slopes"][index]),
+            float(data["imported_cone_scales"][index]),
+        )
+    encoded = json.loads(json.dumps(report, allow_nan=False))
+    compare_imported_cones([report], [encoded])
+    fitted = encoded["standalone"]["results"]["cone"]
+    assert fitted["kind"] == "cone"
+    assert "parameters" not in fitted
+    assert encoded["standalone"]["results"]["grown"]["ids"] == list(range(60))
+    recovery = encoded["hinted"]["result"]["initialization"]["recovery"]
+    assert recovery["selected_role"] == "fresh"
+    assert recovery["attempts"][-1]["role"] == "hint"
+    assert recovery["attempts"][-1]["evaluations"] == 0

@@ -44,6 +44,7 @@ from experiments.feature_reuse import (
 )
 from experiments.fit_initialization import RecoveryFailure, initialization_binding
 from experiments.fit_solver import normalized_weights
+from experiments.mesh_cone_fit import CONE_POLICY_VERSION, ConeFitFailure
 from experiments.mesh_cylinder_fit import CylinderFitFailure
 from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
 from experiments.native_replay import native_replay_scope
@@ -1809,6 +1810,7 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
             PlaneFitFailure,
             SphereFitFailure,
             CylinderFitFailure,
+            ConeFitFailure,
             UnsupportedSupportTransfer,
         ),
     ):
@@ -2934,18 +2936,21 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError("a reusable region requires an earlier selection")
                 if (
                     not isinstance(fitted, SurfaceFit)
-                    or fitted.kind not in ("cylinder", "plane")
+                    or fitted.kind not in ("cylinder", "cone", "plane")
                     or node.selection not in fitted.selections
                 ):
                     raise ValueError(
-                        "a reusable region requires a cylinder or plane fit using its selection"
+                        "a reusable region requires a cylinder, cone or plane fit using its selection"
                     )
                 axis_id = selection_frame_axis(
                     node.axial_plane, node.clock_plane, nodes
                 )
-                if fitted.kind == "cylinder" and fit_axis(fitted, nodes) != axis_id:
+                if (
+                    fitted.kind in {"cylinder", "cone"}
+                    and fit_axis(fitted, nodes) != axis_id
+                ):
                     raise ValueError(
-                        "a cylinder selection region must use its datum-frame axis"
+                        "a revolution selection region must use its datum-frame axis"
                     )
                 if selection_source(selected, nodes) != selection_source(
                     nodes[fitted.selections[0]], nodes
@@ -2976,10 +2981,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                 fits = [nodes[key] for key in node.fits]
                 if any(
                     not isinstance(fit, SurfaceFit)
-                    or fit.kind not in ("cylinder", "plane")
+                    or fit.kind not in ("cylinder", "cone", "plane")
                     for fit in fits
                 ):
-                    raise ValueError("reuse currently supports cylinder and plane fits")
+                    raise ValueError(
+                        "reuse currently supports cylinder, cone and plane fits"
+                    )
                 for selection_id in (
                     node.reference_selection,
                     *node.target_selections,
@@ -4999,23 +5006,25 @@ class FeatureGraph(Generic[WorkspaceType]):
                         )
                     elif (
                         node.axis is None
-                        and node.kind == "cylinder"
+                        and node.kind in {"cylinder", "cone"}
                         and isinstance(self.workspace, ScanWorkspace)
                     ):
                         descriptor = self.workspace.source_descriptor
                         if descriptor is None:
                             raise ValueError(
-                                "cylinder fitting requires an accepted source"
+                                f"{node.kind} fitting requires an accepted source"
                             )
                         binding = initialization_binding(
                             descriptor.source_sha256,
                             descriptor.interpretation_sha256,
                             ids,
                             {
-                                "family": "cylinder",
+                                "family": node.kind,
                                 "surface": node.model_dump(mode="json"),
                             },
-                            policy_version="selected-cylinder-recovery-v1",
+                            policy_version=CONE_POLICY_VERSION
+                            if node.kind == "cone"
+                            else "selected-cylinder-recovery-v1",
                         )
                         reuse_inputs = [
                             derived_result(ref)
@@ -5374,10 +5383,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                     fit_result.setdefault("kind", fitted.kind)
                     fit_result.setdefault("axial_domain", fitted.axial_domain)
                     fit_geometry = None
-                    if (
-                        isinstance(self.workspace, ScanWorkspace)
-                        and fitted.kind == "cylinder"
-                    ):
+                    if isinstance(self.workspace, ScanWorkspace) and fitted.kind in {
+                        "cylinder",
+                        "cone",
+                    }:
                         fit_geometry = transformed_surface_geometry(
                             fit_result, rotation, translation
                         )

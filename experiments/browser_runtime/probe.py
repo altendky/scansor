@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pydantic
@@ -29,6 +29,7 @@ from experiments.feature_graph import (
     SurfaceFit,
 )
 from experiments.fit_initialization import initialization_binding
+from experiments.mesh_cone_fit import CONE_POLICY_VERSION, fit_selected_cone
 from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     fit_cone_plane,
@@ -148,6 +149,40 @@ def create_fixture(path: Path) -> None:
         )
         cylinder_normals.append(radial)
         cylinder_origins.append(origin)
+    cone_axes = np.asarray(
+        [[1.0, 0, 0], [0.2, -0.7, 0.3], [1e-8, 0.2, 1.0]], dtype=np.float64
+    )
+    cone_axes /= np.linalg.norm(cone_axes, axis=1)[:, None]
+    cone_slopes = np.asarray([0.15, -0.2, 1e-7], dtype=np.float64)
+    imported_cones: list[NDArray[np.float64]] = []
+    cone_normals: list[NDArray[np.float64]] = []
+    cone_origins: list[NDArray[np.float64]] = []
+    for index, (direction, raw_taper, raw_scale) in enumerate(
+        zip(cone_axes, cone_slopes, scales, strict=True)
+    ):
+        taper, scale = float(raw_taper), float(raw_scale)
+        first = np.cross(direction, np.eye(3)[int(np.argmin(np.abs(direction)))])
+        first /= np.linalg.norm(first)
+        second = np.cross(direction, first)
+        radial = np.asarray(
+            np.cos(cylinder_angles.ravel())[:, None] * first
+            + np.sin(cylinder_angles.ravel())[:, None] * second,
+            dtype=np.float64,
+        )
+        origin = scale * np.array([3.0 + index, -4.0, 5.0 - index])
+        heights = cylinder_heights.ravel()
+        radius = scale * (
+            2.5 + taper * heights + 0.001 * np.sin(np.arange(len(radial)) * 1.7)
+        )
+        imported_cones.append(
+            origin + scale * heights[:, None] * direction + radius[:, None] * radial
+        )
+        cone_normals.append(
+            np.asarray(
+                (radial - taper * direction) / np.hypot(1.0, taper), dtype=np.float64
+            )
+        )
+        cone_origins.append(origin)
     np.savez(
         path,
         cone=cone,
@@ -168,6 +203,12 @@ def create_fixture(path: Path) -> None:
         imported_cylinder_axes=cylinder_axes,
         imported_cylinder_origins=np.asarray(cylinder_origins),
         imported_cylinder_scales=scales,
+        imported_cones=np.asarray(imported_cones),
+        imported_cone_normals=np.asarray(cone_normals),
+        imported_cone_origins=np.asarray(cone_origins),
+        imported_cone_axes=cone_axes,
+        imported_cone_slopes=cone_slopes,
+        imported_cone_scales=scales,
     )
 
 
@@ -400,12 +441,15 @@ def imported_sphere_probe(
     return report
 
 
-def imported_cylinder_probe(
+def _imported_revolution_probe(
     points: NDArray[np.float64],
     normals: NDArray[np.float64],
     origin: NDArray[np.float64],
     axis: NDArray[np.float64],
     scale: float,
+    *,
+    kind: Literal["cylinder", "cone"],
+    slope: float,
 ) -> dict[str, Any]:
     """Actual arbitrary-axis source admission, recovery, growth and fixed-axis fit."""
     faces = [
@@ -444,30 +488,33 @@ def imported_cylinder_probe(
         )
         return project.commit(candidate)
 
-    accepted = open_source("independent-cylinder.ply")
+    accepted = open_source(f"independent-{kind}.ply")
+    np.testing.assert_array_equal(
+        accepted.workspace.local, points.astype("<f4").astype("<f8")
+    )
     selected = list(range(12, 48))
     recipe = Recipe.model_validate(accepted.graph.snapshot()["recipe"])
     recipe.nodes.extend(
         [
             Selection(
                 id="patch",
-                label="Cylinder patch",
+                label=f"{kind.title()} patch",
                 operation="selection",
                 source="scan",
                 ids=selected,
             ),
             SurfaceFit(
-                id="cylinder",
-                label="Cylinder",
+                id=kind,
+                label=kind.title(),
                 operation="fit",
                 selections=["patch"],
-                kind="cylinder",
+                kind=kind,
             ),
             Growth(
                 id="grown",
-                label="Axially extended cylinder",
+                label=f"Axially extended {kind}",
                 operation="growth",
-                seed_fit="cylinder",
+                seed_fit=kind,
                 distance=0.02 * scale,
                 angle_degrees=10,
             ),
@@ -485,22 +532,22 @@ def imported_cylinder_probe(
                         id="axis",
                         label="Reversed fitted axis",
                         operation="axis",
-                        source_fit="cylinder",
+                        source_fit=kind,
                         direction_reversed=True,
                     ),
                     Selection(
                         id="all",
-                        label="All cylinder observations",
+                        label=f"All {kind} observations",
                         operation="selection",
                         source="scan",
                         ids=list(range(len(points))),
                     ),
                     SurfaceFit(
                         id="bound",
-                        label="Fixed-axis cylinder",
+                        label=f"Fixed-axis {kind}",
                         operation="fit",
                         selections=["all"],
-                        kind="cylinder",
+                        kind=kind,
                         axis="axis",
                     ),
                 ]
@@ -513,7 +560,7 @@ def imported_cylinder_probe(
         )
         assert not state["errors"] and not state["diagnostics"], state
         assert set(state["states"].values()) == {"ready"}
-        fitted = state["results"]["cylinder"]
+        fitted = state["results"][kind]
         analytic = fitted["analytic"]
         fitted_axis = np.asarray(analytic["axis"])
         assert np.linalg.norm(np.cross(fitted_axis, axis)) < 0.001
@@ -523,7 +570,18 @@ def imported_cylinder_probe(
             )
             < 0.005
         )
-        assert abs(analytic["radius"] / scale - 2.5) < 0.005
+        reference_height = (
+            float((np.asarray(analytic["origin"]) - origin) @ axis) / scale
+        )
+        assert (
+            abs(analytic["radius"] / scale - (2.5 + slope * reference_height)) < 0.005
+        )
+        sign = 1 if float(fitted_axis @ axis) >= 0 else -1
+        assert abs(analytic["slope"] - sign * slope) < 0.005
+        assert all(
+            analytic["radius"] + analytic["slope"] * bound > 0
+            for bound in analytic["axial_domain"]
+        )
         assert fitted["weighted_rms"] / scale < 0.005
         assert state["results"]["grown"]["ids"] == list(range(len(points)))
         if fixed:
@@ -535,7 +593,7 @@ def imported_cylinder_probe(
             )
             bound = state["results"]["bound"]["analytic"]
             assert abs(float(np.dot(bound["axis"], fitted_axis))) > 1 - 1e-12
-        reopened = open_source("renamed-identical-cylinder.ply")
+        reopened = open_source(f"renamed-identical-{kind}.ply")
         replay = FeatureGraph(
             reopened.workspace,
             Recipe.model_validate_json(active_recipe.model_dump_json()),
@@ -545,7 +603,7 @@ def imported_cylinder_probe(
             replay.evaluate(str(replay.snapshot()["token"]), all_actions=True),
         )
         for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
-            compare_values(replayed[key], state[key], f"cylinder.replay.{key}")
+            compare_values(replayed[key], state[key], f"{kind}.replay.{key}")
         report["axis_bound" if fixed else "standalone"] = {
             key: state[key]
             for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
@@ -559,15 +617,18 @@ def imported_cylinder_probe(
         workspace.source_descriptor.interpretation_sha256,
         selected,
         {
-            "family": "cylinder",
+            "family": kind,
             "references": {},
             "constraints": {},
             "support": None,
             "settings": {},
         },
-        policy_version="selected-cylinder-recovery-v1",
+        policy_version=CONE_POLICY_VERSION
+        if kind == "cone"
+        else "selected-cylinder-recovery-v1",
     )
-    hinted = fit_selected_cylinder(
+    selected_fit = fit_selected_cone if kind == "cone" else fit_selected_cylinder
+    hinted = selected_fit(
         workspace.local[selected],
         workspace.data.weights[selected],
         workspace.data.normals[selected],
@@ -576,6 +637,7 @@ def imported_cylinder_probe(
             "origin": [1e100 * scale, -1e100 * scale, 1e100 * scale],
             "axis": [0.0, 0.0, 1.0],
             "radius": 1e100 * scale,
+            **({"slope": 0.0} if kind == "cone" else {}),
         },
     )
     attempts = hinted["initialization"]["recovery"]["attempts"]
@@ -589,6 +651,31 @@ def imported_cylinder_probe(
         "result": hinted,
     }
     return report
+
+
+def imported_cylinder_probe(
+    points: NDArray[np.float64],
+    normals: NDArray[np.float64],
+    origin: NDArray[np.float64],
+    axis: NDArray[np.float64],
+    scale: float,
+) -> dict[str, Any]:
+    return _imported_revolution_probe(
+        points, normals, origin, axis, scale, kind="cylinder", slope=0.0
+    )
+
+
+def imported_cone_probe(
+    points: NDArray[np.float64],
+    normals: NDArray[np.float64],
+    origin: NDArray[np.float64],
+    axis: NDArray[np.float64],
+    slope: float,
+    scale: float,
+) -> dict[str, Any]:
+    return _imported_revolution_probe(
+        points, normals, origin, axis, scale, kind="cone", slope=slope
+    )
 
 
 def analytic_geometry_probe() -> dict[str, Any]:
@@ -720,6 +807,22 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             )
         ]
         imported_cylinder_seconds = time.perf_counter() - cylinder_started
+        cone_started = time.perf_counter()
+        imported_cones = [
+            imported_cone_probe(
+                points, normals, origin, axis, float(slope), float(scale)
+            )
+            for points, normals, origin, axis, slope, scale in zip(
+                data["imported_cones"],
+                data["imported_cone_normals"],
+                data["imported_cone_origins"],
+                data["imported_cone_axes"],
+                data["imported_cone_slopes"],
+                data["imported_cone_scales"],
+                strict=True,
+            )
+        ]
+        imported_cone_seconds = time.perf_counter() - cone_started
     started = time.perf_counter()
     workspace = NozzleWorkspace(root / EXAMPLE)
     load_seconds = time.perf_counter() - started
@@ -763,6 +866,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             "imported_plane_cases": len(imported_planes),
             "imported_sphere_cases": len(imported_spheres),
             "imported_cylinder_cases": len(imported_cylinders),
+            "imported_cone_cases": len(imported_cones),
             "mesh_vertices": len(workspace.local),
             "mesh_triangles": len(workspace.data.triangles),
             "nozzle_cone": len(workspace.default.lateral_ids),
@@ -774,6 +878,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         "imported_planes": imported_planes,
         "imported_spheres": imported_spheres,
         "imported_cylinders": imported_cylinders,
+        "imported_cones": imported_cones,
         "analytic_geometry": analytic_geometry_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
@@ -798,6 +903,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             "imported_planes": imported_plane_seconds,
             "imported_spheres": imported_sphere_seconds,
             "imported_cylinders": imported_cylinder_seconds,
+            "imported_cones": imported_cone_seconds,
             "workspace_load": load_seconds,
             "nozzle": nozzle_seconds,
             "graph": graph_seconds,
@@ -979,11 +1085,15 @@ def compare_imported_spheres(
         )
 
 
-def compare_imported_cylinders(
-    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+def _compare_imported_revolutions(
+    actual: list[dict[str, Any]],
+    expected: list[dict[str, Any]],
+    *,
+    family: str,
 ) -> None:
     """Compare complete canonical/recovery records in the frozen source's units."""
-    assert len(actual) == len(expected), "imported_cylinders count"
+    name = f"imported_{family}s"
+    assert len(actual) == len(expected), f"{name} count"
 
     def normalized_fit(fitted: dict[str, Any], scale: float) -> None:
         analytic = fitted["analytic"]
@@ -1021,22 +1131,34 @@ def compare_imported_cylinders(
         scale = reference["comparison_length_scale"]
         if type(scale) not in (float, int) or not math.isfinite(scale) or scale <= 0:
             raise ValueError(
-                "cylinder comparison length scale must be finite and positive"
+                f"{family} comparison length scale must be finite and positive"
             )
         assert value["comparison_length_scale"] == scale, (
-            "cylinder fixture scale mismatch"
+            f"{family} fixture scale mismatch"
         )
         for mode in ("standalone", "axis_bound"):
             compare_intent(
                 value[mode]["recipe"],
                 reference[mode]["recipe"],
-                f"imported_cylinders[{index}].{mode}.recipe",
+                f"{name}[{index}].{mode}.recipe",
             )
         compare_values(
             normalized(value, float(scale)),
             normalized(reference, float(scale)),
-            f"imported_cylinders[{index}]",
+            f"{name}[{index}]",
         )
+
+
+def compare_imported_cylinders(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    _compare_imported_revolutions(actual, expected, family="cylinder")
+
+
+def compare_imported_cones(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    _compare_imported_revolutions(actual, expected, family="cone")
 
 
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
@@ -1051,6 +1173,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     compare_imported_cylinders(
         actual["imported_cylinders"], expected["imported_cylinders"]
     )
+    compare_imported_cones(actual["imported_cones"], expected["imported_cones"])
     compare_values(
         actual["analytic_geometry"], expected["analytic_geometry"], "analytic_geometry"
     )
@@ -1076,6 +1199,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "imported_plane_cases": len(actual["imported_planes"]),
         "imported_sphere_cases": len(actual["imported_spheres"]),
         "imported_cylinder_cases": len(actual["imported_cylinders"]),
+        "imported_cone_cases": len(actual["imported_cones"]),
         "rtol": RTOL,
         "atol": ATOL,
     }

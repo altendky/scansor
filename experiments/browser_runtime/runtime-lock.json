@@ -112,6 +112,7 @@
       "experiments/mesh_coaxial_fit.py",
       "experiments/mesh_cone_plane_fit.py",
       "experiments/mesh_cylinder_fit.py",
+      "experiments/mesh_cone_fit.py",
       "experiments/mesh_cylinder_plane_fit.py",
       "experiments/mesh_mirror_surfaces.py",
       "experiments/mesh_rotational_planes.py",
