@@ -73,6 +73,37 @@ rank-deficient member patches must not be excluded when their joint evidence
 can identify the declared model. Neither a converged local attempt nor a best
 attempted objective proves global convergence or physical accuracy.
 
+The selected-data adapter is now implemented behind the imported graph guard.
+It derives algebraic common-axis, orbit and mirror-phase proposals from the
+original selected positions and normals without requiring independently
+admissible member fits. Original incident-area weights remain attached to every
+row. Main-factor positional residuals prioritize the finite common-axis pool;
+arbitrary null directions from misleading normals cannot consume all attempts
+before useful positional evidence is considered. Explicit signed radius-distance
+intent also retains both oriented free mirror-plane branches.
+
+Policy `selected-symmetry-group-recovery-v1` bounds generation to 16 proposals
+and eight fresh constrained attempts, with a separate optional hint. Each
+attempt shares one callback control across observations and hard equalities.
+Stale or malformed free hints cannot replace or reorder fresh recovery. Saved
+hard providers, alias direction, support carriers and intervals remain semantic
+inputs; computed starts remain disposable. Bindings include accepted source
+identity, selected rows, declarations and numerical policy, rather than the
+source filename. Competing cones are compared over both selected and supported
+extents, including radial profile differences outside a short hard interval.
+
+This direct adapter does not yet remove the graph guard or establish packaged
+worker, reuse or CAD acceptance. Those integration steps remain part of #273.
+
+Its 53 independent strict-PLY tests pass, covering all three member families,
+rotations and mirrors, oblique poses, fixed/free references, partial patches,
+misleading normals, unequal hard supports, signed constraints, stale hints,
+jointly observable collinear patches, ill-conditioned clock rejection,
+cancellation and callback limits. Tests independently recompute every weighted
+residual and resolved support endpoint. The related 202 existing recovery,
+relationship and support regressions also pass; full types report zero errors
+or warnings. These direct checks do not substitute for the integration gates.
+
 The native/worker comparison contract remains open in
 [#266](https://github.com/altendky/scansor/issues/266). This foundation does not
 change the verifier or replace full packaged execution with synthetic unit
