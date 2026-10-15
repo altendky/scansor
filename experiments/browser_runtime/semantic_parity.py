@@ -128,6 +128,31 @@ _GROUP_ALGORITHMS = {
     "selected-revolution-group-recovery-v1",
     "selected-symmetry-group-recovery-v1",
 }
+_CONE_FIT_FIELDS = {
+    "kind",
+    "analytic",
+    "anchor_reference",
+    "support_origin",
+    "support_intent",
+    "residuals",
+    "weighted_rms",
+    "condition",
+    "normal_sign",
+    "solver",
+    "initialization",
+    "support_classification",
+}
+_CONE_FRESH_DERIVATIONS = {
+    f"{family}-{index}": (
+        f"selected {family} axis; residualized center and radial regression"
+    )
+    for family, count in (
+        ("centered-normal", 1),
+        ("normal-moment", 3),
+        ("position-covariance", 3),
+    )
+    for index in range(count)
+}
 _EXACT_FIELDS = {
     "recipe",
     "ids",
@@ -481,7 +506,9 @@ class _Comparator:
         else:
             self.finite(value, path)
 
-    def validate_recovery(self, record: Any, path: str) -> dict[str, Any]:
+    def validate_recovery(
+        self, record: Any, path: str, *, candidate_arity: int | None = None
+    ) -> dict[str, Any]:
         self.keys(record, _RECOVERY_KEYS, path)
         policy = record["policy"]
         self.keys(policy, _POLICY_KEYS, path + ".policy")
@@ -602,6 +629,14 @@ class _Comparator:
                         "invalid hint screening",
                     )
             else:
+                if candidate_arity is not None:
+                    self.require(
+                        len(candidate["parameters"]) == candidate_arity,
+                        location + ".candidate.parameters",
+                        "invalid executed cone parameter count",
+                    )
+                    for parameter in candidate["parameters"]:
+                        self.finite(parameter, location + ".candidate.parameters")
                 self.require(
                     bool(
                         candidate["id"]
@@ -801,10 +836,19 @@ class _Comparator:
         return {"record": record, "selected": selected, "limits": limits}
 
     def recovery(
-        self, actual: Any, expected: Any, path: str
+        self,
+        actual: Any,
+        expected: Any,
+        path: str,
+        *,
+        candidate_arity: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        left = self.validate_recovery(actual, path + "(actual)")
-        right = self.validate_recovery(expected, path + "(expected)")
+        left = self.validate_recovery(
+            actual, path + "(actual)", candidate_arity=candidate_arity
+        )
+        right = self.validate_recovery(
+            expected, path + "(expected)", candidate_arity=candidate_arity
+        )
         for key in _RECOVERY_KEYS - {"attempts"}:
             self.exact(actual[key], expected[key], path + "." + key)
         self.require(
@@ -816,14 +860,45 @@ class _Comparator:
             zip(actual["attempts"], expected["attempts"], strict=True)
         ):
             location = f"{path}.attempts[{index}]"
-            self.plain(
-                value["candidate"], reference["candidate"], location + ".candidate"
-            )
+            for key in _CANDIDATE_KEYS - {"parameters"}:
+                self.exact(
+                    value["candidate"][key],
+                    reference["candidate"][key],
+                    location + ".candidate." + key,
+                )
             self.exact(value["role"], reference["role"], location + ".role")
             selected = reference is right["selected"]
             screened = (
                 value["outcome"] in _SCREENED or reference["outcome"] in _SCREENED
             )
+            computed = (
+                candidate_arity is not None
+                and not screened
+                and value is not left["selected"]
+                and reference is not right["selected"]
+                and value["role"] == reference["role"] == "fresh"
+                and all(
+                    candidate["id"] in _CONE_FRESH_DERIVATIONS
+                    and candidate["chart"] == candidate["id"]
+                    and candidate["derivation"]
+                    == _CONE_FRESH_DERIVATIONS[candidate["id"]]
+                    for candidate in (value["candidate"], reference["candidate"])
+                )
+            )
+            parameters_path = location + ".candidate.parameters"
+            if computed:
+                self.diagnostic(
+                    value["candidate"]["parameters"],
+                    reference["candidate"]["parameters"],
+                    parameters_path,
+                    "discarded computed cone-v2 selected-data initializer",
+                )
+            else:
+                self.plain(
+                    value["candidate"]["parameters"],
+                    reference["candidate"]["parameters"],
+                    parameters_path,
+                )
             if screened or selected:
                 self.exact(
                     value["outcome"], reference["outcome"], location + ".outcome"
@@ -995,11 +1070,19 @@ class _Comparator:
                 self.plain(actual[key], expected[key], path + "." + key)
 
     def initialization(
-        self, actual: Any, expected: Any, path: str
+        self,
+        actual: Any,
+        expected: Any,
+        path: str,
+        *,
+        candidate_arity: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         self.keys(actual, set(expected), path)
         context = self.recovery(
-            actual["recovery"], expected["recovery"], path + ".recovery"
+            actual["recovery"],
+            expected["recovery"],
+            path + ".recovery",
+            candidate_arity=candidate_arity,
         )
         for value, info in zip((actual, expected), context, strict=True):
             self.validate_initialization(value, info, path)
@@ -1416,6 +1499,31 @@ class _Comparator:
         )
         self.finite_tree(value, path)
 
+    @staticmethod
+    def computed_cone_owner(record: dict[str, Any]) -> bool:
+        """Recognize the complete fixed-arity producer, never a bare version tag."""
+        geometry = record.get("analytic")
+        initialization = record.get("initialization")
+        solver = record.get("solver")
+        if not (
+            isinstance(geometry, dict)
+            and isinstance(initialization, dict)
+            and isinstance(solver, dict)
+        ):
+            return False
+        geometry = cast(dict[str, Any], geometry)
+        initialization = cast(dict[str, Any], initialization)
+        solver = cast(dict[str, Any], solver)
+        return (
+            record.keys() >= _CONE_FIT_FIELDS
+            and record.get("kind") == "cone"
+            and geometry.get("kind") == "cone"
+            and initialization.get("algorithm") == "selected-cone-recovery-v2"
+            and initialization.get("chart") == "rotated-normalized-cone-v1"
+            and solver.get("implementation") == "scaled-svd-least-squares-v1"
+            and "constraint_evaluations" not in solver
+        )
+
     def walk(self, actual: Any, expected: Any, path: str) -> None:
         if isinstance(expected, dict):
             self.require(isinstance(actual, dict), path, "expected an object")
@@ -1486,7 +1594,14 @@ class _Comparator:
                         "successful bounded fit missing public solver certificate",
                     )
                 context = self.initialization(
-                    actual["initialization"], initialization, path + ".initialization"
+                    actual["initialization"],
+                    initialization,
+                    path + ".initialization",
+                    # cone_residual_jacobian owns exactly cx,cy,a,b,R,k.
+                    candidate_arity=6
+                    if self.computed_cone_owner(actual)
+                    and self.computed_cone_owner(expected)
+                    else None,
                 )
                 for key in expected:
                     if key == "initialization":

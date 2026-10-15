@@ -20,18 +20,21 @@ from experiments.fit_initialization import (
 from experiments.fit_solver import AttemptControl, normalized_weights
 from experiments.mesh_cylinder_fit import Array, cylinder_basis
 from experiments.support_intent import (
+    SelectionSupport,
     SupportIntent,
     SupportIntentFailure,
     legacy_support,
     resolve_support,
     support_record,
 )
+from experiments.surface_primitives import projected_axial_parameter
 from scansor.nonlinear_least_squares import (
+    LeastSquaresFailure,
     LeastSquaresResult,
     solve_least_squares,
 )
 
-CONE_POLICY_VERSION = "selected-cone-recovery-v1"
+CONE_POLICY_VERSION = "selected-cone-recovery-v2"
 
 
 class ConeFitFailure(ValueError):
@@ -82,6 +85,102 @@ class _SelectedCone:
     numerical: LeastSquaresResult
     basis: Array
     candidate_id: str
+    parameter_scales: Array
+    residual_scale: float
+
+
+def _weighted_rms(values: Array, weights: Array) -> float:
+    maximum = float(np.max(np.abs(values)))
+    if maximum == 0 or not np.isfinite(maximum):
+        return maximum
+    return maximum * float(np.sqrt(weights @ (values / maximum) ** 2))
+
+
+def _cone_metrics(
+    points: Array,
+    weights: Array,
+    anchor: Array,
+    axis: Array,
+    radius: float,
+    taper: float,
+) -> dict[str, Any]:
+    """Affine positional coverage in fitted positive-radius/axial units.
+
+    One global transverse scale preserves positional rank. Dividing each row by
+    its own radius would manufacture apparent curved coverage from a plane.
+    The tilt scale follows the actual cone derivative h*u+k*xy, not just height.
+    """
+    relative = points - anchor
+    heights = relative @ axis
+    transverse = relative - heights[:, None] * axis
+    rho = np.linalg.norm(transverse, axis=1)
+    factor = float(np.hypot(1, taper))
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        projected = (
+            radius / factor / factor
+            + (taper / factor) * (heights / factor)
+            + (taper / factor) ** 2 * rho
+        )
+        axial_rms = _weighted_rms(heights - weights @ heights, weights)
+        radial_rms = _weighted_rms(projected, weights)
+        normal_tilt_rms = _weighted_rms(
+            heights / factor + (taper / factor) * rho, weights
+        )
+    metrics: dict[str, Any] = {
+        "axial_rms": axial_rms if np.isfinite(axial_rms) else None,
+        "projected_radius_rms": radial_rms if np.isfinite(radial_rms) else None,
+        "normal_tilt_rms": normal_tilt_rms if np.isfinite(normal_tilt_rms) else None,
+        "coverage_ratio": 0.0,
+        "covariance_eigenvalues": None,
+    }
+    if (
+        not np.isfinite([axial_rms, radial_rms]).all()
+        or min(axial_rms, radial_rms) <= 0
+        or not np.isfinite(projected).all()
+        or np.any(projected <= 0)
+    ):
+        return metrics
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        balanced = (points - weights @ points) @ cylinder_basis(axis)
+        balanced /= np.array([radial_rms, radial_rms, axial_rms])
+        covariance = balanced.T @ (weights[:, None] * balanced)
+    if not np.isfinite(covariance).all():
+        return metrics
+    spectrum = np.maximum(np.linalg.eigvalsh(covariance), 0)
+    metrics["covariance_eigenvalues"] = spectrum.tolist()
+    metrics["coverage_ratio"] = (
+        float(spectrum[0] / spectrum[-1]) if spectrum[-1] > 0 else 0.0
+    )
+    return metrics
+
+
+def _cone_scales(metrics: dict[str, Any], taper: float) -> tuple[Array, float]:
+    radius, axial, tilt = (
+        metrics["projected_radius_rms"],
+        metrics["axial_rms"],
+        metrics["normal_tilt_rms"],
+    )
+    if any(value is None or value <= 0 for value in (radius, axial, tilt)):
+        raise LeastSquaresFailure("rank-deficient", "unresolved cone geometric scale")
+    residual_scale = radius / np.hypot(1, taper)
+    scales = np.array(
+        [
+            radius,
+            radius,
+            residual_scale / tilt,
+            residual_scale / tilt,
+            radius,
+            radius / axial,
+        ]
+    )
+    if (
+        not np.isfinite(scales).all()
+        or np.any(scales <= 0)
+        or not np.isfinite(residual_scale)
+        or residual_scale <= 0
+    ):
+        raise LeastSquaresFailure("invalid-input", "unrepresentable cone solve scales")
+    return scales, float(residual_scale)
 
 
 def fit_selected_cone(
@@ -148,17 +247,14 @@ def fit_selected_cone(
         "length": frame.length,
         "observations": len(points),
         "coverage_ratio": coverage,
+        "raw_coverage_ratio": coverage,
+        "raw_coverage_gate_applied": False,
+        "coverage_measure": "affine-projected-positive-radius-and-axial-rms",
         "normalized_covariance_eigenvalues": np.maximum(values, 0).tolist(),
         "centered_normal_covariance_eigenvalues": np.maximum(normal_values, 0).tolist(),
         "minimum_coverage_ratio": 1e-10,
         "maximum_aligned_jacobian_condition": 1e6,
     }
-    if coverage <= 1e-10:
-        raise ConeFitFailure(
-            "insufficient-coverage",
-            "select a wider curved patch with axial coverage",
-            initialization,
-        )
     bases: dict[str, Array] = {}
     directions: list[Array] = []
     fresh: list[FitCandidate] = []
@@ -290,6 +386,15 @@ def fit_selected_cone(
     def solve(candidate: FitCandidate, control: AttemptControl) -> _SelectedCone:
         rotation = bases[candidate.chart]
         local = q @ rotation
+        parameters = np.asarray(candidate.parameters)
+        if not valid(parameters, rotation):
+            raise LeastSquaresFailure(
+                "invalid-initial-geometry", "cone proposal has invalid positive support"
+            )
+        anchor, axis, radius, taper = geometry(parameters, rotation)
+        scales, residual_scale = _cone_scales(
+            _cone_metrics(q, w, anchor, axis, radius, taper), taper
+        )
 
         def evaluate(parameters: Array) -> tuple[Array, Array]:
             residual, jac = cone_residual_jacobian(local, parameters)
@@ -298,13 +403,19 @@ def fit_selected_cone(
         numerical = solve_least_squares(
             candidate.parameters,
             lambda p: control.call(evaluate, p),
-            parameter_scales=np.ones(6),
-            residual_scale=1.0,
+            parameter_scales=scales,
+            residual_scale=residual_scale,
+            # In one of the three orthonormal normal-moment charts every
+            # unsigned direction has both slopes <=sqrt(2). The overlapping
+            # boxes retain that coverage and avoid the wrong-chart horizon.
+            lower_bounds=[-np.inf, -np.inf, -2.0, -2.0, -np.inf, -np.inf],
+            upper_bounds=[np.inf, np.inf, 2.0, 2.0, np.inf, np.inf],
+            rank_tolerance=1e-6,
             geometry_is_valid=lambda p: valid(p, rotation),
             max_iterations=control.limits.max_iterations,
             max_trials=control.limits.max_trials,
         )
-        return _SelectedCone(numerical, rotation, candidate.id)
+        return _SelectedCone(numerical, rotation, candidate.id, scales, residual_scale)
 
     def aligned(
         result: _SelectedCone,
@@ -318,22 +429,40 @@ def fit_selected_cone(
         return residual, jac, geometry_value
 
     def assess(result: _SelectedCone) -> FitAssessment:
-        residual, jac, _ = aligned(result)
+        residual, jac, (anchor, axis, radius, taper) = aligned(result)
         singular = np.linalg.svd(np.sqrt(w)[:, None] * jac, compute_uv=False)
         condition = (
             float(singular[0] / singular[-1]) if singular[-1] > 0 else float("inf")
         )
         gradient = float(np.max(np.abs(jac.T @ (w * residual))))
-        assessments[result.candidate_id] = {
-            "aligned_gradient_infinity_norm": gradient
-            if np.isfinite(gradient)
-            else None
-        }
+        metrics = _cone_metrics(q, w, anchor, axis, radius, taper)
+        try:
+            scales, residual_scale = _cone_scales(metrics, taper)
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                scaled_gradient = float(
+                    np.max(
+                        np.abs(
+                            (jac * (scales / residual_scale)).T
+                            @ (w * (residual / residual_scale))
+                        )
+                    )
+                )
+        except LeastSquaresFailure:
+            scaled_gradient = float("inf")
+        metrics["aligned_gradient_infinity_norm"] = (
+            gradient if np.isfinite(gradient) else None
+        )
+        metrics["aligned_scaled_gradient_infinity_norm"] = (
+            scaled_gradient if np.isfinite(scaled_gradient) else None
+        )
+        assessments[result.candidate_id] = metrics
         return FitAssessment(
             float(w @ residual**2),
             valid(np.asarray(result.numerical.parameters), result.basis)
             and condition <= 1e6
-            and gradient <= 1e-10,
+            and metrics["coverage_ratio"] > 1e-10
+            and np.isfinite(scaled_gradient)
+            and scaled_gradient <= 1e-10,
             int(np.sum(singular > 1e-12 * singular[0])),
             condition,
             result.numerical.termination,
@@ -345,12 +474,51 @@ def fit_selected_cone(
         ab, db, rb, kb = geometry(np.asarray(b.numerical.parameters), b.basis)
         if da @ db < 0:
             db, kb = -db, -kb
-        scale = min(abs(ra), abs(rb))
+        scale = min(
+            _cone_metrics(q, w, aa, da, ra, ka)["projected_radius_rms"],
+            _cone_metrics(q, w, ab, db, rb, kb)["projected_radius_rms"],
+        )
+        extent = 0.0
+        segments: list[tuple[Array, Array, Array]] = []
+        for anchor, axis, radius, taper in ((aa, da, ra, ka), (ab, db, rb, kb)):
+            (
+                supported_anchor,
+                supported_axis,
+                supported_radius,
+                supported_taper,
+                bounds,
+            ) = supported_geometry(anchor, axis, radius, taper)
+            endpoints = supported_anchor + np.asarray(bounds)[:, None] * supported_axis
+            endpoint_radii = supported_radius + supported_taper * np.asarray(bounds)
+            segments.append((endpoints, endpoint_radii, supported_axis))
+            extent = max(
+                extent,
+                float(np.max(np.abs((q - anchor) @ axis))),
+                float(np.max(np.abs((endpoints - anchor) @ axis))),
+            )
+        # A minimal rotation moves a meridian point by at most its distance
+        # from the common gauge times ||d1-d2||. Convexity puts the largest
+        # distance at an axial interval endpoint, including varying radius.
+        angular_lever = max(
+            float(np.hypot(extent, abs(radius) + abs(taper) * extent))
+            for radius, taper in ((ra, ka), (rb, kb))
+        )
+        ends_a, radii_a, axis_a = segments[0]
+        ends_b, radii_b, axis_b = segments[1]
+        if isinstance(intent, SelectionSupport) and axis_a @ axis_b < 0:
+            ends_b, radii_b = ends_b[::-1], radii_b[::-1]
+        tolerance = 1e-7 * scale
         return bool(
-            np.linalg.norm(aa - ab) <= 1e-7 * scale
-            and abs(ra - rb) <= 1e-7 * scale
-            and np.linalg.norm(np.cross(da, db)) <= 1e-7
-            and abs(ka - kb) <= 1e-7
+            np.isfinite([scale, extent, angular_lever]).all()
+            and scale > 0
+            and np.linalg.norm(aa - ab) <= tolerance
+            and abs(ra - rb) <= tolerance
+            and np.linalg.norm(da - db) * angular_lever <= tolerance
+            and abs(ka - kb) * extent <= tolerance
+            # Near-parallel plane intersection can amplify a tiny transverse
+            # line shift even with exactly equal directions and radius.
+            and np.max(np.linalg.norm(ends_a - ends_b, axis=1)) <= tolerance
+            and np.max(np.abs(radii_a - radii_b)) <= tolerance
         )
 
     proposed_hint = None
@@ -424,8 +592,7 @@ def fit_selected_cone(
     radial = relative - heights[:, None] * direction
     rho = np.linalg.norm(radial, axis=1)
     expected = (radial / rho[:, None] - taper * direction) / np.hypot(1, taper)
-    scale = float(np.hypot(1, taper))
-    projected = (heights / scale + (taper / scale) * (rho - radius)) / scale
+    projected = projected_axial_parameter(heights, rho, radius, taper)
     inside = (projected >= bounds[0]) & (projected <= bounds[1])
     assessment = assess(result)
     numerical = result.numerical
@@ -459,6 +626,12 @@ def fit_selected_cone(
             "rank": assessment.rank,
             "scaled_jacobian_condition": numerical.condition,
             "aligned_jacobian_condition": assessment.condition,
+            "aligned_scaled_gradient_infinity_norm": assessments[result.candidate_id][
+                "aligned_scaled_gradient_infinity_norm"
+            ],
+            "parameter_scales": result.parameter_scales.tolist(),
+            "residual_scale": result.residual_scale,
+            "scale_units": "dimensionless rotated (source-origin)/coordinate_length chart",
             "scaled_projected_gradient_infinity_norm": numerical.projected_gradient_norm,
             "coordinate_origin": frame.origin.tolist(),
             "coordinate_length": frame.length,

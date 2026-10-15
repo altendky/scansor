@@ -27,6 +27,22 @@ recorded outcomes differ; both sides must still name known candidates and
 contain recognized finite metrics. Removing a trace with the same outcome
 fails. Selected fitted assessments remain mandatory and strictly compared.
 
+Complete standalone cone-v2 records also retain the numeric parameters of
+unselected fresh computed starts as diagnostics. Both executed arrays must have
+the producer's six finite coordinates and known selected-data proposal
+provenance. Candidate identity, chart, derivation, binding and order remain
+strict, as do selected, optional-hint and screened starts. Isolated envelopes
+and other families retain their existing strict candidate comparison; extending
+that schema is separate work under #266.
+
+The long-cone investigation measured a discarded start's taper difference of
+about 7.93e-10 relative, or 0.000000079 percent. Both runtimes rejected that
+rank-deficient start and selected the same centered proposal. An ill-conditioned
+wrong-chart center/radial regression can amplify near-machine-precision axis
+variation into that seed difference; no particular BLAS implementation was
+isolated. This diagnostic classification changes no tolerance, published result,
+admission criterion or search budget.
+
 All raw records remain available alongside a versioned, source-hashed receipt
 and a ledger of allowed diagnostic differences. Browser graph harnesses invoke
 the same reviewed Python policy. The artifact verifier checks input identities

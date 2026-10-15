@@ -88,28 +88,44 @@ support representation; no nozzle seed or model interval is read. Shared
 cone/cylinder groups initialize together, fixed axes remain exact, and
 cone-plane/reference relationships retain their hard equations.
 
-The original `selected-cone-recovery-v1` admission policy separately checks
-selected position coverage above 1e-10 and a
-final fitted-axis geometric Jacobian condition at most 1e6. These provisional
-limits are backed by generated full/partial, noisy, degenerate and apex-adjacent
-cases rather than a physical acceptance claim. Finite support endpoints and every
-selected observation's orthogonal projection must remain on the positive-radius
-sheet. A negative radius at an extrapolated anchor can be valid when the finite
-segment is positive; a distant apex is not mandatory saved state. Normals supply
-proposals and oriented growth evidence, not hard positional constraints.
-[#267](https://github.com/altendky/scansor/issues/267) tracks the cone-specific
-admission improvement: an independently generated long near-cylinder frustum
-fails the raw extent gate despite an aligned condition about 1.46. The initial
-conservative slice does not claim support for every aspect ratio.
-Earlier packaged-worker diagnostics matched the three original cone cases'
-selected geometry, source bindings, selections and hard constraints, while
-discarded attempts exposed cross-runtime trace differences. The approved bounded
-semantic contract from [#266](https://github.com/altendky/scansor/issues/266) is now
-implemented and has passed the delivered cylinder gates. This merged cone head
-still requires fresh native/actual-worker verification under that contract.
-Complete diagnostics remain retained; selected geometry, acceptance certificates
-and finite budgets remain enforced. The later cone admission work and imported
-graph symmetry integration remain separate issues.
+Cone admission policy `selected-cone-recovery-v2` checks post-fit affine position
+coverage above 1e-10 and retains the independent fitted-axis geometric Jacobian
+condition cap of 1e6. One global projected positive-radius RMS and one axial RMS
+scale the original positions; raw covariance remains labeled evidence rather
+than an early aspect-ratio gate. These provisional limits are backed by generated
+full/partial, noisy, degenerate, steep and apex-adjacent cases rather than a
+physical acceptance claim. Finite support endpoints and every selected
+observation's orthogonal projection must remain on the positive-radius sheet.
+A negative radius at an extrapolated anchor can be valid when the finite segment
+is positive; a distant apex is not mandatory saved state. Normals supply proposals
+and oriented growth evidence, not hard positional constraints.
+
+The [cone admission investigation](../experiments/cone-admission.md) records
+[#267](https://github.com/altendky/scansor/issues/267)'s independently executed
+baseline and preregistered matrix: a long near-cylinder frustum failed the old
+raw gate despite an aligned condition about 1.46. The bounded implementation
+uses cone-specific tilt/residual scales, independent final fitted-geometry
+stationarity, extent-aware equivalence and resolved hard-support endpoint checks.
+Per-row nonlinear radius normalization is excluded by an exact-plane
+counterexample. The original draft passed 32 independent admission tests,
+13 high-precision projection regressions and 218 native runtime tests; these
+historical counts do not establish the current catchup's verification, physical
+acceptance or every aspect ratio.
+
+Earlier packaged Chromium/Pyodide execution of policy v2, including the added
+long raw-float32 source, agreed on selected initializer/attempt evidence, geometry,
+support, IDs, bindings, growth and replay under the existing strict limits. A
+shared meridian-projection arithmetic correction resolves an observed support
+boundary discrepancy; both runtimes now classify all 60 long-source rows inside,
+without changing intervals or tolerances. Its original strict failure remains
+retained evidence. The approved bounded semantic contract from
+[#266](https://github.com/altendky/scansor/issues/266) now compares selected
+geometry, source/recipe identity, acceptance classifications and finite budgets
+while retaining discarded numerical paths. A remaining computed-start comparison
+seam is being corrected within that contract; selected, hint and screened starts
+remain strict. Fresh current-head native/worker, source UI and complete evidence
+verification are required before delivery. Imported graph symmetry integration
+remains separate.
 
 The [raw-scan acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
 opens only the retained RealityScan PLY, authors the frozen 803-row plane and

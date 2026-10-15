@@ -161,15 +161,18 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
             2.5,
             atol=1e-14,
         )
-        assert data["imported_cones"].shape == (3, 60, 3)
-        assert data["imported_cone_normals"].shape == (3, 60, 3)
-        assert data["imported_cone_axes"].shape == (3, 3)
+        assert data["imported_cones"].shape == (4, 60, 3)
+        assert data["imported_cone_normals"].shape == (4, 60, 3)
+        assert data["imported_cone_axes"].shape == (4, 3)
         assert data["support_points"].shape == (2, 60, 3)
         assert data["support_normals"].shape == (2, 60, 3)
         np.testing.assert_allclose(
             np.linalg.norm(data["support_normals"], axis=2), 1, atol=1e-14
         )
-        np.testing.assert_array_equal(data["imported_cone_slopes"], [0.15, -0.2, 1e-7])
+        np.testing.assert_array_equal(
+            data["imported_cone_slopes"], [0.15, -0.2, 1e-7, 1e-7]
+        )
+        np.testing.assert_allclose(np.ptp(data["imported_cones"][3, :, 2]), 6e6)
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_cone_normals"], axis=2), 1, atol=1e-14
         )
@@ -1210,7 +1213,7 @@ def test_imported_cone_parity_accepts_unit_scaled_roundoff(scale: float) -> None
     assert actual == original
 
 
-@pytest.mark.parametrize("index", range(3))
+@pytest.mark.parametrize("index", range(4))
 def test_frozen_imported_cones_fit_grow_recover_and_replay(
     index: int, tmp_path: Path
 ) -> None:

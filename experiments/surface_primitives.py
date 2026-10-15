@@ -32,6 +32,22 @@ def basis(axis: Array) -> tuple[Array, Array]:
     return u, np.cross(axis, u)
 
 
+def projected_axial_parameter(
+    axial: Array, radial_distance: Array, radius: float, slope: float
+) -> Array:
+    """Orthogonal meridian foot without losing a tiny near-cylinder correction.
+
+    Dividing a long axial coordinate twice can introduce whole axial ULPs.
+    Conversely, subtracting that coordinate from itself loses steep-cone feet;
+    use the scaled rational expression in that regime.
+    """
+    scale = float(np.hypot(1, slope))
+    if abs(slope) <= 1:
+        residual = (radial_distance - radius - slope * axial) / scale
+        return axial + (slope / scale) * residual
+    return (axial / scale + (slope / scale) * (radial_distance - radius)) / scale
+
+
 def _geometry_array(value: object, name: str) -> Array:
     raw = np.asarray(value)
     if raw.dtype.kind not in "iuf" or (

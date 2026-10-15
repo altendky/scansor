@@ -21,7 +21,10 @@ from experiments.mesh_cone_plane_fit import (
 from experiments.mesh_cylinder_fit import Array, fit_selected_cylinder
 from experiments.mesh_sphere_fit import fit_sphere
 from experiments.support_intent import SupportIntent, SupportIntentFailure
-from experiments.surface_primitives import revolution_geometry
+from experiments.surface_primitives import (
+    projected_axial_parameter,
+    revolution_geometry,
+)
 
 
 class PlaneFitFailure(ValueError):
@@ -263,7 +266,7 @@ def surface_distance(
     scale = float(np.hypot(1, slope))
     expected = (radial / np.maximum(rho, 1e-30)[:, None] - slope * axis) / scale
     residual = (rho - radius - slope * z) / scale
-    projected_z = (z / scale + (slope / scale) * (rho - radius)) / scale
+    projected_z = projected_axial_parameter(z, rho, radius, slope)
     projected_radius = (
         radius / scale / scale
         + (slope / scale) * (z / scale)

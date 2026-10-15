@@ -1169,3 +1169,1117 @@ def test_canonical_geometry_precedes_redundant_legacy_parameters(
     invalid = copy.deepcopy(expected)
     invalid["analytic"]["radius"] = "NaN"
     rejected(invalid, copy.deepcopy(invalid))
+
+
+@pytest.fixture(scope="module")
+def retained_cone_pair() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Complete, unmodified long-cone worker/native fit records from #267.
+
+    Retained cone-admission-diagnostic-2/browser-chromium.json SHA256
+    13962e24c2aee110155c1e626e876b61e41af13f9ba24042b8ad857bfaba31b6,
+    finished.numeric.result.debug_actual/debug_expected.imported_cones[3]
+    .standalone.results.cone. Keeping both small operands avoids a new fit or
+    manufacturing a diagnostic pair from current producer output.
+    """
+    records: dict[str, dict[str, Any]] = json.loads(
+        r"""
+{
+  "actual": {
+    "kind": "cone",
+    "analytic": {
+      "kind": "cone",
+      "origin": [
+        80.0000188222024,
+        -60.00000752286966,
+        14767.912219881313
+      ],
+      "axis": [
+        -5.4669643774463685e-11,
+        -1.5580391546532362e-10,
+        1
+      ],
+      "radius": 2.5014939194163355,
+      "slope": 9.995098563775653e-8,
+      "axial_domain": [
+        -1314727.9122198818,
+        1185272.0877801192
+      ]
+    },
+    "anchor_reference": [
+      79.99337290689772,
+      -60.001587702852085,
+      14767.912219881313
+    ],
+    "support_origin": "selection",
+    "support_intent": {
+      "kind": "selection"
+    },
+    "residuals": [
+      0.0007154986719125959,
+      -0.00035846855915137854,
+      -0.0011284056401103424,
+      0.00032823296292484974,
+      0.0009406507069572706,
+      -0.0004715019910465989,
+      -0.0005991818730214205,
+      0.0008410399521063239,
+      0.0005028074425909905,
+      -0.0010194050063629014,
+      -0.0005219167374618437,
+      0.0006832030564150788,
+      0.000025339876661291177,
+      -0.001007731530934726,
+      0.0002138950465364493,
+      0.0009418115141554839,
+      -0.00046185279606323823,
+      -0.000834845783879747,
+      0.000648538192516587,
+      0.0006182572018406877,
+      -0.0008783658162261044,
+      -0.00047459295307851387,
+      0.0009124005953564204,
+      0.0001603972447276797,
+      -0.000767543635094589,
+      0.00027670005583248073,
+      0.0011150612548061463,
+      -0.00029287347998616206,
+      -0.000968131434205401,
+      0.0004283464385604611,
+      0.0005943620069096712,
+      -0.000873850707848085,
+      -0.000615602994075944,
+      0.0009158747598917572,
+      0.00047067525188093277,
+      -0.0007540509216668522
+    ],
+    "weighted_rms": 0.0007071839329042119,
+    "condition": 2.023341045598924,
+    "normal_sign": 1,
+    "solver": {
+      "implementation": "scaled-svd-least-squares-v1",
+      "termination": "projected-gradient",
+      "iterations": 2,
+      "evaluations": 3,
+      "rank": 6,
+      "scaled_jacobian_condition": 1.4224419304840348,
+      "aligned_jacobian_condition": 1.4224419304839562,
+      "aligned_scaled_gradient_infinity_norm": 6.787377327928737e-14,
+      "parameter_scales": [
+        0.000002387504782568556,
+        0.000002387504782568556,
+        0.0000023875047825753363,
+        0.0000023875047825753363,
+        0.000002387504782568556,
+        0.0000023875047825753605
+      ],
+      "residual_scale": 0.000002387504782568544,
+      "scale_units": "dimensionless rotated (source-origin)/coordinate_length chart",
+      "scaled_projected_gradient_infinity_norm": 6.787377666741916e-14,
+      "coordinate_origin": [
+        79.99337290689772,
+        -60.001587702852085,
+        14767.912219881313
+      ],
+      "coordinate_length": 1048663.368879163
+    },
+    "initialization": {
+      "algorithm": "selected-cone-recovery-v2",
+      "chart": "rotated-normalized-cone-v1",
+      "origin": [
+        79.99337290689772,
+        -60.001587702852085,
+        14767.912219881313
+      ],
+      "length": 1048663.368879163,
+      "observations": 36,
+      "coverage_ratio": 2.817632878335707e-12,
+      "raw_coverage_ratio": 2.817632878335707e-12,
+      "raw_coverage_gate_applied": false,
+      "coverage_measure": "affine-projected-positive-radius-and-axial-rms",
+      "normalized_covariance_eigenvalues": [
+        2.8176328783196442e-12,
+        2.8826103874805905e-12,
+        0.9999999999942992
+      ],
+      "centered_normal_covariance_eigenvalues": [
+        9.496755070909214e-31,
+        0.49429511464650394,
+        0.5056974453873067
+      ],
+      "minimum_coverage_ratio": 1e-10,
+      "maximum_aligned_jacobian_condition": 1000000,
+      "initializers": {
+        "centered-normal-0": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 1.0114616165623866
+        },
+        "normal-moment-1": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 585177.7612050945
+        },
+        "normal-moment-2": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 592017.0098047847
+        },
+        "position-covariance-0": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 585174.4092884249
+        },
+        "position-covariance-1": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 592025.9937491025
+        }
+      },
+      "assessments": {
+        "centered-normal-0": {
+          "axial_rms": 0.99999999999715,
+          "projected_radius_rms": 0.0000023875048492479627,
+          "normal_tilt_rms": 0.9999999999971552,
+          "coverage_ratio": 0.49429810444831657,
+          "covariance_eigenvalues": [
+            0.49429828584755203,
+            0.5056939825108879,
+            1.0000003669834738
+          ],
+          "aligned_gradient_infinity_norm": 1.6204897299856574e-19,
+          "aligned_scaled_gradient_infinity_norm": 6.787377327928737e-14
+        }
+      },
+      "recovery": {
+        "policy": {
+          "version": "selected-data-recovery-v2",
+          "max_proposals": 16,
+          "max_fresh_attempts": 8,
+          "attempt": {
+            "max_iterations": 100,
+            "max_trials": 16,
+            "max_evaluations": 512
+          },
+          "objective_atol": 1e-12,
+          "objective_rtol": 1e-9
+        },
+        "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9",
+        "attempts": [
+          {
+            "candidate": {
+              "id": "centered-normal-0",
+              "parameters": [
+                -6.33294127138122e-9,
+                -1.4936764066819266e-9,
+                0,
+                0,
+                0.0000023854116705504273,
+                9.995123205645872e-8
+              ],
+              "derivation": "selected centered-normal axis; residualized center and radial regression",
+              "chart": "centered-normal-0",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "locally-converged",
+            "evaluations": 3,
+            "assessment": {
+              "objective": 4.547708028743153e-19,
+              "valid": true,
+              "rank": 6,
+              "condition": 1.4224419304839562,
+              "termination": "projected-gradient",
+              "iterations": 2
+            },
+            "solver": null
+          },
+          {
+            "candidate": {
+              "id": "normal-moment-1",
+              "parameters": [
+                -26.661687187217293,
+                0.058851378970622044,
+                0,
+                0,
+                26.680496255080286,
+                0.5318933849853751
+              ],
+              "derivation": "selected normal-moment axis; residualized center and radial regression",
+              "chart": "normal-moment-1",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                -26.661687187217293,
+                0.058851378970622044,
+                0,
+                0,
+                26.680496255080286,
+                0.5318933849853751
+              ],
+              "objective_history": [
+                1.0306715314846241e-7
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 1.3584181203391101,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "normal-moment-2",
+              "parameters": [
+                1.7570831245147234,
+                0.0588584764596569,
+                0,
+                0,
+                2.0157071022931348,
+                16.89954541953187
+              ],
+              "derivation": "selected normal-moment axis; residualized center and radial regression",
+              "chart": "normal-moment-2",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                1.7570831245147234,
+                0.0588584764596569,
+                0,
+                0,
+                2.0157071022931348,
+                16.89954541953187
+              ],
+              "objective_history": [
+                0.0033895052818731317
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 476.18887196364665,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "position-covariance-0",
+              "parameters": [
+                -26.89500486751005,
+                0.058851130613069784,
+                0,
+                0,
+                26.913650924296153,
+                0.5211448565230025
+              ],
+              "derivation": "selected position-covariance axis; residualized center and radial regression",
+              "chart": "position-covariance-0",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                -26.89500486751005,
+                0.058851130613069784,
+                0,
+                0,
+                26.913650924296153,
+                0.5211448565230025
+              ],
+              "objective_history": [
+                9.954108167308247e-8
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 1.3082080839282344,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "position-covariance-1",
+              "parameters": [
+                1.4687067862647696,
+                0.05885863484425646,
+                0,
+                0,
+                1.7673679112707,
+                19.509931731803338
+              ],
+              "derivation": "selected position-covariance axis; residualized center and radial regression",
+              "chart": "position-covariance-1",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                1.4687067862647696,
+                0.05885863484425646,
+                0,
+                0,
+                1.7673679112707,
+                19.509931731803338
+              ],
+              "objective_history": [
+                0.005849730060104404
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 626.2552362651053,
+              "termination": "rank-deficient"
+            }
+          }
+        ],
+        "selected": "centered-normal-0",
+        "termination": "best-attempted-local-solution",
+        "selected_role": "fresh"
+      }
+    },
+    "support_classification": {
+      "inside_vertices": 36,
+      "outside_vertices": 0,
+      "role": "selection-and-display"
+    },
+    "ids": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ]
+  },
+  "expected": {
+    "kind": "cone",
+    "analytic": {
+      "kind": "cone",
+      "origin": [
+        80.0000188222024,
+        -60.00000752286966,
+        14767.912219881546
+      ],
+      "axis": [
+        -5.46696437744718e-11,
+        -1.558039154653691e-10,
+        1
+      ],
+      "radius": 2.5014939194163355,
+      "slope": 9.995098563775655e-8,
+      "axial_domain": [
+        -1314727.912219882,
+        1185272.087780119
+      ]
+    },
+    "anchor_reference": [
+      79.99337290689772,
+      -60.001587702852085,
+      14767.912219881546
+    ],
+    "support_origin": "selection",
+    "support_intent": {
+      "kind": "selection"
+    },
+    "residuals": [
+      0.0007154986719126237,
+      -0.0003584685591513508,
+      -0.0011284056401103147,
+      0.0003282329629248775,
+      0.0009406507069573261,
+      -0.0004715019910465433,
+      -0.000599181873021365,
+      0.0008410399521063794,
+      0.0005028074425910461,
+      -0.0010194050063628737,
+      -0.000521916737461816,
+      0.0006832030564151066,
+      0.0000253398766613146,
+      -0.0010077315309347027,
+      0.00021389504653647273,
+      0.0009418115141555073,
+      -0.0004618527960632148,
+      -0.0008348457838797236,
+      0.0006485381925166104,
+      0.0006182572018407111,
+      -0.000878365816226081,
+      -0.00047459295307849023,
+      0.0009124005953564438,
+      0.00016039724472770314,
+      -0.0007675436350945751,
+      0.0002767000558329248,
+      0.0011150612548061463,
+      -0.0002928734799861482,
+      -0.0009681314342053871,
+      0.0004283464385604611,
+      0.0005943620069096712,
+      -0.0008738507078480711,
+      -0.0006156029940759301,
+      0.000915874759891771,
+      0.00047067525188093277,
+      -0.0007540509216668384
+    ],
+    "weighted_rms": 0.0007071839329042153,
+    "condition": 2.023341045598927,
+    "normal_sign": 1,
+    "solver": {
+      "implementation": "scaled-svd-least-squares-v1",
+      "termination": "projected-gradient",
+      "iterations": 2,
+      "evaluations": 3,
+      "rank": 6,
+      "scaled_jacobian_condition": 1.4224419304840346,
+      "aligned_jacobian_condition": 1.4224419304839573,
+      "aligned_scaled_gradient_infinity_norm": 6.786792282272068e-14,
+      "parameter_scales": [
+        0.0000023875047825685562,
+        0.0000023875047825685562,
+        0.0000023875047825753363,
+        0.0000023875047825753363,
+        0.0000023875047825685562,
+        0.0000023875047825753605
+      ],
+      "residual_scale": 0.0000023875047825685444,
+      "scale_units": "dimensionless rotated (source-origin)/coordinate_length chart",
+      "scaled_projected_gradient_infinity_norm": 6.784905601085354e-14,
+      "coordinate_origin": [
+        79.99337290689772,
+        -60.001587702852085,
+        14767.912219881546
+      ],
+      "coordinate_length": 1048663.368879163
+    },
+    "initialization": {
+      "algorithm": "selected-cone-recovery-v2",
+      "chart": "rotated-normalized-cone-v1",
+      "origin": [
+        79.99337290689772,
+        -60.001587702852085,
+        14767.912219881546
+      ],
+      "length": 1048663.368879163,
+      "observations": 36,
+      "coverage_ratio": 2.8175872585792616e-12,
+      "raw_coverage_ratio": 2.8175872585792616e-12,
+      "raw_coverage_gate_applied": false,
+      "coverage_measure": "affine-projected-positive-radius-and-axial-rms",
+      "normalized_covariance_eigenvalues": [
+        2.8175872585632006e-12,
+        2.882544984612906e-12,
+        0.9999999999942998
+      ],
+      "centered_normal_covariance_eigenvalues": [
+        9.496755070909214e-31,
+        0.49429511464650394,
+        0.5056974453873067
+      ],
+      "minimum_coverage_ratio": 1e-10,
+      "maximum_aligned_jacobian_condition": 1000000,
+      "initializers": {
+        "centered-normal-0": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 1.0114616165623862
+        },
+        "normal-moment-1": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 585177.7612050946
+        },
+        "normal-moment-2": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 592017.0098047847
+        },
+        "position-covariance-0": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 585175.1184435975
+        },
+        "position-covariance-1": {
+          "center_rank": 2,
+          "radial_rank": 2,
+          "center_condition": 592024.541300888
+        }
+      },
+      "assessments": {
+        "centered-normal-0": {
+          "axial_rms": 0.99999999999715,
+          "projected_radius_rms": 0.0000023875048492479627,
+          "normal_tilt_rms": 0.999999999997155,
+          "coverage_ratio": 0.49429810444831684,
+          "covariance_eigenvalues": [
+            0.4942982858475523,
+            0.5056939825108879,
+            1.0000003669834738
+          ],
+          "aligned_gradient_infinity_norm": 1.6203500786338037e-19,
+          "aligned_scaled_gradient_infinity_norm": 6.786792282272068e-14
+        }
+      },
+      "recovery": {
+        "policy": {
+          "version": "selected-data-recovery-v2",
+          "max_proposals": 16,
+          "max_fresh_attempts": 8,
+          "attempt": {
+            "max_iterations": 100,
+            "max_trials": 16,
+            "max_evaluations": 512
+          },
+          "objective_atol": 1e-12,
+          "objective_rtol": 1e-9
+        },
+        "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9",
+        "attempts": [
+          {
+            "candidate": {
+              "id": "centered-normal-0",
+              "parameters": [
+                -6.332941271381185e-9,
+                -1.493676406681975e-9,
+                0,
+                0,
+                0.0000023854116705504277,
+                9.995123205645873e-8
+              ],
+              "derivation": "selected centered-normal axis; residualized center and radial regression",
+              "chart": "centered-normal-0",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "locally-converged",
+            "evaluations": 3,
+            "assessment": {
+              "objective": 4.547708028743196e-19,
+              "valid": true,
+              "rank": 6,
+              "condition": 1.4224419304839573,
+              "termination": "projected-gradient",
+              "iterations": 2
+            },
+            "solver": null
+          },
+          {
+            "candidate": {
+              "id": "normal-moment-1",
+              "parameters": [
+                -26.661687187213673,
+                0.058851378970622266,
+                0,
+                0,
+                26.680496255076672,
+                0.5318933854072828
+              ],
+              "derivation": "selected normal-moment axis; residualized center and radial regression",
+              "chart": "normal-moment-1",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                -26.661687187213673,
+                0.058851378970622266,
+                0,
+                0,
+                26.680496255076672,
+                0.5318933854072828
+              ],
+              "objective_history": [
+                1.0306715314851782e-7
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 1.358418120842611,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "normal-moment-2",
+              "parameters": [
+                1.7570831244705094,
+                0.058858476459657125,
+                0,
+                0,
+                2.0157071022543067,
+                16.89954541981489
+              ],
+              "derivation": "selected normal-moment axis; residualized center and radial regression",
+              "chart": "normal-moment-2",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                1.7570831244705094,
+                0.058858476459657125,
+                0,
+                0,
+                2.0157071022543067,
+                16.89954541981489
+              ],
+              "objective_history": [
+                0.0033895052821430014
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 476.1888719847157,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "position-covariance-0",
+              "parameters": [
+                -26.853055256995276,
+                0.05885117227472043,
+                0,
+                0,
+                26.871730413971612,
+                0.5229882605149997
+              ],
+              "derivation": "selected position-covariance axis; residualized center and radial regression",
+              "chart": "position-covariance-0",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                -26.853055256995276,
+                0.05885117227472043,
+                0,
+                0,
+                26.871730413971612,
+                0.5229882605149997
+              ],
+              "objective_history": [
+                1.0016380830071234e-7
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 1.3169974376271487,
+              "termination": "rank-deficient"
+            }
+          },
+          {
+            "candidate": {
+              "id": "position-covariance-1",
+              "parameters": [
+                1.5209244730180194,
+                0.058858600405650864,
+                0,
+                0,
+                1.8115368484074814,
+                18.977791444744373
+              ],
+              "derivation": "selected position-covariance axis; residualized center and radial regression",
+              "chart": "position-covariance-1",
+              "binding_sha256": "6afcfc673aa73a12454ac035aef86637ac09781848ec6401b4ac270a33e0bbc9"
+            },
+            "role": "fresh",
+            "outcome": "rank-deficient",
+            "evaluations": 1,
+            "assessment": null,
+            "solver": {
+              "parameters": [
+                1.5209244730180194,
+                0.058858600405650864,
+                0,
+                0,
+                1.8115368484074814,
+                18.977791444744373
+              ],
+              "objective_history": [
+                0.005278158226452061
+              ],
+              "iterations": 0,
+              "evaluations": 1,
+              "rank": 3,
+              "condition": "Infinity",
+              "projected_gradient_norm": 594.9947631217232,
+              "termination": "rank-deficient"
+            }
+          }
+        ],
+        "selected": "centered-normal-0",
+        "termination": "best-attempted-local-solution",
+        "selected_role": "fresh"
+      }
+    },
+    "support_classification": {
+      "inside_vertices": 36,
+      "outside_vertices": 0,
+      "role": "selection-and-display"
+    },
+    "ids": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47
+    ]
+  }
+}
+"""
+    )
+    return records["actual"], records["expected"]
+
+
+def cone_start(record: dict[str, Any]) -> dict[str, Any]:
+    return next(
+        attempt
+        for attempt in recovery(record)["attempts"]
+        if attempt["candidate"]["id"] == "normal-moment-1"
+    )
+
+
+def test_actual_discarded_long_cone_start_is_retained_as_computed_diagnostic(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    actual, expected = retained_cone_pair
+    for record in (actual, expected):
+        attempt = cone_start(record)
+        assert attempt["role"] == "fresh"
+        assert attempt["outcome"] == "rank-deficient"
+        assert attempt["solver"]["rank"] == 3
+        assert selected(record)["candidate"]["id"] == "centered-normal-0"
+    left = cone_start(actual)["candidate"]["parameters"][5]
+    right = cone_start(expected)["candidate"]["parameters"][5]
+    assert left == 0.5318933849853751 and right == 0.5318933854072828
+    assert abs(left - right) > parity.ATOL + parity.RTOL * abs(right)
+    receipt = accepted(actual, expected, profile="numeric-fit")
+    entry = next(
+        item
+        for item in receipt["diagnostic_differences"]
+        if item["path"].endswith(".attempts[1].candidate.parameters[5]")
+    )
+    assert entry == {
+        "path": "$.initialization.recovery.attempts[1].candidate.parameters[5]",
+        "actual": left,
+        "expected": right,
+        "reason": "discarded computed cone-v2 selected-data initializer",
+    }
+    assert actual["analytic"]["radius"] == expected["analytic"]["radius"]
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        [],
+        [0.0] * 5,
+        [0.0] * 7,
+        [[0.0], 0.0, 0.0, 0.0, 2.5, 0.1],
+        [True, 0.0, 0.0, 0.0, 2.5, 0.1],
+        ["0", 0.0, 0.0, 0.0, 2.5, 0.1],
+        ["NaN", 0.0, 0.0, 0.0, 2.5, 0.1],
+        [float("nan"), 0.0, 0.0, 0.0, 2.5, 0.1],
+        [float("inf"), 0.0, 0.0, 0.0, 2.5, 0.1],
+        [None, 0.0, 0.0, 0.0, 2.5, 0.1],
+        None,
+        {"cx": 0.0},
+    ],
+)
+@pytest.mark.parametrize("side", ["actual", "expected", "both"])
+def test_computed_cone_start_requires_independent_flat_six_finite_numbers(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+    parameters: object,
+    side: str,
+) -> None:
+    expected = copy.deepcopy(retained_cone_pair[1])
+    actual = copy.deepcopy(expected)
+    for label, record in (("actual", actual), ("expected", expected)):
+        if side in {label, "both"}:
+            cone_start(record)["candidate"]["parameters"] = copy.deepcopy(parameters)
+    rejected(actual, expected)
+
+
+@pytest.mark.parametrize("role", ["selected", "hint", "screened"])
+def test_cone_selected_hint_and_screened_arrays_remain_strict(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]], role: str
+) -> None:
+    expected = copy.deepcopy(retained_cone_pair[1])
+    if role == "selected":
+        index = recovery(expected)["attempts"].index(selected(expected))
+    else:
+        attempt = copy.deepcopy(cone_start(expected))
+        if role == "hint":
+            attempt["role"] = "hint"
+            # A role/ID collision must not make an authored hint a fresh start.
+        else:
+            attempt.update(
+                outcome="screened-invalid-or-stale",
+                evaluations=0,
+                assessment=None,
+                solver=None,
+            )
+            attempt["candidate"].update(
+                id="normal-moment-0",
+                chart="normal-moment-0",
+                parameters=["NaN"] * 6,
+            )
+        recovery(expected)["attempts"].append(attempt)
+        index = len(recovery(expected)["attempts"]) - 1
+    _ = accepted(expected, copy.deepcopy(expected))
+    actual = copy.deepcopy(expected)
+    parameters = recovery(actual)["attempts"][index]["candidate"]["parameters"]
+    parameters[0] = "Infinity" if role == "screened" else parameters[0] + 1e-4
+    rejected(actual, expected)
+
+
+@pytest.mark.parametrize("role", ["selected", "hint"])
+@pytest.mark.parametrize("parameters", [[0.0] * 5, [[0.0], 0, 0, 0, 2.5, 0.1]])
+def test_executed_cone_arity_is_validated_for_both_selected_and_hint_roles(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+    role: str,
+    parameters: list[Any],
+) -> None:
+    record = copy.deepcopy(retained_cone_pair[1])
+    if role == "selected":
+        attempt = selected(record)
+    else:
+        attempt = copy.deepcopy(cone_start(record))
+        attempt["role"] = "hint"
+        recovery(record)["attempts"].append(attempt)
+    _ = accepted(record, copy.deepcopy(record))
+    attempt["candidate"]["parameters"] = parameters
+    rejected(record, copy.deepcopy(record))
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "bare-recovery",
+        "bare-initialization",
+        "version-wrapper",
+        "partial-owner",
+        "wrong-kind",
+        "wrong-chart",
+        "cone-v1",
+        "unknown-algorithm",
+        "unknown-solver",
+        "missing-solver",
+    ],
+)
+def test_computed_start_exception_requires_owning_cone_v2_producer(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]], scope: str
+) -> None:
+    expected = copy.deepcopy(retained_cone_pair[1])
+    actual = copy.deepcopy(expected)
+    cone_start(actual)["candidate"]["parameters"][5] += 1e-4
+    if scope in {"bare-recovery", "bare-initialization", "version-wrapper"}:
+        if scope == "bare-recovery":
+            rejected(recovery(actual), recovery(expected))
+        elif scope == "bare-initialization":
+            rejected(actual["initialization"], expected["initialization"])
+        else:
+            rejected(
+                {
+                    "algorithm": "selected-cone-recovery-v2",
+                    "recovery": recovery(actual),
+                },
+                {
+                    "algorithm": "selected-cone-recovery-v2",
+                    "recovery": recovery(expected),
+                },
+            )
+        return
+    for record in (actual, expected):
+        if scope == "partial-owner":
+            del record["residuals"]
+        elif scope == "wrong-kind":
+            record["kind"] = record["analytic"]["kind"] = "cylinder"
+        elif scope == "wrong-chart":
+            record["initialization"]["chart"] = "unknown-cone-chart"
+        elif scope == "cone-v1":
+            record["initialization"]["algorithm"] = "selected-cone-recovery-v1"
+        elif scope == "unknown-algorithm":
+            record["initialization"]["algorithm"] = "selected-cone-recovery-v999"
+        elif scope == "unknown-solver":
+            record["solver"]["implementation"] = "unrecognized-direct-solve"
+        elif scope == "missing-solver":
+            del record["solver"]
+    rejected(actual, expected)
+
+
+def test_other_recognized_family_computed_start_remains_strict(
+    cylinder: dict[str, Any],
+) -> None:
+    actual = copy.deepcopy(cylinder)
+    discarded(actual)["candidate"]["parameters"][0] += 1e-4
+    rejected(actual, cylinder)
+
+
+@pytest.mark.parametrize("field", ["id", "chart", "derivation", "binding_sha256"])
+def test_discarded_computed_start_provenance_remains_strict(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]], field: str
+) -> None:
+    expected = retained_cone_pair[1]
+    actual = copy.deepcopy(expected)
+    candidate = cone_start(actual)["candidate"]
+    candidate["parameters"][5] += 1e-4
+    candidate[field] = "changed-provenance"
+    rejected(actual, expected)
+
+
+@pytest.mark.parametrize("field", ["id", "chart", "derivation"])
+def test_matching_unknown_provenance_cannot_claim_computed_start_treatment(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]], field: str
+) -> None:
+    expected = copy.deepcopy(retained_cone_pair[1])
+    actual = copy.deepcopy(expected)
+    cone_start(actual)["candidate"]["parameters"][5] += 1e-4
+    for record in (actual, expected):
+        cone_start(record)["candidate"][field] = "invented-computed-provenance"
+    rejected(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "role",
+        "order",
+        "inventory",
+        "initializer-inventory",
+        "unknown-outcome",
+        "selected-identity",
+        "geometry",
+        "residual",
+        "support",
+        "ids",
+        "certificate",
+        "over-budget",
+        "raised-policy-budget",
+    ],
+)
+def test_cone_diagnostic_start_does_not_weaken_protected_evidence(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]], mutation: str
+) -> None:
+    expected = copy.deepcopy(retained_cone_pair[1])
+    actual = copy.deepcopy(expected)
+    cone_start(actual)["candidate"]["parameters"][5] += 1e-4
+    attempt = cone_start(actual)
+    if mutation == "role":
+        attempt["role"] = "hint"
+    elif mutation == "order":
+        attempts = recovery(actual)["attempts"]
+        attempts[1], attempts[2] = attempts[2], attempts[1]
+    elif mutation == "inventory":
+        del recovery(actual)["attempts"][-1]
+    elif mutation == "initializer-inventory":
+        del actual["initialization"]["initializers"]["normal-moment-1"]
+    elif mutation == "unknown-outcome":
+        attempt["outcome"] = "invented-stop"
+    elif mutation == "selected-identity":
+        recovery(actual)["selected"] = "unknown-selected"
+    elif mutation == "geometry":
+        actual["analytic"]["radius"] += 0.01
+    elif mutation == "residual":
+        actual["residuals"][0] += 0.01
+    elif mutation == "support":
+        actual["analytic"]["axial_domain"][0] += 1.0
+    elif mutation == "ids":
+        actual["ids"][0] += 1
+    elif mutation == "certificate":
+        selected(actual)["assessment"]["valid"] = False
+    elif mutation == "over-budget":
+        for record in (actual, expected):
+            cone_start(record)["evaluations"] = 513
+    elif mutation == "raised-policy-budget":
+        for record in (actual, expected):
+            recovery(record)["policy"]["attempt"]["max_evaluations"] = 513
+    rejected(actual, expected)

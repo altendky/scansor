@@ -7,7 +7,10 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from experiments.surface_primitives import revolution_geometry
+from experiments.surface_primitives import (
+    projected_axial_parameter,
+    revolution_geometry,
+)
 
 FloatArray = NDArray[np.float64]
 
@@ -198,7 +201,7 @@ def build_selection_region(
         radial = np.linalg.norm(local[:, :2], axis=1)
         if np.any(radial <= 0):
             raise ValueError("cone selection-region points cannot lie on its axis")
-        projected = (local[:, 2] / scale + (slope / scale) * (radial - radius)) / scale
+        projected = projected_axial_parameter(local[:, 2], radial, radius, slope)
         projected_radius = radius + slope * projected
         if not np.isfinite(projected_radius).all() or np.any(projected_radius <= 0):
             raise ValueError(
@@ -294,7 +297,7 @@ def apply_selection_region(
         scale = float(np.hypot(1, slope))
         radial = np.linalg.norm(local[:, :2], axis=1)
         nonzero = radial > 0
-        projected = (local[:, 2] / scale + (slope / scale) * (radial - radius)) / scale
+        projected = projected_axial_parameter(local[:, 2], radial, radius, slope)
         projected_radius = radius + slope * projected
         angles = np.mod(
             np.arctan2(local[:, 1], local[:, 0]) - float(region["angle_start"]),
