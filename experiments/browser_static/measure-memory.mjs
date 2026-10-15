@@ -64,6 +64,7 @@ const mainSuffix = `\n// Test-only CPU display backing-store inventory, no retai
 $('auto-evaluate').checked = false; // Test-only: retain a genuine pre-solve stage with unchanged source/default recipe.
 globalThis.__evaluate209 = () => evaluateAll();
 globalThis.__publish209 = value => acceptGraph(value);
+globalThis.__selectExample209 = () => sourceProject.selectExample('nozzle');
 globalThis.__mainArrays209 = () => {
   const arrays = [], buffers = new Map();
   const add = (name, array) => { if (!array?.buffer) return;
@@ -85,7 +86,7 @@ const report = { started_utc: new Date().toISOString(), source_revision: site.ma
   instrumentation: { worker_suffix_sha256:sha256(Buffer.from(workerSuffix)), main_suffix_sha256:sha256(Buffer.from(mainSuffix)),
     routing:'Test route appends diagnostics in memory only. Routing disables browser cache; this is not a performance or startup timing measurement.',
     auto_evaluation:'Unchecked in test-only appended UI hook to preserve an unevaluated baseline. Immutable source/default recipe unchanged.',
-    repeats:'Five fresh graph resets through normal selectExample API with test-only UI snapshot publication, then numerical evaluation; bounded face authoring, five CAD exports, actual UI Force and reevaluation. Boundary samples cannot observe synchronous-call allocation peaks.' },
+    repeats:'Five fresh graph resets through a test-only invocation of the production source-project selectExample controller, including complete workspace adoption, then numerical evaluation; bounded face authoring, five CAD exports, actual UI Force and reevaluation. This hook does not test the example chooser. Boundary samples cannot observe synchronous-call allocation peaks.' },
   stages:[], errors:[], requests:[], unexpected_requests:[], api_requests:[] };
 const watchdog=setTimeout(()=>{report.failure='Memory validation exceeded its 12-minute harness watchdog.';void browser?.close();},720000);
 try {
@@ -187,12 +188,13 @@ try {
   await sample('numerical_graph_complete_and_UI_published');
   assert.deepEqual(report.stages.at(-1).worker_wasm[0].named_numpy_payload.graph_states,{ready:30});
   for (let iteration = 1; iteration <= 5; iteration++) {
+    page.once('dialog', dialog => dialog.accept());
     await page.evaluate(async()=>{
       const backend=window.__backend209, current=await backend.getGraph();
-      await backend.selectExample({example:'nozzle',token:current.token});
+      if (!await globalThis.__selectExample209()) throw Error('Fresh example workspace was not adopted');
       const fresh=await backend.getGraph();
+      if (fresh.project_generation !== current.project_generation + 1) throw Error('Fresh example did not advance the accepted source generation');
       if (!Object.values(fresh.states).every(value=>value==='unevaluated')) throw Error('Fresh graph reset retained derived results');
-      globalThis.__publish209(fresh);
     });
     await page.evaluate(()=>globalThis.__evaluate209());
     await sample(`fresh_graph_solve_${iteration}_UI_published`);
