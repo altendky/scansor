@@ -76,6 +76,25 @@ def _explicit_domain(selection: FitSelection) -> tuple[float, float]:
     return selection.domain
 
 
+def _axis_reference_vector(value: Any) -> np.ndarray | None:
+    """Decode evaluated geometry without coercing malformed hints into intent."""
+    try:
+        raw = np.asarray(value)
+        if (
+            raw.shape != (3,)
+            or raw.dtype.kind not in "iuf"
+            or (
+                isinstance(value, (list, tuple))
+                and any(isinstance(item, (bool, np.bool_)) for item in value)
+            )
+        ):
+            return None
+        vector = np.asarray(value, dtype=float)
+        return vector if np.isfinite(vector).all() else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _fit_selected_group(
     workspace: ScanWorkspace,
     sides: list[FitSelection],
@@ -137,18 +156,31 @@ def _fit_selected_group(
         raise CylinderFitFailure(
             "invalid-reference", "fixed axis requires evaluated geometry"
         )
+    reversed_role = False
+    if axis_record is not None and "direction_reversed" in axis_record:
+        if type(axis_record["direction_reversed"]) is not bool:
+            raise CylinderFitFailure(
+                "invalid-reference", "axis direction_reversed must be a boolean role"
+            )
+        reversed_role = axis_record["direction_reversed"]
     reference_direction = None
     if axis_record is not None:
-        reference_direction = np.asarray(axis_record["axis_display"], dtype=float)
-        if (
-            reference_direction.shape != (3,)
-            or not np.isfinite(reference_direction).all()
-            or np.linalg.norm(reference_direction) <= 0
-        ):
+        reference_direction = _axis_reference_vector(axis_record.get("axis_display"))
+        if reference_direction is not None:
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                norm = float(np.linalg.norm(reference_direction))
+            reference_direction = (
+                reference_direction / norm if np.isfinite(norm) and norm > 0 else None
+            )
+        if fixed and reference_direction is None:
             raise CylinderFitFailure(
                 "invalid-reference", "axis direction must be finite and nonzero"
             )
-        reference_direction = reference_direction / np.linalg.norm(reference_direction)
+        if fixed and _axis_reference_vector(axis_record.get("point_display")) is None:
+            raise CylinderFitFailure(
+                "invalid-reference",
+                "fixed axis point must contain three finite coordinates",
+            )
     intent: dict[str, Any] = {
         "family": "shared-revolution-group" if has_cones else "shared-cylinder-group",
         "fixed": fixed,
@@ -185,6 +217,9 @@ def _fit_selected_group(
         intent["support"] = {
             side.id: support_record(supports[side.id]) for side in sides
         }
+    if semantic_intent is None and reference_direction is None and reversed_role:
+        # Numerical garbage supplies no direction, but an explicit role survives.
+        intent["axis"]["direction_reversed"] = True
     binding = initialization_binding(
         workspace.source_sha256,
         workspace.descriptor.interpretation_sha256,
@@ -515,10 +550,9 @@ def _fit_selected_group(
 
     hint = None
     if axis_record is not None and not fixed:
-        assert reference_direction is not None
         hint = FitCandidate(
             "optional-free-axis",
-            tuple(reference_direction.tolist()),
+            () if reference_direction is None else tuple(reference_direction.tolist()),
             "optional authored free-axis direction",
             "world-unit-axis-v1",
             binding.sha256,
@@ -541,12 +575,12 @@ def _fit_selected_group(
     if (
         reference_direction is not None
         and abs(float(direction @ reference_direction)) <= 1e-10
-    ):
+    ) or (reference_direction is None and reversed_role):
         # An orthogonal free-axis start supplies no sign preference. Retain a
         # deterministic sign and apply the authored reversal bit once.
         if direction[int(np.argmax(np.abs(direction)))] < 0:
             direction = -direction
-        if axis_record is not None and axis_record.get("direction_reversed"):
+        if reversed_role:
             direction = -direction
     anchor = np.asarray(axis["point_display"])
     surfaces = output["surfaces"]
@@ -1083,8 +1117,9 @@ def fit_fixed_axis_group(
     """Fit radii, taper, and plane offsets without moving the supplied axis."""
     if isinstance(workspace, ScanWorkspace):
         if not isinstance(axis_parameters, dict):
-            raise ValueError(
-                "imported fixed-axis fitting requires evaluated axis geometry"
+            raise CylinderFitFailure(
+                "invalid-reference",
+                "imported fixed-axis fitting requires evaluated axis geometry",
             )
         return _fit_selected_group(
             workspace,
