@@ -461,6 +461,50 @@ def test_explicit_example_transition_and_force_keep_legacy_geometry(
     assert promote(fresh, restored)["token"] == graph(workspace)["token"]
 
 
+def test_example_catalogue_tracks_only_the_accepted_source(
+    staged: tuple[Path, NativeScanFixture],
+) -> None:
+    workspace = BrowserWorkspace(None, scan_limits=LIMITS)
+
+    def active() -> str | None:
+        before = graph(workspace)
+        catalogue = success(workspace.call_json("listExamples"))
+        assert catalogue["examples"] == [{"id": "nozzle", "label": "Nozzle"}]
+        assert graph(workspace) == before
+        return catalogue["active"]
+
+    assert active() is None
+    scan = success(
+        workspace.prepare_source_json(json.dumps(payload(workspace)), str(staged[0]))
+    )
+    assert active() is None
+    _ = promote(workspace, scan)
+    assert active() is None
+    example = success(
+        workspace.prepare_source_json(
+            json.dumps(payload(workspace, kind="example", example="nozzle"))
+        )
+    )
+    assert active() is None
+    _ = success(workspace.discard_source_json(example["operationId"]))
+    assert active() is None
+    example = success(
+        workspace.prepare_source_json(
+            json.dumps(payload(workspace, kind="example", example="nozzle"))
+        )
+    )
+    _ = promote(workspace, example)
+    assert active() == "nozzle"
+    empty = success(
+        workspace.prepare_source_json(
+            json.dumps(payload(workspace, kind="empty", confirmedDiscard=True))
+        )
+    )
+    assert active() == "nozzle"
+    _ = promote(workspace, empty)
+    assert active() is None
+
+
 @pytest.mark.parametrize("interrupt", [False, True])
 def test_generic_evaluation_lease_and_cancel_recovery_use_core_graph_owner(
     staged: tuple[Path, NativeScanFixture],

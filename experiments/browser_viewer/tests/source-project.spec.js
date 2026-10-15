@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repository = fileURLToPath(new URL('../../..', import.meta.url));
-const python = path.join(repository, '.venv/bin/python');
+const python = process.env.SCANSOR_TEST_PYTHON || path.join(repository, '.venv/bin/python');
 const nozzle = path.join(repository, 'examples/nozzle-bayonette-simplified/nozzle-bayonette-simplified.ply');
 const prepareFixtures = () => JSON.parse(execFileSync(python, ['-c', [
   'import base64,json',
@@ -86,9 +86,12 @@ function acceptDialogs(page) {
 }
 
 async function draft(page, { docked = false } = {}) {
+  const editTab = page.getByRole('tab', { name: 'Edit', exact: true });
+  if (!docked && await editTab.count()) await editTab.getByTitle('Close', { exact: true }).click();
   await page.getByRole('button', { name: 'Point', exact: true }).click();
   await page.locator('#new-point-label').fill('Keep this live draft');
-  if (docked) await page.locator('#dock-edit').click();
+  if (docked && await page.locator('#dock-edit').isVisible()) await page.locator('#dock-edit').click();
+  await expect(page.locator(docked ? '#edit-host #new-point-label' : '#edit-popup #new-point-label')).toBeVisible();
   await page.locator('#new-point-label').focus();
   await page.locator('#new-point-label').evaluate(input => { window.sourceDraftInput = input; });
 }
@@ -97,6 +100,45 @@ async function expectDraft(page) {
   await expect(page.locator('#point-dialog')).toBeVisible();
   await expect(page.locator('#new-point-label')).toHaveValue('Keep this live draft');
   expect(await page.locator('#new-point-label').evaluate(input => input === window.sourceDraftInput)).toBe(true);
+}
+
+async function rectanglePlane(page, count, label) {
+  await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Selection', exact: true }).click();
+  await expect(page.locator('#selection-tools')).toBeVisible();
+  await page.locator('#selection-shape').selectOption('rectangle');
+  await page.locator('#selection-depth').selectOption('through_all');
+  await page.locator('#tool').selectOption('replace');
+  await page.locator('#top').click();
+  const canvas = await page.locator('#viewport canvas').boundingBox();
+  // Preregistered full-source top-view rectangle, used unchanged for both the
+  // 24,999-row raw source and the independent twelve-row grid. No saved IDs.
+  await page.mouse.move(canvas.x + 8, canvas.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + canvas.width - 8, canvas.y + canvas.height - 8, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.operation === 'selection')?.ids.length).toBe(count);
+  const selection = (await graph(page)).recipe.nodes.find(node => node.operation === 'selection');
+  expect(selection.ids).toEqual(Array.from({ length: count }, (_, id) => id));
+  await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
+  await page.locator('#new-fit-label').fill(label);
+  await page.locator('#new-fit-kind').selectOption('plane');
+  await page.locator('#new-fit-inputs').selectOption(selection.id);
+  await page.locator('#add-fit-form').getByRole('button', { name: 'Add fit', exact: true }).click();
+  await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
+  await expect.poll(async () => {
+    const state = await graph(page), fit = state.recipe.nodes.find(node => node.label === label);
+    return fit && state.states[fit.id];
+  }).toBe('ready');
+  const state = await graph(page), fit = state.recipe.nodes.find(node => node.label === label);
+  expect(fit.kind).toBe('plane');
+  expect(fit.selections).toEqual([selection.id]);
+  expect(fit.initial_parameters).toBeUndefined();
+  expect(state.errors).toEqual({});
+  expect(state.results[fit.id].residuals).toHaveLength(count);
+  expect(state.results[fit.id].residuals.every(Number.isFinite)).toBe(true);
+  expect(Number.isFinite(state.results[fit.id].weighted_rms)).toBe(true);
+  return { selection, fit, state };
 }
 
 test.beforeEach(async ({ page, sourceOrigin }) => {
@@ -206,6 +248,97 @@ test('independent source display keeps all original rows and user rectangle sele
   const state = await graph(page), fit = state.recipe.nodes.find(node => node.operation === 'fit');
   expect(state.results[fit.id].weighted_rms).toBeLessThan(1e-7);
   expect(fit.initial_parameters).toBeUndefined();
+});
+
+test('raw RealityScan File supports real full-row pointer selection, plane evaluation and an actual fit edit', async ({ page }) => {
+  test.setTimeout(120000);
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const meta = await imported(page, nozzle);
+  expect(meta.graph.recipe.nodes).toHaveLength(1);
+  const positionsResponse = await page.request.get(new URL(meta.positions.url, page.url()).href);
+  const indicesResponse = await page.request.get(new URL(meta.indices.url, page.url()).href);
+  const positionsBytes = await positionsResponse.body(), indicesBytes = await indicesResponse.body();
+  const points = new Float32Array(positionsBytes.buffer.slice(positionsBytes.byteOffset, positionsBytes.byteOffset + positionsBytes.byteLength));
+  const indices = new Uint32Array(indicesBytes.buffer.slice(indicesBytes.byteOffset, indicesBytes.byteOffset + indicesBytes.byteLength));
+  const { selection, fit, state } = await rectanglePlane(page, 24999, 'Raw pointer plane');
+  expect(state.recipe.nodes).toHaveLength(3);
+  const result = state.results[fit.id], equation = result.parameters;
+  expect(equation).toHaveLength(4);
+  expect(equation.every(Number.isFinite)).toBe(true);
+  expect(Math.hypot(...equation.slice(0, 3))).toBeCloseTo(1, 12);
+  // Independent incident-area weighting and residual/RMS readback over every
+  // original selected row. This checks reachability, not raw-patch fit quality.
+  const weights = new Float64Array(meta.vertices);
+  for (let offset = 0; offset < indices.length; offset += 3) {
+    const [a, b, c] = indices.slice(offset, offset + 3);
+    const u = [0, 1, 2].map(axis => points[b * 3 + axis] - points[a * 3 + axis]);
+    const v = [0, 1, 2].map(axis => points[c * 3 + axis] - points[a * 3 + axis]);
+    const share = Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 6;
+    for (const id of [a, b, c]) weights[id] += share;
+  }
+  let squared = 0, total = 0, minimumWeight = Infinity, maximumResidualDifference = 0;
+  for (const [offset, id] of selection.ids.entries()) {
+    minimumWeight = Math.min(minimumWeight, weights[id]);
+    const residual = points[id * 3] * equation[0] + points[id * 3 + 1] * equation[1] + points[id * 3 + 2] * equation[2] - equation[3];
+    maximumResidualDifference = Math.max(maximumResidualDifference, Math.abs(result.residuals[offset] - residual));
+    squared += weights[id] * residual * residual; total += weights[id];
+  }
+  expect(minimumWeight).toBeGreaterThan(0);
+  expect(maximumResidualDifference).toBeLessThan(1e-10);
+  expect(Math.abs(result.weighted_rms - Math.sqrt(squared / total))).toBeLessThan(1e-10);
+  await page.locator(`#action-list .action-select[data-action-id="${fit.id}"]`).click({ button: 'right' });
+  await page.locator('#feature-context-rename').click();
+  await page.locator('#rename-feature-label').fill('Edited raw pointer plane');
+  await page.locator('#rename-feature-form').getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === fit.id)?.label).toBe('Edited raw pointer plane');
+  await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).states[fit.id]).toBe('ready');
+  const after = await metadata(page);
+  expect(after.project_generation).toBe(meta.project_generation);
+  expect(after.source.source_sha256).toBe(meta.source.source_sha256);
+  expect(after.graph.recipe.nodes.find(node => node.id === selection.id).ids).toEqual(selection.ids);
+  expect((await (await page.request.get(new URL(after.positions.url, page.url()).href)).body()).equals(positionsBytes)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+for (const docked of [false, true]) test(`real selection and dependent fit survive declined removal with the same ${docked ? 'docked' : 'popup'} draft until accepted`, async ({ page }) => {
+  await imported(page, memoryFile('dependent-plane.ply', fixture.grid));
+  const { selection, fit, state } = await rectanglePlane(page, 12, 'Dependent pointer plane');
+  expect(state.results[fit.id].weighted_rms).toBeLessThan(1e-7);
+  const before = await metadata(page);
+  await draft(page, { docked });
+  for (const name of ['New project', 'Remove scan…']) {
+    page.once('dialog', dialog => dialog.dismiss()); await command(page, name);
+    await expectDraft(page);
+    expect((await graph(page)).recipe).toEqual(before.graph.recipe);
+    expect((await metadata(page)).project_generation).toBe(before.project_generation);
+  }
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/project/reset', async route => { await gate; await route.continue(); });
+  const stop = acceptDialogs(page);
+  try {
+    const requested = page.waitForRequest('**/api/project/reset');
+    await command(page, 'Remove scan…'); await requested;
+    await expectDraft(page);
+    expect((await graph(page)).recipe).toEqual(before.graph.recipe);
+    expect((await graph(page)).states[fit.id]).toBe('ready');
+    expect((await metadata(page)).project_generation).toBe(before.project_generation);
+    release();
+    await expect(page.locator('[data-add-scan]')).toBeVisible();
+    await expect(page.locator('#point-dialog')).toBeHidden();
+    const empty = await metadata(page);
+    expect(empty.project_generation).toBe(before.project_generation + 1);
+    expect(empty.graph.recipe.nodes).toEqual([]);
+    expect(empty.graph.results[selection.id]).toBeUndefined();
+    expect(empty.graph.results[fit.id]).toBeUndefined();
+    const after = await imported(page, memoryFile('different-after-removal.ply', fixture.scene));
+    expect(after.source.source_sha256).not.toBe(before.source.source_sha256);
+    expect(after.vertices).toBe(84);
+    expect(after.graph.recipe.nodes).toHaveLength(1);
+    expect(after.graph.recipe.nodes[0].operation).toBe('source');
+    expect(after.graph.recipe.nodes.some(node => [selection.id, fit.id].includes(node.id))).toBe(false);
+  } finally { release(); stop(); }
 });
 
 test('empty selection and synthetic picker cancel preserve accepted empty state without an import request', async ({ page }) => {

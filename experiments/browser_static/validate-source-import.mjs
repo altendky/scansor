@@ -7,6 +7,8 @@ import {verifySite,startPreview,prepareReports} from './server.mjs';
 import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFile,
   readSourceEvidence,compareSourceNumbers} from './source-import-harness.mjs';
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
+import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
+import {authoringSemanticCases} from './source-authoring-semantic.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
 import {SOURCE_GRAPH_SCHEMA,SOURCE_GRAPH_PROJECTION,assertAcceptedSourceGraph,sourceSemanticCases} from './source-semantic.mjs';
 
@@ -198,13 +200,21 @@ try{
   report.boundary_races.push({position:'staging-cleanup',failure_preserved_through_cancel:true,accepted_checkpoint_survived_force:true});
   await page.evaluate(()=>window.__sourceImportBackend242.close());await context.close();
   await validateSourceUiRecovery({browser,site,preview,prefix,sources,isolation,report});
+  await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
+  const authoredRecipes=path.join(output,'ui-authored-recipes.json');
+  await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
+    Object.entries(report.ui_authoring.graphs).map(([name,graph])=>[name,graph.recipe]))));
+  const authoredReferences=path.join(output,'ui-authored-native-graphs.json');
+  await runSourcePython(nativePython,['authored','--runtime',runtime,'--inputs',sources,'--recipes',authoredRecipes,'--output',authoredReferences],output);
+  report.ui_authoring.native_graphs=JSON.parse(await readFile(authoredReferences,'utf8'));
   report.checks={source_import:true,source_identity:true,recovery:true,cleanup:true,
     cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true,
-    ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true};
+    ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true,
+    ui_source_authoring:report.ui_authoring.complete===true};
   // Compare only after the actual recovery/UI observations. The reviewed bridge
   // retains the full operands and failed receipt before a parity error escapes.
   try{
-    const receipt=await compareSemanticBatch({cases:sourceSemanticCases(report.source_graph_snapshots),nativePython,site,output,report});
+    const receipt=await compareSemanticBatch({cases:[...sourceSemanticCases(report.source_graph_snapshots),...authoringSemanticCases(report)],nativePython,site,output,report});
     const parity=report.cases.find(item=>item.name==='horizontal-scene').source_parity;
     parity.graph=receipt.cases[0];parity.replayed_graph=receipt.cases[1];
   }catch(error){report.native_parity_errors.push(String(error));}

@@ -16,7 +16,9 @@ comparison. Delivery requires rebuilt current-head native/worker verification.
 The native/common UI already supplies empty projects, the source picker and
 read-only Source inspection, gated by backend capabilities. Worker import/recovery
 implements the bounded source tier; full both-backend UI acceptance remains
-[#243](https://github.com/altendky/scansor/issues/243). Native transactional
+[#243](https://github.com/altendky/scansor/issues/243). Its authoring acceptance
+slice has executed native and CAD/plain worker diagnostics; clean-head profile
+and CI gates remain required before delivery. Native transactional
 source-aware actions reopening is delivered; its worker path remains
 [#244](https://github.com/altendky/scansor/issues/244), with worker `sourceActions`
 unavailable.
@@ -177,6 +179,47 @@ do not establish them.
 Numerical/CAD profiles and plain/isolated runs are distinct required gates. A
 diagnostic run may collect remaining lifecycle evidence after a parity failure,
 but must retain that failure, incomplete status and nonzero exit.
+
+## Source authoring acceptance
+
+The [authoring helper](../../../../experiments/browser_static/source-ui-authoring.mjs)
+uses actual File pickers, pointer gestures, fit/property dialogs and the shipped
+singleton worker. It adds twelve required scenario groups: empty controls,
+invalid/over-limit/cancelled input, raw inspection, raw pointer fitting/editing,
+keyboard commands, generated plane/cylinder authoring, popup/docked work guards,
+dependent removal and explicit examples. The example catalogue reports an active
+example only for the accepted example owner. Private or cancelled candidates
+do not change that status. Empty and imported scan owners have no active example
+and cannot falsely disable opening the retained example.
+
+The raw gesture selects all 24,999 original RealityScan rows without a starter
+recipe or injected memberships. Its ordinary least-squares plane is checked
+against every selected row and independently decoded incident-area weights;
+this rough full-source fit makes no metrology or planar-quality claim. Generated
+Side-view gestures must select exactly the independent fixture's twelve plane
+and seventy-two cylinder rows before fitting. Original coordinates, finite
+support, weighted objectives and source identities remain checked. Dialog
+selectors distinguish live drafts from modal project commands, and Escape waits
+for actual chooser opening and closure.
+
+Complete original, edited and generated UI-authored graphs are retained with
+independently observed accepted generations and full source evidence. Native
+execution reconstructs each authored recipe from the same frozen bytes using
+the identical packaged Python core. Failed native graphs are retained before
+the reference run rejects them. All three native/worker pairs enter the same
+trusted semantic batch as the existing import/replay pairs; source arrays,
+recipe bindings, selected geometry, acceptance and finite budgets remain gates.
+Computed starts remain absent from actions. The trusted verifier requires all
+twelve ordered cases, literal successful oracles, terminal readiness and exact
+raw graph operands; refreshed-hash mutations must still reject changed results
+and budgets. Both native popup/docked dependent-fit removal and raw pointer
+authoring have actual Chromium coverage.
+
+These diagnostic results do not replace the four numerical/CAD and
+plain/isolated profiles or complete current-head CI. Read-only interpretation,
+empty-only Add and confirmed whole-project removal retain the agreed scope;
+settings/replacement, saved-actions reopening and wider numerical/resource
+delivery remain separately tracked.
 
 The static checker and trusted release verifier require the new reports and
 explicit source/recovery/cleanup checks. Numerical-profile reports bind their

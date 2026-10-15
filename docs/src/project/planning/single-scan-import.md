@@ -27,7 +27,10 @@ cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
 for bounded native source authoring through #278. The common UI exposes empty
 projects, a file picker and read-only Source inspection where backend
-capabilities permit them. Full both-backend UI acceptance remains #243.
+capabilities permit them. The #243 authoring slice now has actual native and
+worker diagnostics for raw pointer selection/fitting, dependent action and
+draft safeguards, explicit examples and keyboard commands; clean-head profile
+and CI gates remain required for full both-backend UI acceptance.
 Worker import/recovery implements the bounded source tier in #242. Source arrays
 remain strict; fit verification uses the selected bounded semantic contract
 from #266 and requires rebuilt current-head evidence. See the
