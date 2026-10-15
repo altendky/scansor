@@ -13,12 +13,36 @@ from experiments.feature_graph import (
 )
 from experiments.feature_reuse import (
     surface_region_frame,
+    transformed_axis_geometry,
     transformed_axis_initial,
     transformed_fit_seed,
     transformed_plane_initial,
     transformed_surface_geometry,
 )
 from experiments.surface_primitives import basis
+
+
+def test_reused_horizontal_directed_axis_has_no_fabricated_legacy_chart() -> None:
+    source = {
+        "parameters": None,
+        "point_display": [3, -4, 5],
+        "axis_display": [-1, 0, 0],
+        "direction_reversed": True,
+    }
+    original = deepcopy(source)
+    rotation = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])
+    moved = transformed_axis_geometry(source, rotation, np.array([2.0, 4, -3]))
+    assert moved["parameters"] is None
+    np.testing.assert_allclose(moved["point_display"], [6, 7, 2])
+    np.testing.assert_allclose(moved["axis_display"], [0, -1, 0])
+    assert moved["direction_reversed"] is True
+    assert source == original
+
+
+def test_plane_reuse_does_not_invent_axial_support() -> None:
+    assert transformed_fit_seed(
+        {"kind": "plane", "parameters": [0, 0, 1, 2]}, np.eye(3), np.zeros(3)
+    ) == (None, None)
 
 
 @pytest.mark.parametrize("direction", [[1.0, 0, 0], [0.3, -0.8, 0.5]])
@@ -175,6 +199,7 @@ def test_transformed_cylinder_support_preserves_physical_endpoints(
     initial, domain = transformed_fit_seed(fit, rotation, translation)
 
     assert initial is not None
+    assert domain is not None
     assert initial[4] == parameters[4]
     source_origin = np.array([parameters[0], parameters[1], 0])
     source_axis = np.array([parameters[2], parameters[3], 1])

@@ -1,12 +1,30 @@
 """Captured-nozzle adapter for a connected coaxial group and perpendicular planes."""
 
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, replace
+from typing import Any, cast
 
 import numpy as np
 
 from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
-from experiments.fit_solver import normalized_weights, solve_geometric_fit
+from experiments.fit_initialization import (
+    FitAssessment,
+    FitCandidate,
+    RecoveryFailure,
+    RecoveryProblem,
+    initialization_binding,
+    recover_fit,
+)
+from experiments.fit_relationship_component import (
+    AxisInput,
+    RelationshipSupportFailure,
+    SurfaceInput,
+    fit_relationship_component,
+)
+from experiments.fit_solver import (
+    AttemptControl,
+    normalized_weights,
+    solve_geometric_fit,
+)
 from experiments.mesh_coaxial_fit import (
     AxisPlaneObservations,
     SideObservations,
@@ -17,11 +35,13 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     valid_cone_geometry,
 )
+from experiments.mesh_cylinder_fit import CylinderFitFailure, cylinder_basis
 from experiments.mesh_mirror_surfaces import MirrorSurfaces, initial_mirror
 from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
-from experiments.nozzle_session import NozzleWorkspace, SessionFit, SurfaceResult
+from experiments.nozzle_session import NozzleWorkspace, SurfaceResult
 from experiments.scan_workspace import ScanWorkspace, Workspace
-from experiments.selection_growth import fit_seed
+from experiments.selection_growth import fit_seed, surface_distance
+from scansor.nonlinear_least_squares import LeastSquaresFailure
 
 
 @dataclass(frozen=True)
@@ -29,7 +49,7 @@ class FitSelection:
     id: str
     ids: list[int]
     kind: str
-    domain: tuple[float, float]
+    domain: tuple[float, float] | None
 
 
 @dataclass(frozen=True)
@@ -40,24 +60,512 @@ class ReferencePlaneGroup:
     angle_degrees: float | None
 
 
+def _explicit_domain(selection: FitSelection) -> tuple[float, float]:
+    if selection.domain is None:
+        raise ValueError("legacy numerical charts require explicit support")
+    return selection.domain
+
+
+def _fit_selected_group(
+    workspace: ScanWorkspace,
+    sides: list[FitSelection],
+    planes: list[FitSelection],
+    axis_initial: np.ndarray | dict[str, Any] | None,
+    *,
+    fixed: bool = False,
+    reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
+    semantic_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generic source adapter; joint identifiability, no fixture workspace seed."""
+    all_selected = [
+        *sides,
+        *planes,
+        *(s for group in reference_plane_groups for s in group.surfaces),
+    ]
+    if not all_selected or (not sides and not fixed):
+        raise CylinderFitFailure(
+            "insufficient-observations", "a free shared axis needs lateral observations"
+        )
+    if any(s.kind != "cylinder" for s in sides):
+        raise ValueError(
+            "Imported cone fitting awaits the cone initialization implementation"
+        )
+    for selected in all_selected:
+        minimum = 3 if selected.kind == "plane" else 6
+        if len(selected.ids) < minimum:
+            raise CylinderFitFailure(
+                "insufficient-observations",
+                f"{selected.id}: select at least {minimum} vertices",
+            )
+    if workspace.descriptor is None or workspace.source_sha256 is None:
+        raise CylinderFitFailure(
+            "invalid-input", "a fit requires an accepted scan source"
+        )
+    ids = list(dict.fromkeys(i for selected in all_selected for i in selected.ids))
+    observations = workspace.local[ids]
+    weights = workspace.data.weights[ids]
+    frame = CoordinateFrame.from_observations(observations, weights)
+    axis_record = axis_initial if isinstance(axis_initial, dict) else None
+    if fixed and axis_record is None:
+        raise CylinderFitFailure(
+            "invalid-reference", "fixed axis requires evaluated geometry"
+        )
+    reference_direction = None
+    if axis_record is not None:
+        reference_direction = np.asarray(axis_record["axis_display"], dtype=float)
+        if (
+            reference_direction.shape != (3,)
+            or not np.isfinite(reference_direction).all()
+            or np.linalg.norm(reference_direction) <= 0
+        ):
+            raise CylinderFitFailure(
+                "invalid-reference", "axis direction must be finite and nonzero"
+            )
+        reference_direction = reference_direction / np.linalg.norm(reference_direction)
+    intent: dict[str, Any] = {
+        "family": "shared-cylinder-group",
+        "fixed": fixed,
+        "surfaces": [
+            {"id": s.id, "ids": s.ids, "kind": s.kind, "domain": s.domain}
+            for s in all_selected
+        ],
+        "reference_planes": [
+            {
+                "id": g.id,
+                "surfaces": [s.id for s in g.surfaces],
+                "construction": g.construction,
+            }
+            for g in reference_plane_groups
+        ],
+        "axis": (
+            {
+                "point": axis_record["point_display"],
+                "direction": axis_record["axis_display"],
+            }
+            if axis_record is not None
+            else None
+        )
+        if fixed and semantic_intent is None
+        else {
+            "direction": None
+            if reference_direction is None or semantic_intent is not None
+            else reference_direction.tolist()
+        },
+        "semantic_intent": semantic_intent,
+    }
+    binding = initialization_binding(
+        workspace.source_sha256,
+        workspace.descriptor.interpretation_sha256,
+        ids,
+        intent,
+        policy_version="selected-cylinder-group-recovery-v1",
+    )
+    directions: list[np.ndarray] = []
+    if fixed:
+        assert reference_direction is not None
+        directions.append(reference_direction)
+    else:
+        lateral_ids = list(dict.fromkeys(i for side in sides for i in side.ids))
+        normals = workspace.data.normals[lateral_ids] @ workspace.frame
+        lw = normalized_weights(workspace.data.weights[lateral_ids])
+        centered = (workspace.local[lateral_ids] - frame.origin) / frame.length
+        centered -= lw @ centered
+        for matrix in (
+            normals.T @ (lw[:, None] * normals),
+            centered.T @ (lw[:, None] * centered),
+        ):
+            _, vectors = np.linalg.eigh(matrix)
+            for index in range(3):
+                direction = vectors[:, index].copy()
+                if direction[int(np.argmax(np.abs(direction)))] < 0:
+                    direction = -direction
+                if not any(
+                    abs(float(direction @ old)) > 1 - 1e-10 for old in directions
+                ):
+                    directions.append(direction)
+    fresh = [
+        FitCandidate(
+            f"selected-axis-{index}",
+            tuple(direction.tolist()),
+            "selected normal/position moment axis",
+            "world-unit-axis-v1",
+            binding.sha256,
+        )
+        for index, direction in enumerate(directions)
+    ]
+
+    def solve(candidate: FitCandidate, control: AttemptControl) -> dict[str, Any]:
+        direction = np.array(candidate.parameters)
+        direction /= np.linalg.norm(direction)
+        if reference_direction is not None and direction @ reference_direction < 0:
+            direction = -direction
+        anchor = frame.origin.copy()
+        if fixed:
+            assert axis_record is not None
+            anchor = np.asarray(axis_record["point_display"], dtype=float)
+        else:
+            # All radii share one projected center; group indicators allow
+            # distinct radii without requiring each patch to identify an axis.
+            rotation = cylinder_basis(direction)
+            points = np.concatenate([workspace.local[s.ids] for s in sides])
+            side_weights = normalized_weights(
+                np.concatenate([workspace.data.weights[s.ids] for s in sides])
+            )
+            xy = ((points - frame.origin) / frame.length) @ rotation[:, :2]
+            group_ids = np.repeat(np.arange(len(sides)), [len(s.ids) for s in sides])
+            indicators = np.eye(len(sides))[group_ids]
+            design = np.column_stack((2 * xy, indicators))
+            algebraic, *_ = np.linalg.lstsq(
+                np.sqrt(side_weights)[:, None] * design,
+                np.sqrt(side_weights) * np.sum(xy**2, axis=1),
+                rcond=None,
+            )
+            anchor += frame.length * (rotation[:, :2] @ algebraic[:2])
+        axis = {
+            "axis_display": direction.tolist(),
+            "point_display": anchor.tolist(),
+            "axis_is_directed": True,
+        }
+        surfaces: list[SurfaceInput] = []
+        for side in sides:
+            p = workspace.local[side.ids]
+            sw = normalized_weights(workspace.data.weights[side.ids])
+            height = (p - anchor) @ direction
+            radial = (p - anchor) - height[:, None] * direction
+            radius = float(sw @ np.linalg.norm(radial, axis=1))
+            geometry: dict[str, Any] = {
+                "kind": "cylinder",
+                "origin": anchor.tolist(),
+                "axis": direction.tolist(),
+                "radius": radius,
+                "slope": 0.0,
+                "axial_domain": [float(min(height)), float(max(height))],
+            }
+            if geometry["axial_domain"][0] == geometry["axial_domain"][1]:
+                # A fixed/shared axis can identify a radius from one circle;
+                # its finite support must still have nonzero observed extent.
+                raise LeastSquaresFailure(
+                    "invalid-initial-geometry", "proposal has no selected axial extent"
+                )
+            result: dict[str, Any] = {
+                "kind": "cylinder",
+                "analytic": geometry,
+                "anchor_reference": frame.origin.tolist(),
+                "support_origin": "selection"
+                if side.domain is None
+                else "legacy-source-z0",
+            }
+            if side.domain is not None:
+                result["source_axial_domain"] = list(side.domain)
+            surfaces.append(
+                SurfaceInput(
+                    side.id,
+                    "cylinder",
+                    p,
+                    workspace.data.weights[side.ids],
+                    result,
+                    axis="axis",
+                )
+            )
+        plane_metadata: dict[str, ReferencePlaneGroup | None] = {}
+        for selected, group in [
+            *((p, None) for p in planes),
+            *(
+                (p, reference)
+                for reference in reference_plane_groups
+                for p in reference.surfaces
+            ),
+        ]:
+            points = workspace.local[selected.ids]
+            result = fit_seed(
+                points,
+                workspace.data.weights[selected.ids],
+                workspace.data.normals[selected.ids] @ workspace.frame,
+                "plane",
+                None,
+                None,
+            )
+            plane_metadata[selected.id] = group
+            surfaces.append(
+                SurfaceInput(
+                    selected.id,
+                    "plane",
+                    points,
+                    workspace.data.weights[selected.ids],
+                    result,
+                    axis="axis",
+                    datum=None if group is None else group.id,
+                    construction="perpendicular_to_axis"
+                    if group is None
+                    else group.construction,
+                )
+            )
+        try:
+            output = fit_relationship_component(
+                surfaces, {"axis": AxisInput(axis, not fixed)}, [], [], control=control
+            )
+        except RelationshipSupportFailure as error:
+            raise LeastSquaresFailure("invalid-initial-geometry", str(error)) from error
+        output["plane_metadata"] = plane_metadata
+        return output
+
+    def assess(result: dict[str, Any]) -> FitAssessment:
+        squared = 0.0
+        total = 0.0
+        for selected in all_selected:
+            residual, _, _ = surface_distance(
+                workspace.local[selected.ids], result["surfaces"][selected.id]
+            )
+            residual = residual / frame.length
+            weight = workspace.data.weights[selected.ids] / float(np.max(weights))
+            squared += float(weight @ residual**2)
+            total += float(weight.sum())
+        solver = result["solver"]
+        return FitAssessment(
+            squared / total,
+            bool(solver.get("condition", 1) <= 1e6),
+            solver.get("rank"),
+            solver.get("condition"),
+            solver["termination"],
+            solver["iterations"],
+        )
+
+    def equivalent(a: dict[str, Any], b: dict[str, Any]) -> bool:
+        da, db = (
+            np.asarray(result["axes"]["axis"]["axis_display"]) for result in (a, b)
+        )
+        aa, ab = (
+            np.asarray(result["axes"]["axis"]["point_display"]) for result in (a, b)
+        )
+        aa = (aa - frame.origin) / frame.length
+        ab = (ab - frame.origin) / frame.length
+        aa -= (aa @ da) * da
+        ab -= (ab @ db) * db
+        same_axis = bool(
+            abs(float(da @ db)) > 1 - 1e-10
+            and np.allclose(aa, ab, atol=1e-7, rtol=1e-7)
+        )
+        if not same_axis:
+            return False
+        for selected in all_selected:
+            left, right = (result["surfaces"][selected.id] for result in (a, b))
+            if selected.kind == "cylinder":
+                if not np.isclose(
+                    left["analytic"]["radius"] / frame.length,
+                    right["analytic"]["radius"] / frame.length,
+                    atol=1e-7,
+                    rtol=1e-7,
+                ):
+                    return False
+            else:
+                le, re = (
+                    np.array(surface["plane_equation"], dtype=float)
+                    for surface in (left, right)
+                )
+                le[3] = (le[3] - le[:3] @ frame.origin) / frame.length
+                re[3] = (re[3] - re[:3] @ frame.origin) / frame.length
+                if le[:3] @ re[:3] < 0:
+                    re = -re
+                if not np.allclose(le, re, atol=1e-7, rtol=1e-7):
+                    return False
+        return True
+
+    hint = None
+    if axis_record is not None and not fixed:
+        assert reference_direction is not None
+        hint = FitCandidate(
+            "optional-free-axis",
+            tuple(reference_direction.tolist()),
+            "optional authored free-axis direction",
+            "world-unit-axis-v1",
+            binding.sha256,
+        )
+    try:
+        recovered = recover_fit(
+            RecoveryProblem(
+                binding, {"world-unit-axis-v1": 3}, solve, assess, equivalent
+            ),
+            fresh,
+            hint=hint,
+        )
+    except RecoveryFailure as error:
+        raise CylinderFitFailure(
+            error.code, str(error), {"recovery": error.diagnostics.json()}
+        ) from error
+    output = recovered.result
+    axis = output["axes"]["axis"]
+    direction = np.asarray(axis["axis_display"])
+    if (
+        reference_direction is not None
+        and abs(float(direction @ reference_direction)) <= 1e-10
+    ):
+        # An orthogonal free-axis start supplies no sign preference. Retain a
+        # deterministic sign and apply the authored reversal bit once.
+        if direction[int(np.argmax(np.abs(direction)))] < 0:
+            direction = -direction
+        if axis_record is not None and axis_record.get("direction_reversed"):
+            direction = -direction
+    anchor = np.asarray(axis["point_display"])
+    surfaces = output["surfaces"]
+    for selected in all_selected:
+        _, expected, inside = surface_distance(
+            workspace.local[selected.ids], surfaces[selected.id]
+        )
+        normalized = normalized_weights(workspace.data.weights[selected.ids])
+        normals = workspace.data.normals[selected.ids] @ workspace.frame
+        surfaces[selected.id]["normal_sign"] = (
+            1.0 if float(normalized @ np.sum(expected * normals, axis=1)) >= 0 else -1.0
+        )
+        surfaces[selected.id]["support_classification"] = {
+            "inside_vertices": int(inside.sum()),
+            "outside_vertices": int((~inside).sum()),
+            "role": "selection-and-display",
+        }
+        surfaces[selected.id]["ids"] = selected.ids.copy()
+        surfaces[selected.id]["initialization"] = {
+            "algorithm": "selected-cylinder-group-recovery-v1",
+            "observations": sum(len(s.ids) for s in all_selected),
+            "recovery": recovered.diagnostics.json(),
+        }
+    reference_planes: dict[str, dict[str, Any]] = {}
+    from experiments.surface_primitives import basis
+
+    first, second = basis(direction)
+    for group in reference_plane_groups:
+        equation = np.asarray(output["equations"][group.id])
+        normal = equation[:3]
+        point = anchor + (equation[3] - normal @ anchor) * normal
+        radial = normal - (normal @ direction) * direction
+        if np.linalg.norm(radial) > 1e-12:
+            radial /= np.linalg.norm(radial)
+        else:
+            radial = first
+        angle = (
+            None
+            if group.construction == "perpendicular_to_axis"
+            else float(np.degrees(np.arctan2(normal @ second, normal @ first)))
+        )
+        reference_planes[group.id] = {
+            "axis_display": direction.tolist(),
+            "basis_u_display": first.tolist(),
+            "basis_v_display": second.tolist(),
+            "point_display": point.tolist(),
+            "radial_display": radial.tolist(),
+            "normal_display": normal.tolist(),
+            "plane_equation": equation.tolist(),
+            "angle_degrees": angle,
+            "offset": float(equation[3] - normal @ anchor),
+            "construction": group.construction,
+        }
+    first_side = surfaces[sides[0].id] if sides else None
+    first_plane = surfaces[planes[0].id] if planes else None
+    condition = assess(output).condition
+    return {
+        "session": {"source_sha256": workspace.source_sha256, "schema_version": 2},
+        "fit": {
+            "weighted_rms": float(output["weighted_rms"]),
+            "cone_weighted_rms": 0.0
+            if first_side is None
+            else first_side["weighted_rms"],
+            "plane_weighted_rms": 0.0
+            if first_plane is None
+            else first_plane["weighted_rms"],
+            "gradient_infinity_norm": output["solver"]["projected_gradient_norm"],
+            "objective_history": output["solver"]["objective_history"],
+            "normal_matrix_condition": float(condition or 1) ** 2,
+            "solver": output["solver"],
+            "initialization": {
+                "algorithm": "selected-cylinder-group-recovery-v1",
+                "recovery": recovered.diagnostics.json(),
+            },
+        },
+        "axis_display": direction.tolist(),
+        "point_display": anchor.tolist(),
+        "axis_is_directed": True,
+        "plane_point_display": anchor.tolist(),
+        "axial_domain": None
+        if first_side is None
+        else first_side["analytic"]["axial_domain"],
+        "lateral_residuals": [] if first_side is None else first_side["residuals"],
+        "plane_residuals": [] if first_plane is None else first_plane["residuals"],
+        "reference_diameter": 0.0
+        if first_side is None
+        else 2 * first_side["analytic"]["radius"],
+        "signed_half_angle_degrees": 0.0,
+        "selected_area": {
+            s.id: float(workspace.data.weights[s.ids].sum()) for s in all_selected
+        },
+        "surfaces": surfaces,
+        "reference_planes": reference_planes,
+    }
+
+
 def fit_group(
     workspace: Workspace,
     sides: list[FitSelection],
     planes: list[FitSelection],
     rotational_groups: tuple[tuple[FitSelection, ...], ...] = (),
-    axis_initial: np.ndarray | None = None,
+    axis_initial: np.ndarray | dict[str, Any] | None = None,
     mirror_groups: tuple[tuple[FitSelection, FitSelection], ...] = (),
     mirror_phases_radians: tuple[float, ...] | None = None,
     mirror_radius_surface_ids: tuple[str | None, ...] | None = None,
     reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
-) -> SessionFit:
+    *,
+    semantic_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Joint fit; a mirror's optional radius source makes its planes tangent."""
     if isinstance(workspace, ScanWorkspace):
-        raise ValueError("Shared-axis fitting is not yet supported for imported scans")
+        if rotational_groups or mirror_groups:
+            raise ValueError(
+                "Imported rotational/mirror groups await generic workflow integration"
+            )
+        return _fit_selected_group(
+            workspace,
+            sides,
+            planes,
+            axis_initial,
+            reference_plane_groups=reference_plane_groups,
+            semantic_intent=semantic_intent,
+        )
     workspace = cast(NozzleWorkspace, workspace)
+    sides = [
+        replace(s, domain=workspace.support) if s.domain is None else s for s in sides
+    ]
+    planes = [
+        replace(s, domain=workspace.support) if s.domain is None else s for s in planes
+    ]
+    rotational_groups = tuple(
+        tuple(
+            replace(s, domain=workspace.support) if s.domain is None else s
+            for s in group
+        )
+        for group in rotational_groups
+    )
+    mirror_groups = tuple(
+        (
+            replace(left, domain=workspace.support) if left.domain is None else left,
+            replace(right, domain=workspace.support) if right.domain is None else right,
+        )
+        for left, right in mirror_groups
+    )
+    reference_plane_groups = tuple(
+        replace(
+            group,
+            surfaces=tuple(
+                replace(s, domain=workspace.support) if s.domain is None else s
+                for s in group.surfaces
+            ),
+        )
+        for group in reference_plane_groups
+    )
+    if isinstance(axis_initial, dict):
+        raise ValueError("legacy example groups require their explicit numerical chart")
     observations = [
         SideObservations(
-            workspace.local[s.ids], workspace.data.weights[s.ids], s.kind, s.domain
+            workspace.local[s.ids],
+            workspace.data.weights[s.ids],
+            s.kind,
+            cast(tuple[float, float], s.domain),
         )
         for s in sides
     ]
@@ -146,7 +654,7 @@ def fit_group(
             )
             if group[0].kind != "plane"
             else (),
-            domain=group[0].domain,
+            domain=_explicit_domain(group[0]),
         )
         for group in rotational_groups
     )
@@ -207,7 +715,7 @@ def fit_group(
                 ),
                 group[0].kind,
                 tuple(seed_result["parameters"]),
-                group[0].domain,
+                _explicit_domain(group[0]),
                 group[1].domain,
                 radius_side_index,
             )
@@ -240,7 +748,7 @@ def fit_group(
             "kind": side.kind,
             "ids": side.ids,
             "parameters": parameters.tolist(),
-            "axial_domain": side.domain,
+            "axial_domain": _explicit_domain(side),
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(obs.area @ residual**2 / obs.area.sum())),
         }
@@ -265,7 +773,7 @@ def fit_group(
             "kind": "plane",
             "ids": selected_plane.ids,
             "parameters": parameters.tolist(),
-            "axial_domain": selected_plane.domain,
+            "axial_domain": _explicit_domain(selected_plane),
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / weights.sum())),
         }
@@ -291,7 +799,7 @@ def fit_group(
                 "ids": selected_plane.ids,
                 "parameters": parameters.tolist(),
                 "plane_equation": equation.tolist(),
-                "axial_domain": selected_plane.domain,
+                "axial_domain": _explicit_domain(selected_plane),
                 "residuals": selected_residual.tolist(),
                 "weighted_rms": float(
                     np.sqrt(weights @ selected_residual**2 / weights.sum())
@@ -421,12 +929,33 @@ def fit_fixed_axis_group(
     workspace: Workspace,
     sides: list[FitSelection],
     planes: list[FitSelection],
-    axis_parameters: np.ndarray,
-) -> SessionFit:
+    axis_parameters: np.ndarray | dict[str, Any],
+    *,
+    semantic_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Fit radii, taper, and plane offsets without moving the supplied axis."""
     if isinstance(workspace, ScanWorkspace):
-        raise ValueError("Axis-bound fitting is not yet supported for imported scans")
+        if not isinstance(axis_parameters, dict):
+            raise ValueError(
+                "imported fixed-axis fitting requires evaluated axis geometry"
+            )
+        return _fit_selected_group(
+            workspace,
+            sides,
+            planes,
+            axis_parameters,
+            fixed=True,
+            semantic_intent=semantic_intent,
+        )
     workspace = cast(NozzleWorkspace, workspace)
+    sides = [
+        replace(s, domain=workspace.support) if s.domain is None else s for s in sides
+    ]
+    planes = [
+        replace(s, domain=workspace.support) if s.domain is None else s for s in planes
+    ]
+    if isinstance(axis_parameters, dict):
+        raise ValueError("legacy example groups require their explicit numerical chart")
     if not sides and not planes:
         raise ValueError("a fixed-axis fit requires at least one surface")
     if axis_parameters.shape != (7,) or not np.isfinite(axis_parameters).all():
@@ -478,14 +1007,15 @@ def fit_fixed_axis_group(
                 7,
                 axes=(AxisChart(0, 1, 2, 3, 4, 6),),
             )
+            side_domain = _explicit_domain(side)
             fitted = solve_geometric_fit(
                 initial,
                 weights,
                 coordinates,
-                lambda p, points=points, domain=side.domain: (
+                lambda p, points=points, domain=side_domain: (
                     cone_plane_residual_jacobian(points, np.empty((0, 3)), p, domain)
                 ),
-                lambda p, points=points, domain=side.domain: valid_cone_geometry(
+                lambda p, points=points, domain=side_domain: valid_cone_geometry(
                     p, domain, points
                 ),
                 active_parameters=(4, 6),
@@ -508,7 +1038,7 @@ def fit_fixed_axis_group(
         residual = (radial - (radius + taper * z)) / np.hypot(1.0, taper)
         parameters = axis_parameters.copy()
         parameters[4], parameters[6] = radius, taper
-        if not valid_cone_geometry(parameters, side.domain, points):
+        if not valid_cone_geometry(parameters, _explicit_domain(side), points):
             raise ValueError(f"{side.id}: invalid lateral geometry")
         area = float(weights.sum())
         weighted_squares += float(weights @ residual**2)
@@ -518,7 +1048,7 @@ def fit_fixed_axis_group(
             "kind": side.kind,
             "ids": side.ids,
             "parameters": parameters.tolist(),
-            "axial_domain": side.domain,
+            "axial_domain": _explicit_domain(side),
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / area)),
         }
@@ -547,7 +1077,7 @@ def fit_fixed_axis_group(
             "kind": "plane",
             "ids": plane.ids,
             "parameters": parameters.tolist(),
-            "axial_domain": plane.domain,
+            "axial_domain": _explicit_domain(plane),
             "residuals": residual.tolist(),
             "weighted_rms": float(np.sqrt(weights @ residual**2 / area)),
         }

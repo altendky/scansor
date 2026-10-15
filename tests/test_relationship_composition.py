@@ -16,6 +16,20 @@ from experiments.feature_graph import (
     SurfaceFit,
 )
 from experiments.feature_reuse import surface_region_frame
+from experiments.fit_relationship_component import (
+    AxisInput,
+    PointInput,
+    RelationshipSupportFailure,
+    SurfaceInput,
+    fit_relationship_component,
+)
+from experiments.fit_solver import (
+    AttemptControl,
+    AttemptLimits,
+    FitBudgetExhausted,
+    FitCancelled,
+    normalized_weights,
+)
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.repeated_boss_benchmark import DEFINITION
@@ -843,7 +857,7 @@ def test_composed_fit_is_covariant_under_scaling_and_translation(
                 a,
                 b,
             ]
-        elif node["operation"] == "fit":
+        elif node["operation"] == "fit" and node["axial_domain"] is not None:
             node["axial_domain"] = [scale * value for value in node["axial_domain"]]
     composed_graph.workspace.local[:] = scale * composed_graph.workspace.local + shift
     fresh = FeatureGraph(composed_graph.workspace, Recipe.model_validate(payload))
@@ -1367,3 +1381,448 @@ def test_step_roundtrip_preserves_composed_cap_and_cylinder_orientation(
     np.testing.assert_allclose(
         np.cross(directions["cylinder"], expected), 0.0, atol=1e-10
     )
+
+
+def _independent_canonical_component(
+    *, fixed_alias: bool = False, clock_construction: str = "parallel_to_axis"
+) -> tuple[list[SurfaceInput], dict[str, AxisInput], dict[str, PointInput]]:
+    """Two independently placed horizontal axes and an equal-radius sphere."""
+    surfaces: list[SurfaceInput] = []
+    axes: dict[str, AxisInput] = {}
+    theta, height = np.meshgrid(
+        np.linspace(0, 2 * np.pi, 20, endpoint=False), [-1.5, -0.5, 0.5, 2.0]
+    )
+    grid = np.array([(x, y) for x in [-1.0, 0.0, 1.0] for y in [-1.0, 0.0, 1.0]])
+    for name, anchor, direction in (
+        ("x", np.array([3.0, -4.0, 2.0]), np.array([1.0, 0.0, 0.0])),
+        ("y", np.array([-6.0, 5.0, 7.0]), np.array([0.0, 1.0, 0.0])),
+    ):
+        first, second = basis(direction)
+        source_point = anchor.copy()
+        fixed = fixed_alias and name == "x"
+        if fixed:
+            # A fixed reference deliberately disagrees with the observations.
+            source_point += 0.15 * first
+        axes[name] = AxisInput(
+            {
+                "point_display": source_point.tolist(),
+                "axis_display": (-direction if fixed else direction).tolist(),
+                "direction_reversed": fixed,
+                "axis_is_directed": True,
+            },
+            free=not fixed,
+        )
+        axis_key = name
+        if fixed:
+            axis_key = "x_alias"
+            axes[axis_key] = AxisInput(
+                {
+                    "point_display": source_point.tolist(),
+                    "axis_display": direction.tolist(),
+                    "axis_is_directed": True,
+                },
+                free=False,
+                source=name,
+            )
+        xyz = (
+            anchor
+            + height.ravel()[:, None] * direction
+            + 2.0
+            * (
+                np.cos(theta.ravel())[:, None] * first
+                + np.sin(theta.ravel())[:, None] * second
+            )
+        )
+        weights = np.linspace(0.3, 1.7, len(xyz))
+        reference = normalized_weights(weights) @ xyz
+        surfaces.append(
+            SurfaceInput(
+                name,
+                "cylinder",
+                xyz,
+                weights,
+                {
+                    "kind": "cylinder",
+                    "analytic": {
+                        "kind": "cylinder",
+                        "origin": anchor.tolist(),
+                        "axis": direction.tolist(),
+                        "radius": 2.1,
+                        "slope": 0.0,
+                        "axial_domain": [-2.0, 3.0],
+                    },
+                    "anchor_reference": reference.tolist(),
+                    "support_origin": "selection",
+                },
+                axis=axis_key,
+            )
+        )
+        clock_distance = 0.0 if clock_construction == "contains_axis" else 1.3
+        for suffix, normal, offset, plane_points, construction in (
+            (
+                "cap",
+                direction,
+                float(direction @ anchor + 1.5),
+                anchor + 1.5 * direction + grid[:, :1] * first + grid[:, 1:] * second,
+                "perpendicular_to_axis",
+            ),
+            (
+                "clock",
+                second,
+                float(second @ anchor + clock_distance),
+                anchor
+                + clock_distance * second
+                + grid[:, :1] * direction
+                + grid[:, 1:] * first,
+                clock_construction,
+            ),
+        ):
+            surfaces.append(
+                SurfaceInput(
+                    f"{name}_{suffix}",
+                    "plane",
+                    plane_points,
+                    np.ones(len(plane_points)),
+                    {"kind": "plane", "parameters": [*normal, offset]},
+                    axis=axis_key,
+                    construction=construction,
+                )
+            )
+    center = np.array([10.0, 4.0, -3.0])
+    azimuth, elevation = np.meshgrid(
+        np.linspace(0, 2 * np.pi, 16), [-0.8, -0.2, 0.5, 1.0]
+    )
+    directions = np.column_stack(
+        [
+            (np.cos(elevation) * np.cos(azimuth)).ravel(),
+            (np.cos(elevation) * np.sin(azimuth)).ravel(),
+            np.sin(elevation).ravel(),
+        ]
+    )
+    surfaces.append(
+        SurfaceInput(
+            "sphere",
+            "sphere",
+            center + 2.0 * directions,
+            np.linspace(0.5, 1.5, len(directions)),
+            {"kind": "sphere", "parameters": [*center, 2.1]},
+            point="center",
+        )
+    )
+    return (
+        surfaces,
+        axes,
+        {"center": PointInput({"point_display": center.tolist()}, free=True)},
+    )
+
+
+@pytest.mark.parametrize("fixed_alias", [False, True])
+@pytest.mark.parametrize("clock_construction", ["contains_axis", "parallel_to_axis"])
+def test_independent_horizontal_axis_charts_preserve_constraints_and_reference_roles(
+    fixed_alias: bool,
+    clock_construction: str,
+) -> None:
+    surfaces, axes, centers = _independent_canonical_component(
+        fixed_alias=fixed_alias, clock_construction=clock_construction
+    )
+    before = deepcopy(axes)
+    fitted = fit_relationship_component(
+        surfaces, axes, [], [["x", "y", "sphere"]], centers
+    )
+    assert fitted["solver"]["constraint_violation"] < 1e-10
+    radii: list[float] = []
+    for name, direction in (("x", [1.0, 0, 0]), ("y", [0.0, 1, 0])):
+        result = fitted["surfaces"][name]
+        geometry = result["analytic"]
+        assert "parameters" not in result
+        radii.append(geometry["radius"])
+        np.testing.assert_allclose(
+            geometry["axis"], direction, atol=1e-3 if fixed_alias else 1e-9
+        )
+        assert fitted["axes"][name]["axis_is_directed"] is True
+        cap = np.asarray(fitted["surfaces"][f"{name}_cap"]["plane_equation"])
+        clock = np.asarray(fitted["surfaces"][f"{name}_clock"]["plane_equation"])
+        np.testing.assert_allclose(np.cross(cap[:3], geometry["axis"]), 0, atol=1e-10)
+        assert abs(clock[:3] @ geometry["axis"]) < 1e-10
+        if clock_construction == "contains_axis":
+            assert abs(clock[3] - clock[:3] @ geometry["origin"]) < 1e-10
+        source = next(surface for surface in surfaces if surface.id == name)
+        heights = (source.points - geometry["origin"]) @ np.asarray(geometry["axis"])
+        np.testing.assert_allclose(
+            geometry["axial_domain"], [heights.min(), heights.max()]
+        )
+    radii.append(fitted["surfaces"]["sphere"]["parameters"][3])
+    np.testing.assert_allclose(radii, radii[0], atol=1e-10)
+    if fixed_alias:
+        for name in ("x", "x_alias"):
+            np.testing.assert_array_equal(
+                fitted["axes"][name]["axis_display"],
+                before[name].result["axis_display"],
+            )
+            np.testing.assert_allclose(
+                fitted["axes"][name]["point_display"],
+                before[name].result["point_display"],
+                atol=1e-14,
+            )
+        assert fitted["surfaces"]["x"]["weighted_rms"] > 0.05
+    else:
+        np.testing.assert_allclose(radii, 2.0, atol=1e-9)
+    assert axes == before
+
+
+@pytest.mark.parametrize("cone", [False, True])
+def test_rotated_relationship_charts_have_full_observation_and_equality_jacobians(
+    monkeypatch: pytest.MonkeyPatch,
+    cone: bool,
+) -> None:
+    from experiments import fit_relationship_component as module
+
+    surfaces, axes, centers = _independent_canonical_component()
+    if cone:
+        surface, axes = _negative_anchor_relationship_cone()
+        axes["axis"] = AxisInput(axes["axis"].result, free=True)
+        surfaces, centers = [surface], {}
+    kernel = solve_constrained_least_squares
+    checked = False
+
+    def inspect(
+        initial: Array, observations: Evaluation, equalities: Evaluation, **kwargs: Any
+    ) -> ConstrainedLeastSquaresResult:
+        nonlocal checked
+        # Exercise derivatives away from zero local slopes, not just the chart pole.
+        sample = initial + 0.01 * np.sin(np.arange(len(initial)))
+        for evaluate in (observations, equalities):
+            _, actual = evaluate(sample)
+            columns: list[Array] = []
+            for index in range(len(sample)):
+                step = np.zeros_like(sample)
+                step[index] = 1e-6
+                columns.append(
+                    (evaluate(sample + step)[0] - evaluate(sample - step)[0]) / 2e-6
+                )
+            np.testing.assert_allclose(
+                actual, np.column_stack(columns), atol=2e-8, rtol=2e-7
+            )
+        checked = True
+        return kernel(initial, observations, equalities, **kwargs)
+
+    monkeypatch.setattr(module, "solve_constrained_least_squares", inspect)
+    _ = fit_relationship_component(
+        surfaces, axes, [], [] if cone else [["x", "y", "sphere"]], centers
+    )
+    assert checked
+
+
+def _negative_anchor_relationship_cone() -> tuple[SurfaceInput, dict[str, AxisInput]]:
+    anchor = np.array([1.0, 4.0, -2.0])
+    direction = np.array([0.0, 1.0, 0.0])
+    first, second = basis(direction)
+    theta, height = np.meshgrid(
+        np.linspace(0, 2 * np.pi, 20, endpoint=False), [8.0, 10.0, 12.0, 15.0]
+    )
+    points = (
+        anchor
+        + height.ravel()[:, None] * direction
+        + (-1 + 0.5 * height.ravel())[:, None]
+        * (
+            np.cos(theta.ravel())[:, None] * first
+            + np.sin(theta.ravel())[:, None] * second
+        )
+    )
+    surface = SurfaceInput(
+        "cone",
+        "cone",
+        points,
+        np.linspace(0.2, 2, len(points)),
+        {
+            "kind": "cone",
+            "analytic": {
+                "kind": "cone",
+                "origin": anchor.tolist(),
+                "axis": direction.tolist(),
+                "radius": -1.0,
+                "slope": 0.5,
+                "axial_domain": [8.0, 15.0],
+            },
+            "anchor_reference": anchor.tolist(),
+        },
+        axis="axis",
+    )
+    axes = {
+        "axis": AxisInput(
+            {
+                "point_display": (anchor + 2 * direction).tolist(),
+                "axis_display": direction.tolist(),
+                "axis_is_directed": True,
+            },
+            free=False,
+        )
+    }
+    return surface, axes
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_relationship_cone_radius_and_support_are_rebased_to_the_intended_anchor(
+    reverse: bool,
+) -> None:
+    surface, axes = _negative_anchor_relationship_cone()
+    if reverse:
+        axes["axis"].result.update(axis_display=[0, -1, 0], direction_reversed=True)
+    fitted = fit_relationship_component([surface], axes, [], [])
+    geometry = fitted["surfaces"]["cone"]["analytic"]
+    np.testing.assert_allclose(geometry["origin"], [1, 4, -2], atol=1e-13)
+    assert geometry["radius"] == pytest.approx(-1.0, abs=1e-12)
+    assert geometry["slope"] == pytest.approx(0.5, abs=1e-12)
+    assert geometry["axial_domain"] == [8.0, 15.0]
+    assert fitted["surfaces"]["cone"]["weighted_rms"] < 1e-12
+    np.testing.assert_array_equal(
+        fitted["axes"]["axis"]["axis_display"], axes["axis"].result["axis_display"]
+    )
+
+
+def test_relationship_support_rejects_horizontal_source_z_bounds_explicitly() -> None:
+    surface, axes = _negative_anchor_relationship_cone()
+    surface.result.update(
+        support_origin="legacy-source-z0", source_axial_domain=[8.0, 15.0]
+    )
+    with pytest.raises(RelationshipSupportFailure) as failure:
+        _ = fit_relationship_component([surface], axes, [], [])
+    assert failure.value.code == "unsupported-support"
+
+
+@pytest.mark.parametrize("reverse_seed", [False, True])
+def test_explicit_cone_support_and_semantic_anchor_are_independent_of_seed_rebasing(
+    reverse_seed: bool,
+) -> None:
+    source, axes = _negative_anchor_relationship_cone()
+    baseline = fit_relationship_component([source], axes, [], [])
+    moved = deepcopy(source)
+    geometry = moved.result["analytic"]
+    geometry["origin"] = (
+        np.asarray(geometry["origin"]) + 10 * np.asarray(geometry["axis"])
+    ).tolist()
+    geometry["radius"] += 10 * geometry["slope"]
+    geometry["axial_domain"] = [-2.0, 5.0]
+    moved.result["anchor_axial_domain"] = [8.0, 15.0]
+    moved.result["anchor_axis"] = source.result["analytic"]["axis"]
+    if reverse_seed:
+        geometry["axis"] = (-np.asarray(geometry["axis"])).tolist()
+        geometry["slope"] = -geometry["slope"]
+        geometry["axial_domain"] = [-5.0, 2.0]
+
+    result = fit_relationship_component([moved], axes, [], [])
+
+    actual = result["surfaces"]["cone"]
+    expected = baseline["surfaces"]["cone"]
+    for name in ("origin", "axis", "radius", "slope", "axial_domain"):
+        np.testing.assert_allclose(
+            actual["analytic"][name], expected["analytic"][name], atol=1e-12
+        )
+    assert actual["anchor_reference"] == source.result["anchor_reference"]
+    assert actual["anchor_axial_domain"] == [8.0, 15.0]
+    assert actual["anchor_axis"] == source.result["analytic"]["axis"]
+
+
+@pytest.mark.parametrize("seed_shift", [0.0, 10.0])
+def test_source_z_support_is_recomputed_in_the_semantic_axis_anchor(
+    seed_shift: float,
+) -> None:
+    direction = np.array([1.0, 0, 1.0]) / np.sqrt(2)
+    first, second = basis(direction)
+    anchor = np.array([3.0, -4, 2])
+    theta, height = np.meshgrid(
+        np.linspace(0, 2 * np.pi, 16, endpoint=False), [-1.0, 0.0, 1.0, 2.0]
+    )
+    points = (
+        anchor
+        + height.ravel()[:, None] * direction
+        + 2
+        * (
+            np.cos(theta.ravel())[:, None] * first
+            + np.sin(theta.ravel())[:, None] * second
+        )
+    )
+    reference = [3.0, -4.0, 6.0]
+    surface = SurfaceInput(
+        "cylinder",
+        "cylinder",
+        points,
+        np.ones(len(points)),
+        {
+            "kind": "cylinder",
+            "analytic": {
+                "kind": "cylinder",
+                "origin": (anchor + seed_shift * direction).tolist(),
+                "axis": direction.tolist(),
+                "radius": 2.0,
+                "slope": 0.0,
+                "axial_domain": [-1.0 - seed_shift, 2.0 - seed_shift],
+            },
+            "support_origin": "legacy-source-z0",
+            "source_axial_domain": [2.0, 8.0],
+            "anchor_reference": reference,
+        },
+        axis="axis",
+    )
+    axes = {
+        "axis": AxisInput(
+            {
+                "point_display": anchor.tolist(),
+                "axis_display": direction.tolist(),
+                "axis_is_directed": True,
+            },
+            free=False,
+        )
+    }
+
+    result = fit_relationship_component([surface], axes, [], [])
+
+    geometry = result["surfaces"]["cylinder"]["analytic"]
+    projected = anchor + ((np.asarray(reference) - anchor) @ direction) * direction
+    np.testing.assert_allclose(geometry["origin"], projected, atol=1e-13)
+    shift = projected[2] / direction[2]
+    np.testing.assert_allclose(
+        geometry["axial_domain"], np.array([2.0, 8.0]) - shift, atol=1e-13
+    )
+    endpoints = (
+        np.asarray(geometry["origin"])
+        + np.asarray(geometry["axial_domain"])[:, None] * geometry["axis"]
+    )
+    np.testing.assert_allclose(
+        endpoints[:, 2], np.array([2.0, 8.0]) * direction[2], atol=1e-13
+    )
+
+
+def test_relationship_attempt_control_counts_both_callbacks_and_propagates_cancellation() -> (
+    None
+):
+    surfaces, axes, centers = _independent_canonical_component()
+    control = AttemptControl(AttemptLimits(max_evaluations=512))
+    fitted = fit_relationship_component(
+        surfaces, axes, [], [["x", "y", "sphere"]], centers, control=control
+    )
+    assert control.evaluations > 2
+    assert (
+        control.evaluations
+        == fitted["solver"]["evaluations"]
+        + fitted["solver"]["constraint_evaluations"]
+        + 1
+    )
+    with pytest.raises(FitBudgetExhausted):
+        _ = fit_relationship_component(
+            surfaces,
+            axes,
+            [],
+            [["x", "y", "sphere"]],
+            centers,
+            control=AttemptControl(AttemptLimits(max_evaluations=1)),
+        )
+    with pytest.raises(FitCancelled):
+        _ = fit_relationship_component(
+            surfaces,
+            axes,
+            [],
+            [["x", "y", "sphere"]],
+            centers,
+            control=AttemptControl(AttemptLimits(), cancelled=lambda: True),
+        )

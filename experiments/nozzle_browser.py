@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         "/edge-highlight.js": ("edge-highlight.js", "text/javascript"),
         "/fit-footprint.js": ("fit-footprint.js", "text/javascript"),
         "/analytic-geometry.js": ("analytic-geometry.js", "text/javascript"),
+        "/fit-intent.js": ("fit-intent.js", "text/javascript"),
         "/model-picking.js": ("model-picking.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),

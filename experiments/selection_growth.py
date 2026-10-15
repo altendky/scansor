@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
+from experiments.fit_initialization import InitializationBinding
 from experiments.fit_solver import (
     SolverDiagnostics,
     normalized_weights,
@@ -16,7 +17,7 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     valid_cone_geometry,
 )
-from experiments.mesh_cylinder_fit import Array
+from experiments.mesh_cylinder_fit import Array, fit_selected_cylinder
 from experiments.mesh_sphere_fit import fit_sphere
 from experiments.surface_primitives import revolution_geometry
 
@@ -42,8 +43,22 @@ def fit_seed(
     normals: Array,
     kind: str,
     initial: Array | None,
-    domain: tuple[float, float],
+    domain: tuple[float, float] | None,
+    *,
+    binding: InitializationBinding | None = None,
+    hint: dict[str, Any] | None = None,
+    hint_binding_sha256: str | None = None,
 ) -> dict[str, Any]:
+    if kind == "cylinder" and binding is not None:
+        return fit_selected_cylinder(
+            points,
+            weights,
+            normals,
+            binding,
+            hint=hint,
+            hint_binding_sha256=hint_binding_sha256,
+            domain=domain,
+        )
     minimum = 3 if kind == "plane" else 4 if kind == "sphere" else 7
     if (
         len(points) < minimum
@@ -144,6 +159,8 @@ def fit_seed(
         solver = result.get("solver")
         initialization = result.get("initialization")
     elif kind in ("cone", "cylinder"):
+        if domain is None:
+            raise ValueError("legacy lateral fitting requires explicit axial bounds")
         if (
             initial is None
             or initial.shape != (5,)
@@ -266,7 +283,22 @@ def connected_growth(
             "directional growth needs an oriented plane; selected normals do not establish a direction",
             fit["initialization"],
         )
-    residual, expected, support = surface_distance(points, fit)
+    growth_fit = fit
+    if fit.get("support_origin") == "selection" and "analytic" in fit:
+        # Automatic display extent is derived from the painted patch. It must
+        # not prevent growth along the same positive analytic sheet.
+        geometry = revolution_geometry(fit)
+        q = points - np.asarray(geometry["origin"])
+        z = q @ np.asarray(geometry["axis"])
+        slope = float(geometry["slope"])
+        rho = np.linalg.norm(q - z[:, None] * np.asarray(geometry["axis"]), axis=1)
+        projected = (z + slope * (rho - geometry["radius"])) / (1 + slope**2)
+        bounds = [float(np.min(projected)), float(np.max(projected))]
+        if bounds[0] < bounds[1] and all(
+            geometry["radius"] + slope * t > 0 for t in bounds
+        ):
+            growth_fit = {**fit, "analytic": {**geometry, "axial_domain": bounds}}
+    residual, expected, support = surface_distance(points, growth_fit)
     eligible = (
         support & np.isfinite(residual) & (np.abs(residual) <= distance) & (weights > 0)
     )

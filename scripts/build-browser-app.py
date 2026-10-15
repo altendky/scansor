@@ -46,6 +46,7 @@ UI_FILES = (
     "edge-highlight.js",
     "fit-footprint.js",
     "analytic-geometry.js",
+    "fit-intent.js",
     "model-picking.js",
     "selection.js",
     "navigation.js",

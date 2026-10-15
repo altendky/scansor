@@ -66,10 +66,16 @@ not demonstrate every operation it implements:
   varied poses and scales, standalone fitting, connected growth and source-bound
   recipe replay. Sphere cases also exercise a shared free center initialized
   from the selection despite a distant authored point hint.
+- Independent horizontal, nearly horizontal and oblique imported cylinders at
+  three scales, with nonuniform angular/axial cells, automatic support growth,
+  renamed-source recipe replay and reversed fit-derived fixed axes. A separate
+  extreme optional hint cannot suppress fresh fitting. Complete recovery
+  diagnostics participate in native/worker comparison.
 - Canonical horizontal-cylinder and finite-cone spatial geometry, including
   negative extrapolated anchor radius, support-preserving rebasing/reversal and
   rigid transforms, normals and support membership. Stale legacy parameters
-  cannot override the canonical record; these cases do not run a new fitter.
+  cannot override the canonical record; these spatial cases remain separate
+  from the selected-data cylinder fitting cases.
 - Optional Scansor cylinder intersections, bounded face construction, kernel
   validity/area, tessellation and named millimeter STEP. Browser-produced STEP
   is reopened natively to verify validity, area and its Unicode name.

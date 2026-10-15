@@ -28,6 +28,7 @@ import { selectionVolumePositions } from './reuse-volume.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
 import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
+import { copyFitDomain, parseFitDomain, defaultFitDomain } from './fit-intent.js';
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
 import {
@@ -2714,8 +2715,10 @@ function showProperties(force = false) {
       earlier,
       node.axis || node.point || node.reference_plane || '',
     );
-    $('axial-start').value = node.axial_domain[0];
-    $('axial-end').value = node.axial_domain[1];
+    $('axial-start').value = node.axial_domain?.[0] ?? '';
+    $('axial-end').value = node.axial_domain?.[1] ?? '';
+    $('axial-start').placeholder = 'Automatic';
+    $('axial-end').placeholder = 'Automatic';
     $('axial-start-row').hidden = node.kind === 'sphere';
     $('axial-end-row').hidden = node.kind === 'sphere';
   } else if (node.operation === 'axis') {
@@ -5404,7 +5407,7 @@ async function start(recoveredState) {
         operation: 'fit',
         selections: [...source.selections],
         kind: source.kind,
-        axial_domain: [...source.axial_domain],
+        axial_domain: copyFitDomain(source.axial_domain),
         axis: axis.id,
       });
     if (await appendActions(nodes)) $('axis-dialog').close();
@@ -5441,7 +5444,7 @@ async function start(recoveredState) {
         operation: 'fit',
         selections: [...source.selections],
         kind: 'sphere',
-        axial_domain: [...source.axial_domain],
+        axial_domain: copyFitDomain(source.axial_domain),
         point: point.id,
       });
     if (await appendActions(nodes)) $('point-dialog').close();
@@ -5882,7 +5885,9 @@ async function start(recoveredState) {
     if (node.operation === 'fit') {
       node.kind = $('surface-kind').value;
       node.selections = chosen('fit-inputs');
-      node.axial_domain = [Number($('axial-start').value), Number($('axial-end').value)];
+      try {
+        node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
+      } catch (error) { status(error.message, true); return; }
       setFitReference(node, $('fit-reference').value);
     }
     if (node.operation === 'axis') {
@@ -6183,7 +6188,8 @@ async function start(recoveredState) {
       operation: 'fit',
       selections: chosen('new-fit-inputs'),
       kind: $('new-fit-kind').value,
-      axial_domain: [-2, 5],
+      axial_domain: defaultFitDomain($('new-fit-kind').value,
+        graphState.recipe.nodes.find(n => n.operation === 'source')?.descriptor),
     };
     setFitReference(node, $('new-fit-reference').value);
     const saved = await appendActions([node]);
