@@ -197,6 +197,34 @@ change scansor.app DNS.
 Fixture tests alone do not demonstrate worker/UI startup or rendering, practical
 scan capacity, memory budgets, project recovery or other browser engines.
 
+## Raw-source UI workflow acceptance
+
+The separate raw-source acceptance driver uses the actual packaged CAD app in
+plain and isolated Chromium contexts:
+
+```sh
+node experiments/browser_static/validate-raw-source-workflow.mjs \
+  --directory "$TASK_SITE" --output "$TASK_RAW_UI_REPORTS" \
+  --native-python .venv/bin/python
+```
+
+It uses real File, pointer, fit, export/download, Save actions, New project and
+renamed-source lookup controls. The Side-view rectangle is frozen before fitting;
+membership is independently predicted from delivered pointer coordinates and the
+original rows. Independent raw triangle areas and radial residual arithmetic,
+full replay/native records and finite budgets are checked. The actual downloaded
+STEP is reopened against the UI-produced cylinder at the existing export
+precision. These are implementation and export-fidelity checks on a rough scan,
+not physical ground truth or a metrology accuracy claim. The generated analytic
+scene remains a separate oracle.
+
+CI runs this acceptance before uploading the validated site. Its complete JSON
+operands, receipts and actual downloads are retained as the separate
+`raw-source-ui-acceptance` artifact when redistribution is ready. They are not
+added to the existing 25-stage release envelope or published site. The native
+HTTP browser suite uses the same DOM harness. Appended observers only read the
+manifest-verified app/worker state; they do not author recipes or selection IDs.
+
 ## Workload measurements
 
 The [workload evidence and limits](workload-validation.md) distinguish actual

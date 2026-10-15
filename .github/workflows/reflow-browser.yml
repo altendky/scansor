@@ -81,6 +81,27 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Verify raw-source UI export and reopen on plain and isolated CAD workers
+        env:
+          STATIC_CHECK_DIRECTORY: ${{ runner.temp }}/agents/scansor-static
+          RAW_UI_DIRECTORY: ${{ runner.temp }}/agents/scansor-raw-ui
+        run: >-
+          node experiments/browser_static/validate-raw-source-workflow.mjs
+          --directory "$STATIC_CHECK_DIRECTORY/work/site"
+          --output "$RAW_UI_DIRECTORY"
+          --native-python .venv/bin/python
+
+      - name: Retain separate raw-source UI acceptance evidence
+        if: ${{ always() && steps.static.outputs.redistribution_ready == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: raw-source-ui-acceptance
+          path: |
+            ${{ runner.temp }}/agents/scansor-raw-ui/**/*.json
+            ${{ runner.temp }}/agents/scansor-raw-ui/**/scansor-cad.zip
+          if-no-files-found: warn
+          retention-days: 14
+
       # Public Actions artifacts distribute binaries too. No binary cache or
       # trace ZIP is uploaded while the recorded source/notice gate is closed.
       - name: Upload the exact tested site when redistribution is ready
