@@ -35,7 +35,7 @@ const report = {
   workspace_graph_schema: WORKSPACE_GRAPH_SCHEMA, workspace_graph_projection: WORKSPACE_GRAPH_PROJECTION,
   browser_workspace: {}, native_workspace: {},
 };
-const saveReport = () => writeFile(path.join(output, 'workspace.json'), JSON.stringify(report, null, 2) + '\n');
+const saveReport = () => writeFile(path.join(output, 'workspace.json'), JSON.stringify(report) + '\n');
 
 // Run native Python against the exact packaged source, rather than the checkout.
 // This is part of the project harness, not a dependency-installing standalone script.
