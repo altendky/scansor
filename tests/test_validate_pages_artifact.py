@@ -1184,6 +1184,193 @@ def validate(fixture: dict[str, Any], output: Path | None = None) -> dict[str, A
     )
 
 
+def staged_payload(fixture: dict[str, Any]) -> Path:
+    payload = fixture["tmp"] / "local-payload"
+    payload.mkdir()
+    for name, data in fixture["members"].items():
+        path = payload / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_bytes(data)
+    return payload
+
+
+def validate_local_payload(fixture: dict[str, Any]) -> dict[str, Any]:
+    return VALIDATOR.validate_staged_payload(
+        staged_payload(fixture),
+        fixture["locks"],
+        source_revision=fixture["run"]["head_sha"],
+        site_manifest_sha256=fixture["site_sha256"],
+    )
+
+
+@pytest.mark.parametrize(
+    "selected", [HISTORICAL_POLICY, VALIDATOR.CURRENT_SEMANTIC_POLICY], indirect=True
+)
+def test_local_payload_uses_full_shared_intake_without_github_selection(
+    selected: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_metadata(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("local payload must not invent GitHub metadata")
+
+    monkeypatch.setattr(VALIDATOR, "validate_metadata", no_metadata)
+    # This is an uncompressed local snapshot, not a downloaded archive claim.
+    monkeypatch.setattr(VALIDATOR, "MAX_ARCHIVE", 1)
+    result = validate_local_payload(selected)
+    assert result["payload_verified"] is True
+    assert result["github_provenance_verified"] is False
+    assert result["publication"] is False
+    assert result["verification_steps"] == list(VALIDATOR.STEPS)
+    assert result["payload_files"] == {
+        name: VALIDATOR.identity(data) for name, data in selected["members"].items()
+    }
+    assert "run_id" not in result and "artifact_id" not in result
+    assert "archive_sha256" not in result and "archive_bytes" not in result
+    assert not (selected["tmp"] / "public-site").exists()
+    assert not (selected["tmp"] / "selection.json").exists()
+    assert not list(selected["tmp"].glob("local-payload-*"))
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["receipt", "geometry", "budget", "source", "asset", "missing", "extra", "symlink"],
+)
+def test_green_local_ledger_cannot_substitute_payload_or_full_receipts(
+    selected: dict[str, Any],
+    fault: str,
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    members = selected["members"]
+    if fault in {"receipt", "geometry", "budget"}:
+        name = "recovery"
+        report = json.loads(members[f"evidence/{name}.json"])
+        if fault == "receipt":
+            del report["semantic_parity"]
+        elif fault == "geometry":
+            batch: dict[str, Any] = json.loads(
+                report["semantic_parity_evidence"]["json"]
+            )
+            batch["cases"][0]["actual"]["fit"]["radius"] += 1
+            refresh_semantic_input(report, batch)
+        else:
+            value = retained_cone_pair[1]
+            batch = {
+                "cases": [
+                    {
+                        "id": "crash-force",
+                        "profile": "result-map",
+                        "actual": {"fit": copy.deepcopy(value)},
+                        "expected": {"fit": copy.deepcopy(value)},
+                    }
+                ]
+            }
+            report.update(semantic_evidence(batch["cases"]))
+            for side in ("actual", "expected"):
+                batch["cases"][0][side]["fit"]["initialization"]["recovery"][
+                    "attempts"
+                ][0]["evaluations"] = 513
+            refresh_semantic_input(report, batch)
+        members[f"evidence/{name}.json"] = encoded(report)
+        verification = json.loads(members["evidence/verification.json"])
+        next(step for step in verification["steps"] if step["name"] == name)[
+            "evidence"
+        ] = {
+            "path": name + ".json",
+            **VALIDATOR.identity(members[f"evidence/{name}.json"]),
+        }
+        members["evidence/verification.json"] = encoded(verification)
+    elif fault == "source":
+        manifest = json.loads(members["site/manifest.json"])
+        manifest["source_worktree_dirty"] = True
+        members["site/manifest.json"] = encoded(manifest)
+        selected["site_sha256"] = VALIDATOR.sha256(members["site/manifest.json"])
+    elif fault == "asset":
+        members["site/app/index.html"] = b"changed"
+    elif fault == "missing":
+        del members["evidence/cad.json"]
+    elif fault == "extra":
+        members["site/unreviewed.py"] = b"raise AssertionError('never execute')"
+    verification = json.loads(members["evidence/verification.json"])
+    assert verification["verified"] is True
+    assert all(step["exit_code"] == 0 for step in verification["steps"])
+    payload = staged_payload(selected)
+    if fault == "symlink":
+        target = payload / "site/app/index.html"
+        target.unlink()
+        target.symlink_to(selected["tmp"] / "outside")
+    with pytest.raises(ValueError):
+        _ = VALIDATOR.validate_staged_payload(
+            payload,
+            selected["locks"],
+            source_revision=selected["run"]["head_sha"],
+            site_manifest_sha256=selected["site_sha256"],
+        )
+    assert not (selected["tmp"] / "public-site").exists()
+    assert not list(selected["tmp"].glob("local-payload-*"))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        *VALIDATOR.SOURCE_GRAPH_DRIVERS,
+        "workspace",
+        "verification",
+        "source-import-memory",
+    ],
+)
+@pytest.mark.parametrize("extra", [0, 1])
+def test_local_named_json_stat_preflight_uses_exact_dispatch_before_read(
+    tmp_path: Path, name: str, extra: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(VALIDATOR, "MAX_JSON", 64)
+    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", 128)
+    payload = tmp_path / "payload"
+    path = payload / "evidence" / (name + ".json")
+    path.parent.mkdir(parents=True)
+    limit = VALIDATOR.driver_json_limit(name)
+    _ = path.write_bytes(b"{}" + b" " * (limit - 2 + extra))
+    if extra:
+        with pytest.raises(ValueError, match="payload member exceeds limit"):
+            _ = VALIDATOR._payload_members(payload)
+    else:
+        assert (
+            VALIDATOR._payload_members(payload)["evidence/" + name + ".json"][1]
+            == limit
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace", "verification"])
+def test_local_intake_rejects_valid_green_ordinary_json_above_real_32mib(
+    selected: dict[str, Any], name: str
+) -> None:
+    key = "evidence/" + name + ".json"
+    raw = selected["members"][key]
+    padded = raw + b" " * (VALIDATOR.MAX_JSON + 1 - len(raw))
+    assert json.loads(padded) == json.loads(raw)
+    selected["members"][key] = padded
+    if name != "verification":
+        ledger = json.loads(selected["members"]["evidence/verification.json"])
+        next(step for step in ledger["steps"] if step["name"] == name)["evidence"] = {
+            "path": name + ".json",
+            **VALIDATOR.identity(padded),
+        }
+        selected["members"]["evidence/verification.json"] = encoded(ledger)
+    with pytest.raises(ValueError, match="payload member exceeds limit"):
+        _ = validate_local_payload(selected)
+    assert not list(selected["tmp"].glob("local-payload-*"))
+
+
+@pytest.mark.parametrize("changed", [b"x", b"xxx"])
+def test_local_snapshot_copy_rejects_size_change_without_unbounded_read(
+    tmp_path: Path, changed: bytes
+) -> None:
+    source = tmp_path / "source"
+    _ = source.write_bytes(changed)
+    destination = io.BytesIO()
+    with pytest.raises(ValueError, match="changed size"):
+        _ = VALIDATOR._payload_file_identity(source, 2, destination)
+    assert len(destination.getvalue()) <= 2
+
+
 @pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
 @pytest.mark.parametrize("field", ["semantic_parity", "semantic_parity_evidence"])
 def test_semantic_profiles_require_their_complete_evidence(name: str, field: str):
@@ -2747,8 +2934,9 @@ def test_source_graph_json_parser_and_archive_exact_boundary(
 
 
 @pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("transport", ["archive", "local"])
 def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_32mib(
-    selected: dict[str, Any], name: str
+    selected: dict[str, Any], name: str, transport: str
 ) -> None:
     filename = "evidence/" + name + ".json"
     report = json.loads(selected["members"][filename])
@@ -2772,7 +2960,10 @@ def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_
     }
     selected["members"]["evidence/verification.json"] = encoded(verification)
     refresh(selected)
-    assert validate(selected)["verified"] is True
+    if transport == "archive":
+        assert validate(selected)["verified"] is True
+    else:
+        assert validate_local_payload(selected)["payload_verified"] is True
     assert json.loads(raw)["cases"] == json.loads(original)["cases"]
     assert len(json.loads(raw)["cases"]) == 7
 

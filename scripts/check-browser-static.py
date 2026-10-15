@@ -15,13 +15,16 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -169,6 +172,23 @@ def tested_site_files(site: Path, expected_manifest_sha256: str) -> dict[str, by
     return files
 
 
+def preflight_release(
+    candidate: Path,
+    locks: Path,
+    manifest_sha256: str,
+    validator: dict[str, Any],
+) -> dict[str, Any]:
+    manifest = validator["object_json"](
+        validator["regular_bytes"](candidate / "site/manifest.json")
+    )
+    return validator["validate_staged_payload"](
+        candidate,
+        locks,
+        source_revision=manifest.get("source_revision"),
+        site_manifest_sha256=manifest_sha256,
+    )
+
+
 def stage_release(
     site: Path,
     evidence: Path,
@@ -177,27 +197,64 @@ def stage_release(
     *,
     numerical_site: Path,
     expected_numerical_manifest_sha256: str,
+    source_locks: Path | None = None,
 ) -> None:
-    """Stage CAD publication and separate validation-only numerical asset proof."""
+    """Publish an exact private candidate only after trusted payload intake."""
+    validator = runpy.run_path(str(ROOT / "scripts/validate-pages-artifact.py"))
+    destination = validator["check_destination"](
+        destination, [site, evidence, numerical_site]
+    )
     files = tested_site_files(site, expected_manifest_sha256)
     numerical = tested_site_files(numerical_site, expected_numerical_manifest_sha256)
     # The exact numerical site manifest already has its named evidence record.
     del numerical["manifest.json"]
-    if destination.exists():
-        raise ValueError("release output already exists")
-    for name, data in files.items():
-        target = destination / "site" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-    for name, data in numerical.items():
-        target = destination / "evidence" / "numerical-assets" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    payload = {f"site/{name}": data for name, data in files.items()}
+    payload.update(
+        {f"evidence/numerical-assets/{name}": data for name, data in numerical.items()}
+    )
     for source in sorted(evidence.glob("*.json")):
-        _ = read_json(source)
-        target = destination / "evidence" / source.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
+        data = validator["regular_bytes"](
+            source, validator["driver_json_limit"](source.stem)
+        )
+        _ = validator["object_json"](
+            data, limit=validator["driver_json_limit"](source.stem)
+        )
+        payload[f"evidence/{source.name}"] = data
+    if (
+        len(payload) > validator["MAX_FILES"]
+        or sum(map(len, payload.values())) > validator["MAX_TOTAL"]
+        or any(len(data) > validator["MAX_MEMBER"] for data in payload.values())
+    ):
+        raise ValueError("release payload exceeds trusted bounds")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="browser-release-", dir=destination.parent
+    ) as temporary:
+        candidate, locks = Path(temporary) / "release", Path(temporary) / "locks"
+        for name, data in payload.items():
+            target = candidate / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        locks.mkdir()
+        for relative in (
+            "experiments/browser_runtime/runtime-lock.json",
+            "scripts/browser-redistribution-lock.json",
+            "experiments/browser_viewer/package-lock.json",
+        ):
+            source = ROOT / relative
+            lock_source = source if source_locks is None else source_locks / source.name
+            (locks / source.name).write_bytes(validator["regular_bytes"](lock_source))
+        checked = preflight_release(
+            candidate, locks, expected_manifest_sha256, validator
+        )
+        validator["verify_staged_payload_identity"](candidate, checked["payload_files"])
+        _ = validator["check_destination"](
+            destination, [site, evidence, numerical_site]
+        )
+        candidate.rename(destination)
+    print(
+        "Local staged-payload intake: passed (no GitHub provenance claim)", flush=True
+    )
 
 
 def main() -> None:

@@ -20,9 +20,11 @@ import shutil
 import stat
 import tempfile
 import zipfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO, cast
+from typing import IO, Any, BinaryIO, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_ARCHIVE = 512 * 1024 * 1024
@@ -1712,6 +1714,276 @@ def hash_stream(stream: BinaryIO) -> str:
     return result.hexdigest()
 
 
+def _payload_members(payload: Path) -> dict[str, tuple[Path, int]]:
+    require(
+        payload.is_dir()
+        and not any(path.is_symlink() for path in (payload, *payload.parents)),
+        "expected regular payload directory",
+    )
+    files: dict[str, tuple[Path, int]] = {}
+    directories: set[str] = set()
+    total = 0
+    for path in payload.rglob("*"):
+        name = canonical(path.relative_to(payload).as_posix())
+        mode = path.lstat().st_mode
+        require(not stat.S_ISLNK(mode), f"symlink payload member: {name}")
+        if stat.S_ISDIR(mode):
+            directories.add(name)
+            continue
+        require(stat.S_ISREG(mode), f"nonregular payload member: {name}")
+        size = path.stat().st_size
+        limit = MAX_MEMBER
+        if name == "site/manifest.json":
+            limit = MAX_JSON
+        elif (
+            name.startswith("evidence/") and name.removeprefix("evidence/") in EVIDENCE
+        ):
+            limit = driver_json_limit(Path(name).stem)
+        require(0 <= size <= limit, f"payload member exceeds limit: {name}")
+        files[name] = (path, size)
+        total += size
+        require(len(files) <= MAX_FILES, "payload entry count exceeds limit")
+        require(total <= MAX_TOTAL, "payload expanded size exceeds limit")
+    parents = {
+        path.as_posix()
+        for name in files
+        for path in Path(name).parents
+        if path != Path(".")
+    }
+    require(directories.issubset(parents), "unneeded payload directory")
+    return files
+
+
+def _payload_file_identity(
+    path: Path, size: int, destination: IO[bytes] | None = None
+) -> dict[str, Any]:
+    result = hashlib.sha256()
+    copied = 0
+    with path.open("rb") as source:
+        while data := source.read(min(1024 * 1024, size - copied + 1)):
+            copied += len(data)
+            require(copied <= size, f"payload member changed size: {path}")
+            result.update(data)
+            if destination is not None:
+                _ = destination.write(data)
+    require(copied == size, f"payload member changed size: {path}")
+    return {"bytes": copied, "sha256": result.hexdigest()}
+
+
+def verify_staged_payload_identity(
+    payload: Path, expected: dict[str, dict[str, Any]]
+) -> None:
+    """Fence a private candidate against the exact snapshot that was validated."""
+    actual = {
+        name: _payload_file_identity(path, size)
+        for name, (path, size) in _payload_members(payload).items()
+    }
+    require(exact_json(actual) == exact_json(expected), "staged payload changed")
+
+
+def validate_staged_payload(
+    payload: Path,
+    locks_path: Path,
+    *,
+    source_revision: str,
+    site_manifest_sha256: str,
+) -> dict[str, Any]:
+    """Validate local bytes, without GitHub metadata, archive authority or output.
+
+    A bounded stored spool shares the complete archive payload implementation.
+    Its stored length is not a claimed downloaded compressed-archive size.
+    """
+    require(
+        re.fullmatch(r"[0-9a-f]{40}", source_revision) is not None,
+        "expected full local source revision",
+    )
+    _ = digest_value(site_manifest_sha256)
+    lock_bytes = {name: regular_bytes(locks_path / name) for name in LOCK_NAMES}
+    for data in lock_bytes.values():
+        _ = object_json(data)
+    members = _payload_members(payload)
+    identities: dict[str, dict[str, Any]] = {}
+    with tempfile.TemporaryDirectory(
+        prefix="local-payload-", dir=payload.parent
+    ) as temporary:
+        staging = Path(temporary)
+        spool = staging / "payload.zip"
+        with zipfile.ZipFile(spool, "x", compression=zipfile.ZIP_STORED) as archive:
+            for name, (path, size) in sorted(members.items()):
+                info = zipfile.ZipInfo(name)
+                info.create_system = 3
+                info.external_attr = (stat.S_IFREG | 0o644) << 16
+                with archive.open(info, "w") as destination:
+                    identities[name] = _payload_file_identity(path, size, destination)
+        with (
+            zipfile.ZipFile(spool) as archive,
+            _validated_payload(
+                archive,
+                lock_bytes,
+                revision=source_revision,
+                site_manifest_sha256=site_manifest_sha256,
+                temporary_parent=staging,
+            ) as (_, result),
+        ):
+            verify_staged_payload_identity(payload, identities)
+            return {
+                "schema_version": 1,
+                "kind": "scansor-local-staged-payload-validation",
+                "payload_verified": True,
+                "github_provenance_verified": False,
+                "publication": False,
+                **result,
+                "payload_files": identities,
+            }
+
+
+@contextmanager
+def _validated_payload(
+    archive: zipfile.ZipFile,
+    lock_bytes: dict[str, bytes],
+    *,
+    revision: str,
+    site_manifest_sha256: str,
+    temporary_parent: Path,
+) -> Generator[tuple[Path, dict[str, Any]]]:
+    """Validate the same payload for local staging and genuine archive selection."""
+    files = zip_inventory(archive)
+    require("site/manifest.json" in files, "missing site manifest")
+    site_raw = read_member(archive, files["site/manifest.json"])
+    require(
+        sha256(site_raw) == site_manifest_sha256,
+        "expected site manifest SHA-256 mismatch",
+    )
+    manifest = object_json(site_raw)
+    require(
+        manifest.get("schema_version") == 1
+        and manifest.get("kind") == "scansor-static-app"
+        and manifest.get("entry") == "app/index.html",
+        "unsupported static site manifest",
+    )
+    require(
+        manifest.get("source_revision") == revision
+        and manifest.get("source_worktree_dirty") is False,
+        "site source does not match selected clean run head",
+    )
+    assets = records(manifest.get("assets"))
+    require("app/index.html" in assets, "missing application entry")
+    required_evidence = {f"evidence/{name}" for name in EVIDENCE}
+    require(required_evidence <= set(files), "unexpected or missing archive payload")
+    evidence = {
+        name: read_member(
+            archive,
+            files[f"evidence/{name}"],
+            driver_json_limit(name.removesuffix(".json")),
+        )
+        for name in EVIDENCE
+    }
+    numerical_raw = evidence["numerical-site-manifest.json"]
+    numerical = object_json(numerical_raw)
+    require(
+        numerical.get("schema_version") == 1
+        and numerical.get("kind") == "scansor-static-app"
+        and numerical.get("entry") == "app/index.html",
+        "unsupported numerical site manifest",
+    )
+    numerical_assets = records(numerical.get("assets"))
+    require(
+        "app/index.html" in numerical_assets,
+        "missing numerical application entry",
+    )
+    expected = (
+        {f"site/{name}" for name in assets}
+        | {"site/manifest.json"}
+        | required_evidence
+        | {f"evidence/numerical-assets/{name}" for name in numerical_assets}
+    )
+    require(set(files) == expected, "unexpected or missing archive payload")
+    runtime_hash = digest_value(
+        object_value(manifest.get("runtime")).get("manifest_sha256")
+    )
+    runtime_name = f"app/runtime/{runtime_hash}/manifest.json"
+    require(runtime_name in assets, "missing runtime manifest asset")
+    runtime_raw = read_member(archive, files[f"site/{runtime_name}"])
+    semantic_policy = validate_evidence(evidence, site_raw, runtime_raw)
+    # Payload checks precede private extraction; no selected code is executed.
+    temporary_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="pages-validation-", dir=temporary_parent
+    ) as temporary:
+        staging = Path(temporary)
+        locks = staging / "locks"
+        locks.mkdir()
+        for name, data in lock_bytes.items():
+            _ = (locks / name).write_bytes(data)
+        site = staging / "site"
+        for directory, value, raw, listed, archive_prefix, cad in (
+            (site, manifest, site_raw, assets, "site", True),
+            (
+                staging / "numerical-site",
+                numerical,
+                numerical_raw,
+                numerical_assets,
+                "evidence/numerical-assets",
+                False,
+            ),
+        ):
+            directory.mkdir()
+            _ = (directory / "manifest.json").write_bytes(raw)
+            for name, record in listed.items():
+                target = directory / name
+                info = files[f"{archive_prefix}/{name}"]
+                require(
+                    info.file_size == record["bytes"],
+                    "manifest/archive size mismatch",
+                )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with (
+                    archive.open(info) as source,
+                    target.open("xb") as destination,
+                ):
+                    shutil.copyfileobj(source, destination, 1024 * 1024)
+                require(
+                    target.stat().st_size == record["bytes"],
+                    f"asset byte count mismatch: {name}",
+                )
+                with target.open("rb") as data:
+                    require(
+                        hash_stream(data) == record["sha256"],
+                        f"asset SHA-256 mismatch: {name}",
+                    )
+            checked_runtime = validate_semantics(
+                directory,
+                value,
+                locks,
+                object_json(evidence["build-redistribution.json"]),
+                expected_cad=cad,
+            )
+            require(
+                checked_runtime
+                == (
+                    runtime_raw if cad else evidence["numerical-runtime-manifest.json"]
+                ),
+                "packaged runtime differs from retained manifest evidence",
+            )
+        yield (
+            site,
+            {
+                "source_revision": revision,
+                "site_manifest_sha256": site_manifest_sha256,
+                "source_locks": {
+                    name: identity(data) for name, data in lock_bytes.items()
+                },
+                "verification_steps": list(STEPS),
+                "semantic_policy": semantic_policy,
+                "redistribution_ready": True,
+                "redistribution_gaps": [],
+                "site_files": len(assets) + 1,
+                "site_bytes": len(site_raw)
+                + sum(record["bytes"] for record in assets.values()),
+            },
+        )
+
+
 def validate(
     archive_path: Path,
     run_path: Path,
@@ -1757,160 +2029,46 @@ def validate(
             hash_stream(stream) == archive_sha256, "downloaded archive SHA-256 mismatch"
         )
         _ = stream.seek(0)
-        with zipfile.ZipFile(stream) as archive:
-            files = zip_inventory(archive)
-            require("site/manifest.json" in files, "missing site manifest")
-            site_raw = read_member(archive, files["site/manifest.json"])
-            require(
-                sha256(site_raw) == site_manifest_sha256,
-                "expected site manifest SHA-256 mismatch",
-            )
-            manifest = object_json(site_raw)
-            require(
-                manifest.get("schema_version") == 1
-                and manifest.get("kind") == "scansor-static-app"
-                and manifest.get("entry") == "app/index.html",
-                "unsupported static site manifest",
-            )
-            require(
-                manifest.get("source_revision") == revision
-                and manifest.get("source_worktree_dirty") is False,
-                "site source does not match selected clean run head",
-            )
-            assets = records(manifest.get("assets"))
-            require("app/index.html" in assets, "missing application entry")
-            required_evidence = {f"evidence/{name}" for name in EVIDENCE}
-            require(
-                required_evidence <= set(files), "unexpected or missing archive payload"
-            )
-            evidence = {
-                name: read_member(
-                    archive,
-                    files[f"evidence/{name}"],
-                    driver_json_limit(name.removesuffix(".json")),
-                )
-                for name in EVIDENCE
+        with (
+            zipfile.ZipFile(stream) as archive,
+            _validated_payload(
+                archive,
+                lock_bytes,
+                revision=revision,
+                site_manifest_sha256=site_manifest_sha256,
+                temporary_parent=output.parent,
+            ) as (site, payload),
+        ):
+            result = {
+                "schema_version": 1,
+                "kind": "scansor-pages-artifact-selection",
+                "verified": True,
+                "repository": repository,
+                "run_id": run_id,
+                "artifact_id": artifact_id,
+                "source_revision": revision,
+                "archive_sha256": archive_sha256,
+                "archive_bytes": size,
+                "site_manifest_sha256": site_manifest_sha256,
+                "source_locks": {
+                    name: identity(data) for name, data in lock_bytes.items()
+                },
+                "verification_steps": list(STEPS),
+                "semantic_policy": payload["semantic_policy"],
+                "redistribution_ready": True,
+                "redistribution_gaps": [],
+                "site_files": payload["site_files"],
+                "site_bytes": payload["site_bytes"],
             }
-            numerical_raw = evidence["numerical-site-manifest.json"]
-            numerical = object_json(numerical_raw)
-            require(
-                numerical.get("schema_version") == 1
-                and numerical.get("kind") == "scansor-static-app"
-                and numerical.get("entry") == "app/index.html",
-                "unsupported numerical site manifest",
-            )
-            numerical_assets = records(numerical.get("assets"))
-            require(
-                "app/index.html" in numerical_assets,
-                "missing numerical application entry",
-            )
-            expected = (
-                {f"site/{name}" for name in assets}
-                | {"site/manifest.json"}
-                | required_evidence
-                | {f"evidence/numerical-assets/{name}" for name in numerical_assets}
-            )
-            require(set(files) == expected, "unexpected or missing archive payload")
-            runtime_hash = digest_value(
-                object_value(manifest.get("runtime")).get("manifest_sha256")
-            )
-            runtime_name = f"app/runtime/{runtime_hash}/manifest.json"
-            require(runtime_name in assets, "missing runtime manifest asset")
-            runtime_raw = read_member(archive, files[f"site/{runtime_name}"])
-            semantic_policy = validate_evidence(evidence, site_raw, runtime_raw)
-            # All selection/provenance/archive checks precede any output creation.
-            output.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory(
-                prefix="pages-validation-", dir=output.parent
-            ) as temporary:
-                staging = Path(temporary)
-                locks = staging / "locks"
-                locks.mkdir()
-                for name, data in lock_bytes.items():
-                    _ = (locks / name).write_bytes(data)
-                site = staging / "site"
-                for directory, value, raw, listed, archive_prefix, cad in (
-                    (site, manifest, site_raw, assets, "site", True),
-                    (
-                        staging / "numerical-site",
-                        numerical,
-                        numerical_raw,
-                        numerical_assets,
-                        "evidence/numerical-assets",
-                        False,
-                    ),
-                ):
-                    directory.mkdir()
-                    _ = (directory / "manifest.json").write_bytes(raw)
-                    for name, record in listed.items():
-                        target = directory / name
-                        info = files[f"{archive_prefix}/{name}"]
-                        require(
-                            info.file_size == record["bytes"],
-                            "manifest/archive size mismatch",
-                        )
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with (
-                            archive.open(info) as source,
-                            target.open("xb") as destination,
-                        ):
-                            shutil.copyfileobj(source, destination, 1024 * 1024)
-                        require(
-                            target.stat().st_size == record["bytes"],
-                            f"asset byte count mismatch: {name}",
-                        )
-                        with target.open("rb") as data:
-                            require(
-                                hash_stream(data) == record["sha256"],
-                                f"asset SHA-256 mismatch: {name}",
-                            )
-                    checked_runtime = validate_semantics(
-                        directory,
-                        value,
-                        locks,
-                        object_json(evidence["build-redistribution.json"]),
-                        expected_cad=cad,
-                    )
-                    require(
-                        checked_runtime
-                        == (
-                            runtime_raw
-                            if cad
-                            else evidence["numerical-runtime-manifest.json"]
-                        ),
-                        "packaged runtime differs from retained manifest evidence",
-                    )
-                result = {
-                    "schema_version": 1,
-                    "kind": "scansor-pages-artifact-selection",
-                    "verified": True,
-                    "repository": repository,
-                    "run_id": run_id,
-                    "artifact_id": artifact_id,
-                    "source_revision": revision,
-                    "archive_sha256": archive_sha256,
-                    "archive_bytes": size,
-                    "site_manifest_sha256": site_manifest_sha256,
-                    "source_locks": {
-                        name: identity(data) for name, data in lock_bytes.items()
-                    },
-                    "verification_steps": list(STEPS),
-                    "semantic_policy": semantic_policy,
-                    "redistribution_ready": True,
-                    "redistribution_gaps": [],
-                    "site_files": len(assets) + 1,
-                    "site_bytes": len(site_raw)
-                    + sum(record["bytes"] for record in assets.values()),
-                }
-                # Recheck paths after validation; never merge into existing output.
-                _ = check_destination(output, inputs)
-                _ = site.rename(output)
-                if evidence_output is not None:
-                    _ = check_destination(evidence_output, [*inputs, output])
-                    evidence_output.parent.mkdir(parents=True, exist_ok=True)
-                    with evidence_output.open("x") as destination:
-                        _ = destination.write(json.dumps(result, indent=2) + "\n")
-                return result
+            # Recheck paths after validation; never merge into existing output.
+            _ = check_destination(output, inputs)
+            _ = site.rename(output)
+            if evidence_output is not None:
+                _ = check_destination(evidence_output, [*inputs, output])
+                evidence_output.parent.mkdir(parents=True, exist_ok=True)
+                with evidence_output.open("x") as destination:
+                    _ = destination.write(json.dumps(result, indent=2) + "\n")
+            return result
 
 
 def main() -> None:
