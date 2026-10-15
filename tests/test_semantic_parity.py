@@ -298,6 +298,146 @@ def test_real_discarded_outcome_can_become_evaluation_limit(
     )
 
 
+@pytest.fixture
+def assessed_discard(
+    cylinder: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """CI #265: one discarded solve reaches assessment, the other stagnates."""
+    expected = copy.deepcopy(cylinder)
+    actual = copy.deepcopy(expected)
+    attempt = discarded(actual)
+    candidate = attempt["candidate"]["id"]
+    assert candidate not in expected["initialization"]["assessments"]
+    assessment = copy.deepcopy(selected(actual)["assessment"])
+    assessment.update(valid=False, objective=1.0)
+    attempt.update(outcome="invalid-result", assessment=assessment, solver=None)
+    metrics = copy.deepcopy(
+        actual["initialization"]["assessments"][recovery(actual)["selected"]]
+    )
+    metrics["aligned_scaled_gradient_infinity_norm"] = 0.1
+    actual["initialization"]["assessments"][candidate] = metrics
+    return actual, expected, candidate
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_discarded_assessment_inventory_follows_differing_outcomes(
+    assessed_discard: tuple[dict[str, Any], dict[str, Any], str], reverse: bool
+) -> None:
+    actual, expected, candidate = assessed_discard
+    if reverse:
+        actual, expected = expected, actual
+    receipt = accepted(actual, expected)
+    entry = next(
+        item
+        for item in receipt["diagnostic_differences"]
+        if item["path"] == "$.initialization.assessments." + candidate
+    )
+    assert entry["actual"] == actual["initialization"]["assessments"].get(candidate)
+    assert entry["expected"] == expected["initialization"]["assessments"].get(candidate)
+    assert "differing outcomes" in entry["reason"]
+    assert receipt["budgets_validated"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "selected-missing",
+        "unknown-candidate",
+        "unknown-metric",
+        "nonobject-metrics",
+        "same-outcome-delete",
+        "initializers-missing",
+        "overbudget",
+        "geometry",
+    ],
+)
+def test_assessment_inventory_exception_preserves_certificates_and_schema(
+    assessed_discard: tuple[dict[str, Any], dict[str, Any], str], mutation: str
+) -> None:
+    actual, expected, candidate = assessed_discard
+    if mutation == "selected-missing":
+        for record in (actual, expected):
+            del record["initialization"]["assessments"][recovery(record)["selected"]]
+    elif mutation == "unknown-candidate":
+        for record in (actual, expected):
+            record["initialization"]["assessments"]["invented-candidate"] = {}
+    elif mutation == "unknown-metric":
+        actual["initialization"]["assessments"][candidate]["invented-metric"] = 0
+    elif mutation == "nonobject-metrics":
+        actual["initialization"]["assessments"][candidate] = []
+    elif mutation == "same-outcome-delete":
+        expected = copy.deepcopy(actual)
+        del expected["initialization"]["assessments"][candidate]
+    elif mutation == "initializers-missing":
+        del actual["initialization"]["initializers"][candidate]
+    elif mutation == "overbudget":
+        for record in (actual, expected):
+            recovery(record)["attempts"][1]["evaluations"] = 513
+    elif mutation == "geometry":
+        actual["analytic"]["radius"] += 1e-3
+    else:
+        raise AssertionError(mutation)
+    rejected(actual, expected)
+
+
+def test_assessment_shared_chart_cannot_attribute_another_attempts_outcome(
+    assessed_discard: tuple[dict[str, Any], dict[str, Any], str],
+) -> None:
+    assessed, expected, candidate = assessed_discard
+    expected["initialization"]["assessments"]["shared-discard-chart"] = copy.deepcopy(
+        assessed["initialization"]["assessments"][candidate]
+    )
+    for attempt in recovery(expected)["attempts"][1:3]:
+        attempt["candidate"]["chart"] = "shared-discard-chart"
+    actual = copy.deepcopy(expected)
+    changed = recovery(actual)["attempts"][2]
+    changed.update(
+        outcome="invalid-result",
+        assessment=copy.deepcopy(recovery(assessed)["attempts"][1]["assessment"]),
+        solver=None,
+    )
+    # Only attempt2 changed; a shared chart cannot prove whose metrics vanished.
+    del actual["initialization"]["assessments"]["shared-discard-chart"]
+    rejected(actual, expected)
+    rejected(expected, copy.deepcopy(expected))
+
+
+@pytest.mark.parametrize("selected_alias", [False, True])
+def test_fitted_metrics_allow_unique_chart_aliases(
+    assessed_discard: tuple[dict[str, Any], dict[str, Any], str], selected_alias: bool
+) -> None:
+    actual, expected, candidate = assessed_discard
+    if selected_alias:
+        candidate = recovery(actual)["selected"]
+    for record in (actual, expected):
+        attempt = next(
+            item
+            for item in recovery(record)["attempts"]
+            if item["candidate"]["id"] == candidate
+        )
+        attempt["candidate"]["chart"] = "unique-assessment-chart"
+        metrics = record["initialization"]["assessments"].pop(candidate, None)
+        if metrics is not None:
+            record["initialization"]["assessments"]["unique-assessment-chart"] = metrics
+    _ = accepted(actual, expected)
+
+
+@pytest.mark.parametrize(
+    ("metric", "value"),
+    [("aligned_scaled_gradient_infinity_norm", 0.1), ("coverage_ratio", 0.0)],
+)
+def test_selected_alias_metrics_cannot_bypass_independent_admission(
+    cylinder: dict[str, Any], metric: str, value: float
+) -> None:
+    actual = copy.deepcopy(cylinder)
+    candidate = recovery(actual)["selected"]
+    selected(actual)["candidate"]["chart"] = "selected-alias"
+    metrics = actual["initialization"]["assessments"].pop(candidate)
+    metrics[metric] = value
+    actual["initialization"]["assessments"]["selected-alias"] = metrics
+    rejected(actual, copy.deepcopy(actual))
+
+
 def test_selected_constraint_callback_variation_is_bounded_not_ignored() -> None:
     expected = constrained()
     actual = copy.deepcopy(expected)
