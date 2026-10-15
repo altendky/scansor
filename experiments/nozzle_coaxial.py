@@ -1,5 +1,6 @@
 """Captured-nozzle adapter for a connected coaxial group and perpendicular planes."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
@@ -7,6 +8,7 @@ import numpy as np
 
 from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
 from experiments.fit_initialization import (
+    DEFAULT_ATTEMPT_LIMITS,
     FitAssessment,
     FitCandidate,
     RecoveryFailure,
@@ -104,8 +106,11 @@ def _fit_selected_group(
     fixed: bool = False,
     reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
     semantic_intent: dict[str, Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Generic source adapter; joint identifiability, no fixture workspace seed."""
+    guard = AttemptControl(DEFAULT_ATTEMPT_LIMITS, cancelled)
+    guard.checkpoint()
     all_selected = [
         *sides,
         *planes,
@@ -227,6 +232,7 @@ def _fit_selected_group(
         intent,
         policy_version=policy_version,
     )
+    guard.checkpoint()
     directions: list[np.ndarray] = []
     if fixed:
         assert reference_direction is not None
@@ -246,6 +252,7 @@ def _fit_selected_group(
             # different tapers before centering would erase their common null.
             scatter = np.zeros((3, 3))
             for side in sides:
+                guard.checkpoint()
                 side_normals = workspace.data.normals[side.ids] @ workspace.frame
                 side_normals /= np.linalg.norm(side_normals, axis=1)[:, None]
                 sw = workspace.data.weights[side.ids] / np.max(weights)
@@ -257,6 +264,7 @@ def _fit_selected_group(
                 direction = -direction
             directions.append(direction)
         for matrix in matrices:
+            guard.checkpoint()
             _, vectors = np.linalg.eigh(matrix)
             for index in range(3):
                 direction = vectors[:, index].copy()
@@ -278,6 +286,7 @@ def _fit_selected_group(
     ]
 
     def solve(candidate: FitCandidate, control: AttemptControl) -> dict[str, Any]:
+        control.checkpoint()
         direction = np.array(candidate.parameters)
         direction /= np.linalg.norm(direction)
         if reference_direction is not None and direction @ reference_direction < 0:
@@ -343,6 +352,7 @@ def _fit_selected_group(
         }
         surfaces: list[SurfaceInput] = []
         for side in sides:
+            control.checkpoint()
             p = workspace.local[side.ids]
             sw = normalized_weights(workspace.data.weights[side.ids])
             height = (p - anchor) @ direction
@@ -433,6 +443,7 @@ def _fit_selected_group(
                 for p in reference.surfaces
             ),
         ]:
+            control.checkpoint()
             points = workspace.local[selected.ids]
             result = fit_seed(
                 points,
@@ -564,11 +575,13 @@ def _fit_selected_group(
             ),
             fresh,
             hint=hint,
+            cancelled=cancelled,
         )
     except RecoveryFailure as error:
         raise CylinderFitFailure(
             error.code, str(error), {"recovery": error.diagnostics.json()}
         ) from error
+    guard.checkpoint()
     output = recovered.result
     axis = output["axes"]["axis"]
     direction = np.asarray(axis["axis_display"])
@@ -585,6 +598,7 @@ def _fit_selected_group(
     anchor = np.asarray(axis["point_display"])
     surfaces = output["surfaces"]
     for selected in all_selected:
+        guard.checkpoint()
         _, expected, inside = surface_distance(
             workspace.local[selected.ids], surfaces[selected.id]
         )
@@ -610,6 +624,7 @@ def _fit_selected_group(
 
     first, second = basis(direction)
     for group in reference_plane_groups:
+        guard.checkpoint()
         equation = np.asarray(output["equations"][group.id])
         normal = equation[:3]
         point = anchor + (equation[3] - normal @ anchor) * normal
@@ -638,7 +653,7 @@ def _fit_selected_group(
     first_side = surfaces[sides[0].id] if sides else None
     first_plane = surfaces[planes[0].id] if planes else None
     condition = assess(output).condition
-    return {
+    published = {
         "session": {"source_sha256": workspace.source_sha256, "schema_version": 2},
         "fit": {
             "weighted_rms": float(output["weighted_rms"]),
@@ -679,6 +694,8 @@ def _fit_selected_group(
         "surfaces": surfaces,
         "reference_planes": reference_planes,
     }
+    guard.checkpoint()
+    return published
 
 
 def fit_group(
@@ -693,8 +710,12 @@ def fit_group(
     reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
     *,
     semantic_intent: dict[str, Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Joint fit; a mirror's optional radius source makes its planes tangent."""
+    """Joint fit; a mirror's optional radius source makes its planes tangent.
+
+    Imported groups support cooperative numerical cancellation.
+    """
     if isinstance(workspace, ScanWorkspace):
         if rotational_groups or mirror_groups:
             raise ValueError(
@@ -707,7 +728,10 @@ def fit_group(
             axis_initial,
             reference_plane_groups=reference_plane_groups,
             semantic_intent=semantic_intent,
+            cancelled=cancelled,
         )
+    if cancelled is not None:
+        raise ValueError("legacy example groups do not support cancellation")
     workspace = cast(NozzleWorkspace, workspace)
     sides = [
         replace(s, domain=workspace.support) if s.domain is None else s for s in sides
@@ -1113,6 +1137,7 @@ def fit_fixed_axis_group(
     axis_parameters: np.ndarray | dict[str, Any],
     *,
     semantic_intent: dict[str, Any] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fit radii, taper, and plane offsets without moving the supplied axis."""
     if isinstance(workspace, ScanWorkspace):
@@ -1128,7 +1153,10 @@ def fit_fixed_axis_group(
             axis_parameters,
             fixed=True,
             semantic_intent=semantic_intent,
+            cancelled=cancelled,
         )
+    if cancelled is not None:
+        raise ValueError("legacy example groups do not support cancellation")
     workspace = cast(NozzleWorkspace, workspace)
     sides = [
         replace(s, domain=workspace.support) if s.domain is None else s for s in sides
