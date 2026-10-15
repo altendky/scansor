@@ -355,6 +355,16 @@ dialog input { width: 100%; padding: 8px; }
 #startup-error { padding: 16px 24px; background: #38251e; border-bottom: 2px solid #ffab94; }
 #startup-error p { margin: 8px 0; }
 [hidden] { display: none !important; }
+#empty-project { position: absolute; z-index: 2; left: 12px; right: 12px; top: 50%; transform: translateY(-50%); margin: auto; max-width: 360px; max-height: calc(100% - 24px); overflow: auto; box-sizing: border-box; padding: 12px; background: #17232ef2; border: 1px solid #738396; border-radius: 6px; text-align: center; }
+#empty-project h2 { margin: 0 0 10px; }
+#empty-project .row { justify-content: center; flex-wrap: wrap; }
+#empty-project button { flex: 1 1 120px; max-width: 100%; min-width: 0; padding: 8px 6px; white-space: normal; overflow-wrap: anywhere; }
+#source-details { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: 6px 12px; }
+#source-details dt { font-weight: 600; }
+#source-details dd { margin: 0; overflow-wrap: anywhere; }
+#source-progress, #source-unavailable { padding: 8px 0; }
+#source-progress output { margin-right: 12px; overflow-wrap: anywhere; }
+#source-unavailable { color: #ffccad; }
 
 @media(max-width: 900px) {
   .feature-graph-toolbar { gap: 8px 12px; }

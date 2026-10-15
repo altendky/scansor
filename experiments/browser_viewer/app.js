@@ -15,10 +15,11 @@ import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
-  forceEndEditSession, createHeadlessFeatureTree } from './workspace.js';
+  forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { getBackend } from './backend.js';
+import { createSourceProjectController } from './source-project.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
 import { exportInputIssues, exportScopePlan } from './cad-export.js';
@@ -93,6 +94,8 @@ let authoringApplying = false;
 let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
 let exampleCatalogue = null, exampleSwitchPending = false;
+let sourceProject, workspaceGeneration, sourceTransitionBusy = false;
+let resetSourcePicking = () => {};
 let constructedFaces, constructedFacesState = null;
 let bodyInspection;
 let fitQualityLimit = null, fitQualityStorageKey = null, fitQualityCache = null;
@@ -115,7 +118,7 @@ let buildFacesSurfacePreview = null, buildFacesSurfaceHovered = false;
 let buildFacesContinuePreview = null, buildFacesAcceptedContext = [], buildFacesContext;
 let buildFacesContinueInteraction = { pointer: null, focus: null };
 let buildFacesContextCache = null;
-const buildFacesFootprints = new WeakMap();
+let buildFacesFootprints = new WeakMap();
 let buildFacesMeshTopology = null;
 let modelPickMode = null, modelPickGesture = null, modelPickClick = null, modelPickHoverKey = null;
 let modelPickField = null, modelPickGuides, modelPickGeometryKey = null;
@@ -2403,9 +2406,10 @@ function acceptGraph(state) {
     renderRelationshipBuilder();
   }
   if (transformChanged) home('oblique');
+  sourceProject?.refresh();
 }
 function featureTreeLocked() {
-  return busy || selectionDrawing || selectionPending || graphState.evaluation_running ||
+  return busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running ||
     featureDeletionPending || relationshipApplying || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
 }
 function focusContextFeature() {
@@ -2590,6 +2594,42 @@ function renderActions() {
   });
   renderGraphView();
 }
+function showSourceProperties(node) {
+  $('source-properties').hidden = node?.operation !== 'source';
+  if (node?.operation !== 'source') return;
+  const descriptor = node.descriptor || metadata.source;
+  const values = [
+    ['Filename', descriptor?.filename || metadata.name || 'Packaged example'],
+    ['Source SHA-256', node.source_sha256],
+    ['Reference SHA-256', node.reference_sha256],
+    ['Vertices', metadata.vertices.toLocaleString()],
+    ['Triangles', metadata.triangles.toLocaleString()],
+  ];
+  if (descriptor) {
+    values.push(
+      ['Source bytes', descriptor.source_bytes.toLocaleString()],
+      ['Interpretation SHA-256', descriptor.interpretation_sha256],
+      ['Units', 'Unknown — original coordinates preserved'],
+      ['PLY profile', descriptor.profile],
+      ['Normals', 'Original normals retained; normalized directions used for fitting'],
+      ['Weights', 'One third of each usable incident triangle area'],
+      ['Settings', 'Read-only'],
+    );
+    const diagnostics = metadata.diagnostics || {};
+    for (const [key, label] of [
+      ['repeated_index_faces', 'Repeated-index triangles'], ['zero_area_faces', 'Zero-area triangles'],
+      ['isolated_vertices', 'Isolated vertices'], ['no_usable_area_vertices', 'Vertices without usable area'],
+      ['positive_area_vertices', 'Vertices with usable area'],
+    ]) if (Number.isSafeInteger(diagnostics[key])) values.push([label, diagnostics[key].toLocaleString()]);
+  } else {
+    values.push(['Source kind', 'Packaged example'], ['Coordinates', 'Packaged example with its saved display frame']);
+  }
+  $('source-details').replaceChildren(...values.filter(([, value]) => value !== undefined).flatMap(([label, value]) => {
+    const term = document.createElement('dt'), detail = document.createElement('dd');
+    term.textContent = label; detail.textContent = value;
+    return [term, detail];
+  }));
+}
 function showProperties(force = false) {
   // The tree selection is free to change while an edit session owns the form.
   // Polling updates availability without recreating controls or losing drafts.
@@ -2600,6 +2640,7 @@ function showProperties(force = false) {
     $('properties-title').textContent = node.label;
     $('feature-state').textContent = actionDescription(node,
       presentation.states[node.id], presentation.errors[node.id]);
+    if (node.operation === 'source') showSourceProperties(node);
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
@@ -2613,6 +2654,7 @@ function showProperties(force = false) {
   $('selection-tools').hidden = !single;
   $('feature-inspection').hidden = !single;
   if (!single) {
+    $('source-properties').hidden = true;
     const selected = graphState.recipe.nodes.filter((node) => selectedFeatureIds.has(node.id));
     $('feature-selection-summary-title').textContent = selected.length
       ? `${selected.length} features selected`
@@ -2624,9 +2666,9 @@ function showProperties(force = false) {
   }
   const node = graphNode(editingFeatureId || selectedFeatureId),
     earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node));
+  showSourceProperties(node);
   $('selection-tools').hidden = node.operation !== 'selection';
   $('feature-inspection').hidden = [
-    'source',
     'selection',
     ...relationshipOperations,
   ].includes(node.operation);
@@ -3890,11 +3932,21 @@ function paint() {
 }
 function updateEvaluationControls() {
   updateActionTreeLocks();
-  const evaluationLocked = busy || graphState.evaluation_running || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
+  const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
+  const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked;
   $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
   $('choose-example').disabled = featureTreeLocked();
+  for (const id of ['add-selection', 'new-fit', 'new-point', 'new-axis', 'new-reference-plane',
+    'new-frame', 'new-build-faces', 'new-surface-intersection', 'new-trimmed-face', 'new-feature-group',
+    'new-feature-reuse', 'new-selection-region', 'new-region-selection', 'new-relationship',
+    'new-axis-solve', 'new-body', 'new-scale', 'new-transform', 'export-cad']) {
+    const control = $(id);
+    control.disabled = control.inert || !hasSource || featureTreeLocked();
+  }
+  $('evaluate-all').disabled = !hasSource || sourceTransitionBusy || busy || selectionDrawing || selectionPending;
+  sourceProject?.refresh();
 }
 async function evaluateAll() {
   return evaluateGraph(true);
@@ -3905,10 +3957,10 @@ async function ensureAll() {
 async function evaluateGraph(allActions, target = null, retry = true) {
   const intent = evaluationIntent;
   while (activeGraphEvaluation) await activeGraphEvaluation;
-  if (busy || intent !== evaluationIntent) return;
+  if (busy || sourceTransitionBusy || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
   activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
   try { await activeGraphEvaluation; }
-  finally { activeGraphEvaluation = null; }
+  finally { activeGraphEvaluation = null; sourceProject?.refresh(); }
 }
 async function ensureCurrent(targets, { token = graphState.token, isCurrent } = {}) {
   return ensureGraphCurrent({ targets, token, backend, acceptState: acceptGraph,
@@ -3975,6 +4027,18 @@ function home(direction = null) {
   mesh.geometry.computeBoundingSphere();
   mesh.updateMatrixWorld(true);
   const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld);
+  if (!positions.length || !Number.isFinite(sphere.radius) || sphere.radius <= 0) {
+    const center = positions.length && sphere.center.toArray().every(Number.isFinite) ? sphere.center : new THREE.Vector3();
+    controls.target.copy(center);
+    camera.position.copy(center).add(new THREE.Vector3(3, -4, 3));
+    camera.up.set(0, 0, 1);
+    camera.near = 0.01;
+    camera.far = 1000;
+    camera.updateProjectionMatrix();
+    controls.update();
+    draw();
+    return;
+  }
   const distance =
     (sphere.radius /
       Math.sin(
@@ -3995,11 +4059,121 @@ function home(direction = null) {
   if (direction !== null) camera.up.set(0, 0, 1);
   controls.target.copy(sphere.center);
   camera.position.copy(sphere.center).addScaledVector(vector.normalize(), distance);
-  camera.near = Math.max(0.001, sphere.radius / 1000);
-  camera.far = sphere.radius * 1000;
+  camera.near = Math.max(Number.MIN_VALUE, sphere.radius / 1000);
+  camera.far = Math.max(camera.near * 1000, sphere.radius * 1000);
   camera.updateProjectionMatrix();
   controls.update();
   draw();
+}
+function prepareWorkspace(bundle) {
+  const nextMetadata = bundle?.metadata, nextGraph = bundle?.graph;
+  const nextGeneration = bundle?.generation;
+  if (!nextMetadata || !nextGraph?.token || !Array.isArray(nextGraph.recipe?.nodes)
+    || backend.capabilities.sourceImport && nextGeneration === undefined
+    || !(bundle.positions instanceof ArrayBuffer) || !(bundle.indices instanceof ArrayBuffer)
+    || !Number.isSafeInteger(nextMetadata.vertices) || nextMetadata.vertices < 0
+    || !Number.isSafeInteger(nextMetadata.display_triangles ?? nextMetadata.triangles)
+    || (nextMetadata.display_triangles ?? nextMetadata.triangles) < 0
+    || bundle.positions.byteLength !== nextMetadata.vertices * 12
+    || bundle.indices.byteLength !== (nextMetadata.display_triangles ?? nextMetadata.triangles) * 12
+    || nextGeneration !== undefined && (!Number.isSafeInteger(nextGeneration) || nextGeneration < 0
+      || nextMetadata.project_generation !== nextGeneration || nextGraph.project_generation !== nextGeneration))
+    throw new Error('The accepted workspace bundle is incomplete or inconsistent.');
+  const nextPositions = new Float32Array(bundle.positions), nextIndices = new Uint32Array(bundle.indices);
+  for (const value of nextPositions) if (!Number.isFinite(value)) throw new Error('The display source contains invalid coordinates.');
+  for (const id of nextIndices) if (id >= nextMetadata.vertices) throw new Error('The display source contains an invalid triangle.');
+  const created = [];
+  let geometry, pointGeometry, focusedGeometry, overlapGeometry;
+  try {
+    geometry = new THREE.BufferGeometry(); created.push(geometry);
+    const attribute = new THREE.BufferAttribute(nextPositions, 3);
+    geometry.setAttribute('position', attribute);
+    geometry.setIndex(new THREE.BufferAttribute(nextIndices, 1));
+    geometry.computeVertexNormals();
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nextPositions.length), 3));
+    const markers = color => {
+      const derivative = new THREE.BufferGeometry(); created.push(derivative);
+      derivative.setAttribute('position', attribute);
+      if (color) derivative.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nextPositions.length), 3));
+      derivative.setIndex([]);
+      return derivative;
+    };
+    pointGeometry = markers(true);
+    focusedGeometry = markers(true);
+    overlapGeometry = markers(false);
+  } catch (error) {
+    created.forEach(value => value.dispose());
+    throw error;
+  }
+  let installed = false, disposed = false;
+  const install = () => {
+    if (installed || disposed) throw new Error('This workspace display has already been installed or released.');
+    // Every allocation and source validation finished before the controller
+    // deliberately ends the approved draft and invokes this synchronous swap.
+    resetSourcePicking();
+    setModelPickMode(null);
+    const oldGeometry = new Set([mesh.geometry, selectedPoints.geometry, focusedPoints.geometry,
+      overlapMarkers.geometry, overlapHalo.geometry]);
+    const clear = group => {
+      const geometries = new Set(), materials = new Set();
+      group.traverse(child => {
+        if (child.geometry) geometries.add(child.geometry);
+        for (const material of Array.isArray(child.material) ? child.material : [child.material])
+          if (material) materials.add(material);
+      });
+      group.clear();
+      geometries.forEach(value => value.dispose()); materials.forEach(value => value.dispose());
+    };
+    for (const group of [overlays, reuseVolumes, constructedFaces, bodyInspection, modelPickGuides,
+      modelPickSourceFaces, buildFacesOverlays, relationshipOverlays, buildFacesContext]) clear(group);
+    installed = true;
+    mesh.geometry = geometry;
+    selectedPoints.geometry = pointGeometry;
+    focusedPoints.geometry = focusedGeometry;
+    overlapMarkers.geometry = overlapHalo.geometry = overlapGeometry;
+    positions = nextPositions;
+    metadata = nextMetadata;
+    workspaceGeneration = nextGeneration;
+    session = {};
+    result = null;
+    selectedFeatureIds = new Set(); selectedFeatureId = editingFeatureId = editingGroupId = null;
+    modelPickFitState = modelPickSourceState = modelPickGeometryKey = null;
+    modelPickFitReferences = new Map();
+    constructedFacesState = null;
+    constructedFaces.userData.faceCount = 0;
+    reuseVolumes.userData.volumeCount = 0;
+    buildFacesRequest++;
+    buildFacesProposal = buildFacesCandidates = buildFacesInspected = buildFacesOwnerId = buildFacesTarget = null;
+    buildFacesAcceptedContext = []; buildFacesContextCache = buildFacesMeshTopology = null;
+    buildFacesFootprints = new WeakMap(); buildFacesReview = new Map(); buildFacesReviewDirty = false;
+    buildFacesRegionInspected = buildFacesChoicesKey = buildFacesScopesKey = null;
+    buildFacesAdjacencyDraft = []; buildFacesScopeDraft = []; buildFacesBatchDraft = [];
+    buildFacesCutters = []; buildFacesBoundarySources = []; buildFacesChoicesMessage = '';
+    buildFacesContinuePreview = buildFacesSurfacePreview = null;
+    buildFacesSurfaceHovered = false;
+    buildFacesContinueInteraction = { pointer: null, focus: null };
+    relationshipParticipantIds = new Set(); relationshipInspected = selectedRelationshipKind = null;
+    fitQualityCache = null;
+    activeOverlap = null;
+    featureDeletionReview = null;
+    for (const id of ['build-faces-candidates', 'build-faces-review', 'build-faces-diagnostics',
+      'body-diagnostics', 'model-pick-choices']) $(id).replaceChildren();
+    exampleCatalogue = null;
+    displayTransformKey = 'identity';
+    modelRoot.matrix.identity(); modelRoot.updateMatrixWorld(true);
+    $('faces-only').checked = false;
+    $('tool').value = 'orbit';
+    $('mesh-info').textContent = `${metadata.vertices.toLocaleString()} vertices · ${metadata.triangles.toLocaleString()} triangles`;
+    $('import-warning').hidden = true;
+    acceptGraph(nextGraph);
+    oldGeometry.forEach(value => value.dispose());
+    home('oblique');
+    sourceProject?.refresh();
+  };
+  install.dispose = () => {
+    if (!installed && !disposed) { created.forEach(value => value.dispose()); disposed = true; }
+  };
+  return install;
 }
 function focusFaceTarget() {
   const result = graphState.results[buildFacesTarget?.feature];
@@ -4081,9 +4255,10 @@ async function start(recoveredState) {
   }
   const workspace = await backend.loadWorkspace();
   metadata = workspace.metadata;
+  workspaceGeneration = workspace.generation;
   const { positions: pb, indices: ib } = workspace;
   positions = new Float32Array(pb);
-  session = structuredClone(metadata.session);
+  session = structuredClone(metadata.session || {});
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
   viewport.append(renderer.domElement);
@@ -4247,7 +4422,8 @@ async function start(recoveredState) {
   document.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button || !(button.id.startsWith('new-') ||
-      ['add-selection', 'reset', 'load', 'choose-example'].includes(button.id))) return;
+      ['add-selection', 'load'].includes(button.id))) return;
+    if (button.id === 'new-project') return;
     if (!prepareEditSession()) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -5803,7 +5979,9 @@ async function start(recoveredState) {
     recipe.nodes = [...recipe.nodes.filter((n) => n.id !== joint.id), ...relations, joint];
     await replaceRecipe(recipe);
   };
-  $('reset').onclick = async () => replaceRecipe(await backend.getExampleRecipe());
+  $('reset').onclick = async () => {
+    if (await sourceProject.restoreExample() && $('auto-evaluate').checked) queueEnsureAll();
+  };
   $('choose-example').onclick = async () => {
     if (featureTreeLocked()) return;
     $('choose-example').disabled = true;
@@ -5835,25 +6013,20 @@ async function start(recoveredState) {
     const example = $('example-choice').value;
     if (!example || example === exampleCatalogue.active || exampleSwitchPending || featureTreeLocked()) return;
     exampleSwitchPending = true;
-    busy = true;
-    setModelPickMode(null);
-    const panels = [...workspaceEditingPanels(), viewport], previousInert = panels.map(panel => panel.inert),
-      controls = [$('example-choice'), $('open-example'), $('cancel-example')];
-    panels.forEach(panel => { panel.inert = true; });
+    const controls = [$('example-choice'), $('open-example'), $('cancel-example')];
     controls.forEach(control => { control.disabled = true; });
     $('example-error').textContent = '';
     status('Opening example…');
     renderActions();
     paint();
     try {
-      await backend.selectExample({ example, token: graphState.token });
-      location.reload();
-    } catch (error) {
-      $('example-error').textContent = error.message;
-      status(error.message, true);
+      if (await sourceProject.selectExample(example)) {
+        $('example-dialog').close();
+        if ($('auto-evaluate').checked) queueEnsureAll();
+      }
+      else $('example-error').textContent = $('status').classList.contains('error') ? $('status').textContent : '';
+    } finally {
       exampleSwitchPending = false;
-      busy = false;
-      panels.forEach((panel, index) => { panel.inert = previousInert[index]; });
       controls.forEach(control => { control.disabled = false; });
       renderActions();
       paint();
@@ -6371,6 +6544,7 @@ async function start(recoveredState) {
     acceptGraph(graphState);
     status('Selection gesture cancelled.');
   };
+  resetSourcePicking = () => { cancelStroke(); projectionCache = null; };
   viewport.addEventListener('workspace-panel-visibility', event => {
     if (!event.detail.visible) cancelStroke();
     else requestAnimationFrame(() => resizeViewport?.());
@@ -6457,7 +6631,8 @@ async function start(recoveredState) {
       viewport.clientHeight,
       $('selection-depth').value,
     ].join(',');
-    if (projectionCache?.key !== key) {
+    if (projectionCache?.key !== key || projectionCache.positions !== positions ||
+        projectionCache.indices !== mesh.geometry.index.array) {
       const clip = new Float64Array((positions.length / 3) * 4),
         vector = new THREE.Vector4();
       for (let i = 0; i < positions.length / 3; i++) {
@@ -6467,10 +6642,10 @@ async function start(recoveredState) {
         vector.toArray(clip, i * 4);
       }
       projectionCache = {
-        key,
+        key, positions, indices: mesh.geometry.index.array,
         value: selectionProjection(
           clip,
-          geometry.index.array,
+          mesh.geometry.index.array,
           viewport.clientWidth,
           viewport.clientHeight,
           $('selection-depth').value === 'first_surface',
@@ -6637,8 +6812,26 @@ async function start(recoveredState) {
     };
   }
   viewerSetup = true;
-  const state = recoveredState || await backend.getGraph();
+  const state = recoveredState || workspace.graph || await backend.getGraph();
   acceptGraph(state);
+  sourceProject = createSourceProjectController({
+    backend,
+    getCurrent: () => ({ generation: workspaceGeneration, token: graphState.token, recipe: graphState.recipe, metadata }),
+    canTransition: () => !featureTreeLocked() && !activeGraphEvaluation,
+    setTransitionBusy: value => {
+      sourceTransitionBusy = value;
+      if (value) evaluationIntent++;
+      renderActions(); paint();
+    },
+    prepareWorkspace,
+    inspectSource: () => {
+      const source = graphState.recipe.nodes.find(node => node.operation === 'source');
+      if (source) editFeature(source.id);
+    },
+    prepareTransition: prepareWorkspaceTransition,
+    status,
+  });
+  sourceProject.refresh();
   if (location.hash === '#graph') revealWorkspacePanel('graph');
   $('save').disabled = false;
   status('Feature graph loaded. Ready to evaluate.');

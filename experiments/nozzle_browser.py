@@ -431,6 +431,7 @@ class Handler(BaseHTTPRequestHandler):
         ),
         "/": ("index.html", "text/html"),
         "/app.js": ("app.js", "text/javascript"),
+        "/source-project.js": ("source-project.js", "text/javascript"),
         "/workspace.js": ("dist/workspace.js", "text/javascript"),
         "/workspace.css": ("dist/workspace.css", "text/css"),
         "/workspace-state.js": ("workspace-state.js", "text/javascript"),
