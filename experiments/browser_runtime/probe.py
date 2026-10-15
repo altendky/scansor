@@ -37,7 +37,7 @@ from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     fit_cone_plane,
 )
-from experiments.mesh_cylinder_fit import fit_selected_cylinder
+from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION, fit_selected_cylinder
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits
@@ -124,7 +124,7 @@ def create_fixture(path: Path) -> None:
         sphere_centers.append(center)
         sphere_radii.append(radius)
     cylinder_axes = np.asarray(
-        [[1.0, 0, 0], [1.0, 0.2, 1e-8], [0.3, -0.5, 1]], dtype=np.float64
+        [[1.0, 0, 0], [1.0, 0.2, 1e-8], [0.3, -0.5, 1], [1.0, 0, 0]], dtype=np.float64
     )
     cylinder_axes /= np.linalg.norm(cylinder_axes, axis=1)[:, None]
     cylinder_angles, cylinder_heights = np.meshgrid(
@@ -134,7 +134,10 @@ def create_fixture(path: Path) -> None:
     imported_cylinders: list[NDArray[np.float64]] = []
     cylinder_normals: list[NDArray[np.float64]] = []
     cylinder_origins: list[NDArray[np.float64]] = []
-    for index, (axis, scale) in enumerate(zip(cylinder_axes, scales, strict=True)):
+    cylinder_scales = np.r_[scales, 1.0]
+    for index, (axis, scale) in enumerate(
+        zip(cylinder_axes, cylinder_scales, strict=True)
+    ):
         first = np.cross(axis, np.eye(3)[int(np.argmin(np.abs(axis)))])
         first /= np.linalg.norm(first)
         second = np.cross(axis, first)
@@ -144,10 +147,15 @@ def create_fixture(path: Path) -> None:
             dtype=np.float64,
         )
         origin = scale * np.array([3.0 + index, -4.0, 5.0 - index])
-        radius = scale * (2.5 + 0.001 * np.sin(np.arange(len(radial)) * 1.7))
+        long_cylinder = index == 3
+        height_scale = 1e5 if long_cylinder else 1.0
+        radius = scale * (
+            2.5
+            + (0.0 if long_cylinder else 0.001) * np.sin(np.arange(len(radial)) * 1.7)
+        )
         imported_cylinders.append(
             origin
-            + scale * cylinder_heights.ravel()[:, None] * axis
+            + scale * height_scale * cylinder_heights.ravel()[:, None] * axis
             + radius[:, None] * radial
         )
         cylinder_normals.append(radial)
@@ -171,7 +179,7 @@ def create_fixture(path: Path) -> None:
         imported_cylinder_normals=np.asarray(cylinder_normals),
         imported_cylinder_axes=cylinder_axes,
         imported_cylinder_origins=np.asarray(cylinder_origins),
-        imported_cylinder_scales=scales,
+        imported_cylinder_scales=cylinder_scales,
     )
 
 
@@ -457,6 +465,9 @@ def imported_cylinder_probe(
         return project.commit(candidate)
 
     accepted = open_source("independent-cylinder.ply")
+    np.testing.assert_array_equal(
+        accepted.workspace.local, points.astype("<f4").astype("<f8")
+    )
     selected = list(range(12, 48))
     recipe = Recipe.model_validate(accepted.graph.snapshot()["recipe"])
     recipe.nodes.extend(
@@ -578,7 +589,7 @@ def imported_cylinder_probe(
             "support": None,
             "settings": {},
         },
-        policy_version="selected-cylinder-recovery-v1",
+        policy_version=CYLINDER_POLICY_VERSION,
     )
     hinted = fit_selected_cylinder(
         workspace.local[selected],

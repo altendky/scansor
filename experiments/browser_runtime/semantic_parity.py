@@ -1013,7 +1013,9 @@ class _Comparator:
             if key == "recovery":
                 continue
             value, reference = actual[key], expected[key]
-            if key in {"initializers", "assessments"}:
+            if key == "assessments":
+                self.fitted_assessments(value, reference, path + "." + key, context)
+            elif key == "initializers":
                 self.keys(value, set(reference), path + "." + key)
                 candidates = {
                     item["candidate"][field]
@@ -1029,30 +1031,9 @@ class _Comparator:
                     location = f"{path}.{key}.{candidate}"
                     if candidate in selected_ids:
                         self.walk(value[candidate], reference[candidate], location)
-                    elif key == "initializers":
+                    else:
                         self.initializer_tree(
                             value[candidate], reference[candidate], location
-                        )
-                    else:
-                        self.require(
-                            isinstance(value[candidate], dict)
-                            and isinstance(reference[candidate], dict),
-                            location,
-                            "invalid discarded assessment",
-                        )
-                        self.keys(value[candidate], set(reference[candidate]), location)
-                        self.require(
-                            set(reference[candidate]) <= _METRICS,
-                            location,
-                            "unknown discarded assessment metric",
-                        )
-                        self.validate_diagnostic(value[candidate], location)
-                        self.validate_diagnostic(reference[candidate], location)
-                        self.diagnostic(
-                            value[candidate],
-                            reference[candidate],
-                            location,
-                            "discarded fitted assessment metrics",
                         )
             elif key == "attempt_failures":
                 self.discarded_failures(value, reference, path + "." + key, context)
@@ -1061,6 +1042,81 @@ class _Comparator:
             else:
                 self.walk(value, reference, path + "." + key)
         return context
+
+    def assessment_attempt(
+        self, key: str, info: dict[str, Any], path: str
+    ) -> dict[str, Any]:
+        matches = [
+            attempt
+            for attempt in info["record"]["attempts"]
+            if key in (attempt["candidate"]["id"], attempt["candidate"]["chart"])
+        ]
+        self.require(bool(matches), path, "diagnostic for unknown candidate")
+        self.require(
+            len(matches) == 1, path, "ambiguous fitted assessment candidate alias"
+        )
+        return matches[0]
+
+    def fitted_assessments(
+        self,
+        actual: Any,
+        expected: Any,
+        path: str,
+        context: tuple[dict[str, Any], dict[str, Any]],
+    ) -> None:
+        self.require(
+            isinstance(actual, dict) and isinstance(expected, dict),
+            path,
+            "invalid fitted assessment map",
+        )
+        actual = cast(dict[str, Any], actual)
+        expected = cast(dict[str, Any], expected)
+        keys = actual.keys() | expected.keys()
+        by_side = [
+            {key: self.assessment_attempt(key, info, path + "." + key) for key in keys}
+            for info in context
+        ]
+        for side, candidates, info in zip(
+            (actual, expected), by_side, context, strict=True
+        ):
+            self.require(
+                info["selected"] is None
+                or any(candidates[key] is info["selected"] for key in side),
+                path,
+                "selected fitted assessment missing",
+            )
+            for candidate, metrics in side.items():
+                self.require(
+                    isinstance(metrics, dict) and set(metrics) <= _METRICS,
+                    path + "." + candidate,
+                    "unknown fitted assessment metric",
+                )
+                self.validate_diagnostic(metrics, path + "." + candidate)
+        for candidate in sorted(keys):
+            location = path + "." + candidate
+            if by_side[1][candidate] is context[1]["selected"]:
+                self.require(
+                    candidate in actual and candidate in expected,
+                    location,
+                    "selected fitted assessment missing",
+                )
+                self.walk(actual[candidate], expected[candidate], location)
+            else:
+                if (candidate in actual) != (candidate in expected):
+                    self.require(
+                        by_side[0][candidate]["outcome"]
+                        != by_side[1][candidate]["outcome"],
+                        location,
+                        "discarded fitted assessment removed without outcome change",
+                    )
+                else:
+                    self.keys(actual[candidate], set(expected[candidate]), location)
+                self.diagnostic(
+                    actual.get(candidate),
+                    expected.get(candidate),
+                    location,
+                    "discarded fitted assessment metrics; presence follows differing outcomes",
+                )
 
     def validate_initialization(
         self, value: Any, info: dict[str, Any], path: str
@@ -1107,24 +1163,39 @@ class _Comparator:
                 path,
                 "selected aligned condition failed admission",
             )
-        metrics = value.get("assessments", {}).get(selected["candidate"]["id"], {})
-        if "coverage_ratio" in metrics and "minimum_coverage_ratio" in value:
-            self.finite(metrics["coverage_ratio"], path + ".selected.coverage_ratio")
+        assessments = value.get("assessments", {})
+        self.require(
+            isinstance(assessments, dict), path, "invalid fitted assessment map"
+        )
+        assessments = cast(dict[str, Any], assessments)
+        for key, metrics in assessments.items():
+            attempt = self.assessment_attempt(key, info, path + ".assessments." + key)
+            if attempt is not selected:
+                continue
             self.require(
-                metrics["coverage_ratio"] > value["minimum_coverage_ratio"],
-                path,
-                "selected fitted coverage failed admission",
+                isinstance(metrics, dict), path, "invalid selected fitted metrics"
             )
-        if "aligned_scaled_gradient_infinity_norm" in metrics:
-            gradient = metrics["aligned_scaled_gradient_infinity_norm"]
-            self.finite(
-                gradient,
-                path + ".selected.aligned_scaled_gradient_infinity_norm",
-                nonnegative=True,
-            )
-            self.require(
-                gradient <= 1e-10, path, "selected fitted stationarity failed admission"
-            )
+            if "coverage_ratio" in metrics and "minimum_coverage_ratio" in value:
+                self.finite(
+                    metrics["coverage_ratio"], path + ".selected.coverage_ratio"
+                )
+                self.require(
+                    metrics["coverage_ratio"] > value["minimum_coverage_ratio"],
+                    path,
+                    "selected fitted coverage failed admission",
+                )
+            if "aligned_scaled_gradient_infinity_norm" in metrics:
+                gradient = metrics["aligned_scaled_gradient_infinity_norm"]
+                self.finite(
+                    gradient,
+                    path + ".selected.aligned_scaled_gradient_infinity_norm",
+                    nonnegative=True,
+                )
+                self.require(
+                    gradient <= 1e-10,
+                    path,
+                    "selected fitted stationarity failed admission",
+                )
 
     def discarded_failures(
         self,

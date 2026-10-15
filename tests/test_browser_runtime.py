@@ -25,6 +25,7 @@ from experiments.browser_runtime.probe import (
     imported_sphere_probe,
 )
 from experiments.fit_initialization import DEFAULT_POLICY
+from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION
 
 BUILDER = runpy.run_path(
     str(Path(__file__).resolve().parents[1] / "scripts/build-browser-runtime.py")
@@ -141,9 +142,18 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["plane"].shape == (64, 3)
         assert data["imported_spheres"].shape == (3, 35, 3)
         assert data["imported_sphere_normals"].shape == (3, 35, 3)
-        assert data["imported_cylinders"].shape == (3, 60, 3)
-        assert data["imported_cylinder_normals"].shape == (3, 60, 3)
-        assert data["imported_cylinder_axes"].shape == (3, 3)
+        assert data["imported_cylinders"].shape == (4, 60, 3)
+        assert data["imported_cylinder_normals"].shape == (4, 60, 3)
+        assert data["imported_cylinder_axes"].shape == (4, 3)
+        long_cylinder = data["imported_cylinders"][-1]
+        assert np.ptp(long_cylinder[:, 0]) == 6e5
+        np.testing.assert_allclose(
+            np.linalg.norm(
+                (long_cylinder - data["imported_cylinder_origins"][-1])[:, 1:], axis=1
+            ),
+            2.5,
+            atol=1e-14,
+        )
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_sphere_normals"], axis=2), 1, atol=1e-14
         )
@@ -716,7 +726,7 @@ def imported_cylinder_record(scale: float) -> dict[str, Any]:
         "residuals": [0.001 * scale, -0.002 * scale],
         "weighted_rms": 0.0015 * scale,
         "initialization": {
-            "algorithm": "selected-cylinder-recovery-v1",
+            "algorithm": CYLINDER_POLICY_VERSION,
             "chart": "rotated-normalized-cylinder-v1",
             "origin": [3 * scale, -4 * scale, 2 * scale],
             "length": 2 * scale,
@@ -939,7 +949,7 @@ def test_numeric_parity_checks_imported_cylinders_before_legacy_results() -> Non
         _ = compare_numeric(actual, expected)
 
 
-@pytest.mark.parametrize("index", range(3))
+@pytest.mark.parametrize("index", range(4))
 def test_frozen_imported_cylinders_fit_grow_recover_and_replay(
     index: int, tmp_path: Path
 ) -> None:

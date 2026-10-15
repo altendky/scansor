@@ -21,6 +21,12 @@ Unrecognized numerical adapters retain the strict comparison. Reported counts
 cannot independently prove unreported trial/projection counts; producer limit
 tests and harness deadlines remain necessary.
 
+Discarded starts can stop through different recognized failure paths. Their
+optional fitted-assessment entries may differ only when the corresponding
+recorded outcomes differ; both sides must still name known candidates and
+contain recognized finite metrics. Removing a trace with the same outcome
+fails. Selected fitted assessments remain mandatory and strictly compared.
+
 All raw records remain available alongside a versioned, source-hashed receipt
 and a ledger of allowed diagnostic differences. Browser graph harnesses invoke
 the same reviewed Python policy. The artifact verifier checks input identities

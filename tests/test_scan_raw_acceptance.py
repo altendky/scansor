@@ -17,6 +17,88 @@ from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits
 
 
+def assert_cylinder_residual_arithmetic(
+    published: Any,
+    independent: Any,
+    selected: Any,
+    origin: Any,
+    radius: float,
+) -> None:
+    """Compare equivalent distance expressions at their operand precision.
+
+    The producer evaluates centered/scaled, rotated coordinates; this oracle
+    evaluates rounded published world geometry. Cancellation occurs at the
+    coordinate/radius scale, even when a distance residual is nearly zero.
+    """
+    scale = np.linalg.norm(selected, axis=1) + np.linalg.norm(origin) + abs(radius)
+    published_array = np.asarray(published)
+    independent_array = np.asarray(independent)
+    assert np.isfinite(published_array).all()
+    assert np.isfinite(independent_array).all()
+    assert np.isfinite(scale).all() and np.all(scale > 0)
+    epsilon = np.finfo(np.float64).eps
+    gamma32 = 32 * epsilon / (1 - 32 * epsilon)
+    np.testing.assert_allclose(
+        published_array / scale,
+        independent_array / scale,
+        rtol=1e-12,
+        atol=gamma32,
+        equal_nan=False,
+    )
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize("changed", ["radius", "residual"])
+def test_cylinder_residual_oracle_rejects_physical_changes_near_zero(
+    scale: float, changed: str
+) -> None:
+    origin = scale * np.array([5.0, -7, 11])
+    selected = origin + scale * np.array([[2.0, 0, 0], [-2.0, 0, 0]])
+    radius = 2 * scale
+    published = np.zeros(2)
+    independent = np.zeros(2)
+    assert_cylinder_residual_arithmetic(
+        published, independent, selected, origin, radius
+    )
+    if changed == "radius":
+        radius *= 1 + 1e-6
+        # Exact independent radial distance to these two points is 2*scale.
+        independent[:] = 2 * scale - radius
+    else:
+        published[0] = radius * 1e-6
+    # Recompute the scale using the changed publication, rather than reusing a
+    # favorable old denominator. Material changes remain far above roundoff.
+    with pytest.raises(AssertionError):
+        assert_cylinder_residual_arithmetic(
+            published, independent, selected, origin, radius
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["zero-scale", "overflow-scale", "both-nan", "published-inf", "independent-inf"],
+)
+def test_cylinder_residual_oracle_rejects_nonfinite_or_zero_normalization(
+    invalid: str,
+) -> None:
+    selected, origin, radius = np.ones((2, 3)), np.zeros(3), 1.0
+    published, independent = np.zeros(2), np.zeros(2)
+    if invalid == "zero-scale":
+        selected[:], radius = 0, 0.0
+    elif invalid == "overflow-scale":
+        selected[:] = 1e308
+    elif invalid == "both-nan":
+        published[0] = independent[0] = np.nan
+    elif invalid == "published-inf":
+        published[0] = np.inf
+    else:
+        independent[0] = np.inf
+    with np.errstate(over="ignore"), pytest.raises(AssertionError):
+        assert_cylinder_residual_arithmetic(
+            published, independent, selected, origin, radius
+        )
+
+
 def test_raw_nozzle_selected_fits_and_replay_need_no_example_sidecars(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -207,16 +289,23 @@ def test_raw_nozzle_selected_fits_and_replay_need_no_example_sidecars(
         if name == "top":
             equation = np.asarray(fitted["parameters"])
             residual = selected @ equation[:3] - equation[3]
+            np.testing.assert_allclose(
+                fitted["residuals"], residual, rtol=1e-12, atol=1e-13
+            )
         else:
             geometry = fitted["analytic"]
             relative = selected - np.asarray(geometry["origin"])
             axis = np.asarray(geometry["axis"])
             perpendicular = relative - (relative @ axis)[:, None] * axis
             residual = np.linalg.norm(perpendicular, axis=1) - geometry["radius"]
+            assert_cylinder_residual_arithmetic(
+                fitted["residuals"],
+                residual,
+                selected,
+                np.asarray(geometry["origin"]),
+                geometry["radius"],
+            )
         assert len(fitted["residuals"]) == len(ids)
-        np.testing.assert_allclose(
-            fitted["residuals"], residual, rtol=1e-12, atol=1e-13
-        )
         objective = float(weights[ids] @ residual**2 / weights[ids].sum())
         assert fitted["weighted_rms"] ** 2 == pytest.approx(objective, rel=1e-12)
     assert recipe.model_dump(mode="json") == json.loads(saved)
