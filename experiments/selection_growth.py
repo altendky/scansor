@@ -141,6 +141,7 @@ def fit_seed(
         )
         condition = result["normal_matrix_condition"]
         solver = result.get("solver")
+        initialization = result.get("initialization")
     elif kind in ("cone", "cylinder"):
         if (
             initial is None

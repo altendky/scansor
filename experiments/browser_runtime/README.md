@@ -62,6 +62,10 @@ not demonstrate every operation it implements:
   model and saved selections, through `NozzleWorkspace.fit`.
 - The retained cone-plane recipe through `FeatureGraph.evaluate`, then saved
   recipe replay in a new graph, with all nodes ready and no errors/diagnostics.
+- Independent imported plane and sphere patches with nonuniform area weights,
+  varied poses and scales, standalone fitting, connected growth and source-bound
+  recipe replay. Sphere cases also exercise a shared free center initialized
+  from the selection despite a distant authored point hint.
 - Optional Scansor cylinder intersections, bounded face construction, kernel
   validity/area, tessellation and named millimeter STEP. Browser-produced STEP
   is reopened natively to verify validity, area and its Unicode name.
@@ -91,6 +95,9 @@ below their 0.001 synthetic noise and recorded fitting precision. Solver
 termination, rank, iterations and evaluations are checked exactly for these
 fixtures, with raw solver diagnostics retained in reports. This tolerance and
 control-flow agreement do not establish equivalence for arbitrary inputs.
+Imported-case distances and areas are divided by the frozen fixture length
+scale and its square before comparison; directions, source identity, membership
+and normalized solver evidence retain their original meaning.
 
 The builder, runner and worker detect missing/corrupt assets. Check an existing
 artifact without starting a browser:

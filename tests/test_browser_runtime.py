@@ -1,6 +1,8 @@
 """Runtime packaging must detect corrupt inputs and preserve reproducible sources."""
 
 import hashlib
+import json
+import math
 import runpy
 import zipfile
 from copy import deepcopy
@@ -12,9 +14,11 @@ import pytest
 
 from experiments.browser_runtime.probe import (
     compare_imported_planes,
+    compare_imported_spheres,
     compare_numeric,
     compare_session,
     create_fixture,
+    imported_sphere_probe,
 )
 
 BUILDER = runpy.run_path(
@@ -130,6 +134,11 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
     with np.load(first, allow_pickle=False) as data:
         assert data["cone"].shape == (432, 3)
         assert data["plane"].shape == (64, 3)
+        assert data["imported_spheres"].shape == (3, 35, 3)
+        assert data["imported_sphere_normals"].shape == (3, 35, 3)
+        np.testing.assert_allclose(
+            np.linalg.norm(data["imported_sphere_normals"], axis=2), 1, atol=1e-14
+        )
         assert all(array.dtype == np.float64 for array in data.values())
 
 
@@ -361,3 +370,244 @@ def test_imported_plane_parity_rejects_invalid_frozen_expected_scale(
     expected["comparison_length_scale"] = scale
     with pytest.raises(ValueError, match="finite and positive"):
         compare_imported_planes([imported_plane_record(1.0)], [expected])
+
+
+def imported_sphere_record(scale: float) -> dict[str, Any]:
+    """Prescribe physical lengths and normalized recovery quantities separately."""
+    standalone: dict[str, Any] = {
+        "recipe": {
+            "nodes": [{"id": "scan", "source_sha256": "a" * 64}],
+            "output": "grown",
+        },
+        "token": "sphere-actions",
+        "states": {"sphere": "ready", "grown": "ready"},
+        "errors": {},
+        "diagnostics": {},
+        "results": {
+            "sphere": {
+                "kind": "sphere",
+                "ids": [4, 9],
+                "parameters": [3 * scale, -4 * scale, 2 * scale, 5 * scale],
+                "residuals": [0.001 * scale, -0.002 * scale],
+                "weighted_rms": 0.0015 * scale,
+                "axial_domain": [-2.0, 5.0],
+                "normal_sign": 1.0,
+                "initialization": {
+                    "algorithm": "centered-algebraic-sphere-v1",
+                    "chart": "normalized-center-radius-v1",
+                    "origin": [3 * scale, -4 * scale, 2 * scale],
+                    "length": 2 * scale,
+                    "initial_parameters": [0.1, -0.2, 0.3, 1.2],
+                    "algebraic_rank": 4,
+                    "algebraic_condition": 2.0,
+                },
+                "solver": {
+                    "coordinate_origin": [3 * scale, -4 * scale, 2 * scale],
+                    "coordinate_length": 2 * scale,
+                    "rank": 4,
+                    "iterations": 2,
+                },
+            },
+            "grown": {
+                "ids": [4, 9, 12],
+                "added_ids": [12],
+                "added_area": 0.01 * scale**2,
+            },
+        },
+    }
+    shared = deepcopy(standalone)
+    shared["recipe"]["output"] = "sphere"
+    del shared["results"]["grown"]
+    del shared["states"]["grown"]
+    shared["results"]["center"] = {
+        "point_display": [3 * scale, -4 * scale, 2 * scale],
+        "coordinates": [3 * scale, -4 * scale, 2 * scale],
+    }
+    shared["results"]["sphere"]["initialization"]["recovery"] = {
+        "binding_sha256": "b" * 64,
+        "selected": "fresh",
+        "selected_role": "fresh",
+        "attempts": [
+            {
+                "candidate": {"parameters": [0.1, 0.2, 0.3, 1.2]},
+                "assessment": {"objective": 0.001, "rank": 4},
+            }
+        ],
+    }
+    return {
+        "comparison_length_scale": scale,
+        "standalone": standalone,
+        "shared_center": shared,
+    }
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "center",
+        "radius",
+        "residual",
+        "rms",
+        "origin",
+        "length",
+        "solver_origin",
+        "solver_length",
+        "point",
+        "coordinates",
+        "area",
+    ],
+)
+def test_imported_sphere_parity_rejects_dimensional_errors_at_every_scale(
+    scale: float,
+    field: str,
+) -> None:
+    expected = imported_sphere_record(scale)
+    actual = deepcopy(expected)
+    sphere = actual["standalone"]["results"]["sphere"]
+    delta = 1e-6 * scale
+    if field in {"center", "radius"}:
+        sphere["parameters"][3 if field == "radius" else 0] += delta
+    elif field == "residual":
+        sphere["residuals"][0] += delta
+    elif field == "rms":
+        sphere["weighted_rms"] += delta
+    elif field == "origin":
+        sphere["initialization"]["origin"][0] += delta
+    elif field == "length":
+        sphere["initialization"]["length"] += delta
+    elif field == "solver_origin":
+        sphere["solver"]["coordinate_origin"][0] += delta
+    elif field == "solver_length":
+        sphere["solver"]["coordinate_length"] += delta
+    elif field in {"point", "coordinates"}:
+        actual["shared_center"]["results"]["center"][
+            "point_display" if field == "point" else field
+        ][0] += delta
+    else:
+        actual["standalone"]["results"]["grown"]["added_area"] += 1e-6 * scale**2
+    with pytest.raises(AssertionError):
+        compare_imported_spheres([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "ids",
+        "source",
+        "token",
+        "binding",
+        "initial_parameters",
+        "candidate_parameters",
+        "objective",
+        "rank",
+    ],
+)
+def test_imported_sphere_parity_keeps_intent_and_normalized_evidence_strict(
+    scale: float,
+    field: str,
+) -> None:
+    expected = imported_sphere_record(scale)
+    actual = deepcopy(expected)
+    sphere = actual["standalone"]["results"]["sphere"]
+    recovery = actual["shared_center"]["results"]["sphere"]["initialization"][
+        "recovery"
+    ]
+    if field == "ids":
+        sphere["ids"][0] = 5
+    elif field == "source":
+        actual["standalone"]["recipe"]["nodes"][0]["source_sha256"] = "c" * 64
+    elif field == "token":
+        actual["shared_center"]["token"] = "stale"
+    elif field == "binding":
+        recovery["binding_sha256"] = "c" * 64
+    elif field == "initial_parameters":
+        sphere["initialization"]["initial_parameters"][0] += 1e-6
+    elif field == "candidate_parameters":
+        recovery["attempts"][0]["candidate"]["parameters"][0] += 1e-6
+    elif field == "objective":
+        recovery["attempts"][0]["assessment"]["objective"] += 1e-6
+    else:
+        sphere["solver"]["rank"] = 3
+    with pytest.raises(AssertionError):
+        compare_imported_spheres([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+def test_imported_sphere_parity_accepts_roundoff_without_mutating_records(
+    scale: float,
+) -> None:
+    expected = imported_sphere_record(scale)
+    actual = deepcopy(expected)
+    actual["standalone"]["results"]["sphere"]["residuals"][0] += 3e-16 * scale
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    compare_imported_spheres([actual], [expected])
+    assert actual == before_actual
+    assert expected == before_expected
+
+
+def test_imported_sphere_parity_requires_the_frozen_expected_scale() -> None:
+    with pytest.raises(AssertionError):
+        compare_imported_spheres(
+            [imported_sphere_record(2.0)], [imported_sphere_record(1.0)]
+        )
+    for scale in (0.0, -1.0, float("inf"), float("nan")):
+        expected = imported_sphere_record(1.0)
+        expected["comparison_length_scale"] = scale
+        with pytest.raises(ValueError, match="finite and positive"):
+            compare_imported_spheres([imported_sphere_record(1.0)], [expected])
+
+
+@pytest.mark.parametrize("coordinate", [1.0, 1e100])
+def test_imported_sphere_parity_keeps_authored_coordinates_exact_after_json_roundtrip(
+    coordinate: float,
+) -> None:
+    expected = imported_sphere_record(1.0)
+    expected["shared_center"]["recipe"]["nodes"].append(
+        {"id": "center", "initial_coordinates": [coordinate, 0.0, 0.0]}
+    )
+    actual = deepcopy(expected)
+    actual["shared_center"]["recipe"]["nodes"][-1]["initial_coordinates"] = (
+        coordinate,
+        0.0,
+        0.0,
+    )
+    # Native model tuples and serialized arrays carry the same exact intent.
+    compare_imported_spheres([actual], [expected])
+    actual["shared_center"]["recipe"]["nodes"][-1]["initial_coordinates"] = (
+        math.nextafter(coordinate, math.inf),
+        0.0,
+        0.0,
+    )
+    with pytest.raises(
+        AssertionError,
+        match=r"imported_spheres\[0\]\.shared_center\.recipe\.nodes\[1\]\.initial_coordinates\[0\]",
+    ):
+        compare_imported_spheres([actual], [expected])
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_frozen_imported_spheres_fit_grow_recover_and_replay(
+    index: int, tmp_path: Path
+) -> None:
+    fixture = tmp_path / "fixture.npz"
+    create_fixture(fixture)
+    with np.load(fixture, allow_pickle=False) as data:
+        report = imported_sphere_probe(
+            data["imported_spheres"][index],
+            data["imported_sphere_normals"][index],
+            data["imported_sphere_centers"][index],
+            float(data["imported_sphere_radii"][index]),
+            float(data["imported_sphere_scales"][index]),
+        )
+    encoded = json.loads(json.dumps(report, allow_nan=False))
+    # This is the worker's real comparison shape: live model tuples against
+    # the native JSON reference, while every authored number remains exact.
+    compare_imported_spheres([report], [encoded])
+    assert encoded["standalone"]["results"]["grown"]["ids"] == list(range(35))
+    recovered = encoded["shared_center"]["results"]["sphere"]["initialization"][
+        "recovery"
+    ]
+    assert recovered["selected_role"] == "fresh"
+    assert len(recovered["attempts"]) == 2
