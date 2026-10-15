@@ -15,6 +15,61 @@ from scansor.nonlinear_least_squares import solve_least_squares
 Array = NDArray[np.float64]
 
 
+class FitCancelled(RuntimeError):
+    """Control signal; numerical callback ValueError handlers must not catch it."""
+
+
+class FitBudgetExhausted(RuntimeError):
+    """The attempt consumed its callback allowance without convergence."""
+
+
+@dataclass(frozen=True)
+class AttemptLimits:
+    max_iterations: int = 100
+    max_trials: int = 16
+    max_evaluations: int = 512
+
+    def __post_init__(self) -> None:
+        for name in ("max_iterations", "max_trials", "max_evaluations"):
+            value = getattr(self, name)
+            minimum = 0 if name == "max_iterations" else 1
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"{name} must be an integer at least {minimum}")
+
+
+class AttemptControl:
+    """Shared observation/equality quota, also usable during feasibility solves.
+
+    Family adapters must route every numerical callback through call(). The
+    final full-problem assessment is separately mandatory, outside this quota.
+    Cancellation is cooperative at callback/geometry boundaries.
+    """
+
+    def __init__(
+        self,
+        limits: AttemptLimits,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
+        self.limits: AttemptLimits = limits
+        self.cancelled: Callable[[], bool] | None = cancelled
+        self.evaluations: int = 0
+
+    def checkpoint(self) -> None:
+        if self.cancelled is not None and self.cancelled():
+            raise FitCancelled("Fit cancelled before publishing a result")
+
+    def call[Result](
+        self, callback: Callable[[Array], Result], values: Array
+    ) -> Result:
+        self.checkpoint()
+        if self.evaluations >= self.limits.max_evaluations:
+            raise FitBudgetExhausted("Fit callback evaluation budget exhausted")
+        self.evaluations += 1
+        result = callback(values)
+        self.checkpoint()
+        return result
+
+
 def normalized_weights(weights: Array) -> Array:
     """Preserve relative positive contributions without overflowing their sum."""
     if (
@@ -75,6 +130,7 @@ def solve_geometric_fit(
     geometry_is_valid: Callable[[Array], bool],
     *,
     active_parameters: tuple[int, ...] | None = None,
+    control: AttemptControl | None = None,
 ) -> GeometricFit:
     """Use all fixed rows, retaining physical checks in the original chart.
 
@@ -83,6 +139,8 @@ def solve_geometric_fit(
     chart; the explicit solver diagnostics report the scaled Jacobian condition.
     If supplied, active_parameters identifies free solve-local coordinates;
     all other local coordinates are held at their encoded initial values.
+    An optional attempt control bounds and cancels new recovery paths; legacy
+    callers retain the existing numerical limits.
     """
     normalized = normalized_weights(weights)
     square_root = np.sqrt(normalized)
@@ -106,17 +164,30 @@ def solve_geometric_fit(
         lower, upper = encoded.copy(), encoded.copy()
         lower[list(active_parameters)] = -np.inf
         upper[list(active_parameters)] = np.inf
+
+    def controlled_callback(local: Array) -> tuple[Array, Array]:
+        return callback(local) if control is None else control.call(callback, local)
+
+    def valid(local: Array) -> bool:
+        if control is not None:
+            control.checkpoint()
+        return geometry_is_valid(coordinates.decode(local)[0])
+
     numerical = solve_least_squares(
         encoded,
-        callback,
+        controlled_callback,
         parameter_scales=np.ones(len(initial)),
         residual_scale=coordinates.frame.length,
         lower_bounds=lower,
         upper_bounds=upper,
-        geometry_is_valid=lambda local: geometry_is_valid(coordinates.decode(local)[0]),
+        geometry_is_valid=valid,
+        max_iterations=300 if control is None else control.limits.max_iterations,
+        max_trials=32 if control is None else control.limits.max_trials,
     )
     parameters, _ = coordinates.decode(np.asarray(numerical.parameters))
-    residual, jacobian = evaluate(parameters)
+    residual, jacobian = (
+        evaluate(parameters) if control is None else control.call(evaluate, parameters)
+    )
     return GeometricFit(
         parameters=parameters,
         residual=residual,

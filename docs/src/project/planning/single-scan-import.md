@@ -168,6 +168,28 @@ workspace positive-Z chart.
 
 ### Saved intent and computed starts
 
+The internal [recovery foundation](../../../../experiments/fit_initialization.py)
+separates input/policy bindings and derived candidates from authoritative fitting
+callbacks. It bounds fresh proposals and attempts separately from one optional
+hint, with cooperative cancellation and callback evaluation limits. Each result
+is assessed against the same full problem before deterministic comparison;
+competing geometry is reported separately from local solver failure or exhausted
+search. Diagnostics carry charts, attempted starts and termination and serialize
+without nonstandard JSON numbers. These are internal numerical artifacts, not
+new action fields. The existing single-start adapter keeps its historical limits
+unless the caller supplies attempt control.
+
+The initial internal policy permits 16 fresh proposals, 8 fresh attempts and one
+additional bound hint. Each attempt permits 100 iterations, 16 trials per step
+and 512 combined observation/equality evaluations when a family adapter supplies
+them. Geometry guards are bounded by the solver's iteration/trial limits. Final
+full-problem assessment remains mandatory outside that quota. These provisional
+numerical limits are not measured browser resource
+caps, convergence guarantees or physical acceptance thresholds. Family-specific
+initializers, graph/growth integration and arbitrary-pose geometry publication
+remain in #250–#253 and #240; this foundation alone does not implement their
+recovery acceptance cases.
+
 Actions files save source/selection bindings, fit families, explicit reference
 geometry, constraints and semantic settings. They do not save computed solver
 starts or require a previous fitted result. Recompute initialization from the

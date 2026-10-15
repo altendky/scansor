@@ -106,6 +106,7 @@
       "experiments/feature_reuse.py",
       "experiments/feature_reuse_authoring.py",
       "experiments/fit_coordinates.py",
+      "experiments/fit_initialization.py",
       "experiments/fit_relationship_component.py",
       "experiments/fit_solver.py",
       "experiments/mesh_coaxial_fit.py",
