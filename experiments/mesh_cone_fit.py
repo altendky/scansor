@@ -19,6 +19,13 @@ from experiments.fit_initialization import (
 )
 from experiments.fit_solver import AttemptControl, normalized_weights
 from experiments.mesh_cylinder_fit import Array, cylinder_basis
+from experiments.support_intent import (
+    SupportIntent,
+    SupportIntentFailure,
+    legacy_support,
+    resolve_support,
+    support_record,
+)
 from scansor.nonlinear_least_squares import (
     LeastSquaresResult,
     solve_least_squares,
@@ -86,6 +93,7 @@ def fit_selected_cone(
     hint: dict[str, Any] | None = None,
     hint_binding_sha256: str | None = None,
     domain: tuple[float, float] | None = None,
+    support: SupportIntent | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fit every selected row; normal directions propose starts, never constraints."""
@@ -112,6 +120,12 @@ def fit_selected_cone(
     ):
         raise ConeFitFailure(
             "invalid-support", "explicit axial bounds must be finite and ordered"
+        )
+    intent = legacy_support(domain) if support is None else support
+    _ = support_record(intent)
+    if domain is not None and intent != legacy_support(domain):
+        raise SupportIntentFailure(
+            "conflicting explicit support declarations", code="invalid-support"
         )
     try:
         w = normalized_weights(weights)
@@ -226,22 +240,32 @@ def fit_selected_cone(
             direction, taper = -direction, -taper
         return anchor, direction, radius, taper
 
-    def support(anchor: Array, direction: Array) -> list[float] | None:
-        if domain is None:
-            heights = (q - anchor) @ direction
-            return [float(np.min(heights)), float(np.max(heights))]
-        if abs(float(direction[2])) <= 1e-8:
-            return None
-        world_anchor = frame.origin + frame.length * anchor
-        shift = float(world_anchor[2] / direction[2])
-        return [(domain[0] - shift) / frame.length, (domain[1] - shift) / frame.length]
+    def supported_geometry(
+        anchor: Array, direction: Array, radius: float, taper: float
+    ) -> tuple[Array, Array, float, float, list[float]]:
+        resolved = resolve_support(
+            intent,
+            frame.origin + frame.length * anchor,
+            direction,
+            points,
+            reference=frame.origin,
+        )
+        return (
+            (np.asarray(resolved.origin) - frame.origin) / frame.length,
+            np.asarray(resolved.axis),
+            radius + taper * resolved.origin_shift / frame.length,
+            taper * resolved.axis_sign,
+            (np.asarray(resolved.domain) / frame.length).tolist(),
+        )
 
     def valid(parameters: Array, rotation: Array) -> bool:
         if not np.isfinite(parameters).all():
             return False
-        anchor, direction, radius, taper = geometry(parameters, rotation)
-        bounds = support(anchor, direction)
-        if bounds is None or not np.isfinite(bounds).all() or bounds[0] >= bounds[1]:
+        try:
+            anchor, direction, radius, taper, bounds = supported_geometry(
+                *geometry(parameters, rotation)
+            )
+        except SupportIntentFailure:
             return False
         with np.errstate(over="ignore", invalid="ignore"):
             ends = radius + taper * np.asarray(bounds)
@@ -391,8 +415,9 @@ def fit_selected_cone(
         ) from error
     result = recovered.result
     residual, _jac, (anchor, direction, radius, taper) = aligned(result)
-    bounds = support(anchor, direction)
-    assert bounds is not None
+    anchor, direction, radius, taper, bounds = supported_geometry(
+        anchor, direction, radius, taper
+    )
     world_anchor = frame.origin + frame.length * anchor
     relative = q - anchor
     heights = relative @ direction
@@ -416,7 +441,10 @@ def fit_selected_cone(
             "axial_domain": (frame.length * np.asarray(bounds)).tolist(),
         },
         "anchor_reference": frame.origin.tolist(),
-        "support_origin": "selection" if domain is None else "legacy-source-z0",
+        "support_origin": "legacy-source-z0"
+        if domain is not None
+        else support_record(intent)["kind"],
+        "support_intent": support_record(intent),
         "residuals": (frame.length * residual).tolist(),
         "weighted_rms": frame.length * float(np.sqrt(w @ residual**2)),
         "condition": float(assessment.condition or 1) ** 2,

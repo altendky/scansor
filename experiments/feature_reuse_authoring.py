@@ -94,6 +94,8 @@ def reconcile_feature_reuse(
         raise ValueError("Choose at least one fit and one target selection.")
     if any(not isinstance(originals.get(key), SurfaceFit) for key in fits):
         raise ValueError("The reused fits must name existing surface fits.")
+    if any(originals[key].managed_by == reuse_id for key in fits):
+        raise ValueError("A feature reuse cannot reuse its own generated fits.")
     try:
         owner["lineage"] = discover_reuse_lineage(fits, originals)
     except KeyError as error:
@@ -149,6 +151,8 @@ def reconcile_feature_reuse(
     for child in nodes:
         if child["operation"] != "reuse_selection" or child["reuse"] != reuse_id:
             continue
+        if child.get("managed_by") not in (None, reuse_id):
+            raise ValueError("Cannot adopt a reuse selection owned by another feature.")
         child.update(
             group_id=None,
             managed_by=reuse_id,
@@ -177,6 +181,10 @@ def reconcile_feature_reuse(
             raise ValueError(
                 "The generated outputs were edited, so this reuse action cannot be restructured safely."
             )
+        if adopted.get("managed_by") not in (None, reuse_id):
+            raise ValueError("Cannot adopt a fit owned by another feature.")
+        if adopted.get("managed_by") is None:
+            adopted["support_authority"] = "local"
         adopted.update(group_id=None, managed_by=reuse_id, managed_key=key)
     owned = [node for node in nodes if node.get("managed_by") == reuse_id]
     owned_ids = {node["id"] for node in owned}
@@ -287,6 +295,12 @@ def reconcile_feature_reuse(
             _ = copy.pop("placement", None)
             operation = source["operation"]
             if operation == "fit":
+                if child["managed_key"] in by_key:
+                    copy["support_authority"] = child.get("support_authority")
+                    if child.get("support_authority") != "prototype":
+                        copy["axial_domain"] = child.get("axial_domain")
+                else:
+                    copy["support_authority"] = "prototype"
                 copy["selections"] = selections[source["id"]]
                 for field in ("axis", "point", "reference_plane"):
                     if source.get(field):

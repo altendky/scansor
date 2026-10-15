@@ -28,7 +28,8 @@ import { selectionVolumePositions } from './reuse-volume.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
 import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
-import { copyFitDomain, parseFitDomain, defaultFitDomain } from './fit-intent.js';
+import { copyFitDomain, parseFitDomain, defaultFitDomain, editableManagedSupport,
+  fitSupportChanges } from './fit-intent.js';
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
 import {
@@ -2417,12 +2418,35 @@ function canEvaluateFeature(node) {
   return node && !['source', 'selection', 'coaxial', 'perpendicular',
     'rotational_symmetry', ...relationshipOperations].includes(node.operation);
 }
+function canEditManagedSupport(node) {
+  return editableManagedSupport(node, graphState.recipe.nodes,
+    graphState.recipe.nodes.find(value => value.operation === 'source')?.descriptor);
+}
+function supportAuthorityControl() {
+  if (!$('fit-support-authority')) {
+    const label = document.createElement('label'), select = document.createElement('select');
+    label.id = 'fit-support-authority-row';
+    label.textContent = 'Axial support';
+    select.id = 'fit-support-authority';
+    for (const [value, text] of [['', 'Choose support source'], ['prototype', 'From source fit'],
+      ['local', 'Use target bounds']]) select.add(new Option(text, value));
+    label.append(select);
+    $('fit-properties').insertBefore(label, $('axial-start-row'));
+    select.addEventListener('change', () => {
+      for (const id of ['axial-start', 'axial-end']) $(id).disabled = select.value !== 'local';
+    });
+    for (const id of ['axial-start', 'axial-end']) $(id).addEventListener('input', () => {
+      if (!label.hidden) select.value = 'local';
+    });
+  }
+  return $('fit-support-authority');
+}
 function editFeature(id, { inspect = false } = {}) {
   if (featureTreeLocked()) return false;
   let node = graphNode(id);
   if (!node) return false;
   const ownerId = managedOwnerId(node, graphState.recipe.nodes);
-  if (ownerId && !inspect) node = graphNode(ownerId);
+  if (ownerId && !inspect && !canEditManagedSupport(node)) node = graphNode(ownerId);
   if (node.operation === 'build_faces' && !inspect) {
     return openBuildFaces(node);
   }
@@ -2591,6 +2615,7 @@ function renderActions() {
   renderGraphView();
 }
 function showProperties(force = false) {
+  supportAuthorityControl();
   // The tree selection is free to change while an edit session owns the form.
   // Polling updates availability without recreating controls or losing drafts.
   if (editingFeatureId && !force) {
@@ -2719,6 +2744,8 @@ function showProperties(force = false) {
     $('axial-end').value = node.axial_domain?.[1] ?? '';
     $('axial-start').placeholder = 'Automatic';
     $('axial-end').placeholder = 'Automatic';
+    $('axial-start').disabled = false;
+    $('axial-end').disabled = false;
     $('axial-start-row').hidden = node.kind === 'sphere';
     $('axial-end-row').hidden = node.kind === 'sphere';
   } else if (node.operation === 'axis') {
@@ -3059,10 +3086,13 @@ function showProperties(force = false) {
   }
   const ownerId = managedOwnerId(node, graphState.recipe.nodes),
     managed = !!ownerId,
+    supportEditable = canEditManagedSupport(node),
     owner = graphNode(ownerId);
+  $('fit-support-authority-row').hidden = !supportEditable;
+  $('fit-support-authority').value = node.support_authority || '';
   $('managed-feature-note').hidden = !managed;
   $('action-properties').hidden = ['source', 'selection'].includes(node.operation);
-  $('apply-properties').hidden = managed || ['build_faces', 'arranged_face', 'reuse_selection',
+  $('apply-properties').hidden = (managed && !supportEditable) || ['build_faces', 'arranged_face', 'reuse_selection',
     'equal_radii', 'plane_relationship'].includes(node.operation);
   if (managed) {
     $('managed-owner-name').textContent = owner?.label || ownerId;
@@ -3072,13 +3102,19 @@ function showProperties(force = false) {
   }
   for (const control of $('action-properties').querySelectorAll('input, select, button')) {
     if (control.id === 'select-managed-owner') continue;
-    if (managed && !control.disabled) {
+    const supportControl = supportEditable && ['fit-support-authority', 'axial-start', 'axial-end',
+      'apply-properties'].includes(control.id);
+    if (managed && !supportControl && !control.disabled) {
       control.disabled = true;
       control.dataset.managedDisabled = 'true';
-    } else if (!managed && control.dataset.managedDisabled === 'true') {
+    } else if ((!managed || supportControl) && control.dataset.managedDisabled === 'true') {
       control.disabled = false;
       delete control.dataset.managedDisabled;
     }
+  }
+  if (supportEditable) {
+    for (const id of ['axial-start', 'axial-end'])
+      $(id).disabled = $('fit-support-authority').value !== 'local';
   }
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
@@ -5865,7 +5901,8 @@ async function start(recoveredState) {
       node = recipe.nodes.find((n) => n.id === editingFeatureId);
     if (!node) return;
     const ownerId = managedOwnerId(node, recipe.nodes);
-    if (ownerId) {
+    const supportEditable = canEditManagedSupport(node);
+    if (ownerId && !supportEditable) {
       status(`Edit ${graphNode(ownerId)?.label || 'the generating feature'} instead.`, true);
       return;
     }
@@ -5883,12 +5920,18 @@ async function start(recoveredState) {
       node.boundaries = readFaceBoundaries('face');
     }
     if (node.operation === 'fit') {
-      node.kind = $('surface-kind').value;
-      node.selections = chosen('fit-inputs');
-      try {
-        node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
-      } catch (error) { status(error.message, true); return; }
-      setFitReference(node, $('fit-reference').value);
+      if (supportEditable) {
+        try { Object.assign(node, fitSupportChanges($('fit-support-authority').value,
+          $('axial-start').value, $('axial-end').value)); }
+        catch (error) { status(error.message, true); return; }
+      } else {
+        node.kind = $('surface-kind').value;
+        node.selections = chosen('fit-inputs');
+        try {
+          node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
+        } catch (error) { status(error.message, true); return; }
+        setFitReference(node, $('fit-reference').value);
+      }
     }
     if (node.operation === 'axis') {
       const mode = $('axis-init-mode').value;

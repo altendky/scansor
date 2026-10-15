@@ -24,6 +24,13 @@ from experiments.fit_solver import (
     normalized_weights,
     solve_geometric_fit,
 )
+from experiments.support_intent import (
+    SupportIntent,
+    SupportIntentFailure,
+    legacy_support,
+    resolve_support,
+    support_record,
+)
 from scansor.nonlinear_least_squares import LeastSquaresResult, solve_least_squares
 
 Array = NDArray[np.float64]
@@ -152,6 +159,7 @@ def fit_selected_cylinder(
     hint: dict[str, Any] | None = None,
     hint_binding_sha256: str | None = None,
     domain: tuple[float, float] | None = None,
+    support: SupportIntent | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Bounded positional cylinder fitting; normals propose starts only.
@@ -183,6 +191,12 @@ def fit_selected_cylinder(
     ):
         raise CylinderFitFailure(
             "invalid-support", "explicit axial bounds must be finite and ordered"
+        )
+    intent = legacy_support(domain) if support is None else support
+    _ = support_record(intent)
+    if domain is not None and intent != legacy_support(domain):
+        raise SupportIntentFailure(
+            "conflicting explicit support declarations", code="invalid-support"
         )
     try:
         w = normalized_weights(weights)
@@ -296,13 +310,16 @@ def fit_selected_cylinder(
         )
         anchor, axis, radius = geometry(result)
         valid = bool(np.isfinite(anchor).all() and radius > 0 and condition <= 1e6)
-        if domain is not None:
-            valid &= abs(float(axis[2])) > 1e-8
-            if valid:
-                world_anchor = frame.origin + frame.length * anchor
-                shift = float(world_anchor[2] / axis[2])
-                lo, hi = domain[0] - shift, domain[1] - shift
-                valid &= bool(np.isfinite([lo, hi]).all() and lo < hi)
+        try:
+            _ = resolve_support(
+                intent,
+                frame.origin + frame.length * anchor,
+                axis,
+                points,
+                reference=frame.origin,
+            )
+        except SupportIntentFailure:
+            valid = False
         return FitAssessment(
             float(w @ residual**2),
             valid,
@@ -378,12 +395,18 @@ def fit_selected_cylinder(
         ) from error
     result = recovered.result
     anchor, axis, radius = geometry(result)
-    world_anchor = frame.origin + frame.length * anchor
+    resolved = resolve_support(
+        intent,
+        frame.origin + frame.length * anchor,
+        axis,
+        points,
+        reference=frame.origin,
+    )
+    world_anchor = np.asarray(resolved.origin)
+    axis = np.asarray(resolved.axis)
+    anchor = (world_anchor - frame.origin) / frame.length
     heights = (points - world_anchor) @ axis
-    bounds = [float(np.min(heights)), float(np.max(heights))]
-    if domain is not None:
-        shift = float(world_anchor[2] / axis[2])
-        bounds = [domain[0] - shift, domain[1] - shift]
+    bounds = list(resolved.domain)
     if not np.isfinite(bounds).all() or bounds[0] >= bounds[1]:
         raise CylinderFitFailure(
             "unsupported-support",
@@ -407,7 +430,10 @@ def fit_selected_cylinder(
             "axial_domain": bounds,
         },
         "anchor_reference": frame.origin.tolist(),
-        "support_origin": "selection" if domain is None else "legacy-source-z0",
+        "support_origin": "legacy-source-z0"
+        if domain is not None
+        else support_record(intent)["kind"],
+        "support_intent": support_record(intent),
         "residuals": (frame.length * residual).tolist(),
         "weighted_rms": frame.length * float(np.sqrt(w @ residual**2)),
         "condition": float(assessment.condition or 1) ** 2,

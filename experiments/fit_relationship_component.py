@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,6 +17,16 @@ from numpy.typing import NDArray
 from experiments.fit_coordinates import CoordinateFrame
 from experiments.fit_solver import AttemptControl, normalized_weights
 from experiments.mesh_cone_plane_fit import valid_cone_geometry
+from experiments.support_intent import (
+    PointSupport,
+    SelectionSupport,
+    SupportIntent,
+    SupportIntentFailure,
+    legacy_support,
+    resolve_support,
+    support_from_result,
+    support_record,
+)
 from experiments.surface_primitives import basis, revolution_geometry
 from scansor.constrained_least_squares import solve_constrained_least_squares
 
@@ -56,10 +66,8 @@ class _AxisChart:
     basis: Array
 
 
-class RelationshipSupportFailure(ValueError):
+class RelationshipSupportFailure(SupportIntentFailure):
     """An explicitly declared support cannot be represented by this axis."""
-
-    code: ClassVar[str] = "unsupported-support"
 
 
 def fit_relationship_component(
@@ -81,7 +89,10 @@ def fit_relationship_component(
     """
     if control is not None:
         control.checkpoint()
-    legacy = not any("analytic" in surface.result for surface in surfaces) and all(
+    legacy = not any(
+        "analytic" in surface.result or "support_intent" in surface.result
+        for surface in surfaces
+    ) and all(
         "parameters" in axis.result and not axis.result.get("axis_is_directed", False)
         for axis in axes.values()
     )
@@ -159,6 +170,8 @@ def fit_relationship_component(
     plane_keys: dict[str, str] = {}
     side_slots: dict[str, int] = {}
     lateral_geometry: dict[str, dict[str, Any]] = {}
+    lateral_support: dict[str, SupportIntent] = {}
+    lateral_references: dict[str, Array] = {}
     for surface in surfaces:
         value = surface.result
         if surface.kind == "plane":
@@ -193,6 +206,14 @@ def fit_relationship_component(
             else:
                 geometry = revolution_geometry(value)
                 lateral_geometry[surface.id] = geometry
+                lateral_support[surface.id] = support_from_result(value)
+                lateral_references[surface.id] = np.asarray(
+                    value.get(
+                        "anchor_reference",
+                        origin if "support_intent" in value else geometry["origin"],
+                    ),
+                    dtype=float,
+                )
                 reference_axis = np.asarray(
                     axes[axis_roots[surface.axis]].result["axis_display"]
                 )
@@ -471,62 +492,38 @@ def fit_relationship_component(
         assert surface.axis is not None
         point, direction, _, _ = axis_geometry(surface.axis, p)
         chart_point = origin + length * point
-        geometry = lateral_geometry[surface.id]
-        reference = np.asarray(
-            surface.result.get("anchor_reference", geometry["origin"]), dtype=float
-        )
+        reference = lateral_references[surface.id]
         if reference.shape != (3,) or not np.isfinite(reference).all():
             raise ValueError("surface anchor reference requires finite XYZ")
         anchor = chart_point + ((reference - chart_point) @ direction) * direction
         start = side_slots[surface.id]
         taper = p[start + 1] if surface.kind == "cone" else 0.0
         radius = length * p[start] + taper * ((anchor - chart_point) @ direction)
-        # The source surface's directed support is distinct from a datum's sign.
-        support_origin = surface.result.get("support_origin")
-        if support_origin == "legacy-source-z0":
-            if abs(direction[2]) <= 1e-8:
-                raise RelationshipSupportFailure(
-                    "Explicit source-Z support requires an axis with a usable Z component"
-                )
-            sign = 1.0 if direction[2] > 0 else -1.0
-        else:
-            reference_direction = np.asarray(
-                surface.result.get("anchor_axis", geometry["axis"]), dtype=float
+        support = lateral_support[surface.id]
+        # Selection extent has no authored direction, but preserve the source
+        # surface's existing representation independently of a reversed datum.
+        if (
+            isinstance(support, SelectionSupport)
+            and direction @ lateral_geometry[surface.id]["axis"] < 0
+        ):
+            direction, taper = -direction, -taper
+        try:
+            resolved = resolve_support(
+                support,
+                anchor,
+                direction,
+                surface.points,
+                reference=reference,
             )
-            if (
-                reference_direction.shape != (3,)
-                or not np.isfinite(reference_direction).all()
-                or np.linalg.norm(reference_direction) <= 0
-            ):
-                raise ValueError(
-                    "surface support direction requires finite nonzero XYZ"
-                )
-            sign = 1.0 if direction @ reference_direction >= 0 else -1.0
-        semantic_direction = sign * direction
-        if support_origin == "selection":
-            heights = (surface.points - anchor) @ semantic_direction
-            domain = [float(np.min(heights)), float(np.max(heights))]
-        elif support_origin == "legacy-source-z0":
-            bounds = np.asarray(surface.result["source_axial_domain"], dtype=float)
-            if (
-                bounds.shape != (2,)
-                or not np.isfinite(bounds).all()
-                or bounds[0] >= bounds[1]
-            ):
-                raise ValueError(
-                    "explicit source-Z support requires finite ordered bounds"
-                )
-            shift = anchor[2] / semantic_direction[2]
-            domain = (bounds - shift).tolist()
-        else:
-            domain = surface.result.get("anchor_axial_domain", geometry["axial_domain"])
+        except SupportIntentFailure as error:
+            raise RelationshipSupportFailure(str(error), code=error.code) from error
         return {
             "kind": surface.kind,
-            "origin": anchor.tolist(),
-            "axis": semantic_direction.tolist(),
-            "radius": float(radius),
-            "slope": float(sign * taper),
-            "axial_domain": domain,
+            "origin": list(resolved.origin),
+            "axis": list(resolved.axis),
+            "radius": float(radius + taper * resolved.origin_shift),
+            "slope": float(resolved.axis_sign * taper),
+            "axial_domain": list(resolved.domain),
         }
 
     def valid(p: Array) -> bool:
@@ -545,7 +542,7 @@ def fit_relationship_component(
             if not legacy:
                 try:
                     geometry = canonical_surface(surface, p)
-                except RelationshipSupportFailure:
+                except SupportIntentFailure:
                     return False
                 radius, taper = geometry["radius"], geometry["slope"]
                 domain = geometry["axial_domain"]
@@ -713,21 +710,28 @@ def fit_relationship_component(
                 geometry = canonical_surface(surface, parameters)
                 result["analytic"] = geometry
                 result["axial_domain"] = geometry["axial_domain"]
-                result["anchor_reference"] = deepcopy(
-                    surface.result.get(
-                        "anchor_reference", lateral_geometry[surface.id]["origin"]
+                support = lateral_support[surface.id]
+                result["support_intent"] = support_record(support)
+                result["anchor_reference"] = lateral_references[surface.id].tolist()
+                if isinstance(support, SelectionSupport):
+                    result["support_origin"] = "selection"
+                    if support.reference is not None:
+                        result["anchor_reference"] = list(support.reference)
+                elif isinstance(support, PointSupport):
+                    result["support_origin"] = "point"
+                    result["anchor_reference"] = list(support.reference)
+                    result["anchor_axial_domain"] = list(support.interval)
+                    result["anchor_axis"] = list(support.direction)
+                else:
+                    source_domain = surface.result.get("source_axial_domain")
+                    legacy_alias = (
+                        surface.result.get("support_origin") == "legacy-source-z0"
+                        and source_domain is not None
+                        and support == legacy_support(tuple(source_domain))
                     )
-                )
-                if surface.result.get("support_origin") not in {
-                    "selection",
-                    "legacy-source-z0",
-                }:
-                    result["anchor_axial_domain"] = deepcopy(geometry["axial_domain"])
-                    result["anchor_axis"] = deepcopy(
-                        surface.result.get(
-                            "anchor_axis", lateral_geometry[surface.id]["axis"]
-                        )
-                    )
+                    if not legacy_alias:
+                        result["support_origin"] = "reference-plane"
+                        _ = result.pop("source_axial_domain", None)
                 _ = result.pop("parameters", None)
                 world_point = np.asarray(geometry["origin"])
                 direction = np.asarray(geometry["axis"])

@@ -28,7 +28,6 @@ from experiments.feature_graph import (
     Selection,
     Source,
     SurfaceFit,
-    UnsupportedSupportTransfer,
 )
 from experiments.feature_reuse_authoring import ReuseChanges, reconcile_feature_reuse
 from experiments.fit_coordinates import CoordinateFrame
@@ -908,21 +907,14 @@ def test_reconciled_cone_reuse_refits_rotated_source_and_replays_saved_actions(
     )
     graph = FeatureGraph(workspace, plan.recipe)
     before = graph.snapshot()
-    if explicit_support:
-        with pytest.raises(UnsupportedSupportTransfer) as failure:
-            _ = graph.evaluate(str(before["token"]), target=clone.id)
-        assert failure.value.diagnostic["code"] == "unsupported-support"
-        assert failure.value.diagnostic["issue"] == 264
-        assert graph.snapshot()["recipe"] == before["recipe"]
-        assert graph.snapshot()["token"] == before["token"]
-        assert clone.id not in results(graph.snapshot())
-        return
     state = graph.evaluate(str(before["token"]), target=clone.id)
     assert not state["errors"]
     assert state["recipe"] == before["recipe"]
     fitted = results(state)[clone.id]
     assert fitted["ids"] == list(range(120, 240))
-    assert fitted["support_origin"] == "selection"
+    assert fitted["support_origin"] == (
+        "reference-plane" if explicit_support else "selection"
+    )
     assert fitted["weighted_rms"] < 1e-5
     assert "parameters" not in fitted
     assert results(state)[reused.id]["fit_initial"] is None
@@ -935,6 +927,15 @@ def test_reconciled_cone_reuse_refits_rotated_source_and_replays_saved_actions(
         source_origin @ rotation + translation,
         source_axis @ rotation,
     )
+    if explicit_support:
+        source_bounds = np.asarray(results(state)["cone"]["analytic"]["axial_domain"])
+        target_bounds = np.asarray(fitted["analytic"]["axial_domain"])
+        np.testing.assert_allclose(
+            origin + target_bounds[:, None] * axis,
+            (source_origin + source_bounds[:, None] * source_axis) @ rotation
+            + translation,
+            atol=1e-5,
+        )
     sign = 1 if axis @ expected_axis >= 0 else -1
     assert np.linalg.norm(np.cross(axis, expected_axis)) < 1e-5
     assert np.linalg.norm(np.cross(origin - expected_origin, expected_axis)) < 1e-5

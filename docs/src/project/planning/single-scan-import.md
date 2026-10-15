@@ -116,12 +116,23 @@ than extending onto the other sheet. Kernel/STEP and source/replay tests verify
 bounded world geometry; broader free-form support and physical validation remain
 outside this slice.
 
-Generated reused imported lateral fits with explicitly inherited bounds are
-temporarily rejected: copying a source-Z0 interval into a translated/rotated
-target can move the geometry while leaving its hard support behind. Automatic
-support reuse and independently authored target bounds remain available.
-[#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
-target override authority and its fixed/free/group/replay verification.
+Imported lateral support now has a separate immutable coordinate reference.
+Legacy source-Z0 bounds denote distances along the current fitted line from its
+intersection with the authored plane. Reuse transforms that plane with the
+occurrence, then resolves it against each refined target line; it does not
+freeze a numerical axis or reuse an obsolete plane-intersection point. Canonical
+point support retains its fixed reference point and direction instead. Cone
+publication rebases radius and taper when the anchor or axis sign changes.
+
+New managed fits explicitly inherit prototype support. Adopting an existing fit
+preserves its local support, including automatic extent, and imported managed
+fits can select prototype or local authority. Historical explicit managed fits
+without recorded authority still require an explicit choice; tuple equality
+cannot establish whether bounds were copied or authored. Saved actions retain
+authority and authored bounds, while transformed planes, computed seeds and
+centroids remain derived. [#264](https://github.com/altendky/scansor/issues/264)
+tracks this bounded transfer implementation and its fixed/free/group/replay
+verification; broader arbitrary support regions remain outside this slice.
 
 HTTP/worker delivery,
 Force source retention, source-aware reopening and per-backend measured caps remain their

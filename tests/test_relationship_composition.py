@@ -2085,3 +2085,156 @@ def test_mixed_group_cone_keeps_explicit_source_z_support(reverse: bool) -> None
         endpoints[:, 2], anchor[2] + np.array([8, 15]) * direction[2], atol=1e-12
     )
     assert fitted["surfaces"]["cone"]["support_origin"] == "legacy-source-z0"
+
+
+@pytest.mark.parametrize("free", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_component_resolves_authored_plane_against_each_refined_axis(
+    free: bool, reverse: bool
+) -> None:
+    from experiments.support_intent import PlaneSupport, support_record
+
+    surface, axes = _negative_anchor_relationship_cone()
+    anchor = np.array([1.0, 4.0, -2.0])
+    truth = np.array([0.0, 1.0, 0.0])
+    normal = np.array([0.3, 0.9, -0.2])
+    normal /= np.linalg.norm(normal)
+    plane_point = anchor - 2 * truth
+    support = PlaneSupport(tuple(normal), float(normal @ plane_point), (8.0, 15.0))
+    surface.result["support_intent"] = support_record(support)
+    initial_point = anchor + np.array([0.2, 0.0, -0.1]) if free else anchor + 2 * truth
+    initial_direction = truth + np.array([0.08, 0.0, 0.12]) if free else truth
+    initial_direction /= np.linalg.norm(initial_direction)
+    if reverse:
+        initial_direction = -initial_direction
+    axes["axis"] = AxisInput(
+        {
+            "point_display": initial_point.tolist(),
+            "axis_display": initial_direction.tolist(),
+            "axis_is_directed": True,
+            "direction_reversed": reverse,
+        },
+        free=free,
+    )
+    fitted = fit_relationship_component([surface], axes, [], [])
+    geometry = fitted["surfaces"]["cone"]["analytic"]
+    result_axis = np.asarray(fitted["axes"]["axis"]["axis_display"])
+    expected_axis = -truth if reverse else truth
+    np.testing.assert_allclose(result_axis, expected_axis, atol=1e-9)
+    if not free:
+        np.testing.assert_array_equal(
+            fitted["axes"]["axis"]["point_display"], initial_point
+        )
+        np.testing.assert_array_equal(result_axis, initial_direction)
+    np.testing.assert_allclose(geometry["origin"], anchor, atol=1e-9)
+    assert geometry["radius"] == pytest.approx(-1.0, abs=1e-9)
+    assert geometry["slope"] == pytest.approx(0.5, abs=1e-9)
+    endpoints = (
+        np.asarray(geometry["origin"])
+        + np.asarray(geometry["axial_domain"])[:, None] * geometry["axis"]
+    )
+    np.testing.assert_allclose(
+        endpoints, anchor + np.array([6.0, 13.0])[:, None] * truth, atol=1e-9
+    )
+    assert fitted["surfaces"]["cone"]["support_intent"] == support_record(support)
+    assert fitted["surfaces"]["cone"]["weighted_rms"] < 1e-9
+    if free:
+        # A frozen previous intersection projected onto the fitted axis does
+        # not recover this authored plane after the line rotates/translates.
+        old_intersection = (
+            initial_point
+            + ((support.offset - normal @ initial_point) / (normal @ initial_direction))
+            * initial_direction
+        )
+        wrong_anchor = anchor + ((old_intersection - anchor) @ truth) * truth
+        assert abs(normal @ wrong_anchor - support.offset) > 0.01
+        assert fitted["solver"]["iterations"] > 0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_component_transformed_plane_support_composes_without_moving_fixed_axis(
+    reverse: bool,
+) -> None:
+    from experiments.support_intent import (
+        PlaneSupport,
+        support_record,
+        transform_support,
+    )
+    from experiments.surface_primitives import transform_revolution
+
+    surface, axes = _negative_anchor_relationship_cone()
+    anchor = np.array([1.0, 4.0, -2.0])
+    direction = np.array([0.0, 1.0, 0.0])
+    support = PlaneSupport((0.0, 1.0, 0.0), 2.0, (8.0, 15.0))
+    first_rotation = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    second_rotation = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
+    first_translation = np.array([7.0, -3.0, 5.0])
+    second_translation = np.array([-2.0, 9.0, 4.0])
+    rotation = first_rotation @ second_rotation
+    translation = first_translation @ second_rotation + second_translation
+    composed = transform_support(
+        transform_support(support, first_rotation, first_translation),
+        second_rotation,
+        second_translation,
+    )
+    assert composed == transform_support(support, rotation, translation)
+    result = deepcopy(surface.result)
+    result["analytic"] = transform_revolution(result["analytic"], rotation, translation)
+    result["anchor_reference"] = (anchor @ rotation + translation).tolist()
+    result["support_intent"] = support_record(composed)
+    surface = replace(
+        surface, points=surface.points @ rotation + translation, result=result
+    )
+    target_point = (anchor + 2 * direction) @ rotation + translation
+    target_axis = direction @ rotation * (-1 if reverse else 1)
+    axes["axis"] = AxisInput(
+        {
+            "point_display": target_point.tolist(),
+            "axis_display": target_axis.tolist(),
+            "axis_is_directed": True,
+        },
+        free=False,
+    )
+    fitted = fit_relationship_component([surface], axes, [], [])
+    geometry = fitted["surfaces"]["cone"]["analytic"]
+    endpoints = (
+        np.asarray(geometry["origin"])
+        + np.asarray(geometry["axial_domain"])[:, None] * geometry["axis"]
+    )
+    expected = (
+        anchor + np.array([6.0, 13.0])[:, None] * direction
+    ) @ rotation + translation
+    np.testing.assert_allclose(endpoints, expected, atol=1e-11)
+    assert geometry["radius"] == pytest.approx(-1.0, abs=1e-11)
+    assert geometry["slope"] == pytest.approx(0.5, abs=1e-11)
+    np.testing.assert_array_equal(fitted["axes"]["axis"]["point_display"], target_point)
+    np.testing.assert_array_equal(fitted["axes"]["axis"]["axis_display"], target_axis)
+
+
+def test_group_binding_hashes_authored_support_but_not_recipe_derived_planes() -> None:
+    from experiments.nozzle_coaxial import fit_fixed_axis_group
+    from experiments.support_intent import PlaneSupport
+
+    direction = np.array([1.0, 0.0, 0.0])
+    workspace, sides, _, _, anchor = _generic_mixed_group(direction)
+    axis = {
+        "point_display": anchor.tolist(),
+        "axis_display": direction.tolist(),
+        "axis_is_directed": True,
+    }
+
+    def run(offset: float, semantic_intent: dict[str, Any] | None) -> dict[str, Any]:
+        selected = [
+            replace(side, support=PlaneSupport((1.0, 0.0, 0.0), offset, (8.0, 15.0)))
+            for side in sides
+        ]
+        fitted = fit_fixed_axis_group(
+            workspace, selected, [], axis, semantic_intent=semantic_intent
+        )
+        return fitted["fit"]["initialization"]["recovery"]
+
+    recipe = {"recipe": {"test": "one identical saved graph"}}
+    baseline = run(3.0, recipe)
+    rounded = run(3.0 + 1e-12, recipe)
+    assert baseline["binding_sha256"] == rounded["binding_sha256"]
+    assert run(3.0, None)["binding_sha256"] != run(3.0 + 1e-12, None)["binding_sha256"]

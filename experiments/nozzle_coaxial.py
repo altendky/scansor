@@ -41,6 +41,15 @@ from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotatio
 from experiments.nozzle_session import NozzleWorkspace, SurfaceResult
 from experiments.scan_workspace import ScanWorkspace, Workspace
 from experiments.selection_growth import fit_seed, surface_distance
+from experiments.support_intent import (
+    SUPPORT_POLICY_VERSION,
+    SelectionSupport,
+    SupportIntent,
+    SupportIntentFailure,
+    legacy_support,
+    resolve_support,
+    support_record,
+)
 from scansor.nonlinear_least_squares import LeastSquaresFailure
 
 
@@ -50,6 +59,7 @@ class FitSelection:
     ids: list[int]
     kind: str
     domain: tuple[float, float] | None
+    support: SupportIntent | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +99,19 @@ def _fit_selected_group(
     if any(s.kind not in {"cylinder", "cone"} for s in sides):
         raise ValueError("shared-axis lateral surfaces must be cylinders or cones")
     has_cones = any(s.kind == "cone" for s in sides)
+    supports: dict[str, SupportIntent] = {}
+    for side in sides:
+        if (
+            side.support is not None
+            and side.domain is not None
+            and side.support != legacy_support(side.domain)
+        ):
+            raise SupportIntentFailure(
+                "explicit domain and support must describe the same source-Z0 intent"
+            )
+        supports[side.id] = (
+            side.support if side.support is not None else legacy_support(side.domain)
+        )
     policy_version = (
         "selected-revolution-group-recovery-v1"
         if has_cones
@@ -156,7 +179,12 @@ def _fit_selected_group(
             else reference_direction.tolist()
         },
         "semantic_intent": semantic_intent,
+        "support_policy": SUPPORT_POLICY_VERSION,
     }
+    if semantic_intent is None or "recipe" not in semantic_intent:
+        intent["support"] = {
+            side.id: support_record(supports[side.id]) for side in sides
+        }
     binding = initialization_binding(
         workspace.source_sha256,
         workspace.descriptor.interpretation_sha256,
@@ -306,6 +334,26 @@ def _fit_selected_group(
                 "slope": taper,
                 "axial_domain": [float(min(height)), float(max(height))],
             }
+            if not isinstance(supports[side.id], SelectionSupport):
+                # This initial analytic record must describe the authored
+                # segment, even when selected observations extend outside it.
+                try:
+                    resolved = resolve_support(
+                        supports[side.id], anchor, direction, p, reference=frame.origin
+                    )
+                except SupportIntentFailure as error:
+                    raise LeastSquaresFailure(
+                        "invalid-initial-geometry", str(error)
+                    ) from error
+                radius += taper * resolved.origin_shift
+                taper *= resolved.axis_sign
+                geometry.update(
+                    origin=list(resolved.origin),
+                    axis=list(resolved.axis),
+                    radius=radius,
+                    slope=taper,
+                    axial_domain=list(resolved.domain),
+                )
             if geometry["axial_domain"][0] == geometry["axial_domain"][1]:
                 # A fixed/shared axis can identify a radius from one circle;
                 # its finite support must still have nonzero observed extent.
@@ -322,9 +370,12 @@ def _fit_selected_group(
                 "kind": side.kind,
                 "analytic": geometry,
                 "anchor_reference": frame.origin.tolist(),
+                "support_intent": support_record(supports[side.id]),
                 "support_origin": "selection"
-                if side.domain is None
-                else "legacy-source-z0",
+                if isinstance(supports[side.id], SelectionSupport)
+                else "legacy-source-z0"
+                if side.domain is not None
+                else "reference-plane",
             }
             if side.domain is not None:
                 result["source_axial_domain"] = list(side.domain)
@@ -516,6 +567,7 @@ def _fit_selected_group(
         surfaces[selected.id]["ids"] = selected.ids.copy()
         surfaces[selected.id]["initialization"] = {
             "algorithm": policy_version,
+            "support_policy": SUPPORT_POLICY_VERSION,
             "observations": sum(len(s.ids) for s in all_selected),
             "recovery": recovered.diagnostics.json(),
         }
@@ -568,6 +620,7 @@ def _fit_selected_group(
             "solver": output["solver"],
             "initialization": {
                 "algorithm": policy_version,
+                "support_policy": SUPPORT_POLICY_VERSION,
                 "recovery": recovered.diagnostics.json(),
             },
         },
