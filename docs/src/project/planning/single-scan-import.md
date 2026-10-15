@@ -72,6 +72,17 @@ fixed axes remain exact. Per-axis constrained charts, derived axes, radius
 equalities and rigid reuse consume the canonical geometry. Imported cones and
 rotational/mirror groups remain guarded pending their integration work.
 
+The [raw-scan acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
+opens only the retained RealityScan PLY, authors the frozen 803-row plane and
+5,066-row cylinder selections, and verifies every selected residual and complete
+incident-area-weighted objective while example sidecar and legacy workspace
+reads are denied. Saved definitions contain no computed seeds; replay against
+renamed identical bytes preserves source binding and exact results. This rough
+real scan is implementation evidence, with no fit-quality or physical-accuracy
+threshold. Independent analytic fixtures remain the geometry oracles. The
+shared-core regression complements native atomic reopening and browser tests;
+it does not complete #240's cone/symmetry or both-backend workflow gates.
+
 Cylinder admission is deliberately conservative: selected positional covariance
 must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
 geometric Jacobian, measured in a normalized chart aligned with the fitted axis,
