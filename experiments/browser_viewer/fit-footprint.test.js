@@ -109,6 +109,67 @@ test('cylinder partial patches crossing the angle seam stay on the exact surface
   }
 });
 
+test('canonical and legacy revolution footprints agree without changing source observations', () => {
+  for (const kind of ['cylinder', 'cone']) {
+    const p = [2, -3, 0.2, -0.4, 5, 0, kind === 'cone' ? 0.25 : 0], axis = unit([p[2], p[3], 1]),
+      points = [0.2, 0.9].flatMap(angle => [-1, 3].map(height => axial(p, angle, height, 0.4))),
+      { fitted, positions } = fitting(kind, p, points),
+      canonical = { ...fitted, parameters: [NaN], axial_domain: ['invalid'], analytic: {
+        kind, origin: [2, -3, 0], axis, radius: 5, slope: p[6], axial_domain: [-2, 5],
+      } },
+      before = structuredClone({ canonical, positions }),
+      legacyPaths = fittedSelectionFootprint(fitted, positions),
+      canonicalPaths = fittedSelectionFootprint(canonical, positions);
+    assert.equal(canonicalPaths.length, legacyPaths.length);
+    for (const [index, path] of canonicalPaths.entries()) {
+      assert.equal(path.preview.positions.length, legacyPaths[index].preview.positions.length);
+      path.preview.positions.forEach((value, coordinate) => near(value, legacyPaths[index].preview.positions[coordinate]));
+    }
+    assert.deepEqual({ canonical, positions }, before);
+  }
+});
+
+test('horizontal canonical cylinder footprints lie on the declared world geometry', () => {
+  const origin = [3, -4, 5], radius = 2.5,
+    points = [0.1, 0.8].flatMap(angle => [-1, 3].map(height =>
+      [origin[0] + height, origin[1] + (radius + 0.4) * Math.cos(angle), origin[2] + (radius + 0.4) * Math.sin(angle)])),
+    fitted = { kind: 'cylinder', ids: points.map((_, index) => index), analytic: {
+      kind: 'cylinder', origin, axis: [1, 0, 0], radius, slope: 0, axial_domain: [-2, 4],
+    } }, paths = fittedSelectionFootprint(fitted, points.flat());
+  assert.equal(paths.length, 1);
+  for (const point of pointsOf(paths[0])) {
+    near(Math.hypot(point[1] - origin[1], point[2] - origin[2]), radius);
+    assert.ok(point[0] - origin[0] >= -1 - 1e-10 && point[0] - origin[0] <= 3 + 1e-10);
+  }
+});
+
+test('horizontal finite cone footprints preserve a valid segment with negative anchor radius', () => {
+  const origin = [3, -4, 5], radius = -1, slope = 0.5,
+    points = [0.1, 0.8].flatMap(angle => [9, 13].map(height => {
+      const observedRadius = radius + slope * height + 1;
+      return [origin[0] + height, origin[1] + observedRadius * Math.cos(angle), origin[2] + observedRadius * Math.sin(angle)];
+    })),
+    fitted = { kind: 'cone', ids: points.map((_, index) => index), analytic: {
+      kind: 'cone', origin, axis: [1, 0, 0], radius, slope, axial_domain: [8, 15],
+    } }, paths = fittedSelectionFootprint(fitted, points.flat());
+  assert.equal(paths.length, 1);
+  for (const point of pointsOf(paths[0])) {
+    const height = point[0] - origin[0];
+    near(Math.hypot(point[1] - origin[1], point[2] - origin[2]), radius + slope * height);
+    assert.ok(height >= 8 && height <= 15);
+  }
+});
+
+test('malformed canonical footprint geometry never silently falls back to legacy parameters', () => {
+  const legacy = { kind: 'cylinder', ids: [0, 1, 2, 3], parameters: [0, 0, 0, 0, 2, 0, 0] },
+    points = [0.1, 0.8].flatMap(angle => [-1, 3].map(height => axial(legacy.parameters, angle, height)));
+  for (const analytic of [null, {}, { kind: 'cylinder', origin: [0, 0, 0], axis: [0, 0, 0],
+    radius: 2, slope: 0, axial_domain: [-2, 4] }]) {
+    assert.throws(() => fittedSelectionFootprint({ ...legacy, analytic }, points.flat()), TypeError);
+    assert.throws(() => fittedSelectionFootprint({ ...legacy, ids: [], analytic }, []), TypeError);
+  }
+});
+
 test('cone uses closest meridian projection rather than preserving observation height', () => {
   const p = [0, 0, 0, 0, 4, 0, 0.5],
     points = [0.2, 0.8].flatMap((angle) => [1, 3].map((height) => axial(p, angle, height, 2))),

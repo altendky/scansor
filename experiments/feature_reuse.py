@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from experiments.surface_primitives import revolution_geometry, transform_revolution
+
 FloatArray = NDArray[np.float64]
 
 
@@ -294,14 +296,15 @@ def surface_region_frame(
     center = np.mean(selected, axis=0)
     if fit.get("kind") != "cylinder":
         return np.asarray(center, dtype=np.float64), np.eye(3, dtype=np.float64)
-    parameters = np.asarray(fit["parameters"], dtype=float)
+    geometry = revolution_geometry(fit)
+    legacy = "analytic" not in fit
     direction = np.asarray(
-        fit.get("axis_display", [parameters[2], parameters[3], 1.0]),
+        fit.get("axis_display", geometry["axis"]) if legacy else geometry["axis"],
         dtype=float,
     )
     direction /= np.linalg.norm(direction)
     point = np.asarray(
-        fit.get("point_display", [parameters[0], parameters[1], 0.0]),
+        fit.get("point_display", geometry["origin"]) if legacy else geometry["origin"],
         dtype=float,
     )
     origin = point + float((center - point) @ direction) * direction
@@ -316,6 +319,20 @@ def surface_region_frame(
         np.asarray(origin, dtype=np.float64),
         np.asarray(np.column_stack((radial, tangential, direction)), dtype=np.float64),
     )
+
+
+def transformed_surface_geometry(
+    fit: dict[str, Any],
+    rotation: FloatArray,
+    translation: FloatArray,
+) -> dict[str, Any]:
+    """Move analytic revolution geometry without constructing a numerical seed.
+
+    Rotation follows the occurrence match's row-vector convention. The anchor
+    and its finite support move together, including when the axis is horizontal.
+    Numerical reuse initialization retains its separate legacy chart boundary.
+    """
+    return transform_revolution(revolution_geometry(fit), rotation, translation)
 
 
 def transformed_fit_seed(

@@ -18,6 +18,7 @@ from experiments.mesh_cone_plane_fit import (
 )
 from experiments.mesh_cylinder_fit import Array
 from experiments.mesh_sphere_fit import fit_sphere
+from experiments.surface_primitives import revolution_geometry
 
 
 class PlaneFitFailure(ValueError):
@@ -210,14 +211,15 @@ def fit_seed(
 def surface_distance(
     points: Array, fit: dict[str, Any]
 ) -> tuple[Array, Array, NDArray[np.bool_]]:
-    p = np.array(fit["parameters"])
     if fit["kind"] == "plane":
+        p = np.array(fit["parameters"])
         return (
             points @ p[:3] - p[3],
             np.broadcast_to(p[:3], points.shape).copy(),
             np.ones(len(points), dtype=bool),
         )
     if fit["kind"] == "sphere":
+        p = np.array(fit["parameters"])
         radial = points - p[:3]
         rho = np.linalg.norm(radial, axis=1)
         return (
@@ -225,24 +227,25 @@ def surface_distance(
             radial / np.maximum(rho, 1e-30)[:, None],
             rho > 0,
         )
-    axis = np.array([p[2], p[3], 1.0])
-    axis /= np.linalg.norm(axis)
-    q = points - np.array([p[0], p[1], 0.0])
+    geometry = revolution_geometry(fit)
+    axis = np.asarray(geometry["axis"])
+    radius, slope = geometry["radius"], geometry["slope"]
+    q = points - np.asarray(geometry["origin"])
     z = q @ axis
     radial = q - z[:, None] * axis
     rho = np.linalg.norm(radial, axis=1)
-    scale = float(np.hypot(1, p[6]))
-    expected = (radial / np.maximum(rho, 1e-30)[:, None] - p[6] * axis) / scale
-    residual = (rho - p[4] - p[6] * z) / scale
-    projected_z = (z + p[6] * (rho - p[4])) / (1 + p[6] ** 2)
-    lo, hi = fit["axial_domain"]
+    scale = float(np.hypot(1, slope))
+    expected = (radial / np.maximum(rho, 1e-30)[:, None] - slope * axis) / scale
+    residual = (rho - radius - slope * z) / scale
+    projected_z = (z + slope * (rho - radius)) / (1 + slope**2)
+    domain = geometry["axial_domain"]
+    inside = np.ones(len(points), dtype=bool)
+    if domain is not None:
+        inside = (projected_z >= domain[0]) & (projected_z <= domain[1])
     return (
         residual,
         expected,
-        (rho > 0)
-        & (p[4] + p[6] * projected_z > 0)
-        & (projected_z >= lo)
-        & (projected_z <= hi),
+        (rho > 0) & (radius + slope * projected_z > 0) & inside,
     )
 
 

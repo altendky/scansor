@@ -198,6 +198,40 @@ source Z, its derived axis, a fit constrained to that axis and exported geometry
 no downstream consumer may silently interpret rotated parameters in the old
 workspace positive-Z chart.
 
+### Internal analytic geometry boundary
+
+The spatial foundation in [#259](https://github.com/altendky/scansor/issues/259)
+adds a canonical internal `analytic` record for cylinders/cones: kind, XYZ
+origin, unit axis, radius at that origin, taper and finite axial support relative
+to the origin. Shared Python and browser accessors prefer that record and reject
+malformed explicit geometry without falling back to legacy parameters. Legacy
+seven-value charts remain explicitly adapted; absent legacy support stays absent.
+This is a spatial representation boundary, not a new saved-action schema.
+
+Rebasing an anchor also rebases its radius and support; reversing the surface
+axis reverses taper and support bounds. Rigid reuse transformations retain the
+physical support endpoints. A cone may have a negative extrapolated radius at its
+anchor when its complete declared finite segment has positive radii. Distances,
+normals, support membership, regions, browser guides/footprints, extents and
+standalone CAD export consume the common geometry rather than reconstructing a
+positive-Z axis independently. Physical face boundaries remain separate from
+fitting/display support.
+
+This foundation does not publish arbitrary-pose fitting results. The following
+numerical consumers remain prerequisites in #252 before enabling that path;
+the cone child #253 then supplies initialization and support evidence:
+
+| Consumer | Remaining numerical migration |
+| --- | --- |
+| `feature_graph` | Fit-derived axes, connected fit publication, radius equalities and relationship lowering |
+| `nozzle_coaxial` | Fixed/free shared-axis group charts and publication |
+| `fit_relationship_component` | A chart basis per free axis, radius rebasing and constrained result publication |
+| `feature_reuse` | `transformed_fit_seed`, axis initializer conversion and their graph callers |
+
+Existing solver APIs and graph dispatch remain unchanged here. Generic imported
+cylinder/cone fitting stays guarded until the respective family work passes its
+full graph, reference, joint, reuse, replay and native/worker gates.
+
 ### Saved intent and computed starts
 
 The internal [recovery foundation](../../../../experiments/fit_initialization.py)

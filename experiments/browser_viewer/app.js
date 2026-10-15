@@ -27,6 +27,7 @@ import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } fr
 import { selectionVolumePositions } from './reuse-volume.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
+import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
 import {
@@ -3126,14 +3127,14 @@ function axisPreview(node) {
     if (node.direction_reversed) axis.negate();
     return { axis_display: axis.toArray(), point_display: point.toArray() };
   }
-  let parameters = node.initial_parameters;
-  if (!parameters && node.source_fit) parameters = graphState.results[node.source_fit]?.parameters;
-  if (!parameters) return null;
-  const axis = new THREE.Vector3(parameters[2], parameters[3], 1).normalize();
+  const source = node.initial_parameters ? { parameters: node.initial_parameters }
+    : node.source_fit ? graphState.results[node.source_fit] : null;
+  if (!source) return null;
+  const geometry = axisGeometry(source), axis = new THREE.Vector3(...geometry.axis);
   if (node.direction_reversed) axis.negate();
   return {
     axis_display: axis.toArray(),
-    point_display: [parameters[0], parameters[1], 0],
+    point_display: geometry.origin,
   };
 }
 function pointPreview(node) {
@@ -3246,6 +3247,8 @@ function referencePlaneGuide(values, color = '#ff8fe5', group = overlays) {
   );
 }
 function surfaceGuide(kind, p, domain, color, ids = [], group = overlays) {
+  const revolution = ['cylinder', 'cone'].includes(kind) ? revolutionGeometry(p) : null;
+  if (revolution?.axial_domain) domain = revolution.axial_domain;
   const line = (points) =>
     group.add(
       new THREE.Line(
@@ -3307,8 +3310,8 @@ function surfaceGuide(kind, p, domain, color, ids = [], group = overlays) {
     if (ids.length) point.divideScalar(ids.length);
     point.addScaledVector(axis, p[3] - point.dot(axis));
   } else {
-    axis = new THREE.Vector3(p[2], p[3], 1).normalize();
-    point = new THREE.Vector3(p[0], p[1], 0);
+    axis = new THREE.Vector3(...revolution.axis);
+    point = new THREE.Vector3(...revolution.origin);
   }
   const u = new THREE.Vector3()
       .crossVectors(
@@ -3338,7 +3341,7 @@ function surfaceGuide(kind, p, domain, color, ids = [], group = overlays) {
     ring(0, extent);
     ring(0, extent * 0.8);
   } else {
-    for (const z of domain) ring(z, p[4] + p[6] * z);
+    for (const z of domain) ring(z, revolution.radius + revolution.slope * z);
     for (let i = 0; i < 12; i++) {
       const a = (i * 2 * Math.PI) / 12;
       line(
@@ -3346,8 +3349,8 @@ function surfaceGuide(kind, p, domain, color, ids = [], group = overlays) {
           point
             .clone()
             .addScaledVector(axis, z)
-            .addScaledVector(u, (p[4] + p[6] * z) * Math.cos(a))
-            .addScaledVector(v, (p[4] + p[6] * z) * Math.sin(a)),
+            .addScaledVector(u, (revolution.radius + revolution.slope * z) * Math.cos(a))
+            .addScaledVector(v, (revolution.radius + revolution.slope * z) * Math.sin(a)),
         ),
       );
     }
@@ -3361,7 +3364,7 @@ function fitGuide(node, fitted, color) {
   }
   surfaceGuide(
     node.kind,
-    parameters,
+    ['cylinder', 'cone'].includes(node.kind) ? fitted : parameters,
     fitted.axial_domain || node.axial_domain,
     color,
     fitted.ids,
@@ -3629,8 +3632,12 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
       values['Diameter'] = (2 * result.parameters[3]).toFixed(5);
     }
     else {
-      values['Diameter'] = (2 * result.parameters[4]).toFixed(5);
-      values['Half-angle'] = ((Math.atan(result.parameters[6]) * 180) / Math.PI).toFixed(4) + '°';
+      const geometry = revolutionGeometry(result);
+      if (geometry.kind === 'cone' && geometry.radius <= 0) {
+        const start = (geometry.axial_domain || node.axial_domain)[0];
+        values['Diameter at support start'] = (2 * (geometry.radius + geometry.slope * start)).toFixed(5);
+      } else values['Diameter'] = (2 * geometry.radius).toFixed(5);
+      values['Half-angle'] = ((Math.atan(geometry.slope) * 180) / Math.PI).toFixed(4) + '°';
     }
   } else if (node.operation === 'axis') {
     drawGuide(axisGuide, result);

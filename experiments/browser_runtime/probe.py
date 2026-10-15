@@ -34,6 +34,13 @@ from experiments.mesh_cone_plane_fit import (
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits
+from experiments.selection_growth import surface_distance
+from experiments.surface_primitives import (
+    primitive,
+    rebase_revolution,
+    reverse_revolution,
+    transform_revolution,
+)
 
 EXAMPLE = "examples/nozzle-bayonette-simplified"
 ATOL = 1e-10
@@ -356,6 +363,82 @@ def imported_sphere_probe(
     return report
 
 
+def analytic_geometry_probe() -> dict[str, Any]:
+    """Exact rational spatial cases, independent of fitting and source-Z charts."""
+    rotation = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])
+    translation = np.array([2.0, -1, 4])
+    report: dict[str, Any] = {}
+    for kind, radius, slope, domain, points, membership in (
+        (
+            "cylinder",
+            2.0,
+            0.0,
+            [-2.0, 4.0],
+            [[1.0, -2, 5], [1, -4, 7], [7, -6, 5], [7, -4, 3], [8, -2, 5]],
+            [True, True, True, True, False],
+        ),
+        (
+            "cone",
+            -1.0,
+            0.5,
+            [4.0, 8.0],
+            [[7.0, -3, 5], [11, -4, 8], [6, -4, 5.5]],
+            [True, True, False],
+        ),
+    ):
+        geometry = {
+            "kind": kind,
+            "origin": [3.0, -4, 5],
+            "axis": [1.0, 0, 0],
+            "radius": radius,
+            "slope": slope,
+            "axial_domain": domain,
+        }
+        observations = np.asarray(points)
+        variants = (
+            (geometry, observations, False),
+            (rebase_revolution(geometry, 6.0), observations, False),
+            (reverse_revolution(geometry), observations, False),
+            (
+                transform_revolution(geometry, rotation, translation),
+                observations @ rotation + translation,
+                True,
+            ),
+        )
+        records: list[dict[str, Any]] = []
+        baseline_normals = None
+        for value, selected, moved in variants:
+            # Canonical data must remain authoritative even beside an unusable
+            # old chart; horizontal geometry has no valid legacy substitute.
+            surface = {
+                "kind": kind,
+                "analytic": value,
+                "parameters": ["stale-legacy-chart"],
+            }
+            residual, normals, inside = surface_distance(selected, surface)
+            np.testing.assert_allclose(residual, 0, rtol=RTOL, atol=ATOL)
+            assert inside.tolist() == membership
+            if baseline_normals is None:
+                baseline_normals = normals
+            np.testing.assert_allclose(
+                normals,
+                baseline_normals @ rotation if moved else baseline_normals,
+                rtol=RTOL,
+                atol=ATOL,
+            )
+            records.append(
+                {
+                    "geometry": value,
+                    "primitive": primitive(surface),
+                    "residuals": residual.tolist(),
+                    "normals": normals.tolist(),
+                    "inside": inside.tolist(),
+                }
+            )
+        report[kind] = records
+    return report
+
+
 def numeric(root: Path, fixture: Path) -> dict[str, Any]:
     started = time.perf_counter()
     with np.load(fixture, allow_pickle=False) as data:
@@ -448,6 +531,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         "synthetic": {"fit": synthetic, "residuals": residuals.tolist()},
         "imported_planes": imported_planes,
         "imported_spheres": imported_spheres,
+        "analytic_geometry": analytic_geometry_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
             json.dumps(
@@ -660,6 +744,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     compare_values(graph["results"], reference["results"], "graph.results")
     compare_imported_planes(actual["imported_planes"], expected["imported_planes"])
     compare_imported_spheres(actual["imported_spheres"], expected["imported_spheres"])
+    compare_values(
+        actual["analytic_geometry"], expected["analytic_geometry"], "analytic_geometry"
+    )
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
     np.testing.assert_allclose(
         actual["synthetic"]["residuals"],
