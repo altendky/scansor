@@ -226,13 +226,16 @@ function meshResponse(path, generation) {
 
 function scanFile() { return Object.assign(new Blob(['ply']), { name: 'renamed.ply' }); }
 
-test('source operations are optional and capability-gated for old factories and retained worker', async () => {
+test('source operations are optional and capability-gated for old factories and old worker declarations', async () => {
   const unavailable = [createBackend({ type: 'old', factories: { old: () => ({
     ...createHttpBackend({ fetch: () => assert.fail('Unexpected fallback') }),
     capabilities: { numerical: true, cad: false, examples: false },
-  }) } }), createBackend({ type: 'worker', factories: { worker: () => createWorkerBackend({
-    runtimeURL: '/worker.mjs', workerFactory: () => assert.fail('Unsupported source import started a worker'),
-  }) } })];
+  }) } }), createBackend({ type: 'worker', factories: { worker: () => {
+    const backend = createWorkerBackend({ runtimeURL: '/worker.mjs',
+      workerFactory: () => assert.fail('Unsupported source import started a worker') });
+    backend.capabilities = { ...backend.capabilities, sourceImport: false };
+    return backend;
+  } } })];
   for (const backend of unavailable) {
     for (const method of ['addScan', 'getSourceOperation', 'cancelSourceOperation', 'resetProject'])
       await assert.rejects(backend[method]({}), error => error.code === 'unsupported_capability');

@@ -103,6 +103,404 @@ const graph = (extra = {}) => ({ token: 'token', revision: 3,
 const tick = () => Promise.resolve();
 const settle = async () => { for (let n = 0; n < 8; n++) await tick(); };
 
+const sourceProfile = { supported: true, formats: ['binary-triangle-ply-v1'], max_sources: 1,
+  limits: { max_source_bytes: 1024, max_vertices: 100, max_faces: 200,
+    max_estimated_bytes: 100000, chunk_bytes: 64 }, cancel: true,
+  recovery: 'active-workspace-original-bytes' };
+function sourceGraph(generation = 0, token = 'empty', nodes = []) {
+  return graph({ project_generation: generation, token, recipe: { schema_version: 2, nodes, output: null } });
+}
+function sourceReady(extra = {}) {
+  return { ...ready, worker_protocol: { version: 5 }, source_import: sourceProfile,
+    source_mode: { kind: 'empty' }, source_identity: {}, graph: sourceGraph(), ...extra };
+}
+async function sourceFixture(options) {
+  const value = fixture({ initialMode: 'empty', ...options }), loading = value.backend.initialize();
+  value.worker.reply(sourceReady());
+  await loading;
+  return value;
+}
+function sourceFile(size = 30) {
+  const file = Object.assign(new Blob([new Uint8Array(size)]), { name: 'original.ply' });
+  file.arrayBuffer = () => assert.fail('The coordinator must not read whole source bytes.');
+  return file;
+}
+function candidate(request, { generation = 1, kind = 'scan', identity = { source_sha256: 'hash' }, token = 'source', nodes,
+  ...changes } = {}) {
+  const empty = kind === 'empty';
+  return { operationId: request.payload.operationId, workspaceGeneration: generation,
+    source_mode: { kind, ...(kind === 'example' ? { example: 'nozzle' } : {}) }, source_identity: identity,
+    metadata: { project_generation: generation, vertices: empty ? 0 : 3, triangles: empty ? 0 : 1,
+      positions: { dtype: '<f4', components: 3 }, indices: { dtype: '<u4', components: 3 },
+      capabilities: { source_import: sourceProfile } },
+    graph: sourceGraph(generation, token, nodes || (empty ? [] : [{ operation: 'source', id: 'source' }])),
+    positions: new ArrayBuffer(empty ? 0 : 36), indices: new ArrayBuffer(empty ? 0 : 12), ...changes };
+}
+function sourceTransfer(worker, request, result, { confirm = true } = {}) {
+  worker.reply({ id: request.id, generation: request.generation, ok: true, kind: 'source-candidate', result });
+  if (confirm) worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+}
+function sourcePromotion(worker, request, generation = 1) {
+  worker.reply({ id: request.id, kind: 'source-promoted', operationId: request.payload.operationId,
+    workspaceGeneration: generation });
+}
+
+test('source candidate adopts only after complete transfer confirmation and resolves after promotion', async () => {
+  const { backend, worker } = await sourceFixture(), progress = [], file = sourceFile();
+  const importing = backend.addScan({ file, generation: 0, token: 'empty' }, { onProgress: p => progress.push(p) });
+  await settle();
+  const request = worker.calls.at(-1), result = candidate(request);
+  assert.equal(request.operation, 'prepare-source');
+  assert.equal(request.payload.file, file);
+  assert.equal(request.workspaceGeneration, 0);
+  sourceTransfer(worker, request, result, { confirm: false });
+  assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe);
+  assert.equal(worker.calls.at(-1), request);
+  worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+  assert.deepEqual(await backend.exportRecipe(), result.graph.recipe);
+  assert.deepEqual(worker.calls.at(-1), { operation: 'accept-source-boundary', id: request.id,
+    generation: request.generation, operationId: request.payload.operationId, workspaceGeneration: 1, accepted: true });
+  const status = await backend.getSourceOperation(progress[0]);
+  assert.equal(status.status, 'accepted');
+  assert.equal(status.acceptedGeneration, 1);
+  await assert.rejects(backend.getGraph(), error => error.code === 'source_busy');
+  let resolved = false;
+  importing.then(() => { resolved = true; });
+  await settle();
+  assert.equal(resolved, false);
+  sourcePromotion(worker, request);
+  assert.equal((await importing).generation, 1);
+  assert.equal(resolved, true);
+  assert.deepEqual(progress.map(p => p.status), ['reserved', 'accepted']);
+  const reading = backend.getGraph(); await settle();
+  assert.equal(worker.calls.at(-1).workspaceGeneration, 1);
+  worker.reply({ id: worker.calls.at(-1).id, ok: true, result: result.graph });
+  await reading;
+  backend.close();
+});
+
+test('source preflight uses worker-advertised limits and one slot survives observer Abort', async () => {
+  const { backend, worker } = await sourceFixture(), controller = new AbortController();
+  await assert.rejects(backend.addScan({ file: sourceFile(1025), generation: 0, token: 'empty' }),
+    error => error.code === 'source_limit');
+  await assert.rejects(backend.addScan({ file: sourceFile(), generation: 9, token: 'empty' }),
+    error => error.code === 'observation_superseded');
+  assert.equal(worker.calls.length, 1);
+  const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }, { signal: controller.signal });
+  await settle();
+  const request = worker.calls.at(-1), result = candidate(request);
+  controller.abort(new Error('Stopped observing'));
+  await assert.rejects(importing, /Stopped observing/);
+  await assert.rejects(backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }), error => error.code === 'source_busy');
+  sourceTransfer(worker, request, result);
+  sourcePromotion(worker, request);
+  assert.deepEqual(await backend.exportRecipe(), result.graph.recipe);
+  assert.equal((await backend.getSourceOperation({ operationId: request.payload.operationId })).status, 'accepted');
+  backend.close();
+});
+
+test('Cancel after private commit and before confirmation rejects candidate without adopting its source', async () => {
+  const { backend, worker } = await sourceFixture(), progress = [];
+  const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }, { onProgress: p => progress.push(p) });
+  await settle();
+  const request = worker.calls.at(-1);
+  sourceTransfer(worker, request, candidate(request), { confirm: false });
+  await assert.rejects(backend.cancelSourceOperation({ ...progress[0], token: 'wrong' }), error => error.code === 'stale_source');
+  assert.equal((await backend.cancelSourceOperation(progress[0])).status, 'cancelling');
+  worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+  assert.equal(worker.calls.at(-1).accepted, false);
+  worker.reply({ id: request.id, ok: false, error: { code: 'source_cancelled', message: 'Cancelled safely' } });
+  await assert.rejects(importing, error => error.code === 'source_cancelled');
+  assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe);
+  assert.equal((await backend.getSourceOperation(progress[0])).status, 'cancelled');
+  backend.close();
+});
+
+test('reentrant Cancel after adoption observes accepted source and never sends cancellation', async () => {
+  const { backend, worker } = await sourceFixture();
+  let cancellation;
+  const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }, {
+    onProgress: record => { if (record.status === 'accepted') cancellation = backend.cancelSourceOperation(record); },
+  });
+  await settle();
+  const request = worker.calls.at(-1);
+  sourceTransfer(worker, request, candidate(request));
+  assert.equal((await cancellation).status, 'accepted');
+  assert(!worker.calls.some(call => call.operation === 'cancel-source'));
+  sourcePromotion(worker, request);
+  await importing;
+  backend.close();
+});
+
+test('malformed source buffers or mismatched generation retire runtime without corrupting accepted recipe', async () => {
+  for (const corrupt of [result => { result.metadata.project_generation = 8; },
+    result => { result.positions = new ArrayBuffer(12); },
+    result => { result.operationId = 'foreign'; }]) {
+    const { backend, worker } = await sourceFixture();
+    const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' });
+    await settle();
+    const request = worker.calls.at(-1), result = candidate(request);
+    corrupt(result);
+    sourceTransfer(worker, request, result);
+    await assert.rejects(importing, error => error.code === 'worker_failed');
+    assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe);
+    assert.equal(worker.terminated, 1);
+    backend.close();
+  }
+});
+
+test('accepted promotion delivery failure keeps accepted record and downloadable recipe', async () => {
+  const { backend, worker } = await sourceFixture(), records = [];
+  const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }, { onProgress: p => records.push(p) });
+  await settle();
+  const request = worker.calls.at(-1), result = candidate(request);
+  sourceTransfer(worker, request, result);
+  worker.onerror({ message: 'Lost promotion acknowledgement' });
+  await assert.rejects(importing, error => error.code === 'accepted_workspace_unavailable'
+    && error.acceptedOperation.acceptedGeneration === 1);
+  assert.equal((await backend.getSourceOperation(records[0])).status, 'accepted');
+  assert.deepEqual(await backend.exportRecipe(), result.graph.recipe);
+  backend.close();
+});
+
+test('reset uses confirmed candidate publication and empty ABA keeps source generations distinct', async () => {
+  const { backend, worker } = await sourceFixture();
+  await assert.rejects(backend.resetProject({ generation: 0, token: 'empty' }), error => error.code === 'confirmation_required');
+  const resetting = backend.resetProject({ generation: 0, token: 'empty', confirmedDiscard: true });
+  await settle();
+  const request = worker.calls.at(-1);
+  sourceTransfer(worker, request, candidate(request, { kind: 'empty', token: 'empty' }));
+  sourcePromotion(worker, request);
+  assert.equal((await resetting).generation, 1);
+  await assert.rejects(backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }),
+    error => error.code === 'observation_superseded');
+  backend.close();
+});
+
+test('source failures retain existing checkpoint and progress uses immutable bounded records', async () => {
+  const { backend, worker } = await sourceFixture(), records = [];
+  const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }, { onProgress: record => {
+    records.push(record); record.status = 'mutated-by-observer';
+  } });
+  await settle();
+  const request = worker.calls.at(-1);
+  worker.reply({ kind: 'source-progress', generation: request.generation, operationId: request.payload.operationId,
+    progress: { phase: 'reading', completed: 10, total: 30, unit: 'bytes' } });
+  worker.reply({ id: request.id, ok: false, error: { code: 'unsupported_source', message: 'Normals required' } });
+  await assert.rejects(importing, error => error.code === 'unsupported_source');
+  const status = await backend.getSourceOperation({ operationId: request.payload.operationId });
+  assert.equal(status.status, 'failed');
+  assert.equal(status.error.code, 'unsupported_source');
+  assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe);
+  assert.equal(records.length, 3);
+  backend.close();
+});
+
+test('Force before versus after source adoption reconstructs the correct accepted File and recipe', async () => {
+  for (const adopted of [false, true]) {
+    const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+    let worker = value.workers[0];
+    worker.reply(sourceReady()); await loading;
+    const file = sourceFile(), importing = value.backend.addScan({ file, generation: 0, token: 'empty' });
+    await settle();
+    const request = worker.calls.at(-1), result = candidate(request);
+    sourceTransfer(worker, request, result, { confirm: adopted });
+    const interrupted = assert.rejects(importing, error => error.code === (adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled'));
+    const restoring = value.backend.forceRestart();
+    worker = value.workers.at(-1);
+    worker.reply(sourceReady({ id: worker.calls[0].id }));
+    await settle();
+    const restore = worker.calls.at(-1);
+    assert.equal(restore.operation, 'prepare-source');
+    assert.equal(restore.payload.kind, adopted ? 'scan' : 'empty');
+    assert.equal(restore.payload.file, adopted ? file : undefined);
+    assert.equal(restore.payload.recovery.generation, adopted ? 1 : 0);
+    assert.deepEqual(restore.payload.recovery.recipe, adopted ? result.graph.recipe : sourceGraph().recipe);
+    sourceTransfer(worker, restore, candidate(restore, { generation: adopted ? 1 : 0,
+      kind: adopted ? 'scan' : 'empty', token: adopted ? 'source' : 'empty', identity: adopted ? result.source_identity : {} }));
+    sourcePromotion(worker, restore, adopted ? 1 : 0);
+    assert.equal((await restoring).project_generation, adopted ? 1 : 0);
+    await interrupted;
+    value.backend.close();
+  }
+});
+
+test('failed imported Force recovery retains original File authority for a later retry', async () => {
+  const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(sourceReady()); await loading;
+  const file = sourceFile(), importing = value.backend.addScan({ file, generation: 0, token: 'empty' });
+  await settle();
+  const request = worker.calls.at(-1), result = candidate(request);
+  sourceTransfer(worker, request, result); sourcePromotion(worker, request); await importing;
+  const failed = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(sourceReady({ id: worker.calls[0].id })); await settle();
+  const attempt = worker.calls.at(-1);
+  worker.reply({ id: attempt.id, ok: false, error: { code: 'recovery_source_mismatch', message: 'File bytes changed' } });
+  await assert.rejects(failed, error => error.code === 'recovery_source_mismatch');
+  assert.deepEqual(await value.backend.exportRecipe(), result.graph.recipe);
+  const retry = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(sourceReady({ id: worker.calls[0].id })); await settle();
+  const next = worker.calls.at(-1);
+  assert.equal(next.payload.file, file);
+  sourceTransfer(worker, next, candidate(next)); sourcePromotion(worker, next);
+  await retry;
+  value.backend.close();
+});
+
+test('old readiness explicitly rejects new source methods without posting bulk work', async () => {
+  const { backend, worker } = await initialized();
+  await assert.rejects(backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }),
+    error => error.code === 'unsupported_capability');
+  await assert.rejects(backend.resetProject({ generation: 0, token: 'empty', confirmedDiscard: true }),
+    error => error.code === 'unsupported_capability');
+  for (const method of ['getSourceOperation', 'cancelSourceOperation'])
+    await assert.rejects(backend[method]({ operationId: 'unknown' }), error => error.code === 'unsupported_capability');
+  assert.equal(worker.calls.length, 1);
+  backend.close();
+});
+
+test('Force after initial startup failure establishes the empty source cursor for subsequent import', async () => {
+  const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+  value.workers[0].reply({ id: 1, ok: false, error: 'Startup failed' });
+  await assert.rejects(loading, /Startup failed/);
+  const restoring = value.backend.forceRestart(), worker = value.workers.at(-1);
+  worker.reply(sourceReady({ id: worker.calls[0].id }));
+  assert.equal((await restoring).project_generation, 0);
+  const importing = value.backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' });
+  await settle();
+  const request = worker.calls.at(-1);
+  assert.equal(request.operation, 'prepare-source');
+  sourceTransfer(worker, request, candidate(request)); sourcePromotion(worker, request);
+  assert.equal((await importing).generation, 1);
+  value.backend.close();
+});
+
+test('malformed source readiness settles initialization and retires the worker', async () => {
+  for (const corrupt of [value => { value.worker_protocol.version = 4; },
+    value => { value.source_import = { ...sourceProfile, limits: { ...sourceProfile.limits, chunk_bytes: 0 } }; }]) {
+    const { backend, worker } = fixture(), loading = backend.initialize(), value = sourceReady();
+    corrupt(value); worker.reply(value);
+    await assert.rejects(loading, error => error.code === 'worker_startup_failed');
+    assert.equal(worker.terminated, 1);
+    backend.close();
+  }
+});
+
+test('example transition preserves caller token and generation rather than renewing stale discard authority', async () => {
+  const { backend, worker } = await sourceFixture();
+  for (const payload of [{ example: 'nozzle', token: 'obsolete' },
+    { example: 'nozzle', token: 'empty', generation: 8 }])
+    await assert.rejects(backend.selectExample(payload), error => error.code === 'observation_superseded');
+  assert.equal(worker.calls.length, 1);
+  const selecting = backend.selectExample({ example: 'nozzle', token: 'empty' }); await settle();
+  const request = worker.calls.at(-1);
+  assert.equal(request.payload.token, 'empty');
+  assert.equal(request.payload.generation, 0);
+  sourceTransfer(worker, request, candidate(request, { kind: 'example' })); sourcePromotion(worker, request);
+  assert.equal((await selecting).active, 'nozzle');
+  backend.close();
+});
+
+test('cleanup failure takes precedence over Cancel, stays queryable, and requires explicit Force', async () => {
+  const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(sourceReady()); await loading;
+  const importing = value.backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }); await settle();
+  const request = worker.calls.at(-1), identity = { operationId: request.payload.operationId, generation: 0, token: 'empty' };
+  await value.backend.cancelSourceOperation(identity);
+  worker.reply({ id: request.id, ok: false, error: { code: 'source_cleanup_failed', status: 500, message: 'Unlink failed' } });
+  worker.reply({ fatal: 'Source staging cleanup failed. Use Force and restart.' });
+  await assert.rejects(importing, error => error.code === 'source_cleanup_failed');
+  const record = await value.backend.getSourceOperation(identity);
+  assert.equal(record.status, 'failed');
+  assert.equal(record.error.code, 'source_cleanup_failed');
+  assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe);
+  await assert.rejects(value.backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }),
+    error => error.code === 'worker_failed');
+  assert.equal(value.workers.length, 1);
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(sourceReady({ id: worker.calls[0].id })); await settle();
+  const restore = worker.calls.at(-1);
+  assert.equal(restore.payload.kind, 'empty');
+  sourceTransfer(worker, restore, candidate(restore, { kind: 'empty', generation: 0, token: 'empty' }));
+  sourcePromotion(worker, restore, 0); await restoring;
+  value.backend.close();
+});
+
+test('source operation history expires old primitive records after 64 terminal transitions', async () => {
+  const { backend, worker } = await sourceFixture();
+  let first, last;
+  for (let cursor = 0; cursor < 65; cursor++) {
+    const resetting = backend.resetProject({ generation: cursor, token: 'empty', confirmedDiscard: true });
+    await settle();
+    const request = worker.calls.at(-1);
+    first ??= request.payload.operationId;
+    last = request.payload.operationId;
+    sourceTransfer(worker, request, candidate(request, { generation: cursor + 1, kind: 'empty', token: 'empty' }));
+    sourcePromotion(worker, request, cursor + 1);
+    await resetting;
+  }
+  await assert.rejects(backend.getSourceOperation({ operationId: first }), error => error.code === 'unknown_operation');
+  const status = await backend.getSourceOperation({ operationId: last });
+  assert.equal(status.status, 'accepted');
+  assert.equal(status.acceptedGeneration, 65);
+  assert(!Object.values(status).some(value => value instanceof ArrayBuffer || value instanceof Blob));
+  backend.close();
+});
+
+test('ordinary imported computation Cancel keeps source epoch and File for subsequent Force replay', async () => {
+  const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(sourceReady()); await loading;
+  const file = sourceFile(), importing = value.backend.addScan({ file, generation: 0, token: 'empty' });
+  await settle();
+  const request = worker.calls.at(-1), source = candidate(request);
+  sourceTransfer(worker, request, source); sourcePromotion(worker, request); await importing;
+  const recipe = { ...source.graph.recipe, nodes: [...source.graph.recipe.nodes,
+    { id: 'selection', operation: 'selection', source: 'source', ids: [0, 1, 2] }] };
+  const edited = sourceGraph(1, 'edited', recipe.nodes);
+  const editing = value.backend.replaceRecipe({ token: 'source', recipe }); await settle();
+  worker.reply({ id: worker.calls.at(-1).id, ok: true, result: edited }); await editing;
+  const evaluating = value.backend.evaluateGraph({ token: 'edited' }); await settle();
+  const interrupted = assert.rejects(evaluating, error => error.code === 'computation_cancelled');
+  const cancelling = value.backend.cancelComputation(); await settle();
+  const cancel = worker.calls.at(-1);
+  assert.equal(cancel.operation, 'cancel');
+  assert.equal(cancel.workspaceGeneration, 1);
+  assert.deepEqual(cancel.payload.recipe, edited.recipe);
+  worker.reply({ id: cancel.id, ok: true, result: edited });
+  await cancelling; await interrupted;
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(sourceReady({ id: worker.calls[0].id })); await settle();
+  const restore = worker.calls.at(-1);
+  assert.equal(restore.payload.file, file);
+  assert.deepEqual(restore.payload.recovery.recipe, edited.recipe);
+  sourceTransfer(worker, restore, candidate(restore, { token: 'edited', nodes: edited.recipe.nodes }));
+  sourcePromotion(worker, restore); await restoring;
+  value.backend.close();
+});
+
+test('reentrant Force from accepted progress keeps new File while late old-worker confirmations are fenced', async () => {
+  const value = fleet({ initialMode: 'empty' }), loading = value.backend.initialize();
+  const old = value.workers[0]; old.reply(sourceReady()); await loading;
+  const file = sourceFile(); let restoring;
+  const importing = value.backend.addScan({ file, generation: 0, token: 'empty' }, {
+    onProgress: record => { if (record.status === 'accepted') restoring = value.backend.forceRestart(); },
+  });
+  const interrupted = assert.rejects(importing, error => error.code === 'accepted_workspace_unavailable');
+  await settle();
+  const request = old.calls.at(-1), source = candidate(request);
+  sourceTransfer(old, request, source);
+  const fresh = value.workers.at(-1);
+  sourcePromotion(old, request);
+  old.reply({ kind: 'graph', generation: request.generation, state: sourceGraph(1, 'stale', []) });
+  fresh.reply(sourceReady({ id: fresh.calls[0].id })); await settle();
+  const restore = fresh.calls.at(-1);
+  assert.equal(restore.payload.file, file);
+  sourceTransfer(fresh, restore, candidate(restore)); sourcePromotion(fresh, restore);
+  await restoring; await interrupted;
+  assert.deepEqual(await value.backend.exportRecipe(), source.graph.recipe);
+  value.backend.close();
+});
+
 function fleet(options = {}) {
   const workers = [], events = [];
   const backend = createWorkerBackend({ runtimeURL: './runtime/test/worker.mjs',

@@ -246,14 +246,11 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "scansor.zip": source_zip.read_bytes(),
         }
     )
-    runtime_manifest = {
+    runtime_manifest: dict[str, Any] = {
         "schema_version": 1,
-        "worker_protocol": {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
+        "worker_protocol": VALIDATOR.runpy.run_path(
+            str(ROOT / "scripts/build-browser-runtime.py")
+        )["worker_protocol"](),
         "cad": True,
         "versions": runtime_lock["versions"],
         "source_revision": "a" * 40,
@@ -293,7 +290,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     fixture_runtime = tmp_path / "fixture-runtime"
     fixture_runtime.mkdir()
     _ = (fixture_runtime / "scansor.zip").write_bytes(source_zip.read_bytes())
-    site = {
+    site: dict[str, Any] = {
         "schema_version": 1,
         "kind": "scansor-static-app",
         "entry": "app/index.html",
@@ -303,7 +300,12 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "runtime_redistribution_ready": True,
         "redistribution_gaps": [],
         "redistribution": ui_redistribution,
-        "capabilities": {"runtime_bootstrap": True, "numerical": True, "cad": True},
+        "capabilities": {
+            "runtime_bootstrap": True,
+            "numerical": True,
+            "cad": True,
+            "source_import": runtime_manifest["worker_protocol"]["source_import"],
+        },
         "backend": {
             "type": "worker",
             "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
@@ -329,23 +331,63 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "assets": [record(name, data) for name, data in site_files.items()],
     }
     site_raw = encoded(site)
+    numerical_raw = encoded(
+        site | {"capabilities": site["capabilities"] | {"cad": False}}
+    )
     evidence = {
         "site-manifest.json": site_raw,
+        "numerical-site-manifest.json": numerical_raw,
         "runtime-manifest.json": runtime_raw,
         "build-redistribution.json": encoded(assembled),
     }
     for name in VALIDATOR.DRIVERS:
         report = {
-            "manifest_sha256": VALIDATOR.sha256(site_raw),
+            "manifest_sha256": VALIDATOR.sha256(
+                numerical_raw if name.startswith("numerical-") else site_raw
+            ),
             "site_manifest_sha256": VALIDATOR.sha256(site_raw),
             "source_revision": "a" * 40,
             "artifact_unchanged": True,
             "complete": True,
+            "isolation": False,
+            "isolation_requested": name.endswith("-isolated"),
+            "isolation_actual": {
+                "page": name.endswith("-isolated"),
+                "worker": name.endswith("-isolated"),
+            },
             "input_artifact_unchanged": True,
             "input_site_manifest_sha256": VALIDATOR.sha256(site_raw),
             "immutable_site_verified_after": True,
             "native_exit": {"code": 0, "signal": None},
             "native_close": {"code": 0, "signal": None},
+            "cases": [
+                {"name": case, "complete": True}
+                for case in (
+                    "raw-nozzle",
+                    "horizontal-scene",
+                    "grid-256x128",
+                    "grid-512x256",
+                )
+            ]
+            if name == "source-import-memory"
+            else [{"name": "generated test evidence"}],
+            "checks": {
+                "source_import": True,
+                "source_identity": True,
+                "isolation_matches": True,
+                "all_cases_complete": True,
+                "capacity_nonzero": True,
+                "chunk_reads_bounded": True,
+                "terminal_staging_released": True,
+                "no_external_computation": True,
+                "no_page_errors": True,
+                "artifact_unchanged": True,
+                "cancel_before_adoption": True,
+                "force_after_adoption": True,
+                "cleanup_failure_recovery": True,
+                "recovery": True,
+                "cleanup": True,
+            },
         }
         evidence[f"{name}.json"] = encoded(report)
     when = "2026-01-01T00:00:00Z"
@@ -377,6 +419,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "finished_utc": when,
             "site-manifest": VALIDATOR.identity(site_raw),
             "runtime-manifest": VALIDATOR.identity(runtime_raw),
+            "numerical-site-manifest": VALIDATOR.identity(numerical_raw),
             "redistribution-manifest": VALIDATOR.identity(
                 evidence["build-redistribution.json"]
             ),
@@ -447,6 +490,172 @@ def test_only_site_files_are_emitted_after_full_semantic_validation(
     }
     assert not (output / "evidence").exists()
     assert (selected["tmp"] / "selection.json").is_file()
+
+
+@pytest.mark.parametrize(
+    "driver", [name for name in VALIDATOR.DRIVERS if "source-import" in name]
+)
+@pytest.mark.parametrize("fault", ["missing-complete", "empty-cases", "failed-cleanup"])
+def test_source_import_evidence_requires_executed_complete_checks(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "missing-complete":
+        del report["complete"]
+    elif fault == "empty-cases":
+        report["cases"] = []
+    else:
+        report["checks"]["cleanup"] = False
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver",
+    [
+        name
+        for name in VALIDATOR.DRIVERS
+        if "source-import" in name and name != "source-import-memory"
+    ],
+)
+@pytest.mark.parametrize(
+    "fault",
+    ["requested", "page", "worker", "missing-actual", "copied-plain", "unchecked"],
+)
+def test_source_evidence_attests_requested_page_and_worker_isolation(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "requested":
+        report["isolation_requested"] = not report["isolation_requested"]
+    elif fault in ("page", "worker"):
+        report["isolation_actual"][fault] = not report["isolation_actual"][fault]
+    elif fault == "missing-actual":
+        del report["isolation_actual"]
+    elif fault == "unchecked":
+        report["checks"]["isolation_matches"] = False
+    else:
+        # Copy a report from the opposite isolation profile, including its flags.
+        report["isolation_requested"] = not driver.endswith("-isolated")
+        report["isolation_actual"] = {
+            "page": report["isolation_requested"],
+            "worker": report["isolation_requested"],
+        }
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match=r"isolation|object"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "isolation",
+        "missing-grid",
+        "duplicate-grid",
+        "incomplete-case",
+        "source_import",
+        "recovery",
+        "cleanup",
+        "all_cases_complete",
+        "capacity_nonzero",
+        "chunk_reads_bounded",
+        "terminal_staging_released",
+        "isolation_matches",
+        "no_external_computation",
+        "no_page_errors",
+        "artifact_unchanged",
+    ],
+)
+def test_source_memory_evidence_requires_complete_matrix_and_invariants(
+    selected: dict[str, Any], fault: str
+) -> None:
+    name = "evidence/source-import-memory.json"
+    report = json.loads(selected["members"][name])
+    if fault == "isolation":
+        report["isolation"] = True
+    elif fault == "missing-grid":
+        report["cases"].pop()
+    elif fault == "duplicate-grid":
+        report["cases"][-1]["name"] = "grid-256x128"
+    elif fault == "incomplete-case":
+        report["cases"][-1]["complete"] = False
+    else:
+        report["checks"][fault] = False
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(
+        step for step in verification["steps"] if step["name"] == "source-import-memory"
+    )["evidence"] = {
+        "path": "source-import-memory.json",
+        **VALIDATOR.identity(selected["members"][name]),
+    }
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver", [name for name in VALIDATOR.DRIVERS if name.startswith("numerical-")]
+)
+@pytest.mark.parametrize("fault", ["primary-site-hash", "source-revision"])
+def test_numerical_evidence_is_bound_to_its_manifest_and_selected_source(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "primary-site-hash":
+        report["manifest_sha256"] = VALIDATOR.sha256(
+            selected["members"]["evidence/site-manifest.json"]
+        )
+    else:
+        report["source_revision"] = "b" * 40
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match=r"tested another site|source mismatch"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_numerical_manifest_cannot_substitute_another_source(
+    selected: dict[str, Any],
+) -> None:
+    name = "evidence/numerical-site-manifest.json"
+    manifest = json.loads(selected["members"][name])
+    manifest["source_revision"] = "b" * 40
+    selected["members"][name] = encoded(manifest)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    verification["numerical-site-manifest"] = VALIDATOR.identity(
+        selected["members"][name]
+    )
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="numerical site source mismatch"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
 
 
 def test_historical_selected_locks_remain_valid_after_current_locks_change(

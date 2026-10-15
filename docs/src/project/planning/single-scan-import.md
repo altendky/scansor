@@ -25,8 +25,10 @@ preserves their existing reference hashes and optional starter recipes.
 The native HTTP adapter now implements bounded source import, progress,
 cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
-for adapter development. The source picker and empty-project UI remain #243;
-worker import/recovery remains #242. See the
+for adapter development. The source picker and empty-project UI remain #243.
+Worker import/recovery now has an implementation and measured source-only tier;
+its strict fit comparison remains blocked by #266. See the
+[worker evidence and delivery gates](worker-scan-import.md) and the
 [native measurements and lifecycle](native-scan-import.md). The full numerical
 delivery gate in #240 remains open; this transport slice does not claim its
 pending cone/symmetry integration or cross-runtime parity work is delivered.
@@ -95,8 +97,8 @@ support reuse and independently authored target bounds remain available.
 [#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
 target override authority and its fixed/free/group/replay verification.
 
-Worker delivery/Force source retention, source-aware reopening and worker
-measured caps remain their listed tickets. Native defaults have executed
+Worker delivery, source-aware reopening and full workflow validation remain
+their listed tickets. Native and worker defaults have executed source-only
 source-only import evidence; byte/count caps and the loader's incremental
 allocation estimate are admission checks, not a measured total-runtime memory
 guarantee. Input snapshots and authoritative/display copies are accounted for

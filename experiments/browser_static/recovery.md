@@ -2,7 +2,8 @@
 
 The bounded browser viewer implements the maintainer's
 [cancellation policy](../browser_runtime/cancellation/decision.md). The HTTP
-backend retains its existing observation-abort and native shutdown behavior.
+backend retains observation-abort and native shutdown behavior; its separate
+source-import Cancel does not add native fitting/CAD interruption.
 There is no automatic escalation of active computation to worker termination.
 
 ## User controls
@@ -26,7 +27,7 @@ Neither mechanism provides OCCT cooperative cancellation. That remains
 
 **Force and restart** is an explicit action. It terminates the current worker,
 settles pending operations, creates a new worker, verifies the same pinned
-runtime and immutable example, and replays the last accepted recipe through
+runtime and accepted empty/example/user source, and replays the last accepted recipe through
 ordinary replacement validation. It also retries failed startup or recovery.
 The previous probe measured roughly 13–16 seconds for local runtime recreation;
 downloads, source loading, recipe validation and subsequent CAD loading can add
@@ -41,13 +42,23 @@ cannot mark the viewer ready merely because its earlier startup callback ended.
 
 ## State and ownership
 
-The coordinator retains a cloned last accepted recipe. Its source backup is the
-fixed, hash-verified retained-nozzle asset in the pinned runtime ZIP, not a
-transferred display buffer. Recovery checks the default source record and
-runtime source revision before committing a replacement. Failed replay leaves
-the accepted recipe available to **Save actions for recovery**.
+The coordinator retains a cloned last accepted recipe and source checkpoint.
+For an example, the backup is its hash-verified packaged source; for a user scan,
+it retains the accepted File reference outside the disposable worker. Empty mode
+recovers empty. A transferred display buffer is not an original-source backup.
+Recovery verifies content and interpretation before validating the accepted
+recipe on a private candidate. It never substitutes the nozzle for an imported
+source. Failed source reading, identity checks or replay preserves the accepted
+checkpoint and recipe for recovery. File retention is memory-only and cannot
+guarantee that a disk-backed File remains readable unchanged.
 
-Polite cancellation reconstructs the graph against the same immutable float64
+Source transitions remain private until the coordinator adopts a complete
+confirmed source/graph/display bundle and its recovery reference together.
+Cancel/Force before that boundary preserves the prior checkpoint; after it,
+the accepted source wins even if the worker promotion acknowledgement is lost.
+See the [worker import evidence and delivery gates](../../docs/src/project/planning/worker-scan-import.md).
+
+For graph work, polite cancellation reconstructs the graph against the same immutable float64
 source. A failure-only checkpoint preserves unchanged failed/blocked nodes,
 diagnostics and escaped-job failure memoization. Explicit Evaluate remains the
 retry path. Successful derived results, partial mutations, pending evaluations
@@ -64,7 +75,9 @@ derived state. Unacknowledged edits and unsaved form drafts can be lost. The
 coordinator copy is memory-only: tab reload, closure or browser/process loss can
 lose it too. Download actions for durable preservation. Broader mitigation is
 [non-agent issue #214](https://github.com/altendky/scansor/issues/214); this work
-does not introduce autosave or general source upload.
+does not introduce autosave or durable source saving. Common worker source
+operations now have an implementation; the source-authoring UI remains #243,
+and strict imported-fit parity remains a delivery gate in #266.
 
 Request IDs remain monotonic across workers. Callback ownership and a distinct
 worker lifetime fence old phases, errors, readiness, graph state and binary

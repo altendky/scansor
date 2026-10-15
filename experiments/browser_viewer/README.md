@@ -55,8 +55,10 @@ common add/progress/Cancel/reset operations for strict PLY files. This transport
 is not yet exposed by a source picker in this UI. Its measured initial caps,
 ownership and cancellation boundaries are recorded in the
 [native import evidence](../../docs/src/project/planning/native-scan-import.md).
-Worker file opening, source-aware actions reopening and the source authoring UI
-remain separate delivery gates.
+Worker source operations and Force retention now have an implementation with
+[measured source-only evidence](../../docs/src/project/planning/worker-scan-import.md);
+strict imported-fit parity remains a delivery gate. Source-aware actions reopening
+and the source-authoring UI remain separate work.
 
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)
