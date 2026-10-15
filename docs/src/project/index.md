@@ -64,6 +64,10 @@ outside the intended boundary.
   - **Bounded numerical foundation:** exact canonical rotation/mirror equations
     and internal support mathematics; existing fitting paths remain unchanged,
     while imported graph/recovery/reuse/CAD integration remains a separate gate
+- [Native/browser numerical parity](experiments/numerical-runtime-parity.md)
+  - **Selected verification contract:** compare published geometry, intent,
+    acceptance classifications and finite budgets; retain complete diagnostic
+    traces and measured differences across numerical runtimes
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,

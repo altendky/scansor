@@ -77,6 +77,16 @@ EVIDENCE = {
     "site-manifest.json",
     "runtime-manifest.json",
 }
+SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
+SEMANTIC_DRIVERS = {
+    "workspace": ("graph-snapshot", ("replay", "default", "edited", "replayed")),
+    "numerical-workspace": (
+        "graph-snapshot",
+        ("replay", "default", "edited", "replayed"),
+    ),
+    "recovery": ("result-map", ("crash-force",)),
+    "recovery-isolated": ("result-map", ("crash-force",)),
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -338,6 +348,105 @@ def records(value: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def exact_json(value: Any) -> str:
+    """Compare JSON types too: a numeric 1 must never stand in for true."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def trusted_semantic_policy() -> dict[str, Any]:
+    # Execute only the reviewed checkout helper, never a downloaded archive member.
+    path = ROOT / SEMANTIC_POLICY
+    expected_hash = sha256(regular_bytes(path))
+    policy = runpy.run_path(str(path))
+    require(policy["policy_sha256"]() == expected_hash, "trusted policy changed")
+    return policy
+
+
+def validate_semantic_parity(
+    item: dict[str, Any], name: str, policy: dict[str, Any]
+) -> None:
+    receipt = object_value(item.get("semantic_parity"))
+    for field in ("complete", "semantic_complete", "budgets_validated"):
+        require(receipt.get(field) is True, f"{name} semantic {field} is not true")
+    for record in [
+        receipt,
+        *(object_value(value) for value in array_value(receipt.get("cases"))),
+    ]:
+        for field, minimum in (
+            ("strict_fields_compared", 1),
+            ("budget_records_validated", 0),
+            ("diagnostic_difference_count", 0),
+        ):
+            require(
+                type(record.get(field)) is int and record[field] >= minimum,
+                f"{name} invalid semantic {field} count",
+            )
+    require(
+        receipt.get("policy_version") == policy["POLICY_VERSION"]
+        and receipt.get("policy_sha256") == policy["policy_sha256"](),
+        f"{name} semantic policy differs from trusted checkout",
+    )
+    evidence = object_value(item.get("semantic_parity_evidence"))
+    require(set(evidence) == {"json", "bytes", "sha256"}, "invalid semantic evidence")
+    text = evidence.get("json")
+    require(isinstance(text, str), "missing full semantic evidence JSON")
+    raw = cast(str, text).encode("utf-8")
+    require(
+        type(evidence.get("bytes")) is int
+        and evidence["bytes"] == len(raw)
+        and evidence.get("sha256") == sha256(raw)
+        and receipt.get("input_sha256") == sha256(raw),
+        f"{name} semantic evidence identity mismatch",
+    )
+    batch = object_json(raw)
+    require(set(batch) == {"cases"}, "unexpected semantic batch fields")
+    cases = [object_value(case) for case in array_value(batch.get("cases"))]
+    profile, ids = SEMANTIC_DRIVERS[name]
+    require(
+        [case.get("id") for case in cases] == list(ids),
+        f"{name} semantic comparison cases differ",
+    )
+    for case in cases:
+        require(
+            {"id", "profile", "actual", "expected"} <= set(case)
+            and set(case) <= {"id", "profile", "actual", "expected", "path"}
+            and case["profile"] == profile,
+            f"{name} invalid semantic comparison profile",
+        )
+        require(
+            bool(object_value(case["actual"])) and bool(object_value(case["expected"])),
+            f"{name} missing full semantic comparison records",
+        )
+    if profile == "graph-snapshot":
+        browser = object_value(item.get("browser_snapshots"))
+        native = object_value(item.get("native_snapshots"))
+        pairs = (
+            (browser.get("replayed"), browser.get("edited")),
+            (browser.get("default"), native.get("default")),
+            (browser.get("edited"), native.get("edited")),
+            (browser.get("replayed"), native.get("edited")),
+        )
+        for case, (actual, expected) in zip(cases, pairs, strict=True):
+            require(
+                exact_json(case["actual"]) == exact_json(actual)
+                and exact_json(case["expected"]) == exact_json(expected),
+                f"{name} semantic evidence differs from full snapshots",
+            )
+    # Raw JSON is data. Recompute using the trusted, stdlib-only policy rather
+    # than trusting success flags, accounting or a self-declared diagnostic ledger.
+    try:
+        recomputed = policy["compare_batch"](cases)
+    except policy["SemanticParityError"] as error:
+        raise ValueError(
+            f"{name} trusted semantic comparison failed: {error}"
+        ) from error
+    submitted = {key: value for key, value in receipt.items() if key != "input_sha256"}
+    require(
+        exact_json(submitted) == exact_json(recomputed),
+        f"{name} semantic receipt differs from trusted recomparison",
+    )
+
+
 def validate_evidence(
     evidence: dict[str, bytes], site_raw: bytes, runtime_raw: bytes
 ) -> None:
@@ -407,6 +516,24 @@ def validate_evidence(
         "CI verification finished before steps",
     )
     site = object_json(site_raw)
+    policy = trusted_semantic_policy()
+    runtime = object_json(runtime_raw)
+    helper_records = [
+        object_value(value)
+        for value in array_value(runtime.get("source_files"))
+        if object_value(value).get("archive_path") == SEMANTIC_POLICY
+    ]
+    require(
+        helper_records
+        == [
+            {
+                "path": SEMANTIC_POLICY,
+                "archive_path": SEMANTIC_POLICY,
+                "sha256": policy["policy_sha256"](),
+            }
+        ],
+        "packaged semantic policy differs from trusted checkout",
+    )
     for name in DRIVERS:
         item = object_json(evidence[f"{name}.json"])
         require(
@@ -418,8 +545,20 @@ def validate_evidence(
             "unexpected_requests",
             "external_requests",
             "api_requests",
+            "page_errors",
         ):
             require(not item.get(key), f"driver {name} has {key}")
+        if name in SEMANTIC_DRIVERS:
+            validate_semantic_parity(item, name, policy)
+            require(
+                item.get("source_revision") == site["source_revision"],
+                f"driver {name} source mismatch",
+            )
+            if name in ("workspace", "numerical-workspace"):
+                require(
+                    item.get("source_worktree_dirty") is False,
+                    f"driver {name} tested dirty source",
+                )
         if name == "generated":
             require(
                 item.get("complete") is True

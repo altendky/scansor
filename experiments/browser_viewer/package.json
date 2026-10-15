@@ -5,7 +5,7 @@
   "scripts": {
     "build:flexlayout": "vite build --config vite.flexlayout.config.js",
     "precheck": "npm run build:flexlayout",
-    "check": "node --check app.js && node --check bootstrap.js && node --check feature-graph-view.js && node --check navigation.js && node --test *.test.js ../browser_static/server.test.mjs",
+    "check": "node --check app.js && node --check bootstrap.js && node --check feature-graph-view.js && node --check navigation.js && node --test *.test.js ../browser_static/*.test.mjs",
     "prebuild": "npm run build:flexlayout",
     "build": "vite build",
     "test:browser": "playwright test"

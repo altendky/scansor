@@ -30,6 +30,44 @@ def record(name: str, data: bytes, **extra: Any) -> dict[str, Any]:
     return {"path": name, **VALIDATOR.identity(data), **extra}
 
 
+def semantic_report(name: str) -> dict[str, Any]:
+    """Synthetic complete records, never evidence of actual worker execution."""
+    graph = {
+        "recipe": {"nodes": [{"id": "source", "operation": "source"}]},
+        "token": "2" * 64,
+        "states": {"source": "ready"},
+        "errors": {},
+        "diagnostics": {},
+        "memberships": {},
+        "results": {"source": {"vertices": 3}},
+        "derived": {},
+        "revision": 1,
+    }
+    profile, ids = VALIDATOR.SEMANTIC_DRIVERS[name]
+    value = graph if profile == "graph-snapshot" else {"fit": {"radius": 1.0}}
+    cases = [
+        {"id": case_id, "profile": profile, "actual": value, "expected": value}
+        for case_id in ids
+    ]
+    result = semantic_evidence(cases)
+    if profile == "graph-snapshot":
+        result["browser_snapshots"] = dict.fromkeys(
+            ("default", "edited", "replayed"), graph
+        )
+        result["native_snapshots"] = dict.fromkeys(("default", "edited"), graph)
+    return copy.deepcopy(result)
+
+
+def semantic_evidence(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = encoded({"cases": cases})
+    receipt = VALIDATOR.trusted_semantic_policy()["compare_batch"](cases)
+    receipt["input_sha256"] = VALIDATOR.sha256(raw)
+    return {
+        "semantic_parity": receipt,
+        "semantic_parity_evidence": {"json": raw.decode(), **VALIDATOR.identity(raw)},
+    }
+
+
 def metadata() -> tuple[dict[str, Any], dict[str, Any]]:
     run = {
         "id": 12,
@@ -235,6 +273,9 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     source_zip = tmp_path / "source.zip"
     with zipfile.ZipFile(source_zip, "w") as archive:
         archive.writestr(example_path, example)
+        archive.writestr(
+            VALIDATOR.SEMANTIC_POLICY, (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
+        )
     runtime_files, runtime_redistribution = supplement(["numeric", "cad"])
     runtime_files.update(
         {
@@ -263,7 +304,14 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "redistribution": runtime_redistribution,
         "runtime_lock_sha256": inventory["bindings"]["runtime_lock_sha256"],
         "source_files": [
-            {"archive_path": example_path, "sha256": VALIDATOR.sha256(example)}
+            {"archive_path": example_path, "sha256": VALIDATOR.sha256(example)},
+            {
+                "path": VALIDATOR.SEMANTIC_POLICY,
+                "archive_path": VALIDATOR.SEMANTIC_POLICY,
+                "sha256": VALIDATOR.sha256(
+                    (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
+                ),
+            },
         ],
         "assets": [
             record(
@@ -339,6 +387,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "manifest_sha256": VALIDATOR.sha256(site_raw),
             "site_manifest_sha256": VALIDATOR.sha256(site_raw),
             "source_revision": "a" * 40,
+            "source_worktree_dirty": False,
             "artifact_unchanged": True,
             "complete": True,
             "input_artifact_unchanged": True,
@@ -347,6 +396,8 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "native_exit": {"code": 0, "signal": None},
             "native_close": {"code": 0, "signal": None},
         }
+        if name in VALIDATOR.SEMANTIC_DRIVERS:
+            report.update(semantic_report(name))
         evidence[f"{name}.json"] = encoded(report)
     when = "2026-01-01T00:00:00Z"
     steps: list[dict[str, Any]] = []
@@ -431,6 +482,272 @@ def validate(fixture: dict[str, Any], output: Path | None = None) -> dict[str, A
     )
 
 
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+@pytest.mark.parametrize("field", ["semantic_parity", "semantic_parity_evidence"])
+def test_semantic_profiles_require_their_complete_evidence(name: str, field: str):
+    report = semantic_report(name)
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    del report[field]
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+@pytest.mark.parametrize(
+    "field", ["complete", "semantic_complete", "budgets_validated"]
+)
+@pytest.mark.parametrize("value", [None, False, 1])
+def test_semantic_success_flags_are_required_exact_booleans(
+    name: str, field: str, value: Any
+):
+    report = semantic_report(name)
+    if value is None:
+        del report["semantic_parity"][field]
+    else:
+        report["semantic_parity"][field] = value
+    with pytest.raises(ValueError, match="is not true"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("policy_version", "self-declared-policy"),
+        ("policy_sha256", "0" * 64),
+        ("input_sha256", "0" * 64),
+        ("strict_fields_compared", 0),
+        ("budget_records_validated", 1),
+        ("diagnostic_difference_count", 1),
+        ("diagnostic_differences", []),
+        ("unrecognized_approval", True),
+    ],
+)
+def test_forged_semantic_receipt_is_rejected(field: str, value: Any):
+    report = semantic_report("recovery")
+    if field == "diagnostic_differences":
+        value = [{"path": "fit.radius", "actual": 2, "expected": 1, "reason": "allow"}]
+    report["semantic_parity"][field] = value
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("fault", ["text", "bytes", "hash", "missing-json"])
+def test_full_semantic_raw_text_and_receipt_are_bound(fault: str):
+    report = semantic_report("recovery-isolated")
+    evidence = report["semantic_parity_evidence"]
+    if fault == "text":
+        evidence["json"] += " "
+    elif fault == "bytes":
+        evidence["bytes"] = True
+    elif fault == "hash":
+        evidence["sha256"] = "0" * 64
+    else:
+        del evidence["json"]
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery-isolated", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("fault", ["missing", "order", "id", "profile", "empty"])
+def test_semantic_case_coverage_cannot_be_substituted(fault: str):
+    report = semantic_report("workspace")
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    cases = batch["cases"]
+    if fault == "missing":
+        cases.pop()
+    elif fault == "order":
+        cases.reverse()
+    elif fault == "id":
+        cases[0]["id"] = "other-case"
+    elif fault == "profile":
+        cases[0]["profile"] = "result-map"
+    else:
+        cases[0]["actual"] = {}
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "workspace", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_semantic_evidence_must_include_the_full_retained_snapshots():
+    report = semantic_report("numerical-workspace")
+    report["browser_snapshots"]["default"]["diagnostics"] = {"omitted": "trace"}
+    with pytest.raises(ValueError, match="differs from full snapshots"):
+        VALIDATOR.validate_semantic_parity(
+            report, "numerical-workspace", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_trusted_recomparison_rejects_forged_geometry_with_updated_evidence_hashes():
+    report = semantic_report("recovery")
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    batch["cases"][0]["actual"]["fit"]["radius"] = 2.0
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("count", [513, -1, 1.5, True, "512"])
+def test_equal_invalid_budget_counts_cannot_be_approved_by_forged_receipt(count: Any):
+    binding = "3" * 64
+    recovery = {
+        "policy": {
+            "version": "selected-data-recovery-v2",
+            "max_proposals": 16,
+            "max_fresh_attempts": 8,
+            "attempt": {
+                "max_iterations": 100,
+                "max_trials": 16,
+                "max_evaluations": 512,
+            },
+            "objective_atol": 1e-12,
+            "objective_rtol": 1e-9,
+        },
+        "binding_sha256": binding,
+        "attempts": [
+            {
+                "candidate": {
+                    "id": "failed-start",
+                    "parameters": [1.0],
+                    "derivation": "synthetic budget guard",
+                    "chart": "synthetic",
+                    "binding_sha256": binding,
+                },
+                "role": "fresh",
+                "outcome": "evaluation-limit",
+                "evaluations": 512,
+                "assessment": None,
+                "solver": None,
+            }
+        ],
+        "selected": None,
+        "termination": "search-exhausted",
+        "selected_role": None,
+    }
+    cases = [
+        {
+            "id": "crash-force",
+            "profile": "result-map",
+            "actual": {"fit": recovery},
+            "expected": {"fit": recovery},
+        }
+    ]
+    report = semantic_evidence(cases)
+    assert report["semantic_parity"]["budget_records_validated"] > 0
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    for side in ("actual", "expected"):
+        batch["cases"][0][side]["fit"]["attempts"][0]["evaluations"] = count
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_numeric_success_inside_a_case_is_not_a_boolean_receipt():
+    report = semantic_report("recovery")
+    report["semantic_parity"]["cases"][0]["semantic_complete"] = 1
+    with pytest.raises(ValueError, match="differs from trusted recomparison"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_semantic_receipt_cannot_certify_only_empty_containers():
+    report = semantic_evidence(
+        [
+            {
+                "id": "crash-force",
+                "profile": "result-map",
+                "actual": {"fit": {}},
+                "expected": {"fit": {}},
+            }
+        ]
+    )
+    assert report["semantic_parity"]["strict_fields_compared"] == 0
+    with pytest.raises(ValueError, match="invalid semantic strict_fields_compared"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+def test_archive_gate_requires_semantic_evidence_after_report_hashes_are_refreshed(
+    selected: dict[str, Any], name: str
+):
+    members = selected["members"]
+    filename = f"{name}.json"
+    report = json.loads(members[f"evidence/{filename}"])
+    del report["semantic_parity"]
+    members[f"evidence/{filename}"] = encoded(report)
+    verification = json.loads(members["evidence/verification.json"])
+    step = next(step for step in verification["steps"] if step["name"] == name)
+    step["evidence"] = {
+        "path": filename,
+        **VALIDATOR.identity(members[f"evidence/{filename}"]),
+    }
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize("fault", ["missing", "forged-hash", "wrong-path"])
+def test_packaged_policy_identity_is_bound_to_the_trusted_checkout(
+    selected: dict[str, Any], fault: str
+):
+    evidence = {
+        name.removeprefix("evidence/"): raw
+        for name, raw in selected["members"].items()
+        if name.startswith("evidence/")
+    }
+    runtime = json.loads(evidence["runtime-manifest.json"])
+    helper = runtime["source_files"][-1]
+    if fault == "missing":
+        runtime["source_files"].pop()
+    elif fault == "forged-hash":
+        helper["sha256"] = "0" * 64
+    else:
+        helper["path"] = "artifact-controlled-policy.py"
+    runtime_raw = encoded(runtime)
+    evidence["runtime-manifest.json"] = runtime_raw
+    verification = json.loads(evidence["verification.json"])
+    verification["runtime-manifest"] = VALIDATOR.identity(runtime_raw)
+    evidence["verification.json"] = encoded(verification)
+    with pytest.raises(ValueError, match="packaged semantic policy differs"):
+        VALIDATOR.validate_evidence(
+            evidence, evidence["site-manifest.json"], runtime_raw
+        )
+
+
 def test_only_site_files_are_emitted_after_full_semantic_validation(
     selected: dict[str, Any],
 ):
@@ -461,6 +778,9 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
         "build-browser-redistribution.py",
     ):
         _ = shutil.copyfile(ROOT / "scripts" / name, today / "scripts" / name)
+    helper = today / VALIDATOR.SEMANTIC_POLICY
+    helper.parent.mkdir(parents=True)
+    _ = shutil.copyfile(ROOT / VALIDATOR.SEMANTIC_POLICY, helper)
     for name in (
         "experiments/browser_runtime/runtime-lock.json",
         "scripts/browser-redistribution-lock.json",

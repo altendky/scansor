@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
+import { compareSemanticBatch } from './semantic-parity.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -18,6 +19,7 @@ const site = await verifySite(directory);
 const playwrightDirectory = path.resolve(argument('--playwright-directory', 'experiments/browser_viewer'));
 const repository = path.resolve(argument('--repository', path.join(playwrightDirectory, '../..')));
 const output = await prepareReports(outputArgument, [site.root, repository]);
+const nativePython = path.resolve(argument('--native-python', path.join(repository, '.venv/bin/python')));
 const browserName = argument('--browser', 'chromium');
 if (!['chromium', 'firefox', 'webkit'].includes(browserName)) throw new Error(`Unsupported browser ${browserName}`);
 const playwright = createRequire(path.join(playwrightDirectory, 'package.json'))('playwright');
@@ -41,25 +43,6 @@ async function boundedEvaluate(page, operation, value, timeout = 240000) {
       timer = setTimeout(() => reject(new Error('Recovery harness browser observation timed out')), timeout);
     })]);
   } finally { clearTimeout(timer); }
-}
-
-function compareNumbers(actual, expected, location = 'results') {
-  let numbers = 0, maxDifference = 0;
-  const walk = (value, reference, name) => {
-    if (typeof reference === 'number') {
-      const difference = Math.abs(value - reference);
-      assert.ok(Number.isFinite(value) && difference <= 1e-10 + 1e-10 * Math.abs(reference), name);
-      numbers++; maxDifference = Math.max(maxDifference, difference);
-    } else if (Array.isArray(reference)) {
-      assert.ok(Array.isArray(value)); assert.equal(value.length, reference.length);
-      reference.forEach((item, index) => walk(value[index], item, `${name}[${index}]`));
-    } else if (reference !== null && typeof reference === 'object') {
-      assert.deepEqual(Object.keys(value).sort(), Object.keys(reference).sort(), name);
-      for (const [key, item] of Object.entries(reference)) walk(value[key], item, `${name}.${key}`);
-    } else assert.deepEqual(value, reference, name);
-  };
-  walk(actual, expected, location);
-  return { numbers, max_difference: maxDifference, atol: 1e-10, rtol: 1e-10 };
 }
 
 let browser, preview, page;
@@ -323,7 +306,8 @@ try {
   assert.equal(crash.failed.state, 'failed'); assert.equal(crash.outcome.ok, false);
   assert.deepEqual(crash.before_recipe, crash.recovered.recipe);
   assert.equal(Object.keys(crash.subsequent.errors).length, 0);
-  report.same_recipe_recovery_result_parity = compareNumbers(crash.subsequent.results, force.subsequent.results);
+  report.same_recipe_recovery_result_parity = await compareSemanticBatch({ nativePython, site, output, report,
+    cases: [{ id: 'crash-force', profile: 'result-map', actual: crash.subsequent.results, expected: force.subsequent.results }] });
   report.checks.worker_js_crash_settlement_explicit_recovery = true;
 
   if (site.manifest.capabilities.cad) {

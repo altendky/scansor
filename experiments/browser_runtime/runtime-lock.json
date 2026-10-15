@@ -98,6 +98,7 @@
   "sources": {
     "numeric": [
       "experiments/__init__.py",
+      "experiments/browser_runtime/semantic_parity.py",
       "experiments/browser_runtime/workspace.py",
       "experiments/face_building_limits.py",
       "experiments/feature_graph.py",
