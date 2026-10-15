@@ -514,3 +514,52 @@ def test_plane_publication_identity_survives_relationship_reordering(
     assert cast(dict[str, Any], before["results"])["frame"]["primary_reference"] == ref(
         "a", "plane", "ab"
     )
+
+
+def test_retained_cone_joint_catalogue_publishes_the_actual_end_plane() -> None:
+    path = Path("examples/nozzle-bayonette-simplified")
+    workspace = NozzleWorkspace(path)
+    recipe = Recipe.model_validate_json((path / "recipes/cone-plane.json").read_text())
+    graph = FeatureGraph(workspace, recipe)
+    state = graph.evaluate(str(graph.snapshot()["token"]), all_actions=True)
+    assert not state["errors"] and not state["diagnostics"]
+    joint = cast(dict[str, Any], state["results"])["fit"]
+    parameters = joint["surfaces"]["end"]["parameters"]
+    assert len(parameters) == 7
+    assert abs(parameters[0]) + abs(parameters[1]) > 0
+    normal = np.array([parameters[2], parameters[3], 1.0])
+    normal /= np.sqrt(parameters[2] ** 2 + parameters[3] ** 2 + 1)
+    height = parameters[5]
+    preview = next(
+        item
+        for item in cast(list[dict[str, Any]], state["input_catalogue"])
+        if item["reference"] == ref("end", "plane", "fit")
+    )
+    assert preview["availability"] == "ready"
+    output = preview["preview"]
+    assert len(output["plane_equation"]) == 4
+    np.testing.assert_allclose(
+        output["plane_equation"], [*normal, height], rtol=0, atol=1e-15
+    )
+    np.testing.assert_allclose(output["normal_display"], normal, rtol=0, atol=1e-15)
+    assert np.dot(normal, output["point_display"]) == pytest.approx(height, abs=1e-14)
+    points = workspace.local[joint["surfaces"]["end"]["ids"]]
+    np.testing.assert_allclose(
+        points @ normal - height, joint["plane_residuals"], rtol=0, atol=1e-14
+    )
+    assert json.loads(json.dumps(preview, allow_nan=False))["reference"] == ref(
+        "end", "plane", "fit"
+    )
+    before = json.dumps(state["results"], sort_keys=True, allow_nan=False)
+    output["plane_equation"][0] = output["normal_display"][0] = 999
+    output["point_display"][0] = 999
+    assert json.dumps(state["results"], sort_keys=True, allow_nan=False) == before
+    again = graph.snapshot()
+    fresh = next(
+        item
+        for item in cast(list[dict[str, Any]], again["input_catalogue"])
+        if item["reference"] == ref("end", "plane", "fit")
+    )
+    np.testing.assert_allclose(
+        fresh["preview"]["plane_equation"], [*normal, height], rtol=0, atol=1e-15
+    )
