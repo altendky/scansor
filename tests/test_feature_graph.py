@@ -382,9 +382,17 @@ def reused_cylinder_graph(
 ) -> tuple[FeatureGraph[ScanWorkspace], str, str, np.ndarray]:
     # Two independently encoded occurrences. The source axis is +Z and the
     # second is translated, optionally rotating its axis to horizontal +X.
-    to_z = np.array([[0.0, 0, 1], [1, 0, 0], [0, 1, 0]])
-    points = horizontal.local @ to_z
-    normals = horizontal.data.normals @ to_z
+    # Registration needs identifiable occurrences: equally spaced full rings
+    # also admit a proper half-turn that reverses the source axis and support.
+    angles = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+    angles += 0.05 * np.sin(angles) + 0.03 * np.cos(2 * angles)
+    theta, height = np.meshgrid(angles, [0.0, 0.7, 2.5, 4.2, 6.0])
+    normals = np.column_stack(
+        (np.cos(theta.ravel()), np.sin(theta.ravel()), np.zeros(theta.size))
+    )
+    points = np.column_stack(
+        (-4 + 2.5 * normals[:, 0], 5 + 2.5 * normals[:, 1], height.ravel())
+    )
     rotation = (
         np.array([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]]) if rotate_target else np.eye(3)
     )
