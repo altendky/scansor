@@ -56,21 +56,34 @@ with tempfile.TemporaryDirectory(prefix='native-workspace-', dir=output) as temp
         archive.extractall(root)
     sys.path.insert(0, str(root))
     from experiments.browser_runtime.workspace import BrowserWorkspace
-    snapshots = {}
-    for name, recipe in recipes.items():
-        workspace = BrowserWorkspace(root / 'examples/nozzle-bayonette-simplified')
-        current = unpack(workspace.call_json('getGraph'))
-        current = unpack(workspace.call_json('replaceRecipe', json.dumps({'token': current['token'], 'recipe': recipe})))
-        prepared = unpack(workspace.prepare_evaluation_json('evaluateGraph', json.dumps({'token': current['token'], 'all_actions': True})))
-        snapshots[name] = unpack(workspace.finish_evaluation_json()) if prepared['run'] else prepared['state']
-        assert not snapshots[name]['evaluation_running']
-        assert workspace.workspace.local.dtype == np.dtype('float64')
-        assert not workspace.workspace.local.flags.writeable
-        assert workspace.display_positions.dtype == np.dtype('<f4')
-        assert workspace.display_indices.dtype == np.dtype('<u4')
-    assert not any(name in sys.modules for name in ('OCP', 'duckdb', 'pyarrow', 'psutil'))
-    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots}
-    (output / 'native-workspace.json').write_text(json.dumps(result, allow_nan=False))
+    snapshots, evaluations = {}, {}
+    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots, 'evaluation_responses': evaluations}
+    try:
+        for name, recipe in recipes.items():
+            workspace = BrowserWorkspace(root / 'examples/nozzle-bayonette-simplified')
+            current = unpack(workspace.call_json('getGraph'))
+            current = unpack(workspace.call_json('replaceRecipe', json.dumps({'token': current['token'], 'recipe': recipe})))
+            prepared = unpack(workspace.prepare_evaluation_json('evaluateGraph', json.dumps({'token': current['token'], 'all_actions': True})))
+            evaluations[name] = unpack(workspace.finish_evaluation_json()) if prepared['run'] else prepared['state']
+            # Match the browser's idleGraph observation, retaining the distinct
+            # evaluation response and independently enforcing its acceptance.
+            snapshots[name] = unpack(workspace.call_json('getGraph'))
+            assert evaluations[name]['required_failures'] == []
+            assert evaluations[name]['evaluation_running'] is False
+            assert 'evaluation_error' not in evaluations[name]
+            assert snapshots[name]['evaluation_running'] is False
+            assert snapshots[name]['errors'] == {}
+            assert all(state == 'ready' for state in snapshots[name]['states'].values())
+            assert workspace.workspace.local.dtype == np.dtype('float64')
+            assert not workspace.workspace.local.flags.writeable
+            assert workspace.display_positions.dtype == np.dtype('<f4')
+            assert workspace.display_indices.dtype == np.dtype('<u4')
+        assert not any(name in sys.modules for name in ('OCP', 'duckdb', 'pyarrow', 'psutil'))
+    except Exception as error:
+        result['failure'] = str(error)
+        raise
+    finally:
+        (output / 'native-workspace.json').write_text(json.dumps(result, allow_nan=False))
 `;
 
 async function nativeReference(runtime) {
@@ -89,6 +102,11 @@ async function nativeReference(runtime) {
       if (code !== 0 || timedOut) reject(new Error(`Native workspace reference failed (${code}, timeout=${timedOut}): ${messages}`));
       else resolve();
     });
+  }).catch(async error => {
+    try {
+      report.native_reference_failure_evidence = JSON.parse(await readFile(path.join(output, 'native-workspace.json'), 'utf8'));
+    } catch (evidenceError) { report.native_reference_evidence_error = String(evidenceError); }
+    throw error;
   });
   return JSON.parse(await readFile(path.join(output, 'native-workspace.json'), 'utf8'));
 }
@@ -113,7 +131,11 @@ async function idleGraph(page) {
     return state.recipe && !state.evaluation_running &&
       Object.values(state.states).every(value => ['ready', 'failed', 'blocked'].includes(value));
   }, null, { timeout: 120000, polling: 100 });
-  return readGraph(page);
+  const state = await readGraph(page);
+  assert.equal(state.evaluation_running, false);
+  assert.deepEqual(state.errors, {});
+  assert.ok(Object.values(state.states).every(value => value === 'ready'), 'Evaluated fixture actions must all be ready');
+  return state;
 }
 
 let browser, preview;
@@ -274,10 +296,11 @@ try {
   await writeFile(path.join(output, 'browser-graphs.json'), browserSnapshots);
   report.browser_graphs_sha256 = sha256(Buffer.from(browserSnapshots));
   await writeFile(path.join(output, 'recipes.json'), JSON.stringify({ default: initial.recipe, edited: edited.recipe }, null, 2));
+  report.browser_snapshots = { default: initial, edited, replayed };
   const runtime = path.join(site.root, site.manifest.runtime.path);
   const native = await nativeReference(runtime);
   report.native_versions = native.versions;
-  report.browser_snapshots = { default: initial, edited, replayed };
+  report.native_evaluation_responses = native.evaluation_responses;
   report.native_snapshots = native.snapshots;
   const receipt = await compareSemanticBatch({ nativePython, site, output, report, cases: [
     { id: 'replay', profile: 'graph-snapshot', actual: replayed, expected: edited },
