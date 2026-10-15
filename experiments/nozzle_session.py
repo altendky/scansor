@@ -23,6 +23,7 @@ from experiments.mesh_cylinder_plane_fit import (
 )
 from experiments.run_nozzle_cylinder import load_example
 from experiments.run_nozzle_cylinder_plane import load_plane_ids
+from experiments.scan_workspace import SourceDescriptor
 
 VertexId = Annotated[StrictInt, Field(ge=0)]
 
@@ -90,6 +91,25 @@ class NozzleWorkspace:
             lateral_ids=self.data.ids.tolist(),
             plane_ids=load_plane_ids(example, self.data).tolist(),
         )
+
+    @property
+    def source_sha256(self) -> str:
+        return self.default.source_sha256
+
+    @property
+    def source_descriptor(self) -> SourceDescriptor | None:
+        # Retained recipes keep their explicit legacy example binding. User
+        # sources instead carry the generic content/interpretation descriptor.
+        return None
+
+    @property
+    def reference_sha256(self) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                {"selection": self.data.selection, "model": self.model_sha256},
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
 
     def validate(self, session: NozzleSession) -> NozzleSession:
         """Bind IDs to source/model; allow empty selections for editing, not fitting."""

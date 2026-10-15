@@ -11,6 +11,26 @@ actions while preserving explicit reference geometry. User-file import is not
 implemented by this document; algorithms, resource caps and workflow claims still
 require the implementation evidence below.
 
+**Implemented source foundation:** the shared
+[scan workspace](../../../../experiments/scan_workspace.py) and
+[project transaction](../../../../experiments/scan_project.py) now prepare the raw
+strict PLY as an immutable, source-only graph without example sidecars. An empty
+project is valid. Generic Source definitions carry exact-byte/interpretation
+descriptors; original IDs/coordinates, raw normals, normalized direction
+derivatives and incident-area weights remain separate from display buffers.
+Failed/cancelled/stale preparation preserves the accepted generation. Retained
+examples use the same geometry reader through an explicit legacy adapter that
+preserves their existing reference hashes and optional starter recipes.
+
+This foundation does not expose file opening in either adapter or the UI yet.
+The existing fixture-dependent fitting paths explicitly reject generic sources
+until their dedicated integration work lands. HTTP/worker delivery, Force source
+retention, source-aware reopening and per-backend measured caps remain their
+listed tickets. Caller-provided byte/count caps and the loader's incremental
+allocation estimate are admission checks, not a measured total-runtime memory
+guarantee. Input snapshots and authoritative/display copies are accounted for
+separately from the interpreter, GPU and unrelated caller state.
+
 Already agreed: a scan is a Source feature; initially each project has zero or
 one scan; native HTTP and browser workers use interchangeable operations and
 shared Python import/workspace/fitting semantics. Preserve original coordinates,

@@ -1,6 +1,7 @@
 """Captured-nozzle adapter for a connected coaxial group and perpendicular planes."""
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 
@@ -19,6 +20,7 @@ from experiments.mesh_cone_plane_fit import (
 from experiments.mesh_mirror_surfaces import MirrorSurfaces, initial_mirror
 from experiments.mesh_rotational_planes import RotationalPlanes, initial_rotation
 from experiments.nozzle_session import NozzleWorkspace, SessionFit, SurfaceResult
+from experiments.scan_workspace import ScanWorkspace, Workspace
 from experiments.selection_growth import fit_seed
 
 
@@ -39,7 +41,7 @@ class ReferencePlaneGroup:
 
 
 def fit_group(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     sides: list[FitSelection],
     planes: list[FitSelection],
     rotational_groups: tuple[tuple[FitSelection, ...], ...] = (),
@@ -50,6 +52,9 @@ def fit_group(
     reference_plane_groups: tuple[ReferencePlaneGroup, ...] = (),
 ) -> SessionFit:
     """Joint fit; a mirror's optional radius source makes its planes tangent."""
+    if isinstance(workspace, ScanWorkspace):
+        raise ValueError("Shared-axis fitting is not yet supported for imported scans")
+    workspace = cast(NozzleWorkspace, workspace)
     observations = [
         SideObservations(
             workspace.local[s.ids], workspace.data.weights[s.ids], s.kind, s.domain
@@ -413,12 +418,15 @@ def fit_group(
 
 
 def fit_fixed_axis_group(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     sides: list[FitSelection],
     planes: list[FitSelection],
     axis_parameters: np.ndarray,
 ) -> SessionFit:
     """Fit radii, taper, and plane offsets without moving the supplied axis."""
+    if isinstance(workspace, ScanWorkspace):
+        raise ValueError("Axis-bound fitting is not yet supported for imported scans")
+    workspace = cast(NozzleWorkspace, workspace)
     if not sides and not planes:
         raise ValueError("a fixed-axis fit requires at least one surface")
     if axis_parameters.shape != (7,) or not np.isfinite(axis_parameters).all():

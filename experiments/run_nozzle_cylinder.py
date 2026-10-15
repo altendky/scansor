@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from experiments.mesh_cylinder_fit import fit_cylinder, residual_jacobian
-from scansor._plyio import Reader, build_layout, read_header
+from experiments.scan_workspace import ScanLimits, prepare_scan
 
 
 @dataclass(frozen=True)
@@ -72,41 +72,31 @@ def load_example(example: Path) -> NozzleExample:
         raise ValueError("saved selection hash mismatch")
     ids = np.loadtxt(ids_path, dtype=np.int64, ndmin=1)
     with source.open("rb") as stream:
-        layout = build_layout(
-            read_header(stream), fixed_lists={("face", "vertex_indices"): 3}
+        size = source.stat().st_size
+        prepared = prepare_scan(
+            stream,
+            source.name,
+            ScanLimits(
+                max_source_bytes=size,
+                max_vertices=max(1, size // 12),
+                max_faces=size // 13,
+                max_estimated_bytes=32 * size + 4 * 1024 * 1024,
+            ),
         )
-        # This experiment retains both complete arrays below, so the reader's
-        # single-range allowance must admit the largest declared element block.
-        max_range_bytes = max(
-            2_000_000,
-            *(block.element.count * block.dtype.itemsize for block in layout.elements),
-        )
-        reader = Reader(stream, layout, max_range_bytes=max_range_bytes)
-        count = layout.element("vertex").element.count
-        rows = reader.read_range("vertex", 0, count)
-        faces = reader.read_range("face", 0, layout.element("face").element.count)
-    triangles = faces["vertex_indices"]["values"]
-    xyz = np.column_stack([rows[k] for k in ("x", "y", "z")]).astype(float)
-    normals = np.column_stack([rows[k] for k in ("nx", "ny", "nz")]).astype(float)
-    if not np.isfinite(xyz).all() or not np.isfinite(normals).all():
-        raise ValueError("nonfinite geometry")
-    if triangles.min() < 0 or triangles.max() >= count:
-        raise ValueError("out-of-range triangle index")
+    if prepared.source_sha256 != selection["source_sha256"]:
+        raise ValueError("example source changed during preparation")
+    # Preserve the legacy experiment adapter's mutable numerical fixture arrays.
+    # BrowserWorkspace freezes them at its boundary; generic sources already own
+    # immutable arrays and never acquire fixture selection/model metadata.
+    xyz, normals = prepared.data.xyz.copy(), prepared.data.normals.copy()
+    triangles, weights = prepared.data.triangles, prepared.data.weights.copy()
+    count = len(xyz)
     if len(ids) != selection["selected_vertices"] or not np.array_equal(
         ids, np.unique(ids)
     ):
         raise ValueError("unexpected selection count/order")
     if ids.min() < 0 or ids.max() >= count:
         raise ValueError("out-of-range selected vertex")
-    a, b, c = (xyz[triangles[:, i]] for i in range(3))
-    areas = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2
-    weights = np.bincount(
-        triangles.ravel(), weights=np.repeat(areas / 3, 3), minlength=count
-    ).astype(np.float64, copy=False)
-    lengths = np.linalg.norm(normals, axis=1)
-    if np.any(lengths <= 0):
-        raise ValueError("zero normal")
-    normals /= lengths[:, None]
     seed = selection["axis_seed"]
     axis = np.array(seed["axis"])
     q = xyz - seed["center"]
@@ -139,7 +129,8 @@ def load_example(example: Path) -> NozzleExample:
         ids,
         selection,
         selection_path,
-        int(np.count_nonzero(areas == 0)),
+        prepared.diagnostics.repeated_index_faces
+        + prepared.diagnostics.zero_area_faces,
     )
 
 

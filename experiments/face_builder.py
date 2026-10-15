@@ -751,7 +751,8 @@ def apply_faces(graph: FeatureGraph, request: FacesApplyRequest) -> dict[str, An
             )
         output = recipe.output
         if (
-            old_owner is None and nodes[output].operation != "transform"
+            old_owner is None
+            and (output is None or nodes[output].operation != "transform")
         ) or output in removed:
             output = owner_id
         revised = Recipe(

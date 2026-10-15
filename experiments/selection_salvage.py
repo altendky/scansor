@@ -51,7 +51,7 @@ class LegacySourceBinding(SalvageRecord):
 
 class RecipeSalvage(SalvageRecord):
     discarded_node_ids: tuple[str, ...]
-    discarded_output: str
+    discarded_output: str | None
     legacy_source_bindings: tuple[LegacySourceBinding, ...] = Field(min_length=1)
     materialized_growth_ids: tuple[str, ...]
     preserved_node_ids: tuple[str, ...]

@@ -18,8 +18,7 @@ outside the intended boundary.
   - **Agreed bounded contract and implementation gates:** verified raw RealityScan
     mesh profile, shared source/workspace and transactional import/recovery,
     computed seeds excluded from saved actions, and fit-family work breakdown;
-    user-file import remains
-    unimplemented
+    shared source foundation implemented, with adapter/UI file opening pending
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected
