@@ -59,12 +59,13 @@ rotated charts. Publication uses canonical source-coordinate geometry, including
 horizontal axes; optional wrong/stale hints do not replace fresh attempts. Free
 shared cylinder groups use their combined observations and independent radii;
 fixed axes remain exact. Per-axis constrained charts, derived axes, radius
-equalities and rigid reuse consume the canonical geometry. Generic
-rotational/mirror groups remain guarded pending their integration work:
-[#272](https://github.com/altendky/scansor/issues/272) supplies the
-[canonical symmetry equations](../experiments/generic-symmetry-fitting.md),
-then [#273](https://github.com/altendky/scansor/issues/273) owns group recovery,
-graph/provider publication, reuse, CAD and actual packaged execution.
+equalities and rigid reuse consume the canonical geometry. Generic named
+rotational/mirror solves use selected observations through bounded joint
+recovery, without requiring independent member-fit admission. The
+[canonical symmetry integration](../experiments/generic-symmetry-fitting.md)
+also preserves exact provider roles and each member's hard support during CAD
+pooling. This is implemented in the draft #272/#273 stack; packaged parity and
+current-head CI remain delivery gates.
 
 The [raw-nozzle acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
 opens only the retained RealityScan PLY bytes into a source-only project, then
@@ -258,8 +259,8 @@ Current implementation gaps:
   still includes fixture selection/model configuration through its explicit
   adapter. Independent plane/sphere/cylinder/cone fits use generic source
   identity and selected-data initialization. The legacy example paths retain
-  their explicit fixture adapter; generic rotational/mirror integration remains
-  guarded.
+  their explicit fixture adapter. Generic named rotational/mirror integration is
+  implemented in the draft stack with final verification gates still open.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
   centers and scales legacy numerical coordinates. Generic cylinders additionally
   rotate each proposal chart, while relationship components use one chart per

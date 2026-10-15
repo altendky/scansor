@@ -268,6 +268,7 @@ def test_worker_parity_rejects_changed_canonical_spatial_geometry(
         "imported_cylinders": [],
         "imported_cones": [],
         "support_transfers": [],
+        "imported_symmetries": [],
         "analytic_geometry": analytic_geometry_probe(),
     }
     actual = deepcopy(expected)

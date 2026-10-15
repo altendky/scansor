@@ -19,6 +19,7 @@ import numpy as np
 import pydantic
 from numpy.typing import NDArray
 
+from experiments.browser_runtime.symmetry_probe import symmetry_graph_probes
 from experiments.feature_graph import (
     AxisDefinition,
     FeatureGraph,
@@ -1014,6 +1015,9 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             )
         ]
         support_seconds = time.perf_counter() - support_started
+    symmetry_started = time.perf_counter()
+    imported_symmetries = symmetry_graph_probes(root)
+    symmetry_seconds = time.perf_counter() - symmetry_started
     started = time.perf_counter()
     workspace = NozzleWorkspace(root / EXAMPLE)
     load_seconds = time.perf_counter() - started
@@ -1059,6 +1063,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             "imported_cylinder_cases": len(imported_cylinders),
             "imported_cone_cases": len(imported_cones),
             "support_transfer_cases": len(support_transfers),
+            "imported_symmetry_cases": len(imported_symmetries),
             "mesh_vertices": len(workspace.local),
             "mesh_triangles": len(workspace.data.triangles),
             "nozzle_cone": len(workspace.default.lateral_ids),
@@ -1072,6 +1077,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         "imported_cylinders": imported_cylinders,
         "imported_cones": imported_cones,
         "support_transfers": support_transfers,
+        "imported_symmetries": imported_symmetries,
         "analytic_geometry": analytic_geometry_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
@@ -1098,6 +1104,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
             "imported_cylinders": imported_cylinder_seconds,
             "imported_cones": imported_cone_seconds,
             "support_transfers": support_seconds,
+            "imported_symmetries": symmetry_seconds,
             "workspace_load": load_seconds,
             "nozzle": nozzle_seconds,
             "graph": graph_seconds,
@@ -1355,6 +1362,18 @@ def compare_imported_cones(
     _compare_imported_revolutions(actual, expected, family="cone")
 
 
+def compare_symmetry_graphs(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    assert len(actual) == len(expected), "imported_symmetries count"
+    for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
+        path = f"imported_symmetries[{index}]"
+        compare_intent(
+            value["state"]["recipe"], reference["state"]["recipe"], path + ".recipe"
+        )
+        compare_values(value, reference, path)
+
+
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     for key in ("fixture_sha256", "counts", "source_sha256", "model_sha256"):
         assert actual[key] == expected[key], f"{key} mismatch"
@@ -1370,6 +1389,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     compare_imported_cones(actual["imported_cones"], expected["imported_cones"])
     compare_support_transfers(
         actual["support_transfers"], expected["support_transfers"]
+    )
+    compare_symmetry_graphs(
+        actual["imported_symmetries"], expected["imported_symmetries"]
     )
     compare_values(
         actual["analytic_geometry"], expected["analytic_geometry"], "analytic_geometry"
@@ -1398,6 +1420,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "imported_cylinder_cases": len(actual["imported_cylinders"]),
         "imported_cone_cases": len(actual["imported_cones"]),
         "support_transfer_cases": len(actual["support_transfers"]),
+        "imported_symmetry_cases": len(actual["imported_symmetries"]),
         "rtol": RTOL,
         "atol": ATOL,
     }

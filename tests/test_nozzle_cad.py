@@ -1446,7 +1446,17 @@ def test_symmetry_identical_bounds_and_disable(kind: str, operation: str) -> Non
     base = samples(patches["0"])
     for id, matrix in zip(surfaces, transforms, strict=True):
         actual = (samples(patches[id]) - matrix[:3, 3]) @ matrix[:3, :3]
-        np.testing.assert_allclose(actual, base, atol=1e-10)
+        if kind == "plane":
+            np.testing.assert_allclose(actual, base, atol=1e-10)
+        else:
+            # Independently constructed full lateral faces may choose another
+            # UV seam; their world axial heights and radius circles must agree.
+            np.testing.assert_allclose(actual[:, 2], base[:, 2], atol=1e-10)
+            np.testing.assert_allclose(
+                np.linalg.norm(actual[:, :2] - [3, 0], axis=1),
+                np.linalg.norm(base[:, :2] - [3, 0], axis=1),
+                atol=1e-10,
+            )
     independent = joint_shapes(
         result, [{**constraint, "symmetric_extents": False}], np.array(positions)
     )

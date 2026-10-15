@@ -43,6 +43,14 @@ from experiments.feature_reuse import (
     transformed_surface_geometry,
 )
 from experiments.fit_initialization import RecoveryFailure, initialization_binding
+from experiments.fit_relationship_component import (
+    AxisInput,
+    MirrorInput,
+    PlaneInput,
+    RadiusDistanceInput,
+    RelationshipFailure,
+    RotationInput,
+)
 from experiments.fit_solver import normalized_weights
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION, ConeFitFailure
 from experiments.mesh_cylinder_fit import CylinderFitFailure
@@ -60,6 +68,12 @@ from experiments.nozzle_session import (
     VertexId,
 )
 from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
+from experiments.selected_symmetry_fit import (
+    SelectedSurface,
+    SelectedSymmetryGroup,
+    SymmetryFitFailure,
+    fit_selected_symmetry_group,
+)
 from experiments.selection_growth import PlaneFitFailure, connected_growth, fit_seed
 from experiments.selection_region import (
     apply_selection_region,
@@ -223,7 +237,7 @@ class RotationalSymmetry(Node):
     operation: Literal["rotational_symmetry"]
     axis: str
     # Existing serialized name retained; inputs are same-type surface fits.
-    # Ordered positive rotations about normalize(a,b,1), in degrees 0/120/240.
+    # Ordered positive rotations about the resolved directed common axis.
     planes: list[str] = Field(min_length=3, max_length=3)
     symmetric_extents: bool = True
 
@@ -1273,6 +1287,8 @@ def compile_execution_plan(
     recipe: Recipe,
     roots: set[str],
     influence: GeometryInfluence,
+    *,
+    selected_named_solves: bool = False,
 ) -> ExecutionPlan:
     """Build the whole execution graph before selecting a requested closure.
 
@@ -1284,6 +1300,44 @@ def compile_execution_plan(
     nodes = {node.id: node for node in recipe.nodes}
     plane_components = influence.plane_components
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
+    named_inputs = (
+        {
+            node.id: selected_symmetry_inputs(node, nodes)
+            for node in recipe.nodes
+            if has_selected_symmetry(node, nodes)
+        }
+        if selected_named_solves
+        else {}
+    )
+    for key, (_, prerequisites, _) in named_inputs.items():
+        task_dependencies[key] = prerequisites.copy()
+    for node in recipe.nodes:
+        references = (
+            (node.origin_point, node.primary_reference, node.secondary_reference)
+            if isinstance(node, FrameDefinition)
+            else node.source_points
+            if isinstance(node, AxisDefinition) and node.source_points is not None
+            else tuple(
+                ref
+                for distance in node.distances
+                for ref in (distance.first_point, distance.second_point)
+            )
+            if isinstance(node, ScaleDefinition)
+            else None
+        )
+        if references is not None and any(
+            isinstance(ref, OutputReference) and ref.context in named_inputs
+            for ref in references
+        ):
+            task_dependencies[node.id] = {
+                dep
+                for ref in references
+                for dep in (
+                    [ref.context]
+                    if isinstance(ref, OutputReference) and ref.context in named_inputs
+                    else reference_dependencies(ref)
+                )
+            }
     initial = roots.copy()
     while True:
         expanded = initial | {dep for key in initial for dep in task_dependencies[key]}
@@ -1386,11 +1440,17 @@ def compile_execution_plan(
         elif isinstance(node, BuildFaces):
             reads[node.id] = {reference.feature for reference in node.surfaces}
         elif isinstance(node, AxisSolve):
-            reads[node.id] = {
-                cast(MirrorSymmetry, nodes[factor]).plane
-                for factor in node.factors
-                if isinstance(nodes[factor], MirrorSymmetry)
-            }
+            reads[node.id] = (
+                named_inputs[node.id][2].copy()
+                if node.id in named_inputs
+                else {
+                    cast(MirrorSymmetry, nodes[factor]).plane
+                    for factor in node.factors
+                    if isinstance(nodes[factor], MirrorSymmetry)
+                }
+            )
+        if node.id in named_inputs:
+            reads[node.id] = named_inputs[node.id][2].copy()
 
     # Preserve source-only constraints when a later transfer extends their
     # component. These results have a reuse-local port, never a global overlay.
@@ -1514,7 +1574,9 @@ def compile_execution_plan(
             else None
         )
         implicit_dependencies = (
-            dependencies(node)
+            named_inputs[node.id][1]
+            if node.id in named_inputs
+            else dependencies(node)
             if references is None
             else [ref for ref in references if isinstance(ref, str)]
         )
@@ -1688,6 +1750,72 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
         while add_upstream():
             changed = True
     return [key for key in nodes if key in closure]
+
+
+def has_selected_symmetry(node: Feature, nodes: dict[str, Feature]) -> bool:
+    """The imported named paths with bounded observation-only initialization."""
+    return (
+        isinstance(node, JointFit)
+        and any(isinstance(nodes[key], RotationalSymmetry) for key in node.constraints)
+    ) or (
+        isinstance(node, AxisSolve)
+        and any(isinstance(nodes[key], MirrorSymmetry) for key in node.factors)
+    )
+
+
+def selected_symmetry_inputs(
+    node: Feature, nodes: dict[str, Feature]
+) -> tuple[list[SurfaceFit], set[str], set[str]]:
+    """Compile memberships and hard providers without admitting raw members.
+
+    Manual free axes and clocks supply disposable starts. Placed declarations
+    still need their actual registration/source stage; fixed fit/point providers
+    remain mandatory, independently evaluated inputs.
+    """
+    axes: set[str] = set()
+    planes: set[str] = set()
+    if isinstance(node, JointFit):
+        sides, others = joint_surfaces(node, nodes)
+        surfaces = [*sides, *others]
+    elif isinstance(node, AxisSolve):
+        axes.add(node.axis)
+        members: dict[str, SurfaceFit] = {}
+        for key in node.factors:
+            factor = nodes[key]
+            if isinstance(factor, SurfaceFit):
+                members[key] = factor
+            elif isinstance(factor, MirrorSymmetry):
+                planes.add(factor.plane)
+                members.update(
+                    (ref, cast(SurfaceFit, nodes[ref])) for ref in factor.surfaces
+                )
+            elif isinstance(factor, ParallelToPlane):
+                planes.add(factor.reference_plane)
+            elif isinstance(factor, EqualQuantities):
+                planes.add(equality_measurements(factor)[1].reference_plane)
+        surfaces = list(members.values())
+    else:
+        raise ValueError("expected a named symmetry solve")
+    prerequisites = {ref for surface in surfaces for ref in surface.selections}
+    for surface in surfaces:
+        if surface.axis is not None:
+            axes.add(surface.axis)
+        if surface.reference_plane is not None:
+            planes.add(surface.reference_plane)
+    for key in planes:
+        plane = cast(PlaneDefinition, nodes[key])
+        axes.add(plane.axis)
+    hard: set[str] = set()
+    for key in axes:
+        axis = cast(AxisDefinition, nodes[key])
+        if axis.initial_parameters is None or axis.placement is not None:
+            hard.add(key)
+    for key in planes:
+        plane = cast(PlaneDefinition, nodes[key])
+        axis = cast(AxisDefinition, nodes[plane.axis])
+        if axis.initial_parameters is None or plane.placement is not None:
+            hard.add(key)
+    return surfaces, prerequisites | hard, hard
 
 
 def joint_surfaces(
@@ -1877,6 +2005,8 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
             ConeFitFailure,
             UnsupportedSupportTransfer,
             SupportIntentFailure,
+            SymmetryFitFailure,
+            RelationshipFailure,
         ),
     ):
         return deepcopy(error.diagnostic)
@@ -3469,7 +3599,10 @@ class FeatureGraph(Generic[WorkspaceType]):
             )
         ):
             _ = compile_execution_plan(
-                recipe, set(nodes), describe_geometry_influence(nodes)
+                recipe,
+                set(nodes),
+                describe_geometry_influence(nodes),
+                selected_named_solves=isinstance(self.workspace, ScanWorkspace),
             )
         return recipe.model_copy(deep=True)
 
@@ -3925,6 +4058,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             self._recipe,
             roots,
             describe_geometry_influence(nodes),
+            selected_named_solves=isinstance(self.workspace, ScanWorkspace),
         )
 
     def readiness_snapshot(
@@ -4113,6 +4247,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 recipe,
                 roots,
                 influence,
+                selected_named_solves=isinstance(self.workspace, ScanWorkspace),
             )
             order = plan.order
 
@@ -4333,6 +4468,149 @@ class FeatureGraph(Generic[WorkspaceType]):
                         conflicts.append({"fits": [left, right], "ids": overlap})
             if conflicts:
                 raise SelectionOverlap(conflicts)
+
+        def solve_selected_symmetry(node: JointFit | AxisSolve) -> dict[str, Any]:
+            """Lower saved factors directly from original memberships and roles."""
+            assert isinstance(self.workspace, ScanWorkspace)
+            surfaces, _, _ = selected_symmetry_inputs(node, nodes)
+            reject_overlaps(surfaces)
+            axis_records: dict[str, AxisInput] = {}
+            plane_records: dict[str, PlaneInput] = {}
+
+            def add_axis(key: str) -> None:
+                if key in axis_records:
+                    return
+                definition = cast(AxisDefinition, nodes[key])
+                free = definition.initial_parameters is not None
+                if not free or definition.placement is not None:
+                    value = resolved_result(key, plan.read_exclusions.get(node.id))
+                else:
+                    # The declared free vector is merely an optional proposal.
+                    # Overflow/invalid geometry must not gate fresh recovery.
+                    try:
+                        with np.errstate(over="ignore", invalid="ignore"):
+                            value = directed_axis_result(
+                                definition,
+                                parameters=list(definition.initial_parameters or ()),
+                            )
+                    except ValueError:
+                        value = {}
+                axis_records[key] = AxisInput(value, free=free)
+
+            def add_plane(key: str) -> None:
+                if key in plane_records:
+                    return
+                definition = cast(PlaneDefinition, nodes[key])
+                add_axis(definition.axis)
+                free = axis_records[definition.axis].free
+                if not free or definition.placement is not None:
+                    value = resolved_result(key, plan.read_exclusions.get(node.id))
+                else:
+                    try:
+                        with np.errstate(over="ignore", invalid="ignore"):
+                            value = reference_plane_result(
+                                axis_records[definition.axis].result, definition
+                            )
+                    except (ValueError, KeyError):
+                        value = {}
+                plane_records[key] = PlaneInput(
+                    value,
+                    free=free,
+                    axis=definition.axis,
+                    construction=definition.construction,
+                )
+
+            rotations: list[RotationInput] = []
+            mirrors: list[MirrorInput] = []
+            distances: list[RadiusDistanceInput] = []
+            member_axes: dict[str, str] = {}
+            if isinstance(node, JointFit):
+                sides, _ = joint_surfaces(node, nodes)
+                declared_axes = {side.axis for side in sides if side.axis is not None}
+                if len(declared_axes) > 1:
+                    raise ValueError("a named coaxial group requires one axis provider")
+                if declared_axes:
+                    common = next(iter(declared_axes))
+                    add_axis(common)
+                else:
+                    common = "@joint/" + node.id
+                    axis_records[common] = AxisInput({}, free=True)
+                member_axes.update((side.id, common) for side in sides)
+                for key in node.constraints:
+                    factor = nodes[key]
+                    if isinstance(factor, Perpendicular):
+                        member_axes[factor.plane] = common
+                    elif isinstance(factor, RotationalSymmetry):
+                        rotations.append(
+                            RotationInput(
+                                common, cast(tuple[str, str, str], tuple(factor.planes))
+                            )
+                        )
+            else:
+                common = node.axis
+                add_axis(common)
+                factors = [nodes[key] for key in node.factors]
+                # Retain the complete-cluster validation, while the component's
+                # radius-distance equation itself supplies the parallel normal.
+                _ = constrained_mirror_radii(factors, nodes)
+                for factor in factors:
+                    if isinstance(factor, MirrorSymmetry):
+                        add_plane(factor.plane)
+                        mirrors.append(
+                            MirrorInput(
+                                factor.plane,
+                                cast(tuple[str, str], tuple(factor.surfaces)),
+                            )
+                        )
+                    elif isinstance(factor, EqualQuantities):
+                        radius, distance = equality_measurements(factor)
+                        add_plane(distance.reference_plane)
+                        distances.append(
+                            RadiusDistanceInput(
+                                radius.surface,
+                                distance.surface,
+                                distance.reference_plane,
+                            )
+                        )
+
+            selected_surfaces: list[SelectedSurface] = []
+            for surface in surfaces:
+                axis = member_axes.get(surface.id, surface.axis)
+                datum = surface.reference_plane
+                construction = None
+                if datum is not None:
+                    add_plane(datum)
+                    definition = cast(PlaneDefinition, nodes[datum])
+                    axis, construction = definition.axis, definition.construction
+                elif surface.kind == "plane" and axis is not None:
+                    construction = "perpendicular_to_axis"
+                if surface.kind != "plane" and axis is None:
+                    axis = "@member/" + surface.id
+                    axis_records[axis] = AxisInput({}, free=True)
+                elif axis is not None and axis not in axis_records:
+                    add_axis(axis)
+                selected_surfaces.append(
+                    SelectedSurface(selected(surface), axis, datum, construction)
+                )
+            return fit_selected_symmetry_group(
+                self.workspace,
+                SelectedSymmetryGroup(
+                    tuple(selected_surfaces),
+                    common,
+                    axis_records,
+                    plane_records,
+                    rotations=tuple(rotations),
+                    mirrors=tuple(mirrors),
+                    radius_distances=tuple(distances),
+                    common_axis_directed=not axis_records[common].free,
+                    axis_alias_signs={key: 1 for key in axis_records},
+                    plane_alias_signs={key: 1 for key in plane_records},
+                    semantic_intent={
+                        "recipe": recipe.model_dump(mode="json"),
+                        "support_policy_version": SUPPORT_POLICY_VERSION,
+                    },
+                ),
+            )
 
         def solver_plane_phase(reference_id: str) -> float | None:
             plane = initialized_plane(
@@ -4763,14 +5041,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                         for member in error_ids:
                             self._states[member] = "failed"
                             self._errors[member] = str(error)
-                            if isinstance(error, ConstrainedLeastSquaresFailure):
-                                assert diagnostic is not None
+                            if diagnostic is not None:
                                 self._diagnostics[member] = deepcopy(diagnostic)
                             else:
                                 _ = self._diagnostics.pop(member, None)
                         if isinstance(error, SelectionOverlap):
                             self._diagnostics[identifier] = error.diagnostic
-                        elif not isinstance(error, ConstrainedLeastSquaresFailure):
+                        elif diagnostic is None:
                             _ = self._diagnostics.pop(identifier, None)
                         self._revision += 1
                 raise
@@ -5603,6 +5880,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise AssertionError(
                         "connected plane solve did not publish its relationship"
                     )
+                elif (
+                    isinstance(self.workspace, ScanWorkspace)
+                    and isinstance(node, (AxisSolve, JointFit))
+                    and has_selected_symmetry(node, nodes)
+                ):
+                    result = solve_selected_symmetry(node)
                 elif isinstance(node, AxisSolve):
                     factors = [nodes[ref] for ref in node.factors]
                     fitted_factors = [

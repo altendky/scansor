@@ -734,8 +734,12 @@ No finite-edge/cap distance objective or general nonlinear-constrained optimum i
 implied. The positive-Z axis chart and positive reference-radius restriction
 remain limits of the legacy example relationship paths; see the
 [cone fitting experiment](../mesh-cone-fit/README.md). Imported standalone and
-fixed/free shared-axis fits use canonical arbitrary-pose geometry. Imported
-rotational/mirror groups retain an explicit integration guard.
+fixed/free shared-axis fits use canonical arbitrary-pose geometry. Imported named
+rotational/mirror groups also derive joint starts from their selected rows.
+A member's failed standalone fit does not exclude its observations from a named
+solve. Named output contexts remain separate from raw member results. The draft
+integration preserves each lateral member's own hard support during CAD extent
+pooling; final packaged parity and CI remain delivery gates.
 
 ## Rotational surface symmetry
 

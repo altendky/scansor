@@ -5,10 +5,10 @@
 [#272](https://github.com/altendky/scansor/issues/272) extends the shared
 [relationship component](../../../../experiments/fit_relationship_component.py)
 with the existing ordered rotational and mirror relationships in canonical
-source coordinates. The numerical foundation is implemented and verified in the
-draft stack. Imported graph dispatch remains guarded until
-[#273](https://github.com/altendky/scansor/issues/273)
-integrates selected-data recovery, provider publication, reuse and CAD.
+source coordinates. The numerical foundation and
+[#273](https://github.com/altendky/scansor/issues/273)'s selected-data recovery,
+named graph dispatch and per-member CAD support are implemented in the draft
+stack. Final integration verification and current-head CI remain delivery gates.
 
 This preserves the current bounded relationship model: three ordered same-kind
 surfaces at positive 0/120/240-degree rotations, or two same-kind surfaces
@@ -63,8 +63,12 @@ the positive sheet.
 
 The existing CAD `symmetric_extents` option controls pooling of observed patch
 extents. It is not a fitting equality or permission to overwrite hard support.
-Its integration, including explicit rejection of incompatible hard support if
-necessary, belongs to #273.
+Lateral members are constructed separately from their own final geometry and
+finite caps after pooling observations. An automatic member gets a temporary
+pooled display extent; its published fit remains unchanged. Empty hard-support
+intersections reject export. Plane patches retain their existing shared
+rectangle construction. Full lateral faces can choose a different parameter
+seam while preserving their world geometry.
 
 The component is a single constrained attempt. #273 owns bounded joint
 candidate generation, optional hints, unsigned common-axis sign alternatives,
@@ -73,7 +77,7 @@ rank-deficient member patches must not be excluded when their joint evidence
 can identify the declared model. Neither a converged local attempt nor a best
 attempted objective proves global convergence or physical accuracy.
 
-The selected-data adapter is now implemented behind the imported graph guard.
+The selected-data adapter serves imported named rotational and mirror solves.
 It derives algebraic common-axis, orbit and mirror-phase proposals from the
 original selected positions and normals without requiring independently
 admissible member fits. Original incident-area weights remain attached to every
@@ -92,8 +96,12 @@ identity, selected rows, declarations and numerical policy, rather than the
 source filename. Competing cones are compared over both selected and supported
 extents, including radial profile differences outside a short hard interval.
 
-This direct adapter does not yet remove the graph guard or establish packaged
-worker, reuse or CAD acceptance. Those integration steps remain part of #273.
+Named execution prepares member selections and actual hard providers directly.
+It does not require every member's standalone fit to succeed. Both requested
+closure and implicit-provider planning use this preparation boundary; raw fit
+requests retain their own results and failures. A joint publishes only its named
+context, including solved mirror planes. Actual upstream source/point providers
+and placement stages remain required inputs.
 
 Its 53 independent strict-PLY tests pass, covering all three member families,
 rotations and mirrors, oblique poses, fixed/free references, partial patches,
@@ -103,6 +111,13 @@ cancellation and callback limits. Tests independently recompute every weighted
 residual and resolved support endpoint. The related 202 existing recovery,
 relationship and support regressions also pass; full types report zero errors
 or warnings. These direct checks do not substitute for the integration gates.
+
+The additional packaged probe reads six frozen independent strict-PLY scenes
+and saved recipes, without importing the test generator. It checks original
+positions, normals, triangles and incident weights, full weighted residuals,
+known geometry, finite support and renamed-source replay. The existing float64
+probe fixture and parity tolerances remain unchanged; complete attempt evidence
+is still compared under the open #266 contract.
 
 The native/worker comparison contract remains open in
 [#266](https://github.com/altendky/scansor/issues/266). This foundation does not
@@ -147,8 +162,30 @@ No failed iterate is accepted as a fallback, and iteration/trial budgets and
 the complete weighted objective retain their existing meanings. This is a
 local numerical setting, not a physical error threshold.
 
-The final full non-mesh suite passes **2,728 tests plus 32 subtests**, using four
-workers with CI's mesh-suite isolation. Full types pass with zero errors or
-warnings. The separate 751-case serial mesh suite passed on the support-enabled
-base; this change does not modify that ingestion path. Graph/reuse/CAD symmetry
-acceptance and actual packaged symmetry execution remain #273.
+The #272 foundation passed **2,728 tests plus 32 subtests**, using four workers
+with CI's mesh-suite isolation, and full types with zero errors or warnings.
+The separate 751-case serial mesh suite passed on the support-enabled base;
+these symmetry changes do not modify that ingestion path.
+
+The integrated #273 non-mesh set passes **2,892 tests plus 32 subtests**.
+The initial sandbox run passed 2,838 tests; its 54 HTTP cases failed because the
+sandbox prohibited localhost sockets, then all passed with localhost access.
+Full types report zero errors or warnings. This includes 26 named graph cases,
+66 new CAD cases (six run the actual graph through STEP), and 19 packaged-probe
+source, execution and strict-comparison cases. Independent reviews found no
+remaining scoped producer defect.
+
+The original packaged worker gate still stops on the previously recorded
+discarded cone-attempt difference in #266. A separately marked diagnostic copy
+completed all six symmetry cases in about 106 seconds. Every selected physical
+result agrees within the existing 1e-10 comparisons, with the same fresh
+candidate selected. This is diagnostic evidence, not a passing parity gate.
+Some discarded outcomes differ, including inferior native local solutions that
+reach the worker's evaluation limit. The selected rotated cylinder also uses
+four constraint evaluations in the worker versus three natively: retraction
+branches at the internal 1e-15 target, with final violations about 5.55e-16 and
+9.99e-16. Rank, selected geometry and the 1e-11 feasibility certificate agree.
+These selected-control and discarded-outcome differences extend the unresolved
+[#266](https://github.com/altendky/scansor/issues/266) contract question; no
+verifier, tolerance, fixture or attempt budget was
+relaxed. Final main-based current-head CI remains required before merge.
