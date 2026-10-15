@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import math
+import struct
 import sys
 import time
 from collections.abc import Callable
@@ -14,13 +16,22 @@ from typing import Any, cast
 
 import numpy as np
 import pydantic
+from numpy.typing import NDArray
 
-from experiments.feature_graph import FeatureGraph, Recipe
+from experiments.feature_graph import (
+    FeatureGraph,
+    Growth,
+    Recipe,
+    Selection,
+    SurfaceFit,
+)
 from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     fit_cone_plane,
 )
 from experiments.nozzle_session import NozzleWorkspace
+from experiments.scan_project import AcceptedScan, ScanProject
+from experiments.scan_workspace import ScanLimits
 
 EXAMPLE = "examples/nozzle-bayonette-simplified"
 ATOL = 1e-10
@@ -48,6 +59,25 @@ def create_fixture(path: Path) -> None:
     rng = np.random.default_rng(123456)
     cone += rng.normal(0, 0.001, cone.shape)
     plane += rng.normal(0, 0.001, plane.shape)
+    # Independent poses and nonuniform cells, frozen before either interpreter
+    # admits them as float32 source PLY. No fixture frame or numerical seed.
+    px, py = np.meshgrid([-2.0, -0.4, 0.8, 2.5], [-1.5, 0.3, 2.0])
+    normals = np.asarray([[1.0, 0, 0], [2.0, -3, 5], [2.0, -3, 5]])
+    normals /= np.linalg.norm(normals, axis=1)[:, None]
+    scales = np.asarray([1.0, 1e-6, 1e6])
+    imported_planes: list[NDArray[np.float64]] = []
+    for normal, scale in zip(normals, scales, strict=True):
+        reference = np.eye(3)[int(np.argmin(np.abs(normal)))]
+        u = np.cross(reference, normal)
+        u /= np.linalg.norm(u)
+        v = np.cross(normal, u)
+        sample = (
+            [6.0, -3.0, 9.0]
+            + px.ravel()[:, None] * u
+            + py.ravel()[:, None] * v
+            + 0.001 * np.sin(np.arange(px.size))[:, None] * normal
+        )
+        imported_planes.append(scale * sample)
     np.savez(
         path,
         cone=cone,
@@ -55,7 +85,99 @@ def create_fixture(path: Path) -> None:
         cw=np.linspace(0.1, 2, len(cone)),
         pw=np.linspace(0.2, 1, len(plane)),
         initial=np.array([0.0, 0.0, 0.0, 0.0, 3.0, 4.0, 0.0]),
+        imported_planes=np.asarray(imported_planes),
+        imported_plane_normals=normals,
+        imported_plane_scales=scales,
     )
+
+
+def imported_plane_probe(
+    points: NDArray[np.float64], normal: NDArray[np.float64], scale: float
+) -> dict[str, Any]:
+    """Exercise actual source admission, standalone fit, growth and recipe replay."""
+    faces = [
+        face
+        for row in range(2)
+        for column in range(3)
+        for i in [4 * row + column]
+        for face in ((i, i + 1, i + 4), (i + 1, i + 5, i + 4))
+    ]
+    header = (
+        "ply\nformat binary_little_endian 1.0\n"
+        + f"element vertex {len(points)}\n"
+        + "property float x\nproperty float y\nproperty float z\n"
+        + "property float nx\nproperty float ny\nproperty float nz\n"
+        + f"element face {len(faces)}\n"
+        + "property list uchar int vertex_indices\nend_header\n"
+    ).encode("ascii")
+    original = (
+        header
+        + b"".join(struct.pack("<6f", *point, *normal) for point in points)
+        + b"".join(struct.pack("<B3i", 3, *face) for face in faces)
+    )
+    limits = ScanLimits(100_000, 100, 100, 10_000_000)
+
+    def open_source(filename: str) -> AcceptedScan:
+        project = ScanProject()
+        empty = project.accepted
+        candidate = project.prepare_add(
+            io.BytesIO(original),
+            filename,
+            limits,
+            generation=empty.generation,
+            token=str(empty.graph.snapshot()["token"]),
+        )
+        return project.commit(candidate)
+
+    accepted = open_source("independent-plane.ply")
+    recipe = Recipe.model_validate(accepted.graph.snapshot()["recipe"])
+    recipe.nodes.extend(
+        [
+            Selection(
+                id="patch",
+                label="Patch",
+                operation="selection",
+                source="scan",
+                ids=list(range(8)),
+            ),
+            SurfaceFit(
+                id="plane",
+                label="Plane",
+                operation="fit",
+                selections=["patch"],
+                kind="plane",
+            ),
+            Growth(
+                id="grown",
+                label="Grown",
+                operation="growth",
+                seed_fit="plane",
+                distance=0.02 * scale,
+                angle_degrees=10,
+            ),
+        ]
+    )
+    recipe = recipe.model_copy(update={"output": "grown"})
+    graph = FeatureGraph(accepted.workspace, recipe)
+    state = cast(dict[str, Any], graph.evaluate(str(graph.snapshot()["token"])))
+    assert not state["errors"] and not state["diagnostics"], state
+    assert set(state["states"].values()) == {"ready"}
+    fitted = state["results"]["plane"]
+    assert fitted["initialization"]["orientation"] == "selected-normals"
+    assert np.dot(fitted["parameters"][:3], normal) > 1 - 1e-5
+    assert fitted["weighted_rms"] / scale < 0.005
+    assert state["results"]["grown"]["ids"] == list(range(len(points)))
+    reopened = open_source("renamed-identical-plane.ply")
+    replay = FeatureGraph(
+        reopened.workspace, Recipe.model_validate_json(recipe.model_dump_json())
+    )
+    replayed = cast(dict[str, Any], replay.evaluate(str(replay.snapshot()["token"])))
+    for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
+        compare_values(replayed[key], state[key], f"plane.replay.{key}")
+    return {
+        key: state[key]
+        for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
+    }
 
 
 def numeric(root: Path, fixture: Path) -> dict[str, Any]:
@@ -73,7 +195,18 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         residuals, _ = cone_plane_residual_jacobian(
             data["cone"], data["plane"], np.array(synthetic["parameters"]), (-3, 6)
         )
-    synthetic_seconds = time.perf_counter() - started
+        synthetic_seconds = time.perf_counter() - started
+        plane_started = time.perf_counter()
+        imported_planes = [
+            imported_plane_probe(points, normal, float(scale))
+            for points, normal, scale in zip(
+                data["imported_planes"],
+                data["imported_plane_normals"],
+                data["imported_plane_scales"],
+                strict=True,
+            )
+        ]
+    imported_plane_seconds = time.perf_counter() - plane_started
     started = time.perf_counter()
     workspace = NozzleWorkspace(root / EXAMPLE)
     load_seconds = time.perf_counter() - started
@@ -114,6 +247,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         "counts": {
             "synthetic_cone": 432,
             "synthetic_plane": 64,
+            "imported_plane_cases": len(imported_planes),
             "mesh_vertices": len(workspace.local),
             "mesh_triangles": len(workspace.data.triangles),
             "nozzle_cone": len(workspace.default.lateral_ids),
@@ -122,6 +256,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         "source_sha256": workspace.default.source_sha256,
         "model_sha256": workspace.model_sha256,
         "synthetic": {"fit": synthetic, "residuals": residuals.tolist()},
+        "imported_planes": imported_planes,
         "nozzle": nozzle,
         "graph": json.loads(
             json.dumps(
@@ -142,6 +277,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         ),
         "timing_seconds": {
             "synthetic": synthetic_seconds,
+            "imported_planes": imported_plane_seconds,
             "workspace_load": load_seconds,
             "nozzle": nozzle_seconds,
             "graph": graph_seconds,
@@ -216,6 +352,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     for key in ("recipe", "token", "states", "errors", "diagnostics"):
         assert graph[key] == reference[key], f"graph {key} mismatch"
     compare_values(graph["results"], reference["results"], "graph.results")
+    compare_values(
+        actual["imported_planes"], expected["imported_planes"], "imported_planes"
+    )
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
     np.testing.assert_allclose(
         actual["synthetic"]["residuals"],
@@ -235,6 +374,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "synthetic": synthetic,
         "nozzle": compare_session(actual["nozzle"], expected["nozzle"]),
         "graph": compare_session(graph["result"], reference["result"]),
+        "imported_plane_cases": len(actual["imported_planes"]),
         "rtol": RTOL,
         "atol": ATOL,
     }

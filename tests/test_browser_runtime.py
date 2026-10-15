@@ -190,3 +190,26 @@ def test_parity_rejects_changed_standalone_graph_result_before_joint_comparison(
     }
     with pytest.raises(AssertionError, match=r"graph\.results\.side\.parameters"):
         _ = compare_numeric(actual, expected)
+
+
+def test_parity_rejects_changed_imported_plane_before_legacy_fit_comparison():
+    expected = {
+        "fixture_sha256": "fixture",
+        "counts": {},
+        "source_sha256": "source",
+        "model_sha256": "model",
+        "graph": {
+            "recipe": {},
+            "token": "token",
+            "states": {},
+            "errors": {},
+            "diagnostics": {},
+            "results": {},
+        },
+        "imported_planes": [{"results": {"plane": {"parameters": [1.0, 0, 0, 3.0]}}}],
+    }
+    actual = expected | {
+        "imported_planes": [{"results": {"plane": {"parameters": [0.0, 1, 0, 3.0]}}}]
+    }
+    with pytest.raises(AssertionError, match=r"imported_planes.*plane\.parameters"):
+        _ = compare_numeric(actual, expected)

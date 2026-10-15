@@ -20,12 +20,27 @@ from experiments.mesh_cylinder_fit import Array
 from experiments.mesh_sphere_fit import fit_sphere
 
 
+class PlaneFitFailure(ValueError):
+    """Direct plane identifiability/orientation evidence, separate from geometry."""
+
+    def __init__(
+        self, code: str, message: str, details: dict[str, Any] | None = None
+    ) -> None:
+        self.code: str = code
+        self.diagnostic: dict[str, Any] = {
+            "kind": "plane_fit_failure",
+            "code": code,
+            **(details or {}),
+        }
+        super().__init__(message)
+
+
 def fit_seed(
     points: Array,
     weights: Array,
     normals: Array,
     kind: str,
-    initial: Array,
+    initial: Array | None,
     domain: tuple[float, float],
 ) -> dict[str, Any]:
     minimum = 3 if kind == "plane" else 4 if kind == "sphere" else 7
@@ -35,24 +50,87 @@ def fit_seed(
         or not np.isfinite(weights).all()
         or np.any(weights <= 0)
     ):
-        raise ValueError(
+        message = (
             f"seed fit needs at least {minimum} finite, positive-area observations"
         )
+        if kind == "plane":
+            raise PlaneFitFailure(
+                "insufficient-observations", message, {"observations": len(points)}
+            )
+        raise ValueError(message)
     w = normalized_weights(weights)
     solver: SolverDiagnostics | None = None
+    initialization: dict[str, Any] | None = None
+    ambiguous_orientation = False
     if kind == "plane":
-        center = w @ points
-        q = points - center
+        normal_lengths = (
+            np.linalg.norm(normals, axis=1) if normals.ndim == 2 else np.empty(0)
+        )
+        if (
+            normals.shape != (len(points), 3)
+            or not np.isfinite(normals).all()
+            or not np.isfinite(normal_lengths).all()
+            or np.any(normal_lengths <= 0)
+        ):
+            raise PlaneFitFailure(
+                "invalid-normals", "plane orientation needs admitted usable normals"
+            )
+        try:
+            frame = CoordinateFrame.from_observations(points, weights)
+        except ValueError as error:
+            raise PlaneFitFailure(
+                "insufficient-coverage",
+                "seed plane is ill-conditioned; paint a wider two-dimensional patch",
+                {"observations": len(points)},
+            ) from error
+        q = (points - frame.origin) / frame.length
         values, vectors = np.linalg.eigh(q.T @ (w[:, None] * q))
-        if values[1] <= max(values[-1], 1e-30) * 1e-10:
-            raise ValueError(
-                "seed plane is ill-conditioned; paint a wider two-dimensional patch"
+        if values[0] < -32 * np.finfo(float).eps * max(float(values[-1]), 1.0):
+            raise PlaneFitFailure(
+                "numeric-failure", "invalid plane covariance spectrum"
+            )
+        # This matrix is positive semidefinite. Only roundoff-sized negative
+        # eigenvalues are clamped; no positive observation variance is removed.
+        values = np.maximum(values, 0.0)
+        coverage = float(values[1] / values[2])
+        gap = float((values[1] - values[0]) / values[2])
+        initialization = {
+            "algorithm": "weighted-covariance-plane-v1",
+            "chart": "workspace-normal-offset-v1",
+            "observations": len(points),
+            "origin": frame.origin.tolist(),
+            "length": frame.length,
+            "normalized_covariance_eigenvalues": values.tolist(),
+            "coverage_ratio": coverage,
+            "normal_gap_ratio": gap,
+        }
+        if coverage <= 1e-10:
+            raise PlaneFitFailure(
+                "insufficient-coverage",
+                "seed plane is ill-conditioned; paint a wider two-dimensional patch",
+                initialization,
+            )
+        if gap <= 1e-10:
+            raise PlaneFitFailure(
+                "ambiguous-normal",
+                "selected observations do not determine a unique plane normal",
+                initialization,
             )
         axis = vectors[:, 0]
-        if float((w @ normals) @ axis) < 0:
+        projection = float(w @ (normals @ axis))
+        normal_scale = float(w @ normal_lengths)
+        ambiguous_orientation = abs(projection) <= 1e-12 * normal_scale
+        if ambiguous_orientation:
+            if axis[int(np.argmax(np.abs(axis)))] < 0:
+                axis = -axis
+        elif projection < 0:
             axis = -axis
-        h = float(axis @ center)
-        residual = points @ axis - h
+        initialization["orientation"] = (
+            "ambiguous" if ambiguous_orientation else "selected-normals"
+        )
+        initialization["normal_projection"] = abs(projection) / normal_scale
+        h = float(axis @ frame.origin)
+        residual = (q @ axis) * frame.length
         parameters = [*axis.tolist(), h]
         condition = float(values[-1] / values[1])
     elif kind == "sphere":
@@ -64,7 +142,12 @@ def fit_seed(
         condition = result["normal_matrix_condition"]
         solver = result.get("solver")
     elif kind in ("cone", "cylinder"):
-        if initial.shape != (5,) or not np.isfinite(initial).all() or initial[4] <= 0:
+        if (
+            initial is None
+            or initial.shape != (5,)
+            or not np.isfinite(initial).all()
+            or initial[4] <= 0
+        ):
             raise ValueError("invalid seed initialization")
         columns = [0, 1, 2, 3, 4, 6] if kind == "cone" else [0, 1, 2, 3, 4]
 
@@ -107,6 +190,8 @@ def fit_seed(
     }
     if solver is not None:
         fitted["solver"] = solver
+    if initialization is not None:
+        fitted["initialization"] = initialization
     _, expected, inside = surface_distance(points, fitted)
     fitted["support_classification"] = {
         "inside_vertices": int(inside.sum()),
@@ -114,7 +199,9 @@ def fit_seed(
         "role": "selection-and-display",
     }
     fitted["normal_sign"] = (
-        1.0 if float(w @ np.sum(expected * normals, axis=1)) >= 0 else -1.0
+        1.0
+        if ambiguous_orientation or float(w @ np.sum(expected * normals, axis=1)) >= 0
+        else -1.0
     )
     return fitted
 
@@ -169,6 +256,12 @@ def connected_growth(
     distance: float,
     angle_degrees: float,
 ) -> dict[str, Any]:
+    if fit.get("initialization", {}).get("orientation") == "ambiguous":
+        raise PlaneFitFailure(
+            "ambiguous-orientation",
+            "directional growth needs an oriented plane; selected normals do not establish a direction",
+            fit["initialization"],
+        )
     residual, expected, support = surface_distance(points, fit)
     eligible = (
         support & np.isfinite(residual) & (np.abs(residual) <= distance) & (weights > 0)
