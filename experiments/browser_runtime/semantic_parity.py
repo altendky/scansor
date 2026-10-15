@@ -18,6 +18,12 @@ from typing import Any, cast
 
 POLICY_VERSION = "bounded-semantic-parity-v1"
 ATOL = RTOL = 1e-10
+# A nearly planar cylinder patch has aligned condition sensitivity approximately
+# proportional to radius squared; the public normal-matrix condition squares it
+# again. This is a bounded relative precision allowance, not an admission change
+# or a universal sensitivity bound. Only complete source-bound cylinder-v2 graph
+# fit owners enable it.
+_CYLINDER_CONDITION_RTOL = 4e-10
 _PROFILES = {"values", "numeric-fit", "result-map", "graph-snapshot"}
 _RECOVERY_KEYS = {
     "policy",
@@ -152,6 +158,49 @@ _CONE_FRESH_DERIVATIONS = {
         ("position-covariance", 3),
     )
     for index in range(count)
+}
+_CYLINDER_CONDITION_FIELDS = {
+    "scaled_jacobian_condition",
+    "aligned_jacobian_condition",
+}
+_CYLINDER_FIT_FIELDS = _CONE_FIT_FIELDS | {"ids"}
+_CYLINDER_INITIALIZATION_FIELDS = {
+    "algorithm",
+    "chart",
+    "origin",
+    "length",
+    "observations",
+    "raw_coverage_ratio",
+    "raw_normalized_covariance_eigenvalues",
+    "coverage_metric",
+    "minimum_coverage_ratio",
+    "maximum_aligned_jacobian_condition",
+    "maximum_aligned_scaled_gradient",
+    "minimum_solve_singular_ratio",
+    "chart_slope_bounds",
+    "initializers",
+    "assessments",
+    "recovery",
+    "coverage_ratio",
+    "axial_rms",
+    "standardized_covariance_eigenvalues",
+    "aligned_scaled_gradient_infinity_norm",
+}
+_CYLINDER_SOLVER_FIELDS = {
+    "implementation",
+    "termination",
+    "iterations",
+    "evaluations",
+    "rank",
+    "scaled_jacobian_condition",
+    "aligned_jacobian_condition",
+    "aligned_scaled_gradient_infinity_norm",
+    "scaled_projected_gradient_infinity_norm",
+    "parameter_scales",
+    "residual_scale",
+    "scale_units",
+    "coordinate_origin",
+    "coordinate_length",
 }
 _EXACT_FIELDS = {
     "recipe",
@@ -345,6 +394,31 @@ class _Comparator:
                 path,
                 "unsupported diagnostic value",
             )
+
+    def cylinder_condition(
+        self, actual: Any, expected: Any, path: str, *, squared: bool = False
+    ) -> None:
+        """Compare selected certificates; these remain bounded strict fields."""
+        for value in (actual, expected):
+            self.finite(value, path)
+            self.require(
+                1 <= value <= (1e12 if squared else 1e6),
+                path,
+                "selected cylinder condition failed admission",
+            )
+        self.require(
+            abs(actual - expected)
+            <= _CYLINDER_CONDITION_RTOL * max(abs(actual), abs(expected)),
+            path,
+            "selected cylinder condition differs",
+        )
+        self.receipt["strict_fields_compared"] += 1
+        self.diagnostic(
+            actual,
+            expected,
+            path,
+            "selected cylinder condition within bounded relative precision",
+        )
 
     def validate_solver(
         self,
@@ -842,6 +916,7 @@ class _Comparator:
         path: str,
         *,
         candidate_arity: int | None = None,
+        cylinder_condition: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         left = self.validate_recovery(
             actual, path + "(actual)", candidate_arity=candidate_arity
@@ -930,6 +1005,12 @@ class _Comparator:
                             location + ".assessment." + key,
                             "realized iterations within unchanged quota",
                         )
+                    elif key == "condition" and cylinder_condition:
+                        self.cylinder_condition(
+                            value["assessment"][key],
+                            reference["assessment"][key],
+                            location + ".assessment." + key,
+                        )
                     else:
                         self.plain(
                             value["assessment"][key],
@@ -960,6 +1041,8 @@ class _Comparator:
         expected: Any,
         path: str,
         context: tuple[dict[str, Any], dict[str, Any]],
+        *,
+        cylinder_condition: bool = False,
     ) -> None:
         for value, info in zip((actual, expected), context, strict=True):
             selected = info["selected"]
@@ -995,6 +1078,25 @@ class _Comparator:
                     path,
                     "selected direct solve rank deficient",
                 )
+            if cylinder_condition:
+                self.require(
+                    value["rank"] == 5
+                    and math.isclose(
+                        value["aligned_jacobian_condition"],
+                        selected["assessment"]["condition"],
+                        rel_tol=32 * math.ulp(1.0),
+                        abs_tol=0,
+                    ),
+                    path,
+                    "inconsistent selected cylinder aligned certificate",
+                )
+                self.require(
+                    # The strict singular-value test can round its reported
+                    # quotient to exactly 1e6; rank and threshold stay fixed.
+                    value["scaled_jacobian_condition"] <= 1e6,
+                    path,
+                    "selected cylinder scaled solve failed rank admission",
+                )
         self.keys(actual, set(expected), path)
         for key in expected:
             if key in {"iterations", "evaluations", "constraint_evaluations"}:
@@ -1006,6 +1108,8 @@ class _Comparator:
                 )
             elif key == "objective_history":
                 self.history(actual[key], expected[key], path + "." + key)
+            elif cylinder_condition and key in _CYLINDER_CONDITION_FIELDS:
+                self.cylinder_condition(actual[key], expected[key], path + "." + key)
             else:
                 self.plain(actual[key], expected[key], path + "." + key)
 
@@ -1076,6 +1180,7 @@ class _Comparator:
         path: str,
         *,
         candidate_arity: int | None = None,
+        cylinder_condition: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         self.keys(actual, set(expected), path)
         context = self.recovery(
@@ -1083,6 +1188,7 @@ class _Comparator:
             expected["recovery"],
             path + ".recovery",
             candidate_arity=candidate_arity,
+            cylinder_condition=cylinder_condition,
         )
         for value, info in zip((actual, expected), context, strict=True):
             self.validate_initialization(value, info, path)
@@ -1500,6 +1606,107 @@ class _Comparator:
         self.finite_tree(value, path)
 
     @staticmethod
+    def cylinder_condition_owner(record: dict[str, Any]) -> bool:
+        """Recognize a complete source-bound graph fit, never a bare version."""
+        geometry = record.get("analytic")
+        initialization = record.get("initialization")
+        solver = record.get("solver")
+        if not (
+            isinstance(geometry, dict)
+            and isinstance(initialization, dict)
+            and isinstance(solver, dict)
+        ):
+            return False
+        geometry = cast(dict[str, Any], geometry)
+        initialization = cast(dict[str, Any], initialization)
+        solver = cast(dict[str, Any], solver)
+        return (
+            record.keys() >= _CYLINDER_FIT_FIELDS
+            and record.get("kind") == "cylinder"
+            and geometry.get("kind") == "cylinder"
+            and initialization.keys() >= _CYLINDER_INITIALIZATION_FIELDS
+            and initialization["algorithm"] == "selected-cylinder-recovery-v2"
+            and initialization["chart"] == "rotated-normalized-cylinder-v1"
+            and solver.keys() >= _CYLINDER_SOLVER_FIELDS
+            and solver.get("implementation") == "scaled-svd-least-squares-v1"
+            and "constraint_evaluations" not in solver
+        )
+
+    def cylinder_condition_consistency(
+        self, record: dict[str, Any], info: dict[str, Any], path: str
+    ) -> None:
+        selected = info["selected"]
+        self.require(selected is not None, path, "missing selected cylinder attempt")
+        assessment = selected["assessment"]
+        self.require(
+            assessment["rank"] == 5 and assessment["valid"] is True,
+            path,
+            "selected cylinder failed rank/validity admission",
+        )
+        initialization = record["initialization"]
+        ids = record["ids"]
+        self.require(
+            isinstance(ids, (list, tuple))
+            and bool(ids)
+            and all(type(value) is int and value >= 0 for value in ids)
+            and len(set(ids)) == len(ids)
+            and len(ids) == initialization["observations"] == len(record["residuals"]),
+            path,
+            "invalid selected cylinder source rows",
+        )
+        classification = record["support_classification"]
+        self.keys(
+            classification,
+            {"inside_vertices", "outside_vertices", "role"},
+            path + ".support_classification",
+        )
+        for key in ("inside_vertices", "outside_vertices"):
+            self.count(
+                classification[key], len(ids), path + ".support_classification." + key
+            )
+        self.require(
+            classification["inside_vertices"] + classification["outside_vertices"]
+            == len(ids)
+            and classification["role"] == "selection-and-display",
+            path,
+            "invalid selected cylinder support classifications",
+        )
+        for key, metrics in initialization["assessments"].items():
+            if self.assessment_attempt(key, info, path) is selected:
+                self.require(
+                    metrics.keys()
+                    >= {
+                        "coverage_ratio",
+                        "axial_rms",
+                        "standardized_covariance_eigenvalues",
+                        "aligned_scaled_gradient_infinity_norm",
+                    },
+                    path,
+                    "incomplete selected cylinder fitted admission metrics",
+                )
+        self.finite(
+            initialization["aligned_scaled_gradient_infinity_norm"],
+            path + ".initialization.aligned_scaled_gradient_infinity_norm",
+            nonnegative=True,
+        )
+        self.require(
+            initialization["aligned_scaled_gradient_infinity_norm"] <= 1e-10,
+            path,
+            "selected cylinder initialization stationarity failed admission",
+        )
+        self.finite(record["condition"], path + ".condition")
+        self.require(
+            math.isclose(
+                record["condition"],
+                assessment["condition"] ** 2,
+                rel_tol=32 * math.ulp(1.0),
+                abs_tol=0,
+            ),
+            path,
+            "inconsistent selected cylinder squared certificate",
+        )
+
+    @staticmethod
     def computed_cone_owner(record: dict[str, Any]) -> bool:
         """Recognize the complete fixed-arity producer, never a bare version tag."""
         geometry = record.get("analytic")
@@ -1578,6 +1785,9 @@ class _Comparator:
             if isinstance(initialization, dict) and "recovery" in initialization:
                 self.keys(actual, set(expected), path)
                 initialization = cast(dict[str, Any], initialization)
+                cylinder_condition = self.cylinder_condition_owner(
+                    actual
+                ) and self.cylinder_condition_owner(expected)
                 algorithm = initialization.get("algorithm")
                 if isinstance(algorithm, str) and algorithm in _ALGORITHMS:
                     group_holder = algorithm in _GROUP_ALGORITHMS and (
@@ -1602,13 +1812,21 @@ class _Comparator:
                     if self.computed_cone_owner(actual)
                     and self.computed_cone_owner(expected)
                     else None,
+                    cylinder_condition=cylinder_condition,
                 )
+                if cylinder_condition:
+                    for value, info in zip((actual, expected), context, strict=True):
+                        self.cylinder_condition_consistency(value, info, path)
                 for key in expected:
                     if key == "initialization":
                         continue
                     if key == "solver":
                         self.selected_solver(
-                            actual[key], expected[key], path + ".solver", context
+                            actual[key],
+                            expected[key],
+                            path + ".solver",
+                            context,
+                            cylinder_condition=cylinder_condition,
                         )
                         for value, init in (
                             (actual[key], actual["initialization"]),
@@ -1634,6 +1852,13 @@ class _Comparator:
                     elif key == "objective_history":
                         self.history(
                             actual[key], expected[key], path + ".objective_history"
+                        )
+                    elif key == "condition" and cylinder_condition:
+                        self.cylinder_condition(
+                            actual[key],
+                            expected[key],
+                            path + ".condition",
+                            squared=True,
                         )
                     elif key in _EXACT_FIELDS:
                         self.exact(actual[key], expected[key], path + "." + key)
