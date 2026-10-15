@@ -38,7 +38,9 @@ from experiments.feature_inputs import (
 from experiments.feature_reuse import (
     estimate_rigid_match,
     surface_region_frame,
+    transformed_axis_geometry,
     transformed_fit_seed,
+    transformed_surface_geometry,
 )
 from experiments.fit_initialization import RecoveryFailure, initialization_binding
 from experiments.fit_solver import normalized_weights
@@ -53,7 +55,6 @@ from experiments.nozzle_coaxial import (
 from experiments.nozzle_session import (
     NozzleSession,
     NozzleWorkspace,
-    SessionFit,
     VertexId,
 )
 from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
@@ -64,6 +65,7 @@ from experiments.selection_region import (
     datum_frame,
 )
 from experiments.surface_extents import surface_intersection, trimmed_face
+from experiments.surface_primitives import revolution_geometry, unit, vector
 from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 MAX_RECIPE_ACTIONS = 10_000
@@ -116,7 +118,7 @@ class SurfaceFit(Node):
     operation: Literal["fit"]
     selections: list[str] = Field(min_length=1, max_length=99)
     kind: Literal["cone", "cylinder", "plane", "sphere"]
-    axial_domain: tuple[float, float] = (-2.0, 5.0)
+    axial_domain: tuple[float, float] | None = None
     axis: str | None = None
     point: str | None = None
     reference_plane: str | None = None
@@ -1832,11 +1834,22 @@ def directed_axis_result(
     node: AxisDefinition,
     *,
     parameters: list[float] | None = None,
+    geometry: dict[str, Any] | None = None,
+    geometry_is_directed: bool = False,
     first_point: dict[str, Any] | None = None,
     second_point: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve an explicitly directed axis without assuming it has a usable Z slope."""
-    if node.source_points is not None:
+    if geometry is not None:
+        if "analytic" in geometry:
+            analytic = revolution_geometry(geometry)
+            point = vector(analytic["origin"], "axis anchor")
+            direction = unit(analytic["axis"], "axis direction")
+        else:
+            point = vector(geometry["point_display"], "axis anchor")
+            direction = unit(geometry["axis_display"], "axis direction")
+        legacy_parameters = None
+    elif node.source_points is not None:
         if first_point is None or second_point is None:
             raise ValueError(f"{node.label}: both source points must be evaluated")
         point = np.asarray(first_point["point_display"], dtype=float)
@@ -1857,7 +1870,7 @@ def directed_axis_result(
         direction /= np.linalg.norm(direction)
         point = np.asarray([values[0], values[1], 0.0], dtype=float)
         legacy_parameters = values.tolist()
-    if node.direction_reversed:
+    if node.direction_reversed and not geometry_is_directed:
         direction = -direction
     return {
         "source_fit": node.source_fit,
@@ -1869,6 +1882,18 @@ def directed_axis_result(
         "point_display": point.tolist(),
         "direction_reversed": node.direction_reversed,
     }
+
+
+def connected_axis_result(
+    node: AxisDefinition, prior: dict[str, Any], solve: dict[str, Any]
+) -> dict[str, Any]:
+    """Publish canonical group geometry without reapplying its directed sign."""
+    initialized = initialized_axis(node, prior)
+    if solve.get("axis_is_directed"):
+        return directed_axis_result(
+            initialized, geometry=solve, geometry_is_directed=True
+        )
+    return directed_axis_result(initialized, parameters=solve["fit"]["parameters"])
 
 
 def initialized_axis(node: AxisDefinition, result: dict[str, Any]) -> AxisDefinition:
@@ -2205,18 +2230,18 @@ def fit_equal_radii(
     radial_observations: list[np.ndarray] = []
     observation_weights: list[np.ndarray] = []
     for surface, result, surface_ids in zip(surfaces, results, ids, strict=True):
-        parameters = np.asarray(result["parameters"], dtype=float)
-        if not np.isfinite(parameters).all():
-            raise ValueError(f"{surface.label}: fit result is unavailable")
-        if surface.kind == "cylinder" and parameters.shape == (7,):
-            direction = np.asarray([parameters[2], parameters[3], 1.0])
-            direction /= np.linalg.norm(direction)
-            point = np.asarray([parameters[0], parameters[1], 0.0])
+        if surface.kind == "cylinder":
+            geometry = revolution_geometry(result)
+            direction = np.asarray(geometry["axis"])
+            point = np.asarray(geometry["origin"])
             offset = workspace.local[surface_ids] - point
             axial = offset @ direction
             radial = offset - axial[:, None] * direction
             radial_observations.append(np.linalg.norm(radial, axis=1))
-        elif surface.kind == "sphere" and parameters.shape == (4,):
+        elif surface.kind == "sphere":
+            parameters = np.asarray(result["parameters"], dtype=float)
+            if parameters.shape != (4,) or not np.isfinite(parameters).all():
+                raise ValueError(f"{surface.label}: fit result is unavailable")
             radial_observations.append(
                 np.linalg.norm(workspace.local[surface_ids] - parameters[:3], axis=1)
             )
@@ -2244,13 +2269,17 @@ def fit_equal_radii(
         observation_weights,
         strict=True,
     ):
-        parameters = list(result["parameters"])
-        parameters[4 if surface.kind == "cylinder" else 3] = radius
+        updated = deepcopy(result)
+        if surface.kind == "cylinder" and "analytic" in result:
+            updated["analytic"] = {**revolution_geometry(result), "radius": radius}
+        else:
+            parameters = list(result["parameters"])
+            parameters[4 if surface.kind == "cylinder" else 3] = radius
+            updated["parameters"] = parameters
         residuals = radial - radius
         adjusted[surface.id] = {
-            **deepcopy(result),
+            **updated,
             "ids": surface_ids,
-            "parameters": parameters,
             "residuals": residuals.tolist(),
             "weighted_rms": float(
                 np.sqrt(weights @ residuals**2 / float(weights.sum()))
@@ -2519,8 +2548,8 @@ class FeatureGraph(Generic[WorkspaceType]):
         self._states: dict[str, str] = dict.fromkeys(
             (n.id for n in recipe.nodes), "unevaluated"
         )
-        self._results: dict[str, SessionFit] = {}
-        self._connected_solves: dict[str, SessionFit] = {}
+        self._results: dict[str, Any] = {}
+        self._connected_solves: dict[str, dict[str, Any]] = {}
         self._connected_point_solves: dict[str, dict[str, Any]] = {}
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
@@ -2707,14 +2736,17 @@ class FeatureGraph(Generic[WorkspaceType]):
                 }
                 if len(sources) != 1:
                     raise ValueError("fit selections must share a source")
-                lo, hi = node.axial_domain
-                if not np.isfinite([lo, hi]).all() or lo >= hi:
-                    raise ValueError("invalid axial domain")
+                if node.axial_domain is not None:
+                    lo, hi = node.axial_domain
+                    if not np.isfinite([lo, hi]).all() or lo >= hi:
+                        raise ValueError("invalid axial domain")
                 if node.axis is not None:
                     axis = nodes[node.axis]
                     if not isinstance(axis, AxisDefinition):
                         raise ValueError("axis-bound fit requires an explicit axis")
-                    if axis.source_points is not None:
+                    if axis.source_points is not None and not isinstance(
+                        self.workspace, ScanWorkspace
+                    ):
                         raise ValueError(
                             "point-pair axes are currently datum-only and cannot drive a surface fit"
                         )
@@ -3355,10 +3387,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             }
         for axis_id, solve in self._connected_solves.items():
             node = cast(AxisDefinition, nodes[axis_id])
-            axis = directed_axis_result(
-                initialized_axis(node, self._derived.get(axis_id, {})),
-                parameters=solve["fit"]["parameters"],
-            )
+            axis = connected_axis_result(node, self._derived.get(axis_id, {}), solve)
             outputs = {axis_id: axis}
             for plane in self._recipe.nodes:
                 if isinstance(plane, PlaneDefinition) and plane.axis == axis_id:
@@ -3429,12 +3458,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if isinstance(node, AxisDefinition) and node.id == axis_id
                 )
                 axis = deepcopy(self._derived.get(axis_id, {}))
-                axis.update(
-                    directed_axis_result(
-                        initialized_axis(axis_node, axis),
-                        parameters=solve["fit"]["parameters"],
-                    )
-                )
+                axis.update(connected_axis_result(axis_node, axis, solve))
                 axis["resolved_by"] = "connected_fits"
                 resolved[axis_id] = axis
                 condition = solve["fit"]["normal_matrix_condition"]
@@ -4070,12 +4094,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 point_solve = self._connected_point_solves.get(point_id or "")
                 value = deepcopy(self._derived[node_id])
                 if solve is not None and isinstance(node, AxisDefinition):
-                    value.update(
-                        directed_axis_result(
-                            initialized_axis(node, value),
-                            parameters=solve["fit"]["parameters"],
-                        )
-                    )
+                    value.update(connected_axis_result(node, value, solve))
                     value["resolved_by"] = "connected_fits"
                 elif solve is not None and isinstance(node, PlaneDefinition):
                     solved_plane = solve.get("reference_planes", {}).get(node_id)
@@ -4084,11 +4103,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                     else:
                         axis_value = deepcopy(self._derived[node.axis])
                         axis_value.update(
-                            directed_axis_result(
-                                initialized_axis(
-                                    cast(AxisDefinition, nodes[node.axis]), axis_value
-                                ),
-                                parameters=solve["fit"]["parameters"],
+                            connected_axis_result(
+                                cast(AxisDefinition, nodes[node.axis]),
+                                axis_value,
+                                solve,
                             )
                         )
                         value = reference_plane_result(
@@ -4099,7 +4117,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if surface is not None:
                         value = deepcopy(dict(surface))
                 if point_solve is not None and isinstance(node, PointDefinition):
-                    value.update(deepcopy(point_solve["point"]))
+                    _ = value.update(deepcopy(point_solve["point"]))
                 elif point_solve is not None and isinstance(node, SurfaceFit):
                     surface = point_solve["surfaces"].get(node_id)
                     if surface is not None:
@@ -4176,6 +4194,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                 cast(PlaneDefinition, nodes[reference_id]), derived_result(reference_id)
             )
             axis = derived_result(plane.axis)
+            if isinstance(self.workspace, ScanWorkspace):
+                return plane.initial_angle_degrees
             if (
                 not axis.get("direction_reversed")
                 or plane.initial_angle_degrees is None
@@ -4197,7 +4217,7 @@ class FeatureGraph(Generic[WorkspaceType]):
 
         def solve_connected_axis(
             axis_id: str, fitted_factors: list[SurfaceFit]
-        ) -> SessionFit:
+        ) -> dict[str, Any]:
             reject_overlaps(fitted_factors)
             sources = {
                 selection_source(nodes[ref], nodes)
@@ -4232,8 +4252,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                 self.workspace,
                 [selected(side) for side in sides],
                 [selected(plane) for plane in planes],
-                axis_initial=np.asarray(axis_result["parameters"], dtype=float),
+                axis_initial=axis_result
+                if isinstance(self.workspace, ScanWorkspace)
+                else np.asarray(axis_result["parameters"], dtype=float),
                 reference_plane_groups=reference_plane_groups,
+                semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                if isinstance(self.workspace, ScanWorkspace)
+                else None,
             )
 
         def solve_connected_point(
@@ -4314,14 +4339,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                 point_id = surface.point
                 if axis_id is None and surface.kind in {"cylinder", "cone"}:
                     axis_id = "@" + surface.id
-                    p = np.asarray(value["parameters"])
-                    direction = np.array([p[2], p[3], 1.0])
-                    direction /= np.linalg.norm(direction)
+                    geometry = revolution_geometry(value)
                     axes[axis_id] = AxisInput(
                         {
-                            "parameters": p.tolist(),
-                            "axis_display": direction.tolist(),
-                            "point_display": [p[0], p[1], 0.0],
+                            "parameters": value.get("parameters"),
+                            "axis_display": geometry["axis"],
+                            "point_display": geometry["origin"],
                         },
                         True,
                     )
@@ -4404,9 +4427,11 @@ class FeatureGraph(Generic[WorkspaceType]):
             for key, axis in fitted["axes"].items():
                 node = nodes.get(key)
                 if isinstance(node, AxisDefinition) and node.source_fit in surface_ids:
-                    axis["parameters"] = deepcopy(
-                        fitted["surfaces"][node.source_fit]["parameters"]
-                    )
+                    source_surface = fitted["surfaces"][node.source_fit]
+                    if "analytic" in source_surface:
+                        axis.update(directed_axis_result(node, geometry=source_surface))
+                    else:
+                        axis["parameters"] = deepcopy(source_surface["parameters"])
             resolved = {
                 **fitted["surfaces"],
                 **{key: value for key, value in fitted["axes"].items() if key in nodes},
@@ -4457,7 +4482,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 resolved[node.id] = datum
             for relation in equal_radii:
                 first = fitted["surfaces"][relation.surfaces[0]]
-                radius = first["parameters"][3 if first["kind"] == "sphere" else 4]
+                radius = (
+                    first["parameters"][3]
+                    if first["kind"] == "sphere"
+                    else revolution_geometry(first)["radius"]
+                )
                 resolved[relation.id] = {
                     **deepcopy(
                         self._derived.get(
@@ -4543,7 +4572,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             factors: list[SurfaceFit] = []
             relations: list[PlaneRelationship] = []
             planes: list[SurfaceFit] = []
-            axis_result: SessionFit | None = None
+            axis_result: dict[str, Any] | None = None
             resolved: dict[str, Any] = {}
             if kind == "axis":
                 factors, members = connected_components[identifier]
@@ -4932,6 +4961,59 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ids,
                             derived_result(node.point),
                         )
+                    elif (
+                        node.axis is None
+                        and node.kind == "cylinder"
+                        and isinstance(self.workspace, ScanWorkspace)
+                    ):
+                        descriptor = self.workspace.source_descriptor
+                        if descriptor is None:
+                            raise ValueError(
+                                "cylinder fitting requires an accepted source"
+                            )
+                        binding = initialization_binding(
+                            descriptor.source_sha256,
+                            descriptor.interpretation_sha256,
+                            ids,
+                            {
+                                "family": "cylinder",
+                                "surface": node.model_dump(mode="json"),
+                            },
+                            policy_version="selected-cylinder-recovery-v1",
+                        )
+                        reuse_inputs = [
+                            derived_result(ref)
+                            for ref in node.selections
+                            if isinstance(nodes[ref], ReuseSelection)
+                        ]
+                        hint = None
+                        if reuse_inputs:
+                            if len(reuse_inputs) != len(node.selections):
+                                raise ValueError(
+                                    "a fit cannot mix reused and ordinary selections"
+                                )
+                            hints = [
+                                value.get("fit_geometry") for value in reuse_inputs
+                            ]
+                            if any(value != hints[0] for value in hints[1:]):
+                                raise ValueError(
+                                    "reused fit selections must share one transformed source fit"
+                                )
+                            hint = hints[0]
+                        derived = fit_seed(
+                            self.workspace.local[ids],
+                            self.workspace.data.weights[ids],
+                            self.workspace.data.normals[ids] @ self.workspace.frame,
+                            node.kind,
+                            None,
+                            node.axial_domain,
+                            binding=binding,
+                            hint=hint,
+                            hint_binding_sha256=binding.sha256
+                            if hint is not None
+                            else None,
+                        )
+                        derived["ids"] = ids
                     elif node.axis is None:
                         fit_points = self.workspace.local[ids]
                         reuse_inputs = [
@@ -4949,6 +5031,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                             )
                         )
                         domain = node.axial_domain
+                        if domain is None and node.kind in ("cylinder", "cone"):
+                            domain = example_workspace(self.workspace).support
                         if reuse_inputs:
                             if len(reuse_inputs) != len(node.selections):
                                 raise ValueError(
@@ -4959,6 +5043,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ]
                             domains = [
                                 tuple(value["target_axial_domain"])
+                                if value["target_axial_domain"] is not None
+                                else None
                                 for value in reuse_inputs
                             ]
                             if any(
@@ -4969,8 +5055,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 )
                             if initials[0] is not None and node.kind != "plane":
                                 initial = np.asarray(initials[0], dtype=float)
-                            domain = cast(tuple[float, float], domains[0])
-                            if initials[0] is not None and initial is not None:
+                            domain = domains[0]
+                            if (
+                                initials[0] is not None
+                                and initial is not None
+                                and domain is not None
+                            ):
                                 point = np.asarray([initial[0], initial[1], 0.0])
                                 direction = np.asarray([initial[2], initial[3], 1.0])
                                 # The residual evaluator's support is distance
@@ -5000,14 +5090,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                             self.workspace,
                             [selected(node)] if node.kind != "plane" else [],
                             [selected(node)] if node.kind == "plane" else [],
-                            np.asarray(axis_result["parameters"], dtype=float),
+                            axis_result
+                            if isinstance(self.workspace, ScanWorkspace)
+                            else np.asarray(axis_result["parameters"], dtype=float),
+                            semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                            if isinstance(self.workspace, ScanWorkspace)
+                            else None,
                         )
                         fixed_surfaces = fixed.get("surfaces")
                         if fixed_surfaces is None:
                             raise AssertionError("fixed-axis fit omitted its surface")
                         derived = dict(fixed_surfaces[node.id])
                         derived["condition"] = fixed["fit"]["normal_matrix_condition"]
-                        if node.kind == "plane":
+                        if node.kind == "plane" and "plane_equation" not in derived:
                             parameters = cast(list[float], derived["parameters"])
                             derived["plane_equation"] = [
                                 *fixed["axis_display"],
@@ -5015,29 +5110,45 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ]
                 elif isinstance(node, AxisDefinition):
                     if node.placement is not None:
-                        from experiments.feature_reuse import transformed_axis_initial
-
                         placement = node.placement
                         match = derived_result(placement.reuse)["matches"][
                             placement.target_selection
                         ]
-                        parameters, reversed_direction = transformed_axis_initial(
-                            resolved_result(
-                                placement.source, plan.read_exclusions.get(node.id)
-                            ),
-                            np.asarray(match["rotation"], dtype=float),
-                            np.asarray(match["translation"], dtype=float),
+                        source_axis = resolved_result(
+                            placement.source, plan.read_exclusions.get(node.id)
                         )
-                        derived = directed_axis_result(
-                            node.model_copy(
-                                update={"direction_reversed": reversed_direction}
-                            ),
-                            parameters=[*parameters, 0.0, 0.0, 0.0],
-                        )
+                        rotation = np.asarray(match["rotation"], dtype=float)
+                        translation = np.asarray(match["translation"], dtype=float)
+                        if isinstance(self.workspace, ScanWorkspace):
+                            placed = transformed_axis_geometry(
+                                source_axis, rotation, translation
+                            )
+                            derived = directed_axis_result(
+                                node, geometry=placed, geometry_is_directed=True
+                            )
+                        else:
+                            from experiments.feature_reuse import (
+                                transformed_axis_initial,
+                            )
+
+                            parameters, reversed_direction = transformed_axis_initial(
+                                source_axis, rotation, translation
+                            )
+                            derived = directed_axis_result(
+                                node.model_copy(
+                                    update={"direction_reversed": reversed_direction}
+                                ),
+                                parameters=[*parameters, 0.0, 0.0, 0.0],
+                            )
                     elif node.source_fit is not None:
                         source = derived_result(node.source_fit)
-                        parameters = list(source["parameters"])
-                        derived = directed_axis_result(node, parameters=parameters)
+                        derived = (
+                            directed_axis_result(node, geometry=source)
+                            if "analytic" in source
+                            else directed_axis_result(
+                                node, parameters=list(source["parameters"])
+                            )
+                        )
                     elif node.source_points is not None:
                         derived = directed_axis_result(
                             node,
@@ -5226,9 +5337,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                         fit_result = deepcopy(fit_result)
                     fit_result.setdefault("kind", fitted.kind)
                     fit_result.setdefault("axial_domain", fitted.axial_domain)
-                    fit_initial, target_domain = transformed_fit_seed(
-                        fit_result, rotation, translation
-                    )
+                    fit_geometry = None
+                    if (
+                        isinstance(self.workspace, ScanWorkspace)
+                        and fitted.kind == "cylinder"
+                    ):
+                        fit_geometry = transformed_surface_geometry(
+                            fit_result, rotation, translation
+                        )
+                        fit_initial, target_domain = None, fit_geometry["axial_domain"]
+                    else:
+                        fit_initial, target_domain = transformed_fit_seed(
+                            fit_result, rotation, translation
+                        )
                     source_origin, source_frame = surface_region_frame(
                         source_points, fit_result
                     )
@@ -5265,6 +5386,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "fit_initial": fit_initial,
                         "target_axial_domain": target_domain,
                     }
+                    if fit_geometry is not None:
+                        derived["fit_geometry"] = fit_geometry
                     excluded = plan.read_exclusions.get(node.id, set()) - {node.id}
                     if excluded:
                         derived["source_geometry_stage"] = {
@@ -5354,7 +5477,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                         self.workspace,
                         [selected(side) for side in sides],
                         [selected(plane) for plane in planes],
-                        axis_initial=np.asarray(axis_result["parameters"], dtype=float),
+                        axis_initial=axis_result
+                        if isinstance(self.workspace, ScanWorkspace)
+                        else np.asarray(axis_result["parameters"], dtype=float),
                         mirror_groups=tuple(
                             (
                                 selected(cast(SurfaceFit, nodes[mirror.surfaces[0]])),
@@ -5373,6 +5498,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                             for mirror in mirrors
                         ),
                         reference_plane_groups=reference_plane_groups,
+                        semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                        if isinstance(self.workspace, ScanWorkspace)
+                        else None,
                     )
                     fitted_mirror_planes = cast(
                         list[dict[str, Any]], result.get("mirror_planes", [])
@@ -5407,9 +5535,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                     }
 
                     reject_overlaps([*sides, *planes])
-                    if len(sides) > 1 or len(planes) > 1 or rotations:
+                    if (
+                        isinstance(self.workspace, ScanWorkspace)
+                        or len(sides) > 1
+                        or len(planes) > 1
+                        or rotations
+                    ):
                         result = fit_group(
-                            example_workspace(self.workspace),
+                            self.workspace,
                             [selected(side) for side in sides],
                             [
                                 selected(plane)
@@ -5423,6 +5556,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 )
                                 for rotation in rotations
                             ),
+                            semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                            if isinstance(self.workspace, ScanWorkspace)
+                            else None,
                         )
                     else:
                         lateral, plane = sides[0], planes[0]
@@ -5443,7 +5579,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 "kind": lateral.kind,
                                 "ids": left.ids,
                                 "parameters": result["fit"]["parameters"],
-                                "axial_domain": lateral.axial_domain,
+                                "axial_domain": lateral.axial_domain
+                                if lateral.axial_domain is not None
+                                else result["axial_domain"],
                                 "residuals": result["lateral_residuals"],
                                 "weighted_rms": result["fit"]["cone_weighted_rms"],
                             },
@@ -5451,7 +5589,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 "kind": "plane",
                                 "ids": right.ids,
                                 "parameters": result["fit"]["parameters"],
-                                "axial_domain": plane.axial_domain,
+                                "axial_domain": plane.axial_domain
+                                if plane.axial_domain is not None
+                                else result["axial_domain"],
                                 "residuals": result["plane_residuals"],
                                 "weighted_rms": result["fit"]["plane_weighted_rms"],
                             },
@@ -5583,7 +5723,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     for failed_id in failed_ids:
                         self._states[failed_id] = "failed"
                         self._errors[failed_id] = str(error)
-                        self._derived[failed_id].pop("shared_boundary_review", None)
+                        _ = self._derived[failed_id].pop("shared_boundary_review", None)
                     self._revision += 1
                 for failed_id in failed_ids:
                     note_failure(failed_id, error, failed_ids)

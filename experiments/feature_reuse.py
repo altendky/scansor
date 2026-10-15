@@ -339,12 +339,20 @@ def transformed_fit_seed(
     fit: dict[str, Any],
     rotation: FloatArray,
     translation: FloatArray,
-) -> tuple[list[float] | None, tuple[float, float]]:
+) -> tuple[list[float] | None, tuple[float, float] | None]:
     """Move a fitted surface initializer and its axial chart into a target pose."""
-    domain_values = fit["axial_domain"]
-    domain = (float(domain_values[0]), float(domain_values[1]))
+    domain_values = fit.get("axial_domain")
+    domain = (
+        None
+        if domain_values is None
+        else (float(domain_values[0]), float(domain_values[1]))
+    )
     if fit.get("kind") not in ("cone", "cylinder"):
         return None, domain
+    if domain is None:
+        raise ValueError(
+            "legacy numerical reuse initialization requires finite support"
+        )
     parameters = np.asarray(fit["parameters"], dtype=float)
     point = np.asarray([parameters[0], parameters[1], 0.0])
     raw_direction = np.asarray([parameters[2], parameters[3], 1.0])
@@ -393,6 +401,9 @@ def _placement_values(
 
 
 def _axis_values(axis: dict[str, Any]) -> tuple[FloatArray, FloatArray]:
+    if "analytic" in axis:
+        geometry = revolution_geometry(axis)
+        return np.asarray(geometry["origin"]), np.asarray(geometry["axis"])
     parameters = axis.get("parameters")
     direction = axis.get("axis_display")
     point = axis.get("point_display")
@@ -423,6 +434,20 @@ def _axis_values(axis: dict[str, Any]) -> tuple[FloatArray, FloatArray]:
     ):
         raise ValueError("reuse axis requires a finite point and nonzero direction")
     return point, np.asarray(direction / direction_length, dtype=np.float64)
+
+
+def transformed_axis_geometry(
+    source_axis: dict[str, Any], rotation: FloatArray, translation: FloatArray
+) -> dict[str, Any]:
+    """Place an evaluated directed datum without changing its hemisphere or chart."""
+    rotation, translation = _placement_values(rotation, translation)
+    point, direction = _axis_values(source_axis)
+    return {
+        "parameters": None,
+        "point_display": (point @ rotation + translation).tolist(),
+        "axis_display": (direction @ rotation).tolist(),
+        "direction_reversed": source_axis.get("direction_reversed", False),
+    }
 
 
 def transformed_axis_initial(

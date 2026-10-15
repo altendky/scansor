@@ -1,7 +1,9 @@
 """Current-graph replay, dependency invalidation and no retained edit history."""
 
+import io
+import struct
 from concurrent.futures import ThreadPoolExecutor
-from copy import copy
+from copy import copy, deepcopy
 from pathlib import Path
 from threading import Event
 from typing import Any, cast
@@ -10,16 +12,27 @@ import numpy as np
 import pytest
 
 from experiments.feature_graph import (
+    AxisDefinition,
     FeatureGraph,
     FrameDefinition,
     Recipe,
     StaleGraph,
+    SurfaceFit,
+    connected_axis_result,
+    directed_axis_result,
     discover_reuse_lineage,
+    fit_equal_radii,
     frame_result,
 )
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from experiments.scan_workspace import (
+    ScanLimits,
+    ScanWorkspace,
+    Workspace,
+    prepare_scan,
+)
 from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 EXAMPLE = Path("examples/nozzle-bayonette-simplified")
@@ -29,6 +42,117 @@ DEMO_RECIPES = (
         "examples/repeated-boss-selection/recipes/repeated-boss-reuse-and-alignment-demo.json"
     ),
 )
+
+
+@pytest.mark.parametrize("reversed_direction", [False, True])
+def test_horizontal_fitted_axis_preserves_authored_direction(
+    reversed_direction: bool,
+) -> None:
+    node = AxisDefinition(
+        id="axis",
+        label="Derived axis",
+        operation="axis",
+        source_fit="cylinder",
+        direction_reversed=reversed_direction,
+    )
+    original = node.model_dump(mode="json")
+    surface = {
+        "kind": "cylinder",
+        "analytic": {
+            "kind": "cylinder",
+            "origin": [3, -4, 5],
+            "axis": [1, 0, 0],
+            "radius": 2.5,
+            "slope": 0,
+            "axial_domain": [-2, 4],
+        },
+    }
+
+    result = directed_axis_result(node, geometry=surface)
+
+    assert result["parameters"] is None
+    assert result["point_display"] == [3, -4, 5]
+    assert result["axis_display"] == ([-1, 0, 0] if reversed_direction else [1, 0, 0])
+    assert node.model_dump(mode="json") == original
+
+
+def test_connected_axis_applies_directed_sign_exactly_once() -> None:
+    node = AxisDefinition(
+        id="axis",
+        label="Shared axis",
+        operation="axis",
+        initial_parameters=(0, 0, 0, 0),
+        direction_reversed=True,
+    )
+    canonical = connected_axis_result(
+        node,
+        {},
+        {
+            "axis_is_directed": True,
+            "axis_display": [-1, 0, 0],
+            "point_display": [3, -4, 5],
+        },
+    )
+    assert canonical["parameters"] is None
+    assert canonical["axis_display"] == [-1, 0, 0]
+    assert canonical["point_display"] == [3, -4, 5]
+    assert canonical["direction_reversed"] is True
+
+    legacy = connected_axis_result(
+        node, {}, {"fit": {"parameters": [2, 3, 0, 0, 4, 0, 0]}}
+    )
+    assert legacy["axis_display"] == [0, 0, -1]
+    assert legacy["point_display"] == [2, 3, 0]
+
+
+def test_equal_radius_overlay_accepts_horizontal_cylinder_without_parameters() -> None:
+    workspace = NozzleWorkspace(EXAMPLE)
+    cylinder = SurfaceFit(
+        id="cylinder",
+        label="Cylinder",
+        operation="fit",
+        selections=["a"],
+        kind="cylinder",
+    )
+    sphere = SurfaceFit(
+        id="sphere", label="Sphere", operation="fit", selections=["b"], kind="sphere"
+    )
+    first = {
+        "kind": "cylinder",
+        "analytic": {
+            "kind": "cylinder",
+            "origin": [3, -4, 5],
+            "axis": [1, 0, 0],
+            "radius": 2.5,
+            "slope": 0,
+            "axial_domain": [-100, 100],
+        },
+    }
+    second = {"kind": "sphere", "parameters": [1, 2, 3, 4]}
+    original = deepcopy([first, second])
+    ids = [list(range(20)), list(range(20, 40))]
+    radial = [
+        np.linalg.norm(
+            np.cross(workspace.local[ids[0]] - [3, -4, 5], [1, 0, 0]), axis=1
+        ),
+        np.linalg.norm(workspace.local[ids[1]] - [1, 2, 3], axis=1),
+    ]
+    weights = [workspace.data.weights[selected] for selected in ids]
+    expected = sum(float(w @ r) for w, r in zip(weights, radial, strict=True)) / sum(
+        float(w.sum()) for w in weights
+    )
+
+    result = fit_equal_radii(workspace, [cylinder, sphere], [first, second], ids)
+
+    assert result["value"] == pytest.approx(expected)
+    updated = result["surfaces"]["cylinder"]
+    assert "parameters" not in updated
+    assert updated["analytic"]["origin"] == [3, -4, 5]
+    assert updated["analytic"]["axis"] == [1, 0, 0]
+    assert updated["analytic"]["radius"] == pytest.approx(expected)
+    np.testing.assert_allclose(updated["residuals"], radial[0] - expected)
+    assert result["surfaces"]["sphere"]["parameters"][3] == pytest.approx(expected)
+    assert [first, second] == original
 
 
 @pytest.mark.parametrize("path", DEMO_RECIPES)
@@ -67,8 +191,189 @@ def graph() -> FeatureGraph:
     )
 
 
-def token(graph: FeatureGraph) -> str:
+def token(graph: FeatureGraph[Workspace]) -> str:
     return str(graph.snapshot()["token"])
+
+
+@pytest.fixture
+def horizontal_scan() -> ScanWorkspace:
+    angles = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+    rows: list[tuple[float, float, float, float, float, float]] = []
+    for x in np.linspace(0, 6, 5):
+        for angle in angles:
+            ny, nz = float(np.cos(angle)), float(np.sin(angle))
+            rows.append((x, -4 + 2.5 * ny, 5 + 2.5 * nz, 0.0, ny, nz))
+    triangles: list[tuple[int, int, int]] = []
+    for row in range(4):
+        for col in range(24):
+            a, b = row * 24 + col, row * 24 + (col + 1) % 24
+            triangles.extend(((a, b, a + 24), (b, b + 24, a + 24)))
+    header = (
+        "ply\nformat binary_little_endian 1.0\nelement vertex 120\n"
+        "property float x\nproperty float y\nproperty float z\n"
+        "property float nx\nproperty float ny\nproperty float nz\n"
+        f"element face {len(triangles)}\nproperty list uchar int vertex_indices\nend_header\n"
+    ).encode()
+    raw = header + b"".join(struct.pack("<6f", *row) for row in rows)
+    raw += b"".join(struct.pack("<B3i", 3, *triangle) for triangle in triangles)
+    return prepare_scan(
+        io.BytesIO(raw), "horizontal.ply", ScanLimits(100_000, 1_000, 2_000, 10_000_000)
+    )
+
+
+def horizontal_recipe(
+    workspace: ScanWorkspace, extra: list[dict[str, Any]], output: str
+) -> Recipe:
+    return Recipe.model_validate(
+        {
+            "schema_version": 2,
+            "nodes": [
+                {
+                    "id": "scan",
+                    "label": "Scan",
+                    "operation": "source",
+                    "source_sha256": workspace.source_sha256,
+                    "reference_sha256": workspace.reference_sha256,
+                    "descriptor": workspace.descriptor,
+                },
+                {
+                    "id": "patch",
+                    "label": "Patch",
+                    "operation": "selection",
+                    "source": "scan",
+                    "ids": list(range(120)),
+                },
+                {
+                    "id": "cylinder",
+                    "label": "Cylinder",
+                    "operation": "fit",
+                    "kind": "cylinder",
+                    "selections": ["patch"],
+                },
+                *extra,
+            ],
+            "output": output,
+        }
+    )
+
+
+@pytest.mark.parametrize("mode", ["derived", "points", "free"])
+def test_imported_horizontal_cylinder_axis_consumers(
+    horizontal_scan: ScanWorkspace, mode: str
+) -> None:
+    extras: list[dict[str, Any]] = []
+    axis: dict[str, Any] = {
+        "id": "axis",
+        "label": "Axis",
+        "operation": "axis",
+        "direction_reversed": True,
+    }
+    if mode == "derived":
+        axis["source_fit"] = "cylinder"
+    elif mode == "points":
+        extras.extend(
+            [
+                {
+                    "id": "start",
+                    "label": "Start",
+                    "operation": "point",
+                    "initial_coordinates": [3, -4, 5],
+                },
+                {
+                    "id": "end",
+                    "label": "End",
+                    "operation": "point",
+                    "initial_coordinates": [4, -4, 5],
+                },
+            ]
+        )
+        axis["source_points"] = ["start", "end"]
+    else:
+        axis["initial_parameters"] = [0, 0, 0, 0]
+    extras.extend(
+        [
+            axis,
+            {
+                "id": "bound",
+                "label": "Bound",
+                "operation": "fit",
+                "kind": "cylinder",
+                "selections": ["patch"],
+                "axis": "axis",
+            },
+        ]
+    )
+    recipe = horizontal_recipe(horizontal_scan, extras, "bound")
+    graph = FeatureGraph(horizontal_scan, recipe)
+    state = graph.evaluate(token(graph))
+    assert not state["errors"]
+    results = cast(dict[str, Any], state["results"])
+    fitted = results["bound"]
+    assert "parameters" not in fitted
+    assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
+    assert fitted["weighted_rms"] < 1e-6
+    np.testing.assert_allclose(results["axis"]["axis_display"], [-1, 0, 0], atol=1e-6)
+    assert results["axis"]["parameters"] is None
+    assert Recipe.model_validate(state["recipe"]) == recipe
+    replay = FeatureGraph(horizontal_scan, Recipe.model_validate(state["recipe"]))
+    assert replay.evaluate(token(replay))["results"] == results
+
+
+def test_imported_cylinder_reuse_preserves_canonical_support_hint(
+    horizontal_scan: ScanWorkspace,
+) -> None:
+    recipe = horizontal_recipe(
+        horizontal_scan,
+        [
+            {
+                "id": "target",
+                "label": "Target",
+                "operation": "selection",
+                "source": "scan",
+                "ids": list(range(120)),
+            },
+            {
+                "id": "reuse",
+                "label": "Reuse",
+                "operation": "feature_reuse",
+                "fits": ["cylinder"],
+                "lineage": ["scan", "patch", "cylinder"],
+                "reference_selection": "patch",
+                "target_selections": ["target"],
+                "tangent_margin": 0.001,
+                "normal_margin": 0.01,
+            },
+            {
+                "id": "reused",
+                "label": "Reused patch",
+                "operation": "reuse_selection",
+                "reuse": "reuse",
+                "fit": "cylinder",
+                "source_selection": "patch",
+                "target_selection": "target",
+            },
+            {
+                "id": "refit",
+                "label": "Reused fit",
+                "operation": "fit",
+                "kind": "cylinder",
+                "selections": ["reused"],
+            },
+        ],
+        "refit",
+    )
+    graph = FeatureGraph(horizontal_scan, recipe)
+    state = graph.evaluate(token(graph))
+    assert not state["errors"]
+    results = cast(dict[str, Any], state["results"])
+    reused, fitted = results["reused"], results["refit"]
+    assert reused["fit_initial"] is None
+    assert reused["fit_geometry"]["kind"] == "cylinder"
+    assert "parameters" not in fitted
+    assert fitted["support_origin"] == "selection"
+    assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
+    assert fitted["weighted_rms"] < 1e-6
+    assert fitted["ids"] == list(range(120))
 
 
 def changed(graph: FeatureGraph, node_id: str, **changes: object) -> Recipe:

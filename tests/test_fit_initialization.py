@@ -483,6 +483,71 @@ def test_equal_objectives_distinguish_equivalent_and_competing_geometry(
         assert failure.value.diagnostics.selected is None
 
 
+@pytest.mark.parametrize("with_hint", [False, True])
+def test_equivalent_roundoff_ties_keep_first_fresh_and_measured_scores(
+    with_hint: bool,
+) -> None:
+    problem = RecoveryProblem(
+        BINDING,
+        {"scalar-v1": 1},
+        lambda start, _control: start.parameters[0],
+        lambda value: FitAssessment(value),
+        lambda _a, _b: True,
+    )
+    later = candidate("later", 0.0)
+    result = recover_fit(
+        problem,
+        [candidate("first", 1e-24), *([] if with_hint else [later])],
+        hint=later if with_hint else None,
+    )
+    assert result.result == 1e-24
+    assert result.diagnostics.selected == "first"
+    assert result.diagnostics.selected_role == "fresh"
+    assert [
+        item.assessment.objective
+        for item in result.diagnostics.attempts
+        if item.assessment is not None
+    ] == [1e-24, 0.0]
+
+
+def test_objective_tie_set_is_anchored_to_raw_minimum_without_chaining() -> None:
+    problem = RecoveryProblem(
+        BINDING,
+        {"scalar-v1": 1},
+        lambda start, _control: start.parameters[0],
+        lambda value: FitAssessment(value),
+        lambda _a, _b: True,
+    )
+    result = recover_fit(
+        problem,
+        [
+            candidate("outside", 1.5e-12),
+            candidate("first-tied", 0.75e-12),
+            candidate("raw-min", 0.0),
+        ],
+    )
+    assert result.diagnostics.selected == "first-tied"
+
+
+def test_nontransitive_geometry_equivalence_cannot_hide_competing_tied_pair() -> None:
+    problem = RecoveryProblem(
+        BINDING,
+        {"scalar-v1": 1},
+        lambda start, _control: start.parameters[0],
+        lambda value: FitAssessment(0.0 if value == 0.6 else 0.5e-12),
+        lambda a, b: abs(a - b) < 1,
+    )
+    with pytest.raises(RecoveryFailure, match="ambiguous"):
+        _ = recover_fit(
+            problem,
+            [
+                candidate("left", 0.0),
+                candidate("raw-min", 0.6),
+                candidate("right", 1.2),
+            ],
+        )
+
+
 @pytest.mark.parametrize(
     ("fresh_value", "hint_value", "selected_role"),
     [(1.0, 0.0, "hint"), (0.0, 1.0, "fresh")],
@@ -583,11 +648,11 @@ def test_binding_tracks_semantics_and_order_without_computed_seed_fields() -> No
         == original.sha256
     )
     for ids, changed_intent, policy in (
-        ([9, 4], intent, "selected-data-recovery-v1"),
+        ([9, 4], intent, "selected-data-recovery-v2"),
         (
             [4, 9],
             {**intent, "constraints": {"center": "free"}},
-            "selected-data-recovery-v1",
+            "selected-data-recovery-v2",
         ),
         ([4, 9], intent, "changed-policy"),
     ):

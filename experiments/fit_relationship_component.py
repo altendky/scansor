@@ -9,14 +9,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
 
 from experiments.fit_coordinates import CoordinateFrame
-from experiments.fit_solver import normalized_weights
+from experiments.fit_solver import AttemptControl, normalized_weights
 from experiments.mesh_cone_plane_fit import valid_cone_geometry
+from experiments.surface_primitives import basis, revolution_geometry
 from scansor.constrained_least_squares import solve_constrained_least_squares
 
 Array = NDArray[np.float64]
@@ -49,20 +50,56 @@ class SurfaceInput:
     point: str | None = None
 
 
+@dataclass(frozen=True)
+class _AxisChart:
+    origin: Array
+    basis: Array
+
+
+class RelationshipSupportFailure(ValueError):
+    """An explicitly declared support cannot be represented by this axis."""
+
+    code: ClassVar[str] = "unsupported-support"
+
+
 def fit_relationship_component(
     surfaces: list[SurfaceInput],
     axes: dict[str, AxisInput],
     relationships: list[tuple[str, list[str]]],
     radii: list[list[str]],
     centers: dict[str, PointInput] | None = None,
+    *,
+    control: AttemptControl | None = None,
 ) -> dict[str, Any]:
     """Fit planes and lateral surfaces while retaining every declared equality.
 
-    Free axes use the existing positive-Z chart. Fixed axes may have any
-    direction. A referenced plane has one equation shared by all its fits.
+    Canonical inputs use a separate local chart for each free axis. Wholly legacy
+    inputs retain their positive-Z charts and publication. Fixed axes may have
+    any direction. A referenced plane has one equation shared by all its fits.
     Parallel-to-axis planes retain an independent offset; contains-axis planes
     do not. Opposite plane orientations are reconciled together with offsets.
     """
+    if control is not None:
+        control.checkpoint()
+    legacy = not any("analytic" in surface.result for surface in surfaces) and all(
+        "parameters" in axis.result and not axis.result.get("axis_is_directed", False)
+        for axis in axes.values()
+    )
+
+    def root_axis(key: str) -> str:
+        seen: set[str] = set()
+        while axes[key].source is not None:
+            if key in seen:
+                raise ValueError("axis provider aliases contain a cycle")
+            seen.add(key)
+            source = axes[key].source
+            assert source is not None
+            if source not in axes:
+                raise ValueError("axis provider alias is unavailable")
+            key = source
+        return key
+
+    axis_roots = {key: root_axis(key) for key in axes}
     all_weights = np.concatenate([surface.weights for surface in surfaces])
     frame = CoordinateFrame.from_observations(
         np.concatenate([surface.points for surface in surfaces]), all_weights
@@ -82,35 +119,46 @@ def fit_relationship_component(
         else:
             fixed_points[key] = point
     axis_slots: dict[str, int] = {}
+    axis_charts: dict[str, _AxisChart] = {}
     fixed_axes: dict[str, tuple[Array, Array]] = {}
     for key, axis in axes.items():
         if axis.source is not None:
             continue
         value = axis.result
-        direction = np.asarray(value["axis_display"], dtype=float)
+        direction = np.array(value["axis_display"], dtype=float)
         direction /= np.linalg.norm(direction)
         point = (np.asarray(value["point_display"], dtype=float) - origin) / length
         if axis.free:
-            parameters = np.asarray(value["parameters"], dtype=float)
             axis_slots[key] = len(initial)
-            a, b = parameters[2:4]
-            initial.extend(
-                [
-                    (parameters[0] + a * origin[2] - origin[0]) / length,
-                    (parameters[1] + b * origin[2] - origin[1]) / length,
-                    a,
-                    b,
-                ]
-            )
+            if legacy:
+                parameters = np.asarray(value["parameters"], dtype=float)
+                a, b = parameters[2:4]
+                axis_charts[key] = _AxisChart(np.zeros(3), np.eye(3))
+                initial.extend(
+                    [
+                        (parameters[0] + a * origin[2] - origin[0]) / length,
+                        (parameters[1] + b * origin[2] - origin[1]) / length,
+                        a,
+                        b,
+                    ]
+                )
+            else:
+                first, second = basis(direction)
+                axis_charts[key] = _AxisChart(
+                    point, np.column_stack((first, second, direction))
+                )
+                initial.extend([0.0, 0.0, 0.0, 0.0])
         else:
-            if direction[2] < 0:
-                direction = -direction
-            if abs(direction[2]) > 1e-12:
-                point -= point[2] / direction[2] * direction
+            if legacy:
+                if direction[2] < 0:
+                    direction = -direction
+                if abs(direction[2]) > 1e-12:
+                    point -= point[2] / direction[2] * direction
             fixed_axes[key] = (point, direction)
     plane_slots: dict[str, int] = {}
     plane_keys: dict[str, str] = {}
     side_slots: dict[str, int] = {}
+    lateral_geometry: dict[str, dict[str, Any]] = {}
     for surface in surfaces:
         value = surface.result
         if surface.kind == "plane":
@@ -136,11 +184,22 @@ def fit_relationship_component(
         elif surface.kind in {"cylinder", "cone"}:
             if surface.axis not in axes:
                 raise ValueError("coupled lateral fits require an evaluated axis")
-            parameters = np.asarray(value["parameters"], dtype=float)
-            taper = parameters[6] if surface.kind == "cone" else 0.0
-            shift = origin[2] * np.sqrt(1 + parameters[2] ** 2 + parameters[3] ** 2)
             side_slots[surface.id] = len(initial)
-            initial.append((parameters[4] + taper * shift) / length)
+            if legacy:
+                parameters = np.asarray(value["parameters"], dtype=float)
+                taper = parameters[6] if surface.kind == "cone" else 0.0
+                shift = origin[2] * np.sqrt(1 + parameters[2] ** 2 + parameters[3] ** 2)
+                initial.append((parameters[4] + taper * shift) / length)
+            else:
+                geometry = revolution_geometry(value)
+                lateral_geometry[surface.id] = geometry
+                reference_axis = np.asarray(
+                    axes[axis_roots[surface.axis]].result["axis_display"]
+                )
+                sign = 1.0 if reference_axis @ geometry["axis"] >= 0 else -1.0
+                taper = geometry["slope"] * sign
+                # Rebased again after coherent plane/axis initialization below.
+                initial.append(geometry["radius"] / length)
             if surface.kind == "cone":
                 initial.append(float(taper))
         elif surface.kind == "sphere":
@@ -161,16 +220,20 @@ def fit_relationship_component(
             point, direction = fixed_axes[key]
             return point, direction, np.zeros((3, size)), np.zeros((3, size))
         start = axis_slots[key]
-        point = np.array([p[start], p[start + 1], 0.0])
+        chart = axis_charts[key]
+        point = chart.origin + chart.basis[:, :2] @ p[start : start + 2]
         raw = np.array([p[start + 2], p[start + 3], 1.0])
         norm = float(np.linalg.norm(raw))
-        direction = raw / norm
+        local_direction = raw / norm
+        direction = chart.basis @ local_direction
         point_j = np.zeros((3, size))
-        point_j[:2, start : start + 2] = np.eye(2)
+        point_j[:, start : start + 2] = chart.basis[:, :2]
         direction_j = np.zeros((3, size))
         direction_j[:, start + 2 : start + 4] = (
-            np.eye(3) - np.outer(direction, direction)
-        )[:, :2] / norm
+            chart.basis
+            @ (np.eye(3) - np.outer(local_direction, local_direction))[:, :2]
+            / norm
+        )
         return point, direction, point_j, direction_j
 
     def plane_geometry(key: str, p: Array) -> tuple[Array, float, Array, Array]:
@@ -265,7 +328,7 @@ def fit_relationship_component(
             and surface.construction == "perpendicular_to_axis"
         ):
             key = plane_keys[surface.id]
-            other = perpendicular_keys.setdefault(surface.axis, key)
+            other = perpendicular_keys.setdefault(axis_roots[surface.axis], key)
             parents[root(key)] = root(other)
     orientations = {
         key: 1.0
@@ -308,20 +371,23 @@ def fit_relationship_component(
         for surface in surfaces:
             if (
                 surface.kind == "plane"
-                and surface.axis in fixed_axes
+                and surface.axis is not None
+                and axis_roots[surface.axis] in fixed_axes
                 and surface.construction == "perpendicular_to_axis"
                 and plane_keys[surface.id] in keys
             ):
-                candidate = fixed_axes[surface.axis][1]
+                candidate = fixed_axes[axis_roots[surface.axis]][1]
                 normal = candidate if normal @ candidate >= 0 else -candidate
                 break
         for key in keys:
             start = plane_slots[key]
             p0[start : start + 3] = orientations[key] * normal
         for axis, key in perpendicular_keys.items():
-            if key in keys and axis in axis_slots and abs(normal[2]) > 1e-8:
+            if key in keys and axis in axis_slots:
                 start = axis_slots[axis]
-                p0[start + 2 : start + 4] = normal[:2] / normal[2]
+                local = axis_charts[axis].basis.T @ normal
+                if abs(local[2]) > 1e-8:
+                    p0[start + 2 : start + 4] = local[:2] / local[2]
     for surface in surfaces:
         if surface.kind == "plane":
             key = plane_keys[surface.id]
@@ -330,6 +396,13 @@ def fit_relationship_component(
             if surface.axis is not None and surface.construction == "contains_axis":
                 offset = normal @ axis_geometry(surface.axis, p0)[0]
             p0[plane_slots[key] + 3] = offset
+        elif not legacy and surface.kind in {"cone", "cylinder"}:
+            assert surface.axis is not None
+            point, direction, _, _ = axis_geometry(surface.axis, p0)
+            geometry = lateral_geometry[surface.id]
+            shift = (origin + length * point - geometry["origin"]) @ direction
+            taper = p0[side_slots[surface.id] + 1] if surface.kind == "cone" else 0.0
+            p0[side_slots[surface.id]] = (geometry["radius"] + taper * shift) / length
         elif surface.kind == "cone":
             assert surface.axis is not None
             direction = axis_geometry(surface.axis, p0)[1]
@@ -389,9 +462,76 @@ def fit_relationship_component(
             for key in group[1:]:
                 other = side_slots[key]
                 append(p[first] - p[other], identity[first] - identity[other])
+        if not values:
+            return np.empty(0), np.empty((0, size))
         return np.concatenate(values), np.vstack(jacobians)
 
+    def canonical_surface(surface: SurfaceInput, p: Array) -> dict[str, Any]:
+        """Publish about a semantic anchor, independent of the numerical chart."""
+        assert surface.axis is not None
+        point, direction, _, _ = axis_geometry(surface.axis, p)
+        chart_point = origin + length * point
+        geometry = lateral_geometry[surface.id]
+        reference = np.asarray(
+            surface.result.get("anchor_reference", geometry["origin"]), dtype=float
+        )
+        if reference.shape != (3,) or not np.isfinite(reference).all():
+            raise ValueError("surface anchor reference requires finite XYZ")
+        anchor = chart_point + ((reference - chart_point) @ direction) * direction
+        start = side_slots[surface.id]
+        taper = p[start + 1] if surface.kind == "cone" else 0.0
+        radius = length * p[start] + taper * ((anchor - chart_point) @ direction)
+        # The source surface's directed support is distinct from a datum's sign.
+        support_origin = surface.result.get("support_origin")
+        if support_origin == "legacy-source-z0":
+            if abs(direction[2]) <= 1e-8:
+                raise RelationshipSupportFailure(
+                    "Explicit source-Z support requires an axis with a usable Z component"
+                )
+            sign = 1.0 if direction[2] > 0 else -1.0
+        else:
+            reference_direction = np.asarray(
+                surface.result.get("anchor_axis", geometry["axis"]), dtype=float
+            )
+            if (
+                reference_direction.shape != (3,)
+                or not np.isfinite(reference_direction).all()
+                or np.linalg.norm(reference_direction) <= 0
+            ):
+                raise ValueError(
+                    "surface support direction requires finite nonzero XYZ"
+                )
+            sign = 1.0 if direction @ reference_direction >= 0 else -1.0
+        semantic_direction = sign * direction
+        if support_origin == "selection":
+            heights = (surface.points - anchor) @ semantic_direction
+            domain = [float(np.min(heights)), float(np.max(heights))]
+        elif support_origin == "legacy-source-z0":
+            bounds = np.asarray(surface.result["source_axial_domain"], dtype=float)
+            if (
+                bounds.shape != (2,)
+                or not np.isfinite(bounds).all()
+                or bounds[0] >= bounds[1]
+            ):
+                raise ValueError(
+                    "explicit source-Z support requires finite ordered bounds"
+                )
+            shift = anchor[2] / semantic_direction[2]
+            domain = (bounds - shift).tolist()
+        else:
+            domain = surface.result.get("anchor_axial_domain", geometry["axial_domain"])
+        return {
+            "kind": surface.kind,
+            "origin": anchor.tolist(),
+            "axis": semantic_direction.tolist(),
+            "radius": float(radius),
+            "slope": float(sign * taper),
+            "axial_domain": domain,
+        }
+
     def valid(p: Array) -> bool:
+        if control is not None:
+            control.checkpoint()
         if not np.isfinite(p).all():
             return False
         for surface in surfaces:
@@ -402,6 +542,31 @@ def fit_relationship_component(
                     return False
                 continue
             assert surface.axis is not None
+            if not legacy:
+                try:
+                    geometry = canonical_surface(surface, p)
+                except RelationshipSupportFailure:
+                    return False
+                radius, taper = geometry["radius"], geometry["slope"]
+                domain = geometry["axial_domain"]
+                if (
+                    domain is None
+                    or not np.isfinite(
+                        [radius, taper, *domain, *geometry["origin"], *geometry["axis"]]
+                    ).all()
+                    or domain[0] >= domain[1]
+                ):
+                    return False
+                with np.errstate(over="ignore", invalid="ignore"):
+                    end_radii = radius + taper * np.asarray(domain)
+                if not np.isfinite(end_radii).all() or np.any(end_radii <= 0):
+                    return False
+                point, direction, _, _ = axis_geometry(surface.axis, p)
+                relative = points[surface.id] - point
+                radial = relative - (relative @ direction)[:, None] * direction
+                if np.any(np.linalg.norm(radial, axis=1) <= 0):
+                    return False
+                continue
             _, direction, _, _ = axis_geometry(surface.axis, p)
             start = side_slots[surface.id]
             taper = p[start + 1] if surface.kind == "cone" else 0.0
@@ -421,15 +586,27 @@ def fit_relationship_component(
                 return False
         return True
 
+    if not legacy:
+        # Reject an unrepresentable authored support before entering callbacks;
+        # later trial axes crossing its chart boundary are ordinary invalid steps.
+        for surface in surfaces:
+            if surface.kind in {"cylinder", "cone"}:
+                _ = canonical_surface(surface, p0)
     fitted = solve_constrained_least_squares(
         p0,
-        observations,
-        equalities,
+        observations if control is None else lambda p: control.call(observations, p),
+        equalities if control is None else lambda p: control.call(equalities, p),
         parameter_scales=np.ones(size),
         geometry_is_valid=valid,
+        max_iterations=100 if control is None else control.limits.max_iterations,
+        max_trials=32 if control is None else control.limits.max_trials,
     )
     parameters = np.asarray(fitted.parameters)
-    final_constraints, _ = equalities(parameters)
+    final_constraints, _ = (
+        equalities(parameters)
+        if control is None
+        else control.call(equalities, parameters)
+    )
     if np.max(np.abs(final_constraints), initial=0.0) > 1e-10:
         raise ValueError("joint geometry does not satisfy its declared relationships")
     output_axes: dict[str, dict[str, Any]] = {}
@@ -437,7 +614,23 @@ def fit_relationship_component(
         point, direction, _, _ = axis_geometry(key, parameters)
         world_point = origin + length * point
         result = deepcopy(axis.result)
-        if axis.free or axis.source is not None:
+        if not legacy:
+            provider = axes[axis_roots[key]].result
+            sign = (
+                1.0
+                if np.asarray(axis.result["axis_display"])
+                @ np.asarray(provider["axis_display"])
+                >= 0
+                else -1.0
+            )
+            _ = result.pop("parameters", None)
+            result.update(
+                point_display=world_point.tolist(),
+                axis_display=(sign * direction).tolist(),
+                axis_is_directed=True,
+                resolved_by="plane_relationship",
+            )
+        elif axis.free or axis.source is not None:
             world_point -= world_point[2] / direction[2] * direction
             result["parameters"] = [
                 *world_point[:2].tolist(),
@@ -483,21 +676,45 @@ def fit_relationship_component(
             residual = np.linalg.norm(surface.points - point, axis=1) - radius
         else:
             assert surface.axis is not None
-            point, direction, _, _ = axis_geometry(surface.axis, parameters)
-            world_point = origin + length * point
-            world_point -= world_point[2] / direction[2] * direction
-            if direction[2] < 0:
-                direction = -direction
-            start = side_slots[surface.id]
-            taper = parameters[start + 1] if surface.kind == "cone" else 0.0
-            radius = length * parameters[start] - taper * origin[2] / direction[2]
-            result["parameters"] = [
-                *world_point[:2],
-                *(direction[:2] / direction[2]),
-                radius,
-                result["parameters"][5],
-                taper,
-            ]
+            if legacy:
+                point, direction, _, _ = axis_geometry(surface.axis, parameters)
+                world_point = origin + length * point
+                world_point -= world_point[2] / direction[2] * direction
+                if direction[2] < 0:
+                    direction = -direction
+                start = side_slots[surface.id]
+                taper = parameters[start + 1] if surface.kind == "cone" else 0.0
+                radius = length * parameters[start] - taper * origin[2] / direction[2]
+                result["parameters"] = [
+                    *world_point[:2],
+                    *(direction[:2] / direction[2]),
+                    radius,
+                    result["parameters"][5],
+                    taper,
+                ]
+            else:
+                geometry = canonical_surface(surface, parameters)
+                result["analytic"] = geometry
+                result["axial_domain"] = geometry["axial_domain"]
+                result["anchor_reference"] = deepcopy(
+                    surface.result.get(
+                        "anchor_reference", lateral_geometry[surface.id]["origin"]
+                    )
+                )
+                if surface.result.get("support_origin") not in {
+                    "selection",
+                    "legacy-source-z0",
+                }:
+                    result["anchor_axial_domain"] = deepcopy(geometry["axial_domain"])
+                    result["anchor_axis"] = deepcopy(
+                        surface.result.get(
+                            "anchor_axis", lateral_geometry[surface.id]["axis"]
+                        )
+                    )
+                _ = result.pop("parameters", None)
+                world_point = np.asarray(geometry["origin"])
+                direction = np.asarray(geometry["axis"])
+                radius, taper = geometry["radius"], geometry["slope"]
             q = surface.points - world_point
             z = q @ direction
             residual = (
@@ -520,6 +737,15 @@ def fit_relationship_component(
         "solver": {
             "termination": fitted.termination,
             "iterations": fitted.iterations,
+            "evaluations": fitted.evaluations,
+            "constraint_evaluations": fitted.constraint_evaluations,
+            "rank": fitted.rank,
+            "constraint_rank": fitted.constraint_rank,
+            "tangent_dimension": fitted.tangent_dimension,
+            "condition": fitted.condition,
+            "objective_history": list(fitted.objective_history),
+            "coordinate_origin": origin.tolist(),
+            "coordinate_length": length,
             "constraint_violation": fitted.constraint_violation,
             "projected_gradient_norm": fitted.projected_gradient_norm,
         },

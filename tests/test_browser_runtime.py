@@ -14,11 +14,13 @@ import pytest
 
 from experiments.browser_runtime.probe import (
     analytic_geometry_probe,
+    compare_imported_cylinders,
     compare_imported_planes,
     compare_imported_spheres,
     compare_numeric,
     compare_session,
     create_fixture,
+    imported_cylinder_probe,
     imported_sphere_probe,
 )
 
@@ -137,6 +139,9 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["plane"].shape == (64, 3)
         assert data["imported_spheres"].shape == (3, 35, 3)
         assert data["imported_sphere_normals"].shape == (3, 35, 3)
+        assert data["imported_cylinders"].shape == (3, 60, 3)
+        assert data["imported_cylinder_normals"].shape == (3, 60, 3)
+        assert data["imported_cylinder_axes"].shape == (3, 3)
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_sphere_normals"], axis=2), 1, atol=1e-14
         )
@@ -245,6 +250,7 @@ def test_worker_parity_rejects_changed_canonical_spatial_geometry(
         },
         "imported_planes": [],
         "imported_spheres": [],
+        "imported_cylinders": [],
         "analytic_geometry": analytic_geometry_probe(),
     }
     actual = deepcopy(expected)
@@ -644,3 +650,274 @@ def test_frozen_imported_spheres_fit_grow_recover_and_replay(
     ]
     assert recovered["selected_role"] == "fresh"
     assert len(recovered["attempts"]) == 2
+
+
+def imported_cylinder_record(scale: float) -> dict[str, Any]:
+    """Physical canonical lengths and normalized recovery evidence are distinct."""
+    fitted: dict[str, Any] = {
+        "kind": "cylinder",
+        "ids": [4, 9],
+        "analytic": {
+            "kind": "cylinder",
+            "origin": [3 * scale, -4 * scale, 2 * scale],
+            "axis": [1.0, 0.0, 0.0],
+            "radius": 2.5 * scale,
+            "slope": 0.0,
+            "axial_domain": [-scale, 3 * scale],
+        },
+        "axial_domain": [-scale, 3 * scale],
+        "anchor_reference": [3 * scale, -4 * scale, 2 * scale],
+        "support_origin": "selection",
+        "normal_sign": 1.0,
+        "residuals": [0.001 * scale, -0.002 * scale],
+        "weighted_rms": 0.0015 * scale,
+        "initialization": {
+            "algorithm": "selected-cylinder-recovery-v1",
+            "chart": "rotated-normalized-cylinder-v1",
+            "origin": [3 * scale, -4 * scale, 2 * scale],
+            "length": 2 * scale,
+            "coverage_ratio": 0.1,
+            "recovery": {
+                "binding_sha256": "b" * 64,
+                "selected": "fresh-0",
+                "selected_role": "fresh",
+                "attempts": [
+                    {
+                        "candidate": {"parameters": [0.1, 0.2, 0.0, 0.0, 1.2]},
+                        "role": "fresh",
+                        "evaluations": 3,
+                        "assessment": {"objective": 0.001, "condition": 2.0},
+                        "solver": {"rank": 5, "iterations": 2},
+                    }
+                ],
+            },
+        },
+        "solver": {
+            "coordinate_origin": [3 * scale, -4 * scale, 2 * scale],
+            "coordinate_length": 2 * scale,
+            "rank": 5,
+            "iterations": 2,
+        },
+    }
+    standalone: dict[str, Any] = {
+        "recipe": {
+            "nodes": [{"id": "scan", "source_sha256": "a" * 64}],
+            "output": "grown",
+        },
+        "token": "cylinder-actions",
+        "states": {"cylinder": "ready", "grown": "ready"},
+        "errors": {},
+        "diagnostics": {},
+        "results": {
+            "cylinder": fitted,
+            "grown": {
+                "ids": [4, 9, 12],
+                "added_ids": [12],
+                "added_area": 0.01 * scale**2,
+            },
+        },
+    }
+    axis_bound = deepcopy(standalone)
+    axis_bound["recipe"]["output"] = "bound"
+    axis_bound["results"]["bound"] = deepcopy(fitted)
+    axis_bound["results"]["axis"] = {
+        "point_display": [3 * scale, -4 * scale, 2 * scale],
+        "axis_display": [-1.0, 0.0, 0.0],
+    }
+    return {
+        "comparison_length_scale": scale,
+        "standalone": standalone,
+        "axis_bound": axis_bound,
+        "hinted": {
+            "source_sha256": "a" * 64,
+            "interpretation_sha256": "c" * 64,
+            "ids": [4, 9],
+            "result": deepcopy(fitted),
+        },
+    }
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "origin",
+        "radius",
+        "domain",
+        "top_domain",
+        "anchor",
+        "residual",
+        "rms",
+        "init_origin",
+        "init_length",
+        "solver_origin",
+        "solver_length",
+        "axis_point",
+        "hinted_radius",
+        "area",
+    ],
+)
+def test_imported_cylinder_parity_rejects_dimensional_errors_at_every_scale(
+    scale: float, field: str
+) -> None:
+    expected = imported_cylinder_record(scale)
+    actual = deepcopy(expected)
+    cylinder = actual["standalone"]["results"]["cylinder"]
+    delta = 1e-6 * scale
+    if field in {"origin", "radius", "domain"}:
+        key = "axial_domain" if field == "domain" else field
+        if field == "radius":
+            cylinder["analytic"][key] += delta
+        else:
+            cylinder["analytic"][key][0] += delta
+    elif field in {"top_domain", "anchor", "residual"}:
+        key = {
+            "top_domain": "axial_domain",
+            "anchor": "anchor_reference",
+            "residual": "residuals",
+        }[field]
+        cylinder[key][0] += delta
+    elif field == "rms":
+        cylinder["weighted_rms"] += delta
+    elif field in {"init_origin", "init_length"}:
+        key = "origin" if field == "init_origin" else "length"
+        if key == "origin":
+            cylinder["initialization"][key][0] += delta
+        else:
+            cylinder["initialization"][key] += delta
+    elif field in {"solver_origin", "solver_length"}:
+        key = "coordinate_origin" if field == "solver_origin" else "coordinate_length"
+        if key == "coordinate_origin":
+            cylinder["solver"][key][0] += delta
+        else:
+            cylinder["solver"][key] += delta
+    elif field == "axis_point":
+        actual["axis_bound"]["results"]["axis"]["point_display"][0] += delta
+    elif field == "hinted_radius":
+        actual["hinted"]["result"]["analytic"]["radius"] += delta
+    else:
+        actual["standalone"]["results"]["grown"]["added_area"] += 1e-6 * scale**2
+    with pytest.raises(AssertionError):
+        compare_imported_cylinders([actual], [expected])
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "axis",
+        "normal_sign",
+        "ids",
+        "source",
+        "interpretation",
+        "binding",
+        "candidate",
+        "objective",
+        "rank",
+        "evaluations",
+        "selected_role",
+    ],
+)
+def test_imported_cylinder_parity_preserves_identity_and_full_normalized_evidence(
+    field: str,
+) -> None:
+    expected = imported_cylinder_record(1e-6)
+    actual = deepcopy(expected)
+    cylinder = actual["standalone"]["results"]["cylinder"]
+    recovery = cylinder["initialization"]["recovery"]
+    if field == "axis":
+        cylinder["analytic"]["axis"][0] = 0.0
+    elif field == "normal_sign":
+        cylinder["normal_sign"] = -1.0
+    elif field == "ids":
+        cylinder["ids"][0] = 5
+    elif field == "source":
+        actual["hinted"]["source_sha256"] = "d" * 64
+    elif field == "interpretation":
+        actual["hinted"]["interpretation_sha256"] = "d" * 64
+    elif field == "binding":
+        recovery["binding_sha256"] = "d" * 64
+    elif field == "candidate":
+        recovery["attempts"][0]["candidate"]["parameters"][4] += 1e-6
+    elif field == "objective":
+        recovery["attempts"][0]["assessment"]["objective"] += 1e-6
+    elif field == "rank":
+        recovery["attempts"][0]["solver"]["rank"] = 4
+    elif field == "evaluations":
+        recovery["attempts"][0]["evaluations"] = 4
+    else:
+        recovery["selected_role"] = "hint"
+    with pytest.raises(AssertionError):
+        compare_imported_cylinders([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+def test_imported_cylinder_parity_accepts_roundoff_without_mutating_inputs(
+    scale: float,
+) -> None:
+    expected = imported_cylinder_record(scale)
+    actual = deepcopy(expected)
+    actual["hinted"]["result"]["residuals"][0] += 3e-16 * scale
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    compare_imported_cylinders([actual], [expected])
+    assert actual == before_actual and expected == before_expected
+
+
+def test_imported_cylinder_parity_requires_the_frozen_expected_scale() -> None:
+    with pytest.raises(AssertionError):
+        compare_imported_cylinders(
+            [imported_cylinder_record(2.0)], [imported_cylinder_record(1.0)]
+        )
+    for scale in (0.0, -1.0, float("inf"), float("nan"), True):
+        expected = imported_cylinder_record(1.0)
+        expected["comparison_length_scale"] = scale
+        with pytest.raises(ValueError, match="finite and positive"):
+            compare_imported_cylinders([imported_cylinder_record(1.0)], [expected])
+
+
+def test_numeric_parity_checks_imported_cylinders_before_legacy_results() -> None:
+    expected: dict[str, Any] = {
+        "fixture_sha256": "fixture",
+        "counts": {},
+        "source_sha256": "source",
+        "model_sha256": "model",
+        "graph": {
+            "recipe": {},
+            "token": "token",
+            "states": {},
+            "errors": {},
+            "diagnostics": {},
+            "results": {},
+        },
+        "imported_planes": [],
+        "imported_spheres": [],
+        "imported_cylinders": [imported_cylinder_record(1.0)],
+    }
+    actual = deepcopy(expected)
+    actual["imported_cylinders"][0]["standalone"]["results"]["cylinder"]["analytic"][
+        "radius"
+    ] += 0.1
+    with pytest.raises(AssertionError, match="imported_cylinders"):
+        _ = compare_numeric(actual, expected)
+
+
+@pytest.mark.parametrize("index", range(3))
+def test_frozen_imported_cylinders_fit_grow_recover_and_replay(
+    index: int, tmp_path: Path
+) -> None:
+    fixture = tmp_path / "fixture.npz"
+    create_fixture(fixture)
+    with np.load(fixture, allow_pickle=False) as data:
+        report = imported_cylinder_probe(
+            data["imported_cylinders"][index],
+            data["imported_cylinder_normals"][index],
+            data["imported_cylinder_origins"][index],
+            data["imported_cylinder_axes"][index],
+            float(data["imported_cylinder_scales"][index]),
+        )
+    encoded = json.loads(json.dumps(report, allow_nan=False))
+    compare_imported_cylinders([report], [encoded])
+    assert encoded["standalone"]["results"]["grown"]["ids"] == list(range(60))
+    recovered = encoded["hinted"]["result"]["initialization"]["recovery"]
+    assert recovered["selected_role"] == "fresh"
+    assert recovered["attempts"][-1]["role"] == "hint"
+    assert recovered["attempts"][-1]["evaluations"] == 0

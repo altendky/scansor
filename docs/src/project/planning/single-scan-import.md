@@ -53,8 +53,34 @@ opening remains separate. Kernel/STEP
 geometry tests use practical scales; tiny-scale numerical fitting does not imply
 CAD-kernel capability or physical accuracy.
 
-The remaining fixture-dependent standalone cylinder/cone paths reject generic
-sources until their dedicated integration work lands. HTTP/worker delivery,
+Standalone cylinders now use selected normal-moment and position-covariance axes,
+weighted projected-circle starts, and bounded geometric refinement in separate
+rotated charts. Publication uses canonical source-coordinate geometry, including
+horizontal axes; optional wrong/stale hints do not replace fresh attempts. Free
+shared cylinder groups use their combined observations and independent radii;
+fixed axes remain exact. Per-axis constrained charts, derived axes, radius
+equalities and rigid reuse consume the canonical geometry. Imported cones and
+rotational/mirror groups remain guarded pending their integration work.
+
+Cylinder admission is deliberately conservative: selected positional covariance
+must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
+geometric Jacobian, measured in a normalized chart aligned with the fitted axis,
+must have condition at most 1e6. Narrow strips, circles, two generators and
+planar/near-planar fixtures exercise explicit failure. These provisional
+numerical limits are neither physical acceptance nor confidence estimates;
+[#262](https://github.com/altendky/scansor/issues/262) tracks their evaluation and
+improvement. Joint reference solves assess combined identifiability rather than
+requiring every participating surface to pass standalone admission.
+
+New cylinder actions use nullable support: absent bounds derive finite extent
+from the selected observations. That automatic extent does not prevent axial
+selection growth. Previously authored bounds retain the legacy source-Z0
+meaning and still clip growth; an exactly or nearly horizontal axis cannot use
+that particular explicit chart and reports unsupported support. A fixed semantic
+anchor and its explicit support remain separate from disposable numerical hints.
+Computed starts and diagnostics remain derived results, outside saved actions.
+
+HTTP/worker delivery,
 Force source retention, source-aware reopening and per-backend measured caps remain their
 listed tickets. Caller-provided byte/count caps and the loader's incremental
 allocation estimate are admission checks, not a measured total-runtime memory
@@ -144,12 +170,12 @@ Current implementation gaps:
   not a generic source contract.
 - Legacy example [`Source` reference identity](../../../../experiments/feature_graph.py)
   still includes fixture selection/model configuration through its explicit
-  adapter. Independent plane/sphere fits use generic source identity; standalone
-  cylinder/cone graph paths still read the fixture's initial parameters
-  until their family tickets land.
+  adapter. Independent plane/sphere/cylinder fits use generic source identity;
+  the legacy cone path still reads the fixture's initial parameters until #253.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
-  centers and scales numerical coordinates but does not rotate the positive-Z
-  axis chart. Arbitrarily oriented imported cylinders need additional work.
+  centers and scales legacy numerical coordinates. Generic cylinders additionally
+  rotate each proposal chart, while relationship components use one chart per
+  free axis; canonical publication does not expose legacy chart placeholders.
 - [Native example switching](../../../../experiments/nozzle_browser.py)
   constructs a candidate before assigning accepted state, but does so under the
   server lock. Scan preparation needs a separate staging lifetime.
@@ -217,20 +243,21 @@ standalone CAD export consume the common geometry rather than reconstructing a
 positive-Z axis independently. Physical face boundaries remain separate from
 fitting/display support.
 
-This foundation does not publish arbitrary-pose fitting results. The following
-numerical consumers remain prerequisites in #252 before enabling that path;
-the cone child #253 then supplies initialization and support evidence:
+The cylinder implementation in [#252](https://github.com/altendky/scansor/issues/252)
+migrates the following numerical consumers. The cone child #253 supplies its
+own initialization and positive-sheet support evidence:
 
-| Consumer | Remaining numerical migration |
+| Consumer | Cylinder numerical integration |
 | --- | --- |
-| `feature_graph` | Fit-derived axes, connected fit publication, radius equalities and relationship lowering |
-| `nozzle_coaxial` | Fixed/free shared-axis group charts and publication |
-| `fit_relationship_component` | A chart basis per free axis, radius rebasing and constrained result publication |
-| `feature_reuse` | `transformed_fit_seed`, axis initializer conversion and their graph callers |
+| `feature_graph` | Canonical fit-derived axes, connected publication, radius equalities and relationship lowering |
+| `nozzle_coaxial` | Bounded generic fixed/free cylinder groups and explicit legacy example charts |
+| `fit_relationship_component` | A chart basis per free axis, semantic anchor/support rebasing and canonical constrained publication |
+| `feature_reuse` | Rigid canonical hints and axis geometry; legacy numerical helpers stay explicit |
 
-Existing solver APIs and graph dispatch remain unchanged here. Generic imported
-cylinder/cone fitting stays guarded until the respective family work passes its
-full graph, reference, joint, reuse, replay and native/worker gates.
+The internal numerical/graph cylinder path is enabled for the independently
+tested eligible cases. Adapter/UI file import and full workflow acceptance remain
+in #240 and its integration children; this does not claim a completed end-user
+import feature. Cone dispatch remains guarded until its family gates pass.
 
 ### Saved intent and computed starts
 
@@ -244,6 +271,15 @@ search. Diagnostics carry charts, attempted starts and termination and serialize
 without nonstandard JSON numbers. These are internal numerical artifacts, not
 new action fields. The existing single-start adapter keeps its historical limits
 unless the caller supplies attempt control.
+
+Recovery policy `selected-data-recovery-v2` anchors objective ties to the raw
+minimum, checks every tied geometry pair for equivalence, and selects the first
+equivalent proposal within the configured comparison tolerance. This prevents
+roundoff-sized objective differences from choosing different equivalent charts
+or favoring a hint over fresh geometry. Measured objectives and every attempt
+remain unchanged in diagnostics; materially better candidates still win and
+materially different tied geometry remains ambiguous. The policy version is
+part of hint bindings, so the changed selection rule invalidates old caches.
 
 The initial internal policy permits 16 fresh proposals, 8 fresh attempts and one
 additional bound hint. Each attempt permits 100 iterations, 16 trials per step

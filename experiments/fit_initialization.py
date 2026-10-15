@@ -25,7 +25,7 @@ from experiments.fit_solver import (
 from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 from scansor.nonlinear_least_squares import LeastSquaresFailure
 
-POLICY_VERSION = "selected-data-recovery-v1"
+POLICY_VERSION = "selected-data-recovery-v2"
 DEFAULT_ATTEMPT_LIMITS = AttemptLimits()
 
 
@@ -333,23 +333,31 @@ def recover_fit[Result](
             else "search-exhausted"
         )
         raise RecoveryFailure(code, report(code))
-    # Python's stable min preserves proposal order for exact ties. Scores all
-    # come from problem.assess, never a chart's private objective history.
-    best, assessment, selected, selected_role = min(
-        successes, key=lambda value: value[1].objective
-    )
-    for other, score, _, _ in successes:
+    # Anchor comparisons to the immutable raw minimum, never a chain of nearby
+    # scores. Equivalent attempts within the declared comparison tolerance use
+    # stable proposal order, so roundoff cannot choose a different chart/hint.
+    # Preserve every measured score in diagnostics; no objective is rounded.
+    raw_best = min(successes, key=lambda value: value[1].objective)
+    tied: list[tuple[Result, FitAssessment, str, Literal["fresh", "hint"]]] = []
+    for attempt in successes:
         guard.checkpoint()
-        tied = math.isclose(
-            score.objective,
-            assessment.objective,
+        if math.isclose(
+            attempt[1].objective,
+            raw_best[1].objective,
             abs_tol=policy.objective_atol,
             rel_tol=policy.objective_rtol,
-        )
-        equivalent = not tied or problem.equivalent(best, other)
-        guard.checkpoint()
-        if not equivalent:
-            raise RecoveryFailure("ambiguous", report("ambiguous"))
+        ):
+            tied.append(attempt)
+    # Approximate family equivalence need not be transitive. Every tied pair
+    # must agree, including the stable winner and the raw minimum.
+    for index, (left, _, _, _) in enumerate(tied):
+        for right, _, _, _ in tied[index + 1 :]:
+            guard.checkpoint()
+            equivalent = problem.equivalent(left, right)
+            guard.checkpoint()
+            if not equivalent:
+                raise RecoveryFailure("ambiguous", report("ambiguous"))
+    best, _, selected, selected_role = tied[0]
     guard.checkpoint()
     return RecoveryResult(
         best, report("best-attempted-local-solution", selected, selected_role)
