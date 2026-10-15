@@ -7,8 +7,12 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+from tests.test_validate_pages_artifact import selected as selected
+from tests.test_validate_pages_artifact import staged_payload
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check-browser-static.py"
 SPEC = importlib.util.spec_from_file_location("static_ci", SCRIPT)
@@ -92,7 +96,30 @@ def site_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return site, evidence, release
 
 
-def test_release_contains_only_exact_tested_members_and_named_json(tmp_path: Path):
+@pytest.fixture(name="_bytes_only_preflight")
+def bytes_only_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Byte-staging unit fixtures are not complete semantic/provenance fixtures."""
+
+    def preflight(
+        candidate: Path, _locks: Path, _sha: str, validator: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "payload_files": {
+                path.relative_to(candidate).as_posix(): validator["identity"](
+                    path.read_bytes()
+                )
+                for path in candidate.rglob("*")
+                if path.is_file()
+            }
+        }
+
+    monkeypatch.setattr(CI, "preflight_release", preflight)
+
+
+def test_release_contains_only_exact_tested_members_and_named_json(
+    tmp_path: Path,
+    _bytes_only_preflight: None,
+):
     site, evidence, release = site_fixture(tmp_path)
     CI.stage_release(
         site,
@@ -181,7 +208,9 @@ def test_release_manifest_must_be_the_one_tested(tmp_path: Path):
 
 
 def test_release_stages_the_bytes_it_hashed_even_if_input_changes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _bytes_only_preflight: None,
 ):
     site, evidence, release = site_fixture(tmp_path)
     asset = site / "index.html"
@@ -259,8 +288,12 @@ def test_missing_supplement_manifest_keeps_release_gate_closed(
     assert not (output / "release").exists()
 
 
+@pytest.mark.parametrize("preflight_fails", [False, True])
 def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _bytes_only_preflight: None,
+    preflight_fails: bool,
 ):
     output, github_output = tmp_path / "run", tmp_path / "github-output"
     calls: list[list[str]] = []
@@ -305,6 +338,22 @@ def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--output", str(output)])
     monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    if preflight_fails:
+
+        def reject(*_args: Any, **_kwargs: Any) -> Any:
+            raise ValueError("deliberate trusted payload rejection")
+
+        monkeypatch.setattr(CI, "preflight_release", reject)
+        with pytest.raises(ValueError, match="deliberate trusted payload rejection"):
+            CI.main()
+        report = json.loads((output / "evidence/verification.json").read_text())
+        assert report["verified"] is True
+        assert all(step["exit_code"] == 0 for step in report["steps"])
+        assert report["redistribution_ready"] is False
+        assert github_output.read_text() == "redistribution_ready=false\n"
+        assert not (output / "release").exists()
+        assert not list(output.glob("browser-release-*"))
+        return
     CI.main()
     assert len(calls) == 20
     assert Path(calls[0][1]).name == "build-browser-redistribution.py"
@@ -335,6 +384,105 @@ def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
         output / "evidence/numerical-runtime-manifest.json"
     )
     assert (output / "release/evidence/numerical-assets/index.html").is_file()
+
+
+def real_release_inputs(selected: dict[str, Any]) -> tuple[Path, Path, Path, Path]:
+    payload = staged_payload(selected)
+    numerical = selected["tmp"] / "numerical-site"
+    _ = shutil.copytree(payload / "evidence/numerical-assets", numerical)
+    _ = shutil.copyfile(
+        payload / "evidence/numerical-site-manifest.json", numerical / "manifest.json"
+    )
+    return (
+        payload / "site",
+        payload / "evidence",
+        numerical,
+        selected["tmp"] / "ci-release",
+    )
+
+
+def test_real_complete_payload_is_required_before_release_rename(
+    selected: dict[str, Any],
+) -> None:
+    site, evidence, numerical, release = real_release_inputs(selected)
+    CI.stage_release(
+        site,
+        evidence,
+        release,
+        selected["site_sha256"],
+        numerical_site=numerical,
+        expected_numerical_manifest_sha256=CI.identity(numerical / "manifest.json")[
+            "sha256"
+        ],
+        source_locks=selected["locks"],
+    )
+    assert {
+        path.relative_to(release).as_posix(): path.read_bytes()
+        for path in release.rglob("*")
+        if path.is_file()
+    } == selected["members"]
+    assert not list(selected["tmp"].glob("browser-release-*"))
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["receipt", "source", "epoch", "mutated-after", "symlink-after", "extra-after"],
+)
+def test_green_producers_cannot_publish_invalid_or_later_changed_payload(
+    selected: dict[str, Any], monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    site, evidence, numerical, release = real_release_inputs(selected)
+    if fault in {"receipt", "source", "epoch"}:
+        name = "source-import" if fault == "epoch" else "recovery"
+        path = evidence / (name + ".json")
+        report = json.loads(path.read_text())
+        if fault == "receipt":
+            del report["semantic_parity"]
+        elif fault == "source":
+            report["source_revision"] = "b" * 40
+        else:
+            report["source_graph_snapshots"]["scene"]["project_generation"] += 1
+        _ = path.write_text(json.dumps(report))
+        ledger_path = evidence / "verification.json"
+        ledger = json.loads(ledger_path.read_text())
+        next(step for step in ledger["steps"] if step["name"] == name)["evidence"] = {
+            "path": name + ".json",
+            **CI.identity(path),
+        }
+        assert ledger["verified"] is True and all(
+            step["exit_code"] == 0 for step in ledger["steps"]
+        )
+        _ = ledger_path.write_text(json.dumps(ledger))
+    else:
+        original = CI.preflight_release
+
+        def changed(candidate: Path, *args: Any) -> dict[str, Any]:
+            result = original(candidate, *args)
+            asset = candidate / "site/app/index.html"
+            if fault == "mutated-after":
+                _ = asset.write_bytes(b"different after trusted validation")
+            elif fault == "symlink-after":
+                asset.unlink()
+                asset.symlink_to(site / "app/index.html")
+            else:
+                _ = (candidate / "evidence/unlisted.json").write_text("{}")
+            return result
+
+        monkeypatch.setattr(CI, "preflight_release", changed)
+    with pytest.raises(ValueError):
+        CI.stage_release(
+            site,
+            evidence,
+            release,
+            selected["site_sha256"],
+            numerical_site=numerical,
+            expected_numerical_manifest_sha256=CI.identity(numerical / "manifest.json")[
+                "sha256"
+            ],
+            source_locks=selected["locks"],
+        )
+    assert not release.exists()
+    assert not list(selected["tmp"].glob("browser-release-*"))
 
 
 @pytest.mark.parametrize("fault", ["manifest", "asset", "symlink"])

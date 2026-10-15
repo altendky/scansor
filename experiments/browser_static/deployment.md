@@ -79,6 +79,24 @@ code and publishes neither evidence nor temporary build files. Its summary is
 the selection record. Source lock changes on today's main do not invalidate a
 valid older release; rollback uses the selected commit's approved inventory.
 
+Before CI exposes `release/` for upload, it now validates a private candidate
+with the same trusted payload checks used by archive intake: exact evidence and
+25 stages, complete semantic receipts and finite budgets, source epochs, both
+runtime profiles, assets, source ZIPs and notices. The 32MiB ordinary JSON limit
+and 64MiB exception for exactly the four source reports are unchanged. A green
+producer ledger alone cannot make the candidate upload-eligible. Failed intake
+retains the original evidence, closes eligibility and leaves no release output.
+The full release check requires the measurement-inclusive 25-stage invocation;
+an execution-only run cannot substitute for that evidence.
+
+Local preflight uses a disposable stored snapshot bounded by the existing
+member/count/expanded limits, then rechecks the private candidate's exact byte
+inventory before its atomic release rename. It runs trusted checkout code only.
+The snapshot is neither a downloaded compressed archive nor GitHub selection
+metadata. Final archive digest/size, successful push-main linkage, artifact API
+identity/expiry and publication permission remain separate post-upload gates.
+The local preflight adds no stage or report member to the release envelope.
+
 Historical semantic-policy support is explicit and bounded. The current verifier
 supports `bounded-semantic-parity-v1` implementations with SHA-256
 `6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967`
