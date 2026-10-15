@@ -62,6 +62,18 @@ fixed axes remain exact. Per-axis constrained charts, derived axes, radius
 equalities and rigid reuse consume the canonical geometry. Generic
 rotational/mirror groups remain guarded pending their integration work.
 
+The [raw-nozzle acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
+opens only the retained RealityScan PLY bytes into a source-only project, then
+fits an authored 803-row plane patch and 5,066-row cylinder patch. Example-file
+reads and the legacy workspace accessor are denied during fitting and replay.
+An independent raw-body calculation checks source coordinates, normals, triangle
+areas, every selected row and the full incident-area-weighted objective. Saved
+actions contain authored selections and fit declarations without computed seeds;
+reopening renamed identical bytes reproduces the results exactly. The rough real
+lateral patch mixes geometry, so this is implementation evidence without a fit
+quality threshold. Independent analytic fixtures remain the geometry oracle;
+adapter/UI opening and full native/worker acceptance remain separate gates.
+
 Standalone cones now derive a centered-normal axis proposal plus raw-normal and
 positional alternatives. A residualized projected-center solve followed by radial
 radius/taper regression supplies starts without first fitting a cylinder. Bounded
@@ -240,8 +252,10 @@ Current implementation gaps:
   not a generic source contract.
 - Legacy example [`Source` reference identity](../../../../experiments/feature_graph.py)
   still includes fixture selection/model configuration through its explicit
-  adapter. Independent plane/sphere/cylinder fits use generic source identity;
-  the legacy cone path still reads the fixture's initial parameters until #253.
+  adapter. Independent plane/sphere/cylinder/cone fits use generic source
+  identity and selected-data initialization. The legacy example paths retain
+  their explicit fixture adapter; generic rotational/mirror integration remains
+  guarded.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
   centers and scales legacy numerical coordinates. Generic cylinders additionally
   rotate each proposal chart, while relationship components use one chart per
@@ -324,10 +338,11 @@ own initialization and positive-sheet support evidence:
 | `fit_relationship_component` | A chart basis per free axis, semantic anchor/support rebasing and canonical constrained publication |
 | `feature_reuse` | Rigid canonical hints and axis geometry; legacy numerical helpers stay explicit |
 
-The internal numerical/graph cylinder path is enabled for the independently
-tested eligible cases. Adapter/UI file import and full workflow acceptance remain
-in #240 and its integration children; this does not claim a completed end-user
-import feature. Cone dispatch remains guarded until its family gates pass.
+The internal numerical/graph cylinder and cone paths are enabled for the
+independently tested eligible cases. Cone implementation, support transfer and
+admission remain in the draft stack while #266 blocks the complete strict parity
+gate. Adapter/UI file import and full workflow acceptance remain in #240 and its
+integration children; this does not claim a completed end-user import feature.
 
 ### Saved intent and computed starts
 
