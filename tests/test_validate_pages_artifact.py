@@ -30,6 +30,621 @@ def record(name: str, data: bytes, **extra: Any) -> dict[str, Any]:
     return {"path": name, **VALIDATOR.identity(data), **extra}
 
 
+def semantic_report(name: str) -> dict[str, Any]:
+    """Synthetic complete records, never evidence of actual worker execution."""
+    graph: dict[str, Any] = {
+        "recipe": {
+            "nodes": [
+                {
+                    "id": "source",
+                    "operation": "source",
+                    "source_sha256": "a" * 64,
+                    "reference_sha256": "b" * 64,
+                    "descriptor": None,
+                }
+            ]
+        },
+        "token": "2" * 64,
+        "states": {"source": "ready"},
+        "errors": {},
+        "diagnostics": {},
+        "memberships": {},
+        "results": {"source": {"vertices": 3}},
+        "result": {"radius": 1.0},
+        "derived": {},
+        "input_catalogue": [],
+        "input_requirements": {},
+        "revision": 1,
+    }
+    profile, ids = VALIDATOR.SEMANTIC_DRIVERS[name]
+    if name in VALIDATOR.SOURCE_GRAPH_DRIVERS:
+        graph.update(
+            project_generation=7,
+            evaluation_running=False,
+            required_failures=[],
+        )
+        snapshots = {
+            "scene": copy.deepcopy(graph),
+            "scene_replayed": copy.deepcopy(graph),
+            "scene_actions": {**copy.deepcopy(graph), "project_generation": 11},
+            "scene_actions_replayed": {
+                **copy.deepcopy(graph),
+                "project_generation": 12,
+            },
+            "native_scene": {**copy.deepcopy(graph), "project_generation": 0},
+        }
+        cases = [
+            {
+                "id": case_id,
+                "profile": profile,
+                "path": path,
+                "actual": {
+                    field: snapshots[key][field]
+                    for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+                "expected": {
+                    field: snapshots["native_scene"][field]
+                    for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+            }
+            for case_id, key, path in zip(
+                ids[:4],
+                ("scene", "scene_replayed", "scene_actions", "scene_actions_replayed"),
+                (
+                    "scene.graph",
+                    "scene.replayed_graph",
+                    "actions.scene_opened",
+                    "actions.scene_replayed",
+                ),
+                strict=True,
+            )
+        ]
+        authoring = source_authoring_fixture()
+        return {
+            **semantic_evidence([*cases, *authoring_batch(authoring)]),
+            "ui_authoring": authoring,
+            "source_graph_schema": VALIDATOR.SOURCE_GRAPH_SCHEMA,
+            "source_graph_projection": list(VALIDATOR.SOURCE_GRAPH_PROJECTION),
+            "source_graph_snapshots": snapshots,
+            "ui_actions": {
+                "complete": True,
+                "cases": [
+                    {
+                        "name": name,
+                        "complete": True,
+                        **{field: True for field in fields},
+                        **(
+                            {"generation": 11}
+                            if name == "scene-located-fresh-graph-real-evaluate"
+                            else {"generation": 12}
+                            if name == "matching-force-replayed"
+                            else {}
+                        ),
+                    }
+                    for name, fields in VALIDATOR.SOURCE_ACTION_CASES.items()
+                ],
+                "scene_opened": snapshots["scene_actions"],
+                "scene_replayed": snapshots["scene_actions_replayed"],
+                "scene_opened_generation": 11,
+                "scene_replayed_generation": 12,
+            },
+            "cases": [
+                {"name": "raw-nozzle", "generation": 1},
+                {"name": "horizontal-scene", "generation": 7},
+            ],
+        }
+    if profile == "graph-snapshot":
+        graph.update(project_generation=0, evaluation_running=False)
+        browser = {
+            key: copy.deepcopy(graph) for key in ("default", "edited", "replayed")
+        }
+        browser["replayed"]["project_generation"] = 1
+        native = {key: copy.deepcopy(graph) for key in ("default", "edited")}
+        fresh = {
+            **copy.deepcopy(browser["replayed"]),
+            "states": {key: "unevaluated" for key in graph["states"]},
+            "results": {},
+            "derived": {},
+            "result": None,
+        }
+
+        def proof(value: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "generation": value["project_generation"],
+                "graph": copy.deepcopy(value),
+                "metadata": {
+                    "project_generation": value["project_generation"],
+                    "graph": copy.deepcopy(value),
+                    "source_mode": {"kind": "example", "example": "nozzle"},
+                    "source_identity": copy.deepcopy(value["recipe"]["nodes"][0]),
+                },
+            }
+
+        result: dict[str, Any] = {
+            "workspace_graph_schema": VALIDATOR.WORKSPACE_GRAPH_SCHEMA,
+            "workspace_graph_projection": list(VALIDATOR.SOURCE_GRAPH_PROJECTION),
+            "browser_snapshots": browser,
+            "native_snapshots": native,
+            "browser_workspace": {
+                "default": proof(browser["default"]),
+                "edited": proof(browser["edited"]),
+                "replay_before": proof(browser["default"]),
+                "replay_after": proof(fresh),
+            },
+            "native_workspace": {key: proof(value) for key, value in native.items()},
+            "native_evaluation_responses": {
+                key: {**copy.deepcopy(value), "required_failures": []}
+                for key, value in native.items()
+            },
+        }
+        result.update(semantic_evidence(workspace_batch(result)["cases"]))
+        return result
+    value = {"fit": {"radius": 1.0}}
+    cases = [
+        {"id": case_id, "profile": profile, "actual": value, "expected": value}
+        for case_id in ids
+    ]
+    result = semantic_evidence(cases)
+    return copy.deepcopy(result)
+
+
+def source_authoring_fixture() -> dict[str, Any]:
+    sources: dict[str, Any] = {}
+    graphs: dict[str, Any] = {}
+    native: dict[str, Any] = {}
+    generations = {"raw": 3, "raw_edited": 3, "scene": 5}
+    for key, generation in generations.items():
+        scene = key == "scene"
+        descriptor = {
+            "version": "interactive-triangle-scan-v1",
+            "profile": "binary-triangle-ply-v1",
+            "source_sha256": ("a" if scene else "b") * 64,
+            "source_bytes": 100,
+            "interpretation_sha256": "c" * 64,
+            "vertices": 3,
+            "triangles": 1,
+            "filename": "scene.ply" if scene else "raw.ply",
+            "units": "unknown",
+        }
+        binding = VALIDATOR.sha256(
+            json.dumps(
+                {
+                    name: value
+                    for name, value in descriptor.items()
+                    if name != "filename"
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+        source = {
+            "id": "scan",
+            "operation": "source",
+            "label": descriptor["filename"],
+            "descriptor": copy.deepcopy(descriptor),
+            "source_sha256": descriptor["source_sha256"],
+            "reference_sha256": binding,
+        }
+        graph = {
+            "recipe": {
+                "schema_version": 2,
+                "groups": [],
+                "nodes": [
+                    source,
+                    {
+                        "id": "picked",
+                        "operation": "selection",
+                        "source": "scan",
+                        "ids": [0, 1, 2],
+                    },
+                    {
+                        "id": "plane",
+                        "operation": "fit",
+                        "kind": "plane",
+                        "label": "Edited" if key == "raw_edited" else "Plane",
+                        "selections": ["picked"],
+                    },
+                ],
+                "output": "plane",
+            },
+            "token": "2" * 64,
+            "revision": 1,
+            "states": {"scan": "ready", "picked": "ready", "plane": "ready"},
+            "errors": {},
+            "diagnostics": {},
+            "memberships": {"picked": [0, 1, 2]},
+            "result": None,
+            "derived": {},
+            "results": {
+                "plane": {
+                    "kind": "plane",
+                    "parameters": [0.0, 0.0, 1.0, 0.0],
+                    "ids": [0, 1, 2],
+                    "residuals": [0.0, 0.0, 0.0],
+                    "weighted_rms": 0.0,
+                }
+            },
+            "input_catalogue": [],
+            "input_requirements": {},
+            "required_failures": [],
+        }
+        native[key] = copy.deepcopy(graph)
+        graphs[key] = {
+            **copy.deepcopy(graph),
+            "project_generation": generation,
+            "evaluation_running": False,
+        }
+        sources["scene_source" if scene else "raw_source"] = {
+            "descriptor": descriptor,
+            "source_sha256": descriptor["source_sha256"],
+            "project_generation": generation,
+            "source_mode": {"kind": "scan"},
+            "original_bytes": 100,
+            "vertices": 3,
+            "faces": 1,
+            "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            "normals": [[0.0, 0.0, 1.0]] * 3,
+            "triangles": [[0, 1, 2]],
+            "weights": [1 / 6] * 3,
+            "owned_fs_files": [],
+            "owned_fs_bytes": 0,
+        }
+    return {
+        "schema": VALIDATOR.SOURCE_AUTHORING_SCHEMA,
+        "complete": True,
+        "cases": [
+            {"name": name, "complete": True, **dict.fromkeys(fields, True)}
+            for name, fields in VALIDATOR.SOURCE_AUTHORING_CASES.items()
+        ],
+        "graphs": graphs,
+        "native_graphs": native,
+        "graph_generations": generations,
+        "evidence": sources,
+    }
+
+
+def authoring_batch(authoring: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": identity,
+            "profile": "graph-snapshot",
+            "path": "ui_authoring." + key,
+            "actual": {
+                field: authoring["graphs"][key][field]
+                for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+            },
+            "expected": {
+                field: authoring["native_graphs"][key][field]
+                for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+            },
+        }
+        for identity, key in zip(
+            VALIDATOR.SOURCE_AUTHORING_IDS,
+            VALIDATOR.SOURCE_AUTHORING_GRAPHS,
+            strict=True,
+        )
+    ]
+
+
+def semantic_evidence(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = encoded({"cases": cases})
+    receipt = VALIDATOR.trusted_semantic_policy()["compare_batch"](cases)
+    receipt["input_sha256"] = VALIDATOR.sha256(raw)
+    return {
+        "semantic_parity": receipt,
+        "semantic_parity_evidence": {"json": raw.decode(), **VALIDATOR.identity(raw)},
+    }
+
+
+def refresh_semantic_input(
+    report: dict[str, Any], batch: dict[str, Any], *, recompute: bool = False
+) -> None:
+    if recompute:
+        report.update(semantic_evidence(batch["cases"]))
+        return
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+
+
+def source_batch(report: dict[str, Any]) -> dict[str, Any]:
+    snapshots = report["source_graph_snapshots"]
+    return {
+        "cases": [
+            {
+                "id": case_id,
+                "profile": "graph-snapshot",
+                "path": path,
+                "actual": {
+                    key: snapshots[snapshot][key]
+                    for key in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+                "expected": {
+                    key: snapshots["native_scene"][key]
+                    for key in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+            }
+            for case_id, snapshot, path in (
+                ("scene", "scene", "scene.graph"),
+                ("scene-replayed", "scene_replayed", "scene.replayed_graph"),
+                ("scene-actions", "scene_actions", "actions.scene_opened"),
+                (
+                    "scene-actions-replayed",
+                    "scene_actions_replayed",
+                    "actions.scene_replayed",
+                ),
+            )
+        ]
+        + authoring_batch(report["ui_authoring"])
+    }
+
+
+def workspace_batch(report: dict[str, Any]) -> dict[str, Any]:
+    browser, native = report["browser_snapshots"], report["native_snapshots"]
+    pairs = (
+        (browser["replayed"], browser["edited"]),
+        (browser["default"], native["default"]),
+        (browser["edited"], native["edited"]),
+        (browser["replayed"], native["edited"]),
+    )
+    return {
+        "cases": [
+            {
+                "id": case_id,
+                "profile": "graph-snapshot",
+                "actual": {
+                    field: actual[field] for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+                "expected": {
+                    field: expected[field]
+                    for field in VALIDATOR.SOURCE_GRAPH_PROJECTION
+                },
+            }
+            for case_id, (actual, expected) in zip(
+                ("replay", "default", "edited", "replayed"), pairs, strict=True
+            )
+        ]
+    }
+
+
+def update_workspace_proof_epoch(proof: dict[str, Any], value: Any) -> None:
+    proof["generation"] = value
+    proof["metadata"]["project_generation"] = value
+    proof["graph"]["project_generation"] = value
+    proof["metadata"]["graph"]["project_generation"] = value
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize(
+    "field", ["result", "results", "states", "derived", "coverage"]
+)
+def test_workspace_actions_reopen_cannot_retain_computed_state(name: str, field: str):
+    report = semantic_report(name)
+    proof = report["browser_workspace"]["replay_after"]
+    value = (
+        {"cached": {"radius": 999}}
+        if field in ("results", "derived")
+        else {"radius": 999}
+        if field == "result"
+        else {"source": "ready"}
+    )
+    if field == "coverage":
+        proof["graph"]["states"] = {"unrelated": "unevaluated"}
+    else:
+        proof["graph"][field] = value
+    proof["metadata"]["graph"] = copy.deepcopy(proof["graph"])
+    refresh_semantic_input(report, workspace_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="retained computed state"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize("field", ["result", "diagnostics"])
+def test_workspace_native_evaluation_cannot_disagree_with_snapshot(
+    name: str, field: str
+):
+    report = semantic_report(name)
+    report["native_evaluation_responses"]["default"][field] = {"radius": 999}
+    refresh_semantic_input(report, workspace_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="native evaluation differs"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize("generation", [None, True, -1, 2**53, "1", 1.0])
+def test_workspace_transport_epochs_are_checked_outside_the_numerical_projection(
+    name: str, generation: Any
+):
+    report = semantic_report(name)
+    update_workspace_proof_epoch(
+        report["browser_workspace"]["replay_after"], generation
+    )
+    report["browser_snapshots"]["replayed"]["project_generation"] = generation
+    with pytest.raises(ValueError, match="generation"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize("generation", [0, 2])
+def test_workspace_whole_project_replay_requires_exactly_one_epoch_advance(
+    name: str, generation: int
+):
+    report = semantic_report(name)
+    update_workspace_proof_epoch(
+        report["browser_workspace"]["replay_after"], generation
+    )
+    report["browser_snapshots"]["replayed"]["project_generation"] = generation
+    with pytest.raises(ValueError, match="advance exactly one"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+def test_workspace_native_reference_keeps_its_own_fresh_owner_epoch(name: str):
+    report = semantic_report(name)
+    for key in ("default", "edited"):
+        update_workspace_proof_epoch(report["native_workspace"][key], 1)
+        report["native_snapshots"][key]["project_generation"] = 1
+        report["native_evaluation_responses"][key]["project_generation"] = 1
+    with pytest.raises(ValueError, match="native fresh-owner"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize("missing", ["identity", "source"])
+def test_workspace_legacy_null_descriptor_must_be_explicit_after_hash_refresh(
+    name: str, missing: str
+):
+    report = semantic_report(name)
+    for group in ("browser_workspace", "native_workspace"):
+        for proof in report[group].values():
+            if missing == "identity":
+                del proof["metadata"]["source_identity"]["descriptor"]
+            else:
+                for graph in (proof["graph"], proof["metadata"]["graph"]):
+                    source = next(
+                        node
+                        for node in graph["recipe"]["nodes"]
+                        if node["operation"] == "source"
+                    )
+                    del source["descriptor"]
+    if missing == "source":
+        for group in (
+            "browser_snapshots",
+            "native_snapshots",
+            "native_evaluation_responses",
+        ):
+            for graph in report[group].values():
+                source = next(
+                    node
+                    for node in graph["recipe"]["nodes"]
+                    if node["operation"] == "source"
+                )
+                del source["descriptor"]
+    refresh_semantic_input(report, workspace_batch(report), recompute=True)
+    with pytest.raises(ValueError, match=r"source (identity|binding)"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "extra",
+        "mode",
+        "identity",
+        "metadata",
+        "running",
+        "blocked",
+        "native-failed",
+        "native-epoch",
+        "missing-semantic",
+    ],
+)
+def test_workspace_bundle_source_and_terminal_evidence_cannot_be_hidden(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    proof = report["browser_workspace"]["replay_before"]
+    if fault == "missing":
+        del report["browser_workspace"]["replay_before"]
+    elif fault == "extra":
+        proof["uncaptured"] = True
+    elif fault == "mode":
+        proof["metadata"]["source_mode"] = {"kind": "scan"}
+    elif fault == "identity":
+        proof["metadata"]["source_identity"]["source_sha256"] = "c" * 64
+    elif fault == "metadata":
+        proof["metadata"]["graph"]["token"] = "changed"
+    elif fault in ("running", "blocked"):
+        graph = proof["graph"]
+        if fault == "running":
+            graph["evaluation_running"] = True
+        else:
+            graph["states"]["source"] = "blocked"
+        proof["metadata"]["graph"] = copy.deepcopy(graph)
+    elif fault == "native-failed":
+        report["native_evaluation_responses"]["edited"]["required_failures"] = [
+            "source"
+        ]
+    elif fault == "native-epoch":
+        report["native_evaluation_responses"]["edited"]["project_generation"] = True
+    else:
+        del report["browser_snapshots"]["replayed"]["diagnostics"]
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+def test_workspace_projection_rejects_unknown_fields_even_when_all_raw_records_match(
+    name: str,
+):
+    report = semantic_report(name)
+    for key in ("browser_snapshots", "native_snapshots", "native_evaluation_responses"):
+        for graph in report[key].values():
+            graph["new_acceptance_classification"] = "rejected"
+    for key in ("browser_workspace", "native_workspace"):
+        for proof in report[key].values():
+            proof["graph"]["new_acceptance_classification"] = "rejected"
+            proof["metadata"]["graph"] = copy.deepcopy(proof["graph"])
+    with pytest.raises(ValueError, match="unknown/missing semantic fields"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", ["workspace", "numerical-workspace"])
+@pytest.mark.parametrize("fault", ["physical", "budget"])
+def test_workspace_projected_results_and_budgets_are_recomputed_after_hash_refresh(
+    name: str, fault: str
+):
+    from tests.test_semantic_parity import constrained
+
+    report = semantic_report(name)
+    if fault == "budget":
+        for key in (
+            "browser_snapshots",
+            "native_snapshots",
+            "native_evaluation_responses",
+        ):
+            for graph in report[key].values():
+                graph["result"] = constrained()
+        for key in ("browser_workspace", "native_workspace"):
+            for label, proof in report[key].items():
+                if label == "replay_after":
+                    continue
+                proof["graph"]["result"] = constrained()
+                proof["metadata"]["graph"] = copy.deepcopy(proof["graph"])
+        refresh_semantic_input(report, workspace_batch(report), recompute=True)
+        report["browser_snapshots"]["replayed"]["result"]["initialization"]["recovery"][
+            "attempts"
+        ][0]["evaluations"] = 513
+    else:
+        report["browser_snapshots"]["replayed"]["result"]["radius"] = 2.0
+    refresh_semantic_input(report, workspace_batch(report))
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
 def metadata() -> tuple[dict[str, Any], dict[str, Any]]:
     run = {
         "id": 12,
@@ -235,6 +850,9 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     source_zip = tmp_path / "source.zip"
     with zipfile.ZipFile(source_zip, "w") as archive:
         archive.writestr(example_path, example)
+        archive.writestr(
+            VALIDATOR.SEMANTIC_POLICY, (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
+        )
     runtime_files, runtime_redistribution = supplement(["numeric", "cad"])
     runtime_files.update(
         {
@@ -246,14 +864,11 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "scansor.zip": source_zip.read_bytes(),
         }
     )
-    runtime_manifest = {
+    runtime_manifest: dict[str, Any] = {
         "schema_version": 1,
-        "worker_protocol": {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
+        "worker_protocol": VALIDATOR.runpy.run_path(
+            str(ROOT / "scripts/build-browser-runtime.py")
+        )["worker_protocol"](),
         "cad": True,
         "versions": runtime_lock["versions"],
         "source_revision": "a" * 40,
@@ -263,7 +878,14 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "redistribution": runtime_redistribution,
         "runtime_lock_sha256": inventory["bindings"]["runtime_lock_sha256"],
         "source_files": [
-            {"archive_path": example_path, "sha256": VALIDATOR.sha256(example)}
+            {"archive_path": example_path, "sha256": VALIDATOR.sha256(example)},
+            {
+                "path": VALIDATOR.SEMANTIC_POLICY,
+                "archive_path": VALIDATOR.SEMANTIC_POLICY,
+                "sha256": VALIDATOR.sha256(
+                    (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
+                ),
+            },
         ],
         "assets": [
             record(
@@ -293,7 +915,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     fixture_runtime = tmp_path / "fixture-runtime"
     fixture_runtime.mkdir()
     _ = (fixture_runtime / "scansor.zip").write_bytes(source_zip.read_bytes())
-    site = {
+    site: dict[str, Any] = {
         "schema_version": 1,
         "kind": "scansor-static-app",
         "entry": "app/index.html",
@@ -303,11 +925,18 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "runtime_redistribution_ready": True,
         "redistribution_gaps": [],
         "redistribution": ui_redistribution,
-        "capabilities": {"runtime_bootstrap": True, "numerical": True, "cad": True},
+        "capabilities": {
+            "runtime_bootstrap": True,
+            "numerical": True,
+            "cad": True,
+            "source_import": runtime_manifest["worker_protocol"]["source_import"],
+            "source_actions": runtime_manifest["worker_protocol"]["source_actions"],
+        },
         "backend": {
             "type": "worker",
             "runtimeURL": f"./runtime/{runtime_hash}/worker.mjs",
             "cad": True,
+            "sourceActions": True,
         },
         "runtime": {
             "path": prefix,
@@ -329,24 +958,77 @@ def selected(tmp_path: Path) -> dict[str, Any]:
         "assets": [record(name, data) for name, data in site_files.items()],
     }
     site_raw = encoded(site)
+    numerical_raw = encoded(
+        site | {"capabilities": site["capabilities"] | {"cad": False}}
+    )
     evidence = {
         "site-manifest.json": site_raw,
+        "numerical-site-manifest.json": numerical_raw,
         "runtime-manifest.json": runtime_raw,
         "build-redistribution.json": encoded(assembled),
     }
     for name in VALIDATOR.DRIVERS:
         report = {
-            "manifest_sha256": VALIDATOR.sha256(site_raw),
+            "manifest_sha256": VALIDATOR.sha256(
+                numerical_raw if name.startswith("numerical-") else site_raw
+            ),
             "site_manifest_sha256": VALIDATOR.sha256(site_raw),
             "source_revision": "a" * 40,
+            "source_worktree_dirty": False,
             "artifact_unchanged": True,
             "complete": True,
+            "isolation": False,
+            "isolation_requested": name.endswith("-isolated"),
+            "isolation_actual": {
+                "page": name.endswith("-isolated"),
+                "worker": name.endswith("-isolated"),
+            },
             "input_artifact_unchanged": True,
             "input_site_manifest_sha256": VALIDATOR.sha256(site_raw),
             "immutable_site_verified_after": True,
             "native_exit": {"code": 0, "signal": None},
             "native_close": {"code": 0, "signal": None},
+            "cases": [
+                {"name": case, "complete": True}
+                for case in (
+                    "raw-nozzle",
+                    "horizontal-scene",
+                    "grid-256x128",
+                    "grid-512x256",
+                )
+            ]
+            if name == "source-import-memory"
+            else [{"name": "generated test evidence"}],
+            "checks": {
+                "source_import": True,
+                "source_identity": True,
+                "isolation_matches": True,
+                "all_cases_complete": True,
+                "capacity_nonzero": True,
+                "chunk_reads_bounded": True,
+                "terminal_staging_released": True,
+                "no_external_computation": True,
+                "no_page_errors": True,
+                "artifact_unchanged": True,
+                "cancel_before_adoption": True,
+                "force_after_adoption": True,
+                "cleanup_failure_recovery": True,
+                **(
+                    {
+                        "ui_source_recovery": True,
+                        "ui_legacy_startup": True,
+                        "ui_source_authoring": True,
+                        "ui_source_actions": True,
+                    }
+                    if name != "source-import-memory"
+                    else {}
+                ),
+                "recovery": True,
+                "cleanup": True,
+            },
         }
+        if name in VALIDATOR.SEMANTIC_DRIVERS:
+            report.update(semantic_report(name))
         evidence[f"{name}.json"] = encoded(report)
     when = "2026-01-01T00:00:00Z"
     steps: list[dict[str, Any]] = []
@@ -377,6 +1059,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             "finished_utc": when,
             "site-manifest": VALIDATOR.identity(site_raw),
             "runtime-manifest": VALIDATOR.identity(runtime_raw),
+            "numerical-site-manifest": VALIDATOR.identity(numerical_raw),
             "redistribution-manifest": VALIDATOR.identity(
                 evidence["build-redistribution.json"]
             ),
@@ -431,6 +1114,857 @@ def validate(fixture: dict[str, Any], output: Path | None = None) -> dict[str, A
     )
 
 
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+@pytest.mark.parametrize("field", ["semantic_parity", "semantic_parity_evidence"])
+def test_semantic_profiles_require_their_complete_evidence(name: str, field: str):
+    report = semantic_report(name)
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    del report[field]
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+@pytest.mark.parametrize(
+    "field", ["complete", "semantic_complete", "budgets_validated"]
+)
+@pytest.mark.parametrize("value", [None, False, 1])
+def test_semantic_success_flags_are_required_exact_booleans(
+    name: str, field: str, value: Any
+):
+    report = semantic_report(name)
+    if value is None:
+        del report["semantic_parity"][field]
+    else:
+        report["semantic_parity"][field] = value
+    with pytest.raises(ValueError, match="is not true"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("policy_version", "self-declared-policy"),
+        ("policy_sha256", "0" * 64),
+        ("input_sha256", "0" * 64),
+        ("strict_fields_compared", 0),
+        ("budget_records_validated", 1),
+        ("diagnostic_difference_count", 1),
+        ("diagnostic_differences", []),
+        ("unrecognized_approval", True),
+    ],
+)
+def test_forged_semantic_receipt_is_rejected(field: str, value: Any):
+    report = semantic_report("recovery")
+    if field == "diagnostic_differences":
+        value = [{"path": "fit.radius", "actual": 2, "expected": 1, "reason": "allow"}]
+    report["semantic_parity"][field] = value
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("fault", ["text", "bytes", "hash", "missing-json"])
+def test_full_semantic_raw_text_and_receipt_are_bound(fault: str):
+    report = semantic_report("recovery-isolated")
+    evidence = report["semantic_parity_evidence"]
+    if fault == "text":
+        evidence["json"] += " "
+    elif fault == "bytes":
+        evidence["bytes"] = True
+    elif fault == "hash":
+        evidence["sha256"] = "0" * 64
+    else:
+        del evidence["json"]
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery-isolated", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("fault", ["missing", "order", "id", "profile", "empty"])
+def test_semantic_case_coverage_cannot_be_substituted(fault: str):
+    report = semantic_report("workspace")
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    cases = batch["cases"]
+    if fault == "missing":
+        cases.pop()
+    elif fault == "order":
+        cases.reverse()
+    elif fault == "id":
+        cases[0]["id"] = "other-case"
+    elif fault == "profile":
+        cases[0]["profile"] = "result-map"
+    else:
+        cases[0]["actual"] = {}
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "workspace", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_semantic_evidence_must_include_the_full_retained_snapshots():
+    report = semantic_report("numerical-workspace")
+    report["browser_snapshots"]["default"]["diagnostics"] = {"omitted": "trace"}
+    with pytest.raises(
+        ValueError,
+        match=r"differs from full snapshots|differs from accepted full bundle",
+    ):
+        VALIDATOR.validate_semantic_parity(
+            report, "numerical-workspace", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_trusted_recomparison_rejects_forged_geometry_with_updated_evidence_hashes():
+    report = semantic_report("recovery")
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    batch["cases"][0]["actual"]["fit"]["radius"] = 2.0
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("count", [513, -1, 1.5, True, "512"])
+def test_equal_invalid_budget_counts_cannot_be_approved_by_forged_receipt(count: Any):
+    binding = "3" * 64
+    recovery = {
+        "policy": {
+            "version": "selected-data-recovery-v2",
+            "max_proposals": 16,
+            "max_fresh_attempts": 8,
+            "attempt": {
+                "max_iterations": 100,
+                "max_trials": 16,
+                "max_evaluations": 512,
+            },
+            "objective_atol": 1e-12,
+            "objective_rtol": 1e-9,
+        },
+        "binding_sha256": binding,
+        "attempts": [
+            {
+                "candidate": {
+                    "id": "failed-start",
+                    "parameters": [1.0],
+                    "derivation": "synthetic budget guard",
+                    "chart": "synthetic",
+                    "binding_sha256": binding,
+                },
+                "role": "fresh",
+                "outcome": "evaluation-limit",
+                "evaluations": 512,
+                "assessment": None,
+                "solver": None,
+            }
+        ],
+        "selected": None,
+        "termination": "search-exhausted",
+        "selected_role": None,
+    }
+    cases = [
+        {
+            "id": "crash-force",
+            "profile": "result-map",
+            "actual": {"fit": recovery},
+            "expected": {"fit": recovery},
+        }
+    ]
+    report = semantic_evidence(cases)
+    assert report["semantic_parity"]["budget_records_validated"] > 0
+    batch = json.loads(report["semantic_parity_evidence"]["json"])
+    for side in ("actual", "expected"):
+        batch["cases"][0][side]["fit"]["attempts"][0]["evaluations"] = count
+    raw = encoded(batch)
+    report["semantic_parity_evidence"] = {
+        "json": raw.decode(),
+        **VALIDATOR.identity(raw),
+    }
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_numeric_success_inside_a_case_is_not_a_boolean_receipt():
+    report = semantic_report("recovery")
+    report["semantic_parity"]["cases"][0]["semantic_complete"] = 1
+    with pytest.raises(ValueError, match="differs from trusted recomparison"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+def test_semantic_receipt_cannot_certify_only_empty_containers():
+    report = semantic_evidence(
+        [
+            {
+                "id": "crash-force",
+                "profile": "result-map",
+                "actual": {"fit": {}},
+                "expected": {"fit": {}},
+            }
+        ]
+    )
+    assert report["semantic_parity"]["strict_fields_compared"] == 0
+    with pytest.raises(ValueError, match="invalid semantic strict_fields_compared"):
+        VALIDATOR.validate_semantic_parity(
+            report, "recovery", VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SEMANTIC_DRIVERS)
+def test_archive_gate_requires_semantic_evidence_after_report_hashes_are_refreshed(
+    selected: dict[str, Any], name: str
+):
+    members = selected["members"]
+    filename = f"{name}.json"
+    report = json.loads(members[f"evidence/{filename}"])
+    del report["semantic_parity"]
+    members[f"evidence/{filename}"] = encoded(report)
+    verification = json.loads(members["evidence/verification.json"])
+    step = next(step for step in verification["steps"] if step["name"] == name)
+    step["evidence"] = {
+        "path": filename,
+        **VALIDATOR.identity(members[f"evidence/{filename}"]),
+    }
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize("fault", ["missing", "forged-hash", "wrong-path"])
+def test_packaged_policy_identity_is_bound_to_the_trusted_checkout(
+    selected: dict[str, Any], fault: str
+):
+    evidence = {
+        name.removeprefix("evidence/"): raw
+        for name, raw in selected["members"].items()
+        if name.startswith("evidence/")
+    }
+    runtime = json.loads(evidence["runtime-manifest.json"])
+    helper = runtime["source_files"][-1]
+    if fault == "missing":
+        runtime["source_files"].pop()
+    elif fault == "forged-hash":
+        helper["sha256"] = "0" * 64
+    else:
+        helper["path"] = "artifact-controlled-policy.py"
+    runtime_raw = encoded(runtime)
+    evidence["runtime-manifest.json"] = runtime_raw
+    verification = json.loads(evidence["verification.json"])
+    verification["runtime-manifest"] = VALIDATOR.identity(runtime_raw)
+    evidence["verification.json"] = encoded(verification)
+    with pytest.raises(ValueError, match="packaged semantic policy differs"):
+        VALIDATOR.validate_evidence(
+            evidence, evidence["site-manifest.json"], runtime_raw
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_semantics_bind_worker_generation_without_borrowing_native_epoch(
+    name: str,
+):
+    report = semantic_report(name)
+    original = copy.deepcopy(report)
+    assert report["source_graph_snapshots"]["native_scene"]["project_generation"] == 0
+    for key in ("scene", "scene_replayed"):
+        report["source_graph_snapshots"][key]["evaluation_error"] = None
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    for key in ("scene", "scene_replayed"):
+        del report["source_graph_snapshots"][key]["evaluation_error"]
+    assert report == original
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_authoring_retains_all_seven_full_pairs_and_native_readiness(name: str):
+    report = semantic_report(name)
+    before = copy.deepcopy(report)
+    assert [
+        case["id"]
+        for case in json.loads(report["semantic_parity_evidence"]["json"])["cases"]
+    ] == [
+        "scene",
+        "scene-replayed",
+        "scene-actions",
+        "scene-actions-replayed",
+        "authoring-raw",
+        "authoring-raw-edited",
+        "authoring-scene",
+    ]
+    assert all(
+        "evaluation_running" not in graph
+        for graph in report["ui_authoring"]["native_graphs"].values()
+    )
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    assert report == before
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "case,oracle",
+    [
+        (name, field)
+        for name, fields in VALIDATOR.SOURCE_AUTHORING_CASES.items()
+        for field in ("complete", *fields)
+    ],
+)
+@pytest.mark.parametrize("value", [False, 1])
+def test_source_authoring_each_case_oracle_requires_literal_true(
+    name: str, case: str, oracle: str, value: Any
+):
+    report = semantic_report(name)
+    next(item for item in report["ui_authoring"]["cases"] if item["name"] == case)[
+        oracle
+    ] = value
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="source authoring case oracle"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "schema",
+        "incomplete",
+        "not-bool",
+        "case-missing",
+        "case-order",
+        "case-extra",
+        "oracle-extra",
+        "graph-missing",
+        "native-missing",
+        "epoch-missing",
+    ],
+)
+def test_source_authoring_coverage_is_not_a_self_declared_success_flag(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    if fault == "missing":
+        del report["ui_authoring"]
+    elif fault == "schema":
+        authoring["schema"] = "unknown-v2"
+    elif fault == "incomplete":
+        authoring["complete"] = False
+    elif fault == "not-bool":
+        authoring["complete"] = 1
+    elif fault == "case-missing":
+        authoring["cases"].pop()
+    elif fault == "case-order":
+        authoring["cases"].reverse()
+    elif fault == "case-extra":
+        authoring["cases"].append(copy.deepcopy(authoring["cases"][0]))
+    elif fault == "oracle-extra":
+        authoring["cases"][0]["new_claim"] = True
+    elif fault == "graph-missing":
+        del authoring["graphs"]["raw_edited"]
+    elif fault == "native-missing":
+        del authoring["native_graphs"]["scene"]
+    else:
+        del authoring["graph_generations"]["scene"]
+    with pytest.raises(ValueError, match="source authoring"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("value", [True, -1, 2**53, "3", 3.0])
+def test_source_authoring_epoch_cannot_hide_in_projected_comparands(
+    name: str, value: Any
+):
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    for key in ("raw", "raw_edited"):
+        authoring["graph_generations"][key] = value
+        authoring["graphs"][key]["project_generation"] = value
+    authoring["evidence"]["raw_source"]["project_generation"] = value
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="source authoring epoch"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "graph-epoch",
+        "edit-epoch",
+        "native-failed",
+        "native-running",
+        "worker-running",
+        "worker-failed",
+        "source-sha",
+        "source-reference",
+        "source-descriptor",
+        "source-rows",
+        "source-weights",
+        "source-normals",
+        "triangle-index",
+        "source-bytes",
+        "staging",
+        "selection-source",
+        "selection-id",
+        "computed-start",
+        "unknown-semantic",
+        "operand",
+        "case-path",
+    ],
+)
+def test_source_authoring_meaningful_failures_reject_after_evidence_hash_refresh(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    a = report["ui_authoring"]
+    raw, native = a["graphs"]["raw"], a["native_graphs"]["raw"]
+    evidence = a["evidence"]["raw_source"]
+    if fault == "graph-epoch":
+        raw["project_generation"] += 1
+    elif fault == "edit-epoch":
+        a["graph_generations"]["raw_edited"] += 1
+        a["graphs"]["raw_edited"]["project_generation"] += 1
+    elif fault == "native-failed":
+        native["required_failures"] = ["plane"]
+    elif fault == "native-running":
+        native["evaluation_running"] = True
+    elif fault == "worker-running":
+        raw["evaluation_running"] = True
+    elif fault == "worker-failed":
+        raw["states"]["plane"] = "blocked"
+    elif fault == "source-sha":
+        raw["recipe"]["nodes"][0]["source_sha256"] = "d" * 64
+    elif fault == "source-reference":
+        raw["recipe"]["nodes"][0]["reference_sha256"] = "d" * 64
+    elif fault == "source-descriptor":
+        raw["recipe"]["nodes"][0]["descriptor"]["filename"] = "substituted.ply"
+    elif fault == "source-rows":
+        evidence["positions"].pop()
+    elif fault == "source-weights":
+        evidence["weights"][0] = "NaN"
+    elif fault == "source-normals":
+        evidence["normals"][0] = [0, 0, 0]
+    elif fault == "triangle-index":
+        evidence["triangles"][0][0] = 3
+    elif fault == "source-bytes":
+        evidence["original_bytes"] += 1
+    elif fault == "staging":
+        evidence["owned_fs_files"] = [{"path": "/owned.ply", "bytes": 1}]
+    elif fault == "selection-source":
+        raw["recipe"]["nodes"][1]["source"] = "other"
+    elif fault == "selection-id":
+        raw["recipe"]["nodes"][1]["ids"][0] = True
+    elif fault == "computed-start":
+        raw["recipe"]["nodes"][-1]["initial_parameters"] = [0, 0, 1, 0]
+    elif fault == "unknown-semantic":
+        for graph in [*a["graphs"].values(), *a["native_graphs"].values()]:
+            graph["new_policy"] = "rejected"
+    if fault in {
+        "source-sha",
+        "source-reference",
+        "source-descriptor",
+        "selection-source",
+        "selection-id",
+        "computed-start",
+    }:
+        native["recipe"] = copy.deepcopy(raw["recipe"])
+    if fault == "worker-failed":
+        native["states"] = copy.deepcopy(raw["states"])
+    batch = copy.deepcopy(source_batch(report))
+    if fault == "operand":
+        next(case for case in batch["cases"] if case["id"] == "authoring-raw")[
+            "actual"
+        ]["results"]["plane"]["weighted_rms"] = 1.0
+    elif fault == "case-path":
+        next(case for case in batch["cases"] if case["id"] == "authoring-raw")[
+            "path"
+        ] = "other.raw"
+    refresh_semantic_input(report, batch, recompute=fault != "operand")
+    with pytest.raises(ValueError, match="source authoring"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("fault", ["geometry", "budget"])
+def test_source_authoring_shared_policy_still_recomputes_geometry_and_budgets(
+    name: str, fault: str
+):
+    from tests.test_semantic_parity import constrained
+
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    if fault == "budget":
+        for collection in (authoring["graphs"], authoring["native_graphs"]):
+            for graph in collection.values():
+                graph["result"] = constrained()
+        refresh_semantic_input(report, source_batch(report), recompute=True)
+        authoring["graphs"]["raw"]["result"]["initialization"]["recovery"]["attempts"][
+            0
+        ]["evaluations"] = 513
+    else:
+        authoring["graphs"]["raw"]["results"]["plane"]["parameters"][3] = 1.0
+    refresh_semantic_input(report, source_batch(report))
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("field", VALIDATOR.SOURCE_GRAPH_PROJECTION)
+def test_source_projection_cannot_delete_fields_from_every_operand(
+    name: str, field: str
+):
+    report = semantic_report(name)
+    batch = source_batch(report)
+    for graph in report["source_graph_snapshots"].values():
+        del graph[field]
+    for case in batch["cases"]:
+        del case["actual"][field]
+        del case["expected"][field]
+    refresh_semantic_input(report, batch, recompute=True)
+    with pytest.raises(ValueError, match="unknown/missing projection fields"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene", "scene_replayed", "native_scene"])
+def test_source_projection_cannot_omit_one_raw_operand_field(name: str, target: str):
+    report = semantic_report(name)
+    del report["source_graph_snapshots"][target]["diagnostics"]
+    with pytest.raises(ValueError, match="unknown/missing projection fields"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene", "scene_replayed", "native_scene", "all"])
+def test_source_projection_rejects_unknown_semantics_even_when_all_equal(
+    name: str, target: str
+):
+    report = semantic_report(name)
+    snapshots = report["source_graph_snapshots"]
+    targets = snapshots.values() if target == "all" else [snapshots[target]]
+    for graph in targets:
+        graph["new_semantic_field"] = {"uncompared": 42}
+    with pytest.raises(ValueError, match="unknown/missing projection fields"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene", "scene_replayed"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("project_generation", 0),
+        ("project_generation", True),
+        ("evaluation_running", 0),
+        ("evaluation_running", True),
+        ("required_failures", None),
+        ("required_failures", ["fit"]),
+        ("errors", {"fit": "failed"}),
+        ("states", {"source": "running"}),
+        ("evaluation_error", False),
+        ("evaluation_error", "failed"),
+    ],
+)
+def test_source_graph_requires_actual_accepted_terminal_publication(
+    name: str, target: str, field: str, value: Any
+):
+    report = semantic_report(name)
+    report["source_graph_snapshots"][target][field] = value
+    refresh_semantic_input(report, source_batch(report))
+    with pytest.raises(ValueError, match=r"accepted generation|terminal publication"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("generation", [None, True, -1, "7"])
+def test_source_accepted_generation_is_an_independent_nonnegative_integer(
+    name: str, generation: Any
+):
+    report = semantic_report(name)
+    report["cases"][1]["generation"] = generation
+    with pytest.raises(ValueError, match="accepted generation"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene", "scene_replayed", "native_scene"])
+def test_source_raw_snapshots_cannot_disagree_with_the_compared_projection(
+    name: str, target: str
+):
+    report = semantic_report(name)
+    report["source_graph_snapshots"][target]["result"]["radius"] = 2.0
+    with pytest.raises(ValueError, match="differs from full snapshots/projection"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_generation_cannot_exceed_the_browser_safe_integer_range(name: str):
+    report = semantic_report(name)
+    report["cases"][1]["generation"] = 2**53
+    for key in ("scene", "scene_replayed"):
+        report["source_graph_snapshots"][key]["project_generation"] = 2**53
+    with pytest.raises(ValueError, match="accepted generation"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    ["schema", "projection", "snapshot", "id", "order", "profile", "path", "policy"],
+)
+def test_source_semantic_protocol_is_not_replaceable(name: str, fault: str):
+    report = semantic_report(name)
+    batch = source_batch(report)
+    if fault == "schema":
+        report["source_graph_schema"] = "unknown-v2"
+    elif fault == "projection":
+        report["source_graph_projection"].reverse()
+    elif fault == "snapshot":
+        del report["source_graph_snapshots"]["scene_replayed"]
+    elif fault == "policy":
+        report["semantic_parity"]["policy_sha256"] = "0" * 64
+    else:
+        if fault == "id":
+            batch["cases"][0]["id"] = "other"
+        elif fault == "order":
+            batch["cases"].reverse()
+        elif fault == "profile":
+            batch["cases"][0]["profile"] = "result-map"
+        else:
+            batch["cases"][0]["path"] = "another.graph"
+        refresh_semantic_input(report, batch, recompute=True)
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("fault", ["physical", "budget"])
+def test_archive_source_semantics_are_recomputed_after_all_envelope_hashes_change(
+    selected: dict[str, Any], name: str, fault: str
+):
+    from tests.test_semantic_parity import constrained
+
+    members = selected["members"]
+    filename = f"{name}.json"
+    report = json.loads(members[f"evidence/{filename}"])
+    snapshots = report["source_graph_snapshots"]
+    if fault == "budget":
+        for graph in snapshots.values():
+            graph["result"] = constrained()
+        report["ui_actions"]["scene_opened"] = copy.deepcopy(snapshots["scene_actions"])
+        report["ui_actions"]["scene_replayed"] = copy.deepcopy(
+            snapshots["scene_actions_replayed"]
+        )
+        refresh_semantic_input(report, source_batch(report), recompute=True)
+        for graph in snapshots.values():
+            graph["result"]["initialization"]["recovery"]["attempts"][0][
+                "evaluations"
+            ] = 513
+    else:
+        for key in ("scene", "scene_replayed"):
+            snapshots[key]["result"]["radius"] = 2.0
+    report["ui_actions"]["scene_opened"] = copy.deepcopy(snapshots["scene_actions"])
+    report["ui_actions"]["scene_replayed"] = copy.deepcopy(
+        snapshots["scene_actions_replayed"]
+    )
+    refresh_semantic_input(report, source_batch(report))
+    members[f"evidence/{filename}"] = encoded(report)
+    verification = json.loads(members["evidence/verification.json"])
+    step = next(step for step in verification["steps"] if step["name"] == name)
+    step["evidence"] = {
+        "path": filename,
+        **VALIDATOR.identity(members[f"evidence/{filename}"]),
+    }
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="trusted semantic comparison failed"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene_opened", "scene_replayed"])
+@pytest.mark.parametrize("generation", [None, True, -1, 2**53, "11"])
+def test_actions_replay_requires_an_independent_safe_accepted_epoch(
+    name: str, target: str, generation: Any
+):
+    report = semantic_report(name)
+    report["ui_actions"][target + "_generation"] = generation
+    report["ui_actions"][target]["project_generation"] = generation
+    index = 2 if target == "scene_opened" else 4
+    report["ui_actions"]["cases"][index]["generation"] = generation
+    with pytest.raises(ValueError, match="accepted generation"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("target", ["scene_actions", "scene_actions_replayed"])
+@pytest.mark.parametrize(
+    "fault", ["missing", "unknown", "running", "failed", "geometry", "budget"]
+)
+def test_actions_replay_cannot_hide_result_or_acceptance_changes(
+    name: str, target: str, fault: str
+):
+    from tests.test_semantic_parity import constrained
+
+    report = semantic_report(name)
+    if fault == "budget":
+        for graph in report["source_graph_snapshots"].values():
+            graph["result"] = constrained()
+        refresh_semantic_input(report, source_batch(report), recompute=True)
+    graph = report["source_graph_snapshots"][target]
+    if fault == "missing":
+        del graph["diagnostics"]
+    elif fault == "unknown":
+        graph["new_acceptance_classification"] = "rejected"
+    elif fault == "running":
+        graph["evaluation_running"] = True
+    elif fault == "failed":
+        graph["required_failures"] = ["fit"]
+    elif fault == "geometry":
+        graph["result"]["radius"] = 2.0
+    else:
+        graph["result"]["initialization"]["recovery"]["attempts"][0]["evaluations"] = (
+            513
+        )
+    if fault not in ("missing", "unknown"):
+        refresh_semantic_input(report, source_batch(report))
+    with pytest.raises(ValueError):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_actions_ui_observation_cannot_be_substituted_for_the_compared_snapshot(
+    name: str,
+):
+    report = semantic_report(name)
+    report["ui_actions"]["scene_opened"] = copy.deepcopy(
+        report["ui_actions"]["scene_opened"]
+    )
+    report["ui_actions"]["scene_opened"]["results"]["source"]["vertices"] = 4
+    with pytest.raises(ValueError, match="differs from full UI observations"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("fault", ["empty", "missing", "duplicate", "order", "unknown"])
+def test_source_actions_coverage_cannot_be_certified_by_a_complete_flag(
+    name: str, fault: str
+):
+    report = semantic_report(name)
+    cases = report["ui_actions"]["cases"]
+    if fault == "empty":
+        cases.clear()
+    elif fault == "missing":
+        cases.pop()
+    elif fault == "duplicate":
+        cases.append(copy.deepcopy(cases[0]))
+    elif fault == "order":
+        cases.reverse()
+    else:
+        cases[0]["name"] = "unreviewed-substitute"
+    with pytest.raises(ValueError, match="case coverage"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    ("case_name", "field"),
+    [
+        ("explicit-matching-legacy", "no_source_lookup"),
+        ("raw-save-new-renamed-locate", "strict_source_rows"),
+        ("scene-located-fresh-graph-real-evaluate", "fresh_dirty_graph"),
+        ("matching-no-upload-real-evaluate", "no_source_upload"),
+        ("matching-force-replayed", "derived_results_cleared"),
+        ("popup-failure-preservation", "wrong_same_name_preserves_work"),
+        ("docked-failure-preservation", "settings_rejected_before_prepare"),
+        ("stale-inspection", "newer_actions_preserved"),
+        ("cancel-before-adoption", "prior_source_actions_and_draft_preserved"),
+        ("force-before-adoption", "old_file_and_live_docked_draft_preserved"),
+        ("force-after-adoption-lost-ack", "warnings_recovered"),
+        ("incompatible-legacy", "no_example_guessing_or_source_prepare"),
+        ("empty-actions", "new_epoch_and_empty_arrays"),
+    ],
+)
+@pytest.mark.parametrize("fault", ["missing", "false", "number"])
+def test_source_actions_each_required_case_must_keep_its_oracle(
+    name: str, case_name: str, field: str, fault: str
+):
+    report = semantic_report(name)
+    case = next(
+        item for item in report["ui_actions"]["cases"] if item["name"] == case_name
+    )
+    if fault == "missing":
+        del case[field]
+    else:
+        case[field] = False if fault == "false" else 1
+    with pytest.raises(ValueError, match="case failed or incomplete"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
 def test_only_site_files_are_emitted_after_full_semantic_validation(
     selected: dict[str, Any],
 ):
@@ -449,6 +1983,211 @@ def test_only_site_files_are_emitted_after_full_semantic_validation(
     assert (selected["tmp"] / "selection.json").is_file()
 
 
+@pytest.mark.parametrize(
+    "driver", [name for name in VALIDATOR.DRIVERS if "source-import" in name]
+)
+@pytest.mark.parametrize("fault", ["missing-complete", "empty-cases", "failed-cleanup"])
+def test_source_import_evidence_requires_executed_complete_checks(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "missing-complete":
+        del report["complete"]
+    elif fault == "empty-cases":
+        report["cases"] = []
+    else:
+        report["checks"]["cleanup"] = False
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver",
+    [
+        name
+        for name in VALIDATOR.DRIVERS
+        if "source-import" in name and name != "source-import-memory"
+    ],
+)
+@pytest.mark.parametrize("fault", ["missing", "failed", "not-boolean"])
+@pytest.mark.parametrize(
+    "check",
+    [
+        "ui_source_recovery",
+        "ui_legacy_startup",
+        "ui_source_actions",
+        "ui_source_authoring",
+    ],
+)
+def test_source_evidence_requires_executed_ui_recovery(
+    selected: dict[str, Any], driver: str, fault: str, check: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "missing":
+        del report["checks"][check]
+    else:
+        report["checks"][check] = False if fault == "failed" else 1
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import checks incomplete"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver",
+    [
+        name
+        for name in VALIDATOR.DRIVERS
+        if "source-import" in name and name != "source-import-memory"
+    ],
+)
+@pytest.mark.parametrize(
+    "fault",
+    ["requested", "page", "worker", "missing-actual", "copied-plain", "unchecked"],
+)
+def test_source_evidence_attests_requested_page_and_worker_isolation(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "requested":
+        report["isolation_requested"] = not report["isolation_requested"]
+    elif fault in ("page", "worker"):
+        report["isolation_actual"][fault] = not report["isolation_actual"][fault]
+    elif fault == "missing-actual":
+        del report["isolation_actual"]
+    elif fault == "unchecked":
+        report["checks"]["isolation_matches"] = False
+    else:
+        # Copy a report from the opposite isolation profile, including its flags.
+        report["isolation_requested"] = not driver.endswith("-isolated")
+        report["isolation_actual"] = {
+            "page": report["isolation_requested"],
+            "worker": report["isolation_requested"],
+        }
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match=r"isolation|object"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "isolation",
+        "missing-grid",
+        "duplicate-grid",
+        "incomplete-case",
+        "source_import",
+        "recovery",
+        "cleanup",
+        "all_cases_complete",
+        "capacity_nonzero",
+        "chunk_reads_bounded",
+        "terminal_staging_released",
+        "isolation_matches",
+        "no_external_computation",
+        "no_page_errors",
+        "artifact_unchanged",
+    ],
+)
+def test_source_memory_evidence_requires_complete_matrix_and_invariants(
+    selected: dict[str, Any], fault: str
+) -> None:
+    name = "evidence/source-import-memory.json"
+    report = json.loads(selected["members"][name])
+    if fault == "isolation":
+        report["isolation"] = True
+    elif fault == "missing-grid":
+        report["cases"].pop()
+    elif fault == "duplicate-grid":
+        report["cases"][-1]["name"] = "grid-256x128"
+    elif fault == "incomplete-case":
+        report["cases"][-1]["complete"] = False
+    else:
+        report["checks"][fault] = False
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(
+        step for step in verification["steps"] if step["name"] == "source-import-memory"
+    )["evidence"] = {
+        "path": "source-import-memory.json",
+        **VALIDATOR.identity(selected["members"][name]),
+    }
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver", [name for name in VALIDATOR.DRIVERS if name.startswith("numerical-")]
+)
+@pytest.mark.parametrize("fault", ["primary-site-hash", "source-revision"])
+def test_numerical_evidence_is_bound_to_its_manifest_and_selected_source(
+    selected: dict[str, Any], driver: str, fault: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "primary-site-hash":
+        report["manifest_sha256"] = VALIDATOR.sha256(
+            selected["members"]["evidence/site-manifest.json"]
+        )
+    else:
+        report["source_revision"] = "b" * 40
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match=r"tested another site|source mismatch"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_numerical_manifest_cannot_substitute_another_source(
+    selected: dict[str, Any],
+) -> None:
+    name = "evidence/numerical-site-manifest.json"
+    manifest = json.loads(selected["members"][name])
+    manifest["source_revision"] = "b" * 40
+    selected["members"][name] = encoded(manifest)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    verification["numerical-site-manifest"] = VALIDATOR.identity(
+        selected["members"][name]
+    )
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="numerical site source mismatch"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
 def test_historical_selected_locks_remain_valid_after_current_locks_change(
     selected: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
@@ -461,6 +2200,9 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
         "build-browser-redistribution.py",
     ):
         _ = shutil.copyfile(ROOT / "scripts" / name, today / "scripts" / name)
+    helper = today / VALIDATOR.SEMANTIC_POLICY
+    helper.parent.mkdir(parents=True)
+    _ = shutil.copyfile(ROOT / VALIDATOR.SEMANTIC_POLICY, helper)
     for name in (
         "experiments/browser_runtime/runtime-lock.json",
         "scripts/browser-redistribution-lock.json",
@@ -656,3 +2398,57 @@ def test_forged_ready_claim_cannot_override_derived_requirements(
             selected["locks"],
             json.loads(members["evidence/build-redistribution.json"]),
         )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["supported-number", "version-float", "backend-number", "missing", "unknown"],
+)
+def test_actions_capability_types_remain_bound_after_all_envelope_hashes_are_refreshed(
+    selected: dict[str, Any], fault: str
+):
+    members = selected["members"]
+    raw = members["site/manifest.json"]
+    old_hash = VALIDATOR.sha256(raw)
+    site = json.loads(raw)
+    if fault == "supported-number":
+        site["capabilities"]["source_actions"]["supported"] = 1
+    elif fault == "version-float":
+        site["capabilities"]["source_actions"]["version"] = 1.0
+    elif fault == "backend-number":
+        site["backend"]["sourceActions"] = 1
+    elif fault == "missing":
+        del site["capabilities"]["source_actions"]
+    else:
+        site["capabilities"]["source_actions"]["unrecognized"] = True
+    raw = encoded(site)
+    new_hash = VALIDATOR.sha256(raw)
+    members["site/manifest.json"] = raw
+    members["evidence/site-manifest.json"] = raw
+    for name in VALIDATOR.DRIVERS:
+        path = f"evidence/{name}.json"
+        report = json.loads(members[path])
+        for key in (
+            "manifest_sha256",
+            "site_manifest_sha256",
+            "input_site_manifest_sha256",
+        ):
+            if report.get(key) == old_hash:
+                report[key] = new_hash
+        members[path] = encoded(report)
+    verification = json.loads(members["evidence/verification.json"])
+    verification["site-manifest"] = VALIDATOR.identity(raw)
+    for step in verification["steps"]:
+        if "evidence" in step:
+            path = step["evidence"]["path"]
+            step["evidence"] = {
+                "path": path,
+                **VALIDATOR.identity(members["evidence/" + path]),
+            }
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(
+        ValueError, match=r"source-actions capability|backend/capabilities"
+    ):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()

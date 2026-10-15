@@ -24,9 +24,14 @@ from experiments.fit_solver import (
     normalized_weights,
     solve_geometric_fit,
 )
-from scansor.nonlinear_least_squares import LeastSquaresResult, solve_least_squares
+from scansor.nonlinear_least_squares import (
+    LeastSquaresFailure,
+    LeastSquaresResult,
+    solve_least_squares,
+)
 
 Array = NDArray[np.float64]
+CYLINDER_POLICY_VERSION = "selected-cylinder-recovery-v2"
 
 
 class CylinderFitResult(TypedDict):
@@ -141,6 +146,44 @@ def cylinder_basis(axis: Array) -> Array:
 class _SelectedCylinder:
     numerical: LeastSquaresResult
     basis: Array
+    candidate_id: str
+    parameter_scales: Array
+    residual_scale: float
+
+
+def _weighted_rms(values: Array, weights: Array) -> float:
+    """Avoid squaring a dimensional extent before removing its magnitude."""
+    maximum = float(np.max(np.abs(values)))
+    if maximum == 0:
+        return 0.0
+    return maximum * float(np.sqrt(weights @ np.sum((values / maximum) ** 2, axis=1)))
+
+
+def _cylinder_coverage(
+    q: Array, weights: Array, axis: Array, radius: float
+) -> dict[str, Any]:
+    coordinates = q @ cylinder_basis(axis)
+    coordinates -= weights @ coordinates
+    axial_rms = _weighted_rms(coordinates[:, 2:3], weights)
+    evidence: dict[str, Any] = {"coverage_ratio": 0.0, "axial_rms": axial_rms}
+    if radius <= 0 or not np.isfinite(radius) or axial_rms <= 0:
+        return evidence
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        standardized = coordinates / np.array([radius, radius, axial_rms])
+    if not np.isfinite(standardized).all():
+        return evidence
+    maximum = float(np.max(np.abs(standardized)))
+    if maximum == 0:
+        return evidence
+    standardized /= maximum
+    spectrum = np.maximum(
+        np.linalg.eigvalsh(standardized.T @ (weights[:, None] * standardized)), 0
+    )
+    evidence["coverage_ratio"] = (
+        float(spectrum[0] / spectrum[-1]) if spectrum[-1] > 0 else 0.0
+    )
+    evidence["standardized_covariance_eigenvalues"] = spectrum.tolist()
+    return evidence
 
 
 def fit_selected_cylinder(
@@ -194,22 +237,24 @@ def fit_selected_cylinder(
     values, position_vectors = np.linalg.eigh(q.T @ (w[:, None] * q))
     coverage = float(max(values[0], 0) / values[-1])
     initialization: dict[str, Any] = {
-        "algorithm": "selected-cylinder-recovery-v1",
+        "algorithm": CYLINDER_POLICY_VERSION,
         "chart": "rotated-normalized-cylinder-v1",
         "origin": frame.origin.tolist(),
         "length": frame.length,
         "observations": len(points),
-        "coverage_ratio": coverage,
-        "normalized_covariance_eigenvalues": np.maximum(values, 0).tolist(),
+        "raw_coverage_ratio": coverage,
+        "raw_normalized_covariance_eigenvalues": np.maximum(values, 0).tolist(),
+        "coverage_metric": "radius-and-axial-rms-covariance-v1",
         "minimum_coverage_ratio": 1e-10,
         "maximum_aligned_jacobian_condition": 1e6,
+        "maximum_aligned_scaled_gradient": 1e-10,
+        "minimum_solve_singular_ratio": 1e-6,
+        "chart_slope_bounds": [-2.0, 2.0],
     }
-    if coverage <= 1e-10:
-        raise CylinderFitFailure(
-            "insufficient-coverage",
-            "select a wider curved patch with axial coverage",
-            initialization,
-        )
+    initializers: dict[str, Any] = {}
+    assessments: dict[str, Any] = {}
+    initialization["initializers"] = initializers
+    initialization["assessments"] = assessments
     _, normal_vectors = np.linalg.eigh(unit_normals.T @ (w[:, None] * unit_normals))
     bases: dict[str, Array] = {}
     fresh: list[FitCandidate] = []
@@ -229,15 +274,80 @@ def fit_selected_cylinder(
             chart = f"{family}-{index}"
             rotation = cylinder_basis(direction)
             local = q @ rotation
-            design = np.column_stack((2 * local[:, :2], np.ones(len(q))))
-            algebraic, *_ = np.linalg.lstsq(
-                np.sqrt(w)[:, None] * design,
-                np.sqrt(w) * np.sum(local[:, :2] ** 2, axis=1),
+            mean = w @ local[:, :2]
+            transverse = local[:, :2] - mean
+            extent = _weighted_rms(transverse, w)
+            bases[chart] = rotation
+            if not np.isfinite(extent) or extent <= 0:
+                initializers[chart] = {"rank": 0, "condition": None}
+                fresh.append(
+                    FitCandidate(
+                        chart, (), "unresolved projected circle", chart, binding.sha256
+                    )
+                )
+                continue
+            transverse /= extent
+            design = np.column_stack((2 * transverse, np.ones(len(q))))
+            weighted_design = np.sqrt(w)[:, None] * design
+            singular = np.linalg.svd(weighted_design, compute_uv=False)
+            rank = int(
+                np.sum(
+                    singular
+                    > max(weighted_design.shape) * np.finfo(float).eps * singular[0]
+                )
+            )
+            initializers[chart] = {
+                "rank": int(rank),
+                "condition": float(singular[0] / singular[-1])
+                if rank == 3 and singular[-1] > 0
+                else None,
+                "transverse_scale": extent,
+            }
+            if rank != 3:
+                fresh.append(
+                    FitCandidate(
+                        chart,
+                        (),
+                        "rank-deficient projected circle",
+                        chart,
+                        binding.sha256,
+                    )
+                )
+                continue
+            # A long wrong-axis projection can still have very different X/Y
+            # spreads after common transverse scaling. Equilibrate columns of
+            # this same linear equation before solving; retain its original
+            # rank/condition evidence rather than disguising missing support.
+            column_scales = np.linalg.norm(weighted_design, axis=0)
+            if not np.isfinite(column_scales).all() or np.any(column_scales <= 0):
+                fresh.append(
+                    FitCandidate(
+                        chart, (), "unresolved circle columns", chart, binding.sha256
+                    )
+                )
+                continue
+            algebraic, _, balanced_rank, balanced_singular = np.linalg.lstsq(
+                weighted_design / column_scales,
+                np.sqrt(w) * np.sum(transverse**2, axis=1),
                 rcond=None,
             )
-            center = algebraic[:2]
+            if balanced_rank != 3:
+                fresh.append(
+                    FitCandidate(
+                        chart,
+                        (),
+                        "rank-deficient equilibrated circle",
+                        chart,
+                        binding.sha256,
+                    )
+                )
+                continue
+            algebraic /= column_scales
+            initializers[chart]["equilibrated_condition"] = float(
+                balanced_singular[0] / balanced_singular[-1]
+            )
+            center = mean + extent * algebraic[:2]
             radius = float(w @ np.linalg.norm(local[:, :2] - center, axis=1))
-            bases[chart] = rotation
             fresh.append(
                 FitCandidate(
                     chart,
@@ -272,6 +382,20 @@ def fit_selected_cylinder(
     def solve(candidate: FitCandidate, attempt: AttemptControl) -> _SelectedCylinder:
         rotation = bases[candidate.chart]
         local = q @ rotation
+        radius = candidate.parameters[4]
+        if radius <= 0:
+            raise LeastSquaresFailure(
+                "invalid-initial-geometry", "nonpositive cylinder radius"
+            )
+        axial_rms = _weighted_rms(local[:, 2:3] - w @ local[:, 2:3], w)
+        if axial_rms <= 0:
+            raise LeastSquaresFailure("rank-deficient", "unresolved axial extent")
+        angular_scale = radius / axial_rms
+        scales = np.array([radius, radius, angular_scale, angular_scale, radius])
+        if not np.isfinite(scales).all() or np.any(scales <= 0):
+            raise LeastSquaresFailure(
+                "invalid-input", "unrepresentable cylinder solve scales"
+            )
 
         def evaluate(p: Array) -> tuple[Array, Array]:
             residual, jac = residual_jacobian(local, p)
@@ -280,13 +404,20 @@ def fit_selected_cylinder(
         numerical = solve_least_squares(
             candidate.parameters,
             lambda p: attempt.call(evaluate, p),
-            parameter_scales=np.ones(5),
-            residual_scale=1.0,
+            parameter_scales=scales,
+            residual_scale=radius,
+            # The three normal-moment eigenvectors form an orthonormal frame:
+            # any unsigned axis has |a|,|b| <= sqrt(2) in at least one chart. Wider
+            # overlapping boxes retain full orientation coverage while keeping
+            # wrong-chart attempts away from the singular slope horizon.
+            lower_bounds=[-np.inf, -np.inf, -2.0, -2.0, -np.inf],
+            upper_bounds=[np.inf, np.inf, 2.0, 2.0, np.inf],
+            rank_tolerance=1e-6,
             geometry_is_valid=lambda p: valid_cylinder_geometry(local, p),
             max_iterations=attempt.limits.max_iterations,
             max_trials=attempt.limits.max_trials,
         )
-        return _SelectedCylinder(numerical, rotation)
+        return _SelectedCylinder(numerical, rotation, candidate.id, scales, radius)
 
     def assess(result: _SelectedCylinder) -> FitAssessment:
         residual, jac = aligned(result)
@@ -295,7 +426,30 @@ def fit_selected_cylinder(
             float(singular[0] / singular[-1]) if singular[-1] > 0 else float("inf")
         )
         anchor, axis, radius = geometry(result)
-        valid = bool(np.isfinite(anchor).all() and radius > 0 and condition <= 1e6)
+        metrics = _cylinder_coverage(q, w, axis, radius)
+        # Initial radius is disposable and may be wildly wrong. Independently
+        # check stationarity in fitted-radius/selected-extent units so its
+        # arbitrary solve scale cannot make a bad hint appear converged.
+        angular_scale = (
+            radius / metrics["axial_rms"] if metrics["axial_rms"] > 0 else float("inf")
+        )
+        scales = np.array([radius, radius, angular_scale, angular_scale, radius])
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            gradient = float(
+                np.max(np.abs((jac * (scales / radius)).T @ (w * (residual / radius))))
+            )
+        metrics["aligned_scaled_gradient_infinity_norm"] = (
+            gradient if np.isfinite(gradient) else None
+        )
+        assessments[result.candidate_id] = metrics
+        valid = bool(
+            np.isfinite(anchor).all()
+            and radius > 0
+            and condition <= 1e6
+            and metrics["coverage_ratio"] > 1e-10
+            and np.isfinite(gradient)
+            and gradient <= 1e-10
+        )
         if domain is not None:
             valid &= abs(float(axis[2])) > 1e-8
             if valid:
@@ -317,8 +471,10 @@ def fit_selected_cylinder(
         ab, db, rb = geometry(b)
         return bool(
             abs(float(da @ db)) > 1 - 1e-10
-            and np.allclose(aa, ab, atol=1e-7, rtol=1e-7)
-            and np.isclose(ra, rb, atol=1e-7, rtol=1e-7)
+            and np.linalg.norm(aa - ab) <= 1e-7 * min(ra, rb)
+            and abs(ra - rb) <= 1e-7 * min(ra, rb)
+            and np.linalg.norm(np.cross(da, db)) * _weighted_rms(q, w)
+            <= 1e-7 * min(ra, rb)
         )
 
     proposed_hint = None
@@ -371,8 +527,13 @@ def fit_selected_cylinder(
     try:
         recovered = recover_fit(problem, fresh, hint=proposed_hint, cancelled=cancelled)
     except RecoveryFailure as error:
+        code = error.code
+        if assessments and all(
+            record["coverage_ratio"] <= 1e-10 for record in assessments.values()
+        ):
+            code = "insufficient-coverage"
         raise CylinderFitFailure(
-            error.code,
+            code,
             str(error),
             {**initialization, "recovery": error.diagnostics.json()},
         ) from error
@@ -390,11 +551,12 @@ def fit_selected_cylinder(
             "axial support cannot be represented at the fitted anchor",
             initialization,
         )
-    residual, jac = aligned(result)
+    residual, _jac = aligned(result)
     radial = q - anchor - ((q - anchor) @ axis)[:, None] * axis
     radial /= np.linalg.norm(radial, axis=1)[:, None]
     assessment = assess(result)
     initialization["recovery"] = recovered.diagnostics.json()
+    initialization.update(assessments[result.candidate_id])
     numerical = result.numerical
     fitted: dict[str, Any] = {
         "kind": "cylinder",
@@ -420,10 +582,17 @@ def fit_selected_cylinder(
             "iterations": numerical.iterations,
             "evaluations": numerical.evaluations,
             "rank": assessment.rank,
-            "scaled_jacobian_condition": assessment.condition,
+            "scaled_jacobian_condition": numerical.condition,
+            "aligned_jacobian_condition": assessment.condition,
+            "aligned_scaled_gradient_infinity_norm": assessments[result.candidate_id][
+                "aligned_scaled_gradient_infinity_norm"
+            ],
             "scaled_projected_gradient_infinity_norm": float(
-                np.max(np.abs(jac.T @ (w * residual)))
+                numerical.projected_gradient_norm
             ),
+            "parameter_scales": result.parameter_scales.tolist(),
+            "residual_scale": result.residual_scale,
+            "scale_units": "dimensionless rotated (source-origin)/coordinate_length chart",
             "coordinate_origin": frame.origin.tolist(),
             "coordinate_length": frame.length,
         },

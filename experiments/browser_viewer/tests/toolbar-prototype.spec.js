@@ -331,6 +331,37 @@ test('small view has accessible overflow and floating toolbar remains reachable'
   await expect(page.getByRole('button', { name: 'Create toolbar options', exact: true })).toBeFocused();
 });
 
+test('source commands remain reachable in the existing Project menu when narrow, docked and rotated', async ({ page }) => {
+  await ready(page);
+  const trigger = page.getByRole('button', { name: 'Project toolbar options', exact: true });
+  const strip = page.locator('.prototype-toolbar[data-toolbar-id="project"]');
+  // Source commands belong to the existing command menu, not new strip buttons.
+  await expect(strip.locator('[data-command-id="new-project"], [data-command-id="add-scan"]')).toHaveCount(0);
+  await page.setViewportSize({ width: 380, height: 700 });
+  for (const placement of ['Dock left', 'Dock right', 'Float', 'Rotate floating toolbar']) {
+    await toolbarPlace(page, 'Project', placement);
+    await expect(page.getByRole('menu')).toBeHidden();
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const create = page.getByRole('menuitem', { name: 'New project', exact: true });
+    const inspect = page.getByRole('menuitem', { name: 'Inspect source', exact: true });
+    await expect(create).toBeVisible();
+    await expect(inspect).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Remove scan…', exact: true })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Add scan…', exact: true })).toHaveAttribute('data-disabled', '');
+    for (const item of [create, inspect]) {
+      const box = await item.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(381);
+      expect(box.y + box.height).toBeLessThanOrEqual(701);
+      await item.click({ trial: true });
+    }
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+  }
+});
+
 test('all strips are enabled by default, forward native commands and share Auto state', async ({ page }) => {
   await ready(page);
   await expect(page.locator('.prototype-toolbar')).toHaveCount(5);

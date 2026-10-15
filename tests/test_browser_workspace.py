@@ -197,6 +197,7 @@ def test_graph_revision_cursor_and_lifecycle_only_status(workspace: BrowserWorks
         "revision": original["revision"],
         "unchanged": True,
         "evaluation_running": False,
+        "project_generation": 0,
     }
     success(
         prepare(

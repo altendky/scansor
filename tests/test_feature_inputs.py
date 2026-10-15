@@ -1,5 +1,7 @@
 """Declared compatibility is independent of evaluation and UI provider filters."""
 
+import copy
+import json
 from typing import Any
 
 import numpy as np
@@ -232,3 +234,127 @@ def test_direct_output_references_have_one_identity(context: str | None) -> None
     )
     with pytest.raises(ValueError, match="distinct points"):
         _ = Recipe.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        [11.0, -7, 3, 4, 99, -2, 8],
+        [-5.0, 19, -0.5, 0.25, 7, 6.5, -0.1],
+    ],
+)
+def test_legacy_joint_plane_output_decodes_normal_and_signed_offset(
+    parameters: list[float],
+) -> None:
+    graph = recipe()
+    nodes = {node.id: node for node in graph.nodes}
+    values: dict[str, Any] = {
+        "plane": {"parameters": [0, 0, 1, 123]},
+        "joint": {"surfaces": {"plane": {"kind": "plane", "parameters": parameters}}},
+        "other": {"surfaces": {"plane": {"parameters": [1, 0, 0, 999]}}},
+    }
+    before = copy.deepcopy(values)
+    reference = OutputReference(feature="plane", output="plane", context="joint")
+    actual = resolve_output(reference, nodes, values)
+    # Independent chart definition: center/radius/taper are not plane slots.
+    a, b, height = parameters[2], parameters[3], parameters[5]
+    normal = np.array([a, b, 1]) / np.sqrt(a * a + b * b + 1)
+    np.testing.assert_allclose(actual["normal_display"], normal, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(
+        actual["plane_equation"], [*normal, height], rtol=0, atol=1e-15
+    )
+    np.testing.assert_allclose(
+        actual["point_display"], height * normal, rtol=0, atol=2e-15
+    )
+    assert normal @ actual["point_display"] == pytest.approx(height, abs=2e-15)
+    assert len(actual["plane_equation"]) == 4
+    assert values == before
+    actual["normal_display"][0] = actual["plane_equation"][0] = 999
+    actual["point_display"][0] = 999
+    assert values == before
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_four_coefficient_plane_keeps_its_nonunit_representation(
+    explicit: bool,
+) -> None:
+    graph = recipe()
+    nodes = {node.id: node for node in graph.nodes}
+    equation = [2.0, -3, 6, 14]
+    raw: dict[str, Any] = {"plane_equation" if explicit else "parameters": equation}
+    if explicit:
+        raw["parameters"] = ["stale legacy chart"]
+    values = {"plane": raw}
+    before = copy.deepcopy(values)
+    actual = resolve_output(
+        OutputReference(feature="plane", output="plane"), nodes, values
+    )
+    assert actual["plane_equation"] == equation
+    assert actual["normal_display"] == equation[:3]
+    np.testing.assert_allclose(
+        actual["point_display"], 14 * np.array(equation[:3]) / 49
+    )
+    assert np.dot(equation[:3], actual["point_display"]) == pytest.approx(14)
+    assert values == before
+
+
+def test_datum_plane_normal_and_point_fallback_is_preserved() -> None:
+    graph = recipe()
+    nodes = {node.id: node for node in graph.nodes}
+    raw = {"normal_display": [2.0, -3, 6], "point_display": [11.0, -7, 4]}
+    values = {"datum": raw}
+    actual = resolve_output(
+        OutputReference(feature="datum", output="plane"), nodes, values
+    )
+    assert actual == {
+        "normal_display": raw["normal_display"],
+        "point_display": raw["point_display"],
+        "plane_equation": [2.0, -3, 6, 67],
+    }
+
+
+@pytest.mark.parametrize("point", [[1, 2], [1, 2, float("nan")], [1, "invalid", 3]])
+def test_malformed_datum_point_is_rejected_before_computing_plane(
+    point: list[Any],
+) -> None:
+    graph = recipe()
+    nodes = {node.id: node for node in graph.nodes}
+    with pytest.raises(ValueError):
+        _ = resolve_output(
+            OutputReference(feature="datum", output="plane"),
+            nodes,
+            {"datum": {"normal_display": [0, 0, 1], "point_display": point}},
+        )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"parameters": []},
+        {"parameters": [1, 2, 3]},
+        {"parameters": [1, 2, 3, 4, 5]},
+        {"parameters": [1, 2, 3, 4, 5, 6]},
+        {"parameters": [1, 2, 3, 4, 5, 6, 7, 8]},
+        {"parameters": [[11, -7, 3, 4, 99, -2, 8]]},
+        {"parameters": [float("nan"), -7, 3, 4, 99, -2, 8]},
+        {"parameters": [11, -7, 3, 4, 99, float("inf"), 8]},
+        {"parameters": [0, 0, 0, 1]},
+        {"parameters": [0, 0, 1, float("inf")]},
+        {"plane_equation": [11, -7, 3, 4, 99, -2, 8]},
+        {"plane_equation": [0, 0, 1, 2], "normal_display": [0, 1]},
+        {"plane_equation": [0, 0, 1, 2], "normal_display": [0, 0, float("nan")]},
+        {"plane_equation": [0, 0, 1, 2], "point_display": [1, 2]},
+    ],
+)
+def test_malformed_plane_output_is_unavailable_without_mutating_source(
+    raw: dict[str, Any],
+) -> None:
+    graph = recipe()
+    nodes = {node.id: node for node in graph.nodes}
+    values = {"plane": raw}
+    before = json.dumps(values, sort_keys=True)
+    with pytest.raises(ValueError, match="plane"):
+        _ = resolve_output(
+            OutputReference(feature="plane", output="plane"), nodes, values
+        )
+    assert json.dumps(values, sort_keys=True) == before
