@@ -40,6 +40,7 @@ from experiments.feature_reuse import (
     surface_region_frame,
     transformed_fit_seed,
 )
+from experiments.fit_initialization import RecoveryFailure
 from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
     FitSelection,
@@ -1781,6 +1782,12 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
     """Keep solver evidence separate from geometry and safe for strict JSON."""
     if isinstance(error, SelectionOverlap):
         return deepcopy(error.diagnostic)
+    if isinstance(error, RecoveryFailure):
+        return {
+            "kind": "fit_recovery_failure",
+            "code": error.code,
+            "recovery": error.diagnostics.json(),
+        }
     if not isinstance(error, ConstrainedLeastSquaresFailure):
         return None
 
