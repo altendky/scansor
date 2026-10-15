@@ -11,6 +11,7 @@ import copy
 import hashlib
 import io
 import json
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +80,403 @@ def accepted(
     assert before == fingerprint([actual, expected])
     _ = json.dumps(receipt, allow_nan=False)
     return receipt
+
+
+@pytest.fixture(scope="module")
+def retained_cylinder_condition_pair() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Complete original fit owners from the failed #296 plain-worker probe.
+
+    Capture identities and extraction paths are retained alongside both operands;
+    no geometry, candidate, residual, selected row or trace is projected away.
+    """
+    path = Path(__file__).parent / "fixtures/selected-cylinder-condition-pair-v1.json"
+    raw = path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == (
+        "c018859d5ae02c62a6b61a15a6b18bc24161c009a6496eaa1a2438c919ff0e2d"
+    )
+    pair = json.loads(raw)
+    assert pair["capture"]["ui_workflow_sha256"] == (
+        "2067ad66b349d501c6a5b5870f45efdd7fd1fa4cbfa8da813ed05a07469a66ea"
+    )
+    assert pair["capture"]["native_oracle_sha256"] == (
+        "c778d85d3125056da6199ecc435fbf8f682071539de5c96a5f06dda2a78d8e23"
+    )
+    return pair["actual"], pair["expected"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_retained_selected_cylinder_condition_precision_is_bounded(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    reverse: bool,
+) -> None:
+    actual, expected = retained_cylinder_condition_pair[:: -1 if reverse else 1]
+    for record in (actual, expected):
+        _ = accepted(record, copy.deepcopy(record), profile="numeric-fit")
+        assert len(record["ids"]) == len(record["residuals"]) == 4314
+    receipt = accepted(actual, expected, profile="numeric-fit")
+    differences = [
+        item
+        for item in receipt["diagnostic_differences"]
+        if item["reason"]
+        == "selected cylinder condition within bounded relative precision"
+    ]
+    assert len(differences) == 4
+    assert all("discarded" not in item["reason"] for item in differences)
+    old = runpy.run_path(
+        str(
+            Path(__file__).resolve().parents[1]
+            / "scripts/semantic-policies"
+            / "6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967.py"
+        )
+    )
+    with pytest.raises(old["SemanticParityError"], match=r"assessment\.condition"):
+        _ = old["compare_semantic"](actual, expected, profile="numeric-fit")
+
+
+@pytest.mark.parametrize("holder", ["results", "derived"])
+def test_selected_condition_allowance_follows_complete_nested_owners(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    holder: str,
+) -> None:
+    actual, expected = retained_cylinder_condition_pair
+    _ = accepted({holder: {"fit": actual}}, {holder: {"fit": expected}})
+
+
+def set_cylinder_condition(record: dict[str, Any], value: float) -> None:
+    selected(record)["assessment"]["condition"] = value
+    record["solver"]["aligned_jacobian_condition"] = value
+    record["condition"] = value**2
+
+
+@pytest.mark.parametrize("relative", [1e-10, 3e-10])
+def test_coherent_selected_condition_changes_enforce_the_squared_bound(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    relative: float,
+) -> None:
+    expected = retained_cylinder_condition_pair[1]
+    actual = copy.deepcopy(expected)
+    set_cylinder_condition(
+        actual, selected(expected)["assessment"]["condition"] * (1 + relative)
+    )
+    _ = accepted(actual, copy.deepcopy(actual))
+    if relative == 1e-10:
+        _ = accepted(actual, expected)
+        _ = accepted(expected, actual)
+    else:
+        rejected(actual, expected)
+        rejected(expected, actual)
+
+
+@pytest.mark.parametrize("scale", [1e-2, 1.0, 1e3])
+def test_selected_condition_bound_is_relative_only_at_multiple_magnitudes(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    scale: float,
+) -> None:
+    expected = copy.deepcopy(retained_cylinder_condition_pair[1])
+    expected["solver"]["scaled_jacobian_condition"] = 100 * scale
+    actual = copy.deepcopy(expected)
+    actual["solver"]["scaled_jacobian_condition"] *= 1 + 3e-10
+    _ = accepted(actual, expected)
+    _ = accepted(expected, actual)
+    actual["solver"]["scaled_jacobian_condition"] = 100 * scale * (1 + 5e-10)
+    rejected(actual, expected)
+    rejected(expected, actual)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["assessment", "aligned", "scaled", "squared"],
+)
+def test_each_selected_condition_copy_rejects_material_change(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    field: str,
+) -> None:
+    expected = retained_cylinder_condition_pair[1]
+    _ = accepted(expected, copy.deepcopy(expected))
+    actual = copy.deepcopy(expected)
+    if field == "assessment":
+        selected(actual)["assessment"]["condition"] *= 1 + 1e-8
+    elif field == "aligned":
+        actual["solver"]["aligned_jacobian_condition"] *= 1 + 1e-8
+    elif field == "scaled":
+        actual["solver"]["scaled_jacobian_condition"] *= 1 + 1e-8
+    else:
+        actual["condition"] *= 1 + 1e-8
+    rejected(actual, expected)
+    rejected(expected, actual)
+
+
+@pytest.mark.parametrize("field", ["aligned", "squared"])
+def test_selected_condition_internal_copies_cannot_drift_within_pair_allowance(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    field: str,
+) -> None:
+    actual = copy.deepcopy(retained_cylinder_condition_pair[1])
+    if field == "aligned":
+        actual["solver"]["aligned_jacobian_condition"] *= 1 + 1e-11
+    else:
+        actual["condition"] *= 1 + 1e-11
+    rejected(actual, copy.deepcopy(actual))
+
+
+@pytest.mark.parametrize(
+    "value", [0.0, -1.0, 1e6 + 1, float("inf"), float("nan"), "Infinity", True]
+)
+def test_matching_selected_condition_must_independently_pass_admission(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    value: Any,
+) -> None:
+    actual = copy.deepcopy(retained_cylinder_condition_pair[1])
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        set_cylinder_condition(actual, value)
+    else:
+        selected(actual)["assessment"]["condition"] = value
+    rejected(actual, copy.deepcopy(actual))
+
+
+@pytest.mark.parametrize("value", [0.0, 1e6 + 1, "Infinity", True])
+def test_matching_scaled_condition_must_independently_pass_solve_rank_admission(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    value: Any,
+) -> None:
+    actual = copy.deepcopy(retained_cylinder_condition_pair[1])
+    actual["solver"]["scaled_jacobian_condition"] = value
+    rejected(actual, copy.deepcopy(actual))
+
+
+def test_reported_scaled_condition_boundary_keeps_rank_and_threshold_admission(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    expected = copy.deepcopy(retained_cylinder_condition_pair[1])
+    expected["solver"]["scaled_jacobian_condition"] = 1e6
+    _ = accepted(expected, copy.deepcopy(expected))
+    actual = copy.deepcopy(expected)
+    actual["solver"]["scaled_jacobian_condition"] = np.nextafter(1e6, np.inf)
+    rejected(actual, expected)
+    rejected(actual, copy.deepcopy(actual))
+    actual = copy.deepcopy(expected)
+    selected(actual)["assessment"]["rank"] = actual["solver"]["rank"] = 4
+    rejected(actual, copy.deepcopy(actual))
+    actual = copy.deepcopy(expected)
+    actual["initialization"]["minimum_solve_singular_ratio"] = np.nextafter(1e-6, 0)
+    rejected(actual, copy.deepcopy(actual))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "geometry",
+        "rank",
+        "valid",
+        "objective",
+        "gradient",
+        "coverage",
+        "budget",
+        "limit",
+        "solve-rank-limit",
+        "initializer",
+        "candidate",
+        "ids",
+        "support",
+    ],
+)
+def test_selected_condition_allowance_keeps_semantic_changes_failing(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    change: str,
+) -> None:
+    expected = retained_cylinder_condition_pair[1]
+    _ = accepted(expected, copy.deepcopy(expected))
+    actual = copy.deepcopy(expected)
+    if change == "geometry":
+        actual["analytic"]["radius"] *= 1 + 2e-10
+    elif change == "rank":
+        selected(actual)["assessment"]["rank"] = actual["solver"]["rank"] = 4
+    elif change == "valid":
+        selected(actual)["assessment"]["valid"] = False
+    elif change == "objective":
+        selected(actual)["assessment"]["objective"] += 2e-10
+    elif change == "gradient":
+        actual["solver"]["aligned_scaled_gradient_infinity_norm"] = 1.01e-10
+    elif change == "coverage":
+        actual["initialization"]["coverage_ratio"] = 0.99e-10
+    elif change == "budget":
+        selected(actual)["evaluations"] = 513
+    elif change == "limit":
+        actual["initialization"]["maximum_aligned_jacobian_condition"] *= 2
+    elif change == "solve-rank-limit":
+        actual["initialization"]["minimum_solve_singular_ratio"] /= 2
+    elif change == "initializer":
+        key = recovery(actual)["selected"]
+        actual["initialization"]["initializers"][key]["condition"] *= 1 + 3e-10
+    elif change == "candidate":
+        selected(actual)["candidate"]["parameters"][0] += 1e-5
+    elif change == "ids":
+        actual["ids"][0] += 1
+    else:
+        actual["support_classification"]["inside_vertices"] -= 1
+    rejected(actual, expected)
+    if change in {
+        "rank",
+        "valid",
+        "gradient",
+        "coverage",
+        "budget",
+        "limit",
+        "solve-rank-limit",
+    }:
+        rejected(actual, copy.deepcopy(actual))
+
+
+@pytest.mark.parametrize("side", ["actual", "both"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "bare-recovery",
+        "bare-initialization",
+        "algorithm",
+        "chart",
+        "family",
+        "implementation",
+        "constraint-context",
+        "missing-owner",
+    ],
+)
+def test_selected_condition_allowance_requires_both_complete_supported_owners(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    side: str,
+    change: str,
+) -> None:
+    actual, expected = copy.deepcopy(retained_cylinder_condition_pair)
+    if change == "bare-recovery":
+        rejected(recovery(actual), recovery(expected))
+        return
+    if change == "bare-initialization":
+        rejected(actual["initialization"], expected["initialization"])
+        return
+    for record in (actual, expected) if side == "both" else (actual,):
+        if change == "algorithm":
+            record["initialization"]["algorithm"] = "selected-cylinder-recovery-v1"
+        elif change == "chart":
+            record["initialization"]["chart"] = "another-chart"
+        elif change == "family":
+            record["kind"] = record["analytic"]["kind"] = "cone"
+            record["initialization"]["algorithm"] = "selected-cone-recovery-v2"
+            record["initialization"]["chart"] = "rotated-normalized-cone-v1"
+        elif change == "implementation":
+            record["solver"]["implementation"] = "another-solver"
+        elif change == "constraint-context":
+            record["solver"]["constraint_evaluations"] = 0
+        else:
+            del record["support_classification"]
+    rejected(actual, expected)
+
+
+@pytest.mark.parametrize("side", ["actual", "expected", "both"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "all-coverage",
+        "all-aligned-stationarity",
+        "selected-coverage",
+        "selected-stationarity",
+        "ids",
+        "observations",
+        "residual_scale",
+    ],
+)
+def test_selected_condition_allowance_cannot_use_mutually_absent_evidence(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    side: str,
+    change: str,
+) -> None:
+    actual, expected = copy.deepcopy(retained_cylinder_condition_pair)
+    records = (
+        (actual, expected)
+        if side == "both"
+        else (actual,)
+        if side == "actual"
+        else (expected,)
+    )
+    for record in records:
+        initialization = record["initialization"]
+        if change in {
+            "all-coverage",
+            "all-aligned-stationarity",
+            "selected-coverage",
+            "selected-stationarity",
+        }:
+            key = (
+                "coverage_ratio"
+                if "coverage" in change
+                else "aligned_scaled_gradient_infinity_norm"
+            )
+            for metrics in initialization["assessments"].values():
+                _ = metrics.pop(key, None)
+            if change.startswith("all-"):
+                _ = initialization.pop(key, None)
+                _ = record["solver"].pop(key, None)
+        elif change == "ids":
+            del record["ids"]
+        elif change == "observations":
+            del initialization["observations"]
+        else:
+            del record["solver"]["residual_scale"]
+    rejected(actual, expected)
+    rejected(expected, actual)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "empty",
+        "duplicate",
+        "float",
+        "negative",
+        "wrong-count",
+        "support-count",
+        "initialization-gradient",
+    ],
+)
+def test_source_bound_cylinder_admission_is_independent_when_both_records_agree(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    change: str,
+) -> None:
+    actual = copy.deepcopy(retained_cylinder_condition_pair[1])
+    if change == "empty":
+        actual["ids"] = []
+    elif change == "duplicate":
+        actual["ids"][0] = actual["ids"][1]
+    elif change == "float":
+        actual["ids"][0] = float(actual["ids"][0])
+    elif change == "negative":
+        actual["ids"][0] = -1
+    elif change == "wrong-count":
+        actual["initialization"]["observations"] -= 1
+    elif change == "support-count":
+        actual["support_classification"]["inside_vertices"] -= 1
+    else:
+        actual["initialization"]["aligned_scaled_gradient_infinity_norm"] = 1.01e-10
+    rejected(actual, copy.deepcopy(actual))
+
+
+@pytest.mark.parametrize("value", [False, "0", "Infinity", float("inf"), float("nan")])
+def test_source_bound_initialization_gradient_requires_a_finite_number(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+    value: Any,
+) -> None:
+    actual = copy.deepcopy(retained_cylinder_condition_pair[1])
+    actual["initialization"]["aligned_scaled_gradient_infinity_norm"] = value
+    rejected(actual, copy.deepcopy(actual))
+
+
+def test_core_cylinder_without_source_ids_keeps_default_comparison(
+    cylinder: dict[str, Any],
+) -> None:
+    assert "ids" not in cylinder
+    _ = accepted(cylinder, copy.deepcopy(cylinder))
+    actual = copy.deepcopy(cylinder)
+    actual["solver"]["scaled_jacobian_condition"] *= 1 + 3e-10
+    rejected(actual, cylinder)
 
 
 @pytest.fixture(scope="module")

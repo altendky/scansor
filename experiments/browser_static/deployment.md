@@ -99,8 +99,11 @@ The local preflight adds no stage or report member to the release envelope.
 
 Historical semantic-policy support is explicit and bounded. The current verifier
 supports `bounded-semantic-parity-v1` implementations with SHA-256
+`49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae`
+(current),
 `6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967`
-(current) and
+(reviewed historical implementation before the selected cylinder condition
+precision allowance), and
 `f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26`
 (reviewed historical implementation from main commit
 `b1b87227d547bee9f4c85066a30e96d8ad87e463`). It verifies repository-owned
@@ -116,6 +119,33 @@ Unknown or changed policy bytes reject, as do missing trusted implementations.
 Adding or revoking a supported hash requires a reviewed repository change;
 neither the version label nor this registry promises indefinite compatibility.
 Historical verifier copies are not packaged into the worker or published site.
+
+The current policy compares four selected source-bound cylinder-v2 graph condition
+certificates with a dedicated `4e-10` relative-only allowance: the selected
+assessment condition, public aligned and scaled Jacobian conditions, and the
+top-level squared condition. Both complete recognized fit owners are required,
+including unique original row IDs, matching observation/residual counts, support
+counts, complete coverage and aligned stationarity evidence, and recovery
+bindings. Bare recovery/initialization objects, core standalone fits without
+source IDs and incomplete owners retain the strict default comparison.
+Each operand independently retains its unchanged rank-five, validity, finite
+condition, coverage, stationarity and budget checks, the `1e6` aligned admission
+limit and `1e-6` solve-rank threshold. The reported scaled ratio may equal `1e6`
+after division rounding; changing rank or the threshold still rejects. Aligned
+copies and the squared certificate must agree within rounding inside each
+record. Geometry, initializer values and unrelated fields keep their existing
+checks. These selected certificates remain checked numerical fields, and their
+raw differences remain in the diagnostic ledger.
+
+The retained narrow-patch native/worker pair has aligned, scaled and squared
+condition relative differences of approximately `1.16e-10`, `1.66e-10` and
+`2.33e-10`, while radius differs by `5.72e-11`. Independent no-fit Jacobian
+reconstruction reproduces the aligned conditions; tangent-preserving radius
+perturbations measure condition elasticity near two for this nearly planar
+patch. Squaring the condition amplifies relative changes again. This explains
+the measured boundary and supports the bounded allowance; it does not establish
+a universal sensitivity bound, a particular backend cause or physical fit
+accuracy. Historical implementations recompute their own original rules.
 
 Numerical-only workspace and source reports also bind to their own complete
 site and runtime manifests, capability profile and manifest-listed asset bytes.
