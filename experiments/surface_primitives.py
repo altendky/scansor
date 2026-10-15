@@ -59,7 +59,7 @@ def _geometry_array(value: object, name: str) -> Array:
 
 
 def _revolution_record(
-    value: dict[str, Any], *, require_support: bool
+    value: dict[str, Any], *, require_support: bool, preserve_unit_roundoff: bool = True
 ) -> dict[str, Any]:
     kind = value.get("kind")
     if kind not in ("cylinder", "cone"):
@@ -71,7 +71,10 @@ def _revolution_record(
     length = float(np.linalg.norm(direction))
     if not np.isfinite(length) or not np.isclose(length, 1, rtol=0, atol=1e-10):
         raise ValueError("canonical revolution axis must be a unit vector")
-    direction = direction / length
+    # Canonical caps were resolved against this already rounded direction.
+    # Repeated normalization can move an exact endpoint by one axial ULP.
+    if not preserve_unit_roundoff or abs(length - 1.0) > 4 * np.finfo(float).eps:
+        direction = direction / length
     if any(
         not isinstance(value[key], Real) or isinstance(value[key], (bool, np.bool_))
         for key in ("radius", "slope")
@@ -143,6 +146,7 @@ def revolution_geometry(surface: dict[str, Any]) -> dict[str, Any]:
             "axial_domain": surface.get("axial_domain"),
         },
         require_support=False,
+        preserve_unit_roundoff=False,
     )
 
 

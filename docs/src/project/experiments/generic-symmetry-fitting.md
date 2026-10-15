@@ -1,191 +1,192 @@
 # Generic symmetry fitting foundation
 
-## Scope
+## Bounded scope
 
-[#272](https://github.com/altendky/scansor/issues/272) extends the shared
-[relationship component](../../../../experiments/fit_relationship_component.py)
-with the existing ordered rotational and mirror relationships in canonical
-source coordinates. The numerical foundation and
-[#273](https://github.com/altendky/scansor/issues/273)'s selected-data recovery,
-named graph dispatch and per-member CAD support are implemented in the draft
-stack. Final integration verification and current-head CI remain delivery gates.
+[#272](https://github.com/altendky/scansor/issues/272) adds canonical rotation
+and reflection equalities to the shared
+[relationship component](../../../../experiments/fit_relationship_component.py).
+The extracted numerical foundation is delivered. The
+[#273](https://github.com/altendky/scansor/issues/273) draft adds selected-data
+recovery, named graph/provider publication, reuse and per-member CAD support.
+Fresh packaged execution and final main-based current-head CI remain delivery
+gates for that integration.
 
-This preserves the current bounded relationship model: three ordered same-kind
-surfaces at positive 0/120/240-degree rotations, or two same-kind surfaces
-reflected about an axis-containing reference plane. Members can be planes,
-cylinders or cones. Broader repetition counts, automatic correspondence,
-additional analytic families and physical fit acceptance are separate questions.
+The model remains three ordered same-kind members at positive 0/120/240-degree
+rotations, or two same-kind members reflected about an axis-containing datum.
+Members may be planes, cylinders or cones. Broader repetition counts, automatic
+correspondence, additional analytic families and physical acceptance are open
+questions. Numerical starting geometry remains disposable, outside saved actions.
 
-## Geometry and exact equations
+## Exact geometry
 
-The component already centers and length-normalizes the complete observation
-set. Each free axis has its own local chart; a horizontal member needs no
-conversion into a source-Z slope chart. Fixed references and source aliases
-retain their roles. Numerical starting geometry is disposable and is not added
-to saved actions.
-
-In column-vector notation, rotation about the directed line `(C,d)` uses
-Rodrigues matrix `Q` at the member's ordered angle and translation `t=C-Q*C`.
-An axis alias's directed sign determines the positive rotation order; an
-unsigned provider direction cannot silently replace it. Reflection about the
-unit-normal plane `N·X=h` uses `Q=I-2*N*Nᵀ` and `t=2*h*N`. Reversing both `N`
-and `h` leaves that reflection unchanged. Internal reflection does not change
+The complete observation set is centered and length-normalized. Each free axis
+has its own local chart, including horizontal members; fixed references and
+provider aliases keep their declared roles. In column-vector notation, rotation
+about directed line `(C,d)` has Rodrigues matrix `Q` and translation `t=C-Q*C`.
+An alias's directed sign determines positive member order. Reflection about the
+unit-normal plane `N·X=h` has `Q=I-2*N*Nᵀ` and `t=2*h*N`; reversing both normal
+and offset leaves the reflection unchanged. Internal reflection does not relax
 the proper-rigid-transform boundary of feature reuse.
 
-For base member zero, member equations describe the transformed infinite
-surface. Orientation signs are chosen coherently for an attempt and remain
-fixed during that solve:
+For member zero as the base, fixed orientation signs within an attempt give:
 
-- A plane's normal is `nᵢ=s*Q*n₀`, with offset
-  `bᵢ=s*(b₀+(Q*n₀)·t)`. A normal reversal also reverses its offset.
-- A lateral member's direction is `dᵢ=s*Q*d₀`. Its axis point `Aᵢ` lies on
-  the line through `B=Q*A₀+t`: its displacement from `B` has no transverse
-  component. The numerical anchor gauge remains independent for each axis.
-- Cylinder radii agree. For cones, `kᵢ=s*k₀` and
-  `rᵢ=r₀+k₀*((Aᵢ-B)·(Q*d₀))`. The radius comparison includes the axial
-  anchor shift; equal numbers at unrelated anchors are insufficient.
+- Plane normal `nᵢ=s*Q*n₀` and offset `bᵢ=s*(b₀+(Q*n₀)·t)`. Reversing a normal
+  also reverses its offset.
+- Lateral direction `dᵢ=s*Q*d₀`. Its anchor `Aᵢ` lies on the transformed line
+  through `B=Q*A₀+t`; displacement from `B` has no transverse component.
+- Cylinder radii agree. Cone slope `kᵢ=s*k₀` and anchor radius
+  `rᵢ=r₀+k₀*((Aᵢ-B)·(Q*d₀))` account for each independent anchor gauge.
 
-These are hard equality rows with analytic derivatives, alongside existing
-unit-normal, axis/datum and supported radius/plane relationships. They are not
-additional weighted observation residuals. Observation-free reference planes
-contribute constraints without synthetic observations. An active free mirror
-plane can refine its clocking while retaining the contains-axis equations;
-fixed providers remain fixed.
+These are hard equality rows with analytic derivatives, alongside unit-normal,
+axis/datum and supported parallel/radius-distance equations. They are separate
+from the weighted observation residuals. Observation-free reference planes add
+constraints without invented observations. A free mirror datum can refine its
+clocking; fixed providers remain fixed.
 
-## Support and recovery boundaries
+## Support and compatibility boundaries
 
-Each member retains its own authored support carrier, interval and selected
-observations. A symmetry relation constrains infinite geometry without copying
-one member's finite support into another. Every original observation and weight
-remains in the objective. Negative extrapolated cone anchor radii remain
-permitted only when declared finite support and selected projections stay on
-the positive sheet.
+Each member keeps its own support carrier, interval, original observations and
+weights. Symmetry constrains infinite geometry without copying finite support
+between members. Negative extrapolated cone anchor radii are permitted on the
+new path only when finite support and selected projections remain on the positive
+sheet. Pure [support mathematics](../../../../experiments/support_intent.py)
+supplies those coordinates. The extracted foundation alone did not enable
+[#264](https://github.com/altendky/scansor/issues/264)'s graph transfer or
+source-reuse workflow; the current integration includes that separately verified
+support-intent draft, whose delivery gates remain independent.
 
-The existing CAD `symmetric_extents` option controls pooling of observed patch
-extents. It is not a fitting equality or permission to overwrite hard support.
-Lateral members are constructed separately from their own final geometry and
-finite caps after pooling observations. An automatic member gets a temporary
-pooled display extent; its published fit remains unchanged. Empty hard-support
-intersections reject export. Plane patches retain their existing shared
-rectangle construction. Full lateral faces can choose a different parameter
-seam while preserving their world geometry.
-
-The component is a single constrained attempt. #273 owns bounded joint
-candidate generation, optional hints, unsigned common-axis sign alternatives,
-complete source/recipe/policy bindings and result comparison. Individually
-rank-deficient member patches must not be excluded when their joint evidence
-can identify the declared model. Neither a converged local attempt nor a best
-attempted objective proves global convergence or physical accuracy.
-
-The selected-data adapter serves imported named rotational and mirror solves.
-It derives algebraic common-axis, orbit and mirror-phase proposals from the
-original selected positions and normals without requiring independently
-admissible member fits. Original incident-area weights remain attached to every
-row. Main-factor positional residuals prioritize the finite common-axis pool;
-arbitrary null directions from misleading normals cannot consume all attempts
-before useful positional evidence is considered. Explicit signed radius-distance
-intent also retains both oriented free mirror-plane branches.
-
-Policy `selected-symmetry-group-recovery-v1` bounds generation to 16 proposals
-and eight fresh constrained attempts, with a separate optional hint. Each
-attempt shares one callback control across observations and hard equalities.
-Stale or malformed free hints cannot replace or reorder fresh recovery. Saved
-hard providers, alias direction, support carriers and intervals remain semantic
-inputs; computed starts remain disposable. Bindings include accepted source
-identity, selected rows, declarations and numerical policy, rather than the
-source filename. Competing cones are compared over both selected and supported
-extents, including radial profile differences outside a short hard interval.
-
-Named execution prepares member selections and actual hard providers directly.
-It does not require every member's standalone fit to succeed. Both requested
-closure and implicit-provider planning use this preparation boundary; raw fit
-requests retain their own results and failures. A joint publishes only its named
-context, including solved mirror planes. Actual upstream source/point providers
-and placement stages remain required inputs.
-
-Its 53 independent strict-PLY tests pass, covering all three member families,
-rotations and mirrors, oblique poses, fixed/free references, partial patches,
-misleading normals, unequal hard supports, signed constraints, stale hints,
-jointly observable collinear patches, ill-conditioned clock rejection,
-cancellation and callback limits. Tests independently recompute every weighted
-residual and resolved support endpoint. The related 202 existing recovery,
-relationship and support regressions also pass; full types report zero errors
-or warnings. These direct checks do not substitute for the integration gates.
-
-The additional packaged probe reads six frozen independent strict-PLY scenes
-and saved recipes, without importing the test generator. It checks original
-positions, normals, triangles and incident weights, full weighted residuals,
-known geometry, finite support and renamed-source replay. The existing float64
-probe fixture and parity tolerances remain unchanged; complete attempt evidence
-is still compared under the open #266 contract.
-
-The native/worker comparison contract remains open in
-[#266](https://github.com/altendky/scansor/issues/266). This foundation does not
-change the verifier or replace full packaged execution with synthetic unit
-evidence.
-
-## Executed verification
-
-All 53 independent
-[symmetry cases](../../../../tests/test_relationship_symmetry.py) pass. They use
-their own Rodrigues/reflection construction rather than production transforms
-as geometry oracles. Cases cover horizontal members, oblique poses, fixed/free
-axes and mirror clocking, directed axis and plane aliases, original nonuniform
-weights, noisy observations, unequal finite support and negative cone anchor
-radii. Central finite differences check complete observation and equality
-Jacobians, including off-unit datum perturbations and radius-distance
-composition.
-
-Three individually collinear plane patches jointly identify their rotated
-plane without a standalone fitter. A coaxial cylindrical mirror pair supplies
-no clocking evidence: its free mirror datum fails with rank deficiency, while
-the fixed-datum case succeeds. Entirely fixed plane models use zero free
-parameters and reject inconsistent fixed geometry. Cancellation, evaluation
-quotas, preservation of input records and strict-JSON failure diagnostics are also
-covered.
-
-Publication regressions supply complete datum records, then verify that refined
-plane equations, point/normal vectors, tangent bases, radial guides and clocking
-agree. Clocking follows the existing reference-plane convention, which uses the
-opposite transverse basis from surface charts. Fixed normalized world equations
-are preserved in datum, alias and attached-surface outputs. Incomplete
-axis/construction pairs fail before callbacks instead of producing an undefined
-display frame.
+The optional `planes`, `rotations`, `mirrors` and `radius_distances` inputs select
+the canonical equation path when nonempty. At extraction, calls without them
+retained their existing support arithmetic, source-Z/point/selection behavior,
+failure class, diagnostics, publication, initialization, callback order and
+solver settings. The merged component preserves the current support-authority
+wrapper and typed support failures alongside the exact symmetry equations.
 
 New symmetry attempts use normalized projected-gradient tolerance **1e-10**;
-the historical component default remains **1e-9**. An exact posed free-cylinder
-case stopped with RMS about 7.45e-8 at the old setting. The new setting reaches
-RMS about 2.03e-10 with gradient about 5.95e-13. Tightening to 1e-12 instead
-made a noisy rotational cone stall at a floating-point floor with gradient
-about 2.32e-12; 1e-10 retains successful stationarity for both original cases.
-No failed iterate is accepted as a fallback, and iteration/trial budgets and
-the complete weighted objective retain their existing meanings. This is a
-local numerical setting, not a physical error threshold.
+the historical component path remains **1e-9**. This is a local numerical control
+from the bounded kernel, not a physical tolerance or a comparison-policy change.
+No failed iterate is accepted as a fallback; iteration/trial limits and the full
+weighted objective retain their meanings.
 
-The #272 foundation passed **2,728 tests plus 32 subtests**, using four workers
-with CI's mesh-suite isolation, and full types with zero errors or warnings.
-The separate 751-case serial mesh suite passed on the support-enabled base;
-these symmetry changes do not modify that ingestion path.
+The component is one constrained attempt. #273 owns bounded joint candidates,
+optional hints, unsigned common-axis sign alternatives and complete bindings.
+Joint evidence can identify a model whose individual members are rank deficient;
+standalone admission is not a prerequisite for the equation kernel. A converged
+local attempt does not establish global convergence or physical accuracy.
+The CAD `symmetric_extents` switch remains observation-patch pooling, not a
+fitting equality or permission to overwrite hard support.
 
-The integrated #273 non-mesh set passes **2,892 tests plus 32 subtests**.
-The initial sandbox run passed 2,838 tests; its 54 HTTP cases failed because the
-sandbox prohibited localhost sockets, then all passed with localhost access.
-Full types report zero errors or warnings. This includes 26 named graph cases,
-66 new CAD cases (six run the actual graph through STEP), and 19 packaged-probe
-source, execution and strict-comparison cases. Independent reviews found no
-remaining scoped producer defect.
+## Verification boundary
 
-The original packaged worker gate still stops on the previously recorded
-discarded cone-attempt difference in #266. A separately marked diagnostic copy
-completed all six symmetry cases in about 106 seconds. Every selected physical
-result agrees within the existing 1e-10 comparisons, with the same fresh
-candidate selected. This is diagnostic evidence, not a passing parity gate.
-Some discarded outcomes differ, including inferior native local solutions that
-reach the worker's evaluation limit. The selected rotated cylinder also uses
-four constraint evaluations in the worker versus three natively: retraction
-branches at the internal 1e-15 target, with final violations about 5.55e-16 and
-9.99e-16. Rank, selected geometry and the 1e-11 feasibility certificate agree.
-These selected-control and discarded-outcome differences extend the unresolved
-[#266](https://github.com/altendky/scansor/issues/266) contract question; no
-verifier, tolerance, fixture or attempt budget was
-relaxed. Final main-based current-head CI remains required before merge.
+The unchanged 53-case
+[symmetry oracle](../../../../tests/test_relationship_symmetry.py) constructs
+its own Rodrigues/reflection geometry. It covers oblique and horizontal axes,
+fixed/free roles, directed aliases, mirror clocking, nonuniform original weights,
+noisy observations, unequal support and negative extrapolated cone anchors.
+Central finite differences check observation and equality Jacobians, including
+off-unit datum perturbations and radius-distance composition. Other cases cover
+jointly identifiable collinear plane patches, unidentifiable free mirror
+clocking, zero-parameter fixed models, strict JSON, input preservation,
+cancellation and evaluation quotas.
+
+Before extraction, two runs of 37 unchanged composition/cylinder tests captured
+57 complete calls: 26 legacy and 31 canonical. Inputs, outputs, failures,
+control state, array dtype/shape/bytes and exact floating values matched. The
+post-extraction run passed the same 37 unchanged tests and matched all 57 records
+exactly, with no omitted telemetry. Geometric equivalence alone would not
+establish unchanged support records or control semantics.
+
+At extraction, all 53 unchanged symmetry cases and 31 pure-support cases passed.
+Together with
+the existing composition and cylinder regressions, the focused run passes 191
+tests. These are internal numerical/component checks; they do not enable or
+claim the separately guarded imported graph workflow.
+
+The extraction's full non-mesh Python run passed 2,605 tests and 32 subtests.
+Configured
+type checking reports no errors or warnings; targeted Ruff, formatting,
+repository hooks and the browser build also pass. An independent read-only
+review found no blocking equation, support or compatibility defects.
+
+The full unchanged static-worker check passes all 20 stages, including actual
+packaged workspace, CAD, both recovery modes, numerical workspace, advisory
+measurements and final artifact-integrity checks. Existing fixtures and strict
+native/worker comparisons remain unchanged. This local check used a dirty
+development checkout; it establishes execution and integrity, not release
+eligibility or publication.
+
+The approved [#266](https://github.com/altendky/scansor/issues/266)
+[semantic parity contract](numerical-runtime-parity.md) protects published
+geometry, source/recipe intent, acceptance classifications and finite budgets,
+while retaining discarded traces and realized solver counts as diagnostics.
+It does not permit differences in selected inside/outside counts or hard caps.
+
+## Selected recovery and graph integration
+
+The draft selected-data adapter derives common-axis, orbit and mirror-phase
+proposals from original selected positions and normals. Every original row and
+incident-area weight remains in the objective; independently admissible member
+fits are not a prerequisite. Positional proposals precede arbitrary null
+directions from misleading normals. Unsigned ordered rotations consider both
+common-axis signs; authored directed aliases preserve their sign. Signed
+radius-distance intent retains both oriented free mirror-plane branches.
+
+Policy `selected-symmetry-group-recovery-v1` permits 16 proposals and eight fresh
+constrained attempts, with a separate optional hint. Each attempt shares one
+callback control across observations and hard equalities. Stale or malformed
+free hints cannot replace fresh recovery. Bindings include accepted source,
+selected rows, ordered declarations, support and numerical policy; computed
+starts and transformed-carrier roundoff remain outside authored actions.
+Competing cones are compared over selected and supported extents, including
+their radial profiles beyond short hard intervals.
+
+Named execution prepares member selections and actual hard providers directly,
+including placed providers, aliases, prior stages and read exclusions. Requested
+closure and implicit-provider planning share that boundary. Raw fit requests
+retain independent results and failures; joint execution publishes its named
+context and solved mirror datums without overwriting standalone results.
+
+CAD builds each lateral member from its own geometry and finite support.
+`symmetric_extents` pools observed display patches, preserving authored caps;
+an automatic member receives a temporary pooled display extent without changing
+its published fit. Empty hard-support intersections reject export. Plane
+patches retain their shared rectangle construction. Internal mirror geometry
+does not broaden feature reuse beyond proper rigid transforms.
+
+## Integration evidence and remaining gates
+
+The historical draft passed 53 selected-recovery cases, 26 named graph cases and
+66 CAD cases, including six actual graph-to-STEP cases. Those cover oblique and
+horizontal poses, fixed/free references, joint-only collinear planes,
+misleading normals, unequal supports, signed constraints, hints, cancellation
+and budgets. Historical test counts describe their original baseline, not
+fresh acceptance of the merged draft.
+
+Six frozen strict-PLY scenes and saved recipes cover plane/cylinder/cone
+rotations and mirrors. Their raw positions, normals, triangles, source hashes,
+incident weights, weighted residuals, known geometry, finite support and renamed
+replay are checked independently. The current integration retains complete
+graph operands and shared parity receipts: six added cross-runtime receipts
+and six local replay pairs, giving expected totals of 24 receipts and 34 local
+pairs per runtime. Existing four-cylinder/four-cone/two-support fixtures remain
+unchanged. These are numerical integration probes, not additional UI authoring
+or physical-accuracy claims.
+
+The retained historical cylinder-rotation result has worker inside/outside
+counts 79/1 versus native 80/0. Its published axis has norm
+1.0000000000000002; renormalizing it moves an original endpoint one ULP beyond
+its stored upper cap. The draft correction preserves already canonical axes
+within four machine epsilons, consistently in Python and JavaScript. It keeps
+the existing unit-admission limit and legacy normalization; exact caps and
+integer classifications remain unchanged. Frozen endpoint, reversed-axis,
+repeated-accessor and immediate-outside-cap regressions guard the correction.
+No separate cone classification defect has been established.
+
+Five of the six complete historical symmetry pairs pass the current shared
+policy; the cylinder classification discrepancy remains a producer correction,
+not discarded telemetry. Earlier strict failures and diagnostic captures remain
+historical evidence. Fresh native/worker execution must confirm all six cases,
+complete replay inventories, exact classifications and bounded attempts. Full
+static artifact verification, independent evidence reconstruction and all
+required exact-head CI must pass before delivery. Numerical probes do not
+establish global convergence, physical accuracy or site publication.

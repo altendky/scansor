@@ -53,7 +53,7 @@ from experiments.fit_relationship_component import (
 )
 from experiments.fit_solver import normalized_weights
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION, ConeFitFailure
-from experiments.mesh_cylinder_fit import CylinderFitFailure
+from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION, CylinderFitFailure
 from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
 from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
@@ -5414,7 +5414,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             },
                             policy_version=CONE_POLICY_VERSION
                             if node.kind == "cone"
-                            else "selected-cylinder-recovery-v1",
+                            else CYLINDER_POLICY_VERSION,
                         )
                         reuse_inputs = [
                             derived_result(ref)

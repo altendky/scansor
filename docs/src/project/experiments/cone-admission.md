@@ -2,8 +2,10 @@
 
 ## Status and scope
 
-**Implemented bounded policy, 2026-10-15; actual packaged execution completed,
-full parity gate still blocked.**
+**Implemented bounded policy, 2026-10-15; current-stack verification pending.**
+The original packaged execution and its failed strict comparisons below remain
+historical evidence. The approved bounded comparison contract is implemented;
+the current catchup must pass fresh native/worker and complete CI gates.
 [#267](https://github.com/altendky/scansor/issues/267) addresses numerical
 rejection of long, identifiable cone patches in
 [the standalone helper](../../../../experiments/mesh_cone_fit.py), under policy
@@ -246,6 +248,10 @@ and steep slopes through +/-1e160. The corrected actual artifact classifies
 
 ## Verification and remaining gates
 
+The following counts and artifacts describe the original signed draft at
+`6c565f795aad67273f3b603dd37ebb79ae076349`, before its current source/support
+catchup. They are not a new current-head verification claim.
+
 All **32 independent admission tests pass**, including the original long cases,
 noisy extreme stationarity, steep/short frusta, adverse families, hint isolation,
 callback bounds, cancellation and hard-support endpoint ambiguity. The admission
@@ -265,11 +271,11 @@ This adds actual source admission, fitting, growth, reference-axis and replay
 coverage without making float64 generation interchangeable with source-float32
 numerics.
 
-Actual packaged Chromium/Pyodide execution now exercises four cone cases and two
+The original packaged Chromium/Pyodide execution exercises four cone cases and two
 support-transfer cases. Selected initializer and selected-attempt records agree
 under the current strict comparison limits, as do physical geometry, hard
-support, IDs, bindings, growth and recipe replay. **The complete strict verifier
-still fails**; execution and selected-result agreement are not full parity.
+support, IDs, bindings, growth and recipe replay. **That complete strict verifier
+failed**; execution and selected-result agreement were not full parity.
 
 A separately marked post-hoc diagnostic capture, retaining the original strict
 failure artifact, reports 264 raw difference entries: 256 discarded-attempt trace
@@ -278,12 +284,16 @@ fields, six repeated entries for two discarded wrong-chart algebraic
 observed registration ratios. Selected-attempt and selected-initializer evidence
 does not exhibit those differences. This classification describes the observed
 artifact; it neither removes fields from comparison nor establishes acceptable
-new tolerances. Inactive initializer diagnostics are therefore additional scope
-for the unresolved backend contract, alongside discarded solve traces and
-registration diagnostics.
+new tolerances. The subsequently approved bounded contract retains those
+inactive initializer, discarded solve and registration diagnostics.
 
-[#266](https://github.com/altendky/scansor/issues/266) still governs the unresolved
-backend recovery-trace contract. This experiment does not authorize wider parity
-tolerances, omitted failed attempts, changed fixtures to evade a failure or
-increased search budgets. The actual strict failure remains evidence requiring
-that decision; selected-result agreement does not close the parity gate.
+[#266](https://github.com/altendky/scansor/issues/266) governs the approved bounded
+backend contract. The current catchup also closes a verified seam where a
+discarded fresh computed candidate was compared before entering the diagnostic
+branch. Only the recognized standalone cone-v2 six-coordinate numerical start
+is eligible; candidate provenance, selected/hint/screened starts, finite correct
+shapes, published results, acceptance classifications and both-side budgets stay
+enforced. Full raw records remain available. This does not authorize wider
+numerical tolerances, omitted failed attempts, changed fixtures to evade a
+failure or increased search budgets. Fresh current-head verification and CI
+remain delivery gates.

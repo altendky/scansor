@@ -22,7 +22,23 @@ Failed/cancelled/stale preparation preserves the accepted generation. Retained
 examples use the same geometry reader through an explicit legacy adapter that
 preserves their existing reference hashes and optional starter recipes.
 
-This foundation does not expose file opening in either adapter or the UI yet.
+The native HTTP adapter now implements bounded source import, progress,
+cooperative Cancel and confirmed project reset through the common backend
+operations. Its source-only empty constructor/`--empty` entry point is available
+for bounded native source authoring through #278. The common UI exposes empty
+projects, a file picker and read-only Source inspection where backend
+capabilities permit them. The #243 authoring slice now has actual native and
+worker diagnostics for raw pointer selection/fitting, dependent action and
+draft safeguards, explicit examples and keyboard commands; clean-head profile
+and CI gates remain required for full both-backend UI acceptance.
+Worker import/recovery implements the bounded source tier in #242. Source arrays
+remain strict; fit verification uses the selected bounded semantic contract
+from #266 and requires rebuilt current-head evidence. See the
+[native measurements and lifecycle](native-scan-import.md) and
+[worker evidence and delivery gates](worker-scan-import.md). The full numerical
+delivery gate in #240 remains open; this transport slice does not claim its
+pending cone/symmetry integration or cross-runtime parity work is delivered.
+
 Standalone plane fitting now uses only selected source positions, incident-area
 weights and admitted normal directions. Its direct covariance solve is centered
 and length-normalized, with separate coverage/eigengap diagnostics. A unique
@@ -108,30 +124,54 @@ raw gate despite an aligned condition about 1.46. The bounded implementation
 uses cone-specific tilt/residual scales, independent final fitted-geometry
 stationarity, extent-aware equivalence and resolved hard-support endpoint checks.
 Per-row nonlinear radius normalization is excluded by an exact-plane
-counterexample. All 32 independent admission tests, 13 high-precision projection
-regressions and 218 native runtime tests pass; this does not establish physical
+counterexample. The original draft passed 32 independent admission tests,
+13 high-precision projection regressions and 218 native runtime tests; these
+historical counts do not establish the current catchup's verification, physical
 acceptance or every aspect ratio.
 
-Actual packaged Chromium/Pyodide execution of policy v2, including the added long
-raw-float32 source, agrees on selected initializer/attempt evidence, geometry,
+Earlier packaged Chromium/Pyodide execution of policy v2, including the added
+long raw-float32 source, agreed on selected initializer/attempt evidence, geometry,
 support, IDs, bindings, growth and replay under the existing strict limits. A
 shared meridian-projection arithmetic correction resolves an observed support
 boundary discrepancy; both runtimes now classify all 60 long-source rows inside,
-without changing intervals or tolerances. The complete strict verifier still
-fails on discarded-attempt traces, inactive algebraic initializer conditioning
-and known registration diagnostics. [#266](https://github.com/altendky/scansor/issues/266)
-retains that unresolved comparison contract; selected-result agreement does not
-establish full parity or change the gate.
+without changing intervals or tolerances. Its original strict failure remains
+retained evidence. The approved bounded semantic contract from
+[#266](https://github.com/altendky/scansor/issues/266) now compares selected
+geometry, source/recipe identity, acceptance classifications and finite budgets
+while retaining discarded numerical paths. A remaining computed-start comparison
+seam is being corrected within that contract; selected, hint and screened starts
+remain strict. Fresh current-head native/worker, source UI and complete evidence
+verification are required before delivery. Imported graph symmetry integration
+remains separate.
 
-Cylinder admission is deliberately conservative: selected positional covariance
-must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
-geometric Jacobian, measured in a normalized chart aligned with the fitted axis,
-must have condition at most 1e6. Narrow strips, circles, two generators and
-planar/near-planar fixtures exercise explicit failure. These provisional
-numerical limits are neither physical acceptance nor confidence estimates;
-[#262](https://github.com/altendky/scansor/issues/262) tracks their evaluation and
-improvement. Joint reference solves assess combined identifiability rather than
-requiring every participating surface to pass standalone admission.
+The [raw-scan acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
+opens only the retained RealityScan PLY, authors the frozen 803-row plane and
+5,066-row cylinder selections, and verifies every selected residual and complete
+incident-area-weighted objective while example sidecar and legacy workspace
+reads are denied. Saved definitions contain no computed seeds; replay against
+renamed identical bytes preserves source binding and exact results. This rough
+real scan is implementation evidence, with no fit-quality or physical-accuracy
+threshold. Independent analytic fixtures remain the geometry oracles. The
+shared-core regression complements native atomic reopening and browser tests;
+it does not complete #240's cone/symmetry or both-backend workflow gates.
+
+Cylinder admission remains conservative, with a family-specific coverage metric:
+after each converged attempt, center the selected positions in fitted-axis
+coordinates, divide transverse coordinates by fitted radius and axial coordinates
+by their selected weighted RMS, then require the weighted covariance's
+smallest/largest eigenvalue ratio above 1e-10. The final weighted geometric
+Jacobian, measured in the original length-normalized chart aligned with the fitted
+axis, must still have condition at most 1e6. Raw positional covariance is retained
+as evidence. A long exact cylinder previously failed that raw gate despite a
+well-conditioned geometric Jacobian; the replacement avoids confusing aspect
+ratio with missing curvature. Narrow strips, circles, two generators and
+planar/near-planar fixtures still exercise explicit failure. These provisional
+numerical limits are neither physical acceptance nor confidence estimates. The
+[generated admission investigation](../experiments/cylinder-admission.md) records
+the evidence, implementation and remaining limitations from
+[#262](https://github.com/altendky/scansor/issues/262). Joint reference solves assess
+combined identifiability rather than requiring every participating surface to
+pass standalone admission.
 
 New imported cylinder/cone actions use nullable support: absent bounds derive finite extent
 from the selected observations. That automatic extent does not prevent axial
@@ -167,12 +207,20 @@ centroids remain derived. [#264](https://github.com/altendky/scansor/issues/264)
 tracks this bounded transfer implementation and its fixed/free/group/replay
 verification; broader arbitrary support regions remain outside this slice.
 
-HTTP/worker delivery,
-Force source retention, source-aware reopening and per-backend measured caps remain their
-listed tickets. Caller-provided byte/count caps and the loader's incremental
-allocation estimate are admission checks, not a measured total-runtime memory
-guarantee. Input snapshots and authoritative/display copies are accounted for
-separately from the interpreter, GPU and unrelated caller state.
+The native/shared reopening child
+[#280](https://github.com/altendky/scansor/issues/280), delivered by #281, uses
+private source and recipe preparation before one native owner installation;
+the bounded #244 worker adapter is delivered through
+[#291](https://github.com/altendky/scansor/pull/291), with explicit versioned
+capabilities and executed both-backend reopening/replay acceptance. Subsequent
+changes retain fresh current-head workflow gates. Worker import/Force
+recovery implements the bounded tier in #242; current-head bounded semantic
+parity and full workflow validation remain delivery gates. Native and worker
+defaults have executed source-only import evidence; byte/count caps and the
+loader's incremental allocation estimate are admission checks, not a measured
+total-runtime memory guarantee. Input snapshots and authoritative/display
+copies are accounted for separately from the interpreter, GPU and unrelated
+caller state.
 
 Already agreed: a scan is a Source feature; initially each project has zero or
 one scan; native HTTP and browser workers use interchangeable operations and
@@ -258,19 +306,22 @@ Current implementation gaps:
 - Legacy example [`Source` reference identity](../../../../experiments/feature_graph.py)
   still includes fixture selection/model configuration through its explicit
   adapter. Independent plane/sphere/cylinder/cone fits use generic source
-  identity and selected-data initialization. The legacy example paths retain
-  their explicit fixture adapter. Generic named rotational/mirror integration is
-  implemented in the draft stack with final verification gates still open.
+  identity and computed starts; nozzle examples retain their legacy adapter.
+  Generic named rotational/mirror integration is implemented in the draft stack;
+  fresh packaged execution and final current-head verification remain gates.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
-  centers and scales legacy numerical coordinates. Generic cylinders additionally
-  rotate each proposal chart, while relationship components use one chart per
+  centers and scales legacy numerical coordinates. Generic cylinders and cones
+  additionally rotate each proposal chart, while relationship components use one chart per
   free axis; canonical publication does not expose legacy chart placeholders.
-- [Native example switching](../../../../experiments/nozzle_browser.py)
-  constructs a candidate before assigning accepted state, but does so under the
-  server lock. Scan preparation needs a separate staging lifetime.
+- [Native source import](../../../../experiments/native_scan_import.py)
+  stages bounded uploads separately and prepares outside the coordinator lock.
+  Commit publishes one authoritative project state after cursor/cancellation
+  checks; queued evaluation and CAD retain source leases. Example switching
+  remains an explicit legacy adapter rather than a user-source interpretation.
 - [Worker recovery](../../../../experiments/browser_static/recovery.md)
-  retains the accepted recipe and reconstructs the packaged nozzle. It does not
-  yet retain or reconstruct an arbitrary user source.
+  retains the accepted recipe and an empty, example or user-source checkpoint.
+  User scans retain their accepted File in memory and verify source identity
+  before reconstruction; this is not persistent project storage.
 
 ## Agreed initial policies
 
@@ -343,11 +394,14 @@ own initialization and positive-sheet support evidence:
 | `fit_relationship_component` | A chart basis per free axis, semantic anchor/support rebasing and canonical constrained publication |
 | `feature_reuse` | Rigid canonical hints and axis geometry; legacy numerical helpers stay explicit |
 
-The internal numerical/graph cylinder and cone paths are enabled for the
-independently tested eligible cases. Cone implementation, support transfer and
-admission remain in the draft stack while #266 blocks the complete strict parity
-gate. Adapter/UI file import and full workflow acceptance remain in #240 and its
-integration children; this does not claim a completed end-user import feature.
+The internal numerical/graph cylinder and initial cone paths are delivered for
+independently tested eligible cases. The integrated support-transfer, long-cone
+admission and named symmetry drafts retain fresh verification and delivery gates.
+The approved #266 semantic comparison preserves published results, intent,
+acceptance classifications and finite budgets while retaining diagnostic traces.
+Native/worker source import, common authoring and source-aware actions opening
+are delivered; full workflow acceptance remains #240/#245. None of these checks
+establishes physical accuracy or support for larger scans or additional formats.
 
 ### Saved intent and computed starts
 

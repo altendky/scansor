@@ -1,0 +1,67 @@
+# Bounded native/browser numerical parity
+
+The selected verification contract compares published results and their intent
+while retaining numerical traces from both runtimes. It does not promise
+identical floating-point execution histories. This decision addresses the
+measured cross-runtime differences tracked in
+[#266](https://github.com/altendky/scansor/issues/266).
+
+The [shared comparator](../../../../experiments/browser_runtime/semantic_parity.py)
+uses strict comparison by default. Source/recipe identity, original membership
+and weights, authored constraints, published geometry and residuals, selected
+acceptance certificates, and public failure/ambiguity classifications remain
+gates. Existing fixture length normalization and numerical tolerances remain;
+this is not a change to fitting admission or physical accuracy requirements.
+
+Recognized bounded recovery records additionally validate each runtime's finite
+proposal, attempt, iteration and callback limits. Realized counts and discarded
+numerical paths may differ within the same policy. Screened intent, selected
+candidate identity and acceptance-affecting classifications remain compared.
+Unrecognized numerical adapters retain the strict comparison. Reported counts
+cannot independently prove unreported trial/projection counts; producer limit
+tests and harness deadlines remain necessary.
+
+Discarded starts can stop through different recognized failure paths. Their
+optional fitted-assessment entries may differ only when the corresponding
+recorded outcomes differ; both sides must still name known candidates and
+contain recognized finite metrics. Removing a trace with the same outcome
+fails. Selected fitted assessments remain mandatory and strictly compared.
+
+Complete standalone cone-v2 records also retain the numeric parameters of
+unselected fresh computed starts as diagnostics. Both executed arrays must have
+the producer's six finite coordinates and known selected-data proposal
+provenance. Candidate identity, chart, derivation, binding and order remain
+strict, as do selected, optional-hint and screened starts. Isolated envelopes
+and other families retain their existing strict candidate comparison; extending
+that schema is separate work under #266.
+
+The long-cone investigation measured a discarded start's taper difference of
+about 7.93e-10 relative, or 0.000000079 percent. Both runtimes rejected that
+rank-deficient start and selected the same centered proposal. An ill-conditioned
+wrong-chart center/radial regression can amplify near-machine-precision axis
+variation into that seed difference; no particular BLAS implementation was
+isolated. This diagnostic classification changes no tolerance, published result,
+admission criterion or search budget.
+
+All raw records remain available alongside a versioned, source-hashed receipt
+and a ledger of allowed diagnostic differences. Browser graph harnesses invoke
+the same reviewed Python policy. The artifact verifier checks input identities
+and independently repeats that comparison using its trusted policy.
+
+Registration reports the best and runner-up scores, normal scale and existing
+denominator floor. Each ratio must agree with its own scores; cross-runtime
+comparison uses the underlying scores and selected placement. A nearly zero
+best score can amplify roundoff in the quotient. The current ratio is diagnostic
+and has no ambiguity rejection threshold; this decision introduces none.
+
+The rejected cylinder gradients behind the original failure were about 1.96–4.63
+and differed by roughly 10–14 parts per billion. Both runtimes rejected those
+rank-deficient starts, and their selected fit agreed. Different Python/NumPy
+runtimes and poorly constrained chart directions support floating-point
+sensitivity as an explanation; no particular BLAS implementation was isolated
+as the cause. Normalization must use a meaningful problem scale, rather than
+dividing by an almost-zero result.
+
+Mutation tests guard geometry, constraints, identity, selected certificates and
+budget policy changes. Complete current-head CI remains required for each
+dependent branch; earlier failed strict reports remain diagnostic evidence.

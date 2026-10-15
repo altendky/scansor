@@ -2,7 +2,8 @@
 
 The bounded browser viewer implements the maintainer's
 [cancellation policy](../browser_runtime/cancellation/decision.md). The HTTP
-backend retains its existing observation-abort and native shutdown behavior.
+backend retains observation-abort and native shutdown behavior; its separate
+source-import Cancel does not add native fitting/CAD interruption.
 There is no automatic escalation of active computation to worker termination.
 
 ## User controls
@@ -26,7 +27,7 @@ Neither mechanism provides OCCT cooperative cancellation. That remains
 
 **Force and restart** is an explicit action. It terminates the current worker,
 settles pending operations, creates a new worker, verifies the same pinned
-runtime and immutable example, and replays the last accepted recipe through
+runtime and accepted empty/example/user source, and replays the last accepted recipe through
 ordinary replacement validation. It also retries failed startup or recovery.
 The previous probe measured roughly 13–16 seconds for local runtime recreation;
 downloads, source loading, recipe validation and subsequent CAD loading can add
@@ -35,19 +36,44 @@ before it returns. Browser termination gives worker code no cleanup opportunity,
 as documented by [the Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Worker/terminate).
 
 The controls remain outside locked editing panels. Recovery reuses the renderer
-and immutable display geometry, clears derived geometry/review previews, and
-leaves Auto off until the user chooses to evaluate again. A startup failure
-cannot mark the viewer ready merely because its earlier startup callback ended.
+and leaves Auto off until the user chooses to evaluate again. For source-capable
+backends, graph-only recovery reuses immutable display geometry only when the
+recovered and displayed source generations are valid and equal, with no unavailable
+source transition. Fixed-source legacy ports retain their explicit compatibility
+path. Graph-only recovery clears derived geometry/review previews. A startup
+failure cannot mark the viewer ready merely because its earlier startup callback
+ended.
 
 ## State and ownership
 
-The coordinator retains a cloned last accepted recipe. Its source backup is the
-fixed, hash-verified retained-nozzle asset in the pinned runtime ZIP, not a
-transferred display buffer. Recovery checks the default source record and
-runtime source revision before committing a replacement. Failed replay leaves
-the accepted recipe available to **Save actions for recovery**.
+The coordinator retains a cloned last accepted recipe and source checkpoint.
+For an example, the backup is its hash-verified packaged source; for a user scan,
+it retains the accepted File reference outside the disposable worker. Empty mode
+recovers empty. A transferred display buffer is not an original-source backup.
+Recovery verifies content and interpretation before validating the accepted
+recipe on a private candidate. It never substitutes the nozzle for an imported
+source. Failed source reading, identity checks or replay preserves the accepted
+checkpoint and recipe for recovery. File retention is memory-only and cannot
+guarantee that a disk-backed File remains readable unchanged.
 
-Polite cancellation reconstructs the graph against the same immutable float64
+Source transitions remain private until the coordinator adopts a complete
+confirmed source/graph/display bundle and its recovery reference together.
+Cancel/Force before that boundary preserves the prior checkpoint; after it,
+the accepted source wins even if the worker promotion acknowledgement is lost.
+See the [worker import evidence and delivery gates](../../docs/src/project/planning/worker-scan-import.md).
+
+When the recovered source generation differs from the displayed generation, or
+the current display is already unverified, recovery retains the prior displayed
+graph, arrays, metadata, live editor and prior actions under a source fence.
+Authoring stays locked while **Load current project** and **Download prior actions**
+remain reachable. Loading obtains a fresh edit discard proof, validates and
+prepares the complete current source/graph/display bundle, then installs it before
+releasing the fence. Declining the proof keeps the prior scene and unfinished
+edit. Retry is explicit; Force never automatically discards the editor or adopts
+a different recovered graph over the old geometry. Pending source cleanup cannot
+release the runtime lock before this recovery decision.
+
+For graph work, polite cancellation reconstructs the graph against the same immutable float64
 source. A failure-only checkpoint preserves unchanged failed/blocked nodes,
 diagnostics and escaped-job failure memoization. Explicit Evaluate remains the
 retry path. Successful derived results, partial mutations, pending evaluations
@@ -60,11 +86,19 @@ graph revision without accepting an old terminal reply.
 
 Force and crashes lose worker-only results, native objects, failure diagnostics,
 caches and virtual files. Recovery restores definitions and starts with dirty
-derived state. Unacknowledged edits and unsaved form drafts can be lost. The
-coordinator copy is memory-only: tab reload, closure or browser/process loss can
-lose it too. Download actions for durable preservation. Broader mitigation is
+derived state. Unacknowledged edits are not accepted recovery authority; an
+unavailable source transition retains its current live form until the explicit
+fresh proof permits replacement. The coordinator copy and live editor are
+memory-only: tab reload, closure or browser/process loss can lose them.
+Download actions for durable preservation; they omit source bytes and unfinished
+edits. Broader mitigation is
 [non-agent issue #214](https://github.com/altendky/scansor/issues/214); this work
-does not introduce autosave or general source upload.
+does not introduce autosave or durable source saving. The native/common UI already
+supplies empty projects, source picking and read-only Source inspection. Worker
+source operations remain a draft implementation; full both-backend UI acceptance
+remains #243, worker source-aware actions opening remains #244, and strict
+imported-fit parity remains a delivery gate in #266. Native source-aware actions
+reopening is delivered; worker `sourceActions` remains unavailable.
 
 Request IDs remain monotonic across workers. Callback ownership and a distinct
 worker lifetime fence old phases, errors, readiness, graph state and binary
@@ -92,3 +126,16 @@ faults such as held replies, old-worker messages, failed asset fetches and an
 uncaught worker error. Its observation watchdogs are test limits, not production
 automatic Force. See the [recorded validation](recovery-validation.md) for what
 ran and the remaining limits.
+
+The source acceptance driver additionally invokes the
+[actual UI recovery helper](source-ui-recovery.mjs) against the shipped app and
+its real worker. It checks Force before/after source adoption, coherent displayed
+arrays/metadata/source generation, live draft and prior-actions retention,
+declined/accepted full-bundle Retry and same-source Cancel. A separate disclosed
+legacy-shaped startup shim omits graph from one public `loadWorkspace` response
+and invokes actual Force while the initial `getGraph` reply is held. It runs the
+current real worker, not an old worker binary. The trusted source reports require
+`ui_source_recovery:true` and `ui_legacy_startup:true` alongside the existing strict
+numerical checks. Each fresh numerical/CAD and plain/isolated profile still needs executed
+startup and recovery evidence; the presence of these assertions is not a passing
+run.

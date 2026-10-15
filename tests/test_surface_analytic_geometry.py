@@ -1,5 +1,6 @@
 """Independent source-space geometry and legacy-chart migration regressions."""
 
+import hashlib
 import io
 import json
 import struct
@@ -58,6 +59,111 @@ def legacy_cone() -> dict[str, Any]:
         "parameters": [2.0, -3.0, 0.2, -0.3, 4.0, 0.0, 0.5],
         "axial_domain": [-2.0, 5.0],
     }
+
+
+@pytest.mark.parametrize("reversed_axis", [False, True])
+def test_frozen_symmetry_endpoint_survives_repeated_canonical_reads(
+    reversed_axis: bool,
+) -> None:
+    # Actual published cylinder from the frozen imported symmetry probe. Its
+    # rounded axis has norm 1+eps; renormalization excluded vertex192 by one ULP.
+    directory = (
+        Path(__file__).resolve().parents[1] / "experiments/browser_runtime/symmetry"
+    )
+    raw = (directory / "cylinder-rotation.ply").read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == (
+        "1967b5fbef70851799e10b36b93aab634489605dc65575857da33d10576eec69"
+    )
+    record = json.loads((directory / "cylinder-rotation.json").read_text())
+    assert record["ids"]["main"] == list(range(0, 240, 3))
+    start = raw.index(b"end_header\n") + len(b"end_header\n")
+    vertices = np.frombuffer(
+        raw, dtype="<f4", count=6 * record["vertex_count"], offset=start
+    ).reshape(-1, 6)
+    points = vertices[::3][:80, :3].astype(np.float64)
+    geometry: dict[str, Any] = {
+        "kind": "cylinder",
+        "origin": [11.4842720016505, -5.475575813806024, 10.441582089462466],
+        "axis": [0.4877001918059968, 0.23200471461500444, 0.8416188777046322],
+        "radius": 2.0000000174407604,
+        "slope": 0.0,
+        "axial_domain": [-8.006840652110514, -1.0068399598725697],
+    }
+    if reversed_axis:
+        geometry["axis"] = [-v for v in geometry["axis"]]
+        geometry["axial_domain"] = [-v for v in geometry["axial_domain"][::-1]]
+    before = deepcopy(geometry)
+    points_before = points.copy()
+    heights = (points - geometry["origin"]) @ np.asarray(geometry["axis"])
+    assert heights[64] == geometry["axial_domain"][0 if reversed_axis else 1]
+    assert np.all(heights >= geometry["axial_domain"][0])
+    assert np.all(heights <= geometry["axial_domain"][1])
+    for repetitions in (1, 2, 8):
+        current = deepcopy(geometry)
+        for _ in range(repetitions):
+            current = revolution_geometry(surface(current))
+            assert current == before
+            inside = surface_distance(points, surface(current))[2]
+            assert (int(inside.sum()), int((~inside).sum())) == (80, 0)
+    assert geometry == before
+    np.testing.assert_array_equal(points, points_before)
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
+def test_canonical_roundoff_preservation_does_not_expand_hard_caps(kind: str) -> None:
+    geometry: dict[str, Any] = {
+        "kind": kind,
+        "origin": [0.0, 0.0, 0.0],
+        "axis": [1.0, 0.0, 0.0],
+        "radius": 2.0,
+        "slope": 0.0,
+        "axial_domain": [1.0, 2.0],
+    }
+    points = np.array(
+        [
+            [1.0, 2.0, 0.0],
+            [2.0, 2.0, 0.0],
+            [np.nextafter(1.0, -np.inf), 2.0, 0.0],
+            [np.nextafter(2.0, np.inf), 2.0, 0.0],
+        ]
+    )
+    for _ in range(8):
+        geometry = revolution_geometry(surface(geometry))
+        np.testing.assert_array_equal(
+            surface_distance(points, surface(geometry))[2],
+            [True, True, False, False],
+        )
+        assert geometry["axial_domain"] == [1.0, 2.0]
+
+
+def test_canonical_four_epsilon_preservation_keeps_unit_admission_limit() -> None:
+    geometry = horizontal_cylinder()
+    for ulps in (-4, 4):
+        geometry["axis"] = [1.0 + ulps * np.finfo(float).eps, 0.0, 0.0]
+        assert revolution_geometry(surface(geometry))["axis"] == geometry["axis"]
+    geometry["axis"] = [1.0 + 5 * np.finfo(float).eps, 0.0, 0.0]
+    assert revolution_geometry(surface(geometry))["axis"] == [1.0, 0.0, 0.0]
+    geometry["axis"] = [1.0 + 5e-11, 0.0, 0.0]
+    assert revolution_geometry(surface(geometry))["axis"] == [1.0, 0.0, 0.0]
+    geometry["axis"] = [1.0 + 2e-10, 0.0, 0.0]
+    with pytest.raises(ValueError, match="unit vector"):
+        _ = revolution_geometry(surface(geometry))
+
+
+def test_legacy_axis_keeps_its_existing_second_normalization() -> None:
+    # Existing positive-Z legacy adaptation normalized once for the slope
+    # chart and again at the spatial boundary. Preserve these exact bytes.
+    legacy = {
+        "kind": "cylinder",
+        "parameters": [0.0, 0.0, 0.3, 0.4, 2.0, 0.0, 0.0],
+    }
+    before = deepcopy(legacy)
+    assert revolution_geometry(legacy)["axis"] == [
+        0.2683281572999748,
+        0.3577708763999664,
+        0.894427190999916,
+    ]
+    assert legacy == before
 
 
 def oblique_cone() -> dict[str, Any]:

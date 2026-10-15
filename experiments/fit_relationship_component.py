@@ -45,13 +45,6 @@ class AxisInput:
 
 
 @dataclass(frozen=True)
-class PointInput:
-    result: dict[str, Any]
-    free: bool
-    source: str | None = None
-
-
-@dataclass(frozen=True)
 class PlaneInput:
     result: dict[str, Any]
     free: bool
@@ -125,6 +118,13 @@ def _checked_norm(value: Array, label: str) -> float:
     if not np.isfinite(norm) or norm <= 0:
         raise RelationshipFailure(f"{label} has an unrepresentable direction length")
     return norm
+
+
+@dataclass(frozen=True)
+class PointInput:
+    result: dict[str, Any]
+    free: bool
+    source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -999,8 +999,51 @@ def fit_relationship_component(
             return np.empty(0), np.empty((0, size))
         return np.concatenate(values), np.vstack(jacobians)
 
+    def canonical_symmetry_surface(surface: SurfaceInput, p: Array) -> dict[str, Any]:
+        """Publish about a semantic anchor, independent of the numerical chart."""
+        assert surface.axis is not None
+        point, direction, _, _ = axis_geometry(surface.axis, p)
+        chart_point = origin + length * point
+        reference = lateral_references[surface.id]
+        if reference.shape != (3,) or not np.isfinite(reference).all():
+            raise ValueError("surface anchor reference requires finite XYZ")
+        anchor = chart_point + ((reference - chart_point) @ direction) * direction
+        start = side_slots[surface.id]
+        taper = p[start + 1] if surface.kind == "cone" else 0.0
+        radius = length * p[start] + taper * ((anchor - chart_point) @ direction)
+        support = lateral_support[surface.id]
+        # Selection extent has no authored direction, but preserve the source
+        # surface's existing representation independently of a reversed datum.
+        if (
+            isinstance(support, SelectionSupport)
+            and direction @ lateral_geometry[surface.id]["axis"] < 0
+        ):
+            direction, taper = -direction, -taper
+        try:
+            resolved = resolve_support(
+                support,
+                anchor,
+                direction,
+                surface.points,
+                reference=reference,
+            )
+        except SupportIntentFailure as error:
+            raise RelationshipFailure(
+                str(error), code=error.code, details=error.diagnostic
+            ) from error
+        return {
+            "kind": surface.kind,
+            "origin": list(resolved.origin),
+            "axis": list(resolved.axis),
+            "radius": float(radius + taper * resolved.origin_shift),
+            "slope": float(resolved.axis_sign * taper),
+            "axial_domain": list(resolved.domain),
+        }
+
     def canonical_surface(surface: SurfaceInput, p: Array) -> dict[str, Any]:
         """Publish about a semantic anchor, independent of the numerical chart."""
+        if symmetry:
+            return canonical_symmetry_surface(surface, p)
         assert surface.axis is not None
         point, direction, _, _ = axis_geometry(surface.axis, p)
         chart_point = origin + length * point
@@ -1054,7 +1097,7 @@ def fit_relationship_component(
             if not legacy:
                 try:
                     geometry = canonical_surface(surface, p)
-                except SupportIntentFailure:
+                except (SupportIntentFailure, RelationshipFailure):
                     return False
                 radius, taper = geometry["radius"], geometry["slope"]
                 domain = geometry["axial_domain"]

@@ -25,7 +25,7 @@ const report={started_utc:new Date().toISOString(),source_revision:site.manifest
     startup:'Fresh contexts; filesystem/OS/code caches and competing host activity uncontrolled. Not WAN or cache benefit.',
     auto:'Mutation observer unchecks existing Auto input before application evaluation, to separate startup/first fit.',
     repetitions:'Two warmup + five measured serial cached evaluation, fresh-graph evaluation and export operations; browser suite followed by native suite, not simultaneous.',
-    numeric_cache:'Repeated Evaluate all reuses ready graph caches and measures scheduler/publication. Fresh samples reset through selectExample then actual UI recipe upload; all30 states must be unevaluated before timing.',
+    numeric_cache:'Repeated Evaluate all reuses ready graph caches and measures scheduler/publication. Fresh samples reopen the frozen numeric recipe through the actual UI matching-actions transaction; accepted epoch/source and all30 unevaluated states are checked before timing. Preparation/adoption is outside the timed solve.',
     responsiveness:'16ms timer, continuous rAF observer, and canvas wheel/pointermove to render-stats mutations. Instrumentation adds small overhead.',
     native:'Same packaged source/recipes, existing interpreter, BLAS/OMP/MKL threads1. Adapter timings versus worker lifecycle and full UI latency are distinct.'},
   startup:[],cached_numeric_samples:[],fresh_numeric_samples:[],cad_samples:[],requests:[],page_errors:[],unexpected_requests:[]};
@@ -201,13 +201,21 @@ try{
   }
   const page=firstPage;
   for(let i=0;i<7;i++){const sample=await evaluateUi(page,i<2?'cached-warmup-'+i:'cached-sample-'+(i-2),true);sample.warmup=i<2;report.cached_numeric_samples.push(sample);console.log('cached',i,sample.worker_running_ms);}
+  const frozenNumericRecipe=(await graph(page)).recipe;
   for(let i=0;i<7;i++){
-    const reset=await page.evaluate(async()=>{const {getBackend}=await import(new URL('backend.js',document.baseURI));const b=getBackend(),g=await b.getGraph();await b.selectExample({token:g.token,example:'nozzle'});return b.getGraph();});
-    assert.equal(Object.keys(reset.states).length,30);assert.ok(Object.values(reset.states).every(s=>s==='unevaluated'));
-    await page.locator('#file').setInputFiles({name:'fresh-nozzle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(reset.recipe))});
-    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Actions loaded'),null,{timeout:30000});
+    const previous=await page.evaluate(async()=>{const {getBackend}=await import(new URL('backend.js',document.baseURI));const b=await getBackend().loadWorkspace();return {generation:b.generation,identity:b.metadata.source_identity,mode:b.metadata.source_mode};});
+    const approveActions=page.waitForEvent('dialog').then(async dialog=>{assert.equal(dialog.type(),'confirm');assert.match(dialog.message(),/Replace the current actions\?/);await dialog.accept();});
+    await page.locator('#file').setInputFiles({name:'fresh-nozzle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(frozenNumericRecipe))});
+    await approveActions;
+    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Actions loaded')&&document.querySelector('#file').value===''&&!document.querySelector('main').inert&&!document.querySelector('#load').disabled&&document.querySelector('#source-progress').hidden,null,{timeout:30000});
+    const accepted=await page.evaluate(async()=>{const {getBackend}=await import(new URL('backend.js',document.baseURI));const b=await getBackend().loadWorkspace();return {generation:b.generation,metadata:b.metadata,graph:b.graph};});
+    assert.equal(accepted.generation,previous.generation+1);
+    assert.equal(accepted.metadata.project_generation,accepted.generation);assert.equal(accepted.graph.project_generation,accepted.generation);
+    assert.deepEqual(accepted.metadata.source_identity,previous.identity);assert.deepEqual(accepted.metadata.source_mode,previous.mode);
+    assert.deepEqual(accepted.metadata.source_mode,{kind:'example',example:'nozzle'});assert.deepEqual(accepted.graph.recipe,frozenNumericRecipe);
     const before=await graph(page);assert.equal(Object.keys(before.states).length,30);assert.ok(Object.values(before.states).every(s=>s==='unevaluated'));
-    const sample=await evaluateUi(page,i<2?'fresh-warmup-'+i:'fresh-sample-'+(i-2),true);sample.warmup=i<2;sample.unevaluated_nodes_before=30;sample.ready_nodes_after=Object.values(sample.graph.states).filter(s=>s==='ready').length;report.fresh_numeric_samples.push(sample);console.log('fresh',i,sample.worker_running_ms);
+    assert.equal(before.project_generation,accepted.generation);assert.equal(before.token,accepted.graph.token);
+    const sample=await evaluateUi(page,i<2?'fresh-warmup-'+i:'fresh-sample-'+(i-2),true);sample.warmup=i<2;sample.unevaluated_nodes_before=30;sample.ready_nodes_after=Object.values(sample.graph.states).filter(s=>s==='ready').length;sample.preparation={previous,accepted};report.fresh_numeric_samples.push(sample);console.log('fresh',i,sample.worker_running_ms);
   }
   const numeric=await graph(page);
   const cone=numeric.recipe.nodes.find(n=>n.operation==='fit'&&n.label==='outer fit');

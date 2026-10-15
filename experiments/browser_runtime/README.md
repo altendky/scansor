@@ -70,7 +70,8 @@ not demonstrate every operation it implements:
   three scales, with nonuniform angular/axial cells, automatic support growth,
   renamed-source recipe replay and reversed fit-derived fixed axes. A separate
   extreme optional hint cannot suppress fresh fitting. Complete recovery
-  diagnostics participate in native/worker comparison.
+  diagnostics remain in both reports under the
+  [bounded semantic parity contract](../../docs/src/project/experiments/numerical-runtime-parity.md).
 - Canonical horizontal-cylinder and finite-cone spatial geometry, including
   negative extrapolated anchor radius, support-preserving rebasing/reversal and
   rigid transforms, normals and support membership. Stale legacy parameters
@@ -82,8 +83,10 @@ not demonstrate every operation it implements:
   admission, then replay saved recipes over renamed identical bytes. The probe
   independently checks raw coordinates/normals/triangles, incident weights,
   every residual, known geometry and finite support. Truth is checked only after
-  solving. Complete named results and attempt evidence participate in the same
-  unchanged native/worker comparison; the runtime imports no test generator.
+  solving. Complete graph and replay operands participate in the shared bounded
+  semantic comparison, with all attempt diagnostics retained. The six scenes
+  add six cross-runtime receipts and six local replay pairs per runtime; the
+  runtime imports no test generator.
 - Optional Scansor cylinder intersections, bounded face construction, kernel
   validity/area, tessellation and named millimeter STEP. Browser-produced STEP
   is reopened natively to verify validity, area and its Unicode name.
@@ -107,12 +110,14 @@ checkout imports cannot mask a missing source dependency. Native fixture bytes
 and their SHA-256 are retained in the artifact; do not regenerate the noisy
 fixture independently in the browser.
 
-Parameter, residual, RMS and frame comparisons use `rtol=atol=1e-10` for these
-small well-conditioned fixtures. This permits floating-point differences far
-below their 0.001 synthetic noise and recorded fitting precision. Solver
-termination, rank, iterations and evaluations are checked exactly for these
-fixtures, with raw solver diagnostics retained in reports. This tolerance and
-control-flow agreement do not establish equivalence for arbitrary inputs.
+Published geometry, residual, RMS and frame comparisons retain
+`rtol=atol=1e-10` for these small well-conditioned fixtures. This permits
+floating-point differences far below their 0.001 synthetic noise and recorded
+fitting precision. The shared semantic policy checks selected acceptance
+certificates and classifications, validates each runtime's accounting against
+unchanged finite budgets, and retains differing discarded attempts and realized
+solver counts as diagnostics. These bounded checks do not establish equivalence
+for arbitrary inputs.
 Imported-case distances and areas are divided by the frozen fixture length
 scale and its square before comparison; directions, source identity, membership
 and normalized solver evidence retain their original meaning.

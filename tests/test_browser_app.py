@@ -99,12 +99,7 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
         _ = target.write_bytes(data)
     manifest = {
         "schema_version": 1,
-        "worker_protocol": {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
+        "worker_protocol": BUILDER.RUNTIME_BUILDER["worker_protocol"](),
         "source_revision": "native-revision",
         "source_worktree_dirty": False,
         "versions": {"pyodide": "test"},
@@ -154,6 +149,10 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
         "runtime_bootstrap": True,
         "numerical": True,
         "cad": True,
+        "source_import": BUILDER.RUNTIME_BUILDER["worker_protocol"]()["source_import"],
+        "source_actions": BUILDER.RUNTIME_BUILDER["worker_protocol"]()[
+            "source_actions"
+        ],
     }
     assert manifest["bounded_examples"][0]["vertices"] == 24999
     assert manifest["bounded_examples"][0]["units"] == "unknown source units"
@@ -161,6 +160,7 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
     assert manifest["runtime"]["path"] == f"app/runtime/{runtime_hash}"
     config = (output / "app/backend-config.js").read_text()
     assert '"type": "worker"' in config
+    assert '"sourceActions": true' in config
     assert f"./runtime/{runtime_hash}/worker.mjs" in config
     listed = {item["path"] for item in manifest["assets"]}
     assert "app/index.html" in listed and "app/backend-config.js" in listed

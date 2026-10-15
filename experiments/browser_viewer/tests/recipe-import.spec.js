@@ -3,12 +3,43 @@ import { test, expect } from '@playwright/test';
 const read = async page => (await page.request.get('/api/graph')).json();
 
 async function loadFile(page, recipe) {
-  const imported = page.waitForResponse(response => response.url().endsWith('/api/graph/import') &&
+  const inspected = page.waitForResponse(response => response.url().endsWith('/api/actions/inspect') &&
     response.request().method() === 'POST');
-  await page.locator('#file').setInputFiles({ name: 'actions.json', mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify(recipe)) });
-  return imported;
+  let resolveOpen;
+  const opened = new Promise(resolve => { resolveOpen = resolve; });
+  const onResponse = response => {
+    if (response.url().endsWith('/api/actions/open') && response.request().method() === 'POST') resolveOpen(response);
+  };
+  page.on('response', onResponse);
+  try {
+    await page.locator('#file').setInputFiles({ name: 'actions.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(recipe)) });
+    const inspection = await inspected;
+    if (!inspection.ok()) return inspection;
+    const response = await opened;
+    expect(response).not.toBeNull();
+    expect(response.ok(), await response.text()).toBe(true);
+    const reserved = await response.json();
+    let operation;
+    await expect.poll(async () => {
+      operation = await (await page.request.get(`/api/sources/imports/${reserved.operationId}`)).json();
+      return operation.terminal;
+    }).toBe(true);
+    expect(operation.status, JSON.stringify(operation.error)).toBe('accepted');
+    await expect(page.locator('#source-progress')).toBeHidden();
+    const accepted = await (await page.request.get('/api/meta')).json();
+    expect(accepted.project_generation).toBe(operation.acceptedGeneration);
+    const result = { ...accepted.graph, import_warnings: accepted.import_warnings };
+    return { ok: () => true, status: () => 200, json: async () => result, text: async () => JSON.stringify(result) };
+  } finally { page.off('response', onResponse); }
 }
+
+test.beforeEach(async ({ page }) => {
+  page.on('dialog', async dialog => {
+    expect(dialog.type()).toBe('confirm');
+    await dialog.accept();
+  });
+});
 
 async function ready(page) {
   await expect(page.getByRole('button', { name: 'Save actions', exact: true })).toBeEnabled();
@@ -107,7 +138,7 @@ test('invalid files leave actions intact and import warnings render names as tex
   } finally { await restore(page, original.recipe); }
 });
 
-test('a stale import refreshes current actions and an explicit second load uses the refreshed token', async ({ page }) => {
+test('a stale import preserves visible actions and warnings until explicit reload and a new load', async ({ page }) => {
   await page.goto('/');
   await ready(page);
   await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
@@ -132,17 +163,21 @@ test('a stale import refreshes current actions and an explicit second load uses 
     expect(changed.ok(), await changed.text()).toBe(true);
     const current = await changed.json(), requests = [];
     page.on('request', request => {
-      if (request.url().endsWith('/api/graph/import') && request.method() === 'POST') requests.push(request.postDataJSON());
+      if (request.url().endsWith('/api/actions/inspect') && request.method() === 'POST') requests.push(request.postDataJSON());
     });
     const rejected = await loadFile(page, target);
     expect(rejected.status()).toBe(409);
     await expect(page.locator('#status')).toHaveClass('error');
-    await expect(page.locator('#action-list .action-select[data-action-id="external-change"]')).toBeVisible();
+    await expect(page.locator('#action-list .action-select[data-action-id="first"]')).toBeVisible();
+    await expect(page.locator('#action-list .action-select[data-action-id="external-change"]')).toHaveCount(0);
     await expect(page.locator('#import-warning-list')).toHaveText(warning);
     expect((await read(page)).recipe).toEqual(current.recipe);
     expect((await read(page)).token).toBe(current.token);
     expect(requests).toHaveLength(1);
     expect(requests[0].token).toBe(before.token);
+    await page.reload();
+    await ready(page);
+    await expect(page.locator('#action-list .action-select[data-action-id="external-change"]')).toBeVisible();
     const retried = await loadFile(page, target);
     expect(retried.ok(), await retried.text()).toBe(true);
     expect(requests).toHaveLength(2);

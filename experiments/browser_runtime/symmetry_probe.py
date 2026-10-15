@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,6 +20,9 @@ from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits
 
 SYMMETRY_FIXTURES = "experiments/browser_runtime/symmetry"
+ReplayComparison = Callable[
+    [dict[str, Any], dict[str, Any], str, list[dict[str, Any]] | None], None
+]
 
 
 def _open(raw: bytes, name: str) -> AcceptedScan:
@@ -35,7 +39,13 @@ def _open(raw: bytes, name: str) -> AcceptedScan:
     )
 
 
-def symmetry_graph_probe(root: Path, case: str) -> dict[str, Any]:
+def symmetry_graph_probe(
+    root: Path,
+    case: str,
+    *,
+    compare_replay: ReplayComparison,
+    replay_evidence: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Run a named solve, account for every row, and replay renamed raw bytes."""
     directory = root / SYMMETRY_FIXTURES
     raw = (directory / f"{case}.ply").read_bytes()
@@ -167,7 +177,6 @@ def symmetry_graph_probe(root: Path, case: str) -> dict[str, Any]:
     np.testing.assert_allclose(
         result["fit"]["weighted_rms"] ** 2, total / mass, rtol=1e-8, atol=1e-20
     )
-    keys = ("recipe", "token", "states", "errors", "diagnostics", "results")
     saved = recipe.model_dump_json()
     renamed = _open(raw, f"renamed-{case}.ply")
     replay = FeatureGraph(renamed.workspace, Recipe.model_validate_json(saved))
@@ -175,8 +184,7 @@ def symmetry_graph_probe(root: Path, case: str) -> dict[str, Any]:
         dict[str, Any],
         replay.evaluate(str(replay.snapshot()["token"]), target=record["target"]),
     )
-    for key in keys:
-        assert replayed[key] == state[key], f"{case}.replay.{key}"
+    compare_replay(replayed, state, f"symmetry.{case}.replay", replay_evidence)
     return json.loads(
         json.dumps(
             {
@@ -184,16 +192,26 @@ def symmetry_graph_probe(root: Path, case: str) -> dict[str, Any]:
                 "kind": record["kind"],
                 "mode": record["mode"],
                 "source_sha256": record["source_sha256"],
-                "state": {key: state[key] for key in keys},
+                "state": state,
             },
             allow_nan=False,
         )
     )
 
 
-def symmetry_graph_probes(root: Path) -> list[dict[str, Any]]:
+def symmetry_graph_probes(
+    root: Path,
+    *,
+    compare_replay: ReplayComparison,
+    replay_evidence: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     return [
-        symmetry_graph_probe(root, f"{kind}-{mode}")
+        symmetry_graph_probe(
+            root,
+            f"{kind}-{mode}",
+            compare_replay=compare_replay,
+            replay_evidence=replay_evidence,
+        )
         for kind in ("plane", "cylinder", "cone")
         for mode in ("rotation", "mirror")
     ]
