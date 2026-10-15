@@ -93,17 +93,8 @@ class ScanProject:
                 "source_busy",
             )
 
-    def prepare_add(
-        self,
-        stream: BinaryIO,
-        filename: str,
-        limits: ScanLimits,
-        *,
-        generation: int,
-        token: str,
-        progress: Callable[[ScanProgress], None] | None = None,
-        cancelled: Callable[[], bool] | None = None,
-    ) -> PreparedScan:
+    def check_add(self, *, generation: int, token: str) -> None:
+        """Check an adapter reservation without reading or allocating a source."""
         with self._lock, self._accepted.graph.lock:
             self._check(generation, token)
             recipe = cast(dict[str, object], self._accepted.graph.snapshot()["recipe"])
@@ -116,6 +107,19 @@ class ScanProject:
                     "Add scan requires an empty project; start a new project explicitly.",
                     "source_exists",
                 )
+
+    def prepare_add(
+        self,
+        stream: BinaryIO,
+        filename: str,
+        limits: ScanLimits,
+        *,
+        generation: int,
+        token: str,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> PreparedScan:
+        self.check_add(generation=generation, token=token)
         workspace = prepare_scan(
             stream, filename, limits, progress=progress, cancelled=cancelled
         )
