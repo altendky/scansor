@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -94,7 +95,14 @@ def site_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 def test_release_contains_only_exact_tested_members_and_named_json(tmp_path: Path):
     site, evidence, release = site_fixture(tmp_path)
     CI.stage_release(
-        site, evidence, release, CI.identity(site / "manifest.json")["sha256"]
+        site,
+        evidence,
+        release,
+        CI.identity(site / "manifest.json")["sha256"],
+        numerical_site=site,
+        expected_numerical_manifest_sha256=CI.identity(site / "manifest.json")[
+            "sha256"
+        ],
     )
     files = {
         path.relative_to(release).as_posix()
@@ -105,6 +113,7 @@ def test_release_contains_only_exact_tested_members_and_named_json(tmp_path: Pat
         "site/index.html",
         "site/manifest.json",
         "evidence/verification.json",
+        "evidence/numerical-assets/index.html",
     }
     assert (release / "site/index.html").read_bytes() == (
         site / "index.html"
@@ -132,7 +141,14 @@ def test_release_preflight_rejects_changed_or_escaped_assets_without_writes(
     _ = (site / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError):
         CI.stage_release(
-            site, evidence, release, CI.identity(site / "manifest.json")["sha256"]
+            site,
+            evidence,
+            release,
+            CI.identity(site / "manifest.json")["sha256"],
+            numerical_site=site,
+            expected_numerical_manifest_sha256=CI.identity(site / "manifest.json")[
+                "sha256"
+            ],
         )
     assert not release.exists()
 
@@ -153,7 +169,14 @@ def test_release_manifest_must_be_the_one_tested(tmp_path: Path):
     manifest["untested"] = True
     _ = (site / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="tested manifest"):
-        CI.stage_release(site, evidence, release, expected)
+        CI.stage_release(
+            site,
+            evidence,
+            release,
+            expected,
+            numerical_site=site,
+            expected_numerical_manifest_sha256=expected,
+        )
     assert not release.exists()
 
 
@@ -164,6 +187,8 @@ def test_release_stages_the_bytes_it_hashed_even_if_input_changes(
     asset = site / "index.html"
     expected_bytes = asset.read_bytes()
     expected_manifest = CI.identity(site / "manifest.json")["sha256"]
+    numerical_site = tmp_path / "numerical-site"
+    _ = shutil.copytree(site, numerical_site)
     original_read = Path.read_bytes
 
     def read_then_change(path: Path) -> bytes:
@@ -173,7 +198,14 @@ def test_release_stages_the_bytes_it_hashed_even_if_input_changes(
         return data
 
     monkeypatch.setattr(Path, "read_bytes", read_then_change)
-    CI.stage_release(site, evidence, release, expected_manifest)
+    CI.stage_release(
+        site,
+        evidence,
+        release,
+        expected_manifest,
+        numerical_site=numerical_site,
+        expected_numerical_manifest_sha256=expected_manifest,
+    )
     assert (release / "site/index.html").read_bytes() == expected_bytes
 
 
@@ -299,6 +331,37 @@ def test_supplement_precedes_all_builders_and_runtime_completion_allows_release(
     assert github_output.read_text() == "redistribution_ready=true\n"
     assert (output / "release/site/index.html").read_text() == "tested static fixture"
     assert (output / "release/evidence/build-redistribution.json").is_file()
+    assert report["numerical-runtime-manifest"] == CI.identity(
+        output / "evidence/numerical-runtime-manifest.json"
+    )
+    assert (output / "release/evidence/numerical-assets/index.html").is_file()
+
+
+@pytest.mark.parametrize("fault", ["manifest", "asset", "symlink"])
+def test_numerical_release_proof_is_preflighted_before_any_publication(
+    tmp_path: Path, fault: str
+):
+    site, evidence, release = site_fixture(tmp_path)
+    numerical = tmp_path / "numerical"
+    _ = shutil.copytree(site, numerical)
+    expected = CI.identity(numerical / "manifest.json")["sha256"]
+    if fault == "manifest":
+        _ = (numerical / "manifest.json").write_text('{"changed":true}')
+    elif fault == "asset":
+        _ = (numerical / "index.html").write_text("changed")
+    else:
+        (numerical / "index.html").unlink()
+        (numerical / "index.html").symlink_to(site / "index.html")
+    with pytest.raises(ValueError):
+        CI.stage_release(
+            site,
+            evidence,
+            release,
+            CI.identity(site / "manifest.json")["sha256"],
+            numerical_site=numerical,
+            expected_numerical_manifest_sha256=expected,
+        )
+    assert not release.exists()
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux CI process-group cleanup")
