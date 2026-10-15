@@ -25,11 +25,13 @@ preserves their existing reference hashes and optional starter recipes.
 The native HTTP adapter now implements bounded source import, progress,
 cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
-for adapter development. The source picker and empty-project UI remain #243.
-Worker import/recovery now has an implementation and measured source-only tier;
-its strict fit comparison remains blocked by #266. See the
-[worker evidence and delivery gates](worker-scan-import.md) and the
-[native measurements and lifecycle](native-scan-import.md). The full numerical
+for bounded native source authoring through #278. The common UI exposes empty
+projects, a file picker and read-only Source inspection where backend
+capabilities permit them. Full both-backend UI acceptance remains #243.
+Worker import/recovery has a draft implementation and measured source-only
+tier in #242; its strict fit comparison remains blocked by #266. See the
+[native measurements and lifecycle](native-scan-import.md) and
+[worker evidence and delivery gates](worker-scan-import.md). The full numerical
 delivery gate in #240 remains open; this transport slice does not claim its
 pending cone/symmetry integration or cross-runtime parity work is delivered.
 
@@ -72,6 +74,17 @@ fixed axes remain exact. Per-axis constrained charts, derived axes, radius
 equalities and rigid reuse consume the canonical geometry. Imported cones and
 rotational/mirror groups remain guarded pending their integration work.
 
+The [raw-scan acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
+opens only the retained RealityScan PLY, authors the frozen 803-row plane and
+5,066-row cylinder selections, and verifies every selected residual and complete
+incident-area-weighted objective while example sidecar and legacy workspace
+reads are denied. Saved definitions contain no computed seeds; replay against
+renamed identical bytes preserves source binding and exact results. This rough
+real scan is implementation evidence, with no fit-quality or physical-accuracy
+threshold. Independent analytic fixtures remain the geometry oracles. The
+shared-core regression complements native atomic reopening and browser tests;
+it does not complete #240's cone/symmetry or both-backend workflow gates.
+
 Cylinder admission is deliberately conservative: selected positional covariance
 must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
 geometric Jacobian, measured in a normalized chart aligned with the fitted axis,
@@ -97,12 +110,17 @@ support reuse and independently authored target bounds remain available.
 [#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
 target override authority and its fixed/free/group/replay verification.
 
-Worker delivery, source-aware reopening and full workflow validation remain
-their listed tickets. Native and worker defaults have executed source-only
-source-only import evidence; byte/count caps and the loader's incremental
-allocation estimate are admission checks, not a measured total-runtime memory
-guarantee. Input snapshots and authoritative/display copies are accounted for
-separately from the interpreter, GPU and unrelated caller state.
+The native/shared reopening child
+[#280](https://github.com/altendky/scansor/issues/280), delivered by #281, uses
+private source and recipe preparation before one native owner installation;
+full #244 still includes worker source-aware opening. Worker import/Force
+recovery has a draft implementation in #242; strict #266 parity and full
+workflow validation remain delivery gates. Native and worker defaults have
+executed source-only import evidence; byte/count caps and the loader's
+incremental allocation estimate are admission checks, not a measured
+total-runtime memory guarantee. Input snapshots and authoritative/display
+copies are accounted for separately from the interpreter, GPU and unrelated
+caller state.
 
 Already agreed: a scan is a Source feature; initially each project has zero or
 one scan; native HTTP and browser workers use interchangeable operations and

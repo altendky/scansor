@@ -466,7 +466,7 @@ test('malformed accepted operation cannot publish an unrelated workspace', async
     return Response.json(sourceRecord({ revision: 1, status: 'accepted', terminal: true }));
   } });
   await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }),
-    error => error.code === 'invalid_operation');
+    error => error.code === 'accepted_workspace_unavailable' && error.cause.code === 'invalid_operation');
 });
 
 test('example selection retains its old generation fence until the new workspace is coherently loaded', async () => {
@@ -488,4 +488,96 @@ test('example selection retains its old generation fence until the new workspace
   await backend.selectExample({ example: 'example', token: 'empty' });
   await assert.rejects(backend.getGraph(), error => error.code === 'observation_superseded');
   assert.equal((await backend.loadWorkspace()).generation, 1);
+});
+
+test('sourceActions is independent of import and retains shared status and Cancel operations', async () => {
+  const selected = createBackend({ type: 'actions-only', factories: { 'actions-only': () => {
+    const backend = createHttpBackend({ fetch: async () => Response.json({ operationId: 'actions-1' }) });
+    backend.capabilities = { ...backend.capabilities, sourceImport: false };
+    return backend;
+  } } });
+  assert.equal((await selected.getSourceOperation({ operationId: 'actions-1' })).operationId, 'actions-1');
+  assert.equal((await selected.cancelSourceOperation({ operationId: 'actions-1' })).operationId, 'actions-1');
+  await assert.rejects(selected.addScan({}), error => error.code === 'unsupported_capability');
+  const old = createBackend({ type: 'old', factories: { old: () => {
+    const backend = createHttpBackend(); backend.capabilities = {}; return backend;
+  } } });
+  await assert.rejects(old.inspectActions({}), error => error.code === 'unsupported_capability');
+  await assert.rejects(old.openActions({}), error => error.code === 'unsupported_capability');
+  assert.throws(() => createBackend({ type: 'incomplete', factories: { incomplete: () => {
+    const backend = createHttpBackend(); delete backend.openActions; return backend;
+  } } }), error => error.code === 'unsupported_operation');
+  selected.close(); old.close();
+});
+
+test('actions inspection is read-only, retains original intent, and validates the original cursor', async () => {
+  const recipe = { nodes: [{ label: 'duplicate' }, { label: 'duplicate' }] }, calls = [];
+  let stale = false;
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json(metadata());
+    if (path.startsWith('/mesh/')) return meshResponse(path, 0);
+    return Response.json({ generation: stale ? 1 : 0, token: 'empty', classification: 'locate',
+      uploadRequired: true, descriptor: { filename: 'old.ply' }, recipe: { nodes: [] }, import_warnings: ['renamed'] });
+  } });
+  await backend.loadWorkspace();
+  const result = await backend.inspectActions({ recipe, generation: 0, token: 'empty' });
+  assert.equal(result.classification, 'locate');
+  assert.equal(calls.at(-1).path, '/api/actions/inspect');
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { recipe, generation: 0, token: 'empty' });
+  assert.equal(calls.at(-1).init.headers['X-Scansor-Generation'], '0');
+  stale = true;
+  await assert.rejects(backend.inspectActions({ recipe, generation: 0, token: 'empty' }), error => error.code === 'invalid_operation');
+});
+
+test('matching and empty actions open without upload and adopt a new generation with warning receipt', async () => {
+  for (const nodes of [[], [{ id: 'same-source', operation: 'source' }]]) {
+    const calls = [], recipe = { nodes }, warnings = [{ code: 'duplicate-label' }];
+    const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+      calls.push({ path, init });
+      if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: false }));
+      if (path === '/api/sources/imports/scan-1') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: false,
+        revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1, import_warning_count: 1 }));
+      if (path === '/api/meta') return Response.json({ ...metadata(1, 'opened'), import_warnings: warnings });
+      if (path.startsWith('/mesh/')) return meshResponse(path, 1);
+      assert.fail(path);
+    } });
+    const bundle = await backend.openActions({ recipe, generation: 0, token: 'empty', confirmedDiscard: true });
+    assert.equal(bundle.generation, 1);
+    assert.deepEqual(bundle.import_warnings, warnings);
+    assert.deepEqual(JSON.parse(calls[0].init.body), { recipe, generation: 0, token: 'empty', confirmedDiscard: true });
+    assert.equal(calls.some(({ path }) => path.endsWith('/bytes')), false);
+  }
+});
+
+test('located actions keep raw JSON separate from the exact renamed File and recover a lost upload reply', async () => {
+  const recipe = { nodes: [{ label: 'same' }, { label: 'same' }] }, file = scanFile(), calls = [];
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: true }));
+    if (path.endsWith('/bytes')) { assert.equal(init.body, file); throw Error('Reply lost'); }
+    if (path === '/api/sources/imports/scan-1') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: true,
+      revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1, import_warning_count: 0 }));
+    if (path === '/api/meta') return Response.json({ ...metadata(1), import_warnings: [] });
+    return meshResponse(path, 1);
+  } });
+  const bundle = await backend.openActions({ recipe, file, generation: 0, token: 'empty', confirmedDiscard: true });
+  assert.equal(bundle.generation, 1);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { recipe, generation: 0, token: 'empty', confirmedDiscard: true,
+    source: { filename: file.name, size: file.size } });
+  assert.equal(calls.some(({ path }) => path.endsWith('/cancel')), false);
+});
+
+test('accepted actions cannot lose their warning receipt or publish a different operation epoch', async () => {
+  for (const defect of ['warnings', 'epoch', 'purpose']) {
+    const backend = createHttpBackend({ fetch: async path => {
+      if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: defect === 'purpose' ? 'add-scan' : 'open-actions',
+        uploadRequired: false, terminal: true, status: 'accepted', acceptedGeneration: defect === 'epoch' ? 2 : 1, import_warning_count: 1 }));
+      if (path === '/api/meta') return Response.json({ ...metadata(1), import_warnings: [] });
+      return meshResponse(path, 1);
+    } });
+    await assert.rejects(backend.openActions({ recipe: { nodes: [] }, generation: 0, token: 'empty', confirmedDiscard: true }),
+      error => error.code === 'accepted_workspace_unavailable'
+        && error.cause.code === (defect === 'warnings' ? 'invalid_workspace' : 'invalid_operation'));
+  }
 });

@@ -6,6 +6,7 @@ import {createRequire} from 'node:module';
 import {verifySite,startPreview,prepareReports} from './server.mjs';
 import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFile,
   readSourceEvidence,compareSourceNumbers} from './source-import-harness.mjs';
+import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 
 const args=process.argv.slice(2),argument=(name,fallback)=>{
   const index=args.indexOf(name);if(index<0)return fallback;
@@ -188,11 +189,14 @@ try{
   assert.equal(cleanRecovery.project_generation,checkpoint.project_generation);assert.equal(cleanRecovery.owned_fs_bytes,0);
   for(const key of ['positions','normals','triangles','weights'])compareSourceNumbers(cleanRecovery[key],checkpoint[key],'cleanup.force.'+key);
   report.boundary_races.push({position:'staging-cleanup',failure_preserved_through_cancel:true,accepted_checkpoint_survived_force:true});
+  await page.evaluate(()=>window.__sourceImportBackend242.close());await context.close();
+  await validateSourceUiRecovery({browser,site,preview,prefix,sources,isolation,report});
   report.checks={source_import:true,source_identity:true,recovery:true,cleanup:true,
-    cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true};
+    cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true,
+    ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true};
   assert.deepEqual(report.unexpected_requests,[]);assert.deepEqual(report.api_requests,[]);assert.deepEqual(report.page_errors,[]);
   assert.deepEqual(report.native_parity_errors,[],'Complete native/worker parity is required');
-  await page.evaluate(()=>window.__sourceImportBackend242.close());await context.close();report.complete=true;
+  report.complete=true;
 }catch(error){report.failure=String(error);throw error;}
 finally{
   if(browser)await browser.close();if(preview){report.static_requests=preview.requests;await preview.close();}

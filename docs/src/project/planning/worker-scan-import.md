@@ -11,9 +11,13 @@ the frozen independent fixture exposes a recovery-attempt diagnostic difference
 tracked in [#266](https://github.com/altendky/scansor/issues/266). Source-array or
 selected-geometry agreement does not turn that comparison into a pass.
 
-The source picker and empty-project product UI remain
-[#243](https://github.com/altendky/scansor/issues/243); transactional source-aware
-actions lookup remains [#244](https://github.com/altendky/scansor/issues/244).
+The native/common UI already supplies empty projects, the source picker and
+read-only Source inspection, gated by backend capabilities. Worker import/recovery
+is a draft implementation; full both-backend UI acceptance remains
+[#243](https://github.com/altendky/scansor/issues/243). Native transactional
+source-aware actions reopening is delivered; its worker path remains
+[#244](https://github.com/altendky/scansor/issues/244), with worker `sourceActions`
+unavailable.
 This work adds neither persistence nor broader numerical-family support. The
 full numerical delivery gate in #240 and its draft stack remain separate.
 
@@ -58,6 +62,17 @@ the recipe on a private candidate with computed results dirty. User-source
 recovery starts empty and never substitutes the nozzle. Same-source computation
 Cancel reconstructs its graph through the authoritative project owner while
 retaining immutable source arrays and committed failure evidence.
+
+The common UI reuses its renderer. For source-capable backends, graph-only recovery
+requires the same valid displayed source generation without a pending or
+unavailable source transition. Fixed-source legacy ports retain their explicit
+compatibility path. If the worker recovers a different accepted source, the displayed
+graph, arrays, metadata, unfinished edit and prior actions stay together under a
+recovery fence. The explicit **Load current project** action obtains a fresh edit
+discard proof and installs a complete validated source/graph/display bundle before
+releasing that fence. Force does not automatically retry this adoption or discard
+the old editor. An accepted source still wins when its promotion acknowledgement
+was lost; the old displayed scene is not authority to restore the prior source.
 
 File retention is memory-only and is not a guarantee that a disk-backed File can
 always be reread unchanged. Failed reading, identity validation or replay keeps
@@ -143,6 +158,17 @@ The actual source acceptance driver separately compares full source arrays,
 weights, authored fits and STEP readback with native execution from the exact
 packaged source. It exercises cancellation around candidate/transfer boundaries,
 Force after adoption with held authorization/acknowledgement, and cleanup failure.
+Its [actual UI helper](../../../../experiments/browser_static/source-ui-recovery.mjs)
+also exercises the shipped app, singleton backend and real worker across source
+adoption boundaries, live drafts, prior-actions export and explicit full-bundle
+Retry. A separate legacy-shaped startup fault omits graph from one public
+`loadWorkspace` response, holds the actual initial `getGraph` reply and invokes
+Force in the shipped app. This disclosed shim uses the current real worker; it
+does not establish compatibility by executing an old worker binary. Reports must
+include successful `ui_source_recovery` and `ui_legacy_startup` checks as well as
+the original strict source/fit evidence. Fresh assembled-site startup and these
+UI cases require their own executed checks; source-only measurements do not
+establish them.
 Numerical/CAD profiles and plain/isolated runs are distinct required gates. A
 diagnostic run may collect remaining lifecycle evidence after a parity failure,
 but must retain that failure, incomplete status and nonzero exit.

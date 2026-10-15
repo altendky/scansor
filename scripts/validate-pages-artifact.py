@@ -511,6 +511,8 @@ def validate_evidence(
                     "cancel_before_adoption",
                     "force_after_adoption",
                     "cleanup_failure_recovery",
+                    "ui_source_recovery",
+                    "ui_legacy_startup",
                 }
                 if name != "source-import-memory"
                 else {

@@ -385,6 +385,11 @@ def selected(tmp_path: Path) -> dict[str, Any]:
                 "cancel_before_adoption": True,
                 "force_after_adoption": True,
                 "cleanup_failure_recovery": True,
+                **(
+                    {"ui_source_recovery": True, "ui_legacy_startup": True}
+                    if name != "source-import-memory"
+                    else {}
+                ),
                 "recovery": True,
                 "cleanup": True,
             },
@@ -515,6 +520,37 @@ def test_source_import_evidence_requires_executed_complete_checks(
     selected["members"]["evidence/verification.json"] = encoded(verification)
     refresh(selected)
     with pytest.raises(ValueError, match="source-import"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize(
+    "driver",
+    [
+        name
+        for name in VALIDATOR.DRIVERS
+        if "source-import" in name and name != "source-import-memory"
+    ],
+)
+@pytest.mark.parametrize("fault", ["missing", "failed", "not-boolean"])
+@pytest.mark.parametrize("check", ["ui_source_recovery", "ui_legacy_startup"])
+def test_source_evidence_requires_executed_ui_recovery(
+    selected: dict[str, Any], driver: str, fault: str, check: str
+) -> None:
+    name = f"evidence/{driver}.json"
+    report = json.loads(selected["members"][name])
+    if fault == "missing":
+        del report["checks"][check]
+    else:
+        report["checks"][check] = False if fault == "failed" else 1
+    selected["members"][name] = encoded(report)
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == driver)[
+        "evidence"
+    ] = {"path": driver + ".json", **VALIDATOR.identity(selected["members"][name])}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises(ValueError, match="source-import checks incomplete"):
         _ = validate(selected)
     assert not (selected["tmp"] / "public-site").exists()
 

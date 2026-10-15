@@ -18,6 +18,8 @@ from experiments.feature_graph import (
     Recipe,
     Source,
 )
+from experiments.feature_recipe_import import ImportWarning
+from experiments.scan_actions import inspect_actions, preflight_actions
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -35,6 +37,7 @@ class AcceptedScan:
     graph: FeatureGraph[ScanWorkspace]
     positions: NDArray[np.float32]
     indices: NDArray[np.uint32]
+    import_warnings: tuple[ImportWarning, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,18 @@ class PreparedScan:
     generation: int
     token: str
     prepared_token: str
+    accepted: AcceptedScan
+
+
+@dataclass(frozen=True)
+class PreparedProject:
+    """Whole-project reopen intent, distinct from adding a Source alone."""
+
+    owner: str
+    generation: int
+    token: str
+    prepared_token: str
+    prepared_revision: int
     accepted: AcceptedScan
 
 
@@ -141,6 +156,10 @@ class ScanProject:
     def commit(
         self, candidate: PreparedScan, *, cancelled: Callable[[], bool] | None = None
     ) -> AcceptedScan:
+        if not isinstance(cast(object, candidate), PreparedScan):
+            raise ScanImportError(
+                "Expected an Add Scan candidate.", "invalid_candidate"
+            )
         with self._lock, self._accepted.graph.lock:
             check_cancelled(cancelled)
             self._check(candidate.generation, candidate.token)
@@ -161,6 +180,131 @@ class ScanProject:
                 ):
                     raise ScanImportError(
                         "Prepared candidate was modified.", "invalid_candidate"
+                    )
+                self._accepted = candidate.accepted
+                return self._accepted
+
+    def prepare_open(
+        self,
+        value: object,
+        *,
+        generation: int,
+        token: str,
+        confirmed_discard: bool,
+        matching: AcceptedScan | None = None,
+        stream: BinaryIO | None = None,
+        filename: str | None = None,
+        limits: ScanLimits | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        check_recipe: Callable[[Recipe], None] | None = None,
+    ) -> PreparedProject:
+        """Prepare saved definitions and their exact source without publication.
+
+        Adapters may use a private owner and supply an immutable accepted source
+        snapshot for reuse. Their external cursor/owner must still be fenced at
+        the final adapter publication boundary.
+        """
+        with self._lock, self._accepted.graph.lock:
+            self._check(generation, token)
+            if confirmed_discard is not True:
+                raise ScanImportError(
+                    "Opening actions requires discard approval.", "discard_required"
+                )
+            previous = self._accepted
+        check_cancelled(cancelled)
+        actions = preflight_actions(value)
+        if check_recipe is not None:
+            check_recipe(actions.recipe)
+        reusable = matching or previous
+        if actions.kind == "empty":
+            if stream is not None:
+                raise ScanImportError(
+                    "Empty actions do not accept a source upload.", "unexpected_source"
+                )
+            workspace = ScanWorkspace.empty()
+            positions, indices = workspace.display_buffers()
+        elif actions.kind == "legacy":
+            raise ScanImportError(
+                "Legacy actions require an explicitly compatible legacy workspace.",
+                "incompatible_legacy",
+            )
+        elif (
+            inspect_actions(
+                actions.recipe.model_dump(mode="json"), reusable.workspace
+            ).disposition
+            == "matching"
+        ):
+            if stream is not None:
+                raise ScanImportError(
+                    "Matching actions reuse the accepted source; no upload is expected.",
+                    "unexpected_source",
+                )
+            workspace = reusable.workspace
+            positions, indices = reusable.positions, reusable.indices
+        else:
+            if stream is None or limits is None or filename is None:
+                raise ScanImportError(
+                    "Locate the exact scan referenced by these actions.",
+                    "source_required",
+                )
+            workspace = prepare_scan(
+                stream, filename, limits, progress=progress, cancelled=cancelled
+            )
+            if (
+                inspect_actions(
+                    actions.recipe.model_dump(mode="json"), workspace
+                ).disposition
+                != "matching"
+            ):
+                raise ScanImportError(
+                    "The located scan does not match the saved actions.",
+                    "source_mismatch",
+                )
+            positions, indices = workspace.display_buffers()
+        check_cancelled(cancelled)
+        graph = FeatureGraph(workspace, actions.recipe)
+        state = graph.snapshot()
+        accepted = AcceptedScan(
+            generation + 1, workspace, graph, positions, indices, actions.warnings
+        )
+        check_cancelled(cancelled)
+        return PreparedProject(
+            self._owner,
+            generation,
+            token,
+            str(state["token"]),
+            cast(int, state["revision"]),
+            accepted,
+        )
+
+    def commit_open(
+        self, candidate: PreparedProject, *, cancelled: Callable[[], bool] | None = None
+    ) -> AcceptedScan:
+        """Publish one validated whole project with a fresh source epoch."""
+        if not isinstance(cast(object, candidate), PreparedProject):
+            raise ScanImportError(
+                "Expected an Open Actions candidate.", "invalid_candidate"
+            )
+        with self._lock, self._accepted.graph.lock:
+            check_cancelled(cancelled)
+            self._check(candidate.generation, candidate.token)
+            if (
+                candidate.owner != self._owner
+                or candidate.accepted.generation != candidate.generation + 1
+            ):
+                raise ScanImportError(
+                    "Candidate belongs to another project.", "invalid_candidate"
+                )
+            with candidate.accepted.graph.lock:
+                check_cancelled(cancelled)
+                state = candidate.accepted.graph.snapshot()
+                if (
+                    candidate.prepared_token != state["token"]
+                    or candidate.prepared_revision != state["revision"]
+                ):
+                    raise ScanImportError(
+                        "Prepared project was modified.", "invalid_candidate"
                     )
                 self._accepted = candidate.accepted
                 return self._accepted

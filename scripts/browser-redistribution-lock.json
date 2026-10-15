@@ -3449,7 +3449,7 @@
     "primitive": "Extend current verified fetch/cache helper with explicit tar/zip member extraction; verify archive checksum/integrity before selection, reject unsafe/duplicate/symlink members, verify extracted member bytes/hash, and copy only pinned members."
   },
   "bindings": {
-    "runtime_lock_sha256": "b3f0264511b00380837777b6b1dc9f28d76edfd6be31080eed6cfb1e2d8a6275",
+    "runtime_lock_sha256": "a0a8d9f08f82c8bfba5bfb7b61fbfc016bf67431030de4210bfe7e2a511d9b16",
     "ui_package_lock_sha256": "4fdab749dba0d3edb9b15ddf381f512eaef588d37832270b2b4a21eaee8c257f"
   },
   "covered_sources": [
@@ -4798,7 +4798,7 @@
             "url": "https://files.pythonhosted.org/packages/source/p/pydantic_core/pydantic_core-2.41.5.tar.gz"
           }
         ],
-        "runtime_lock_sha256": "b3f0264511b00380837777b6b1dc9f28d76edfd6be31080eed6cfb1e2d8a6275",
+        "runtime_lock_sha256": "a0a8d9f08f82c8bfba5bfb7b61fbfc016bf67431030de4210bfe7e2a511d9b16",
         "selected_wheel_notices": [
           {
             "asset": "runtime/numpy-2.4.6-cp314-cp314-pyemscripten_2026_0_wasm32.whl",

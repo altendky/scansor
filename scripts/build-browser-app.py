@@ -30,6 +30,7 @@ BUILD_INPUTS = (
 UI_FILES = (
     "index.html",
     "app.js",
+    "source-project.js",
     "bootstrap.js",
     "worker-backend.js",
     "backend.js",
