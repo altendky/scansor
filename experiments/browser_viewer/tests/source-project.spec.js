@@ -130,6 +130,8 @@ async function rectanglePlane(page, count, label) {
     const state = await graph(page), fit = state.recipe.nodes.find(node => node.label === label);
     return fit && state.states[fit.id];
   }).toBe('ready');
+  // Backend publication can precede the browser's terminal graph adoption.
+  await expect(page.getByRole('button', { name: 'Evaluate all', exact: true })).toBeEnabled();
   const state = await graph(page), fit = state.recipe.nodes.find(node => node.label === label);
   expect(fit.kind).toBe('plane');
   expect(fit.selections).toEqual([selection.id]);
