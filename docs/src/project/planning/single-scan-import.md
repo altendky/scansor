@@ -25,7 +25,9 @@ preserves their existing reference hashes and optional starter recipes.
 The native HTTP adapter now implements bounded source import, progress,
 cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
-for adapter development. The source picker and empty-project UI remain #243;
+for bounded native source authoring through #278. The common UI now exposes
+empty projects, a file picker and read-only Source inspection where backend
+capabilities permit them. Full both-backend UI acceptance remains #243;
 worker import/recovery remains #242. See the
 [native measurements and lifecycle](native-scan-import.md). The full numerical
 delivery gate in #240 remains open; this transport slice does not claim its

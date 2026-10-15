@@ -50,13 +50,17 @@ mesh loader or a full-resolution GUI. The repeated-boss fixture documents its
 generation and `--example` command in
 [its example README](../../examples/repeated-boss-selection/README.md).
 
-The native adapter also has a source-only `--empty` development entry point and
-common add/progress/Cancel/reset operations for strict PLY files. This transport
-is not yet exposed by a source picker in this UI. Its measured initial caps,
+The native adapter has a source-only `--empty` entry point and a bounded source
+picker through the common backend interface. Use **Project toolbar options →
+New project**, then **Add scan…** in the empty view. **Inspect source** and
+confirmed **Remove scan…** are in the same command menu; interpretation remains
+read-only. Accepted work and live drafts survive cancelled/failed transitions.
+Its measured initial caps,
 ownership and cancellation boundaries are recorded in the
 [native import evidence](../../docs/src/project/planning/native-scan-import.md).
-Worker file opening, source-aware actions reopening and the source authoring UI
-remain separate delivery gates.
+Worker file opening, source-aware actions reopening and full both-backend UI
+acceptance remain separate delivery gates. Actions downloads do not save the
+original scan bytes or unfinished editor drafts.
 
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)

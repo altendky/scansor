@@ -33,12 +33,45 @@ their inputs. Native computation cancellation/Force is not added by source
 Cancel. Server close cancels imports, closes bounded receivers and joins work.
 
 The constructor defaults to an empty project; the CLI retains its nozzle example
-default and adds `--empty`. That entry point is for adapter development until
-[#243](https://github.com/altendky/scansor/issues/243) supplies source-authoring UI.
+default and adds `--empty`. The native UI slice in
+[#278](https://github.com/altendky/scansor/issues/278) exposes empty projects,
+bounded file import, source inspection and confirmed New/remove through common
+backend capabilities. Full both-backend UI acceptance remains
+[#243](https://github.com/altendky/scansor/issues/243).
 Worker import/Force retention is [#242](https://github.com/altendky/scansor/issues/242),
 transactional source-aware actions reopening is
 [#244](https://github.com/altendky/scansor/issues/244), and full imported numerical
 delivery remains [#240](https://github.com/altendky/scansor/issues/240).
+
+## Native UI workflow
+
+Open **Project toolbar options → New project** to deliberately discard the
+current source/actions and start empty. In the empty view, choose **Add scan…**
+or **Choose example…**. Add scan also appears in the Project command menu; it is
+unavailable while a source exists. The empty view states the strict PLY input
+profile and byte/count limits. Import does not infer units or rescale coordinates.
+
+Choose **Inspect source** from the same menu, or inspect the Source feature in
+the tree, for its filename, exact content/interpretation identity, counts and
+diagnostics. Interpretation is read-only. **Remove scan…** clears the source and
+its dependent actions after confirmation; it does not rebind old vertex IDs.
+The existing command menu keeps these actions reachable without enlarging the
+toolbar strip or selecting a general overflow policy.
+
+The accepted scene and live editor controls remain until a complete source
+bundle and replacement display are ready. Empty/cancelled file selection,
+rejected input and import Cancel before acceptance preserve prior work; an
+accepted source transition wins a late Cancel. Opening
+the example chooser alone does not discard a draft. Successful deliberate
+source/example transitions end the approved old edit and install one coherent
+scene; Restore example applies only to a retained example.
+
+If acceptance is known or delivery becomes uncertain, the old display is fenced
+as unverified. **Load current project** explicitly retries delivery; **Download
+prior actions** retains the previous authored recipe for recovery. Actions do
+not include original scan bytes or unfinished UI drafts. Source-aware actions
+lookup/reopening remains #244. Worker source commands stay unavailable until
+the worker backend advertises delivered support; no HTTP fallback is added.
 
 ## Initial native resource policy
 

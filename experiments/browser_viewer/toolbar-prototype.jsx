@@ -33,6 +33,9 @@ const COMMANDS = {
     ['new-scale', 'Scale', 'scale'], ['new-transform', 'Transform', 'transform'],
     ['export-cad', 'Export CAD…', 'body']],
 };
+const PROJECT_SOURCE_COMMANDS = [['new-project', 'New project', 'source'],
+  ['add-scan', 'Add scan…', 'upload'], ['inspect-source', 'Inspect source', 'source'],
+  ['remove-scan', 'Remove scan…', 'source']];
 const originalCommand = id => document.getElementById(id);
 const ToolbarHostContext = createContext(null);
 // Native content is positioned separately from its tabset frame by FlexLayout.
@@ -77,7 +80,7 @@ function ToolbarStrip({ id, original, ready, placement, setPlacement, position, 
   useLayoutEffect(() => {
     const update = () => {
       const ids = commands.map(([command]) => command);
-      if (id === 'project') ids.push('workspace-panel');
+      if (id === 'project') ids.push('workspace-panel', ...PROJECT_SOURCE_COMMANDS.map(([command]) => command));
       setEnabled(Object.fromEntries(ids.map(command => [command, ready && available(command, barRef.current)])));
       setAuto(originalCommand('auto-evaluate').checked);
     };
@@ -141,6 +144,8 @@ function ToolbarStrip({ id, original, ready, placement, setPlacement, position, 
         <Menu.Item disabled={order.indexOf(id) <= 0} onSelect={() => moveOrder(-1)}>Move earlier</Menu.Item>
         <Menu.Item disabled={!order.includes(id) || order.indexOf(id) === order.length - 1} onSelect={() => moveOrder(1)}>Move later</Menu.Item>
         <Menu.Separator /><Menu.Label>All commands</Menu.Label>
+        {id === 'project' && PROJECT_SOURCE_COMMANDS.map(([command, label, icon]) =>
+          <Menu.Item key={command} disabled={!enabled[command]} onSelect={() => invoke(command)}><Icon name={icon} />{label}</Menu.Item>)}
         {commands.map(([command, label, icon]) => command === 'auto-evaluate' ?
           <Menu.CheckboxItem key={command} checked={auto} disabled={!enabled[command]} onSelect={() => invoke(command)}>{label}</Menu.CheckboxItem> :
           <Menu.Item key={command} disabled={!enabled[command]} onSelect={() => invoke(command)}><Icon name={icon} />{label}</Menu.Item>)}
