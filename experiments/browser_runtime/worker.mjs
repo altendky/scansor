@@ -287,7 +287,7 @@ async function handle({ operation }) {
     if (cadLoaded) throw new Error('Run numerical startup in a fresh worker before importing CAD');
     phase('synthetic fitting, retained nozzle and graph replay');
     const result = JSON.parse(python.runPython("from experiments.browser_runtime.probe import browser; browser()"));
-    numericComplete = true;
+    numericComplete = !Object.hasOwn(result, 'parity_failure');
     return { result, source_revision: manifest.source_revision, source_worktree_dirty: manifest.source_worktree_dirty };
   }
   if (operation === 'cad') {

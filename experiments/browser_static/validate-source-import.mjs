@@ -7,6 +7,8 @@ import {verifySite,startPreview,prepareReports} from './server.mjs';
 import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFile,
   readSourceEvidence,compareSourceNumbers} from './source-import-harness.mjs';
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
+import {compareSemanticBatch} from './semantic-parity.mjs';
+import {SOURCE_GRAPH_SCHEMA,SOURCE_GRAPH_PROJECTION,assertAcceptedSourceGraph,sourceSemanticCases} from './source-semantic.mjs';
 
 const args=process.argv.slice(2),argument=(name,fallback)=>{
   const index=args.indexOf(name);if(index<0)return fallback;
@@ -21,13 +23,15 @@ const nativePython=path.resolve(argument('--native-python',path.join(repository,
 const isolation=args.includes('--isolation'),prefix='/source-import/nested/';
 const report={schema_version:1,kind:'scansor-worker-source-import',started_utc:new Date().toISOString(),
   manifest_sha256:site.manifest_sha256,source_revision:site.manifest.source_revision,source_worktree_dirty:site.manifest.source_worktree_dirty,
-  runtime:site.manifest.runtime,isolation_requested:isolation,cases:[],checks:{},requests:[],unexpected_requests:[],api_requests:[],page_errors:[],native_parity_errors:[],complete:false};
+  runtime:site.manifest.runtime,isolation_requested:isolation,cases:[],checks:{},requests:[],unexpected_requests:[],api_requests:[],page_errors:[],native_parity_errors:[],
+  source_graph_schema:SOURCE_GRAPH_SCHEMA,source_graph_projection:SOURCE_GRAPH_PROJECTION,source_graph_snapshots:{},complete:false};
 let browser,preview;
 try{
   const sources=path.join(output,'inputs');report.inputs=await prepareSourceInputs({repository,output:sources,nativePython});
   const runtime=path.join(site.root,site.manifest.runtime.path),expectedPath=path.join(output,'native-source-results.json');
   await runSourcePython(nativePython,['expected','--runtime',runtime,'--inputs',sources,'--output',expectedPath],output);
   const expected=JSON.parse(await readFile(expectedPath,'utf8'));
+  report.source_graph_snapshots.native_scene=expected['horizontal-scene'].graph;
   const playwright=createRequire(path.join(playwrightDirectory,'package.json'))('playwright');
   preview=await startPreview(site,{prefix,isolation});browser=await playwright.chromium.launch({headless:true});
   report.browser={name:'chromium',version:browser.version()};
@@ -64,11 +68,9 @@ try{
       const graph=await page.evaluate(async recipe=>{const b=window.__sourceImportBackend242,current=await b.getGraph();
         const edited=await b.replaceRecipe({token:current.token,recipe});await b.evaluateGraph({token:edited.token,all_actions:true});
         let last;for await(const state of b.graphUpdates())last=state;return last;},reference.graph.recipe);
-      const keys=['recipe','token','states','errors','diagnostics','memberships','results','result','derived','input_catalogue','input_requirements'];
-      const pick=value=>Object.fromEntries(keys.filter(key=>key in value).map(key=>[key,value[key]]));
+      report.source_graph_snapshots.scene=graph;
       await writeFile(path.join(output,'actual-scene-graph.json'),JSON.stringify(graph,null,2)+'\n');
-      try{sourceParity.graph=compareSourceNumbers(pick(graph),pick(reference.graph),'scene.graph');}
-      catch(error){report.native_parity_errors.push(String(error));}
+      assertAcceptedSourceGraph(graph,{generation:bundle.generation,recipe:reference.graph.recipe,token:reference.graph.token});
       assert.equal(graph.states.cylinder,'ready');assert.equal(graph.states.plane,'ready');
       // Same independent generated-scene tolerances as native HTTP acceptance.
       assert.ok(Math.abs(graph.results.cylinder.analytic.radius-2.5)<=1e-6);
@@ -83,6 +85,12 @@ try{
       }
     }
     const acceptedGraph=await page.evaluate(()=>window.__sourceImportBackend242.getGraph());
+    if(name==='horizontal-scene'){
+      // getGraph is a checkpoint snapshot, not a closure-readiness response.
+      assert.equal(acceptedGraph.project_generation,bundle.generation);
+      assert.deepEqual(acceptedGraph.recipe,report.source_graph_snapshots.scene.recipe);
+      assert.equal(acceptedGraph.token,report.source_graph_snapshots.scene.token);
+    }
     await page.evaluate(()=>window.__sourceImportBackend242.forceRestart());
     const recovered=await readEvidence();assert.deepEqual(recovered.descriptor,actual.descriptor);
     for(const key of ['positions','normals','triangles','weights'])compareSourceNumbers(recovered[key],actual[key],name+'.force.'+key);
@@ -90,17 +98,16 @@ try{
     assert.equal(recovered.owned_fs_bytes,0);
     const replay=await page.evaluate(()=>window.__sourceImportBackend242.getGraph());
     assert.deepEqual(replay.recipe,acceptedGraph.recipe);
+    assert.equal(replay.token,acceptedGraph.token);assert.equal(replay.project_generation,bundle.generation);
     if(name==='horizontal-scene'){
       assert.equal(replay.states.cylinder,'unevaluated');assert.equal(replay.states.plane,'unevaluated');
       assert.equal(replay.results.cylinder,undefined);assert.equal(replay.results.plane,undefined);
       const refitted=await page.evaluate(async()=>{const b=window.__sourceImportBackend242,g=await b.getGraph();
         await b.evaluateGraph({token:g.token,all_actions:true});let result;for await(const state of b.graphUpdates())result=state;return result;});
+      report.source_graph_snapshots.scene_replayed=refitted;
       await writeFile(path.join(output,'actual-scene-replayed-graph.json'),JSON.stringify(refitted,null,2)+'\n');
+      assertAcceptedSourceGraph(refitted,{generation:recovered.project_generation,recipe:acceptedGraph.recipe,token:acceptedGraph.token});
       assert.equal(refitted.states.cylinder,'ready');assert.equal(refitted.states.plane,'ready');
-      const keys=['recipe','token','states','errors','diagnostics','memberships','results','result','derived','input_catalogue','input_requirements'];
-      const pick=value=>Object.fromEntries(keys.filter(key=>key in value).map(key=>[key,value[key]]));
-      try{sourceParity.replayed_graph=compareSourceNumbers(pick(refitted),pick(reference.graph),'scene.replayed_graph');}
-      catch(error){report.native_parity_errors.push(String(error));}
     }
     report.cases.push({name,source_sha256:actual.source_sha256,vertices:actual.vertices,faces:actual.faces,
       generation:bundle.generation,source_parity:sourceParity,force_reconstructed:true,authored_recipe_preserved:true,
@@ -194,6 +201,13 @@ try{
   report.checks={source_import:true,source_identity:true,recovery:true,cleanup:true,
     cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true,
     ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true};
+  // Compare only after the actual recovery/UI observations. The reviewed bridge
+  // retains the full operands and failed receipt before a parity error escapes.
+  try{
+    const receipt=await compareSemanticBatch({cases:sourceSemanticCases(report.source_graph_snapshots),nativePython,site,output,report});
+    const parity=report.cases.find(item=>item.name==='horizontal-scene').source_parity;
+    parity.graph=receipt.cases[0];parity.replayed_graph=receipt.cases[1];
+  }catch(error){report.native_parity_errors.push(String(error));}
   assert.deepEqual(report.unexpected_requests,[]);assert.deepEqual(report.api_requests,[]);assert.deepEqual(report.page_errors,[]);
   assert.deepEqual(report.native_parity_errors,[],'Complete native/worker parity is required');
   report.complete=true;

@@ -19,9 +19,9 @@ outside the intended boundary.
     mesh profile, shared source/workspace and transactional import/recovery,
     computed seeds excluded from saved actions, and fit-family work breakdown;
     shared source foundation, bounded native HTTP import, native/common source
-    authoring UI and native source-aware actions implemented; worker import/recovery
-    has a draft implementation with measured source-only evidence, while strict
-    fit parity and full both-backend acceptance remain delivery gates
+    authoring UI, native source-aware actions and bounded worker import/recovery
+    implemented; worker source-aware actions, broader numerical integration and
+    full both-backend acceptance remain delivery gates
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected
@@ -66,6 +66,10 @@ outside the intended boundary.
   - **Bounded numerical foundation:** exact canonical rotation/mirror equations
     and internal support mathematics; existing fitting paths remain unchanged,
     while imported graph/recovery/reuse/CAD integration remains a separate gate
+- [Native/browser numerical parity](experiments/numerical-runtime-parity.md)
+  - **Selected verification contract:** compare published geometry, intent,
+    acceptance classifications and finite budgets; retain complete diagnostic
+    traces and measured differences across numerical runtimes
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,

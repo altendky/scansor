@@ -11,8 +11,9 @@ bounded experiment, not general scan ingestion or a browser-only product decisio
 
 The worker backend also implements bounded strict-PLY source operations and
 retains accepted user-source recovery references outside the disposable worker.
-The source picker/empty-project product UI remains #243. Actual source-only
-measurements pass; strict imported-fit parity remains gated by #266. See the
+The common UI exposes the source picker and empty projects; full both-backend
+UI acceptance remains #243. Actual source-only measurements are recorded, and
+fit verification uses the selected bounded semantic contract from #266. See the
 [worker import evidence](../../docs/src/project/planning/worker-scan-import.md)
 for ownership, measured limits, verification scope and remaining delivery gates.
 

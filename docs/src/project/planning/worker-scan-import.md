@@ -6,14 +6,16 @@ The bounded worker transport/recovery implementation for
 [#242](https://github.com/altendky/scansor/issues/242) uses the shared strict
 source/project core and the same operations as [native import](native-scan-import.md).
 Actual Chromium imports, source retention, explicit Force and cleanup have
-executed evidence. **Delivery remains gated by strict native/worker fit parity:**
-the frozen independent fixture exposes a recovery-attempt diagnostic difference
-tracked in [#266](https://github.com/altendky/scansor/issues/266). Source-array or
-selected-geometry agreement does not turn that comparison into a pass.
+executed evidence. Fit verification uses the selected
+[bounded semantic parity contract](../experiments/numerical-runtime-parity.md)
+from [#266](https://github.com/altendky/scansor/issues/266): published results,
+intent, acceptance certificates and finite budgets are enforced while complete
+discarded traces remain diagnostic evidence. Source arrays retain their strict
+comparison. Delivery requires rebuilt current-head native/worker verification.
 
 The native/common UI already supplies empty projects, the source picker and
 read-only Source inspection, gated by backend capabilities. Worker import/recovery
-is a draft implementation; full both-backend UI acceptance remains
+implements the bounded source tier; full both-backend UI acceptance remains
 [#243](https://github.com/altendky/scansor/issues/243). Native transactional
 source-aware actions reopening is delivered; its worker path remains
 [#244](https://github.com/altendky/scansor/issues/244), with worker `sourceActions`
@@ -166,9 +168,12 @@ Retry. A separate legacy-shaped startup fault omits graph from one public
 Force in the shipped app. This disclosed shim uses the current real worker; it
 does not establish compatibility by executing an old worker binary. Reports must
 include successful `ui_source_recovery` and `ui_legacy_startup` checks as well as
-the original strict source/fit evidence. Fresh assembled-site startup and these
-UI cases require their own executed checks; source-only measurements do not
-establish them.
+strict source-array evidence and bounded semantic fit receipts. Full original,
+replayed and native graph snapshots accompany the exact comparison input and
+diagnostic ledger. Source generation and settled readiness are checked
+independently of the explicit semantic projection. Fresh assembled-site startup
+and these UI cases require their own executed checks; source-only measurements
+do not establish them.
 Numerical/CAD profiles and plain/isolated runs are distinct required gates. A
 diagnostic run may collect remaining lifecycle evidence after a parity failure,
 but must retain that failure, incomplete status and nonzero exit.
@@ -176,6 +181,6 @@ but must retain that failure, incomplete status and nonzero exit.
 The static checker and trusted release verifier require the new reports and
 explicit source/recovery/cleanup checks. Numerical-profile reports bind their
 own recorded manifest and the same source revision. Release verification remains
-structural/hash validation and never executes downloaded artifact code. Existing
-strict numerical probes, tolerances and budgets remain unchanged. No site
-publication is authorized by these measurements.
+structural/hash validation and never executes downloaded artifact code. Physical
+tolerances and finite budgets retain their existing limits under the shared
+parity policy. No site publication is authorized by these measurements.
