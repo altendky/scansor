@@ -14,12 +14,17 @@ function abortable(promise, signal) {
 export function createWorkerBackend({ runtimeURL, cad = false,
   workerFactory = (url, options) => new Worker(url, options),
   onPhase = () => {}, onFailure = () => {}, onLifecycle = () => {},
-  startupTimeout = 180_000 } = {}) {
+  startupTimeout = 180_000, initialMode = 'example' } = {}) {
   if (!runtimeURL) throw new BackendError('Browser runtime assets are not configured.', { code: 'missing_runtime' });
+  if (!['empty', 'example'].includes(initialMode))
+    throw new BackendError('Invalid initial workspace mode.', { code: 'invalid_source' });
   const url = new URL(runtimeURL, import.meta.url), pending = new Map(), observers = new Set();
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
+  let acceptedGeneration, sourceProfile, checkpoint, sourceOperation, sourceSequence = 0;
+  let bootstrapMode = initialMode;
+  const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
   const mutations = new Set(['replaceRecipe', 'importRecipe', 'selectExample', 'applyFeatureReuse', 'applyFaces']);
   const superseded = () => new BackendError('The requested operation changed. Try again.', { code: 'observation_superseded' });
@@ -29,6 +34,26 @@ export function createWorkerBackend({ runtimeURL, cad = false,
     { code: error?.code || 'worker_error', status: error?.status, requestId });
   const unavailable = () => terminalError || new BackendError('The backend is closed.', { code: 'backend_closed' });
   const wake = () => { for (const notify of observers) notify(); };
+  const sourceBusy = () => new BackendError('A source operation is still active.', { code: 'source_busy', status: 409 });
+  const sourceRecord = operation => structuredClone(operation.record);
+  const recordSource = (operation, changes) => {
+    Object.assign(operation.record, changes, { revision: operation.record.revision + 1 });
+    sourceHistory.set(operation.record.operationId, sourceRecord(operation));
+    while (sourceHistory.size > 64) sourceHistory.delete(sourceHistory.keys().next().value);
+  };
+  const notifySource = operation => {
+    if (operation.observerAborted) return;
+    try { operation.onProgress(sourceRecord(operation)); }
+    catch (error) { operation.observerAborted = true; operation.request?.reject(error); }
+  };
+  const retireSource = error => {
+    if (!sourceOperation) return;
+    const operation = sourceOperation;
+    if (!operation.adopted) recordSource(operation, { status: 'cancelled', phase: 'cancelled', terminal: true,
+      error: { code: error.code || 'computation_cancelled', message: error.message } });
+    operation.finish();
+    sourceOperation = undefined;
+  };
   const publishLifecycle = (state, detail = {}) => {
     lifecycle = Object.freeze({ state, ...detail, lifetime, generation,
       canCancel: !!committedRecipe, interrupts: !!interruptBuffer });
@@ -40,7 +65,9 @@ export function createWorkerBackend({ runtimeURL, cad = false,
     worker = undefined;
     lifetime++;
     retired?.terminate();
-    for (const request of pending.values()) request.reject(error);
+    retireSource(error);
+    for (const request of pending.values()) request.reject(request.source?.adopted
+      ? acceptedUnavailable(request.source, error) : error);
     pending.clear();
     wake();
   };
@@ -54,9 +81,11 @@ export function createWorkerBackend({ runtimeURL, cad = false,
   };
   const remember = state => {
     if (!state?.token || recovering) return;
+    if (acceptedGeneration !== undefined && state.project_generation !== acceptedGeneration) return;
     if (state.recipe) {
       latestGraph = state;
       committedRecipe = structuredClone(state.recipe);
+      if (checkpoint) checkpoint.recipe = structuredClone(state.recipe);
     } else if (latestGraph?.token === state.token) {
       const { evaluation_error: oldError, ...previous } = latestGraph;
       void oldError;
@@ -64,7 +93,7 @@ export function createWorkerBackend({ runtimeURL, cad = false,
     } else return;
     wake();
   };
-  const send = (operation, payload = {}, signal) => {
+  const send = (operation, payload = {}, signal, source) => {
     if (pending.size >= 64) return Promise.reject(new BackendError('Too many queued operations. Wait or cancel before retrying.',
       { code: 'worker_queue_full', status: 429 }));
     const id = ++nextId, activeGeneration = generation;
@@ -75,20 +104,163 @@ export function createWorkerBackend({ runtimeURL, cad = false,
         // caller stops observing. Aborting observation does not stop computation.
         const request = pending.get(id);
         if (request) request.aborted = true;
+        if (source) source.observerAborted = true;
         cleanup();
         reject(signal.reason);
       };
-      pending.set(id, { operation, generation: activeGeneration,
+      const request = { operation, generation: activeGeneration, source,
         resolve: result => { cleanup(); resolve(result); },
-        reject: error => { cleanup(); reject(error); } });
+        reject: error => { cleanup(); reject(error); } };
+      pending.set(id, request);
+      if (source) { source.request = request; source.requestId = id; }
       signal?.addEventListener('abort', abort, { once: true });
-      try { worker.postMessage({ id, operation, payload, generation: activeGeneration, managed: true }); }
+      try { worker.postMessage({ id, operation, payload, generation: activeGeneration, managed: true,
+        ...(acceptedGeneration === undefined ? {} : { workspaceGeneration: acceptedGeneration }) }); }
       catch (error) { pending.delete(id); cleanup(); reject(errorFor(error, id)); }
+    });
+  };
+  const sourceFailure = record => new BackendError(record.error?.message || 'The source operation was cancelled.',
+    { code: record.error?.code || `source_${record.status}`, status: 409 });
+  const acceptedUnavailable = (operation, cause) => {
+    const error = new BackendError(`The project change was accepted, but its workspace is unavailable: ${cause.message}`,
+      { code: 'accepted_workspace_unavailable', status: 409 });
+    error.acceptedOperation = sourceRecord(operation);
+    error.cause = cause;
+    return error;
+  };
+  const validateBundle = (result, expectedGeneration) => {
+    const metadata = result?.metadata, state = result?.graph;
+    if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0
+      || result.workspaceGeneration !== expectedGeneration || metadata?.project_generation !== expectedGeneration
+      || state?.project_generation !== expectedGeneration || !state.token || !Array.isArray(state.recipe?.nodes)
+      || !(result.positions instanceof ArrayBuffer) || !(result.indices instanceof ArrayBuffer)
+      || !Number.isSafeInteger(metadata.vertices) || metadata.vertices < 0
+      || !Number.isSafeInteger(metadata.display_triangles ?? metadata.triangles)
+      || (metadata.display_triangles ?? metadata.triangles) < 0
+      || result.positions.byteLength !== metadata.vertices * 12
+      || result.indices.byteLength !== (metadata.display_triangles ?? metadata.triangles) * 12
+      || metadata.positions?.dtype !== '<f4' || metadata.indices?.dtype !== '<u4'
+      || metadata.positions.components !== 3 || metadata.indices.components !== 3)
+      throw new BackendError('Invalid source workspace bundle.', { code: 'invalid_workspace' });
+    return { ...result, generation: expectedGeneration };
+  };
+  const finishSource = (request, data, owner) => {
+    const operation = request.source;
+    if (sourceOperation !== operation) return;
+    if (data.kind === 'source-candidate') {
+      if (!data.ok || request.transfer) throw new Error('Invalid source candidate response.');
+      request.transfer = data.result;
+      return;
+    }
+    if (data.kind === 'transfer-confirmed') {
+      if (!request.transfer || data.positions_bytes_after !== 0 || data.indices_bytes_after !== 0)
+        throw new Error('Source workspace display buffers were not transferred.');
+      const permitted = !operation.cancelled && request.generation === generation
+        && operation.baseGeneration === acceptedGeneration && operation.baseToken === latestGraph?.token;
+      if (!permitted) {
+        owner.postMessage({ operation: 'accept-source-boundary', id: data.id, generation: request.generation,
+          operationId: operation.record.operationId, workspaceGeneration: request.transfer.workspaceGeneration,
+          accepted: false });
+        return;
+      }
+      const expected = operation.recoveryGeneration ?? operation.baseGeneration + 1;
+      const bundle = validateBundle(request.transfer, expected);
+      if (bundle.operationId !== operation.record.operationId || bundle.source_mode?.kind !== operation.kind)
+        throw new Error('Source candidate identity changed.');
+      bundle.transferOwnership = { sender_detached: true, positions_bytes: bundle.positions.byteLength,
+        indices_bytes: bundle.indices.byteLength, copied_js_bytes: bundle.positions.byteLength + bundle.indices.byteLength,
+        strategy: 'copy-contiguous-wasm-view-then-transfer' };
+      // The complete confirmed bundle is the source transaction's linearization
+      // point. Record recovery authority before callbacks or boundary delivery.
+      operation.adopted = true;
+      operation.bundle = bundle;
+      acceptedGeneration = expected;
+      sourceIdentity = structuredClone(bundle.source_identity);
+      committedRecipe = structuredClone(bundle.graph.recipe);
+      checkpoint = { mode: structuredClone(bundle.source_mode), identity: sourceIdentity,
+        generation: expected, file: operation.file, recipe: committedRecipe, revision: sourceRevision };
+      latestGraph = bundle.graph;
+      recordSource(operation, { status: 'accepted', phase: 'complete', terminal: true, acceptedGeneration: expected });
+      owner.postMessage({ operation: 'accept-source-boundary', id: data.id, generation: request.generation,
+        operationId: operation.record.operationId, workspaceGeneration: expected, accepted: true });
+      wake();
+      notifySource(operation);
+      return;
+    }
+    if (data.kind === 'source-promoted') {
+      if (!operation.adopted || data.workspaceGeneration !== acceptedGeneration
+        || data.operationId !== operation.record.operationId) throw new Error('Invalid source promotion acknowledgement.');
+      pending.delete(data.id);
+      sourceOperation = undefined;
+      operation.finish();
+      request.resolve(operation.bundle);
+      return;
+    }
+    if (!data.ok) {
+      const cause = errorFor(data.error, data.id);
+      pending.delete(data.id);
+      sourceOperation = undefined;
+      operation.finish();
+      if (operation.adopted) {
+        request.reject(acceptedUnavailable(operation, cause));
+        failure(cause);
+      } else {
+        const wasCancelled = operation.cancelled && cause.code !== 'source_cleanup_failed';
+        recordSource(operation, { status: wasCancelled ? 'cancelled' : 'failed', phase: 'complete', terminal: true,
+          error: { code: wasCancelled ? 'source_cancelled' : cause.code, message: cause.message } });
+        notifySource(operation);
+        request.reject(sourceFailure(operation.record));
+      }
+    }
+  };
+  const startSource = async (kind, payload, { signal, onProgress = () => {} } = {}, restore) => {
+    signal?.throwIfAborted();
+    await abortable(restore ? backend.initialize() : recovery || cancellation || backend.initialize(), signal);
+    signal?.throwIfAborted();
+    if (closed || terminalError) throw unavailable();
+    if (!sourceProfile?.supported) throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
+    if (sourceOperation) throw sourceBusy();
+    if (payload.generation !== acceptedGeneration || payload.token !== latestGraph?.token) throw superseded();
+    if (latestGraph.evaluation_running || pending.size) throw sourceBusy();
+    const file = payload.file;
+    if (kind === 'scan') {
+      if (!file || typeof file.slice !== 'function' || typeof file.arrayBuffer !== 'function'
+        || !Number.isSafeInteger(file.size) || file.size <= 0)
+        throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
+      if (file.size > sourceProfile.limits.max_source_bytes)
+        throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
+    }
+    const operationId = `source_${lifetime}_${++sourceSequence}`;
+    const operation = { kind, file, onProgress, baseGeneration: acceptedGeneration, baseToken: latestGraph.token,
+      recoveryGeneration: restore?.generation, record: { operationId, generation: payload.generation,
+        token: payload.token, revision: 0, status: 'reserved', phase: 'reserved', completed: 0,
+        total: file?.size || 0, unit: 'bytes', terminal: false } };
+    operation.completion = new Promise(resolve => { operation.finish = resolve; });
+    sourceOperation = operation;
+    generation++;
+    wake();
+    const value = { operationId, kind, generation: payload.generation, token: payload.token,
+      ...(kind === 'scan' ? { file, filename: file.name || 'scan.ply' } : {}),
+      ...(kind === 'empty' ? { confirmedDiscard: payload.confirmedDiscard } : {}),
+      ...(kind === 'example' ? { example: payload.example } : {}),
+      ...(restore ? { recovery: { generation: restore.generation, identity: restore.identity, recipe: restore.recipe } } : {}) };
+    const promise = send('prepare-source', value, signal, operation);
+    recordSource(operation, {});
+    notifySource(operation);
+    return promise.catch(error => {
+      if (sourceOperation === operation && !pending.has(operation.requestId)) {
+        recordSource(operation, { status: 'failed', phase: 'complete', terminal: true,
+          error: { code: error.code || 'transport_error', message: error.message } });
+        sourceOperation = undefined;
+        operation.finish();
+      }
+      throw error;
     });
   };
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
-      progress: 'phases-and-snapshots', cancelComputation: true, recovery: true, sources: 'retained-nozzle', sourceImport: false }),
+      progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
+      sources: 'single-scan-and-retained-examples', sourceImport: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -112,6 +284,19 @@ export function createWorkerBackend({ runtimeURL, cad = false,
                 if (!cancellation) publishLifecycle(recovering ? 'recovering' : 'loading', { phase: data.phase });
                 return;
               }
+              if (data?.kind === 'source-progress') {
+                const operation = sourceOperation;
+                if (operation && !operation.adopted && !operation.cancelled
+                  && data.operationId === operation.record.operationId && data.generation === generation) {
+                  const progress = data.progress;
+                  if (!progress || typeof progress.phase !== 'string' || !Number.isFinite(progress.completed)
+                    || !Number.isFinite(progress.total) || progress.completed < 0 || progress.total < progress.completed
+                    || typeof progress.unit !== 'string') throw new Error('Invalid source progress.');
+                  recordSource(operation, { status: progress.phase === 'reading' ? 'receiving' : 'preparing', ...progress });
+                  notifySource(operation);
+                }
+                return;
+              }
               if (data?.kind === 'lifecycle') {
                 if (data.boundary) owner.postMessage({ operation: 'accept-boundary', id: data.id,
                   generation: data.generation, accepted: data.generation === generation && !cancellation });
@@ -126,19 +311,29 @@ export function createWorkerBackend({ runtimeURL, cad = false,
               }
               const request = pending.get(data?.id);
               if (!request) return;
+              if (request.source) { finishSource(request, data, owner); return; }
               if (request.aborted) { pending.delete(data.id); return; }
               if (request.operation === 'initialize') {
                 if (!data.ok || !data.ready || !data.versions || !data.source_revision) {
                   failure(data.error || 'Invalid worker readiness response.'); return;
                 }
                 clearTimeout(timer);
-                pending.delete(data.id);
+                sourceProfile = data.source_import;
+                if (sourceProfile?.supported && (data.worker_protocol?.version !== 5
+                  || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
+                    .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
+                  throw new Error('Invalid worker source profile.');
                 if (!recovering) {
                   sourceIdentity = structuredClone(data.source_identity);
                   sourceRevision = data.source_revision;
+                  acceptedGeneration = data.graph?.project_generation;
+                  if (acceptedGeneration !== undefined) checkpoint = {
+                    mode: structuredClone(data.source_mode), identity: structuredClone(data.source_identity),
+                    generation: acceptedGeneration, recipe: structuredClone(data.graph.recipe), revision: sourceRevision };
                   remember(data.graph);
                   publishLifecycle('complete');
                 }
+                pending.delete(data.id);
                 request.resolve(data);
                 return;
               }
@@ -146,7 +341,10 @@ export function createWorkerBackend({ runtimeURL, cad = false,
                 // Rapid edits may commit before a newer edit fences publication.
                 // Cancel/Force remove pending requests, so cancelled edits never enter this cache.
                 if (data.ok && mutations.has(request.operation) && data.result?.recipe)
-                  committedRecipe = structuredClone(data.result.recipe);
+                  if (acceptedGeneration === undefined || data.result.project_generation === acceptedGeneration) {
+                    committedRecipe = structuredClone(data.result.recipe);
+                    if (checkpoint) checkpoint.recipe = structuredClone(data.result.recipe);
+                  }
                 pending.delete(data.id);
                 request.reject(superseded());
                 return;
@@ -162,6 +360,11 @@ export function createWorkerBackend({ runtimeURL, cad = false,
                 if (!request.transfer || data.positions_bytes_after !== 0 || data.indices_bytes_after !== 0)
                   throw new Error('Workspace display buffers were not transferred.');
                 const result = request.transfer;
+                if (acceptedGeneration !== undefined) {
+                  if (result.generation !== acceptedGeneration || result.metadata?.project_generation !== acceptedGeneration
+                    || result.graph?.project_generation !== acceptedGeneration) throw superseded();
+                  remember(result.graph);
+                }
                 result.transferOwnership = { sender_detached: true,
                   positions_bytes: result.positions.byteLength, indices_bytes: result.indices.byteLength,
                   copied_js_bytes: result.positions.byteLength + result.indices.byteLength,
@@ -198,7 +401,8 @@ export function createWorkerBackend({ runtimeURL, cad = false,
           };
           // Startup only: active computation never escalates automatically.
           timer = setTimeout(() => failure('Browser runtime initialization timed out.'), startupTimeout);
-          owner.postMessage({ id, operation: 'initialize', ...(interruptBuffer ? { interruptBuffer } : {}) });
+          owner.postMessage({ id, operation: 'initialize', ...(bootstrapMode === 'empty' ? { payload: { initialMode: 'empty' } } : {}),
+            ...(interruptBuffer ? { interruptBuffer } : {}) });
         } catch (error) { failure(error); }
       });
       return initialization;
@@ -212,6 +416,13 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       if (closed || terminalError) return Promise.reject(unavailable());
       if (cancellation) return cancellation;
       if (recovery) return Promise.reject(new BackendError('The runtime is restarting.', { code: 'runtime_recovering' }));
+      if (sourceOperation) {
+        const operation = sourceOperation;
+        const cancelSource = operation.adopted ? Promise.resolve() : backend.cancelSourceOperation(operation.record);
+        return cancelSource.then(() => operation.completion).catch(error => {
+          if (error.code !== 'source_cancelled') throw error;
+        }).then(() => latestGraph);
+      }
       if (!pending.size && !latestGraph?.evaluation_running)
         return Promise.resolve(latestGraph);
       if (!committedRecipe) return Promise.reject(new BackendError('Startup cannot be interrupted politely. Use Force and restart.',
@@ -244,6 +455,8 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       if (closed) return Promise.reject(unavailable());
       const recipe = committedRecipe && structuredClone(committedRecipe);
       const identity = sourceIdentity, revision = sourceRevision;
+      const retained = checkpoint && { ...checkpoint, recipe: structuredClone(checkpoint.recipe) };
+      if (retained) bootstrapMode = 'empty';
       generation++;
       const serial = ++cancellationSerial;
       stop(cancelled());
@@ -256,6 +469,20 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       const current = async () => {
         const ready = await backend.initialize();
         if (serial !== cancellationSerial || closed) throw cancelled();
+        if (retained && sourceProfile?.supported) {
+          if (revision && revision !== ready.source_revision)
+            throw new BackendError('The pinned runtime changed. Download actions before reloading.', { code: 'recovery_source_mismatch' });
+          acceptedGeneration = ready.graph.project_generation;
+          latestGraph = ready.graph;
+          sourceRevision = ready.source_revision;
+          const bundle = await startSource(retained.mode.kind, { generation: acceptedGeneration, token: latestGraph.token,
+            file: retained.file, example: retained.mode.example, confirmedDiscard: true }, {}, retained);
+          if (serial !== cancellationSerial || closed) throw cancelled();
+          recovering = false;
+          remember(bundle.graph);
+          publishLifecycle('complete', { recovered: true });
+          return bundle.graph;
+        }
         if ((identity && JSON.stringify(identity) !== JSON.stringify(ready.source_identity)) ||
             (revision && revision !== ready.source_revision))
           throw new BackendError('The immutable example or runtime changed. Download actions before reloading.',
@@ -265,12 +492,23 @@ export function createWorkerBackend({ runtimeURL, cad = false,
         if (serial !== cancellationSerial || closed) throw cancelled();
         sourceIdentity = structuredClone(ready.source_identity);
         sourceRevision = ready.source_revision;
+        if (ready.graph?.project_generation !== undefined) {
+          acceptedGeneration = ready.graph.project_generation;
+          checkpoint = { mode: structuredClone(ready.source_mode), identity: sourceIdentity,
+            generation: acceptedGeneration, recipe: structuredClone(state.recipe), revision: sourceRevision };
+        }
         recovering = false;
         remember(state);
         publishLifecycle('complete', { recovered: true });
         return state;
       };
       recovery = current().catch(error => {
+        if (retained && serial === cancellationSerial) {
+          checkpoint = retained;
+          acceptedGeneration = retained.generation;
+          committedRecipe = structuredClone(retained.recipe);
+          sourceIdentity = structuredClone(retained.identity);
+        }
         if (serial === cancellationSerial && !closed) failure(error);
         throw error;
       }).finally(() => { if (serial === cancellationSerial) { recovery = undefined; recovering = false; } });
@@ -321,12 +559,59 @@ export function createWorkerBackend({ runtimeURL, cad = false,
       if (closed || terminalError) throw unavailable();
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
+      if (sourceOperation) throw sourceBusy();
+      if (operation === 'loadWorkspace' && acceptedGeneration !== undefined
+        && (payload.generation !== undefined && payload.generation !== acceptedGeneration
+          || payload.token !== undefined && payload.token !== latestGraph?.token)) throw superseded();
       if (mutations.has(operation)) { generation++; latestGraph = undefined; wake(); }
       const value = { ...payload };
       delete value.signal;
+      if (operation === 'loadWorkspace') { delete value.generation; delete value.token; }
       return send(operation, value, signal);
     };
   }
+  backend.addScan = (payload, options) => startSource('scan', payload, options);
+  backend.resetProject = (payload, options) => {
+    if (payload?.confirmedDiscard !== true) return Promise.reject(new BackendError('Confirm discarding the current project.',
+      { code: 'confirmation_required', status: 422 }));
+    return startSource('empty', payload, options);
+  };
+  backend.getSourceOperation = async ({ operationId }, { signal } = {}) => {
+    signal?.throwIfAborted();
+    if (closed) throw unavailable();
+    const record = sourceHistory.get(operationId);
+    if (!record) {
+      await abortable(backend.initialize(), signal);
+      if (!sourceProfile?.supported)
+        throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
+      throw new BackendError('Unknown source operation.', { code: 'unknown_operation', status: 404 });
+    }
+    return structuredClone(record);
+  };
+  backend.cancelSourceOperation = async ({ operationId, generation: cursor, token }, { signal } = {}) => {
+    const record = await backend.getSourceOperation({ operationId }, { signal });
+    if (record.generation !== cursor || record.token !== token)
+      throw new BackendError('The source cursor changed.', { code: 'stale_source', status: 409 });
+    if (record.terminal) return record;
+    const operation = sourceOperation;
+    if (!operation || operation.record.operationId !== operationId)
+      throw new BackendError('Unknown source operation.', { code: 'unknown_operation', status: 404 });
+    if (operation.record.terminal) return sourceRecord(operation);
+    if (!operation.cancelled) {
+      operation.cancelled = true;
+      recordSource(operation, { status: 'cancelling', phase: 'cancelling' });
+      worker.postMessage({ operation: 'cancel-source', operationId, generation });
+      notifySource(operation);
+    }
+    return sourceRecord(operation);
+  };
+  const selectLegacyExample = backend.selectExample;
+  backend.selectExample = async (payload, options = {}) => {
+    await abortable(recovery || cancellation || backend.initialize(), options.signal);
+    if (!sourceProfile?.supported) return selectLegacyExample(payload, options);
+    const bundle = await startSource('example', { ...payload, generation: payload.generation ?? acceptedGeneration }, options);
+    return { active: bundle.source_mode.example, project_generation: bundle.generation, graph: bundle.graph };
+  };
   if (!cad) for (const operation of ['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad'])
     backend[operation] = async () => { throw new BackendError('CAD is unavailable in this numerical browser slice.',
       { code: 'unsupported_capability' }); };

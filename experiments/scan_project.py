@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
 from typing import BinaryIO, cast
 from uuid import uuid4
@@ -12,7 +12,12 @@ from uuid import uuid4
 import numpy as np
 from numpy.typing import NDArray
 
-from experiments.feature_graph import FeatureGraph, Recipe, Source
+from experiments.feature_graph import (
+    FeatureGraph,
+    GraphFailureCheckpoint,
+    Recipe,
+    Source,
+)
 from experiments.feature_recipe_import import ImportWarning
 from experiments.scan_actions import inspect_actions, preflight_actions
 from experiments.scan_workspace import (
@@ -308,6 +313,27 @@ class ScanProject:
         with self._lock, self._accepted.graph.lock:
             self._check(generation, token)
             self._accepted = _accepted(ScanWorkspace.empty(), generation + 1)
+            return self._accepted
+
+    def recover_graph(
+        self,
+        *,
+        generation: int,
+        token: str,
+        recipe: Recipe,
+        checkpoint: GraphFailureCheckpoint,
+    ) -> AcceptedScan:
+        """Discard computation through the owner, retaining immutable source arrays.
+
+        Called after computation stops. Construct and validate the replacement
+        before changing the authoritative accepted graph pointer.
+        """
+        with self._lock, self._accepted.graph.lock:
+            self._check(generation, token)
+            graph = FeatureGraph(self._accepted.workspace, checkpoint.recipe)
+            graph.restore_failures(checkpoint)
+            _ = graph.replace(recipe, checkpoint.token)
+            self._accepted = replace(self._accepted, graph=graph)
             return self._accepted
 
     @contextmanager

@@ -25,11 +25,14 @@ preserves their existing reference hashes and optional starter recipes.
 The native HTTP adapter now implements bounded source import, progress,
 cooperative Cancel and confirmed project reset through the common backend
 operations. Its source-only empty constructor/`--empty` entry point is available
-for bounded native source authoring through #278. The common UI now exposes
-empty projects, a file picker and read-only Source inspection where backend
-capabilities permit them. Full both-backend UI acceptance remains #243;
-worker import/recovery remains #242. See the
-[native measurements and lifecycle](native-scan-import.md). The full numerical
+for bounded native source authoring through #278. The common UI exposes empty
+projects, a file picker and read-only Source inspection where backend
+capabilities permit them. Full both-backend UI acceptance remains #243.
+Worker import/recovery implements the bounded source tier in #242. Source arrays
+remain strict; fit verification uses the selected bounded semantic contract
+from #266 and requires rebuilt current-head evidence. See the
+[native measurements and lifecycle](native-scan-import.md) and
+[worker evidence and delivery gates](worker-scan-import.md). The full numerical
 delivery gate in #240 remains open; this transport slice does not claim its
 pending cone/symmetry integration or cross-runtime parity work is delivered.
 
@@ -116,15 +119,17 @@ support reuse and independently authored target bounds remain available.
 [#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
 target override authority and its fixed/free/group/replay verification.
 
-Worker delivery/Force source retention, both-backend source-aware reopening and
-worker measured caps remain their listed tickets. The native/shared reopening
-child [#280](https://github.com/altendky/scansor/issues/280) uses private source
-and recipe preparation before one native owner installation; full #244 includes
-the worker path. Native defaults have executed
-source-only import evidence; byte/count caps and the loader's incremental
-allocation estimate are admission checks, not a measured total-runtime memory
-guarantee. Input snapshots and authoritative/display copies are accounted for
-separately from the interpreter, GPU and unrelated caller state.
+The native/shared reopening child
+[#280](https://github.com/altendky/scansor/issues/280), delivered by #281, uses
+private source and recipe preparation before one native owner installation;
+full #244 still includes worker source-aware opening. Worker import/Force
+recovery implements the bounded tier in #242; current-head bounded semantic
+parity and full workflow validation remain delivery gates. Native and worker
+defaults have executed source-only import evidence; byte/count caps and the
+loader's incremental allocation estimate are admission checks, not a measured
+total-runtime memory guarantee. Input snapshots and authoritative/display
+copies are accounted for separately from the interpreter, GPU and unrelated
+caller state.
 
 Already agreed: a scan is a Source feature; initially each project has zero or
 one scan; native HTTP and browser workers use interchangeable operations and

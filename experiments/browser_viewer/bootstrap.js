@@ -3,6 +3,7 @@ let type = new URL(location.href).searchParams.get('backend') || undefined;
 let workerBackend, configuration, readyWorkspace;
 const disabledBeforeFailure = new Map();
 function lockViewer() {
+  window.dispatchEvent(new Event('scansor-runtime-lock'));
   delete byId('status').dataset.runtimeReady;
   document.querySelector('main').inert = true;
   for (const element of document.querySelectorAll('#project-toolbar, #creation-toolbar, .workspace-toolbar')) {
@@ -37,11 +38,17 @@ async function restoreViewer(state) {
   const isCurrent = () => workerBackend.getLifecycle().lifetime === lifetime;
   const app = await import('./app.js');
   if (!isCurrent()) return;
-  document.querySelector('main').inert = false;
-  for (const element of document.querySelectorAll('#project-toolbar, #creation-toolbar, .workspace-toolbar'))
-    element.inert = false;
-  for (const [control, disabled] of disabledBeforeFailure) control.disabled = disabled;
-  disabledBeforeFailure.clear();
+  const graphSafe = await app.prepareRuntimeRestore({ recoveredState: state, isCurrent, restoreControls() {
+    document.querySelector('main').inert = false;
+    for (const element of document.querySelectorAll('#project-toolbar, #creation-toolbar, .workspace-toolbar'))
+      element.inert = false;
+    for (const [control, disabled] of disabledBeforeFailure) control.disabled = disabled;
+    disabledBeforeFailure.clear();
+  } });
+  if (!isCurrent()) return;
+  checkRuntime();
+  byId('startup-error').hidden = true;
+  if (!graphSafe) return;
   await app.initializeViewer({ recoveredState: state, isCurrent });
   if (!isCurrent()) return;
   checkRuntime();

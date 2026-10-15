@@ -16,6 +16,7 @@ function fixture({ sourceImport = false, sourceActions = false, empty = false } 
   globalThis.document = { getElementById: element, createElement: () => element(Symbol()),
     querySelectorAll: selector => selector.startsWith('main,') ? [element('main')] : [] };
   globalThis.window = { confirm: () => true };
+  element('main');
   const source = { id: 'scan', operation: 'source', source_sha256: 'source', reference_sha256: 'reference' };
   let state = { generation: sourceImport || sourceActions ? 1 : undefined, token: 'before',
     recipe: { nodes: empty ? [] : [source] }, metadata: {} };
@@ -42,15 +43,16 @@ function fixture({ sourceImport = false, sourceActions = false, empty = false } 
     prepareWorkspace(value) {
       const install = () => {
         calls.push('install'); installed.push(value);
-        state = { ...state, token: value.graph.token, recipe: value.graph.recipe };
+        state = { ...state, generation: value.generation ?? state.generation,
+          token: value.graph.token, recipe: value.graph.recipe };
       };
       install.dispose = () => calls.push('dispose');
       return install;
-    }, inspectSource() {}, status: (...message) => messages.push(message), onActionsLoaded: value => {
+    }, inspectSource() {}, status: (...message) => messages.push(message), onWorkspaceReady: () => calls.push('ready'), onActionsLoaded: value => {
       assert.equal(busy.at(-1), false, 'Auto and warning callbacks run after the transition lock is released');
       warnings.push(value);
     } });
-  return { controller, backend, calls, busy, installed, elements, messages, warnings, source,
+  return { controller, backend, calls, busy, installed, elements, messages, warnings, source, getCurrent: () => state,
     advance: () => { state = { ...state, token: 'changed' }; },
     stale: () => { proofCurrent = false; },
     restore() { globalThis.document = previous.document; globalThis.window = previous.window; } };
@@ -261,5 +263,148 @@ test('a changed draft after acceptance disposes prepared resources and fences wi
     assert.equal(f.calls.includes('dispose'), true);
     assert.equal(f.elements.get('source-unavailable').hidden, false);
     assert.equal(f.busy.at(-1), true);
+  } finally { f.restore(); }
+});
+
+test('runtime graph recovery requires an equal valid displayed source epoch', async () => {
+  for (const epoch of [undefined, -1, 1.5, NaN, 2]) {
+    const f = fixture({ sourceImport: true });
+    try {
+      let restored = 0;
+      assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: epoch }, () => restored++), false);
+      assert.equal(restored, 1);
+      assert.equal(f.elements.get('main').inert, true);
+      assert.equal(f.elements.get('load').disabled, true);
+      assert.equal(f.elements.get('source-unavailable').hidden, false);
+      assert.equal(f.calls.includes('finish'), false);
+      assert.equal(f.installed.length, 0);
+    } finally { f.restore(); }
+  }
+  for (const sourceImport of [false, true]) {
+    const f = fixture({ sourceImport });
+    try {
+      assert.equal(await f.controller.prepareRuntimeRestore(sourceImport ? { project_generation: 1 } : {}, () => {}), true);
+      assert.equal(f.installed.length, 0);
+      assert.equal(f.calls.includes('finish'), false);
+    } finally { f.restore(); }
+  }
+});
+
+test('Force waits for pending acceptance cleanup and retains prior actions until explicit full-bundle Retry', async () => {
+  const f = fixture({ sourceImport: true }), pending = deferred();
+  try {
+    f.backend.resetProject = async () => { await pending.promise; throw Object.assign(Error('Promotion lost'), { code: 'accepted_workspace_unavailable' }); };
+    const operation = f.controller.resetProject();
+    let restored = false;
+    const recovery = f.controller.prepareRuntimeRestore({ project_generation: 2 }, () => {
+      restored = true; f.elements.get('main').inert = false;
+    });
+    await Promise.resolve();
+    assert.equal(restored, false);
+    pending.resolve();
+    assert.equal(await operation, false);
+    assert.equal(await recovery, false);
+    assert.equal(restored, true);
+    assert.equal(f.elements.get('main').inert, true);
+    assert.equal(f.busy.at(-1), true);
+    assert.equal(f.calls.includes('finish'), false);
+    f.backend.exportRecipe = async value => { f.calls.push(['prior', value]); return value.recipe; };
+    await f.elements.get('download-prior-actions').onclick();
+    assert.deepEqual(f.calls.find(value => value?.[0] === 'prior')[1].recipe, f.getCurrent().recipe);
+    const originalLoad = f.backend.loadWorkspace;
+    f.backend.loadWorkspace = async () => ({ ...await originalLoad(), generation: 2 });
+    await f.elements.get('retry-source-workspace').onclick();
+    assert.equal(f.installed.length, 1);
+    assert.equal(f.getCurrent().generation, 2);
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.elements.get('source-unavailable').hidden, true);
+    assert.equal(f.busy.at(-1), false);
+    assert.equal(f.calls.filter(value => value === 'finish').length, 1);
+    assert.equal(f.calls.filter(value => value === 'ready').length, 1);
+  } finally { f.restore(); }
+});
+
+test('a same-epoch unavailable source stays fenced and a new fence does not inherit the runtime inert layer', async () => {
+  const f = fixture({ sourceImport: true });
+  try {
+    f.elements.get('main').inert = true; // Bootstrap owns this layer before the handshake.
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 2 }, () => { f.elements.get('main').inert = false; }), false);
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => { f.elements.get('main').inert = false; }), false);
+    assert.equal(f.elements.get('main').inert, true);
+    assert.equal(f.calls.includes('finish'), false);
+    await f.elements.get('retry-source-workspace').onclick();
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+  } finally { f.restore(); }
+});
+
+test('Force before adoption settles cancellation then permits unchanged-epoch graph recovery without ending the draft', async () => {
+  const f = fixture({ sourceImport: true }), pending = deferred();
+  try {
+    f.backend.resetProject = async () => { await pending.promise; throw Object.assign(Error('Stopped'), { code: 'computation_cancelled' }); };
+    const operation = f.controller.resetProject();
+    const recovery = f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => { f.elements.get('main').inert = false; });
+    pending.resolve();
+    assert.equal(await operation, false);
+    assert.equal(await recovery, true);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(f.installed.length, 0);
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+  } finally { f.restore(); }
+});
+
+test('pending source cleanup cannot release a runtime lock acquired during Force', async () => {
+  const f = fixture({ sourceImport: true }), pending = deferred();
+  try {
+    f.backend.resetProject = async () => { await pending.promise; throw Object.assign(Error('Stopped'), { code: 'computation_cancelled' }); };
+    const operation = f.controller.resetProject();
+    // The old bootstrap directly sets inert; the new hook must also retain its
+    // ownership until the completed-runtime handshake transfers that layer.
+    f.controller.lockRuntime();
+    f.elements.get('main').inert = true;
+    pending.resolve();await operation;
+    assert.equal(f.elements.get('main').inert, true);
+    assert.equal(f.busy.at(-1), true);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => { f.elements.get('main').inert = false; }), true);
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+  } finally { f.restore(); }
+});
+
+test('a superseded Force retains the original source lock snapshot for the next recovery', async () => {
+  const f = fixture({ sourceImport: true }), pending = deferred();
+  try {
+    f.backend.resetProject = async () => { await pending.promise; throw Object.assign(Error('Stopped'), { code: 'computation_cancelled' }); };
+    const operation = f.controller.resetProject();
+    f.controller.lockRuntime();
+    f.elements.get('main').inert = true;
+    pending.resolve();await operation;
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => assert.fail('Stale recovery cannot unlock'), () => false), false);
+    f.controller.lockRuntime();
+    assert.equal(f.elements.get('main').inert, true);
+    assert.equal(f.busy.at(-1), true);
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => { f.elements.get('main').inert = false; }), true);
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+    assert.equal(f.calls.includes('finish'), false);
+  } finally { f.restore(); }
+});
+
+test('source Retry stays blocked during runtime recovery and becomes reachable at fence handoff', async () => {
+  const f = fixture({ sourceImport: true });
+  try {
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 2 }), false);
+    f.controller.lockRuntime();
+    assert.equal(f.elements.get('retry-source-workspace').disabled, true);
+    await f.elements.get('retry-source-workspace').onclick();
+    assert.equal(f.calls.some(value => value?.[0] === 'workspace'), false);
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 2 }, () => { f.elements.get('main').inert = false; }), false);
+    assert.equal(f.elements.get('retry-source-workspace').disabled, false);
+    assert.equal(f.elements.get('main').inert, true);
+    await f.elements.get('retry-source-workspace').onclick();
+    assert.equal(f.installed.length, 1);
+    assert.equal(f.elements.get('main').inert, false);
   } finally { f.restore(); }
 });

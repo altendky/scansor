@@ -95,6 +95,7 @@ let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
 let exampleCatalogue = null, exampleSwitchPending = false;
 let sourceProject, workspaceGeneration, sourceTransitionBusy = false;
+window.addEventListener('scansor-runtime-lock', () => sourceProject?.lockRuntime());
 let resetSourcePicking = () => {};
 let constructedFaces, constructedFacesState = null;
 let bodyInspection;
@@ -4256,6 +4257,7 @@ async function start(recoveredState) {
     }
   }
   const workspace = await backend.loadWorkspace();
+  const state = recoveredState || workspace.graph || await backend.getGraph();
   metadata = workspace.metadata;
   workspaceGeneration = workspace.generation;
   const { positions: pb, indices: ib } = workspace;
@@ -6788,7 +6790,6 @@ async function start(recoveredState) {
     };
   }
   viewerSetup = true;
-  const state = recoveredState || workspace.graph || await backend.getGraph();
   acceptGraph(state);
   sourceProject = createSourceProjectController({
     backend,
@@ -6806,6 +6807,9 @@ async function start(recoveredState) {
     },
     prepareTransition: prepareWorkspaceTransition,
     status,
+    onWorkspaceReady: () => {
+      if (backend.capabilities.recovery) $('status').dataset.runtimeReady = 'true';
+    },
     onActionsLoaded: warnings => {
       showImportWarnings(warnings);
       if ($('auto-evaluate').checked) queueEnsureAll();
@@ -6818,6 +6822,11 @@ async function start(recoveredState) {
   if (!recoveredState && $('auto-evaluate').checked) await ensureAll();
 }
 let viewerInitialization;
+export async function prepareRuntimeRestore({ recoveredState, restoreControls, isCurrent = () => true }) {
+  if (!isCurrent()) return false;
+  if (!viewerSetup) { restoreControls(); return true; }
+  return sourceProject.prepareRuntimeRestore(recoveredState, restoreControls, isCurrent);
+}
 export function initializeViewer({ recoveredState, isCurrent = () => true } = {}) {
   // Force can arrive while bootstrap is importing this module or awaiting the
   // display source. Serialize callers so setup never duplicates the renderer.

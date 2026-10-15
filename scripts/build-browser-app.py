@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REDISTRIBUTION_LOCK = ROOT / "scripts/browser-redistribution-lock.json"
 VIEWER = "experiments/browser_viewer"
 EXAMPLE = "examples/nozzle-bayonette-simplified"
+RUNTIME_BUILDER = runpy.run_path(
+    str(Path(__file__).with_name("build-browser-runtime.py"))
+)
 BUILD_INPUTS = (
     "package.json",
     "package-lock.json",
@@ -109,15 +112,7 @@ def read_runtime(runtime: Path) -> tuple[bytes, dict, dict[str, bytes]]:
         manifest.get("assets"), list
     ):
         raise ValueError("unsupported runtime manifest")
-    if manifest.get("worker_protocol") != {
-        "version": 4,
-        "bootstrap": "initialize",
-        "workspace": "retained-nozzle-numerical",
-        "cad": "lazy-approved-ocp",
-    }:
-        raise ValueError(
-            "runtime lacks the supported numerical workspace protocol; rebuild it"
-        )
+    RUNTIME_BUILDER["validate_worker_protocol"](manifest.get("worker_protocol"))
     files = {"manifest.json": raw}
     for record in manifest["assets"]:
         name = record["path"]
@@ -400,6 +395,7 @@ def build(
             "runtime_bootstrap": True,
             "numerical": True,
             "cad": bool(runtime_manifest["cad"]),
+            "source_import": runtime_manifest["worker_protocol"]["source_import"],
         },
         "source_revision": state["revision"],
         "source_worktree_dirty": state["worktree_dirty"],

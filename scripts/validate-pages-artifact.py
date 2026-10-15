@@ -47,13 +47,18 @@ STEPS = (
     "cad",
     "recovery",
     "recovery-isolated",
+    "source-import",
+    "source-import-isolated",
     "build-numerical-runtime",
     "build-numerical-site",
     "numerical-workspace",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
     "timing",
     "memory",
     "fitting",
     "generated",
+    "source-import-memory",
     "verify-site-after",
     "verify-numerical-site-after",
 )
@@ -64,11 +69,16 @@ DRIVERS = (
     "cad",
     "recovery",
     "recovery-isolated",
+    "source-import",
+    "source-import-isolated",
     "numerical-workspace",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
     "timing",
     "memory",
     "fitting",
     "generated",
+    "source-import-memory",
 )
 EVIDENCE = {
     *(f"{name}.json" for name in DRIVERS),
@@ -76,8 +86,36 @@ EVIDENCE = {
     "build-redistribution.json",
     "site-manifest.json",
     "runtime-manifest.json",
+    "numerical-site-manifest.json",
 }
 SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
+SOURCE_GRAPH_DRIVERS = (
+    "source-import",
+    "source-import-isolated",
+    "numerical-source-import",
+    "numerical-source-import-isolated",
+)
+SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v1"
+SOURCE_GRAPH_PROJECTION = (
+    "recipe",
+    "token",
+    "states",
+    "errors",
+    "diagnostics",
+    "memberships",
+    "results",
+    "result",
+    "derived",
+    "input_catalogue",
+    "input_requirements",
+)
+SOURCE_GRAPH_TRANSPORT = {
+    "revision",
+    "project_generation",
+    "required_failures",
+    "evaluation_running",
+    "evaluation_error",
+}
 SEMANTIC_DRIVERS = {
     "workspace": ("graph-snapshot", ("replay", "default", "edited", "replayed")),
     "numerical-workspace": (
@@ -86,6 +124,10 @@ SEMANTIC_DRIVERS = {
     ),
     "recovery": ("result-map", ("crash-force",)),
     "recovery-isolated": ("result-map", ("crash-force",)),
+    **{
+        name: ("graph-snapshot", ("scene", "scene-replayed"))
+        for name in SOURCE_GRAPH_DRIVERS
+    },
 }
 
 
@@ -362,6 +404,73 @@ def trusted_semantic_policy() -> dict[str, Any]:
     return policy
 
 
+def validate_source_graph_evidence(
+    item: dict[str, Any], cases: list[dict[str, Any]]
+) -> None:
+    require(
+        item.get("source_graph_schema") == SOURCE_GRAPH_SCHEMA
+        and item.get("source_graph_projection") == list(SOURCE_GRAPH_PROJECTION),
+        "unsupported source graph evidence schema/projection",
+    )
+    snapshots = object_value(item.get("source_graph_snapshots"))
+    require(
+        set(snapshots) == {"scene", "scene_replayed", "native_scene"},
+        "source graph snapshots incomplete",
+    )
+    projected: dict[str, dict[str, Any]] = {}
+    for key, value in snapshots.items():
+        graph = object_value(value)
+        require(
+            set(SOURCE_GRAPH_PROJECTION)
+            <= set(graph)
+            <= set(SOURCE_GRAPH_PROJECTION) | SOURCE_GRAPH_TRANSPORT,
+            "source graph snapshot has unknown/missing projection fields",
+        )
+        projected[key] = {field: graph[field] for field in SOURCE_GRAPH_PROJECTION}
+    scene_cases = [
+        object_value(value)
+        for value in array_value(item.get("cases"))
+        if object_value(value).get("name") == "horizontal-scene"
+    ]
+    require(
+        len(scene_cases) == 1, "source graph accepted scene case missing/duplicated"
+    )
+    generation = scene_cases[0].get("generation")
+    require(
+        type(generation) is int and 0 <= generation <= 2**53 - 1,
+        "invalid source graph accepted generation",
+    )
+    for key in ("scene", "scene_replayed"):
+        graph = object_value(snapshots[key])
+        states = object_value(graph.get("states"))
+        require(
+            type(graph.get("project_generation")) is int
+            and graph["project_generation"] == generation,
+            "source graph does not match accepted generation",
+        )
+        require(
+            graph.get("evaluation_running") is False
+            and graph.get("required_failures") == []
+            and object_value(graph.get("errors")) == {}
+            and bool(states)
+            and all(state == "ready" for state in states.values())
+            and graph.get("evaluation_error") is None,
+            "source graph is not a successful terminal publication",
+        )
+    for case, key, path in zip(
+        cases,
+        ("scene", "scene_replayed"),
+        ("scene.graph", "scene.replayed_graph"),
+        strict=True,
+    ):
+        require(
+            case.get("path") == path
+            and exact_json(case["actual"]) == exact_json(projected[key])
+            and exact_json(case["expected"]) == exact_json(projected["native_scene"]),
+            "source semantic evidence differs from full snapshots/projection",
+        )
+
+
 def validate_semantic_parity(
     item: dict[str, Any], name: str, policy: dict[str, Any]
 ) -> None:
@@ -417,7 +526,12 @@ def validate_semantic_parity(
             bool(object_value(case["actual"])) and bool(object_value(case["expected"])),
             f"{name} missing full semantic comparison records",
         )
-    if profile == "graph-snapshot":
+    if name in SOURCE_GRAPH_DRIVERS:
+        try:
+            validate_source_graph_evidence(item, cases)
+        except ValueError as error:
+            raise ValueError(f"{name}: {error}") from error
+    elif profile == "graph-snapshot":
         browser = object_value(item.get("browser_snapshots"))
         native = object_value(item.get("native_snapshots"))
         pairs = (
@@ -464,7 +578,7 @@ def validate_evidence(
     steps = [object_value(value) for value in array_value(report.get("steps"))]
     require(
         [s.get("name") for s in steps] == list(STEPS),
-        "requires exactly all 20 ordered CI steps",
+        "requires exactly all ordered CI steps",
     )
     require(
         evidence["site-manifest.json"] == site_raw
@@ -474,6 +588,7 @@ def validate_evidence(
     for key, filename in (
         ("site-manifest", "site-manifest.json"),
         ("runtime-manifest", "runtime-manifest.json"),
+        ("numerical-site-manifest", "numerical-site-manifest.json"),
         ("redistribution-manifest", "build-redistribution.json"),
     ):
         require(
@@ -516,6 +631,14 @@ def validate_evidence(
         "CI verification finished before steps",
     )
     site = object_json(site_raw)
+    numerical_raw = evidence["numerical-site-manifest.json"]
+    numerical = object_json(numerical_raw)
+    require(
+        numerical.get("kind") == "scansor-static-app"
+        and numerical.get("source_revision") == site["source_revision"]
+        and numerical.get("source_worktree_dirty") == site.get("source_worktree_dirty"),
+        "numerical site source mismatch",
+    )
     policy = trusted_semantic_policy()
     runtime = object_json(runtime_raw)
     helper_records = [
@@ -578,21 +701,95 @@ def validate_evidence(
                 item.get("artifact_unchanged") is True,
                 f"driver {name} changed artifact",
             )
-        if name != "numerical-workspace":
+        if "source-import" in name:
+            require(not item.get("page_errors"), f"source-import page errors: {name}")
+            require(
+                not item.get("native_parity_errors"),
+                f"source-import parity errors: {name}",
+            )
+            require(
+                item.get("complete") is True and bool(item.get("cases")),
+                f"source-import evidence incomplete: {name}",
+            )
+            checks = object_value(item.get("checks"))
+            if name == "source-import-memory":
+                require(
+                    item.get("isolation") is False,
+                    "source-import memory isolation mismatch",
+                )
+                cases = [
+                    object_value(value) for value in array_value(item.get("cases"))
+                ]
+                require(
+                    [case.get("name") for case in cases]
+                    == [
+                        "raw-nozzle",
+                        "horizontal-scene",
+                        "grid-256x128",
+                        "grid-512x256",
+                    ]
+                    and all(case.get("complete") is True for case in cases),
+                    "source-import memory cases incomplete",
+                )
+            else:
+                requested = name.endswith("-isolated")
+                actual = object_value(item.get("isolation_actual"))
+                require(
+                    item.get("isolation_requested") is requested
+                    and actual.get("page") is requested
+                    and actual.get("worker") is requested,
+                    f"source-import isolation mismatch: {name}",
+                )
+            require(
+                checks.get("isolation_matches") is True,
+                f"source-import isolation check missing: {name}",
+            )
+            required_checks = (
+                {
+                    "source_import",
+                    "source_identity",
+                    "recovery",
+                    "cleanup",
+                    "cancel_before_adoption",
+                    "force_after_adoption",
+                    "cleanup_failure_recovery",
+                    "ui_source_recovery",
+                    "ui_legacy_startup",
+                }
+                if name != "source-import-memory"
+                else {
+                    "source_import",
+                    "recovery",
+                    "cleanup",
+                    "all_cases_complete",
+                    "capacity_nonzero",
+                    "chunk_reads_bounded",
+                    "terminal_staging_released",
+                    "isolation_matches",
+                    "no_external_computation",
+                    "no_page_errors",
+                    "artifact_unchanged",
+                }
+            )
+            require(
+                all(checks.get(key) is True for key in required_checks),
+                f"source-import checks incomplete: {name}",
+            )
+        if name != "generated":
             field = (
                 "site_manifest_sha256"
                 if name in ("timing", "memory", "fitting")
                 else "manifest_sha256"
             )
-            if name != "generated":
-                require(
-                    item.get(field) == sha256(site_raw),
-                    f"driver {name} tested another site",
-                )
-                require(
-                    item.get("source_revision") == site["source_revision"],
-                    f"driver {name} source mismatch",
-                )
+            require(
+                item.get(field)
+                == sha256(numerical_raw if name.startswith("numerical-") else site_raw),
+                f"driver {name} tested another site",
+            )
+            require(
+                item.get("source_revision") == site["source_revision"],
+                f"driver {name} source mismatch",
+            )
 
 
 def validate_semantics(
@@ -616,15 +813,11 @@ def validate_semantics(
     raw = regular_bytes(runtime / "manifest.json")
     require(sha256(raw) == runtime_hash, "runtime manifest SHA-256 mismatch")
     runtime_manifest = object_json(raw)
+    runtime_builder["validate_worker_protocol"](runtime_manifest.get("worker_protocol"))
     require(
-        runtime_manifest.get("worker_protocol")
-        == {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
-        "unsupported runtime worker protocol",
+        object_value(manifest.get("capabilities")).get("source_import")
+        == runtime_manifest["worker_protocol"]["source_import"],
+        "site/runtime source capability mismatch",
     )
     runtime_assets = records(runtime_manifest.get("assets"))
     site_assets = records(manifest.get("assets"))
@@ -657,7 +850,12 @@ def validate_semantics(
             "cad": True,
         }
         and manifest.get("capabilities")
-        == {"runtime_bootstrap": True, "numerical": True, "cad": True},
+        == {
+            "runtime_bootstrap": True,
+            "numerical": True,
+            "cad": True,
+            "source_import": runtime_manifest["worker_protocol"]["source_import"],
+        },
         "unexpected application backend/capabilities",
     )
     for value in (manifest, runtime_manifest, runtime_record):

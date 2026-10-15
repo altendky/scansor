@@ -99,12 +99,7 @@ def inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Inputs:
         _ = target.write_bytes(data)
     manifest = {
         "schema_version": 1,
-        "worker_protocol": {
-            "version": 4,
-            "bootstrap": "initialize",
-            "workspace": "retained-nozzle-numerical",
-            "cad": "lazy-approved-ocp",
-        },
+        "worker_protocol": BUILDER.RUNTIME_BUILDER["worker_protocol"](),
         "source_revision": "native-revision",
         "source_worktree_dirty": False,
         "versions": {"pyodide": "test"},
@@ -154,6 +149,7 @@ def test_static_package_has_complete_hashes_and_separate_ui_runtime_provenance(
         "runtime_bootstrap": True,
         "numerical": True,
         "cad": True,
+        "source_import": BUILDER.RUNTIME_BUILDER["worker_protocol"]()["source_import"],
     }
     assert manifest["bounded_examples"][0]["vertices"] == 24999
     assert manifest["bounded_examples"][0]["units"] == "unknown source units"
