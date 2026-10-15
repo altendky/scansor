@@ -292,7 +292,14 @@ try {
   const replayPage = await makePage();
   await idleGraph(replayPage);
   await replayPage.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  const approveReplay = replayPage.waitForEvent('dialog').then(async dialog => {
+    assert.equal(dialog.type(), 'confirm');
+    assert.match(dialog.message(), /Replace the current actions\?/);
+    await dialog.accept();
+  });
   await replayPage.locator('#file').setInputFiles({ name: 'replayed-actions.json', mimeType: 'application/json', buffer: recipeBytes });
+  await approveReplay;
+  report.checks.explicit_replay_discard_confirmation = true;
   await replayPage.waitForFunction(async token => {
     const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
     return (await getBackend().getGraph()).token === token;

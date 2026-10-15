@@ -13,27 +13,51 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from threading import Condition, Event, Lock, RLock
 from typing import BinaryIO, cast
 from uuid import uuid4
 
-from experiments.scan_project import ScanProject
+from experiments.scan_actions import inspect_actions
+from experiments.scan_project import PreparedScan, ScanProject
 from experiments.scan_workspace import (
     ScanCancelled,
     ScanImportError,
     ScanLimits,
     ScanProgress,
+    Workspace,
     check_cancelled,
 )
 
 
 @dataclass(frozen=True)
+class NativeOpenCandidate:
+    install: Callable[[], int]
+    warning_count: int
+
+
+@dataclass(frozen=True)
 class NativeImportContext:
-    project: ScanProject
+    project: ScanProject | None
     generation: int
     token: str
+    owner: object | None = None
+    workspace: Workspace | None = None
+    prepare_open: (
+        Callable[
+            [
+                object,
+                Path | None,
+                str,
+                Callable[[ScanProgress], None],
+                Callable[[], bool],
+            ],
+            NativeOpenCandidate,
+        ]
+        | None
+    ) = None
 
 
 @dataclass
@@ -46,6 +70,11 @@ class _Operation:
     created: float
     project: ScanProject | None
     internal_generation: int
+    purpose: str = "add-scan"
+    upload_required: bool = True
+    context: NativeImportContext | None = None
+    recipe: object = None
+    warning_count: int = 0
     cancelled: Event = field(default_factory=Event)
     revision: int = 0
     status: str = "reserved"
@@ -70,11 +99,14 @@ class _Operation:
             "total": self.total,
             "unit": self.unit,
             "terminal": self.terminal,
+            "purpose": self.purpose,
+            "uploadRequired": self.upload_required,
         }
         if self.error is not None:
             result["error"] = self.error.copy()
         if self.accepted_generation is not None:
             result["acceptedGeneration"] = self.accepted_generation
+            result["import_warning_count"] = self.warning_count
         return result
 
 
@@ -141,6 +173,12 @@ class NativeScanImports:
         operation.terminal = True
         operation.revision += 1
         operation.project = None
+        operation.context = None
+        operation.recipe = None
+        operation.filename = ""
+        # A cleanup failure fences this service; directory shutdown still owns
+        # orphan cleanup without retaining its path in bounded terminal history.
+        operation.path = None
         if error is not None:
             operation.error = {"code": error.code[:120], "message": str(error)[:2048]}
         if status == "accepted":
@@ -211,6 +249,10 @@ class NativeScanImports:
                 raise ScanImportError(
                     "Project changed before source reservation.", "stale_source"
                 )
+            if context.project is None:
+                raise ScanImportError(
+                    "Add scan requires an empty project.", "source_exists"
+                )
             accepted = context.project.accepted
             context.project.check_add(generation=accepted.generation, token=token)
             operation = _Operation(
@@ -226,6 +268,106 @@ class NativeScanImports:
             )
             self._operations[operation.id] = operation
             self._active = operation.id
+            return operation.record()
+
+    def open_actions(
+        self,
+        *,
+        generation: int,
+        token: str,
+        recipe: object,
+        confirmed_discard: bool,
+        filename: str | None = None,
+        size: int | None = None,
+    ) -> dict[str, object]:
+        """Reserve the shared lease before any source bytes or private preparation."""
+        with self._lock:
+            self._expire()
+            if self._closing:
+                raise ScanImportError(
+                    "Source import service is closing.", "import_closed"
+                )
+            if self._active is not None:
+                raise ScanImportError("Another source import is active.", "source_busy")
+            context = self._context()
+            if (
+                type(generation) is not int
+                or generation != context.generation
+                or token != context.token
+            ):
+                raise ScanImportError(
+                    "Project changed before opening actions.", "stale_source"
+                )
+            if confirmed_discard is not True:
+                raise ScanImportError(
+                    "Opening actions requires discard approval.", "discard_required"
+                )
+            if context.workspace is None or context.prepare_open is None:
+                raise ScanImportError(
+                    "Opening actions is unavailable.", "unsupported_actions"
+                )
+            # Inspection and later preparation must use the same owned raw intent.
+            # Retain pre-normalization labels so native warnings survive replay.
+            raw_recipe = deepcopy(recipe)
+            inspection = inspect_actions(raw_recipe, context.workspace)
+            upload = inspection.disposition == "locate"
+            if upload:
+                if filename is None or size is None:
+                    raise ScanImportError(
+                        "Locate the saved source first.", "source_required"
+                    )
+                if (
+                    not isinstance(cast(object, filename), str)
+                    or not 0 < len(filename) <= 512
+                ):
+                    raise ScanImportError(
+                        "Expected a source filename hint.", "invalid_source"
+                    )
+                filename = PurePosixPath(filename.replace("\\", "/")).name
+                if not filename or type(size) is not int or size <= 0:
+                    raise ScanImportError(
+                        "Expected an exact source upload.", "invalid_upload"
+                    )
+                if size > self.limits.max_source_bytes:
+                    raise ScanImportError(
+                        "Upload exceeds the source-byte limit.", "source_limit"
+                    )
+                source = inspection.actions.source
+                assert source is not None and source.descriptor is not None
+                if size != source.descriptor.source_bytes:
+                    raise ScanImportError(
+                        "Located file length differs from the saved source.",
+                        "source_mismatch",
+                    )
+            elif filename is not None or size is not None:
+                raise ScanImportError(
+                    "This project does not require source bytes.", "unexpected_source"
+                )
+            operation = _Operation(
+                uuid4().hex,
+                generation,
+                token,
+                filename or "",
+                size or 0,
+                self._clock(),
+                None,
+                0,
+                purpose="open-actions",
+                upload_required=upload,
+                context=context,
+                recipe=raw_recipe,
+                total=size or 1,
+            )
+            self._operations[operation.id] = operation
+            self._active = operation.id
+            if not upload:
+                operation.status, operation.phase, operation.unit = (
+                    "preparing",
+                    "preflight",
+                    "steps",
+                )
+                operation.revision += 1
+                _ = self._executor.submit(self._prepare, operation.id)
             return operation.record()
 
     def status(self, operation_id: str) -> dict[str, object]:
@@ -256,7 +398,11 @@ class NativeScanImports:
     def _current(self, operation: _Operation) -> NativeImportContext:
         context = self._context()
         if (
-            context.project is not operation.project
+            (
+                context.owner is not operation.context.owner
+                if operation.context is not None
+                else context.project is not operation.project
+            )
             or context.generation != operation.generation
             or context.token != operation.token
         ):
@@ -370,7 +516,6 @@ class NativeScanImports:
         with self._lock:
             operation = self._operation(operation_id)
             project, path = operation.project, operation.path
-        assert project is not None and path is not None
 
         def progress(update: ScanProgress) -> None:
             with self._lock:
@@ -387,16 +532,30 @@ class NativeScanImports:
                 operation.revision += 1
 
         try:
-            with path.open("rb") as stream:
-                candidate = project.prepare_add(
-                    stream,
+            opened: NativeOpenCandidate | None = None
+            candidate: PreparedScan | None = None
+            if operation.purpose == "open-actions":
+                context = operation.context
+                assert context is not None and context.prepare_open is not None
+                opened = context.prepare_open(
+                    operation.recipe,
+                    path,
                     operation.filename,
-                    self.limits,
-                    generation=operation.internal_generation,
-                    token=operation.token,
-                    progress=progress,
-                    cancelled=operation.cancelled.is_set,
+                    progress,
+                    operation.cancelled.is_set,
                 )
+            else:
+                assert project is not None and path is not None
+                with path.open("rb") as stream:
+                    candidate = project.prepare_add(
+                        stream,
+                        operation.filename,
+                        self.limits,
+                        generation=operation.internal_generation,
+                        token=operation.token,
+                        progress=progress,
+                        cancelled=operation.cancelled.is_set,
+                    )
             # Duplicate staging is disposable once preparation owns exact bytes.
             # Complete fallible cleanup before the authoritative state commit.
             self._cleanup(operation)
@@ -406,14 +565,19 @@ class NativeScanImports:
                 operation.phase = "committing"
                 operation.completed, operation.total, operation.unit = 0, 1, "steps"
                 operation.revision += 1
-                accepted = project.commit(
-                    candidate, cancelled=operation.cancelled.is_set
-                )
-                operation.accepted_generation = (
-                    operation.generation
-                    + accepted.generation
-                    - operation.internal_generation
-                )
+                if opened is not None:
+                    operation.accepted_generation = opened.install()
+                    operation.warning_count = opened.warning_count
+                else:
+                    assert project is not None and candidate is not None
+                    accepted = project.commit(
+                        candidate, cancelled=operation.cancelled.is_set
+                    )
+                    operation.accepted_generation = (
+                        operation.generation
+                        + accepted.generation
+                        - operation.internal_generation
+                    )
                 self._finish(operation, "accepted")
         except Exception as error:
             self._failure(operation, error)

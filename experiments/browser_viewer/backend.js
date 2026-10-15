@@ -31,12 +31,17 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
   selected.getLifecycle = typeof backend.getLifecycle === 'function' ? backend.getLifecycle.bind(backend)
     : () => { throw new BackendError('This backend does not support runtime control.',
       { code: 'unsupported_capability' }); };
-  for (const method of ['addScan', 'getSourceOperation', 'cancelSourceOperation', 'resetProject']) {
-    if (backend.capabilities.sourceImport && typeof backend[method] !== 'function')
+  for (const [method, supported] of [
+    ['addScan', backend.capabilities.sourceImport], ['resetProject', backend.capabilities.sourceImport],
+    ['getSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
+    ['cancelSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
+    ['inspectActions', backend.capabilities.sourceActions], ['openActions', backend.capabilities.sourceActions],
+  ]) {
+    if (supported && typeof backend[method] !== 'function')
       throw new BackendError(`Backend "${type}" does not implement ${method}.`,
         { code: 'unsupported_operation' });
-    selected[method] = backend.capabilities.sourceImport ? backend[method].bind(backend)
-      : async () => { throw new BackendError('This backend does not support scan import.',
+    selected[method] = supported ? backend[method].bind(backend)
+      : async () => { throw new BackendError('This backend does not support this source operation.',
         { code: 'unsupported_capability' }); };
   }
   for (const [capability, methods] of Object.entries({

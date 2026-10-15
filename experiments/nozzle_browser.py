@@ -39,20 +39,27 @@ from experiments.feature_graph import (
     StaleGraph,
     workspace_reference_sha256,
 )
-from experiments.feature_recipe_import import import_recipe, load_recipe
+from experiments.feature_recipe_import import ImportWarning, import_recipe, load_recipe
 from experiments.feature_reuse_authoring import (
     ReuseAuthoringRequest,
     apply_feature_reuse,
     preview_feature_reuse,
 )
 from experiments.guided_face_candidates import FaceCandidatesRequest, candidate_faces
-from experiments.native_scan_import import NativeImportContext, NativeScanImports
+from experiments.native_scan_import import (
+    NativeImportContext,
+    NativeOpenCandidate,
+    NativeScanImports,
+)
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from experiments.scan_actions import inspect_actions
 from experiments.scan_project import ScanProject
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
+    ScanProgress,
     ScanWorkspace,
+    check_cancelled,
 )
 from scansor.selection_bundle import SelectionBundle
 
@@ -86,12 +93,28 @@ class ProjectResetRequest(SourceCursor):
     confirmedDiscard: bool
 
 
+class ActionsInspectRequest(SourceCursor):
+    recipe: dict[str, Any]
+
+
+class ActionsSourceRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    filename: str
+    size: int
+
+
+class ActionsOpenRequest(ActionsInspectRequest):
+    confirmedDiscard: bool
+    source: ActionsSourceRequest | None = None
+
+
 @dataclass(frozen=True)
 class NativeAccepted:
     generation: int
     workspace: NozzleWorkspace | ScanWorkspace
     graph: FeatureGraph[Any]
     buffers: dict[str, bytes]
+    import_warnings: tuple[ImportWarning, ...] = ()
 
 
 # Measured native admission tier; callers may supply stricter explicit caps.
@@ -233,6 +256,7 @@ class NozzleServer(ThreadingHTTPServer):
                 }
                 if buffers
                 else {},
+                accepted.import_warnings,
             )
 
     @property
@@ -278,18 +302,124 @@ class NozzleServer(ThreadingHTTPServer):
         return state
 
     def import_context(self) -> NativeImportContext:
-        if self._project is None:
-            raise ScanImportError(
-                "Add scan requires an explicitly empty project.", "source_exists"
-            )
         if self.busy():
             raise ScanImportError(
                 "Wait for the active computation before importing.", "source_busy"
             )
         state = self.accepted()
+        original_token = str(state.graph.snapshot()["token"])
+        original_example = self.active_example
+        original_recipe = self.example_recipe
+        owner = self._project if self._project is not None else self._legacy
+        matching = self._project.accepted if self._project is not None else None
+
+        def prepare_open(
+            value: object,
+            path: Path | None,
+            filename: str,
+            progress: Callable[[ScanProgress], None],
+            cancelled: Callable[[], bool],
+        ) -> NativeOpenCandidate:
+            inspection = inspect_actions(value, state.workspace)
+            check_cancelled(cancelled)
+            project: ScanProject | None = None
+            legacy: NativeAccepted | None = None
+            if inspection.actions.kind == "legacy":
+                graph = FeatureGraph(state.workspace, inspection.actions.recipe)
+                # Reuse only the explicitly captured immutable legacy display/source.
+                assert isinstance(owner, NativeAccepted)
+                legacy = NativeAccepted(
+                    state.generation + 1,
+                    state.workspace,
+                    graph,
+                    owner.buffers,
+                    inspection.actions.warnings,
+                )
+                warning_count = len(legacy.import_warnings)
+                next_example = original_example
+                next_example_recipe = original_recipe.model_copy(deep=True)
+            else:
+                project = ScanProject()
+                initial = project.accepted
+                with ExitStack() as stack:
+                    stream = (
+                        stack.enter_context(path.open("rb"))
+                        if path is not None
+                        else None
+                    )
+                    candidate = project.prepare_open(
+                        value,
+                        generation=initial.generation,
+                        token=str(initial.graph.snapshot()["token"]),
+                        confirmed_discard=True,
+                        matching=matching,
+                        stream=stream,
+                        filename=filename or None,
+                        limits=self.source_imports.limits,
+                        progress=progress,
+                        cancelled=cancelled,
+                    )
+                prepared = project.commit_open(candidate, cancelled=cancelled)
+                warning_count = len(prepared.import_warnings)
+                next_example = None
+                next_example_recipe = Recipe(schema_version=2, nodes=[], output=None)
+            check_cancelled(cancelled)
+
+            def install() -> int:
+                current = self.accepted()
+                current_owner = (
+                    self._project if self._project is not None else self._legacy
+                )
+                if (
+                    current_owner is not owner
+                    or current.generation != state.generation
+                    or current.graph.snapshot()["token"] != original_token
+                ):
+                    raise ScanImportError(
+                        "Project changed before opening actions.", "stale_source"
+                    )
+                if self.busy():
+                    raise ScanImportError("Wait for active computation.", "source_busy")
+                check_cancelled(cancelled)
+                self.clear_jobs()
+                self.active_example = next_example
+                self.example_recipe = next_example_recipe
+                if project is not None:
+                    self._generation_offset = (
+                        state.generation + 1 - project.accepted.generation
+                    )
+                    self._project, self._legacy = project, None
+                else:
+                    assert legacy is not None
+                    self._project, self._legacy = None, legacy
+                return state.generation + 1
+
+            return NativeOpenCandidate(install, warning_count)
+
         return NativeImportContext(
-            self._project, state.generation, str(state.graph.snapshot()["token"])
+            self._project,
+            state.generation,
+            str(state.graph.snapshot()["token"]),
+            owner,
+            state.workspace,
+            prepare_open,
         )
+
+    def inspect_actions(self, request: ActionsInspectRequest) -> dict[str, object]:
+        with self.lock:
+            state = self.accepted()
+            if (
+                request.generation != state.generation
+                or request.token != state.graph.snapshot()["token"]
+            ):
+                raise ScanImportError(
+                    "Project changed before inspecting actions.", "stale_source"
+                )
+            return {
+                "generation": state.generation,
+                "token": request.token,
+                **inspect_actions(request.recipe, state.workspace).json(),
+            }
 
     def reset_project(self, request: ProjectResetRequest) -> NativeAccepted:
         with self.lock:
@@ -586,6 +716,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 metadata = {
                     **metadata,
+                    "import_warnings": list(state.import_warnings),
                     "graph": graph,
                     "positions": {
                         "dtype": "<f4",
@@ -599,6 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                     },
                     "capabilities": {
                         **capabilities,
+                        "source_actions": {"supported": True},
                         "source_import": {
                             "supported": True,
                             "formats": ["binary-triangle-ply-v1"],
@@ -704,6 +836,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in {
             "/api/sources/imports",
             "/api/project/reset",
+            "/api/actions/inspect",
+            "/api/actions/open",
         } and not path.startswith("/api/sources/imports/"):
             return False
         binary = path.endswith("/bytes")
@@ -753,6 +887,24 @@ class Handler(BaseHTTPRequestHandler):
                     size=request.size,
                 )
                 self.json_reply(202, result)
+            elif path == "/api/actions/inspect":
+                result = self.app.inspect_actions(
+                    ActionsInspectRequest.model_validate_json(body)
+                )
+                self.json_reply(200, result)
+            elif path == "/api/actions/open":
+                request = ActionsOpenRequest.model_validate_json(body)
+                result = self.app.source_imports.open_actions(
+                    generation=request.generation,
+                    token=request.token,
+                    recipe=request.recipe,
+                    confirmed_discard=request.confirmedDiscard,
+                    filename=request.source.filename
+                    if request.source is not None
+                    else None,
+                    size=request.source.size if request.source is not None else None,
+                )
+                self.json_reply(200 if result["terminal"] else 202, result)
             elif path == "/api/project/reset":
                 state = self.app.reset_project(
                     ProjectResetRequest.model_validate_json(body)

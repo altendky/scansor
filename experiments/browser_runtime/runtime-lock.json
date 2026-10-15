@@ -122,6 +122,7 @@
       "experiments/nozzle_session.py",
       "experiments/run_nozzle_cylinder.py",
       "experiments/run_nozzle_cylinder_plane.py",
+      "experiments/scan_actions.py",
       "experiments/scan_project.py",
       "experiments/scan_workspace.py",
       "experiments/selection_growth.py",
