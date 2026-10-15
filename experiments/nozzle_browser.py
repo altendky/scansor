@@ -6,11 +6,13 @@ import argparse
 import json
 import threading
 import uuid
+from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import suppress
+from contextlib import ExitStack, contextmanager, suppress
+from dataclasses import asdict, dataclass, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, ClassVar, cast, override
+from typing import Any, BinaryIO, ClassVar, cast, override
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -44,7 +46,14 @@ from experiments.feature_reuse_authoring import (
     preview_feature_reuse,
 )
 from experiments.guided_face_candidates import FaceCandidatesRequest, candidate_faces
+from experiments.native_scan_import import NativeImportContext, NativeScanImports
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from experiments.scan_project import ScanProject
+from experiments.scan_workspace import (
+    ScanImportError,
+    ScanLimits,
+    ScanWorkspace,
+)
 from scansor.selection_bundle import SelectionBundle
 
 ASSETS = Path(__file__).with_name("browser_viewer")
@@ -60,6 +69,34 @@ class RecipeImportRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
     token: str
     recipe: dict[str, Any]
+
+
+class SourceCursor(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    generation: int
+    token: str
+
+
+class SourceImportRequest(SourceCursor):
+    filename: str
+    size: int
+
+
+class ProjectResetRequest(SourceCursor):
+    confirmedDiscard: bool
+
+
+@dataclass(frozen=True)
+class NativeAccepted:
+    generation: int
+    workspace: NozzleWorkspace | ScanWorkspace
+    graph: FeatureGraph[Any]
+    buffers: dict[str, bytes]
+
+
+# Measured native admission tier; callers may supply stricter explicit caps.
+# This does not describe total-process, fitting, browser or GPU capacity.
+NATIVE_SCAN_LIMITS = ScanLimits(8 * 1024**2, 131_072, 262_144, 96 * 1024**2)
 
 
 def selection_bundle_recipe(workspace: NozzleWorkspace, bundle_path: Path) -> Recipe:
@@ -123,75 +160,263 @@ class NozzleServer(ThreadingHTTPServer):
 
     def __init__(
         self,
-        workspace: NozzleWorkspace,
+        workspace: NozzleWorkspace | None = None,
         port: int = 0,
         recipe: Recipe | None = None,
         *,
         example_path: Path | None = None,
+        scan_limits: ScanLimits = NATIVE_SCAN_LIMITS,
+        staging_directory: Path | None = None,
     ) -> None:
-        self.workspace: NozzleWorkspace = workspace
+        self.lock: threading.RLock = threading.RLock()
+        self._project: ScanProject | None = ScanProject() if workspace is None else None
+        self._generation_offset: int = 0
+        self._legacy: NativeAccepted | None = None
+        self._active_computations: int = 0
         self.active_example: str | None = example_identity(example_path)
         self.worker: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
-        self.lock: threading.Lock = threading.Lock()
         self.job: Future[SessionFit] | None = None
         self.graph_job: Future[dict[str, object]] | None = None
-        initial_recipe = recipe or (
-            default_example_recipe(workspace, example_path)
-            if example_path is not None
-            else load_recipe(
-                Path("examples/nozzle-bayonette-simplified/recipes/cone-plane.json")
+        if workspace is not None:
+            initial_recipe = recipe or (
+                default_example_recipe(workspace, example_path)
+                if example_path is not None
+                else load_recipe(
+                    Path("examples/nozzle-bayonette-simplified/recipes/cone-plane.json")
+                )
             )
-        )
-        self.example_recipe: Recipe = initial_recipe.model_copy(deep=True)
-        self.graph: FeatureGraph = FeatureGraph(workspace, initial_recipe)
+            self.example_recipe: Recipe = initial_recipe.model_copy(deep=True)
+            self._legacy = NativeAccepted(
+                0,
+                workspace,
+                FeatureGraph(workspace, initial_recipe),
+                {
+                    "/mesh/positions": workspace.local.astype("<f4").tobytes(),
+                    "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
+                },
+            )
+        else:
+            if recipe is not None or example_path is not None:
+                raise ValueError("an empty server does not accept an example recipe")
+            self.example_recipe = Recipe(schema_version=2, nodes=[], output=None)
         self.graph_job_token: str = ""
         self.graph_job_roots: frozenset[str] = frozenset()
         self.graph_job_errors: dict[tuple[str, frozenset[str]], str] = {}
         self.job_id: str = ""
-        self.buffers: dict[str, bytes] = {
-            "/mesh/positions": workspace.local.astype("<f4").tobytes(),
-            "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
-        }
-        super().__init__(("127.0.0.1", port), Handler)
+        self.source_imports: NativeScanImports = NativeScanImports(
+            lock=self.lock,
+            context=self.import_context,
+            limits=scan_limits,
+            staging_directory=staging_directory,
+        )
+        try:
+            super().__init__(("127.0.0.1", port), Handler)
+        except BaseException:
+            self.source_imports.close()
+            self.worker.shutdown(wait=True, cancel_futures=True)
+            raise
 
-    def select_example(self, request: ExampleRequest) -> None:
+    def accepted(self, *, buffers: bool = False) -> NativeAccepted:
+        """Capture one authoritative generation, never independently mirrored fields."""
+        with self.lock:
+            if self._project is None:
+                assert self._legacy is not None
+                return self._legacy
+            accepted = self._project.accepted
+            return NativeAccepted(
+                self._generation_offset + accepted.generation,
+                accepted.workspace,
+                accepted.graph,
+                {
+                    "/mesh/positions": accepted.positions.tobytes(),
+                    "/mesh/indices": accepted.indices.tobytes(),
+                }
+                if buffers
+                else {},
+            )
+
+    @property
+    def workspace(self) -> Any:
+        # The compatibility facade changes mode after reset/example selection.
+        # New operations use the explicitly typed captured accepted record.
+        return self.accepted().workspace
+
+    @property
+    def graph(self) -> FeatureGraph[Any]:
+        return self.accepted().graph
+
+    @graph.setter
+    def graph(self, graph: FeatureGraph[Any]) -> None:
+        # Existing native tests deliberately install an already evaluated legacy
+        # graph; generic state always remains owned by ScanProject.
+        with self.lock:
+            if self._legacy is None or self._project is not None:
+                raise ValueError("generic graphs are owned by the source project")
+            self._legacy = replace(self._legacy, graph=graph)
+
+    @property
+    def buffers(self) -> dict[str, bytes]:
+        return self.accepted(buffers=True).buffers
+
+    @property
+    def is_generic(self) -> bool:
+        return self._project is not None
+
+    def busy(self) -> bool:
+        return self._active_computations > 0 or any(
+            job is not None and not job.done() for job in (self.job, self.graph_job)
+        )
+
+    def check_generation(self, value: str | None) -> NativeAccepted:
+        state = self.accepted()
+        if value is None and self._project is None:
+            return state
+        if value != str(state.generation):
+            raise ScanImportError(
+                "Source generation changed; reload the workspace.", "stale_source"
+            )
+        return state
+
+    def import_context(self) -> NativeImportContext:
+        if self._project is None:
+            raise ScanImportError(
+                "Add scan requires an explicitly empty project.", "source_exists"
+            )
+        if self.busy():
+            raise ScanImportError(
+                "Wait for the active computation before importing.", "source_busy"
+            )
+        state = self.accepted()
+        return NativeImportContext(
+            self._project, state.generation, str(state.graph.snapshot()["token"])
+        )
+
+    def reset_project(self, request: ProjectResetRequest) -> NativeAccepted:
+        with self.lock:
+            state = self.accepted()
+            if (
+                request.generation != state.generation
+                or request.token != state.graph.snapshot()["token"]
+            ):
+                raise ScanImportError("Project changed before reset.", "stale_source")
+            if not request.confirmedDiscard:
+                raise ScanImportError(
+                    "Project reset requires explicit discard confirmation.",
+                    "discard_required",
+                )
+            if self.busy() or self.source_imports.busy:
+                raise ScanImportError(
+                    "Wait for active work before resetting the project.", "source_busy"
+                )
+            if self._project is None:
+                self._project = ScanProject()
+                self._generation_offset = state.generation + 1
+                self._legacy = None
+            else:
+                accepted = self._project.accepted
+                _ = self._project.reset(
+                    generation=accepted.generation, token=request.token
+                )
+            self.active_example = None
+            self.example_recipe = Recipe(schema_version=2, nodes=[], output=None)
+            self.clear_jobs()
+            return self.accepted()
+
+    def clear_jobs(self) -> None:
+        self.job = None
+        self.job_id = ""
+        self.graph_job = None
+        self.graph_job_token = ""
+        self.graph_job_roots = frozenset()
+        self.graph_job_errors.clear()
+
+    @contextmanager
+    def computation(self) -> Generator[NativeAccepted]:
+        with self.lock:
+            if self.busy() or self.source_imports.busy:
+                raise ScanImportError(
+                    "Wait for active work before computing.", "source_busy"
+                )
+            stack = ExitStack()
+            if self._project is not None:
+                _ = stack.enter_context(self._project.evaluation())
+            state = self.accepted()
+            self._active_computations += 1
+        try:
+            yield state
+        finally:
+            with self.lock:
+                stack.close()
+                self._active_computations -= 1
+
+    def submit[T](self, callback: Callable[..., T], *args: Any) -> Future[T]:
+        lease = ExitStack()
+        _ = lease.enter_context(self.computation())
+
+        def run() -> T:
+            with lease:
+                return callback(*args)
+
+        try:
+            future = self.worker.submit(run)
+            future.add_done_callback(
+                lambda done: lease.close() if done.cancelled() else None
+            )
+            return future
+        except BaseException:
+            lease.close()
+            raise
+
+    def select_example(
+        self, request: ExampleRequest, generation: int | None = None
+    ) -> None:
         """Install a fresh workspace only after its source and recipe validate."""
         with self.lock:
-            if request.token != self.graph.snapshot()["token"]:
-                raise StaleGraph("graph changed before switching examples")
-            if any(
-                job is not None and not job.done() for job in (self.job, self.graph_job)
+            previous = self.accepted()
+            if request.token != previous.graph.snapshot()["token"] or (
+                generation is not None and generation != previous.generation
             ):
+                raise StaleGraph("graph changed before switching examples")
+            if self.busy() or self.source_imports.busy:
                 raise StaleGraph(
                     "wait for the current evaluation before switching examples"
                 )
-            directory = example_directory(request.example)
-            workspace = NozzleWorkspace(directory)
-            recipe = default_example_recipe(workspace, directory)
-            graph = FeatureGraph(workspace, recipe)
-            buffers = {
-                "/mesh/positions": workspace.local.astype("<f4").tobytes(),
-                "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
-            }
-            self.workspace = workspace
-            self.graph = graph
+        directory = example_directory(request.example)
+        workspace = NozzleWorkspace(directory)
+        recipe = default_example_recipe(workspace, directory)
+        graph = FeatureGraph(workspace, recipe)
+        buffers = {
+            "/mesh/positions": workspace.local.astype("<f4").tobytes(),
+            "/mesh/indices": workspace.data.triangles.astype("<u4").tobytes(),
+        }
+        with self.lock:
+            current = self.accepted()
+            if (
+                current.generation != previous.generation
+                or request.token != current.graph.snapshot()["token"]
+            ):
+                raise StaleGraph("project changed while preparing the example")
+            if self.busy() or self.source_imports.busy:
+                raise StaleGraph("wait for active work before switching examples")
+            self._legacy = NativeAccepted(
+                previous.generation + 1, workspace, graph, buffers
+            )
+            self._project = None
             self.example_recipe = recipe.model_copy(deep=True)
-            self.buffers = buffers
             self.active_example = request.example
-            self.job = None
-            self.job_id = ""
-            self.graph_job = None
-            self.graph_job_token = ""
-            self.graph_job_roots = frozenset()
-            self.graph_job_errors.clear()
+            self.clear_jobs()
 
     @override
     def server_close(self) -> None:
+        self.source_imports.begin_close()
         super().server_close()
         self.worker.shutdown(wait=True, cancel_futures=True)
+        self.source_imports.close()
 
 
 class Handler(BaseHTTPRequestHandler):
+    reply_generation: int | None = None
+
     @property
     def app(self) -> NozzleServer:
         assert isinstance(self.server, NozzleServer)
@@ -266,6 +491,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if (generation := self.reply_generation) is not None:
+            self.send_header("X-Scansor-Generation", str(generation))
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
@@ -274,6 +501,19 @@ class Handler(BaseHTTPRequestHandler):
         _ = self.wfile.write(body)
 
     def json_reply(self, status: int, value: object) -> None:
+        if isinstance(value, dict) and (
+            self.app.is_generic
+            or self.path == "/api/meta"
+            or self.path.startswith("/api/sources/imports")
+            or self.path == "/api/project/reset"
+            or self.headers.get("X-Scansor-Generation") is not None
+        ):
+            value = {
+                **value,
+                "project_generation": self.reply_generation
+                if self.reply_generation is not None
+                else self.app.accepted().generation,
+            }
         self.reply(
             status, json.dumps(value, allow_nan=False).encode(), "application/json"
         )
@@ -293,22 +533,86 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not self.allowed():
             return
-        if self.path == "/api/examples":
+        parsed = urlsplit(self.path)
+        if parsed.path.startswith("/api/sources/imports/"):
+            operation_id = parsed.path.removeprefix("/api/sources/imports/")
+            try:
+                self.json_reply(200, self.app.source_imports.status(operation_id))
+            except ScanImportError as error:
+                self.source_error(error)
+        elif parsed.path in {"/mesh/positions", "/mesh/indices"}:
+            try:
+                with self.app.lock:
+                    query = parse_qs(
+                        parsed.query, keep_blank_values=True, strict_parsing=True
+                    )
+                    if query:
+                        values = query.get("generation", [])
+                        if set(query) != {"generation"} or len(values) != 1:
+                            raise ScanImportError(
+                                "Expected one source generation.", "stale_source"
+                            )
+                        _ = self.app.check_generation(values[0])
+                    elif self.app.is_generic:
+                        raise ScanImportError(
+                            "Mesh reads require their source generation.",
+                            "stale_source",
+                        )
+                    state = self.app.accepted(buffers=True)
+                    self.reply_generation = state.generation
+                    data = state.buffers[parsed.path]
+                self.reply(200, data, "application/octet-stream")
+            except (ScanImportError, ValueError) as error:
+                self.source_error(
+                    error
+                    if isinstance(error, ScanImportError)
+                    else ScanImportError(str(error))
+                )
+        elif self.path == "/api/examples":
             with self.app.lock:
                 self.json_reply(
                     200, {"active": self.app.active_example, "examples": EXAMPLES}
                 )
         elif self.path == "/api/meta":
-            self.json_reply(
-                200,
-                {
-                    **self.app.workspace.metadata(),
+            with self.app.lock:
+                state = self.app.accepted()
+                self.reply_generation = state.generation
+                metadata = state.workspace.metadata()
+                capabilities = cast(dict[str, object], metadata.get("capabilities", {}))
+                graph = {
+                    **state.graph.snapshot(),
+                    "project_generation": state.generation,
+                }
+                metadata = {
+                    **metadata,
+                    "graph": graph,
+                    "positions": {
+                        "dtype": "<f4",
+                        "components": 3,
+                        "url": f"/mesh/positions?generation={state.generation}",
+                    },
+                    "indices": {
+                        "dtype": "<u4",
+                        "components": 3,
+                        "url": f"/mesh/indices?generation={state.generation}",
+                    },
+                    "capabilities": {
+                        **capabilities,
+                        "source_import": {
+                            "supported": True,
+                            "formats": ["binary-triangle-ply-v1"],
+                            "max_sources": 1,
+                            "limits": asdict(self.app.source_imports.limits),
+                            "cancel": True,
+                            "recovery": "active-workspace-original-bytes",
+                        },
+                    },
                     "face_building_limits": {
                         "max_pair_checks": MAX_PAIRS,
                         "max_regions": MAX_REGIONS,
                     },
-                },
-            )
+                }
+            self.json_reply(200, metadata)
         elif self.path == "/api/graph/example":
             with self.app.lock:
                 self.json_reply(200, self.app.example_recipe.model_dump())
@@ -336,6 +640,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             with self.app.lock, self.app.graph.lock:
+                self.reply_generation = self.app.accepted().generation
                 state = self.app.graph.snapshot(if_revision=revision)
                 job, token = self.app.graph_job, self.app.graph_job_token
                 running = job is not None and not job.done()
@@ -359,8 +664,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_reply(200, {"status": "complete", "result": job.result()})
                 except Exception as error:  # A failed fit is a visible job outcome.
                     self.json_reply(200, {"status": "failed", "error": str(error)})
-        elif self.path in self.app.buffers:
-            self.reply(200, self.app.buffers[self.path], "application/octet-stream")
         elif (asset_path := urlsplit(self.path).path) in self.files:
             filename, mime = self.files[asset_path]
             try:
@@ -375,8 +678,117 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.json_reply(404, {"error": "not found"})
 
+    def source_error(self, error: ScanImportError) -> None:
+        status = (
+            404
+            if error.code == "unknown_operation"
+            else 409
+            if error.code
+            in {"stale_source", "source_exists", "source_busy", "import_closed"}
+            else 422
+        )
+        # A disconnected upload still retains its terminal operation diagnostic;
+        # there may no longer be an HTTP observer to receive this response.
+        with suppress(BrokenPipeError, ConnectionResetError):
+            self.json_reply(status, {"error": str(error), "code": error.code})
+
+    def fence_source(self) -> NativeAccepted:
+        state = self.app.check_generation(self.headers.get("X-Scansor-Generation"))
+        self.reply_generation = state.generation
+        return state
+
+    def source_POST(self) -> bool:
+        """Handle bounded source controls and separate original-byte transport."""
+        path = urlsplit(self.path).path
+        if path not in {
+            "/api/sources/imports",
+            "/api/project/reset",
+        } and not path.startswith("/api/sources/imports/"):
+            return False
+        binary = path.endswith("/bytes")
+        expected_type = "application/octet-stream" if binary else "application/json"
+        if (
+            self.headers.get("X-Scansor-Request") != "1"
+            or self.headers.get("Content-Type") != expected_type
+        ):
+            self.json_reply(403, {"error": "expected explicit source request"})
+            return True
+        try:
+            raw_length = self.headers.get("Content-Length", "")
+            if (
+                not raw_length.isascii()
+                or not raw_length.isdecimal()
+                or self.headers.get("Transfer-Encoding") is not None
+            ):
+                raise ScanImportError(
+                    "Expected an exact Content-Length.", "invalid_upload"
+                )
+            length = int(raw_length)
+            self.connection.settimeout(5)
+            if binary:
+                operation_id = path.removeprefix("/api/sources/imports/").removesuffix(
+                    "/bytes"
+                )
+                result = self.app.source_imports.receive(
+                    operation_id, cast(BinaryIO, cast(object, self.rfile)), length
+                )
+                self.json_reply(200 if result["terminal"] else 202, result)
+                return True
+            if not 0 < length <= 1_000_000:
+                raise ScanImportError(
+                    "Expected source controls under 1 MB.", "invalid_upload"
+                )
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ScanImportError(
+                    "Truncated source control request.", "invalid_upload"
+                )
+            if path == "/api/sources/imports":
+                request = SourceImportRequest.model_validate_json(body)
+                result = self.app.source_imports.reserve(
+                    generation=request.generation,
+                    token=request.token,
+                    filename=request.filename,
+                    size=request.size,
+                )
+                self.json_reply(202, result)
+            elif path == "/api/project/reset":
+                state = self.app.reset_project(
+                    ProjectResetRequest.model_validate_json(body)
+                )
+                self.reply_generation = state.generation
+                self.json_reply(
+                    200,
+                    {
+                        "graph": {
+                            **state.graph.snapshot(),
+                            "project_generation": state.generation,
+                        }
+                    },
+                )
+            elif path.endswith("/cancel"):
+                operation_id = path.removeprefix("/api/sources/imports/").removesuffix(
+                    "/cancel"
+                )
+                cursor = SourceCursor.model_validate_json(body)
+                self.json_reply(
+                    200,
+                    self.app.source_imports.cancel(
+                        operation_id, generation=cursor.generation, token=cursor.token
+                    ),
+                )
+            else:
+                self.json_reply(404, {"error": "not found"})
+        except ScanImportError as error:
+            self.source_error(error)
+        except (ValidationError, ValueError, OSError) as error:
+            self.source_error(ScanImportError(str(error), "invalid_upload"))
+        return True
+
     def do_POST(self) -> None:
         if not self.allowed():
+            return
+        if self.source_POST():
             return
         if self.path not in (
             "/api/session",
@@ -411,14 +823,19 @@ class Handler(BaseHTTPRequestHandler):
                 imported = RecipeImportRequest.model_validate_json(body)
                 recipe, warnings = import_recipe(imported.recipe)
                 with self.app.lock:
+                    _ = self.fence_source()
                     state = self.app.graph.replace(recipe, imported.token)
                 self.json_reply(200, {**state, "import_warnings": warnings})
                 return
             if self.path == "/api/examples/select":
                 try:
-                    self.app.select_example(ExampleRequest.model_validate_json(body))
+                    with self.app.lock:
+                        previous = self.fence_source()
+                        example_request = ExampleRequest.model_validate_json(body)
+                    self.app.select_example(example_request, previous.generation)
                 except OSError as error:
                     raise ValueError(f"could not load example: {error}") from error
+                self.reply_generation = self.app.accepted().generation
                 self.json_reply(200, {"active": self.app.active_example})
                 return
             if self.path in (
@@ -426,11 +843,13 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/graph/feature-reuse/apply",
             ):
                 authoring = ReuseAuthoringRequest.model_validate_json(body)
-                state = (
-                    preview_feature_reuse(self.app.graph, authoring)
-                    if self.path.endswith("/preview")
-                    else apply_feature_reuse(self.app.graph, authoring)
-                )
+                with self.app.lock:
+                    _ = self.fence_source()
+                    state = (
+                        preview_feature_reuse(self.app.graph, authoring)
+                        if self.path.endswith("/preview")
+                        else apply_feature_reuse(self.app.graph, authoring)
+                    )
                 self.json_reply(200, state)
                 return
             if self.path in (
@@ -439,6 +858,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/graph/build-faces/apply",
             ):
                 with self.app.lock:
+                    _ = self.fence_source()
                     if self.app.graph_job is not None and not self.app.graph_job.done():
                         self.json_reply(
                             409,
@@ -467,26 +887,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_reply(200, state)
                 return
             if self.path == "/api/export/cad":
-                # Fit-only sessions do not need to load the native CAD kernel.
-                from experiments.nozzle_cad import (
-                    CadExportRequest,
-                    export_cad,
-                    export_face_targets,
-                )
-
-                export_request = CadExportRequest.model_validate_json(body)
                 with self.app.lock:
-                    graph, workspace = self.app.graph, self.app.workspace
-                snapshot = cast(dict[str, Any], graph.snapshot())
-                if export_request.scope != "target":
-                    with self.app.lock:
-                        if (
-                            self.app.graph_job is not None
-                            and not self.app.graph_job.done()
-                        ):
-                            raise ValueError(
-                                "wait for the current graph evaluation before exporting geometry"
-                            )
+                    _ = self.fence_source()
+                    export_lease = ExitStack()
+                    accepted = export_lease.enter_context(self.app.computation())
+                try:
+                    # Hold the source lease even while lazy kernel loading runs.
+                    from experiments.nozzle_cad import (
+                        CadExportRequest,
+                        export_cad,
+                        export_face_targets,
+                    )
+
+                    export_request = CadExportRequest.model_validate_json(body)
+                    self.reply_generation = accepted.generation
+                    graph, workspace = accepted.graph, accepted.workspace
+                    snapshot = cast(dict[str, Any], graph.snapshot())
+                    if export_request.scope != "target":
                         roots = export_face_targets(snapshot, export_request)
                         roots.extend(export_request.review_owners)
                         if export_request.scope == "all_faces":
@@ -522,7 +939,9 @@ class Handler(BaseHTTPRequestHandler):
                                     for key in failed
                                 )
                             )
-                exported = export_cad(workspace, snapshot, export_request)
+                    exported = export_cad(workspace, snapshot, export_request)
+                finally:
+                    export_lease.close()
                 self.reply(200, exported, "application/zip")
                 return
             if self.path.startswith("/api/graph"):
@@ -531,10 +950,12 @@ class Handler(BaseHTTPRequestHandler):
                     if payload.recipe is None:
                         raise ValueError("expected a current recipe")
                     with self.app.lock:
+                        _ = self.fence_source()
                         state = self.app.graph.replace(payload.recipe, payload.token)
                     self.json_reply(200, state)
                 else:
                     with self.app.lock:
+                        _ = self.fence_source()
                         if self.path == "/api/graph/ensure":
                             if payload.target is not None or payload.recipe is not None:
                                 raise ValueError(
@@ -610,7 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
                             else:
                                 self.app.graph_job_token = payload.token
                                 self.app.graph_job_roots = roots
-                                self.app.graph_job = self.app.worker.submit(
+                                self.app.graph_job = self.app.submit(
                                     self.app.graph.ensure_current,
                                     payload.token,
                                     payload.targets,
@@ -638,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
                             [payload.target] if payload.target is not None else None,
                             payload.all_actions,
                         )
-                        self.app.graph_job = self.app.worker.submit(
+                        self.app.graph_job = self.app.submit(
                             self.app.graph.evaluate,
                             payload.token,
                             payload.target,
@@ -647,7 +1068,13 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_reply(202, {"status": "running"})
                 return
             with self.app.lock:
-                session = self.app.workspace.validate(
+                accepted = self.fence_source()
+                if not isinstance(accepted.workspace, NozzleWorkspace):
+                    raise ScanImportError(
+                        "Legacy session fitting is unavailable for user scan sources.",
+                        "unsupported_operation",
+                    )
+                session = accepted.workspace.validate(
                     NozzleSession.model_validate_json(body)
                 )
                 if self.path == "/api/session":
@@ -657,9 +1084,11 @@ class Handler(BaseHTTPRequestHandler):
                     self.json_reply(409, {"error": "a fit is already running"})
                     return
                 self.app.job_id = uuid.uuid4().hex
-                self.app.job = self.app.worker.submit(self.app.workspace.fit, session)
+                self.app.job = self.app.submit(accepted.workspace.fit, session)
                 job_id = self.app.job_id
             self.json_reply(202, {"job_id": job_id})
+        except ScanImportError as error:
+            self.source_error(error)
         except StaleGraph as error:
             self.json_reply(409, {"error": str(error)})
         except ValidationError as error:
@@ -683,6 +1112,9 @@ def main() -> None:
         help="Override the example's default action recipe",
     )
     _ = parser.add_argument("--port", type=int, default=0)
+    _ = parser.add_argument(
+        "--empty", action="store_true", help="Start with no source or actions"
+    )
     args = parser.parse_args()
     if not (ASSETS / "node_modules/three/build/three.module.js").is_file():
         parser.error(
@@ -693,14 +1125,18 @@ def main() -> None:
         for filename in ("dist/workspace.js", "dist/workspace.css")
     ):
         parser.error("run npm run build --prefix experiments/browser_viewer first")
-    workspace = NozzleWorkspace(args.example)
+    if args.empty and args.recipe is not None:
+        parser.error("--empty cannot include --recipe")
+    workspace = None if args.empty else NozzleWorkspace(args.example)
     recipe = (
         load_recipe(args.recipe)
         if args.recipe is not None
         else default_example_recipe(workspace, args.example)
+        if workspace is not None
+        else None
     )
     with NozzleServer(
-        workspace, args.port, recipe, example_path=args.example
+        workspace, args.port, recipe, example_path=None if args.empty else args.example
     ) as server:
         print(
             f"Nozzle selection experiment: http://127.0.0.1:{server.server_port}/",

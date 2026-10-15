@@ -22,7 +22,15 @@ Failed/cancelled/stale preparation preserves the accepted generation. Retained
 examples use the same geometry reader through an explicit legacy adapter that
 preserves their existing reference hashes and optional starter recipes.
 
-This foundation does not expose file opening in either adapter or the UI yet.
+The native HTTP adapter now implements bounded source import, progress,
+cooperative Cancel and confirmed project reset through the common backend
+operations. Its source-only empty constructor/`--empty` entry point is available
+for adapter development. The source picker and empty-project UI remain #243;
+worker import/recovery remains #242. See the
+[native measurements and lifecycle](native-scan-import.md). The full numerical
+delivery gate in #240 remains open; this transport slice does not claim its
+pending cone/symmetry integration or cross-runtime parity work is delivered.
+
 Standalone plane fitting now uses only selected source positions, incident-area
 weights and admitted normal directions. Its direct covariance solve is centered
 and length-normalized, with separate coverage/eigengap diagnostics. A unique
@@ -87,9 +95,9 @@ support reuse and independently authored target bounds remain available.
 [#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
 target override authority and its fixed/free/group/replay verification.
 
-HTTP/worker delivery,
-Force source retention, source-aware reopening and per-backend measured caps remain their
-listed tickets. Caller-provided byte/count caps and the loader's incremental
+Worker delivery/Force source retention, source-aware reopening and worker
+measured caps remain their listed tickets. Native defaults have executed
+source-only import evidence; byte/count caps and the loader's incremental
 allocation estimate are admission checks, not a measured total-runtime memory
 guarantee. Input snapshots and authoritative/display copies are accounted for
 separately from the interpreter, GPU and unrelated caller state.
@@ -183,9 +191,11 @@ Current implementation gaps:
   centers and scales legacy numerical coordinates. Generic cylinders additionally
   rotate each proposal chart, while relationship components use one chart per
   free axis; canonical publication does not expose legacy chart placeholders.
-- [Native example switching](../../../../experiments/nozzle_browser.py)
-  constructs a candidate before assigning accepted state, but does so under the
-  server lock. Scan preparation needs a separate staging lifetime.
+- [Native source import](../../../../experiments/native_scan_import.py)
+  stages bounded uploads separately and prepares outside the coordinator lock.
+  Commit publishes one authoritative project state after cursor/cancellation
+  checks; queued evaluation and CAD retain source leases. Example switching
+  remains an explicit legacy adapter rather than a user-source interpretation.
 - [Worker recovery](../../../../experiments/browser_static/recovery.md)
   retains the accepted recipe and reconstructs the packaged nozzle. It does not
   yet retain or reconstruct an arbitrary user source.
