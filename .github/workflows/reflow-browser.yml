@@ -81,6 +81,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Observe repeated imports in the actual worker product UI
+        run: >-
+          node experiments/browser_static/measure-worker-source-ui.mjs
+          --directory "${{ runner.temp }}/agents/scansor-static/work/site"
+          --output "${{ runner.temp }}/agents/scansor-static/worker-source-ui-resources"
+          --native-python .venv/bin/python
+
+      - name: Upload actual worker UI resource observations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: worker-source-ui-resources
+          path: ${{ runner.temp }}/agents/scansor-static/worker-source-ui-resources/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
       # Public Actions artifacts distribute binaries too. No binary cache or
       # trace ZIP is uploaded while the recorded source/notice gate is closed.
       - name: Upload the exact tested site when redistribution is ready

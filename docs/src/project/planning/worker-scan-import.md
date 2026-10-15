@@ -181,6 +181,74 @@ remain #247 and #248.
 
 ## Reproduction and gates
 
+The additional
+[actual worker product-UI resource driver](../../../../experiments/browser_static/measure-worker-source-ui.mjs)
+runs two preregistered raw nozzle, independent scene and 512 × 256 grid cycles
+in one application page and ordinary worker per plain/isolated Chromium mode.
+Each cycle uses the real File picker, Inspect source, rectangle/through-all
+selection, wheel interaction and New project controls. It observes production
+normals, colors and selection overlays. The 25,000-ID selection limit remains
+separate from the 131,072-vertex source cap. Grid Force is a separately labelled
+worker replacement, followed by saved-actions reopening with a renamed identical
+File. Scalar worker/CDP lifecycle and WeakMap File serials establish continuity;
+the observer keeps no File, Worker, geometry or buffer history.
+The manifest-verified backend module gets one bounded read-only observer inside
+its factory closure. At settled stages it records the actual current checkpoint
+File serial/size, mode, generation, source/settings identity and recipe digest
+and counts. New/reset must show no checkpoint File or active source operation;
+Force must preserve that current File and renamed reopening must replace it.
+The WeakMap serial function is exposed only during each observation and removed
+in `finally`. These ownership observations do not prove GC or reachability.
+Checkpoint recipe digests sort object keys consistently with the backend's
+identity serializer, while preserving all authored values and array order.
+
+The report keeps main/worker CDP heaps and backing stores, always-nonempty-frame
+Wasm capacity, named NumPy roots, immutable source bytes, lifetime staging/chunk
+high-water, production display backing and logical WebGL allocation counters
+separate. Passive heartbeat and rAF gaps span imports; wheel-to-next-render-submit
+is a correlation proxy. Per-import intervals end at observed visible readiness,
+before the subsequent worker inventory and display hashing. They include the
+file-selected main observation, readiness polling and frame settling. Worker
+samples occur only at quiescent boundaries; the
+file-selected interval explicitly reports worker observation as unavailable.
+Completed lifecycle, no active source ownership and no pending worker RPC are
+required before worker inventory. Matching before/after accepted checkpoint,
+recipe, lifecycle and worker identities fence each sample; read notifications
+are not pending worker requests. No operation lease is bypassed or replaced.
+Hashing, conversion, routing and browser instrumentation add measurement work.
+These observations do not establish synchronous parser/process/GPU peaks,
+immediate reclamation, a leak verdict, a performance threshold, other engines or
+fitting/CAD concurrency.
+
+The packaged-native oracle freezes independent source/settings, original row,
+normal, triangle, weight and display digests before browser outcomes. Every
+accepted inspection/selection/Force/reopen boundary compares them, while reset
+checks empty source/display/recipe state and zero owned staging. Source-aware
+reopening preserves the recipe and accepted epochs. External/API fallback,
+hidden worker replacement, missing samples, failed cleanup or changed artifact
+bytes fail the focused report validator. CI runs this gate after the existing
+static verification and retains its JSON reports separately from the published
+release payload; it adds no release-envelope member or admission capacity.
+The driver verifies clean, consistent site/runtime revision identities and exact
+manifest-listed runtime source hashes against its checkout, then freezes and
+rehashes its own helpers, observers, inputs and references. Generated/vendor
+artifact files remain protected by their complete asset inventory and unchanged
+package/build inputs. A matching parent artifact can diagnose the candidate when
+producer bytes agree; delivery still requires a fresh signed-current build and
+the full CI gates. Progress checkpoints preserve the last completed stage, and
+context/server cleanup attempts run independently when one fails.
+Before importing packaged native code, the oracle verifies the source ZIP asset,
+unique exact member closure, paths/types and every expanded member's expected
+size and hash against the manifest and trusted checkout. All members pass before
+any extraction or import; extra, duplicate, aliased or tampered members fail.
+
+```sh
+node experiments/browser_static/measure-worker-source-ui.mjs \
+  --directory "$TASK_SITE" --output "$TASK_WORKER_UI_RESOURCES" \
+  --native-python .venv/bin/python
+node experiments/browser_static/worker-source-resource-validation.test.mjs
+```
+
 Use a freshly built and verified site from this checkout, with reports outside
 the repository and artifact. The
 [resource driver](../../../../experiments/browser_static/measure-source-import.mjs)
