@@ -11,6 +11,7 @@ import struct
 import sys
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
@@ -175,8 +176,11 @@ def imported_plane_probe(
     for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
         compare_values(replayed[key], state[key], f"plane.replay.{key}")
     return {
-        key: state[key]
-        for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
+        "comparison_length_scale": scale,
+        **{
+            key: state[key]
+            for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
+        },
     }
 
 
@@ -345,6 +349,48 @@ def compare_values(actual: Any, expected: Any, path: str) -> None:
         assert type(actual) is type(expected) and actual == expected, path
 
 
+def compare_imported_planes(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> None:
+    """Compare complete records in the frozen fixture's units, at fixed tolerances.
+
+    Raw length/area tolerances are not invariant under the twelve-order scale
+    range here. Normalize only known dimensional results using the expected
+    fixture scale; input identities, membership and dimensionless evidence stay
+    untouched. Do not normalize inert, explicitly authored plane support.
+    """
+    assert len(actual) == len(expected), "imported_planes count"
+
+    def normalized(report: dict[str, Any], scale: float) -> dict[str, Any]:
+        result = deepcopy(report)
+        fitted = result["results"]["plane"]
+        fitted["parameters"][3] /= scale
+        for key in ("residuals", "weighted_rms"):
+            if key in fitted:
+                fitted[key] = (np.asarray(fitted[key]) / scale).tolist()
+        initialization = fitted.get("initialization", {})
+        for key in ("origin", "length"):
+            if key in initialization:
+                initialization[key] = (np.asarray(initialization[key]) / scale).tolist()
+        grown = result["results"].get("grown", {})
+        if "added_area" in grown:
+            grown["added_area"] /= scale * scale
+        return result
+
+    for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
+        scale = reference["comparison_length_scale"]
+        if type(scale) not in (float, int) or not math.isfinite(scale) or scale <= 0:
+            raise ValueError(
+                "plane comparison length scale must be finite and positive"
+            )
+        assert value["comparison_length_scale"] == scale, "plane fixture scale mismatch"
+        compare_values(
+            normalized(value, float(scale)),
+            normalized(reference, float(scale)),
+            f"imported_planes[{index}]",
+        )
+
+
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     for key in ("fixture_sha256", "counts", "source_sha256", "model_sha256"):
         assert actual[key] == expected[key], f"{key} mismatch"
@@ -352,9 +398,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     for key in ("recipe", "token", "states", "errors", "diagnostics"):
         assert graph[key] == reference[key], f"graph {key} mismatch"
     compare_values(graph["results"], reference["results"], "graph.results")
-    compare_values(
-        actual["imported_planes"], expected["imported_planes"], "imported_planes"
-    )
+    compare_imported_planes(actual["imported_planes"], expected["imported_planes"])
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
     np.testing.assert_allclose(
         actual["synthetic"]["residuals"],

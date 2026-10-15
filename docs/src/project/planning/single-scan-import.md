@@ -35,7 +35,10 @@ explicit reference-plane orientation remains authoritative.
 The frozen native/Pyodide numerical probe includes independently posed imported
 planes, nonuniform cells, multiple scales, growth and recipe replay against
 renamed identical source bytes. This verifies shared numerical semantics through
-the worker parity gate; adapter/UI file opening remains separate. Kernel/STEP
+the worker parity gate. Its distance and area comparisons use the frozen case's
+length scale while retaining the same dimensionless tolerances; source identity,
+membership and dimensionless evidence are compared separately. Adapter/UI file
+opening remains separate. Kernel/STEP
 geometry tests use practical scales; tiny-scale numerical fitting does not imply
 CAD-kernel capability or physical accuracy.
 
