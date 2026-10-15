@@ -280,6 +280,10 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     assert.equal(await item.evaluate(element=>element===document.activeElement||element.contains(document.activeElement)),true);
     await page.keyboard.press('Shift+F10');await page.keyboard.press('Enter');await page.locator('#source-properties').waitFor({state:'visible'});await closeEditor(page);
     await page.setViewportSize({width:380,height:700});const trigger=page.getByRole('button',{name:'Project toolbar options',exact:true});
+    const focusState=()=>trigger.evaluate(element=>({trigger_connected:element.isConnected,trigger_focused:element===document.activeElement,
+      trigger_expanded:element.getAttribute('aria-expanded'),menu_open:document.querySelector('[role="menu"][data-state="open"]')!==null,
+      active:{tag:document.activeElement?.tagName,id:document.activeElement?.id,role:document.activeElement?.getAttribute('role'),label:document.activeElement?.getAttribute('aria-label')}}));
+    result.evidence.toolbar_focus=[];
     for(const placement of ['Dock left','Dock right','Float','Rotate floating toolbar']){
       await trigger.click();await page.getByRole('menuitem',{name:placement,exact:true}).click();await trigger.focus();await page.keyboard.press('Enter');
       for(const name of ['New project','Inspect source','Remove scan…']){
@@ -287,7 +291,14 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
         assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=381&&box.y+box.height<=701);
       }
       assert.equal(await page.getByRole('menuitem',{name:'Add scan…',exact:true}).getAttribute('data-disabled'),'');
-      await page.keyboard.press('Escape');assert.equal(await trigger.evaluate(element=>element===document.activeElement),true);
+      const observation={placement,before_escape:await focusState()};result.evidence.toolbar_focus.push(observation);
+      await page.keyboard.press('Escape');observation.after_escape=await focusState();
+      await page.getByRole('menu').waitFor({state:'hidden'});
+      const element=await trigger.elementHandle();
+      try{await page.waitForFunction(element=>element?.isConnected&&element===document.activeElement,element,{timeout:10000});}
+      finally{await element?.dispose();}
+      assert.equal(await trigger.evaluate(element=>element===document.activeElement),true);
+      observation.after_settled=await focusState();assert.equal(observation.after_settled.menu_open,false);
     }
     await trigger.click();await page.getByRole('menuitem',{name:'Dock top',exact:true}).click();await page.setViewportSize({width:1440,height:1000});
     sameWork(await coherent(),keyboardBefore);

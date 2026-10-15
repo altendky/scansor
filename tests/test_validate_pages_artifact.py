@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import io
 import json
 import shutil
 import stat
@@ -2452,3 +2453,112 @@ def test_actions_capability_types_remain_bound_after_all_envelope_hashes_are_ref
     ):
         _ = validate(selected)
     assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_source_graph_json_limit_is_exactly_scoped() -> None:
+    assert VALIDATOR.MAX_JSON == 32 * 1024 * 1024
+    assert VALIDATOR.MAX_SOURCE_GRAPH_JSON == 64 * 1024 * 1024
+    assert VALIDATOR.MAX_MEMBER == 256 * 1024 * 1024
+    assert VALIDATOR.MAX_TOTAL == 768 * 1024 * 1024
+    assert VALIDATOR.MAX_ARCHIVE == 512 * 1024 * 1024
+    for name in VALIDATOR.DRIVERS:
+        assert VALIDATOR.driver_json_limit(name) == (
+            VALIDATOR.MAX_SOURCE_GRAPH_JSON
+            if name in VALIDATOR.SOURCE_GRAPH_DRIVERS
+            else VALIDATOR.MAX_JSON
+        )
+    for name in (
+        "verification",
+        "site-manifest",
+        "runtime-manifest",
+        "source-import-memory",
+        "source-import-extra",
+    ):
+        assert VALIDATOR.driver_json_limit(name) == VALIDATOR.MAX_JSON
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize("extra", [0, 1])
+def test_source_graph_json_parser_and_archive_exact_boundary(
+    name: str, extra: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Small equivalent boundaries keep this test independent of fixture volume.
+    monkeypatch.setattr(VALIDATOR, "MAX_JSON", 64)
+    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", 128)
+    raw = b"{}" + b" " * (126 + extra)
+    limit = VALIDATOR.driver_json_limit(name)
+    if extra:
+        with pytest.raises(ValueError, match="JSON input exceeds size limit"):
+            _ = VALIDATOR.object_json(raw, limit=limit)
+    else:
+        assert VALIDATOR.object_json(raw, limit=limit) == {}
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(name + ".json", raw)
+    _ = buffer.seek(0)
+    with zipfile.ZipFile(buffer) as archive:
+        info = archive.getinfo(name + ".json")
+        if extra:
+
+            def unexpected_open(*_args: Any, **_kwargs: Any) -> Any:
+                raise AssertionError("oversize member must reject before opening")
+
+            monkeypatch.setattr(archive, "open", unexpected_open)
+            with pytest.raises(ValueError, match="archive JSON exceeds limit"):
+                _ = VALIDATOR.read_member(archive, info, limit)
+        else:
+            assert VALIDATOR.read_member(archive, info, limit) == raw
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_32mib(
+    selected: dict[str, Any], name: str
+) -> None:
+    filename = "evidence/" + name + ".json"
+    report = json.loads(selected["members"][filename])
+    original = report["semantic_parity_evidence"]["json"]
+    # Whitespace changes neither graphs nor receipt semantics, but exercises
+    # BOTH real report parsing and its nested exact-byte semantic input path.
+    text = original + " " * (VALIDATOR.MAX_JSON + 1 - len(original.encode()))
+    raw = text.encode()
+    report["semantic_parity_evidence"] = {"json": text, **VALIDATOR.identity(raw)}
+    report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
+    selected["members"][filename] = encoded(report)
+    assert (
+        VALIDATOR.MAX_JSON
+        < len(selected["members"][filename])
+        < VALIDATOR.MAX_SOURCE_GRAPH_JSON
+    )
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == name)["evidence"] = {
+        "path": name + ".json",
+        **VALIDATOR.identity(selected["members"][filename]),
+    }
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    assert validate(selected)["verified"] is True
+    assert json.loads(raw)["cases"] == json.loads(original)["cases"]
+    assert len(json.loads(raw)["cases"]) == 7
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_graph_full_archive_rejects_above_its_cap_before_output(
+    selected: dict[str, Any], name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The archive selection path must actually pass the named cap to read_member.
+    raw = selected["members"]["evidence/" + name + ".json"]
+    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", len(raw) - 1)
+    with pytest.raises(ValueError, match="archive JSON exceeds limit"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+
+
+def test_metadata_json_parser_and_file_reader_keep_32mib_limit(tmp_path: Path) -> None:
+    raw = b"{}" + b" " * (VALIDATOR.MAX_JSON - 1)
+    assert len(raw) == VALIDATOR.MAX_JSON + 1
+    with pytest.raises(ValueError, match="JSON input exceeds size limit"):
+        _ = VALIDATOR.object_json(raw)
+    path = tmp_path / "metadata.json"
+    _ = path.write_bytes(raw)
+    with pytest.raises(ValueError, match="input exceeds size limit"):
+        _ = VALIDATOR.regular_bytes(path)

@@ -29,6 +29,7 @@ MAX_ARCHIVE = 512 * 1024 * 1024
 MAX_TOTAL = 768 * 1024 * 1024
 MAX_MEMBER = 256 * 1024 * 1024
 MAX_JSON = 32 * 1024 * 1024
+MAX_SOURCE_GRAPH_JSON = 64 * 1024 * 1024
 MAX_FILES = 4096
 LOCK_NAMES = (
     "runtime-lock.json",
@@ -287,8 +288,13 @@ def array_value(value: Any) -> list[Any]:
     return cast(list[Any], value)
 
 
-def object_json(data: bytes) -> dict[str, Any]:
-    require(len(data) <= MAX_JSON, "JSON input exceeds size limit")
+def driver_json_limit(name: str) -> int:
+    # Source UI reports retain raw source arrays and all seven graph pairs.
+    return MAX_SOURCE_GRAPH_JSON if name in SOURCE_GRAPH_DRIVERS else MAX_JSON
+
+
+def object_json(data: bytes, *, limit: int = MAX_JSON) -> dict[str, Any]:
+    require(len(data) <= limit, "JSON input exceeds size limit")
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -1142,7 +1148,7 @@ def validate_semantic_parity(
         and receipt.get("input_sha256") == sha256(raw),
         f"{name} semantic evidence identity mismatch",
     )
-    batch = object_json(raw)
+    batch = object_json(raw, limit=driver_json_limit(name))
     require(set(batch) == {"cases"}, "unexpected semantic batch fields")
     cases = [object_value(case) for case in array_value(batch.get("cases"))]
     profile, ids = SEMANTIC_DRIVERS[name]
@@ -1281,7 +1287,7 @@ def validate_evidence(
         "packaged semantic policy differs from trusted checkout",
     )
     for name in DRIVERS:
-        item = object_json(evidence[f"{name}.json"])
+        item = object_json(evidence[f"{name}.json"], limit=driver_json_limit(name))
         require(
             "failure" not in item and "error" not in item, f"driver failure: {name}"
         )
@@ -1729,7 +1735,11 @@ def validate(
             )
             require(set(files) == expected, "unexpected or missing archive payload")
             evidence = {
-                name: read_member(archive, files[f"evidence/{name}"])
+                name: read_member(
+                    archive,
+                    files[f"evidence/{name}"],
+                    driver_json_limit(name.removesuffix(".json")),
+                )
                 for name in EVIDENCE
             }
             runtime_hash = digest_value(
