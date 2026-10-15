@@ -14,10 +14,11 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import RLock
-from typing import Annotated, Any, ClassVar, Literal, cast, final
+from typing import Annotated, Any, ClassVar, Generic, Literal, cast, final
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from typing_extensions import TypeVar
 
 from experiments.feature_inputs import (
     REQUIREMENTS,
@@ -52,6 +53,7 @@ from experiments.nozzle_session import (
     SessionFit,
     VertexId,
 )
+from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
 from experiments.selection_growth import connected_growth, fit_seed
 from experiments.selection_region import (
     apply_selection_region,
@@ -95,6 +97,7 @@ class Source(Node):
     operation: Literal["source"]
     source_sha256: str
     reference_sha256: str
+    descriptor: SourceDescriptor | None = None
 
 
 class Selection(Node):
@@ -549,9 +552,9 @@ Feature = Annotated[
 
 class Recipe(Record):
     schema_version: Literal[2] = 2
-    nodes: list[Feature] = Field(min_length=1, max_length=MAX_RECIPE_ACTIONS)
+    nodes: list[Feature] = Field(default_factory=list, max_length=MAX_RECIPE_ACTIONS)
     groups: list[FeatureGroup] = Field(default_factory=list, max_length=100)
-    output: str
+    output: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1803,16 +1806,15 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
     }
 
 
-def workspace_reference_sha256(workspace: NozzleWorkspace) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            {
-                "selection": workspace.data.selection,
-                "model": workspace.model_sha256,
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+def workspace_reference_sha256(workspace: Workspace) -> str:
+    return workspace.reference_sha256
+
+
+def example_workspace(workspace: Workspace) -> NozzleWorkspace:
+    """Explicit boundary until the fit-family integrations support user scans."""
+    if isinstance(workspace, ScanWorkspace):
+        raise ValueError("This fitting path is not yet supported for imported scans")
+    return cast(NozzleWorkspace, workspace)
 
 
 def directed_axis_result(
@@ -2058,7 +2060,7 @@ def output_transform_result(
 
 
 def fit_plane_to_reference(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     surface: SurfaceFit,
     ids: list[VertexId],
     reference: dict[str, Any],
@@ -2089,7 +2091,7 @@ def fit_plane_to_reference(
 
 
 def fit_sphere_at_point(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     surface: SurfaceFit,
     ids: list[int],
     point: dict[str, Any],
@@ -2119,7 +2121,7 @@ def fit_sphere_at_point(
 
 
 def fit_spheres_to_free_point(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     point_id: str,
     surfaces: list[SurfaceFit],
     ids: list[list[int]],
@@ -2222,7 +2224,7 @@ def fit_spheres_to_free_point(
 
 
 def fit_equal_radii(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     surfaces: list[SurfaceFit],
     results: list[dict[str, Any]],
     ids: list[list[int]],
@@ -2292,7 +2294,7 @@ def fit_equal_radii(
 
 
 def fit_plane_relationships(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     relationships: list[PlaneRelationship],
     surfaces: list[SurfaceFit],
     results: list[dict[str, Any]],
@@ -2511,11 +2513,17 @@ class GraphFailureCheckpoint:
     diagnostics: dict[str, dict[str, Any]]
 
 
+WorkspaceType = TypeVar(
+    "WorkspaceType", bound=Workspace, default=NozzleWorkspace, covariant=True
+)
+
+
 @final
-class FeatureGraph:
-    def __init__(self, workspace: NozzleWorkspace, recipe: Recipe) -> None:
-        self.workspace = workspace
-        # Bind the fixture adapter's frame/initialization as well as the raw mesh.
+class FeatureGraph(Generic[WorkspaceType]):
+    def __init__(self, workspace: WorkspaceType, recipe: Recipe) -> None:
+        self._workspace = workspace
+        # Generic sources bind content/interpretation; retained example adapters
+        # preserve their existing explicit legacy reference identity.
         self.reference_sha256 = workspace_reference_sha256(workspace)
         self.lock = RLock()
         self._recipe = self.validate(recipe)
@@ -2537,6 +2545,10 @@ class FeatureGraph:
         self._validation_reviews: dict[
             tuple[str, bool], tuple[str, dict[str, Any]]
         ] = {}
+
+    @property
+    def workspace(self) -> WorkspaceType:
+        return self._workspace
 
     def failure_checkpoint(self) -> GraphFailureCheckpoint:
         """Retain unchanged failures when disposable computation is discarded."""
@@ -2578,8 +2590,18 @@ class FeatureGraph:
         positions = {node.id: index for index, node in enumerate(recipe.nodes)}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
-        if recipe.output not in nodes:
+        if (recipe.output is None and nodes) or (
+            recipe.output is not None and recipe.output not in nodes
+        ):
             raise ValueError("output must reference an action")
+        sources = [node for node in recipe.nodes if isinstance(node, Source)]
+        if len(sources) > 1:
+            raise ValueError("only one scan Source is supported per project")
+        if isinstance(self.workspace, ScanWorkspace):
+            if self.workspace.descriptor is None and nodes:
+                raise ValueError("empty workspace cannot contain actions")
+            if self.workspace.descriptor is not None and len(sources) != 1:
+                raise ValueError("an imported workspace requires its scan Source")
         seen: set[str] = set()
         for node in recipe.nodes:
             for ref in dependencies(node):
@@ -2668,10 +2690,19 @@ class FeatureGraph:
                         )
             if isinstance(node, Source):
                 if (
-                    node.source_sha256 != self.workspace.default.source_sha256
+                    node.source_sha256 != self.workspace.source_sha256
                     or node.reference_sha256 != self.reference_sha256
                 ):
                     raise ValueError("source or reference binding mismatch")
+                if isinstance(self.workspace, ScanWorkspace) and (
+                    node.descriptor is None
+                    or self.workspace.descriptor is None
+                    or node.descriptor.semantic_record()
+                    != self.workspace.descriptor.semantic_record()
+                ):
+                    raise ValueError(
+                        "source descriptor does not match imported geometry"
+                    )
             elif isinstance(node, Selection):
                 if not isinstance(nodes[node.source], Source):
                     raise ValueError("selection input must be a source")
@@ -3508,7 +3539,9 @@ class FeatureGraph:
                 "states": self._states.copy(),
                 "errors": self._errors.copy(),
                 "diagnostics": deepcopy(self._diagnostics),
-                "result": deepcopy(self._results.get(self._recipe.output)),
+                "result": deepcopy(self._results.get(self._recipe.output))
+                if self._recipe.output is not None
+                else None,
                 "derived": deepcopy(self._derived),
                 "results": resolved,
                 "input_catalogue": catalogue,
@@ -3763,8 +3796,16 @@ class FeatureGraph:
             roots = (
                 nodes
                 if all_actions
-                else set([self._recipe.output] if targets is None else targets)
+                else set(
+                    [self._recipe.output]
+                    if targets is None and self._recipe.output is not None
+                    else []
+                    if targets is None
+                    else targets
+                )
             )
+            if not nodes and targets is None:
+                return frozenset()
             if not roots or not roots <= nodes:
                 raise ValueError("evaluation targets must name existing actions")
             return frozenset(roots)
@@ -3910,6 +3951,8 @@ class FeatureGraph:
                 raise StaleGraph("graph changed before evaluation")
             recipe, epoch = self._recipe.model_copy(deep=True), self._epoch
             nodes = {n.id: n for n in recipe.nodes}
+            if not nodes and targets is None and target is None:
+                return self.snapshot()
             influence = describe_geometry_influence(nodes)
             connected_components = influence.axis_components
             point_components = influence.point_components
@@ -4914,7 +4957,9 @@ class FeatureGraph:
                             if isinstance(nodes[ref], ReuseSelection)
                         ]
                         initial = np.array(
-                            self.workspace.data.selection["initial_parameters"]
+                            example_workspace(self.workspace).data.selection[
+                                "initial_parameters"
+                            ]
                         )
                         domain = node.axial_domain
                         if reuse_inputs:
@@ -5377,7 +5422,7 @@ class FeatureGraph:
                     reject_overlaps([*sides, *planes])
                     if len(sides) > 1 or len(planes) > 1 or rotations:
                         result = fit_group(
-                            self.workspace,
+                            example_workspace(self.workspace),
                             [selected(side) for side in sides],
                             [
                                 selected(plane)
@@ -5396,12 +5441,14 @@ class FeatureGraph:
                         lateral, plane = sides[0], planes[0]
                         left, right = selected(lateral), selected(plane)
                         session = NozzleSession(
-                            source_sha256=self.workspace.default.source_sha256,
-                            model_sha256=self.workspace.model_sha256,
+                            source_sha256=example_workspace(
+                                self.workspace
+                            ).default.source_sha256,
+                            model_sha256=example_workspace(self.workspace).model_sha256,
                             lateral_ids=left.ids,
                             plane_ids=right.ids,
                         )
-                        result = self.workspace.fit(
+                        result = example_workspace(self.workspace).fit(
                             session, lateral.kind, lateral.axial_domain
                         )
                         result["surfaces"] = {

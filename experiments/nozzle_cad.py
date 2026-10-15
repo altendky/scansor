@@ -31,12 +31,12 @@ from experiments.body_geometry import body_from_record, body_input_fingerprint
 from experiments.face_geometry import face_from_record
 from experiments.feature_graph import Recipe, StaleGraph, dependencies
 from experiments.native_replay import native_replay_scope
-from experiments.nozzle_session import NozzleWorkspace
 from experiments.ocp_geometry import (
     kernel_operation,
     surface_patch,
     transform_shape,
 )
+from experiments.scan_workspace import Workspace
 from scansor._plyio import (
     Element,
     ListProperty,
@@ -280,7 +280,7 @@ def joint_shapes(
 
 
 def _export_transform(
-    workspace: NozzleWorkspace,
+    workspace: Workspace,
     snapshot: dict[str, Any],
     request: CadExportRequest,
     nodes: dict[str, Any],
@@ -437,7 +437,7 @@ def _mesh_bytes(positions: np.ndarray, triangles: np.ndarray) -> bytes:
 @kernel_operation
 @native_replay_scope()
 def export_cad(
-    workspace: NozzleWorkspace, snapshot: dict[str, Any], request: CadExportRequest
+    workspace: Workspace, snapshot: dict[str, Any], request: CadExportRequest
 ) -> bytes:
     if snapshot["token"] != request.token:
         raise StaleGraph("graph changed before export; refresh and export again")
@@ -586,7 +586,7 @@ def export_cad(
         "sewn": body,
         "solid": body,
         "transform_local_to_export": matrix.tolist(),
-        "source_sha256": workspace.default.source_sha256,
+        "source_sha256": workspace.source_sha256,
         "objects": objects,
         "reference_mesh": {
             "file": "reference.ply",

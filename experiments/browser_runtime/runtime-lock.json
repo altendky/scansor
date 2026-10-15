@@ -121,6 +121,8 @@
       "experiments/nozzle_session.py",
       "experiments/run_nozzle_cylinder.py",
       "experiments/run_nozzle_cylinder_plane.py",
+      "experiments/scan_project.py",
+      "experiments/scan_workspace.py",
       "experiments/selection_growth.py",
       "experiments/selection_region.py",
       "experiments/surface_extents.py",
@@ -130,6 +132,8 @@
       "src/scansor/_plyio/format.py",
       "src/scansor/_plyio/stream.py",
       "src/scansor/constrained_least_squares.py",
+      "src/scansor/errors.py",
+      "src/scansor/mesh_ply.py",
       "src/scansor/nonlinear_least_squares.py"
     ],
     "cad": [
