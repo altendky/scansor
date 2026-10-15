@@ -12,15 +12,19 @@ function graph() {
     evaluation_running: false, required_failures: [] };
 }
 const accepted = value => ({ generation: 3, recipe: value.recipe, token: value.token });
+const snapshotKeys = ['scene', 'scene_replayed', 'scene_actions', 'scene_actions_replayed', 'native_scene'];
+const graphs = () => Object.fromEntries(snapshotKeys.map(key => [key, graph()]));
 
 test('fixed source projection retains every semantic field and leaves raw transport evidence intact', () => {
   const original = graph(), replayed = graph(), native = graph();
   delete native.project_generation; delete native.required_failures; delete native.evaluation_running;
-  const snapshots = { scene: original, scene_replayed: replayed, native_scene: native };
+  const snapshots = { ...graphs(), scene: original, scene_replayed: replayed, native_scene: native };
   const before = structuredClone(snapshots), cases = sourceSemanticCases(snapshots);
-  assert.equal(SOURCE_GRAPH_SCHEMA, 'scansor-source-graph-semantic-v1');
+  assert.equal(SOURCE_GRAPH_SCHEMA, 'scansor-source-graph-semantic-v2');
   assert.deepEqual(cases.map(item => [item.id, item.profile, item.path]), [
     ['scene', 'graph-snapshot', 'scene.graph'], ['scene-replayed', 'graph-snapshot', 'scene.replayed_graph'],
+    ['scene-actions', 'graph-snapshot', 'actions.scene_opened'],
+    ['scene-actions-replayed', 'graph-snapshot', 'actions.scene_replayed'],
   ]);
   for (const item of cases) {
     assert.deepEqual(Object.keys(item.actual), SOURCE_GRAPH_PROJECTION);
@@ -31,21 +35,21 @@ test('fixed source projection retains every semantic field and leaves raw transp
 });
 
 for (const key of SOURCE_GRAPH_PROJECTION) test('missing semantic field rejects on either side: ' + key, () => {
-  for (const side of ['scene', 'scene_replayed', 'native_scene']) {
-    const snapshots = { scene: graph(), scene_replayed: graph(), native_scene: graph() };
+  for (const side of snapshotKeys) {
+    const snapshots = graphs();
     delete snapshots[side][key];
     assert.throws(() => sourceSemanticCases(snapshots), /missing required semantic field/);
   }
 });
 
 test('unknown published fields cannot be silently removed from either comparand', () => {
-  for (const side of ['scene', 'scene_replayed', 'native_scene']) {
-    const snapshots = { scene: graph(), scene_replayed: graph(), native_scene: graph() };
+  for (const side of snapshotKeys) {
+    const snapshots = graphs();
     snapshots[side].new_acceptance_classification = 'rejected';
     assert.throws(() => sourceSemanticCases(snapshots), /unknown field.*new_acceptance_classification/);
   }
   const matching = { ...graph(), new_acceptance_classification: 'rejected' };
-  assert.throws(() => sourceSemanticCases({ scene: matching, scene_replayed: matching, native_scene: matching }), /unknown field/);
+  assert.throws(() => sourceSemanticCases(Object.fromEntries(snapshotKeys.map(key => [key, matching]))), /unknown field/);
 });
 
 test('accepted graph independently checks its source transport epoch and preserves recipe/token', () => {

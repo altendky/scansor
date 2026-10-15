@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast, final
 
 import numpy as np
@@ -31,12 +31,13 @@ from experiments.feature_graph import (
     Record,
     StaleGraph,
 )
-from experiments.feature_recipe_import import import_recipe, load_recipe
+from experiments.feature_recipe_import import ImportWarning, import_recipe, load_recipe
 from experiments.feature_reuse_authoring import (
     ReuseAuthoringRequest,
     apply_feature_reuse,
 )
 from experiments.nozzle_session import NozzleWorkspace
+from experiments.scan_actions import ActionsInspection, inspect_actions
 from experiments.scan_project import ScanProject
 from experiments.scan_workspace import (
     ScanImportError,
@@ -101,6 +102,7 @@ class _LegacySource:
 class _BrowserSource:
     project: ScanProject | None
     legacy: _LegacySource | None
+    import_warnings: tuple[ImportWarning, ...] = ()
 
     @property
     def workspace(self) -> ScanWorkspace | NozzleWorkspace:
@@ -139,6 +141,8 @@ class _SourceCandidate:
     previous_token: str
     generation: int
     source: _BrowserSource
+    prepared_token: str
+    prepared_revision: int
 
 
 @final
@@ -155,9 +159,14 @@ class BrowserWorkspace:
     """
 
     def __init__(
-        self, example: Path | None, *, scan_limits: ScanLimits | None = None
+        self,
+        example: Path | None,
+        *,
+        scan_limits: ScanLimits | None = None,
+        cad_available: bool = False,
     ) -> None:
         self.cad_enabled = False
+        self._cad_available = cad_available
         self._export_buffer = b""
         self._example_path = example or (
             Path(__file__).resolve().parents[2] / "examples/nozzle-bayonette-simplified"
@@ -316,6 +325,7 @@ class BrowserWorkspace:
             source_import["limits"] = asdict(self._scan_limits)
         return {
             **metadata,
+            "import_warnings": deepcopy(list(source.import_warnings)),
             "graph": graph,
             "project_generation": generation,
             "source_mode": self._mode(source),
@@ -327,6 +337,222 @@ class BrowserWorkspace:
             },
         }
 
+    def _inspect_actions(self, payload: dict[str, Any]) -> ActionsInspection:
+        if (
+            type(payload.get("generation")) is not int
+            or payload["generation"] != self._workspace_generation
+            or payload.get("token") != self.graph.snapshot()["token"]
+        ):
+            raise ScanImportError(
+                "Project changed before inspecting actions.", "stale_source"
+            )
+        inspection = inspect_actions(payload.get("recipe"), self.workspace)
+        if not (self._cad_available or self.cad_enabled) and self._requires_cad(
+            inspection
+        ):
+            self._check_capabilities(inspection.actions.recipe)
+        return inspection
+
+    @staticmethod
+    def _requires_cad(inspection: ActionsInspection) -> bool:
+        return any(
+            node.operation in CAD_ACTIONS for node in inspection.actions.recipe.nodes
+        )
+
+    def _preflight_actions(self, payload: dict[str, Any]) -> ActionsInspection:
+        self._check_open()
+        self._keys(
+            payload,
+            {
+                "operationId",
+                "purpose",
+                "generation",
+                "token",
+                "recipe",
+                "confirmedDiscard",
+                "source",
+            },
+        )
+        if payload.get("purpose", "open-actions") != "open-actions":
+            raise ScanImportError("Unknown actions purpose.", "invalid_actions")
+        operation_id = payload.get("operationId")
+        if (
+            not isinstance(operation_id, str)
+            or not 0 < len(operation_id) <= 128
+            or any(
+                not (c.isascii() and (c.isalnum() or c in "_-")) for c in operation_id
+            )
+        ):
+            raise ScanImportError(
+                "Expected a bounded source operation ID.", "invalid_source"
+            )
+        if self._pending is not None or self._candidate is not None:
+            raise ScanImportError("Source work or evaluation is active.", "source_busy")
+        inspection = self._inspect_actions(payload)
+        if payload.get("confirmedDiscard") is not True:
+            raise ScanImportError(
+                "Opening actions requires discard approval.", "discard_required"
+            )
+        if inspection.disposition != "locate":
+            if "source" in payload:
+                raise ScanImportError(
+                    "This project does not require source bytes.", "unexpected_source"
+                )
+            return inspection
+        source = payload.get("source")
+        if source is None:
+            raise ScanImportError("Locate the saved source first.", "source_required")
+        if not isinstance(source, dict):
+            raise ScanImportError(
+                "Expected source filename and size.", "invalid_source"
+            )
+        source = cast(dict[str, Any], source)
+        self._keys(source, {"filename", "size"})
+        filename, size = source.get("filename"), source.get("size")
+        if (
+            not isinstance(filename, str)
+            or not 0 < len(filename) <= 512
+            or not PurePosixPath(filename.replace("\\", "/")).name
+            or type(size) is not int
+            or size <= 0
+        ):
+            raise ScanImportError("Expected an exact source upload.", "invalid_source")
+        if self._scan_limits is None:
+            raise ScanImportError(
+                "Browser source limits were not configured.", "unsupported_capability"
+            )
+        if size > self._scan_limits.max_source_bytes:
+            raise ScanImportError("Scan exceeds the source byte limit.", "source_limit")
+        saved = inspection.actions.source
+        assert saved is not None and saved.descriptor is not None
+        if size != saved.descriptor.source_bytes:
+            raise ScanImportError(
+                "Located file length differs from the saved source.", "source_mismatch"
+            )
+        return inspection
+
+    def preflight_actions_json(self, payload_json: str) -> str:
+        """Validate the current opening intent before the adapter reads File bytes."""
+
+        def preflight() -> dict[str, Any]:
+            if self._preparing_source:
+                raise ScanImportError("Source preparation is active.", "source_busy")
+            payload = self._payload(payload_json)
+            inspection = self._preflight_actions(payload)
+            return {
+                "generation": self._workspace_generation,
+                "token": payload["token"],
+                **inspection.json(),
+                "purpose": "open-actions",
+                "sourceKind": inspection.actions.kind,
+                "requiresCad": self._requires_cad(inspection),
+            }
+
+        return self._json(preflight)
+
+    def _prepare_actions_source(
+        self,
+        payload: dict[str, Any],
+        source_path: str,
+        progress: Callable[[ScanProgress], None] | None,
+        cancelled: Callable[[], bool] | None,
+    ) -> tuple[_BrowserSource, dict[str, Any]]:
+        inspection = self._preflight_actions(payload)
+        self._check_capabilities(inspection.actions.recipe)
+        upload = inspection.disposition == "locate"
+        if upload and not source_path:
+            raise ScanImportError("Locate the saved source first.", "source_required")
+        if not upload and source_path:
+            raise ScanImportError(
+                "This project does not require source bytes.", "unexpected_source"
+            )
+        check_cancelled(cancelled)
+        warnings = tuple(deepcopy(inspection.actions.warnings))
+        if inspection.actions.kind == "legacy":
+            legacy = self._source.legacy
+            assert legacy is not None
+            source = _BrowserSource(
+                None,
+                replace(
+                    legacy,
+                    graph=FeatureGraph(legacy.workspace, inspection.actions.recipe),
+                ),
+                warnings,
+            )
+        else:
+            project = ScanProject()
+            initial = project.accepted
+            matching = (
+                self._source.project.accepted
+                if self._source.project is not None
+                else None
+            )
+            try:
+                with ExitStack() as stack:
+                    stream = (
+                        stack.enter_context(Path(source_path).open("rb"))
+                        if upload
+                        else None
+                    )
+                    filename = (
+                        PurePosixPath(
+                            str(payload["source"]["filename"]).replace("\\", "/")
+                        ).name
+                        if upload
+                        else None
+                    )
+                    candidate = project.prepare_open(
+                        payload["recipe"],
+                        generation=initial.generation,
+                        token=str(initial.graph.snapshot()["token"]),
+                        confirmed_discard=True,
+                        matching=matching,
+                        stream=stream,
+                        filename=filename,
+                        limits=self._scan_limits,
+                        progress=progress,
+                        cancelled=cancelled,
+                        check_recipe=self._check_capabilities,
+                    )
+                _ = project.commit_open(candidate, cancelled=cancelled)
+            except OSError as error:
+                raise ScanImportError(
+                    f"Staged source is unavailable: {error}", "source_unavailable"
+                ) from error
+            source = _BrowserSource(project, None, warnings)
+        check_cancelled(cancelled)
+        return source, {
+            "purpose": "open-actions",
+            "sourceKind": inspection.actions.kind,
+            "uploadRequired": upload,
+            "import_warning_count": len(warnings),
+        }
+
+    @staticmethod
+    def _recovery_warnings(
+        value: object,
+    ) -> tuple[ImportWarning, ...]:
+        if value is None:
+            return ()
+        if not isinstance(value, list):
+            raise ScanImportError(
+                "Invalid accepted warning checkpoint.", "invalid_recovery"
+            )
+        for warning in cast(list[object], value):
+            if (
+                not isinstance(warning, dict)
+                or set(warning) != {"id", "old_name", "new_name", "kind"}
+                or any(
+                    not isinstance(warning[key], str)
+                    for key in ("id", "old_name", "new_name", "kind")
+                )
+                or warning["kind"] not in {"feature", "group"}
+            ):
+                raise ScanImportError(
+                    "Invalid accepted warning checkpoint.", "invalid_recovery"
+                )
+        return tuple(deepcopy(cast(list[ImportWarning], value)))
+
     def prepare_source_json(
         self,
         payload_json: str,
@@ -337,6 +563,7 @@ class BrowserWorkspace:
         recovery_generation: int | None = None,
         recovery_identity: dict[str, Any] | None = None,
         recovery_recipe: dict[str, Any] | None = None,
+        recovery_import_warnings: list[ImportWarning] | None = None,
     ) -> str:
         """Prepare privately; the worker owns and deletes the staged input path.
 
@@ -357,6 +584,7 @@ class BrowserWorkspace:
                     recovery_generation,
                     recovery_identity,
                     recovery_recipe,
+                    recovery_import_warnings,
                 )
             finally:
                 self._preparing_source = False
@@ -372,6 +600,7 @@ class BrowserWorkspace:
         recovery_generation: int | None,
         recovery_identity: dict[str, Any] | None,
         recovery_recipe: dict[str, Any] | None,
+        recovery_import_warnings: list[ImportWarning] | None,
     ) -> dict[str, Any]:
         self._check_open()
         self._keys(
@@ -384,6 +613,9 @@ class BrowserWorkspace:
                 "filename",
                 "example",
                 "confirmedDiscard",
+                "purpose",
+                "recipe",
+                "source",
             },
         )
         if self._pending is not None or self._candidate is not None:
@@ -413,7 +645,12 @@ class BrowserWorkspace:
             )
         recovering = any(
             value is not None
-            for value in (recovery_generation, recovery_identity, recovery_recipe)
+            for value in (
+                recovery_generation,
+                recovery_identity,
+                recovery_recipe,
+                recovery_import_warnings,
+            )
         )
         if recovering and (
             not self._pristine
@@ -429,7 +666,21 @@ class BrowserWorkspace:
         check_cancelled(cancelled)
         kind = payload.get("kind")
         project: ScanProject | None = None
-        if kind == "scan":
+        facts: dict[str, Any] = {}
+        if payload.get("purpose") == "open-actions":
+            if recovering:
+                raise ScanImportError(
+                    "Recovery reconstructs an accepted source checkpoint.",
+                    "invalid_recovery",
+                )
+            source, facts = self._prepare_actions_source(
+                payload, source_path, progress, cancelled
+            )
+        elif "purpose" in payload or "recipe" in payload or "source" in payload:
+            raise ScanImportError(
+                "Unknown source preparation purpose.", "invalid_source"
+            )
+        elif kind == "scan":
             if self._scan_limits is None:
                 raise ScanImportError(
                     "Browser source limits were not configured.",
@@ -496,6 +747,10 @@ class BrowserWorkspace:
             recipe = Recipe.model_validate(recovery_recipe)
             self._check_capabilities(recipe)
             _ = source.graph.replace(recipe, str(source.graph.snapshot()["token"]))
+            source = replace(
+                source,
+                import_warnings=self._recovery_warnings(recovery_import_warnings),
+            )
         check_cancelled(cancelled)
         proposed_generation = (
             recovery_generation if recovering else self._workspace_generation + 1
@@ -509,6 +764,7 @@ class BrowserWorkspace:
             "graph": metadata["graph"],
             "source_mode": self._mode(source),
             "source_identity": self._identity(source),
+            **facts,
         }
         self._check_open()
         self._candidate = _SourceCandidate(
@@ -518,6 +774,8 @@ class BrowserWorkspace:
             str(token),
             proposed_generation,
             source,
+            str(metadata["graph"]["token"]),
+            cast(int, metadata["graph"]["revision"]),
         )
         return result
 
@@ -543,6 +801,12 @@ class BrowserWorkspace:
             raise ScanImportError(
                 "Project changed before source promotion.", "stale_source"
             )
+        state = candidate.source.graph.snapshot()
+        if (
+            state["token"] != candidate.prepared_token
+            or state["revision"] != candidate.prepared_revision
+        ):
+            raise ScanImportError("Prepared project was modified.", "invalid_candidate")
         self._source, self._workspace_generation = (
             candidate.source,
             candidate.generation,
@@ -835,6 +1099,14 @@ class BrowserWorkspace:
             if revision is not None and (type(revision) is not int or revision < 0):
                 raise ValueError("expected a nonnegative integer revision")
             return self._snapshot(revision)
+        if operation == "inspectActions":
+            self._keys(payload, {"generation", "token", "recipe"})
+            inspection = self._inspect_actions(payload)
+            return {
+                "generation": self._workspace_generation,
+                "token": payload["token"],
+                **inspection.json(),
+            }
         if operation == "replaceRecipe":
             self._check_mutation()
             request = GraphRequest.model_validate(payload)

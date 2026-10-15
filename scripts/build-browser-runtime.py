@@ -38,11 +38,12 @@ SOURCE_IMPORT_PROFILE = {
 
 def worker_protocol() -> dict[str, Any]:
     return {
-        "version": 5,
+        "version": 6,
         "bootstrap": "initialize",
         "workspace": "single-scan-candidate-transactions",
         "cad": "lazy-approved-ocp",
         "source_import": json.loads(json.dumps(SOURCE_IMPORT_PROFILE)),
+        "source_actions": {"supported": True, "version": 1},
     }
 
 
@@ -50,8 +51,20 @@ def validate_worker_protocol(value: object) -> None:
     expected = worker_protocol()
     if not isinstance(value, dict) or set(value) != set(expected):
         raise ValueError("unsupported worker workspace protocol; rebuild it")
-    if any(value[key] != expected[key] for key in expected if key != "source_import"):
+    if any(
+        value[key] != expected[key]
+        for key in expected
+        if key not in ("source_import", "source_actions")
+    ):
         raise ValueError("unsupported worker workspace protocol; rebuild it")
+    actions = value["source_actions"]
+    if (
+        not isinstance(actions, dict)
+        or actions != expected["source_actions"]
+        or type(actions["supported"]) is not bool
+        or type(actions["version"]) is not int
+    ):
+        raise ValueError("unsupported worker source-actions capability")
     profile = value["source_import"]
     reference = expected["source_import"]
     if (

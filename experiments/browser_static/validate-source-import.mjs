@@ -9,6 +9,7 @@ import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFil
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
 import {authoringSemanticCases} from './source-authoring-semantic.mjs';
+import {validateSourceUiActions} from './source-ui-actions.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
 import {SOURCE_GRAPH_SCHEMA,SOURCE_GRAPH_PROJECTION,assertAcceptedSourceGraph,sourceSemanticCases} from './source-semantic.mjs';
 
@@ -200,6 +201,13 @@ try{
   report.boundary_races.push({position:'staging-cleanup',failure_preserved_through_cancel:true,accepted_checkpoint_survived_force:true});
   await page.evaluate(()=>window.__sourceImportBackend242.close());await context.close();
   await validateSourceUiRecovery({browser,site,preview,prefix,sources,isolation,report});
+  await validateSourceUiActions({browser,site,preview,prefix,sources,isolation,report,expected,output,nativePython});
+  report.source_graph_snapshots.scene_actions=report.ui_actions.scene_opened;
+  report.source_graph_snapshots.scene_actions_replayed=report.ui_actions.scene_replayed;
+  for(const [key,epoch] of [['scene_actions','scene_opened_generation'],['scene_actions_replayed','scene_replayed_generation']]){
+    assertAcceptedSourceGraph(report.source_graph_snapshots[key],{generation:report.ui_actions[epoch],
+      recipe:report.source_graph_snapshots.native_scene.recipe,token:report.source_graph_snapshots.native_scene.token});
+  }
   await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
   const authoredRecipes=path.join(output,'ui-authored-recipes.json');
   await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
@@ -210,6 +218,7 @@ try{
   report.checks={source_import:true,source_identity:true,recovery:true,cleanup:true,
     cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true,
     ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true,
+    ui_source_actions:report.ui_actions.complete===true,
     ui_source_authoring:report.ui_authoring.complete===true};
   // Compare only after the actual recovery/UI observations. The reviewed bridge
   // retains the full operands and failed receipt before a parity error escapes.

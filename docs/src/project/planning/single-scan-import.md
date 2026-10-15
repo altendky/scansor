@@ -117,7 +117,10 @@ target override authority and its fixed/free/group/replay verification.
 The native/shared reopening child
 [#280](https://github.com/altendky/scansor/issues/280), delivered by #281, uses
 private source and recipe preparation before one native owner installation;
-full #244 still includes worker source-aware opening. Worker import/Force
+the bounded #244 worker adapter is delivered through
+[#291](https://github.com/altendky/scansor/pull/291), with explicit versioned
+capabilities and executed both-backend reopening/replay acceptance. Subsequent
+changes retain fresh current-head workflow gates. Worker import/Force
 recovery implements the bounded tier in #242; current-head bounded semantic
 parity and full workflow validation remain delivery gates. Native and worker
 defaults have executed source-only import evidence; byte/count caps and the

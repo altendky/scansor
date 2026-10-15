@@ -56,6 +56,29 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
     assert "experiments/native_scan_import.py" not in numeric
 
 
+@pytest.mark.parametrize(
+    "fault", ["old", "missing", "disabled", "bool", "number", "unknown"]
+)
+def test_worker_actions_profile_requires_the_exact_supported_contract(
+    fault: str,
+) -> None:
+    protocol = RUNTIME["worker_protocol"]()
+    if fault == "old":
+        protocol["version"] = 5
+    elif fault == "missing":
+        del protocol["source_actions"]
+    elif fault == "disabled":
+        protocol["source_actions"]["supported"] = False
+    elif fault == "bool":
+        protocol["source_actions"]["version"] = True
+    elif fault == "number":
+        protocol["source_actions"]["supported"] = 1
+    else:
+        protocol["source_actions"]["unrecognized"] = True
+    with pytest.raises(ValueError):
+        RUNTIME["validate_worker_protocol"](protocol)
+
+
 def test_source_fixture_generator_keeps_preregistered_bytes(tmp_path: Path) -> None:
     INPUTS["inputs"](ROOT, tmp_path)
     manifest = json.loads((tmp_path / "manifest.json").read_text())

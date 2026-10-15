@@ -29,17 +29,34 @@ class BrowserWorkspace:
         self.finished = False
         self.recipe = {}
 
+    @property
+    def workspace_generation(self):
+        return 0
+
     def envelope(self, value):
         return json.dumps({'ok': True, 'result': value})
 
     def call_json(self, operation, payload='{}'):
         if operation == 'replaceRecipe':
             self.recipe = json.loads(payload)['recipe']
-        return self.envelope({
+        snapshot = {
             'token': 'same-token', 'evaluation_running': False,
             'states': {'fit': 'ready'}, 'errors': {},
+            'project_generation': self.workspace_generation,
             'observed_after_finish': self.finished,
-        })
+        }
+        if operation == 'loadWorkspace':
+            return self.envelope({
+                'project_generation': self.workspace_generation,
+                'source_mode': {'kind': 'example', 'example': 'nozzle'},
+                'source_identity': {
+                    'source_sha256': 'a' * 64,
+                    'reference_sha256': 'b' * 64,
+                    'descriptor': None,
+                },
+                'graph': snapshot,
+            })
+        return self.envelope(snapshot)
 
     def prepare_evaluation_json(self, operation, payload):
         return self.envelope({'run': True})
@@ -89,6 +106,20 @@ def test_native_workspace_keeps_evaluation_proof_and_observes_settled_get_graph(
     snapshot = evidence["snapshots"]["default"]
     assert snapshot["observed_after_finish"] is True
     assert "required_failures" not in snapshot
+    proof = evidence["workspace"]["default"]
+    assert set(proof) == {"generation", "metadata", "graph"}
+    assert proof["generation"] == proof["metadata"]["project_generation"] == 0
+    assert proof["graph"] == proof["metadata"]["graph"] == snapshot
+    assert proof["graph"]["project_generation"] == proof["generation"]
+    assert proof["metadata"]["source_mode"] == {
+        "kind": "example",
+        "example": "nozzle",
+    }
+    assert proof["metadata"]["source_identity"] == {
+        "source_sha256": "a" * 64,
+        "reference_sha256": "b" * 64,
+        "descriptor": None,
+    }
     response = evidence["evaluation_responses"]["default"]
     assert response["retained_diagnostic"] == {"trace": [1, 2, 3]}
     assert all(response[key] == value for key, value in evaluation.items())

@@ -18,10 +18,11 @@ read-only Source inspection, gated by backend capabilities. Worker import/recove
 implements the bounded source tier; full both-backend UI acceptance remains
 [#243](https://github.com/altendky/scansor/issues/243). Its authoring acceptance
 slice has executed native and CAD/plain worker diagnostics; clean-head profile
-and CI gates remain required before delivery. Native transactional
-source-aware actions reopening is delivered; its worker path remains
-[#244](https://github.com/altendky/scansor/issues/244), with worker `sourceActions`
-unavailable.
+and CI gates remain required before its delivery. Native transactional
+source-aware actions reopening and the bounded #244 worker adapter are delivered,
+the latter through [#291](https://github.com/altendky/scansor/pull/291), with
+explicit versioned capability gating and actual both-mode reopening/recovery
+acceptance. Combined changes still require rebuilt current-head workflow gates.
 This work adds neither persistence nor broader numerical-family support. The
 full numerical delivery gate in #240 and its draft stack remain separate.
 
@@ -84,10 +85,49 @@ the checkpoint/actions available for diagnosis and retry. Reload, tab closure or
 browser/process loss can require reacquiring the source and loading saved actions.
 Filename is a locating hint; computed starts/results are not authored actions.
 
+## Source-aware saved actions
+
+The common Load actions workflow uses read-only descriptor inspection before
+requesting a source File. Inspection neither replaces the accepted recipe nor
+changes the recovery checkpoint. Empty actions need no source; a matching generic
+source reuses immutable accepted geometry; a missing source requires explicit
+lookup of the exact original bytes. Moving or renaming unchanged bytes is valid.
+Filename hints never authorize filesystem access. Legacy actions require their
+explicitly compatible loaded example and never select one implicitly.
+
+The protocol-6 worker declares source-actions contract version 1. The generated
+application explicitly enables that capability when constructing its backend;
+old or missing contracts fail closed, with no capability change after startup.
+Authoritative schema, interpretation, source identity, cursor, discard approval,
+CAD availability and exact declared File size are checked before source reads.
+Preparation repeats validation against parsed evidence, and the actual attached
+File size must also match the saved descriptor before slicing or staging.
+
+Opening prepares a fresh graph privately and uses the existing complete transfer,
+coordinator adoption and Python promotion boundary. It does not publish a
+source-only intermediate project. Matching opens retain the verified original
+File without uploading it again; located opens adopt the supplied File. Empty
+and example opens release stale user-file authority. Every normal open advances
+the accepted source generation; Force retains that accepted generation and
+reconstructs computed results as dirty. Accepted import warnings are copied into
+the generation-scoped checkpoint so normalized recipes do not erase them during
+recovery; warnings in user JSON have no authority.
+
+The actual UI acceptance probe retains full reopened and post-Force evaluation
+graphs for comparison against the native scene under the selected bounded
+semantic policy. Source arrays remain strict. Its coverage includes raw-source
+save/reopen, renamed lookup, matching reuse, unsupported settings, wrong bytes,
+empty and explicit legacy actions, stale inspection, popup and docked drafts,
+Cancel, pre-adoption Force, and accepted-but-undisplayed recovery with explicit
+Retry. Delivery through #291 passed the completed probe and CI; subsequent changes
+require fresh current-head gates. Its test hooks observe the shipped application
+and disclose transport holds.
+
 ## Measured initial browser tier
 
-The protocol-5 runtime profile declares the source policy and injects its limits
-into both JavaScript byte preflight and shared Python admission. Initial limits
+The initial protocol-5 measurements used the same source policy now declared by
+the protocol-6 runtime profile, which injects its limits into both JavaScript byte
+preflight and shared Python admission. Initial limits
 are 8 MiB original bytes, 131,072 vertices, 262,144 triangle records, a 96 MiB
 incremental loader estimate and 65,536-byte chunks. These values were evaluated
 independently from the native measurements, despite selecting the same bounded
@@ -206,9 +246,10 @@ Complete original, edited and generated UI-authored graphs are retained with
 independently observed accepted generations and full source evidence. Native
 execution reconstructs each authored recipe from the same frozen bytes using
 the identical packaged Python core. Failed native graphs are retained before
-the reference run rejects them. All three native/worker pairs enter the same
-trusted semantic batch as the existing import/replay pairs; source arrays,
-recipe bindings, selected geometry, acceptance and finite budgets remain gates.
+the reference run rejects them. All three native/worker pairs enter one seven-pair
+trusted semantic batch with the four source import/replay and saved-actions pairs;
+source arrays, recipe bindings, selected geometry, acceptance and finite budgets
+remain gates.
 Computed starts remain absent from actions. The trusted verifier requires all
 twelve ordered cases, literal successful oracles, terminal readiness and exact
 raw graph operands; refreshed-hash mutations must still reject changed results
@@ -218,8 +259,8 @@ authoring have actual Chromium coverage.
 These diagnostic results do not replace the four numerical/CAD and
 plain/isolated profiles or complete current-head CI. Read-only interpretation,
 empty-only Add and confirmed whole-project removal retain the agreed scope;
-settings/replacement, saved-actions reopening and wider numerical/resource
-delivery remain separately tracked.
+settings/replacement and wider numerical/resource delivery remain separately
+tracked. Bounded source-aware saved-actions reopening is delivered through #291.
 
 The static checker and trusted release verifier require the new reports and
 explicit source/recovery/cleanup checks. Numerical-profile reports bind their
