@@ -24,6 +24,7 @@ from experiments.feature_graph import (
     fit_equal_radii,
     frame_result,
 )
+from experiments.feature_reuse_authoring import ReuseChanges, reconcile_feature_reuse
 from experiments.mesh_cylinder_fit import Array
 from experiments.nozzle_coaxial import FitSelection, fit_fixed_axis_group
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
@@ -374,6 +375,150 @@ def test_imported_cylinder_reuse_preserves_canonical_support_hint(
     assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
     assert fitted["weighted_rms"] < 1e-6
     assert fitted["ids"] == list(range(120))
+
+
+def reused_cylinder_graph(
+    horizontal: ScanWorkspace, *, rotate_target: bool, explicit: bool
+) -> tuple[FeatureGraph[ScanWorkspace], str, str, np.ndarray]:
+    # Two independently encoded occurrences. The source axis is +Z and the
+    # second is translated, optionally rotating its axis to horizontal +X.
+    to_z = np.array([[0.0, 0, 1], [1, 0, 0], [0, 1, 0]])
+    points = horizontal.local @ to_z
+    normals = horizontal.data.normals @ to_z
+    rotation = (
+        np.array([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]]) if rotate_target else np.eye(3)
+    )
+    translation = np.array([20.0, 10, 30])
+    positions = np.vstack((points, points @ rotation + translation))
+    directions = np.vstack((normals, normals @ rotation))
+    triangles = np.vstack((horizontal.data.triangles, horizontal.data.triangles + 120))
+    header = (
+        "ply\nformat binary_little_endian 1.0\nelement vertex 240\n"
+        "property float x\nproperty float y\nproperty float z\n"
+        "property float nx\nproperty float ny\nproperty float nz\n"
+        f"element face {len(triangles)}\nproperty list uchar int vertex_indices\nend_header\n"
+    ).encode()
+    rows = np.column_stack((positions, directions))
+    raw = header + b"".join(struct.pack("<6f", *row) for row in rows)
+    raw += b"".join(struct.pack("<B3i", 3, *triangle) for triangle in triangles)
+    workspace = prepare_scan(
+        io.BytesIO(raw),
+        "two-cylinders.ply",
+        ScanLimits(100_000, 1_000, 2_000, 10_000_000),
+    )
+    base = horizontal_recipe(
+        workspace,
+        [
+            {
+                "id": "target",
+                "label": "Target",
+                "operation": "selection",
+                "source": "scan",
+                "ids": list(range(120, 240)),
+            }
+        ],
+        "cylinder",
+    )
+    payload = base.model_dump(mode="json")
+    next(node for node in payload["nodes"] if node["id"] == "cylinder")[
+        "axial_domain"
+    ] = [-2, 9] if explicit else None
+    plan = reconcile_feature_reuse(
+        Recipe.model_validate(payload),
+        "reuse",
+        ReuseChanges(
+            label="Reuse",
+            fits=["cylinder"],
+            reference_selection="patch",
+            target_selections=["target"],
+            tangent_margin=0.01,
+            normal_margin=0.01,
+        ),
+        "independent-support-transfer",
+        create=True,
+    )
+    clone = next(
+        node for node in plan.recipe.nodes if node.managed_key == "fit/target/cylinder"
+    )
+    reused = next(
+        node for node in plan.recipe.nodes if node.operation == "reuse_selection"
+    )
+    expected_endpoints = np.array([[-4.0, 5, -2], [-4, 5, 9]]) @ rotation + translation
+    return FeatureGraph(workspace, plan.recipe), clone.id, reused.id, expected_endpoints
+
+
+@pytest.mark.parametrize("rotate_target", [False, True])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_managed_reuse_guards_explicit_support_without_disabling_automatic_reuse(
+    horizontal_scan: ScanWorkspace, rotate_target: bool, explicit: bool
+) -> None:
+    graph, clone, reused, expected_endpoints = reused_cylinder_graph(
+        horizontal_scan, rotate_target=rotate_target, explicit=explicit
+    )
+    before = graph.snapshot()
+    if explicit:
+        with pytest.raises(ValueError, match="support"):
+            _ = graph.evaluate(token(graph), target=clone)
+        state = graph.snapshot()
+        assert clone in cast(dict[str, str], state["errors"])
+        assert clone not in cast(dict[str, Any], state["results"])
+    else:
+        state = graph.evaluate(token(graph), target=clone)
+        assert not state["errors"]
+        fitted = cast(dict[str, Any], state["results"])[clone]
+        assert fitted["support_origin"] == "selection"
+        assert fitted["weighted_rms"] < 1e-6
+        assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
+        assert fitted["ids"] == list(range(120, 240))
+    assert state["recipe"] == before["recipe"]
+    assert state["token"] == before["token"]
+    assert cast(dict[str, Any], state["memberships"])["target"] == list(range(120, 240))
+    if explicit:
+        # The canonical proposal retains the correct physical support; the
+        # guard prevents its copied source-Z0 tuple from becoming target intent.
+        hint = cast(dict[str, Any], state["results"])[reused]["fit_geometry"]
+        endpoints = np.asarray(hint["origin"]) + np.asarray(hint["axial_domain"])[
+            :, None
+        ] * np.asarray(hint["axis"])
+        np.testing.assert_allclose(
+            np.sort(endpoints, axis=0), np.sort(expected_endpoints, axis=0), atol=1e-6
+        )
+
+
+def test_user_authored_reuse_target_can_set_its_own_explicit_support(
+    horizontal_scan: ScanWorkspace,
+) -> None:
+    graph, clone, reused, _ = reused_cylinder_graph(
+        horizontal_scan, rotate_target=False, explicit=True
+    )
+    recipe = Recipe.model_validate(graph.snapshot()["recipe"])
+    source = next(node for node in recipe.nodes if node.id == clone)
+    manual = source.model_copy(
+        update={
+            "id": "manual",
+            "label": "Manual target bounds",
+            "managed_by": None,
+            "managed_key": None,
+            "axial_domain": (31.0, 34.0),
+        }
+    )
+    graph = FeatureGraph(
+        graph.workspace,
+        recipe.model_copy(
+            update={"nodes": [*recipe.nodes, manual], "output": manual.id}
+        ),
+    )
+    state = graph.evaluate(token(graph), target=manual.id)
+    assert not state["errors"]
+    fitted = cast(dict[str, Any], state["results"])[manual.id]
+    assert fitted["ids"] == cast(dict[str, Any], state["memberships"])[reused]
+    assert fitted["source_axial_domain"] == [31.0, 34.0]
+    assert fitted["support_origin"] == "legacy-source-z0"
+    geometry = fitted["analytic"]
+    endpoints = np.asarray(geometry["origin"]) + np.asarray(geometry["axial_domain"])[
+        :, None
+    ] * np.asarray(geometry["axis"])
+    np.testing.assert_allclose(np.sort(endpoints[:, 2]), [31.0, 34.0], atol=1e-6)
 
 
 def changed(graph: FeatureGraph, node_id: str, **changes: object) -> Recipe:

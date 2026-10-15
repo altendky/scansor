@@ -626,6 +626,7 @@ def test_failed_imported_cylinder_keeps_the_saved_selection_and_intent() -> None
     assert failure.value.code == "insufficient-coverage"
     assert graph.snapshot()["recipe"] == before["recipe"]
     assert graph.snapshot()["token"] == before["token"]
+    assert graph.snapshot()["diagnostics"] == {"cylinder": failure.value.diagnostic}
 
 
 def assert_cylindrical_shape(shape: TopoDS_Shape, fitted: dict[str, Any]) -> None:

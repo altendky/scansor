@@ -80,6 +80,13 @@ that particular explicit chart and reports unsupported support. A fixed semantic
 anchor and its explicit support remain separate from disposable numerical hints.
 Computed starts and diagnostics remain derived results, outside saved actions.
 
+Generated reused imported lateral fits with explicitly inherited bounds are
+temporarily rejected: copying a source-Z0 interval into a translated/rotated
+target can move the geometry while leaving its hard support behind. Automatic
+support reuse and independently authored target bounds remain available.
+[#264](https://github.com/altendky/scansor/issues/264) tracks anchor-aware transfer,
+target override authority and its fixed/free/group/replay verification.
+
 HTTP/worker delivery,
 Force source retention, source-aware reopening and per-backend measured caps remain their
 listed tickets. Caller-provided byte/count caps and the loader's incremental

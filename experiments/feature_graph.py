@@ -44,6 +44,7 @@ from experiments.feature_reuse import (
 )
 from experiments.fit_initialization import RecoveryFailure, initialization_binding
 from experiments.fit_solver import normalized_weights
+from experiments.mesh_cylinder_fit import CylinderFitFailure
 from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
 from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
@@ -1782,11 +1783,35 @@ class StaleGraph(ValueError):
     """The current graph changed while a client or worker was using it."""
 
 
+class UnsupportedSupportTransfer(ValueError):
+    """Generated inherited bounds need an explicit support-transfer contract."""
+
+    def __init__(self, fit: str, reuse: str) -> None:
+        self.diagnostic: dict[str, Any] = {
+            "kind": "unsupported_support_transfer",
+            "code": "unsupported-support",
+            "fit": fit,
+            "reuse": reuse,
+            "issue": 264,
+        }
+        super().__init__(
+            "Explicit support transfer for imported generated reused fits is not yet supported (#264)"
+        )
+
+
 def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
     """Keep solver evidence separate from geometry and safe for strict JSON."""
     if isinstance(error, SelectionOverlap):
         return deepcopy(error.diagnostic)
-    if isinstance(error, (PlaneFitFailure, SphereFitFailure)):
+    if isinstance(
+        error,
+        (
+            PlaneFitFailure,
+            SphereFitFailure,
+            CylinderFitFailure,
+            UnsupportedSupportTransfer,
+        ),
+    ):
         return deepcopy(error.diagnostic)
     if isinstance(error, RecoveryFailure):
         return {
@@ -4166,6 +4191,17 @@ class FeatureGraph(Generic[WorkspaceType]):
                 return deepcopy(dict(surfaces[reference.surface]))
 
         def fitted_ids(surface: SurfaceFit) -> list[int]:
+            if (
+                isinstance(self.workspace, ScanWorkspace)
+                and surface.kind in {"cylinder", "cone"}
+                and surface.axial_domain is not None
+                and isinstance(nodes.get(surface.managed_by or ""), FeatureReuse)
+                and any(
+                    isinstance(nodes[ref], ReuseSelection) for ref in surface.selections
+                )
+            ):
+                assert surface.managed_by is not None
+                raise UnsupportedSupportTransfer(surface.id, surface.managed_by)
             return sorted({i for ref in surface.selections for i in membership(ref)})
 
         def selected(surface: SurfaceFit) -> FitSelection:
