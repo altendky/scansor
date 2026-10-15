@@ -23,7 +23,26 @@ examples use the same geometry reader through an explicit legacy adapter that
 preserves their existing reference hashes and optional starter recipes.
 
 This foundation does not expose file opening in either adapter or the UI yet.
-The existing fixture-dependent fitting paths explicitly reject generic sources
+Standalone plane fitting now uses only selected source positions, incident-area
+weights and admitted normal directions. Its direct covariance solve is centered
+and length-normalized, with separate coverage/eigengap diagnostics. A unique
+unsigned plane remains valid when supplied normals cannot determine its sign;
+that result records a canonical sign and ambiguous orientation, and directional
+growth rejects it rather than arbitrarily favoring one normal direction. No
+numerical seed or model support is read for an independent plane. Existing
+explicit reference-plane orientation remains authoritative.
+
+The frozen native/Pyodide numerical probe includes independently posed imported
+planes, nonuniform cells, multiple scales, growth and recipe replay against
+renamed identical source bytes. This verifies shared numerical semantics through
+the worker parity gate. Its distance and area comparisons use the frozen case's
+length scale while retaining the same dimensionless tolerances; source identity,
+membership and dimensionless evidence are compared separately. Adapter/UI file
+opening remains separate. Kernel/STEP
+geometry tests use practical scales; tiny-scale numerical fitting does not imply
+CAD-kernel capability or physical accuracy.
+
+The remaining fixture-dependent standalone fitting paths reject generic sources
 until their dedicated integration work lands. HTTP/worker delivery, Force source
 retention, source-aware reopening and per-backend measured caps remain their
 listed tickets. Caller-provided byte/count caps and the loader's incremental
@@ -112,9 +131,11 @@ Current implementation gaps:
   [example loader](../../../../experiments/run_nozzle_cylinder.py) additionally
   verifies saved IDs and geometric selection gates. These are example factories,
   not a generic source contract.
-- [`Source` and workspace reference identity](../../../../experiments/feature_graph.py)
-  currently bind both source bytes and fixture selection/model configuration.
-  Ordinary fits also read the fixture's initial parameters.
+- Legacy example [`Source` reference identity](../../../../experiments/feature_graph.py)
+  still includes fixture selection/model configuration through its explicit
+  adapter. Independent plane fits use generic source identity; standalone
+  sphere/cylinder/cone graph paths still read the fixture's initial parameters
+  until their family tickets land.
 - [Fit coordinate conditioning](../../../../experiments/fit_coordinates.py)
   centers and scales numerical coordinates but does not rotate the positive-Z
   axis chart. Arbitrarily oriented imported cylinders need additional work.

@@ -55,7 +55,7 @@ from experiments.nozzle_session import (
     VertexId,
 )
 from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
-from experiments.selection_growth import connected_growth, fit_seed
+from experiments.selection_growth import PlaneFitFailure, connected_growth, fit_seed
 from experiments.selection_region import (
     apply_selection_region,
     build_selection_region,
@@ -1781,6 +1781,8 @@ class StaleGraph(ValueError):
 def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
     """Keep solver evidence separate from geometry and safe for strict JSON."""
     if isinstance(error, SelectionOverlap):
+        return deepcopy(error.diagnostic)
+    if isinstance(error, PlaneFitFailure):
         return deepcopy(error.diagnostic)
     if isinstance(error, RecoveryFailure):
         return {
@@ -4963,10 +4965,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                             for ref in node.selections
                             if isinstance(nodes[ref], ReuseSelection)
                         ]
-                        initial = np.array(
-                            example_workspace(self.workspace).data.selection[
-                                "initial_parameters"
-                            ]
+                        initial = (
+                            None
+                            if node.kind == "plane"
+                            else np.array(
+                                example_workspace(self.workspace).data.selection[
+                                    "initial_parameters"
+                                ]
+                            )
                         )
                         domain = node.axial_domain
                         if reuse_inputs:
@@ -4987,10 +4993,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 raise ValueError(
                                     "reused fit selections must share one transformed source fit"
                                 )
-                            if initials[0] is not None:
+                            if initials[0] is not None and node.kind != "plane":
                                 initial = np.asarray(initials[0], dtype=float)
                             domain = cast(tuple[float, float], domains[0])
-                            if initials[0] is not None:
+                            if initials[0] is not None and initial is not None:
                                 point = np.asarray([initial[0], initial[1], 0.0])
                                 direction = np.asarray([initial[2], initial[3], 1.0])
                                 # The residual evaluator's support is distance

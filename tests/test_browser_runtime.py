@@ -3,6 +3,7 @@
 import hashlib
 import runpy
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import numpy as np
 import pytest
 
 from experiments.browser_runtime.probe import (
+    compare_imported_planes,
     compare_numeric,
     compare_session,
     create_fixture,
@@ -190,3 +192,172 @@ def test_parity_rejects_changed_standalone_graph_result_before_joint_comparison(
     }
     with pytest.raises(AssertionError, match=r"graph\.results\.side\.parameters"):
         _ = compare_numeric(actual, expected)
+
+
+def test_parity_rejects_changed_imported_plane_before_legacy_fit_comparison():
+    expected: dict[str, Any] = {
+        "fixture_sha256": "fixture",
+        "counts": {},
+        "source_sha256": "source",
+        "model_sha256": "model",
+        "graph": {
+            "recipe": {},
+            "token": "token",
+            "states": {},
+            "errors": {},
+            "diagnostics": {},
+            "results": {},
+        },
+        "imported_planes": [imported_plane_record(1.0)],
+    }
+    actual = deepcopy(expected)
+    actual["imported_planes"][0]["results"]["plane"]["parameters"][:3] = [0.0, 1, 0]
+    with pytest.raises(AssertionError, match=r"imported_planes.*plane\.parameters"):
+        _ = compare_numeric(actual, expected)
+
+
+def imported_plane_record(scale: float) -> dict[str, Any]:
+    """A complete probe-shaped report with dimensions prescribed independently."""
+    return {
+        "comparison_length_scale": scale,
+        "recipe": {
+            "nodes": [
+                {
+                    "id": "scan",
+                    "operation": "source",
+                    "source_sha256": "a" * 64,
+                    "reference_sha256": "b" * 64,
+                }
+            ],
+            "output": "grown",
+        },
+        "token": "source-bound-actions",
+        "states": {"plane": "ready", "grown": "ready"},
+        "errors": {},
+        "diagnostics": {},
+        "results": {
+            "plane": {
+                "kind": "plane",
+                "ids": [4, 9],
+                "parameters": [1.0, 0.0, 0.0, 3.0 * scale],
+                "residuals": [0.001 * scale, -0.002 * scale],
+                "weighted_rms": 0.0015 * scale,
+                "axial_domain": [-2.0, 5.0],
+                "normal_sign": 1.0,
+                "initialization": {
+                    "algorithm": "weighted-covariance-plane-v1",
+                    "chart": "workspace-normal-offset-v1",
+                    "origin": [3.0 * scale, -4.0 * scale, 2.0 * scale],
+                    "length": 2.0 * scale,
+                    "normalized_covariance_eigenvalues": [0.0, 0.3, 1.0],
+                    "coverage_ratio": 0.3,
+                    "normal_gap_ratio": 0.3,
+                    "orientation": "selected-normals",
+                    "normal_projection": 1.0,
+                    "observations": 2,
+                },
+                "support_classification": {
+                    "inside_vertices": 2,
+                    "outside_vertices": 0,
+                    "role": "selection-and-display",
+                },
+            },
+            "grown": {
+                "ids": [4, 9, 12],
+                "added_ids": [12],
+                "added_area": 0.01 * scale**2,
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field", ["offset", "residual", "weighted_rms", "origin", "length", "added_area"]
+)
+def test_imported_plane_parity_rejects_errors_in_normalized_length_and_area_fields(
+    scale: float, field: str
+) -> None:
+    expected = imported_plane_record(scale)
+    actual = deepcopy(expected)
+    plane = actual["results"]["plane"]
+    # Each mutation has the same meaningful size in the frozen fixture's units.
+    # At the small scale, raw length/area tolerances would silently admit it.
+    delta = 1e-6 * scale
+    if field == "offset":
+        plane["parameters"][3] += delta
+    elif field == "residual":
+        plane["residuals"][0] += delta
+    elif field == "weighted_rms":
+        plane["weighted_rms"] += delta
+    elif field == "origin":
+        plane["initialization"]["origin"][0] += delta
+    elif field == "length":
+        plane["initialization"]["length"] += delta
+    else:
+        actual["results"]["grown"]["added_area"] += 1e-6 * scale**2
+    with pytest.raises(AssertionError):
+        compare_imported_planes([actual], [expected])
+
+
+@pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+@pytest.mark.parametrize(
+    "field", ["normal", "ids", "source", "binding", "axial_domain"]
+)
+def test_imported_plane_parity_keeps_geometry_directions_ids_and_bindings_strict(
+    scale: float, field: str
+) -> None:
+    expected = imported_plane_record(scale)
+    actual = deepcopy(expected)
+    if field == "normal":
+        actual["results"]["plane"]["parameters"][1] = 1e-6
+    elif field == "ids":
+        actual["results"]["plane"]["ids"][0] = 5
+    elif field == "source":
+        actual["recipe"]["nodes"][0]["source_sha256"] = "c" * 64
+    elif field == "binding":
+        actual["recipe"]["nodes"][0]["reference_sha256"] = "c" * 64
+    else:
+        actual["results"]["plane"]["axial_domain"][0] += 1e-6
+    with pytest.raises(AssertionError):
+        compare_imported_planes([actual], [expected])
+
+
+def test_imported_plane_parity_accepts_reported_large_scale_rounding_difference() -> (
+    None
+):
+    expected = imported_plane_record(1e6)
+    actual = deepcopy(expected)
+    expected["results"]["plane"]["residuals"][0] = 2.114431
+    actual["results"]["plane"]["residuals"][0] = 2.114431 + 3.51519702e-10
+    with pytest.raises(AssertionError):
+        np.testing.assert_allclose(
+            actual["results"]["plane"]["residuals"],
+            expected["results"]["plane"]["residuals"],
+            rtol=1e-10,
+            atol=1e-10,
+        )
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    compare_imported_planes([actual], [expected])
+    assert actual == before_actual
+    assert expected == before_expected
+
+
+def test_imported_plane_parity_cannot_normalize_with_an_untrusted_actual_scale() -> (
+    None
+):
+    # Independently normalizing each report would hide this coordinate change.
+    with pytest.raises(AssertionError):
+        compare_imported_planes(
+            [imported_plane_record(2.0)], [imported_plane_record(1.0)]
+        )
+
+
+@pytest.mark.parametrize("scale", [0.0, -1.0, float("inf"), float("nan")])
+def test_imported_plane_parity_rejects_invalid_frozen_expected_scale(
+    scale: float,
+) -> None:
+    expected = imported_plane_record(1.0)
+    expected["comparison_length_scale"] = scale
+    with pytest.raises(ValueError, match="finite and positive"):
+        compare_imported_planes([imported_plane_record(1.0)], [expected])
