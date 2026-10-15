@@ -13,6 +13,7 @@ from experiments.fit_solver import (
     normalized_weights,
     solve_geometric_fit,
 )
+from experiments.mesh_cone_fit import fit_selected_cone
 from experiments.mesh_cone_plane_fit import (
     cone_plane_residual_jacobian,
     valid_cone_geometry,
@@ -49,8 +50,9 @@ def fit_seed(
     hint: dict[str, Any] | None = None,
     hint_binding_sha256: str | None = None,
 ) -> dict[str, Any]:
-    if kind == "cylinder" and binding is not None:
-        return fit_selected_cylinder(
+    if kind in {"cylinder", "cone"} and binding is not None:
+        fitter = fit_selected_cone if kind == "cone" else fit_selected_cylinder
+        return fitter(
             points,
             weights,
             normals,
@@ -226,7 +228,7 @@ def fit_seed(
 
 
 def surface_distance(
-    points: Array, fit: dict[str, Any]
+    points: Array, fit: dict[str, Any], *, finite_support: bool = True
 ) -> tuple[Array, Array, NDArray[np.bool_]]:
     if fit["kind"] == "plane":
         p = np.array(fit["parameters"])
@@ -254,15 +256,20 @@ def surface_distance(
     scale = float(np.hypot(1, slope))
     expected = (radial / np.maximum(rho, 1e-30)[:, None] - slope * axis) / scale
     residual = (rho - radius - slope * z) / scale
-    projected_z = (z + slope * (rho - radius)) / (1 + slope**2)
+    projected_z = (z / scale + (slope / scale) * (rho - radius)) / scale
+    projected_radius = (
+        radius / scale / scale
+        + (slope / scale) * (z / scale)
+        + (slope / scale) ** 2 * rho
+    )
     domain = geometry["axial_domain"]
     inside = np.ones(len(points), dtype=bool)
-    if domain is not None:
+    if domain is not None and finite_support:
         inside = (projected_z >= domain[0]) & (projected_z <= domain[1])
     return (
         residual,
         expected,
-        (rho > 0) & (radius + slope * projected_z > 0) & inside,
+        (rho > 0) & (projected_radius > 0) & inside,
     )
 
 
@@ -283,22 +290,13 @@ def connected_growth(
             "directional growth needs an oriented plane; selected normals do not establish a direction",
             fit["initialization"],
         )
-    growth_fit = fit
-    if fit.get("support_origin") == "selection" and "analytic" in fit:
-        # Automatic display extent is derived from the painted patch. It must
-        # not prevent growth along the same positive analytic sheet.
-        geometry = revolution_geometry(fit)
-        q = points - np.asarray(geometry["origin"])
-        z = q @ np.asarray(geometry["axis"])
-        slope = float(geometry["slope"])
-        rho = np.linalg.norm(q - z[:, None] * np.asarray(geometry["axis"]), axis=1)
-        projected = (z + slope * (rho - geometry["radius"])) / (1 + slope**2)
-        bounds = [float(np.min(projected)), float(np.max(projected))]
-        if bounds[0] < bounds[1] and all(
-            geometry["radius"] + slope * t > 0 for t in bounds
-        ):
-            growth_fit = {**fit, "analytic": {**geometry, "axial_domain": bounds}}
-    residual, expected, support = surface_distance(points, growth_fit)
+    # Selection-derived bounds are display extent, not authored growth limits.
+    # Evaluate the complete positive sheet directly rather than constructing a
+    # whole-source interval whose rounded endpoints can clip boundary vertices.
+    automatic = fit.get("support_origin") == "selection" and "analytic" in fit
+    residual, expected, support = surface_distance(
+        points, fit, finite_support=not automatic
+    )
     eligible = (
         support & np.isfinite(residual) & (np.abs(residual) <= distance) & (weights > 0)
     )

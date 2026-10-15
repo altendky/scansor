@@ -28,6 +28,7 @@ from experiments.feature_graph import (
     SurfaceFit,
     fit_plane_to_reference,
 )
+from experiments.mesh_cone_fit import ConeFitFailure
 from experiments.nozzle_cad import CadExportRequest, export_cad
 from experiments.ocp_geometry import surface_patch
 from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
@@ -252,16 +253,15 @@ def test_imported_graph_growth_and_saved_recipe_need_no_fixture_metadata(
     assert results(reopened)["plane"] == fitted
 
 
-@pytest.mark.parametrize("kind", ["cone"])
-def test_enabling_imported_planes_does_not_enable_pending_fit_families(
-    kind: str,
-) -> None:
+def test_planar_observations_do_not_become_an_imported_cone() -> None:
     workspace = imported_grid(np.array([0.0, 0, 1]))
     payload = imported_recipe(workspace).model_dump()
-    payload["nodes"][-1]["kind"] = kind
+    payload["nodes"][-1]["kind"] = "cone"
     graph = FeatureGraph(workspace, Recipe.model_validate(payload))
-    with pytest.raises(ValueError, match="not yet supported for imported scans"):
+    with pytest.raises(ConeFitFailure) as failure:
         _ = graph.evaluate(str(graph.snapshot()["token"]))
+    assert failure.value.code == "insufficient-coverage"
+    _ = json.dumps(failure.value.diagnostic, allow_nan=False)
 
 
 @pytest.mark.parametrize(

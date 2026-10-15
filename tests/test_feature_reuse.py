@@ -45,9 +45,11 @@ def test_plane_reuse_does_not_invent_axial_support() -> None:
     ) == (None, None)
 
 
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
 @pytest.mark.parametrize("direction", [[1.0, 0, 0], [0.3, -0.8, 0.5]])
-def test_canonical_cylinder_region_frame_uses_world_axis(
+def test_canonical_revolution_region_frame_uses_world_axis(
     direction: list[float],
+    kind: str,
 ) -> None:
     axis = np.asarray(direction, dtype=float)
     axis /= np.linalg.norm(axis)
@@ -57,13 +59,13 @@ def test_canonical_cylinder_region_frame_uses_world_axis(
         [anchor + height * axis + 3 * radial for height in (-1.0, 1.0, 3.0)]
     )
     fit = {
-        "kind": "cylinder",
+        "kind": kind,
         "analytic": {
-            "kind": "cylinder",
+            "kind": kind,
             "origin": anchor.tolist(),
             "axis": axis.tolist(),
             "radius": 3.0,
-            "slope": 0.0,
+            "slope": 0.15 if kind == "cone" else 0.0,
             "axial_domain": [-2.0, 4.0],
         },
         # Canonical geometry is authoritative, even if stale legacy display

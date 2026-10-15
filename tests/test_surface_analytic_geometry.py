@@ -629,14 +629,19 @@ def test_canonical_only_result_exports_world_patch_and_step_without_numeric_char
     assert reader.TransferRoots() == 1
     assert_kernel_patch(reader.OneShape(), geometry)
     graph = FeatureGraph(workspace, recipe)
-    if geometry["kind"] == "cone":
-        with pytest.raises(ValueError, match="not yet supported for imported scans"):
-            _ = graph.evaluate(str(graph.snapshot()["token"]))
-    else:
-        state = graph.evaluate(str(graph.snapshot()["token"]))
-        assert not state["errors"]
-        evaluated = cast(dict[str, Any], state["results"])["surface"]
-        actual = revolution_geometry(evaluated)
-        assert evaluated["weighted_rms"] < 1e-6
-        assert actual["radius"] == pytest.approx(geometry["radius"], abs=1e-6)
-        assert abs(float(np.asarray(actual["axis"]) @ geometry["axis"])) > 1 - 1e-10
+    state = graph.evaluate(str(graph.snapshot()["token"]))
+    assert not state["errors"]
+    evaluated = cast(dict[str, Any], state["results"])["surface"]
+    actual = revolution_geometry(evaluated)
+    assert evaluated["weighted_rms"] < 1e-6
+    direction_dot = float(np.asarray(actual["axis"]) @ geometry["axis"])
+    shift = float(
+        (np.asarray(actual["origin"]) - geometry["origin"]) @ geometry["axis"]
+    )
+    assert actual["radius"] == pytest.approx(
+        geometry["radius"] + geometry["slope"] * shift, abs=1e-6
+    )
+    assert actual["slope"] == pytest.approx(
+        geometry["slope"] * np.sign(direction_dot), abs=1e-6
+    )
+    assert abs(direction_dot) > 1 - 1e-10

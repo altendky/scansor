@@ -178,7 +178,69 @@ def build_selection_region(
             "normal_sign": normal_sign,
         }
     if kind == "cone":
-        raise ValueError("cone selection regions are not implemented yet")
+        geometry = revolution_geometry(fit)
+        axis = np.asarray(geometry["axis"])
+        alignment = float(axis @ rotation[:, 2])
+        if abs(alignment) < 1 - 1e-10:
+            raise ValueError("a cone selection region requires its fitted axis frame")
+        relative_origin = origin - np.asarray(geometry["origin"])
+        if np.linalg.norm(
+            relative_origin - (relative_origin @ axis) * axis
+        ) > 1e-7 * max(np.linalg.norm(points - origin, axis=1)):
+            raise ValueError(
+                "a cone selection-region origin must lie on its fitted axis"
+            )
+        radius = float(
+            geometry["radius"] + geometry["slope"] * (relative_origin @ axis)
+        )
+        slope = float(geometry["slope"] * (1 if alignment >= 0 else -1))
+        scale = float(np.hypot(1, slope))
+        radial = np.linalg.norm(local[:, :2], axis=1)
+        if np.any(radial <= 0):
+            raise ValueError("cone selection-region points cannot lie on its axis")
+        projected = (local[:, 2] / scale + (slope / scale) * (radial - radius)) / scale
+        projected_radius = radius + slope * projected
+        if not np.isfinite(projected_radius).all() or np.any(projected_radius <= 0):
+            raise ValueError(
+                "cone selection-region observations must project onto the positive sheet"
+            )
+        generator_bounds = [
+            float(np.min(projected) * scale - tangent_margin),
+            float(np.max(projected) * scale + tangent_margin),
+        ]
+        minimum_radius = float(
+            np.min(radius + slope * np.asarray(generator_bounds) / scale)
+        )
+        if not np.isfinite(minimum_radius) or minimum_radius <= 0:
+            raise ValueError("cone selection-region tangent margin crosses the apex")
+        expected = (
+            np.column_stack(
+                (local[:, :2] / radial[:, None], -np.ones(len(local)) * slope)
+            )
+            / scale
+        )
+        normal_sign = (
+            1.0
+            if float(np.median(np.sum(local_normals * expected, axis=1))) >= 0
+            else -1.0
+        )
+        angle_start, angle_span = _angular_interval(
+            np.arctan2(local[:, 1], local[:, 0]), tangent_margin / minimum_radius
+        )
+        offset = (radial - radius - slope * local[:, 2]) / scale
+        return {
+            **common,
+            "radius": radius,
+            "slope": slope,
+            "angle_start": angle_start,
+            "angle_span": angle_span,
+            "generator_bounds": generator_bounds,
+            "normal_bounds": [
+                float(np.min(offset) - normal_margin),
+                float(np.max(offset) + normal_margin),
+            ],
+            "normal_sign": normal_sign,
+        }
     raise ValueError(f"unsupported selection-region fit kind {kind!r}")
 
 
@@ -225,6 +287,37 @@ def apply_selection_region(
             & (local[:, 2] <= upper_axial)
             & (radial_offset >= lower_normal)
             & (radial_offset <= upper_normal)
+            & (alignment >= cosine)
+        )
+    elif region["kind"] == "cone":
+        radius, slope = float(region["radius"]), float(region["slope"])
+        scale = float(np.hypot(1, slope))
+        radial = np.linalg.norm(local[:, :2], axis=1)
+        nonzero = radial > 0
+        projected = (local[:, 2] / scale + (slope / scale) * (radial - radius)) / scale
+        projected_radius = radius + slope * projected
+        angles = np.mod(
+            np.arctan2(local[:, 1], local[:, 0]) - float(region["angle_start"]),
+            2 * np.pi,
+        )
+        expected = np.zeros((len(local), 3))
+        expected[nonzero, :2] = local[nonzero, :2] / radial[nonzero, None]
+        expected[:, 2] = -slope
+        expected /= scale
+        alignment = np.sum(local_normals * expected, axis=1) * float(
+            region["normal_sign"]
+        )
+        offset = (radial - radius - slope * local[:, 2]) / scale
+        lower_generator, upper_generator = region["generator_bounds"]
+        mask = (
+            valid
+            & nonzero
+            & (projected_radius > 0)
+            & (angles <= float(region["angle_span"]) + 1e-12)
+            & (projected * scale >= lower_generator)
+            & (projected * scale <= upper_generator)
+            & (offset >= lower_normal)
+            & (offset <= upper_normal)
             & (alignment >= cosine)
         )
     elif region["kind"] == "plane":

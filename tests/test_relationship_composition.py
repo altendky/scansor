@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -1826,3 +1827,261 @@ def test_relationship_attempt_control_counts_both_callbacks_and_propagates_cance
             centers,
             control=AttemptControl(AttemptLimits(), cancelled=lambda: True),
         )
+
+
+def test_canonical_cone_checks_every_observations_positive_projection_sheet() -> None:
+    surface, axes = _negative_anchor_relationship_cone()
+    # The declared segment remains positive, but this extra selected row lies
+    # behind its apex and projects onto the negative radial continuation.
+    points = np.vstack((surface.points, [1.1, -6.0, -2.0]))
+    surface = replace(surface, points=points, weights=np.ones(len(points)))
+    with pytest.raises(ConstrainedLeastSquaresFailure) as failure:
+        _ = fit_relationship_component([surface], axes, [], [])
+    assert failure.value.code == "invalid-initial-geometry"
+
+
+@pytest.mark.parametrize(
+    ("taper", "height", "rho", "positive"),
+    [(0.5, -10.0, 4.0, False), (2.0, -1.0, 1.0, True)],
+)
+def test_cone_sheet_guard_matches_independent_meridian_line_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    taper: float,
+    height: float,
+    rho: float,
+    positive: bool,
+) -> None:
+    import experiments.fit_relationship_component as module
+
+    surface, axes = _negative_anchor_relationship_cone()
+    surface.result["analytic"]["slope"] = taper
+    anchor = np.asarray(surface.result["analytic"]["origin"])
+    direction = np.asarray(surface.result["analytic"]["axis"])
+    transverse, _ = basis(direction)
+    row = anchor + height * direction + rho * transverse
+    points = np.vstack((surface.points, row))
+    surface = replace(surface, points=points, weights=np.ones(len(points)))
+
+    # Project (axial, radial) onto the meridian line through (0,-1),
+    # independently of the component's three-dimensional chart and formula.
+    line_origin = np.array([0.0, -1.0])
+    tangent = np.array([1.0, taper])
+    unit_tangent = tangent / np.linalg.norm(tangent)
+    projected = (
+        line_origin
+        + ((np.array([height, rho]) - line_origin) @ unit_tangent) * unit_tangent
+    )
+    assert bool(projected[1] > 0) is positive
+
+    class InspectedGeometry(RuntimeError):
+        pass
+
+    def inspect(
+        initial: Array,
+        observations: Evaluation,
+        equalities: Evaluation,
+        **kwargs: Any,
+    ) -> ConstrainedLeastSquaresResult:
+        del observations, equalities
+        assert bool(kwargs["geometry_is_valid"](initial)) is positive
+        raise InspectedGeometry
+
+    monkeypatch.setattr(module, "solve_constrained_least_squares", inspect)
+    with pytest.raises(InspectedGeometry):
+        _ = fit_relationship_component([surface], axes, [], [])
+
+
+def _generic_mixed_group(
+    direction: Array,
+    heights: tuple[float, ...] = (8.0, 10.0, 12.0, 15.0),
+) -> tuple[Any, list[Any], list[Any], tuple[Any, ...], Array]:
+    from io import BytesIO
+
+    from experiments.nozzle_coaxial import FitSelection, ReferencePlaneGroup
+    from experiments.scan_workspace import ScanLimits, prepare_scan
+    from tests.test_scan_cylinder_fit import strict_ply
+
+    direction = direction / np.linalg.norm(direction)
+    first, second = basis(direction)
+    anchor = np.array([3.0, -4.0, 2.0])
+    theta, height = np.meshgrid(np.linspace(-1.4, 1.6, 20), heights)
+    radial = (
+        np.cos(theta.ravel())[:, None] * first + np.sin(theta.ravel())[:, None] * second
+    )
+    positions: list[Array] = []
+    normal_rows: list[Array] = []
+    triangles: list[tuple[int, int, int]] = []
+    sides: list[FitSelection] = []
+    cap: list[FitSelection] = []
+    reference: list[FitSelection] = []
+
+    def append_grid(
+        name: str, points: Array, normals: Array, rows: int, cols: int, kind: str
+    ) -> FitSelection:
+        offset = sum(len(p) for p in positions)
+        positions.append(points)
+        normal_rows.append(normals)
+        for row in range(rows - 1):
+            for col in range(cols - 1):
+                a = offset + row * cols + col
+                triangles.extend(
+                    [(a, a + 1, a + cols), (a + 1, a + cols + 1, a + cols)]
+                )
+        return FitSelection(name, list(range(offset, offset + len(points))), kind, None)
+
+    for name, radius, taper, kind in (
+        ("cone", -1.0, 0.5, "cone"),
+        ("cylinder", 2.5, 0.0, "cylinder"),
+        ("other_cone", 5.0, -0.1, "cone"),
+    ):
+        points = (
+            anchor
+            + height.ravel()[:, None] * direction
+            + (radius + taper * height.ravel())[:, None] * radial
+        )
+        normals = (radial - taper * direction) / np.hypot(1.0, taper)
+        sides.append(append_grid(name, points, normals, len(heights), 20, kind))
+    x, y = np.meshgrid(np.linspace(-1, 1, 5), np.linspace(-1, 1, 4))
+    points = (
+        anchor
+        + 16 * direction
+        + x.ravel()[:, None] * first
+        + y.ravel()[:, None] * second
+    )
+    cap.append(
+        append_grid("cap", points, np.tile(direction, (len(points), 1)), 4, 5, "plane")
+    )
+    points = (
+        anchor + (11 + 3 * x.ravel())[:, None] * direction + y.ravel()[:, None] * second
+    )
+    reference.append(
+        append_grid("clock", points, np.tile(first, (len(points), 1)), 4, 5, "plane")
+    )
+    workspace = prepare_scan(
+        BytesIO(
+            strict_ply(
+                np.vstack(positions), np.vstack(normal_rows), np.asarray(triangles)
+            )
+        ),
+        "mixed-cones-and-cylinder.ply",
+        ScanLimits(200_000, 2_000, 4_000, 10_000_000),
+    )
+    return (
+        workspace,
+        sides,
+        cap,
+        (ReferencePlaneGroup("clock_plane", tuple(reference), "contains_axis", None),),
+        anchor,
+    )
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("direction", [[1.0, 0.0, 0.0], [0.2, -0.7, 0.3]])
+def test_generic_mixed_cone_group_preserves_axis_roles_and_reference_planes(
+    fixed: bool, reverse: bool, direction: list[float]
+) -> None:
+    from experiments.nozzle_coaxial import fit_fixed_axis_group, fit_group
+
+    axis = np.asarray(direction) / np.linalg.norm(direction)
+    workspace, sides, planes, references, anchor = _generic_mixed_group(axis)
+    directed = -axis if reverse else axis
+    axis_record = {
+        "axis_display": directed.tolist(),
+        "point_display": anchor.tolist(),
+        "axis_is_directed": True,
+        "direction_reversed": reverse,
+    }
+    if fixed:
+        # Fixed-axis entry does not currently accept arbitrary reference-plane
+        # groups; exercise their shared component route through fit_group below.
+        fitted = fit_fixed_axis_group(workspace, sides, planes, axis_record)
+    else:
+        fitted = fit_group(
+            workspace,
+            sides,
+            planes,
+            axis_initial=axis_record,
+            reference_plane_groups=references,
+        )
+    np.testing.assert_allclose(fitted["axis_display"], directed, atol=2e-5)
+    if fixed:
+        np.testing.assert_array_equal(fitted["axis_display"], directed)
+        np.testing.assert_array_equal(fitted["point_display"], anchor)
+    for name, radius, taper in (
+        ("cone", -1.0, 0.5),
+        ("cylinder", 2.5, 0.0),
+        ("other_cone", 5.0, -0.1),
+    ):
+        result = fitted["surfaces"][name]
+        geometry = result["analytic"]
+        assert geometry["kind"] == next(s.kind for s in sides if s.id == name)
+        origin = np.asarray(geometry["origin"])
+        np.testing.assert_allclose(np.cross(origin - anchor, axis), 0, atol=2e-5)
+        physical_radius = radius + taper * ((origin - anchor) @ axis)
+        assert geometry["radius"] == pytest.approx(physical_radius, abs=2e-5)
+        sign = 1 if np.dot(geometry["axis"], axis) > 0 else -1
+        assert geometry["slope"] == pytest.approx(sign * taper, abs=2e-5)
+        assert result["weighted_rms"] < 2e-5
+        assert (
+            result["initialization"]["algorithm"]
+            == "selected-revolution-group-recovery-v1"
+        )
+    cap = np.asarray(fitted["surfaces"]["cap"]["plane_equation"])
+    assert abs(cap[:3] @ axis) > 1 - 1e-10
+    assert abs(cap[:3] @ (anchor + 16 * axis) - cap[3]) < 2e-5
+    if not fixed:
+        clock = np.asarray(fitted["reference_planes"]["clock_plane"]["plane_equation"])
+        assert abs(clock[:3] @ fitted["axis_display"]) < 1e-10
+        assert abs(clock[:3] @ anchor - clock[3]) < 2e-5
+
+
+def test_two_level_mixed_group_needs_no_individual_lateral_fit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import experiments.nozzle_coaxial as module
+
+    workspace, sides, _, _, _ = _generic_mixed_group(
+        np.array([1.0, 0.0, 0.0]), (8.0, 15.0)
+    )
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("joint lateral initialization must not fit a side alone")
+
+    monkeypatch.setattr(module, "fit_seed", forbidden)
+    fitted = module.fit_group(workspace, sides, [])
+    np.testing.assert_allclose(np.abs(fitted["axis_display"]), [1, 0, 0], atol=2e-5)
+    assert fitted["fit"]["weighted_rms"] < 2e-5
+    assert len(fitted["fit"]["initialization"]["recovery"]["attempts"]) <= 7
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mixed_group_cone_keeps_explicit_source_z_support(reverse: bool) -> None:
+    from experiments.nozzle_coaxial import fit_fixed_axis_group
+
+    direction = np.array([0.2, -0.7, 0.3])
+    direction /= np.linalg.norm(direction)
+    workspace, sides, _, _, anchor = _generic_mixed_group(direction)
+    shift = anchor[2] / direction[2]
+    sides = [replace(s, domain=(8 + shift, 15 + shift)) for s in sides]
+    fitted = fit_fixed_axis_group(
+        workspace,
+        sides,
+        [],
+        {
+            "point_display": anchor.tolist(),
+            "axis_display": (-direction if reverse else direction).tolist(),
+            "axis_is_directed": True,
+            "direction_reversed": reverse,
+        },
+    )
+    geometry = fitted["surfaces"]["cone"]["analytic"]
+    assert np.dot(geometry["axis"], direction) > 1 - 1e-12
+    endpoints = (
+        np.asarray(geometry["origin"])
+        + np.asarray(geometry["axial_domain"])[:, None] * geometry["axis"]
+    )
+    np.testing.assert_allclose(
+        endpoints[:, 2], anchor[2] + np.array([8, 15]) * direction[2], atol=1e-12
+    )
+    assert fitted["surfaces"]["cone"]["support_origin"] == "legacy-source-z0"

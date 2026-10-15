@@ -86,10 +86,14 @@ def _fit_selected_group(
         raise CylinderFitFailure(
             "insufficient-observations", "a free shared axis needs lateral observations"
         )
-    if any(s.kind != "cylinder" for s in sides):
-        raise ValueError(
-            "Imported cone fitting awaits the cone initialization implementation"
-        )
+    if any(s.kind not in {"cylinder", "cone"} for s in sides):
+        raise ValueError("shared-axis lateral surfaces must be cylinders or cones")
+    has_cones = any(s.kind == "cone" for s in sides)
+    policy_version = (
+        "selected-revolution-group-recovery-v1"
+        if has_cones
+        else "selected-cylinder-group-recovery-v1"
+    )
     for selected in all_selected:
         minimum = 3 if selected.kind == "plane" else 6
         if len(selected.ids) < minimum:
@@ -123,7 +127,7 @@ def _fit_selected_group(
             )
         reference_direction = reference_direction / np.linalg.norm(reference_direction)
     intent: dict[str, Any] = {
-        "family": "shared-cylinder-group",
+        "family": "shared-revolution-group" if has_cones else "shared-cylinder-group",
         "fixed": fixed,
         "surfaces": [
             {"id": s.id, "ids": s.ids, "kind": s.kind, "domain": s.domain}
@@ -158,7 +162,7 @@ def _fit_selected_group(
         workspace.descriptor.interpretation_sha256,
         ids,
         intent,
-        policy_version="selected-cylinder-group-recovery-v1",
+        policy_version=policy_version,
     )
     directions: list[np.ndarray] = []
     if fixed:
@@ -170,10 +174,26 @@ def _fit_selected_group(
         lw = normalized_weights(workspace.data.weights[lateral_ids])
         centered = (workspace.local[lateral_ids] - frame.origin) / frame.length
         centered -= lw @ centered
-        for matrix in (
+        matrices = [
             normals.T @ (lw[:, None] * normals),
             centered.T @ (lw[:, None] * centered),
-        ):
+        ]
+        if has_cones:
+            # Each side has its own constant normal-axis dot product: mixing
+            # different tapers before centering would erase their common null.
+            scatter = np.zeros((3, 3))
+            for side in sides:
+                side_normals = workspace.data.normals[side.ids] @ workspace.frame
+                side_normals /= np.linalg.norm(side_normals, axis=1)[:, None]
+                sw = workspace.data.weights[side.ids] / np.max(weights)
+                side_normals -= normalized_weights(sw) @ side_normals
+                scatter += side_normals.T @ (sw[:, None] * side_normals)
+            _, vectors = np.linalg.eigh(scatter)
+            direction = vectors[:, 0].copy()
+            if direction[int(np.argmax(np.abs(direction)))] < 0:
+                direction = -direction
+            directions.append(direction)
+        for matrix in matrices:
             _, vectors = np.linalg.eigh(matrix)
             for index in range(3):
                 direction = vectors[:, index].copy()
@@ -211,16 +231,48 @@ def _fit_selected_group(
             side_weights = normalized_weights(
                 np.concatenate([workspace.data.weights[s.ids] for s in sides])
             )
-            xy = ((points - frame.origin) / frame.length) @ rotation[:, :2]
+            normalized = (points - frame.origin) / frame.length
+            xy = normalized @ rotation[:, :2]
             group_ids = np.repeat(np.arange(len(sides)), [len(s.ids) for s in sides])
             indicators = np.eye(len(sides))[group_ids]
-            design = np.column_stack((2 * xy, indicators))
-            algebraic, *_ = np.linalg.lstsq(
-                np.sqrt(side_weights)[:, None] * design,
-                np.sqrt(side_weights) * np.sum(xy**2, axis=1),
-                rcond=None,
-            )
-            anchor += frame.length * (rotation[:, :2] @ algebraic[:2])
+            if has_cones:
+                local = normalized @ rotation
+                # Cone squared radii vary quadratically along the proposed
+                # axis. Remove each side's nuisance span before solving the
+                # two shared center columns; deficient starts remain proposals
+                # for the complete component's constrained rank assessment.
+                nuisance = [indicators]
+                for index, side in enumerate(sides):
+                    if side.kind == "cone":
+                        mask = indicators[:, index]
+                        nuisance.extend(
+                            [
+                                (mask * local[:, 2])[:, None],
+                                (mask * local[:, 2] ** 2)[:, None],
+                            ]
+                        )
+                root_weights = np.sqrt(side_weights)
+                design = root_weights[:, None] * (2 * xy)
+                target = root_weights * np.sum(xy**2, axis=1)
+                nuisance_design = root_weights[:, None] * np.column_stack(nuisance)
+                design -= (
+                    nuisance_design
+                    @ np.linalg.lstsq(nuisance_design, design, rcond=None)[0]
+                )
+                target -= (
+                    nuisance_design
+                    @ np.linalg.lstsq(nuisance_design, target, rcond=None)[0]
+                )
+                center = np.linalg.lstsq(design, target, rcond=None)[0]
+            else:
+                design = np.column_stack((2 * xy, indicators))
+                algebraic, *_ = np.linalg.lstsq(
+                    np.sqrt(side_weights)[:, None] * design,
+                    np.sqrt(side_weights) * np.sum(xy**2, axis=1),
+                    rcond=None,
+                )
+                center = algebraic[:2]
+            anchor += frame.length * (rotation[:, :2] @ center)
         axis = {
             "axis_display": direction.tolist(),
             "point_display": anchor.tolist(),
@@ -232,13 +284,26 @@ def _fit_selected_group(
             sw = normalized_weights(workspace.data.weights[side.ids])
             height = (p - anchor) @ direction
             radial = (p - anchor) - height[:, None] * direction
-            radius = float(sw @ np.linalg.norm(radial, axis=1))
+            rho = np.linalg.norm(radial, axis=1)
+            radius = float(sw @ rho)
+            taper = 0.0
+            if side.kind == "cone":
+                regression = np.column_stack((np.ones(len(p)), height / frame.length))
+                coefficients = np.linalg.lstsq(
+                    np.sqrt(sw)[:, None] * regression,
+                    np.sqrt(sw) * rho / frame.length,
+                    rcond=None,
+                )[0]
+                radius, taper = (
+                    float(frame.length * coefficients[0]),
+                    float(coefficients[1]),
+                )
             geometry: dict[str, Any] = {
-                "kind": "cylinder",
+                "kind": side.kind,
                 "origin": anchor.tolist(),
                 "axis": direction.tolist(),
                 "radius": radius,
-                "slope": 0.0,
+                "slope": taper,
                 "axial_domain": [float(min(height)), float(max(height))],
             }
             if geometry["axial_domain"][0] == geometry["axial_domain"][1]:
@@ -247,8 +312,14 @@ def _fit_selected_group(
                 raise LeastSquaresFailure(
                     "invalid-initial-geometry", "proposal has no selected axial extent"
                 )
+            if not np.isfinite([radius, taper]).all() or np.any(
+                radius + taper * np.asarray(geometry["axial_domain"]) <= 0
+            ):
+                raise LeastSquaresFailure(
+                    "invalid-initial-geometry", "proposal has nonpositive cone support"
+                )
             result: dict[str, Any] = {
-                "kind": "cylinder",
+                "kind": side.kind,
                 "analytic": geometry,
                 "anchor_reference": frame.origin.tolist(),
                 "support_origin": "selection"
@@ -260,7 +331,7 @@ def _fit_selected_group(
             surfaces.append(
                 SurfaceInput(
                     side.id,
-                    "cylinder",
+                    side.kind,
                     p,
                     workspace.data.weights[side.ids],
                     result,
@@ -349,7 +420,28 @@ def _fit_selected_group(
             return False
         for selected in all_selected:
             left, right = (result["surfaces"][selected.id] for result in (a, b))
-            if selected.kind == "cylinder":
+            if selected.kind == "cone":
+                left_geometry, right_geometry = left["analytic"], right["analytic"]
+                sign = float(np.dot(left_geometry["axis"], right_geometry["axis"]))
+                right_radius = right_geometry["radius"] + right_geometry[
+                    "slope"
+                ] * float(
+                    (np.asarray(left_geometry["origin"]) - right_geometry["origin"])
+                    @ right_geometry["axis"]
+                )
+                if not np.isclose(
+                    left_geometry["radius"] / frame.length,
+                    right_radius / frame.length,
+                    atol=1e-7,
+                    rtol=1e-7,
+                ) or not np.isclose(
+                    left_geometry["slope"],
+                    sign * right_geometry["slope"],
+                    atol=1e-7,
+                    rtol=1e-7,
+                ):
+                    return False
+            elif selected.kind == "cylinder":
                 if not np.isclose(
                     left["analytic"]["radius"] / frame.length,
                     right["analytic"]["radius"] / frame.length,
@@ -423,7 +515,7 @@ def _fit_selected_group(
         }
         surfaces[selected.id]["ids"] = selected.ids.copy()
         surfaces[selected.id]["initialization"] = {
-            "algorithm": "selected-cylinder-group-recovery-v1",
+            "algorithm": policy_version,
             "observations": sum(len(s.ids) for s in all_selected),
             "recovery": recovered.diagnostics.json(),
         }
@@ -475,7 +567,7 @@ def _fit_selected_group(
             "normal_matrix_condition": float(condition or 1) ** 2,
             "solver": output["solver"],
             "initialization": {
-                "algorithm": "selected-cylinder-group-recovery-v1",
+                "algorithm": policy_version,
                 "recovery": recovered.diagnostics.json(),
             },
         },
@@ -491,7 +583,9 @@ def _fit_selected_group(
         "reference_diameter": 0.0
         if first_side is None
         else 2 * first_side["analytic"]["radius"],
-        "signed_half_angle_degrees": 0.0,
+        "signed_half_angle_degrees": 0.0
+        if first_side is None
+        else float(np.degrees(np.arctan(first_side["analytic"]["slope"]))),
         "selected_area": {
             s.id: float(workspace.data.weights[s.ids].sum()) for s in all_selected
         },

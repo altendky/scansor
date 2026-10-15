@@ -298,7 +298,7 @@ def surface_region_frame(
     if len(selected) < 3:
         raise ValueError("a reusable fit selection requires at least three vertices")
     center = np.mean(selected, axis=0)
-    if fit.get("kind") != "cylinder":
+    if fit.get("kind") not in {"cylinder", "cone"}:
         return np.asarray(center, dtype=np.float64), np.eye(3, dtype=np.float64)
     geometry = revolution_geometry(fit)
     legacy = "analytic" not in fit
