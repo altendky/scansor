@@ -41,7 +41,11 @@ from experiments.fit_relationship_component import (
     fit_relationship_component,
 )
 from experiments.fit_solver import AttemptLimits, FitCancelled
-from experiments.mesh_cylinder_fit import CylinderFitFailure, fit_selected_cylinder
+from experiments.mesh_cylinder_fit import (
+    CYLINDER_POLICY_VERSION,
+    CylinderFitFailure,
+    fit_selected_cylinder,
+)
 from experiments.nozzle_cad import CadExportRequest, export_cad
 from experiments.ocp_geometry import surface_patch
 from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
@@ -109,6 +113,7 @@ def binding(
             "settings": {},
         },
         policy=policy,
+        policy_version=CYLINDER_POLICY_VERSION,
     )
 
 
@@ -191,7 +196,7 @@ def test_selected_cylinder_recovers_arbitrary_pose_and_scale(
     assert gradient(points, weights, fitted) < 1e-10
     assert fitted["solver"]["rank"] == 5
     initialization = fitted["initialization"]
-    assert initialization["algorithm"] == "selected-cylinder-recovery-v1"
+    assert initialization["algorithm"] == CYLINDER_POLICY_VERSION
     assert initialization["chart"] == "rotated-normalized-cylinder-v1"
     assert initialization["observations"] == len(points)
     assert initialization["recovery"]["selected_role"] == "fresh"
@@ -343,10 +348,16 @@ def test_unidentifiable_or_nearly_planar_positions_do_not_publish_a_cylinder(
         _ = fit_selected_cylinder(
             points, weights, normals, binding(points, weights, normals)
         )
-    if case != "noisy-plane":
-        assert failure.value.code == "insufficient-coverage"
-    else:
-        assert failure.value.code == "search-exhausted"
+    assert (
+        failure.value.code
+        == {
+            "strip": "rank-deficient",
+            "circle": "rank-deficient",
+            "generators": "insufficient-coverage",
+            "plane": "rank-deficient",
+            "noisy-plane": "search-exhausted",
+        }[case]
+    )
     _ = json.dumps(failure.value.diagnostic, allow_nan=False)
 
 
@@ -623,7 +634,7 @@ def test_failed_imported_cylinder_keeps_the_saved_selection_and_intent() -> None
     before = graph.snapshot()
     with pytest.raises(CylinderFitFailure) as failure:
         _ = graph.evaluate(str(before["token"]))
-    assert failure.value.code == "insufficient-coverage"
+    assert failure.value.code == "search-exhausted"
     assert graph.snapshot()["recipe"] == before["recipe"]
     assert graph.snapshot()["token"] == before["token"]
     assert graph.snapshot()["diagnostics"] == {"cylinder": failure.value.diagnostic}

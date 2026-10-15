@@ -44,7 +44,7 @@ from experiments.feature_reuse import (
 )
 from experiments.fit_initialization import RecoveryFailure, initialization_binding
 from experiments.fit_solver import normalized_weights
-from experiments.mesh_cylinder_fit import CylinderFitFailure
+from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION, CylinderFitFailure
 from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
 from experiments.native_replay import native_replay_scope
 from experiments.nozzle_coaxial import (
@@ -5015,7 +5015,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 "family": "cylinder",
                                 "surface": node.model_dump(mode="json"),
                             },
-                            policy_version="selected-cylinder-recovery-v1",
+                            policy_version=CYLINDER_POLICY_VERSION,
                         )
                         reuse_inputs = [
                             derived_result(ref)

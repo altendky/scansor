@@ -89,15 +89,23 @@ threshold. Independent analytic fixtures remain the geometry oracles. The
 shared-core regression complements native atomic reopening and browser tests;
 it does not complete #240's cone/symmetry or both-backend workflow gates.
 
-Cylinder admission is deliberately conservative: selected positional covariance
-must have a smallest/largest eigenvalue ratio above 1e-10, and the final weighted
-geometric Jacobian, measured in a normalized chart aligned with the fitted axis,
-must have condition at most 1e6. Narrow strips, circles, two generators and
-planar/near-planar fixtures exercise explicit failure. These provisional
-numerical limits are neither physical acceptance nor confidence estimates;
-[#262](https://github.com/altendky/scansor/issues/262) tracks their evaluation and
-improvement. Joint reference solves assess combined identifiability rather than
-requiring every participating surface to pass standalone admission.
+Cylinder admission remains conservative, with a family-specific coverage metric:
+after each converged attempt, center the selected positions in fitted-axis
+coordinates, divide transverse coordinates by fitted radius and axial coordinates
+by their selected weighted RMS, then require the weighted covariance's
+smallest/largest eigenvalue ratio above 1e-10. The final weighted geometric
+Jacobian, measured in the original length-normalized chart aligned with the fitted
+axis, must still have condition at most 1e6. Raw positional covariance is retained
+as evidence. A long exact cylinder previously failed that raw gate despite a
+well-conditioned geometric Jacobian; the replacement avoids confusing aspect
+ratio with missing curvature. Narrow strips, circles, two generators and
+planar/near-planar fixtures still exercise explicit failure. These provisional
+numerical limits are neither physical acceptance nor confidence estimates. The
+[generated admission investigation](../experiments/cylinder-admission.md) records
+the evidence, implementation and remaining limitations from
+[#262](https://github.com/altendky/scansor/issues/262). Joint reference solves assess
+combined identifiability rather than requiring every participating surface to
+pass standalone admission.
 
 New cylinder actions use nullable support: absent bounds derive finite extent
 from the selected observations. That automatic extent does not prevent axial
