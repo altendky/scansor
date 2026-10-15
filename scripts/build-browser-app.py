@@ -45,6 +45,7 @@ UI_FILES = (
     "graph-evaluation.js",
     "edge-highlight.js",
     "fit-footprint.js",
+    "analytic-geometry.js",
     "model-picking.js",
     "selection.js",
     "navigation.js",

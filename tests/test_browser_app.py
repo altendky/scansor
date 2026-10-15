@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import re
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -21,6 +22,26 @@ def builder_module() -> ModuleType:
 
 
 BUILDER = builder_module()
+
+
+def test_static_package_includes_literal_relative_module_dependencies() -> None:
+    """Native serving and a Vite build cannot prove this separate app closure."""
+    root = Path(BUILDER.ROOT) / BUILDER.VIEWER
+    packaged = set(BUILDER.UI_FILES) | {
+        "workspace.js",
+        "workspace.css",
+        "backend-config.js",
+        *BUILDER.VENDOR_FILES,
+    }
+    # These are static ES module declarations in the actual shipped source,
+    # not the fake per-file contents used by the assembly unit fixtures.
+    imports = re.compile(r"(?:from\s*|import\s*)['\"](\./[^'\"]+)['\"]")
+    for name in BUILDER.UI_FILES:
+        if not name.endswith(".js"):
+            continue
+        for dependency in imports.findall((root / name).read_text()):
+            relative = (Path(name).parent / dependency).as_posix()
+            assert relative in packaged, f"{name} imports unpackaged {relative}"
 
 
 def record(path: str, data: bytes) -> dict[str, object]:
