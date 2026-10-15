@@ -15,6 +15,9 @@ from typing import Any
 import pytest
 
 from tests.test_semantic_parity import retained_cone_pair as retained_cone_pair
+from tests.test_semantic_parity import (
+    retained_cylinder_condition_pair as retained_cylinder_condition_pair,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -24,6 +27,7 @@ assert SPEC is not None and SPEC.loader is not None
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
 HISTORICAL_POLICY = "f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26"
+PREVIOUS_POLICY = "6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967"
 
 
 def encoded(value: Any) -> bytes:
@@ -2473,7 +2477,7 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
 
 
 @pytest.mark.parametrize(
-    "selected", [HISTORICAL_POLICY, VALIDATOR.CURRENT_SEMANTIC_POLICY], indirect=True
+    "selected", list(VALIDATOR.SUPPORTED_SEMANTIC_POLICIES), indirect=True
 )
 def test_supported_distinct_policy_artifacts_use_exact_original_receipts(
     selected: dict[str, Any],
@@ -2525,13 +2529,17 @@ def test_unknown_policy_never_selects_a_path_or_executes(
         _ = VALIDATOR.trusted_semantic_policy("../artifact-policy.py")
 
 
-@pytest.mark.parametrize("selected", [HISTORICAL_POLICY], indirect=True)
+@pytest.mark.parametrize(
+    "selected", [HISTORICAL_POLICY, PREVIOUS_POLICY], indirect=True
+)
 @pytest.mark.parametrize("fault", ["missing", "tampered"])
 def test_historical_archive_needs_intact_trusted_copy_before_any_output(
     selected: dict[str, Any], monkeypatch: pytest.MonkeyPatch, fault: str
 ) -> None:
     trusted_root = selected["tmp"] / "trusted-checkout"
-    path = trusted_root / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[HISTORICAL_POLICY]
+    runtime = json.loads(selected["members"]["evidence/runtime-manifest.json"])
+    digest = runtime["source_files"][-1]["sha256"]
+    path = trusted_root / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[digest]
     path.parent.mkdir(parents=True)
     if fault == "tampered":
         _ = path.write_text("raise AssertionError('not trusted')\n")
@@ -2557,6 +2565,25 @@ def test_real_cone_policy_boundary_does_not_substitute_current_semantics(
     )
     with pytest.raises(historical["SemanticParityError"]):
         _ = historical["compare_semantic"](actual, expected, profile="numeric-fit")
+    assert encoded([actual, expected]) == before
+
+
+def test_selected_cylinder_precision_does_not_relabel_historical_receipts(
+    retained_cylinder_condition_pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    actual, expected = retained_cylinder_condition_pair
+    before = encoded([actual, expected])
+    current = VALIDATOR.trusted_semantic_policy()
+    receipt = current["compare_semantic"](actual, expected, profile="numeric-fit")
+    assert receipt["complete"] is True
+    assert receipt["policy_sha256"] == VALIDATOR.CURRENT_SEMANTIC_POLICY
+    for digest in (HISTORICAL_POLICY, PREVIOUS_POLICY):
+        original = VALIDATOR.trusted_semantic_policy(digest)
+        assert original["policy_sha256"]() == digest
+        with pytest.raises(
+            original["SemanticParityError"], match=r"assessment\.condition"
+        ):
+            _ = original["compare_semantic"](actual, expected, profile="numeric-fit")
     assert encoded([actual, expected]) == before
 
 
