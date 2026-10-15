@@ -204,8 +204,10 @@ try{
   for(let i=0;i<7;i++){
     const reset=await page.evaluate(async()=>{const {getBackend}=await import(new URL('backend.js',document.baseURI));const b=getBackend(),g=await b.getGraph();await b.selectExample({token:g.token,example:'nozzle'});return b.getGraph();});
     assert.equal(Object.keys(reset.states).length,30);assert.ok(Object.values(reset.states).every(s=>s==='unevaluated'));
+    const approveActions=page.waitForEvent('dialog').then(async dialog=>{assert.equal(dialog.type(),'confirm');assert.match(dialog.message(),/Replace the current actions\?/);await dialog.accept();});
     await page.locator('#file').setInputFiles({name:'fresh-nozzle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(reset.recipe))});
-    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Actions loaded'),null,{timeout:30000});
+    await approveActions;
+    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Actions loaded')&&document.querySelector('#file').value===''&&!document.querySelector('#load').disabled,null,{timeout:30000});
     const before=await graph(page);assert.equal(Object.keys(before.states).length,30);assert.ok(Object.values(before.states).every(s=>s==='unevaluated'));
     const sample=await evaluateUi(page,i<2?'fresh-warmup-'+i:'fresh-sample-'+(i-2),true);sample.warmup=i<2;sample.unevaluated_nodes_before=30;sample.ready_nodes_after=Object.values(sample.graph.states).filter(s=>s==='ready').length;report.fresh_numeric_samples.push(sample);console.log('fresh',i,sample.worker_running_ms);
   }

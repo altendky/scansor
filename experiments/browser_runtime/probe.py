@@ -19,6 +19,10 @@ import numpy as np
 import pydantic
 from numpy.typing import NDArray
 
+from experiments.browser_runtime.semantic_parity import (
+    SemanticParityError,
+    compare_semantic,
+)
 from experiments.feature_graph import (
     AxisDefinition,
     FeatureGraph,
@@ -180,7 +184,11 @@ def create_fixture(path: Path) -> None:
 
 
 def imported_plane_probe(
-    points: NDArray[np.float64], normal: NDArray[np.float64], scale: float
+    points: NDArray[np.float64],
+    normal: NDArray[np.float64],
+    scale: float,
+    *,
+    replay_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Exercise actual source admission, standalone fit, growth and recipe replay."""
     faces = [
@@ -260,8 +268,7 @@ def imported_plane_probe(
         reopened.workspace, Recipe.model_validate_json(recipe.model_dump_json())
     )
     replayed = cast(dict[str, Any], replay.evaluate(str(replay.snapshot()["token"])))
-    for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
-        compare_values(replayed[key], state[key], f"plane.replay.{key}")
+    compare_local_replay(replayed, state, "plane.replay", replay_evidence)
     return {
         "comparison_length_scale": scale,
         **{
@@ -277,6 +284,8 @@ def imported_sphere_probe(
     center: NDArray[np.float64],
     radius: float,
     scale: float,
+    *,
+    replay_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Frozen independent curved patches through admission, recovery and replay."""
     faces = [
@@ -399,8 +408,9 @@ def imported_sphere_probe(
         replayed = cast(
             dict[str, Any], replay.evaluate(str(replay.snapshot()["token"]))
         )
-        for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
-            compare_values(replayed[key], state[key], f"sphere.replay.{key}")
+        compare_local_replay(
+            replayed, state, f"sphere.replay.{shared_center}", replay_evidence
+        )
         report["shared_center" if shared_center else "standalone"] = {
             key: state[key]
             for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
@@ -414,6 +424,8 @@ def imported_cylinder_probe(
     origin: NDArray[np.float64],
     axis: NDArray[np.float64],
     scale: float,
+    *,
+    replay_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Actual arbitrary-axis source admission, recovery, growth and fixed-axis fit."""
     faces = [
@@ -555,8 +567,9 @@ def imported_cylinder_probe(
             dict[str, Any],
             replay.evaluate(str(replay.snapshot()["token"]), all_actions=True),
         )
-        for key in ("recipe", "token", "states", "errors", "diagnostics", "results"):
-            compare_values(replayed[key], state[key], f"cylinder.replay.{key}")
+        compare_local_replay(
+            replayed, state, f"cylinder.replay.{fixed}", replay_evidence
+        )
         report["axis_bound" if fixed else "standalone"] = {
             key: state[key]
             for key in ("recipe", "token", "states", "errors", "diagnostics", "results")
@@ -678,7 +691,10 @@ def analytic_geometry_probe() -> dict[str, Any]:
     return report
 
 
-def numeric(root: Path, fixture: Path) -> dict[str, Any]:
+def numeric(
+    root: Path, fixture: Path, *, replay_evidence: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    replay_evidence = [] if replay_evidence is None else replay_evidence
     started = time.perf_counter()
     with np.load(fixture, allow_pickle=False) as data:
         assert all(array.dtype == np.float64 for array in data.values())
@@ -696,7 +712,9 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         synthetic_seconds = time.perf_counter() - started
         plane_started = time.perf_counter()
         imported_planes = [
-            imported_plane_probe(points, normal, float(scale))
+            imported_plane_probe(
+                points, normal, float(scale), replay_evidence=replay_evidence
+            )
             for points, normal, scale in zip(
                 data["imported_planes"],
                 data["imported_plane_normals"],
@@ -707,7 +725,14 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         imported_plane_seconds = time.perf_counter() - plane_started
         sphere_started = time.perf_counter()
         imported_spheres = [
-            imported_sphere_probe(points, normals, center, float(radius), float(scale))
+            imported_sphere_probe(
+                points,
+                normals,
+                center,
+                float(radius),
+                float(scale),
+                replay_evidence=replay_evidence,
+            )
             for points, normals, center, radius, scale in zip(
                 data["imported_spheres"],
                 data["imported_sphere_normals"],
@@ -720,7 +745,14 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
         imported_sphere_seconds = time.perf_counter() - sphere_started
         cylinder_started = time.perf_counter()
         imported_cylinders = [
-            imported_cylinder_probe(points, normals, origin, axis, float(scale))
+            imported_cylinder_probe(
+                points,
+                normals,
+                origin,
+                axis,
+                float(scale),
+                replay_evidence=replay_evidence,
+            )
             for points, normals, origin, axis, scale in zip(
                 data["imported_cylinders"],
                 data["imported_cylinder_normals"],
@@ -753,6 +785,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
     replay_state = cast(
         dict[str, Any], replay.evaluate(str(replay.snapshot()["token"]))
     )
+    compare_local_replay(replay_state, state, "nozzle.replay", replay_evidence)
     assert replay_state["token"] == state["token"]
     _ = compare_fit(replay_state["result"]["fit"], state["result"]["fit"])
     excluded = [
@@ -762,6 +795,7 @@ def numeric(root: Path, fixture: Path) -> dict[str, Any]:
     ]
     assert not excluded, f"numerical startup loaded excluded dependencies: {excluded}"
     return {
+        "local_replay_evidence": replay_evidence,
         "versions": {
             "python": sys.version,
             "numpy": np.__version__,
@@ -854,26 +888,31 @@ def compare_session(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         )
     for key in ("selected_area", "surfaces"):
         if key in actual or key in expected:
-            compare_values(actual.get(key), expected.get(key), key)
+            _ = compare_values(actual.get(key), expected.get(key), key)
     return result
 
 
-def compare_values(actual: Any, expected: Any, path: str) -> None:
-    """Compare each graph action, including identities and derived geometry."""
-    if isinstance(expected, dict):
-        assert isinstance(actual, dict) and actual.keys() == expected.keys(), path
-        for key, value in expected.items():
-            compare_values(actual[key], value, f"{path}.{key}")
-    elif isinstance(expected, (list, tuple)):
-        assert isinstance(actual, (list, tuple)) and len(actual) == len(expected), path
-        for index, value in enumerate(expected):
-            compare_values(actual[index], value, f"{path}[{index}]")
-    elif isinstance(expected, float):
-        assert isinstance(actual, (float, int)) and not isinstance(actual, bool), path
-        assert math.isfinite(actual) and math.isfinite(expected), path
-        np.testing.assert_allclose(actual, expected, rtol=RTOL, atol=ATOL, err_msg=path)
-    else:
-        assert type(actual) is type(expected) and actual == expected, path
+def compare_values(actual: Any, expected: Any, path: str) -> dict[str, Any]:
+    """Apply the shared strict-default semantic policy without altering records."""
+    return compare_semantic(actual, expected, path=path)
+
+
+def compare_local_replay(
+    actual: dict[str, Any],
+    expected: dict[str, Any],
+    path: str,
+    evidence: list[dict[str, Any]] | None,
+) -> None:
+    record = {"path": path, "actual": deepcopy(actual), "expected": deepcopy(expected)}
+    if evidence is not None:
+        evidence.append(record)
+    try:
+        record["receipt"] = compare_semantic(
+            actual, expected, profile="graph-snapshot", path=path
+        )
+    except SemanticParityError as error:
+        record["receipt"] = error.receipt
+        raise
 
 
 def compare_intent(actual: Any, expected: Any, path: str) -> None:
@@ -892,7 +931,7 @@ def compare_intent(actual: Any, expected: Any, path: str) -> None:
 
 def compare_imported_planes(
     actual: list[dict[str, Any]], expected: list[dict[str, Any]]
-) -> None:
+) -> list[dict[str, Any]]:
     """Compare complete records in the frozen fixture's units, at fixed tolerances.
 
     Raw length/area tolerances are not invariant under the twelve-order scale
@@ -918,6 +957,7 @@ def compare_imported_planes(
             grown["added_area"] /= scale * scale
         return result
 
+    receipts: list[dict[str, Any]] = []
     for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
         scale = reference["comparison_length_scale"]
         if type(scale) not in (float, int) or not math.isfinite(scale) or scale <= 0:
@@ -925,16 +965,19 @@ def compare_imported_planes(
                 "plane comparison length scale must be finite and positive"
             )
         assert value["comparison_length_scale"] == scale, "plane fixture scale mismatch"
-        compare_values(
-            normalized(value, float(scale)),
-            normalized(reference, float(scale)),
-            f"imported_planes[{index}]",
+        receipts.append(
+            compare_values(
+                normalized(value, float(scale)),
+                normalized(reference, float(scale)),
+                f"imported_planes[{index}]",
+            )
         )
+    return receipts
 
 
 def compare_imported_spheres(
     actual: list[dict[str, Any]], expected: list[dict[str, Any]]
-) -> None:
+) -> list[dict[str, Any]]:
     """Compare physical sphere outputs in frozen units and all recovery evidence.
 
     Recovery candidates, objectives and initial parameters use normalized charts;
@@ -968,6 +1011,7 @@ def compare_imported_spheres(
                 grown["added_area"] /= scale * scale
         return result
 
+    receipts: list[dict[str, Any]] = []
     for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
         scale = reference["comparison_length_scale"]
         if type(scale) not in (float, int) or not math.isfinite(scale) or scale <= 0:
@@ -983,16 +1027,19 @@ def compare_imported_spheres(
                 reference[mode]["recipe"],
                 f"imported_spheres[{index}].{mode}.recipe",
             )
-        compare_values(
-            normalized(value, float(scale)),
-            normalized(reference, float(scale)),
-            f"imported_spheres[{index}]",
+        receipts.append(
+            compare_values(
+                normalized(value, float(scale)),
+                normalized(reference, float(scale)),
+                f"imported_spheres[{index}]",
+            )
         )
+    return receipts
 
 
 def compare_imported_cylinders(
     actual: list[dict[str, Any]], expected: list[dict[str, Any]]
-) -> None:
+) -> list[dict[str, Any]]:
     """Compare complete canonical/recovery records in the frozen source's units."""
     assert len(actual) == len(expected), "imported_cylinders count"
 
@@ -1028,6 +1075,7 @@ def compare_imported_cylinders(
         normalized_fit(result["hinted"]["result"], scale)
         return result
 
+    receipts: list[dict[str, Any]] = []
     for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
         scale = reference["comparison_length_scale"]
         if type(scale) not in (float, int) or not math.isfinite(scale) or scale <= 0:
@@ -1043,11 +1091,14 @@ def compare_imported_cylinders(
                 reference[mode]["recipe"],
                 f"imported_cylinders[{index}].{mode}.recipe",
             )
-        compare_values(
-            normalized(value, float(scale)),
-            normalized(reference, float(scale)),
-            f"imported_cylinders[{index}]",
+        receipts.append(
+            compare_values(
+                normalized(value, float(scale)),
+                normalized(reference, float(scale)),
+                f"imported_cylinders[{index}]",
+            )
         )
+    return receipts
 
 
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
@@ -1056,13 +1107,19 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     graph, reference = actual["graph"], expected["graph"]
     for key in ("recipe", "token", "states", "errors", "diagnostics"):
         assert graph[key] == reference[key], f"graph {key} mismatch"
-    compare_values(graph["results"], reference["results"], "graph.results")
-    compare_imported_planes(actual["imported_planes"], expected["imported_planes"])
-    compare_imported_spheres(actual["imported_spheres"], expected["imported_spheres"])
-    compare_imported_cylinders(
+    graph_receipt = compare_values(
+        graph["results"], reference["results"], "graph.results"
+    )
+    plane_receipts = compare_imported_planes(
+        actual["imported_planes"], expected["imported_planes"]
+    )
+    sphere_receipts = compare_imported_spheres(
+        actual["imported_spheres"], expected["imported_spheres"]
+    )
+    cylinder_receipts = compare_imported_cylinders(
         actual["imported_cylinders"], expected["imported_cylinders"]
     )
-    compare_values(
+    analytic_receipt = compare_values(
         actual["analytic_geometry"], expected["analytic_geometry"], "analytic_geometry"
     )
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
@@ -1087,6 +1144,13 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "imported_plane_cases": len(actual["imported_planes"]),
         "imported_sphere_cases": len(actual["imported_spheres"]),
         "imported_cylinder_cases": len(actual["imported_cylinders"]),
+        "semantic_parity": {
+            "analytic_geometry": analytic_receipt,
+            "graph": graph_receipt,
+            "imported_planes": plane_receipts,
+            "imported_spheres": sphere_receipts,
+            "imported_cylinders": cylinder_receipts,
+        },
         "rtol": RTOL,
         "atol": ATOL,
     }
@@ -1188,7 +1252,24 @@ def read_step(path: Path) -> dict[str, Any]:
 def native(root: str, output: str, cad: bool) -> None:
     target = Path(output)
     create_fixture(target / "fixture.npz")
-    result = numeric(Path(root), target / "fixture.npz")
+    replay_evidence: list[dict[str, Any]] = []
+    try:
+        result = numeric(
+            Path(root), target / "fixture.npz", replay_evidence=replay_evidence
+        )
+    except AssertionError as error:
+        _ = (target / "native-results.json").write_text(
+            json.dumps(
+                {
+                    "parity_failure": str(error),
+                    "local_replay_evidence": replay_evidence,
+                },
+                indent=2,
+                allow_nan=False,
+            )
+            + "\n"
+        )
+        raise
     if cad:
         result["cad"] = cad_smoke(target)
         assert result["cad"]["version"] == "8.0.1.1"
@@ -1202,9 +1283,21 @@ def native(root: str, output: str, cad: bool) -> None:
 
 
 def browser() -> str:
-    result = numeric(Path("/app"), Path("/fixture.npz"))
     expected = json.loads(Path("/native-results.json").read_text())
-    comparison = compare_numeric(result, expected)
+    replay_evidence: list[dict[str, Any]] = []
+    try:
+        result = numeric(
+            Path("/app"), Path("/fixture.npz"), replay_evidence=replay_evidence
+        )
+    except AssertionError as error:
+        return json.dumps(
+            {
+                "parity_failure": str(error),
+                "native_result": expected,
+                "local_replay_evidence": replay_evidence,
+            },
+            allow_nan=False,
+        )
     report = {
         key: result[key]
         for key in (
@@ -1217,7 +1310,16 @@ def browser() -> str:
         )
     }
     report["native_versions"] = expected["versions"]
-    report["comparison"] = comparison
+    # Keep every raw diagnostic, including comparison failures. The worker/page
+    # marks failed parity unsuccessful; retaining evidence cannot authorize CAD.
+    report["numeric_result"] = result
+    report["native_result"] = expected
+    try:
+        report["comparison"] = compare_numeric(result, expected)
+    except AssertionError as error:
+        report["parity_failure"] = str(error)
+        if isinstance(error, SemanticParityError):
+            report["failed_semantic_parity"] = error.receipt
     report["parameters"] = {
         "synthetic": result["synthetic"]["fit"]["parameters"],
         "nozzle": result["nozzle"]["fit"]["parameters"],

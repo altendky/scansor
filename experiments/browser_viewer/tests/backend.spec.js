@@ -62,11 +62,17 @@ test('recipe loading stays disabled until delayed workspace startup installs its
     await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeDisabled();
     release();
     await expect(page.getByRole('button', { name: 'Load actions', exact: true })).toBeEnabled();
+    await expect.poll(async () => (await (await page.request.get('/api/graph')).json()).evaluation_running).toBe(false);
     const recipe = (await (await page.request.get('/api/graph')).json()).recipe;
-    const imported = page.waitForResponse(response => response.url().endsWith('/api/graph/import') &&
+    page.on('dialog', dialog => dialog.accept());
+    const imported = page.waitForResponse(response => response.url().endsWith('/api/actions/open') &&
       response.request().method() === 'POST');
     await page.locator('#file').setInputFiles({ name: 'actions.json', mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify(recipe)) });
-    expect((await imported).ok()).toBe(true);
+    const response = await imported;
+    expect(response.ok(), await response.text()).toBe(true);
+    const operation = await response.json();
+    await expect.poll(async () => (await (await page.request.get(`/api/sources/imports/${operation.operationId}`)).json()).status).toBe('accepted');
+    await expect(page.locator('#source-progress')).toBeHidden();
   } finally { release(); }
 });

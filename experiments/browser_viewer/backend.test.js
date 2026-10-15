@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBackend, getBackend } from './backend.js';
 import { BackendError, createHttpBackend } from './http-backend.js';
+import { createWorkerBackend } from './worker-backend.js';
 import { ensureGraphCurrent } from './graph-evaluation.js';
 
 test('HTTP mutations preserve payloads, headers, errors and request identities', async () => {
@@ -195,4 +196,385 @@ test('bootstrap and recovery share the first selected backend instance', () => {
   assert.equal(getBackend(), backend);
   assert.equal(getBackend({ type: 'missing' }), backend);
   backend.close();
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+function sourceRecord(overrides = {}) {
+  return { operationId: 'scan-1', generation: 0, token: 'empty', revision: 0,
+    status: 'reserved', phase: 'reserved', completed: 0, total: 3, unit: 'bytes', terminal: false,
+    ...overrides };
+}
+
+function metadata(generation = 0, token = 'empty', limit = 10_000) {
+  return { project_generation: generation, source: generation ? { source_sha256: 'source' } : null,
+    bounds: null, vertices: 0, triangles: 0,
+    graph: { project_generation: generation, token, recipe: { nodes: [], output: null } },
+    capabilities: { source_import: { supported: true, limits: { max_source_bytes: limit } } },
+    positions: { url: `/mesh/positions?generation=${generation}`, dtype: '<f4', components: 3 },
+    indices: { url: `/mesh/indices?generation=${generation}`, dtype: '<u4', components: 3 } };
+}
+
+function meshResponse(path, generation) {
+  assert.match(path, new RegExp(`^/mesh/(positions|indices)\\?generation=${generation}$`));
+  return new Response(new ArrayBuffer(0), { headers: { 'X-Scansor-Generation': String(generation) } });
+}
+
+function scanFile() { return Object.assign(new Blob(['ply']), { name: 'renamed.ply' }); }
+
+test('source operations are optional and capability-gated for old factories and retained worker', async () => {
+  const unavailable = [createBackend({ type: 'old', factories: { old: () => ({
+    ...createHttpBackend({ fetch: () => assert.fail('Unexpected fallback') }),
+    capabilities: { numerical: true, cad: false, examples: false },
+  }) } }), createBackend({ type: 'worker', factories: { worker: () => createWorkerBackend({
+    runtimeURL: '/worker.mjs', workerFactory: () => assert.fail('Unsupported source import started a worker'),
+  }) } })];
+  for (const backend of unavailable) {
+    for (const method of ['addScan', 'getSourceOperation', 'cancelSourceOperation', 'resetProject'])
+      await assert.rejects(backend[method]({}), error => error.code === 'unsupported_capability');
+    backend.close();
+  }
+  assert.throws(() => createBackend({ type: 'incomplete', factories: { incomplete: () => {
+    const backend = createHttpBackend(); delete backend.addScan; return backend;
+  } } }), error => error.code === 'unsupported_operation');
+});
+
+test('coherent empty workspace exposes generation/graph and fences generic mutations with cached cursor', async () => {
+  const calls = [], backend = createHttpBackend({ fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json(metadata());
+    if (path.startsWith('/mesh/')) return meshResponse(path, 0);
+    return Response.json({ project_generation: 0, token: 'edited' });
+  } });
+  const workspace = await backend.loadWorkspace({ generation: 0, token: 'empty' });
+  assert.equal(workspace.generation, 0);
+  assert.equal(workspace.graph.token, 'empty');
+  assert.equal(workspace.metadata.source, null);
+  assert.equal(workspace.positions.byteLength, 0);
+  assert.equal(workspace.indices.byteLength, 0);
+  assert.equal(workspace.metadata.positions.url, undefined);
+  await backend.replaceRecipe({ token: 'empty', recipe: { nodes: [] } });
+  assert.equal(calls.at(-1).init.headers['X-Scansor-Generation'], '0');
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { token: 'empty', recipe: { nodes: [] } });
+});
+
+test('workspace rejects mismatched metadata token, graph generation and binary generation without caching them', async () => {
+  for (const mismatch of ['token', 'graph', 'positions', 'indices']) {
+    const backend = createHttpBackend({ fetch: async path => {
+      if (path === '/api/meta') {
+        const value = metadata(2, 'current');
+        if (mismatch === 'graph') value.graph.project_generation = 1;
+        return Response.json(value);
+      }
+      if (path.includes(mismatch)) return new Response(new ArrayBuffer(0), { headers: { 'X-Scansor-Generation': '1' } });
+      return meshResponse(path, 2);
+    } });
+    await assert.rejects(backend.loadWorkspace({ generation: 2, token: mismatch === 'token' ? 'old' : 'current' }),
+      error => ['observation_superseded', 'invalid_workspace'].includes(error.code));
+  }
+});
+
+test('add scan reserves JSON, sends original bulk bytes, observes progress and returns one accepted bundle', async () => {
+  const file = scanFile(), calls = [], updates = [], upload = deferred();
+  let generation = 0, polls = 0;
+  const accepted = sourceRecord({ revision: 3, status: 'accepted', phase: 'complete', terminal: true, acceptedGeneration: 1, project_generation: 1 });
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json(metadata(generation, generation ? 'scan' : 'empty'));
+    if (path.startsWith('/mesh/')) return meshResponse(path, generation);
+    if (path === '/api/sources/imports') return Response.json(sourceRecord());
+    if (path.endsWith('/bytes')) {
+      assert.equal(updates[0].operationId, 'scan-1');
+      assert.equal(init.body, file);
+      assert.equal(init.headers['Content-Type'], 'application/octet-stream');
+      assert.equal(init.headers['Content-Length'], undefined);
+      return upload.promise;
+    }
+    if (++polls === 1) return Response.json(sourceRecord({ revision: 1, phase: 'vertices', status: 'preparing' }));
+    generation = 1;
+    upload.resolve(Response.json(sourceRecord({ revision: 0 })));
+    return Response.json(accepted);
+  } });
+  await backend.loadWorkspace();
+  const result = await backend.addScan({ file, generation: 0, token: 'empty' }, { onProgress: value => updates.push(value) });
+  assert.equal(result.generation, 1);
+  assert.equal(result.graph.token, 'scan');
+  assert.deepEqual(updates.map(value => value.revision), [0, 1, 3]);
+  const reserve = calls.find(call => call.path === '/api/sources/imports');
+  assert.deepEqual(JSON.parse(reserve.init.body), { generation: 0, token: 'empty', filename: 'renamed.ply', size: 3 });
+  assert.equal(reserve.init.headers['X-Scansor-Request'], '1');
+  updates[0].operationId = 'edited';
+  assert.equal((await backend.exportRecipe({ recipe: result.graph.recipe })).nodes.length, 0);
+});
+
+test('client byte preflight uses the current server cap and invalid files reserve nothing', async () => {
+  let reservations = 0;
+  const backend = createHttpBackend({ fetch: async path => {
+    if (path === '/api/meta') return Response.json(metadata(0, 'empty', 2));
+    if (path.startsWith('/mesh/')) return meshResponse(path, 0);
+    reservations++; assert.fail('Rejected source reached upload reservation');
+  } });
+  await backend.loadWorkspace();
+  await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }), error => error.code === 'source_limit');
+  await assert.rejects(backend.addScan({ file: new Blob(), generation: 0, token: 'empty' }), error => error.code === 'invalid_source');
+  assert.equal(reservations, 0);
+});
+
+test('explicit Cancel has its own original cursor and terminal cancellation preserves import diagnostics', async () => {
+  const calls = [], backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/sources/imports') return Response.json(sourceRecord());
+    return Response.json(sourceRecord({ revision: 2, terminal: true, status: 'cancelled', error: { code: 'cancelled', message: 'Accepted work unchanged' } }));
+  } });
+  const progress = [];
+  await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }, { onProgress: value => progress.push(value) }),
+    error => error.code === 'cancelled' && error.message === 'Accepted work unchanged');
+  await backend.cancelSourceOperation({ operationId: 'scan-1', generation: 0, token: 'empty' });
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { generation: 0, token: 'empty' });
+  assert.equal(calls.at(-1).path, '/api/sources/imports/scan-1/cancel');
+  assert.equal(backend.capabilities.cancelComputation, false);
+  assert.equal(progress.at(-1).status, 'cancelled');
+  await assert.rejects(backend.getSourceOperation({ operationId: '../file' }), error => error.code === 'invalid_operation');
+});
+
+test('lost upload reply queries the operation and cannot downgrade an accepted import', async () => {
+  let accepted = false;
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async path => {
+    if (path === '/api/sources/imports') return Response.json(sourceRecord());
+    if (path.endsWith('/bytes')) throw new Error('Upload reply lost');
+    if (path === '/api/sources/imports/scan-1') {
+      accepted = true;
+      return Response.json(sourceRecord({ revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1 }));
+    }
+    if (path === '/api/meta') return Response.json(metadata(1, 'scan'));
+    return meshResponse(path, 1);
+  } });
+  assert.equal((await backend.addScan({ file: scanFile(), generation: 0, token: 'empty' })).generation, 1);
+  assert.equal(accepted, true);
+});
+
+test('accepted import delivery failure retains accepted identity and never sends cancellation', async () => {
+  const calls = [], backend = createHttpBackend({ fetch: async path => {
+    calls.push(path);
+    if (path === '/api/sources/imports') return Response.json(sourceRecord());
+    if (path.endsWith('/bytes')) return Response.json(sourceRecord({ revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1 }));
+    if (path === '/api/sources/imports/scan-1') return Response.json(sourceRecord({ revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1 }));
+    if (path === '/api/meta') throw new Error('Display unavailable');
+    assert.fail(`Unexpected ${path}`);
+  }, wait: async () => {} });
+  await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }), error => {
+    assert.equal(error.code, 'accepted_workspace_unavailable');
+    assert.equal(error.acceptedOperation.status, 'accepted');
+    assert.equal(error.acceptedOperation.acceptedGeneration, 1);
+    assert.equal(error.cause.code, 'transport_error');
+    return true;
+  });
+  assert.equal(calls.some(path => path.endsWith('/cancel')), false);
+});
+
+test('Abort and close stop observations without invoking the explicit import Cancel operation', async () => {
+  for (const mode of ['abort', 'close']) {
+    const calls = [], started = deferred(), controller = new AbortController();
+    const backend = createHttpBackend({ fetch: async (path, { signal }) => {
+      calls.push(path);
+      if (path === '/api/sources/imports') return Response.json(sourceRecord());
+      started.resolve();
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    } });
+    const result = backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }, { signal: controller.signal });
+    await started.promise;
+    if (mode === 'abort') controller.abort(); else backend.close();
+    await assert.rejects(result, error => mode === 'abort' ? error.name === 'AbortError' : error.code === 'backend_closed');
+    assert.equal(calls.some(path => path.endsWith('/cancel')), false);
+  }
+});
+
+test('source reset fences old graph and binary replies even when requests ignore abort', async () => {
+  const staleGraph = deferred(), staleBinary = deferred();
+  let generation = 0;
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    if (path === '/api/meta') return Response.json(metadata(generation));
+    if (path.startsWith('/mesh/')) return meshResponse(path, generation);
+    if (path === '/api/graph') return staleGraph.promise;
+    if (path === '/api/export/cad') return staleBinary.promise;
+    assert.equal(path, '/api/project/reset');
+    assert.equal(init.headers['X-Scansor-Generation'], '0');
+    assert.deepEqual(JSON.parse(init.body), { generation: 0, token: 'empty', confirmedDiscard: true });
+    generation = 1;
+    return Response.json({ project_generation: 1, graph: { token: 'empty' } });
+  } });
+  await backend.loadWorkspace();
+  const graph = backend.getGraph(), binary = backend.exportCad({ token: 'empty' });
+  assert.equal((await backend.resetProject({ generation: 0, token: 'empty', confirmedDiscard: true })).generation, 1);
+  staleGraph.resolve(Response.json({ project_generation: 0, token: 'empty' }));
+  staleBinary.resolve(new Response(new ArrayBuffer(1), { headers: { 'X-Scansor-Generation': '0' } }));
+  await assert.rejects(graph, error => error.code === 'observation_superseded');
+  await assert.rejects(binary, error => error.code === 'observation_superseded');
+});
+
+test('structured server source errors preserve stable codes rather than generic HTTP failures', async () => {
+  const backend = createHttpBackend({ fetch: async () => Response.json({ error: { code: 'source_exists', message: 'Explicit new project required' } }, { status: 409 }) });
+  await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }),
+    error => error.code === 'source_exists' && error.status === 409 && error.message === 'Explicit new project required');
+});
+
+test('failed bundle delivery leaves the previous coherent generation cached for graph operations', async () => {
+  let generation = 0;
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    if (path === '/api/meta') return Response.json(metadata(generation));
+    if (path.startsWith('/mesh/')) return new Response(new ArrayBuffer(0), { headers: { 'X-Scansor-Generation': '0' } });
+    assert.equal(init.headers['X-Scansor-Generation'], '0');
+    return Response.json({ project_generation: 0, token: 'empty' });
+  } });
+  await backend.loadWorkspace();
+  generation = 1;
+  await assert.rejects(backend.loadWorkspace(), error => error.code === 'observation_superseded');
+  await backend.replaceRecipe({ token: 'empty', recipe: { nodes: [] } });
+});
+
+test('source mutation fences an already subscribed graph observer before its next read', async () => {
+  let generation = 0, graphReads = 0;
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async path => {
+    if (path === '/api/meta') return Response.json(metadata(generation));
+    if (path.startsWith('/mesh/')) return meshResponse(path, generation);
+    if (path === '/api/project/reset') {
+      generation = 1;
+      return Response.json({ project_generation: 1 });
+    }
+    graphReads++;
+    return Response.json({ project_generation: generation, revision: 1, evaluation_running: true });
+  } });
+  await backend.loadWorkspace();
+  const updates = backend.graphUpdates();
+  assert.equal((await updates.next()).value.evaluation_running, true);
+  await backend.resetProject({ generation: 0, token: 'empty', confirmedDiscard: true });
+  await assert.rejects(updates.next(), error => error.code === 'observation_superseded');
+  assert.equal(graphReads, 1);
+});
+
+test('malformed accepted operation cannot publish an unrelated workspace', async () => {
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async path => {
+    if (path === '/api/sources/imports') return Response.json(sourceRecord());
+    assert.ok(!path.startsWith('/api/meta'));
+    return Response.json(sourceRecord({ revision: 1, status: 'accepted', terminal: true }));
+  } });
+  await assert.rejects(backend.addScan({ file: scanFile(), generation: 0, token: 'empty' }),
+    error => error.code === 'accepted_workspace_unavailable' && error.cause.code === 'invalid_operation');
+});
+
+test('example selection retains its old generation fence until the new workspace is coherently loaded', async () => {
+  let generation = 0;
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    if (path === '/api/meta') return Response.json(metadata(generation));
+    if (path.startsWith('/mesh/')) return meshResponse(path, generation);
+    if (path === '/api/examples/select') {
+      generation = 1;
+      return Response.json({ active: 'example', project_generation: 1 });
+    }
+    if (path === '/api/graph') {
+      assert.equal(init.headers['X-Scansor-Generation'], '0');
+      return Response.json({ project_generation: generation, token: 'empty' });
+    }
+    assert.fail(path);
+  } });
+  await backend.loadWorkspace();
+  await backend.selectExample({ example: 'example', token: 'empty' });
+  await assert.rejects(backend.getGraph(), error => error.code === 'observation_superseded');
+  assert.equal((await backend.loadWorkspace()).generation, 1);
+});
+
+test('sourceActions is independent of import and retains shared status and Cancel operations', async () => {
+  const selected = createBackend({ type: 'actions-only', factories: { 'actions-only': () => {
+    const backend = createHttpBackend({ fetch: async () => Response.json({ operationId: 'actions-1' }) });
+    backend.capabilities = { ...backend.capabilities, sourceImport: false };
+    return backend;
+  } } });
+  assert.equal((await selected.getSourceOperation({ operationId: 'actions-1' })).operationId, 'actions-1');
+  assert.equal((await selected.cancelSourceOperation({ operationId: 'actions-1' })).operationId, 'actions-1');
+  await assert.rejects(selected.addScan({}), error => error.code === 'unsupported_capability');
+  const old = createBackend({ type: 'old', factories: { old: () => {
+    const backend = createHttpBackend(); backend.capabilities = {}; return backend;
+  } } });
+  await assert.rejects(old.inspectActions({}), error => error.code === 'unsupported_capability');
+  await assert.rejects(old.openActions({}), error => error.code === 'unsupported_capability');
+  assert.throws(() => createBackend({ type: 'incomplete', factories: { incomplete: () => {
+    const backend = createHttpBackend(); delete backend.openActions; return backend;
+  } } }), error => error.code === 'unsupported_operation');
+  selected.close(); old.close();
+});
+
+test('actions inspection is read-only, retains original intent, and validates the original cursor', async () => {
+  const recipe = { nodes: [{ label: 'duplicate' }, { label: 'duplicate' }] }, calls = [];
+  let stale = false;
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json(metadata());
+    if (path.startsWith('/mesh/')) return meshResponse(path, 0);
+    return Response.json({ generation: stale ? 1 : 0, token: 'empty', classification: 'locate',
+      uploadRequired: true, descriptor: { filename: 'old.ply' }, recipe: { nodes: [] }, import_warnings: ['renamed'] });
+  } });
+  await backend.loadWorkspace();
+  const result = await backend.inspectActions({ recipe, generation: 0, token: 'empty' });
+  assert.equal(result.classification, 'locate');
+  assert.equal(calls.at(-1).path, '/api/actions/inspect');
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { recipe, generation: 0, token: 'empty' });
+  assert.equal(calls.at(-1).init.headers['X-Scansor-Generation'], '0');
+  stale = true;
+  await assert.rejects(backend.inspectActions({ recipe, generation: 0, token: 'empty' }), error => error.code === 'invalid_operation');
+});
+
+test('matching and empty actions open without upload and adopt a new generation with warning receipt', async () => {
+  for (const nodes of [[], [{ id: 'same-source', operation: 'source' }]]) {
+    const calls = [], recipe = { nodes }, warnings = [{ code: 'duplicate-label' }];
+    const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+      calls.push({ path, init });
+      if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: false }));
+      if (path === '/api/sources/imports/scan-1') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: false,
+        revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1, import_warning_count: 1 }));
+      if (path === '/api/meta') return Response.json({ ...metadata(1, 'opened'), import_warnings: warnings });
+      if (path.startsWith('/mesh/')) return meshResponse(path, 1);
+      assert.fail(path);
+    } });
+    const bundle = await backend.openActions({ recipe, generation: 0, token: 'empty', confirmedDiscard: true });
+    assert.equal(bundle.generation, 1);
+    assert.deepEqual(bundle.import_warnings, warnings);
+    assert.deepEqual(JSON.parse(calls[0].init.body), { recipe, generation: 0, token: 'empty', confirmedDiscard: true });
+    assert.equal(calls.some(({ path }) => path.endsWith('/bytes')), false);
+  }
+});
+
+test('located actions keep raw JSON separate from the exact renamed File and recover a lost upload reply', async () => {
+  const recipe = { nodes: [{ label: 'same' }, { label: 'same' }] }, file = scanFile(), calls = [];
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: true }));
+    if (path.endsWith('/bytes')) { assert.equal(init.body, file); throw Error('Reply lost'); }
+    if (path === '/api/sources/imports/scan-1') return Response.json(sourceRecord({ purpose: 'open-actions', uploadRequired: true,
+      revision: 2, terminal: true, status: 'accepted', acceptedGeneration: 1, import_warning_count: 0 }));
+    if (path === '/api/meta') return Response.json({ ...metadata(1), import_warnings: [] });
+    return meshResponse(path, 1);
+  } });
+  const bundle = await backend.openActions({ recipe, file, generation: 0, token: 'empty', confirmedDiscard: true });
+  assert.equal(bundle.generation, 1);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { recipe, generation: 0, token: 'empty', confirmedDiscard: true,
+    source: { filename: file.name, size: file.size } });
+  assert.equal(calls.some(({ path }) => path.endsWith('/cancel')), false);
+});
+
+test('accepted actions cannot lose their warning receipt or publish a different operation epoch', async () => {
+  for (const defect of ['warnings', 'epoch', 'purpose']) {
+    const backend = createHttpBackend({ fetch: async path => {
+      if (path === '/api/actions/open') return Response.json(sourceRecord({ purpose: defect === 'purpose' ? 'add-scan' : 'open-actions',
+        uploadRequired: false, terminal: true, status: 'accepted', acceptedGeneration: defect === 'epoch' ? 2 : 1, import_warning_count: 1 }));
+      if (path === '/api/meta') return Response.json({ ...metadata(1), import_warnings: [] });
+      return meshResponse(path, 1);
+    } });
+    await assert.rejects(backend.openActions({ recipe: { nodes: [] }, generation: 0, token: 'empty', confirmedDiscard: true }),
+      error => error.code === 'accepted_workspace_unavailable'
+        && error.cause.code === (defect === 'warnings' ? 'invalid_workspace' : 'invalid_operation'));
+  }
 });

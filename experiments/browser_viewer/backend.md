@@ -22,9 +22,16 @@ the `backend` URL query parameter, or `http` when omitted. A deployment can call
 `getBackend` with its factory before loading the UI. An unavailable selection
 fails rather than falling back to native computation.
 
-Each backend declares `capabilities`. HTTP currently supports numerical graph
-operations, CAD, and retained examples. It reports snapshot progress and no
-computation cancellation. `createBackend` rejects CAD-only and example operations
+Each backend declares `capabilities`. HTTP supports numerical graph operations,
+CAD, retained examples and the bounded native single-scan transport. It reports
+snapshot progress and no computation cancellation. `sourceImport` gates the
+separate source transaction methods. Optional `sourceActions` independently gates
+descriptor inspection and atomic saved-project opening. Operation status and
+Cancel are available when either source capability is advertised. The retained
+worker declares these false;
+missing capability declarations in older factories also reject those operations.
+An implementation advertising source import must implement every source method.
+`createBackend` rejects CAD-only and example operations
 when their corresponding capabilities are unavailable. A reduced backend must
 also diagnose unsupported graph action families during validation/evaluation;
 the broad CAD flag is not a complete graph-operation support matrix.
@@ -37,7 +44,7 @@ Optional operation options can carry an `AbortSignal`.
 
 | Operation | Inputs and result |
 | --- | --- |
-| `loadWorkspace(options)` | Metadata plus display `positions` and `indices` buffers |
+| `loadWorkspace({generation?, token?, signal})` | Coherent metadata, graph, accepted generation and display `positions`/`indices` buffers |
 | `getGraph({ revision, signal })` | Full graph or compact unchanged status |
 | `replaceRecipe(payload, options)` | Token and recipe; updated graph |
 | `importRecipe(payload, options)` | Token and recipe; graph with import warnings |
@@ -53,16 +60,90 @@ Optional operation options can carry an `AbortSignal`.
 | `previewFaces(payload, options)` | Existing face-preview payload and result |
 | `applyFaces(payload, options)` | Reviewed face payload; updated graph |
 | `exportCad(payload, options)` | Existing export settings; ZIP `ArrayBuffer` |
+| `addScan({file, generation, token}, {signal, onProgress})` | Original File/Blob payload and expected accepted cursor; accepted workspace bundle |
+| `getSourceOperation({operationId}, {signal})` | Status/progress for one opaque source operation |
+| `cancelSourceOperation({operationId, generation, token}, {signal})` | Explicit cooperative import Cancel, using the reservation's original cursor |
+| `resetProject({generation, token, confirmedDiscard:true}, {signal})` | Explicit empty-project transaction; accepted empty workspace bundle |
+| `inspectActions({recipe, generation, token}, {signal})` | Read-only source/schema classification and normalized definitions; no reservation |
+| `openActions({recipe, file?, generation, token, confirmedDiscard:true}, {signal, onProgress})` | Atomic whole-project opening, with optional explicitly located original File; accepted workspace bundle |
 | `close()` | Stop this connection's requests/observations |
 
 Selections remain recipe edits; authoritative fitting remains graph evaluation.
 The native server's legacy session/fit endpoints and unused reuse-preview
 endpoint are not mirrored solely to reproduce every HTTP route.
 
-The current HTTP example selector changes server-owned state and reloads the
-page. The worker exposes only the retained nozzle and restores its packaged
+The HTTP example selector changes server-owned state and reloads the page.
+Source import operations do not introduce a picker, work-loss dialog or source
+authoring UI; those are a separate integration. The worker exposes only the
+retained nozzle and restores its packaged
 default on selection/reload. Download actions first to preserve edits; the worker
 does not offer additional sources or persist ephemeral state across reload.
+
+## Native source transactions
+
+The initial native Add Scan operation requires an empty project and accepts the
+shared strict binary-triangle PLY profile with complete normals and unknown
+units. It creates a Source alone. It does not replace an existing source, change
+settings or add starter selections. Source-aware actions opening is a separate
+operation, sharing the bounded active slot, upload stream, status and Cancel.
+Reset requires the caller's explicit confirmed-discard intent; confirmation UI
+belongs to the source-authoring integration.
+
+The adapter reserves an operation with small JSON metadata, sends the original
+File/Blob as a separate octet-stream body, then observes upload/preparation status.
+It never encodes original bytes as JSON or exposes HTTP paths to its caller.
+The browser supplies Content-Length for the file body. The server's
+`metadata.capabilities.source_import` declares formats, one-source policy,
+`limits`, cancellation and active-source retention. Client preflight uses its
+advertised `limits.max_source_bytes` when available; server validation remains
+authoritative. Upload size, count/incremental memory estimates and selected-fit
+limits have different meanings and are not a total process/GPU memory guarantee.
+
+Progress records contain `operationId`, the reservation's `generation`/`token`,
+monotone operation `revision`, `status`, `phase`, `completed`, `total`, `unit`,
+`terminal`, and optional `error:{code,message}`/`acceptedGeneration`. The first
+`onProgress` callback runs before byte upload, allowing an explicit Cancel to
+target its operation. Later callbacks receive detached records; late older upload
+acknowledgements cannot overwrite newer progress. Counts use the supplied unit;
+coarse phases are not solver or CAD percentages. Structured operation/server
+errors retain their stable code and message.
+
+Publication of source, graph and display occurs as one accepted server
+generation. Metadata includes `project_generation` and a graph snapshot from
+that generation; versioned mesh URLs and `X-Scansor-Generation` response headers
+must agree. `loadWorkspace` returns only a complete matching bundle, including
+zero-length buffers and an empty graph for an empty project. A failed read does
+not update the cached cursor. Generic graph/authoring/CAD mutation requests carry
+the coherently loaded generation in a private transport header. This fences
+source reset/reimport even when identical saved definitions reproduce a token.
+Starting a local Add Scan, reset or example selection also fences earlier graph,
+metadata and binary replies. This request/publication fence is separate from
+the accepted workspace generation, and from the worker's runtime generations.
+
+Explicit import Cancel requests a safe-boundary stop and publication fence;
+`cancelComputation:false` still describes native fitting/OCCT. AbortSignal and
+`close()` stop waiting and abort outstanding HTTP observations/uploads without
+claiming that preparation or computation was cancelled. They do not invoke the
+explicit Cancel operation. There is no timeout-to-Force escalation or transport
+fallback. A source operation that has already committed remains accepted if an
+upload acknowledgement or later display delivery is lost. The adapter queries
+the operation after a lost upload reply; a later workspace delivery failure uses
+`accepted_workspace_unavailable` with its `acceptedOperation` record and cause.
+Callers can query status and reacquire the current workspace; definitions are not
+silently rolled back. The native workspace retains its immutable original bytes
+for its active lifetime; durable persistence is not supplied here.
+
+Actions inspection validates the original raw recipe through shared Python
+preflight and classifies it as matching, locate or empty against the actual
+current workspace. Unsupported legacy context fails explicitly. Opening repeats
+validation with the original cursor and recipe, preserving normalization warnings.
+Matching and empty actions need no upload; locate supplies File metadata through
+JSON and exact bytes through the existing bounded source stream. Native prepares
+a complete private owner, cleans staging and publishes once after final
+owner/cursor/lease/Cancel checks. Every successful opening advances the epoch.
+Generation-scoped metadata retains import warnings for lost-reply recovery;
+bounded terminal records retain only the warning count. Precommit validation
+installs definitions with outputs dirty; it does not pre-run numerical/CAD work.
 
 ## Revisions, progress, and readiness
 
@@ -115,8 +196,9 @@ before computation and push terminal snapshots afterward. The adapter retains
 terminal state for late subscribers, fences old publications when mutations
 are requested, and settles requests/observers on closure or runtime failure.
 This stage reports coarse lifecycle snapshots, not progress within synchronous
-solver calls. Abort stops waiting; cancellation and worker restoration remain
-the dedicated follow-up. A cached copy of the last accepted recipe can be
+solver calls. Abort stops waiting; the worker's existing Cancel/Force restoration
+is limited to its retained source. Imported-source restoration remains the worker
+import follow-up. A cached copy of the last accepted recipe can be
 downloaded after failure, but it excludes unfinished UI drafts and solver caches.
 
 With the CAD profile, the first face operation, CAD recipe import or export

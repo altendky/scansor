@@ -18,7 +18,8 @@ outside the intended boundary.
   - **Agreed bounded contract and implementation gates:** verified raw RealityScan
     mesh profile, shared source/workspace and transactional import/recovery,
     computed seeds excluded from saved actions, and fit-family work breakdown;
-    shared source foundation implemented, with adapter/UI file opening pending
+    shared source foundation, bounded native HTTP import and native/common source
+    authoring UI implemented; worker import and full both-backend acceptance pending
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected
@@ -59,6 +60,14 @@ outside the intended boundary.
     the initial bounded experiment with optional isolation; measured runtime
     inventory and Cloudflare Workers Static Assets comparison; redistribution
     completion, release validation, DNS and publication remain explicit gates
+- [Generic symmetry equation foundation](experiments/generic-symmetry-fitting.md)
+  - **Bounded numerical foundation:** exact canonical rotation/mirror equations
+    and internal support mathematics; existing fitting paths remain unchanged,
+    while imported graph/recovery/reuse/CAD integration remains a separate gate
+- [Native/browser numerical parity](experiments/numerical-runtime-parity.md)
+  - **Selected verification contract:** compare published geometry, intent,
+    acceptance classifications and finite budgets; retain complete diagnostic
+    traces and measured differences across numerical runtimes
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,

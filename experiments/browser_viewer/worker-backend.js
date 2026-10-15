@@ -88,7 +88,7 @@ export function createWorkerBackend({ runtimeURL, cad = false,
   };
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
-      progress: 'phases-and-snapshots', cancelComputation: true, recovery: true, sources: 'retained-nozzle' }),
+      progress: 'phases-and-snapshots', cancelComputation: true, recovery: true, sources: 'retained-nozzle', sourceImport: false }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());

@@ -17,6 +17,7 @@ let controller, editHost;
 const byId = id => document.getElementById(id);
 
 export function prepareEditSession() { return editHost.prepare(); }
+export function prepareWorkspaceTransition() { return editHost.prepareTransition(); }
 export function showEditWorkflow(id) { return editHost.show(id); }
 export function editWorkflowApplied() { editHost.applied(); }
 export function activeEditWorkflow() { return editHost.active(); }

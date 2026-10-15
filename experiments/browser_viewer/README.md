@@ -50,6 +50,23 @@ mesh loader or a full-resolution GUI. The repeated-boss fixture documents its
 generation and `--example` command in
 [its example README](../../examples/repeated-boss-selection/README.md).
 
+The native adapter has a source-only `--empty` entry point and a bounded source
+picker through the common backend interface. Use **Project toolbar options →
+New project**, then **Add scan…** in the empty view. **Inspect source** and
+confirmed **Remove scan…** are in the same command menu; interpretation remains
+read-only. Accepted work and live drafts survive cancelled/failed transitions.
+Its measured initial caps,
+ownership and cancellation boundaries are recorded in the
+[native import evidence](../../docs/src/project/planning/native-scan-import.md).
+Native **Load actions** validates the saved source descriptor before changing
+the project. It reuses a matching active source or asks for the exact original
+file, then accepts the source and definitions together. A renamed file can match;
+changed bytes cannot. Cancel or a validation failure preserves the current
+project and unfinished edit. Matching legacy example actions require that actual
+example to be loaded. Worker file opening and full both-backend reopening remain
+separate delivery gates. Actions downloads do not save original scan bytes or
+unfinished editor drafts.
+
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)
 from `nozzle-actions.json` and the saved

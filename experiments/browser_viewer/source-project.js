@@ -1,0 +1,341 @@
+// Source transitions retain the accepted scene and live edit controls until a
+// complete backend bundle and its display resources are ready to install.
+export function createSourceProjectController({ backend, getCurrent, canTransition,
+  setTransitionBusy, prepareWorkspace, inspectSource, prepareTransition, status, onActionsLoaded = () => {} }) {
+  const $ = id => document.getElementById(id);
+  let active = null, unavailable = null, releaseFence = null;
+  let actionsIntent = 0, pendingActions = null;
+  const empty = document.createElement('section');
+  empty.id = 'empty-project';
+  empty.setAttribute('aria-label', 'Empty project');
+  empty.innerHTML = '<h2>Start a project</h2><div class="row"><button type="button" data-add-scan>Add scan…</button><button type="button" data-choose-example>Choose example…</button></div><p id="empty-project-detail"></p>';
+  $('viewport').append(empty);
+  const source = () => getCurrent().recipe.nodes.find(node => node.operation === 'source');
+  const cursor = () => { const value = getCurrent(); return { generation: value.generation, token: value.token }; };
+  const current = before => {
+    const now = cursor(); return now.generation === before.generation && now.token === before.token;
+  };
+  const locked = () => !!active || !!unavailable || !canTransition();
+  function refresh() {
+    const hasSource = !!source(), supported = !!backend.capabilities.sourceImport;
+    $('load').disabled = locked();
+    for (const [id, enabled] of [
+      ['new-project', supported], ['add-scan', supported && !hasSource],
+      ['inspect-source', hasSource], ['remove-scan', supported && hasSource],
+    ]) $(id).disabled = !enabled || locked();
+    // Restore belongs to a retained example, never a user-source substitution.
+    $('reset').disabled = locked() || !hasSource || !!source().descriptor;
+    $('empty-project').hidden = hasSource;
+    const limits = getCurrent().metadata.capabilities?.source_import?.limits;
+    const limitText = limits ? ` Up to ${(limits.max_source_bytes / 1048576).toLocaleString()} MiB, ${limits.max_vertices.toLocaleString()} vertices and ${limits.max_faces.toLocaleString()} triangles.` : '';
+    $('empty-project-detail').textContent = supported
+      ? `Add one binary little-endian triangle PLY with float32 XYZ and complete normals. Units remain unknown; coordinates are preserved.${limitText}`
+      : 'Choose an example. Scan import is unavailable in this backend.';
+    for (const button of document.querySelectorAll('[data-add-scan]')) button.disabled = !supported || hasSource || locked();
+    for (const button of document.querySelectorAll('[data-choose-example]')) button.disabled = locked();
+    for (const button of document.querySelectorAll('[data-remove-scan]')) button.disabled = !supported || !hasSource || locked();
+  }
+  function lockSurfaces() {
+    const elements = [...new Set(document.querySelectorAll(
+      'main, #project-toolbar, .workspace-toolbar, #edit-popup, #edit-host, .workspace-edit-workflow, #example-dialog'))];
+    const previous = elements.map(element => element.inert);
+    elements.forEach(element => { element.inert = true; });
+    return () => elements.forEach((element, index) => { element.inert = previous[index]; });
+  }
+  function progress(record) {
+    if (!active) return;
+    active.record = record;
+    const count = Number.isFinite(record.completed) && Number.isFinite(record.total)
+      ? ` ${record.completed.toLocaleString()} / ${record.total.toLocaleString()} ${record.unit || ''}` : '';
+    $('source-progress-detail').textContent = `${record.phase || record.status || 'Importing'}${count}`;
+    $('cancel-source-import').disabled = !!record.terminal || active.cancelRequested;
+    if (active.cancelRequested && record.operationId && !active.cancelSent && !record.terminal) void cancel();
+  }
+  async function cancel() {
+    const operation = active;
+    if (!operation || !['scan', 'actions'].includes(operation.kind) || operation.record?.terminal) return;
+    operation.cancelRequested = true;
+    $('cancel-source-import').disabled = true;
+    $('source-progress-detail').textContent = 'Cancel requested. Waiting for a safe boundary…';
+    if (!operation.record?.operationId || operation.cancelSent) return;
+    operation.cancelSent = true;
+    try {
+      const record = await backend.cancelSourceOperation({ operationId: operation.record.operationId, ...operation.cursor });
+      if (active === operation) progress(record);
+    } catch (error) {
+      if (active === operation) {
+        operation.cancelSent = false;
+        operation.cancelRequested = false;
+        $('cancel-source-import').disabled = !!operation.record?.terminal;
+        status(`Could not confirm cancellation: ${error.message}. Retry Cancel while the import is active.`, true);
+      }
+    }
+  }
+  function confirmProject(kind, replacesSource) {
+    if (kind === 'scan' || !getCurrent().recipe.nodes.length) return true;
+    if (kind === 'actions' && !replacesSource)
+      return window.confirm('Replace the current actions? The current scan is retained. Save actions first to keep your work; actions do not save unfinished edits.');
+    return window.confirm('Discard the current source and committed actions? Save actions first to keep your work. Actions do not include the scan file or unfinished edits.');
+  }
+  function fence(error, before, release, kind) {
+    unavailable = { error, prior: before, kind };
+    releaseFence = release;
+    // A failed example dialog must not keep the explicit recovery controls inert.
+    if ($('example-dialog').open) $('example-dialog').close();
+    $('source-unavailable').hidden = false;
+    status('The project change may have been accepted, but its display is unavailable. Load the current project to continue; prior actions and unfinished edits are retained.', true);
+  }
+  async function run(kind, request, { expected = cursor(), replacesSource = true, onFailure } = {}) {
+    if (locked()) return false;
+    if (kind !== 'actions') invalidateActions();
+    if (!current(expected)) { status('The project changed. Load the actions again to review the current project.', true); return false; }
+    const before = getCurrent(), proof = prepareTransition();
+    if (!proof || !confirmProject(kind, replacesSource)) return false;
+    if (!proof.isCurrent() || !current(expected)) {
+      status('The project or unfinished edit changed. Review it and try again.', true);
+      return false;
+    }
+    const operation = active = { kind, cursor: expected, record: null, accepted: false, mutationStarted: false };
+    const release = lockSurfaces();
+    setTransitionBusy(true);
+    $('source-progress').hidden = !['scan', 'actions'].includes(kind) || kind === 'actions' && !backend.capabilities.sourceActions;
+    $('cancel-source-import').disabled = false;
+    $('source-progress-detail').textContent = kind === 'actions' ? 'Preparing actions…' : 'Preparing scan import…';
+    refresh();
+    let install, actionsWarnings;
+    try {
+      const bundle = await request(operation);
+      operation.accepted = true;
+      install = prepareWorkspace(bundle);
+      if (!proof.isCurrent()) throw new Error('The unfinished edit changed after acceptance. Review it before loading the accepted project.');
+      proof.finish();
+      install();
+      if (kind === 'actions') actionsWarnings = bundle.import_warnings ?? bundle.metadata.import_warnings ?? [];
+      status(kind === 'scan' ? 'Scan added. Create a selection to start fitting.'
+        : kind === 'reset' ? 'Empty project. Add a scan or choose an example.'
+          : kind === 'actions' ? 'Actions loaded. Evaluate to refresh dependent results.' : 'Example loaded.');
+      return true;
+    } catch (error) {
+      const uncertain = operation.accepted || error.code === 'accepted_workspace_unavailable'
+        || operation.mutationStarted && (error instanceof TypeError || error.name === 'TimeoutError'
+          || ['transport_error', 'observation_superseded', 'worker_failed', 'worker_startup_failed'].includes(error.code));
+      if (uncertain) fence(error, before, release, kind);
+      else status(error.message, true);
+      onFailure?.(error);
+      return false;
+    } finally {
+      install?.dispose?.();
+      active = null;
+      setTransitionBusy(!!unavailable);
+      $('source-progress').hidden = true;
+      if (!unavailable) release();
+      refresh();
+      if (actionsWarnings && !unavailable) onActionsLoaded(actionsWarnings);
+    }
+  }
+  async function addScan(file) {
+    if (!file) return false;
+    if (!backend.capabilities.sourceImport || source()) {
+      $('scan-file').value = '';
+      status(source() ? 'This project already has a source. Use New project to start again.' : 'Scan import is unavailable in this backend.', true);
+      return false;
+    }
+    try {
+      return await run('scan', async operation => {
+        operation.mutationStarted = true;
+        return backend.addScan({ file, ...operation.cursor }, { onProgress: progress });
+      });
+    } finally { $('scan-file').value = ''; }
+  }
+  async function resetProject() {
+    if (!backend.capabilities.sourceImport) return false;
+    return run('reset', operation => {
+      operation.mutationStarted = true;
+      return backend.resetProject({ ...operation.cursor, confirmedDiscard: true });
+    });
+  }
+  async function selectExample(example) {
+    return run('example', async operation => {
+      operation.mutationStarted = true;
+      await backend.selectExample({ example, token: operation.cursor.token });
+      operation.accepted = true;
+      return loadBundle();
+    });
+  }
+  async function restoreExample() {
+    if (!source() || source().descriptor) return false;
+    return run('example', async operation => {
+      const recipe = await backend.getExampleRecipe();
+      operation.mutationStarted = true;
+      const graph = await backend.replaceRecipe({ token: operation.cursor.token, recipe });
+      operation.accepted = true;
+      return loadBundle({ token: graph.token }, graph);
+    });
+  }
+  async function loadBundle(options, graph) {
+    // The delivered fixed-source worker predates bundled graphs. Its immutable
+    // example accepts no load payload and has no source-transition epoch.
+    const legacy = !backend.capabilities.sourceImport && !backend.capabilities.sourceActions;
+    const bundle = await backend.loadWorkspace(legacy ? undefined : options);
+    if (legacy && !bundle.graph) {
+      const acceptedGraph = graph || await backend.getGraph();
+      if (options?.token !== undefined && acceptedGraph.token !== options.token)
+        throw new Error('The accepted actions changed before their display could be loaded.');
+      return { ...bundle, graph: acceptedGraph };
+    }
+    return bundle;
+  }
+  function invalidateActions() {
+    actionsIntent++;
+    pendingActions = null;
+    if ($('locate-source-dialog').open) $('locate-source-dialog').close();
+  }
+  function validIntent(intent, expected) {
+    return intent === actionsIntent && current(expected) && !active && !unavailable;
+  }
+  function showLocator(pending, error = '') {
+    if (!validIntent(pending.intent, pending.cursor)) return;
+    pendingActions = pending;
+    const descriptor = pending.inspection.descriptor;
+    $('locate-source-hint').textContent = `Locate the original scan${descriptor?.filename ? ` (${descriptor.filename})` : ''}. Its bytes and interpretation must match the saved actions; the filename may differ.`;
+    $('locate-source-error').textContent = error;
+    if (!$('locate-source-dialog').open) $('locate-source-dialog').showModal();
+  }
+  async function openPending(pending, file) {
+    if (!validIntent(pending.intent, pending.cursor)) {
+      status('The project changed. Load the actions again.', true);
+      return false;
+    }
+    if ($('locate-source-dialog').open) $('locate-source-dialog').close();
+    let failure;
+    const accepted = await run('actions', async operation => {
+      operation.mutationStarted = true;
+      if (backend.capabilities.sourceActions)
+        return backend.openActions({ recipe: pending.recipe, file, ...operation.cursor, confirmedDiscard: true }, { onProgress: progress });
+      const graph = await backend.importRecipe({ recipe: pending.recipe, token: operation.cursor.token });
+      operation.accepted = true;
+      return { ...await loadBundle({ token: graph.token }, graph), import_warnings: graph.import_warnings || [] };
+    }, { expected: pending.cursor, replacesSource: pending.inspection.classification !== 'matching',
+      onFailure: error => { failure = error; } });
+    if (accepted) { pendingActions = null; actionsIntent++; }
+    else if (file && validIntent(pending.intent, pending.cursor)) showLocator(pending, failure?.message || 'No changes were made. Choose a source to try again.');
+    return accepted;
+  }
+  async function inspectActions(recipe, intent, expected) {
+    try {
+      let inspection;
+      if (backend.capabilities.sourceActions) {
+        inspection = await backend.inspectActions({ recipe, ...expected });
+        if (inspection?.generation !== expected.generation || inspection?.token !== expected.token
+          || !['matching', 'locate', 'empty'].includes(inspection?.classification)
+          || inspection.uploadRequired !== (inspection.classification === 'locate')
+          || inspection.classification === 'locate' && !inspection.descriptor)
+          throw new Error('Invalid actions inspection response. Load the actions again.');
+      }
+      else {
+        const sources = recipe?.nodes?.filter(node => node.operation === 'source') || [];
+        const actual = source(), saved = sources[0];
+        if (sources.length !== 1 || !actual || saved.descriptor || actual.descriptor
+          || typeof saved.source_sha256 !== 'string' || typeof saved.reference_sha256 !== 'string'
+          || saved.source_sha256 !== actual.source_sha256 || saved.reference_sha256 !== actual.reference_sha256)
+          throw new Error('This backend can load actions only for its current matching example. Source lookup is unavailable.');
+        inspection = { classification: 'matching' };
+      }
+      if (!validIntent(intent, expected)) return false;
+      const pending = { recipe, inspection, intent, cursor: expected };
+      if (inspection.uploadRequired) { showLocator(pending); return false; }
+      return await openPending(pending);
+    } catch (error) {
+      if (validIntent(intent, expected)) status(error.message, true);
+      return false;
+    }
+  }
+  async function loadActions(recipe) {
+    if (locked()) return false;
+    invalidateActions();
+    const intent = actionsIntent, expected = cursor();
+    try { return await inspectActions(structuredClone(recipe), intent, expected); }
+    catch (error) { if (validIntent(intent, expected)) status(error.message, true); return false; }
+  }
+  async function loadActionsFile(file) {
+    if (!file || locked()) return false;
+    invalidateActions();
+    const intent = actionsIntent, expected = cursor();
+    try {
+      if (file.size > 1_000_000) throw new Error('Recipe must be under 1 MB');
+      const recipe = JSON.parse(await file.text());
+      if (!validIntent(intent, expected)) return false;
+      return await inspectActions(recipe, intent, expected);
+    } catch (error) { if (validIntent(intent, expected)) status(error.message, true); return false; }
+    finally { $('file').value = ''; }
+  }
+  $('load').onclick = () => {
+    if (locked()) return;
+    invalidateActions();
+    $('file').value = '';
+    $('file').click();
+  };
+  $('file').onchange = () => loadActionsFile($('file').files[0]);
+  $('file').addEventListener('cancel', invalidateActions);
+  $('choose-located-source').onclick = () => {
+    if (!pendingActions || !validIntent(pendingActions.intent, pendingActions.cursor)) return;
+    $('locate-source-file').value = '';
+    $('locate-source-file').click();
+  };
+  $('locate-source-file').onchange = async () => {
+    const pending = pendingActions, file = $('locate-source-file').files[0];
+    try { if (pending && file) await openPending(pending, file); }
+    finally { $('locate-source-file').value = ''; }
+  };
+  $('cancel-locate-source').onclick = invalidateActions;
+  $('locate-source-dialog').addEventListener('cancel', event => { event.preventDefault(); invalidateActions(); });
+  $('new-project').onclick = resetProject;
+  $('remove-scan').onclick = resetProject;
+  $('add-scan').onclick = () => {
+    if (locked() || !backend.capabilities.sourceImport || source()) return;
+    invalidateActions();
+    $('scan-file').value = '';
+    $('scan-file').click();
+  };
+  $('scan-file').onchange = () => { const file = $('scan-file').files[0]; void addScan(file); };
+  $('scan-file').addEventListener('cancel', () => { /* No transaction or draft discard has started. */ });
+  $('inspect-source').onclick = inspectSource;
+  $('cancel-source-import').onclick = cancel;
+  for (const button of document.querySelectorAll('[data-add-scan]')) button.onclick = () => $('add-scan').click();
+  for (const button of document.querySelectorAll('[data-choose-example]')) button.onclick = () => $('choose-example').click();
+  for (const button of document.querySelectorAll('[data-remove-scan]')) button.onclick = () => $('remove-scan').click();
+  $('retry-source-workspace').onclick = async () => {
+    if (!unavailable) return;
+    const proof = prepareTransition();
+    if (!proof) return;
+    $('retry-source-workspace').disabled = true;
+    let install;
+    try {
+      const bundle = await loadBundle();
+      install = prepareWorkspace(bundle);
+      if (!proof.isCurrent()) throw new Error('The unfinished edit changed. Review it before loading the project.');
+      proof.finish();
+      install();
+      const actions = unavailable.kind === 'actions';
+      unavailable = null;
+      releaseFence?.(); releaseFence = null;
+      setTransitionBusy(false);
+      $('source-unavailable').hidden = true;
+      status('Current project loaded.');
+      if (actions) onActionsLoaded(bundle.metadata.import_warnings || []);
+    } catch (error) { status(`Could not load the current project: ${error.message}`, true); }
+    finally { install?.dispose?.(); $('retry-source-workspace').disabled = false; refresh(); }
+  };
+  $('download-prior-actions').onclick = async () => {
+    if (!unavailable) return;
+    try {
+      const recipe = await backend.exportRecipe({ recipe: unavailable.prior.recipe });
+      const url = URL.createObjectURL(new Blob([JSON.stringify(recipe, null, 2) + '\n'], { type: 'application/json' }));
+      try {
+        const link = document.createElement('a'); link.href = url; link.download = 'scansor-prior-actions.json'; link.click();
+      } finally { URL.revokeObjectURL(url); }
+      status('Prior actions downloaded. This does not save the scan file or unfinished edits.');
+    } catch (error) { status(error.message, true); }
+  };
+  return { refresh, addScan, resetProject, selectExample, restoreExample, cancel, loadActions, loadActionsFile };
+}
