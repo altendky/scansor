@@ -25,7 +25,7 @@ Array = NDArray[np.float64]
 
 class ScanImportError(ValueError):
     def __init__(self, message: str, code: str = "invalid_source") -> None:
-        self.code = code
+        self.code: str = code
         super().__init__(message)
 
 
@@ -311,13 +311,13 @@ def _prepare_scan(
         check_cancelled(cancelled)
 
     report("preflight", 0, 1)
-    stream.seek(0)
+    _ = stream.seek(0)
     reader = MeshPlyReader(
         stream, max_range_bytes=limits.chunk_bytes, io_block_bytes=limits.chunk_bytes
     )
-    _preflight(reader, limits)
+    _ = _preflight(reader, limits)
     size = reader.layout.byte_count
-    stream.seek(0)
+    _ = stream.seek(0)
     snapshot = io.BytesIO()
     copied = 0
     while copied < size:
@@ -325,7 +325,7 @@ def _prepare_scan(
         block = stream.read(min(limits.chunk_bytes, size - copied))
         if not block:
             raise ScanImportError("Source was truncated while taking its snapshot.")
-        snapshot.write(block)
+        _ = snapshot.write(block)
         copied += len(block)
     if stream.read(1):
         raise ScanImportError("Source grew while taking its snapshot.")

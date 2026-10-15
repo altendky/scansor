@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
@@ -69,10 +69,10 @@ def _accepted(workspace: ScanWorkspace, generation: int) -> AcceptedScan:
 
 class ScanProject:
     def __init__(self) -> None:
-        self._lock = RLock()
-        self._owner = uuid4().hex
-        self._accepted = _accepted(ScanWorkspace.empty(), 0)
-        self._busy = False
+        self._lock: RLock = RLock()
+        self._owner: str = uuid4().hex
+        self._accepted: AcceptedScan = _accepted(ScanWorkspace.empty(), 0)
+        self._busy: bool = False
 
     @property
     def accepted(self) -> AcceptedScan:
@@ -163,7 +163,7 @@ class ScanProject:
             return self._accepted
 
     @contextmanager
-    def evaluation(self) -> Iterator[AcceptedScan]:
+    def evaluation(self) -> Generator[AcceptedScan]:
         """Adapters hold this lease until active computation reaches a safe end."""
         with self._lock:
             if self._busy:

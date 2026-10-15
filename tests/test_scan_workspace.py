@@ -41,16 +41,16 @@ def mesh_bytes(
         normals = ((0.0, 0.0, 2.0),) * len(positions)
     header = (
         "ply\nformat binary_little_endian 1.0\n"
-        "comment Independently generated test geometry\n"
-        f"element vertex {len(positions)}\n"
-        "property float x\nproperty float y\nproperty float z\n"
+        + "comment Independently generated test geometry\n"
+        + f"element vertex {len(positions)}\n"
+        + "property float x\nproperty float y\nproperty float z\n"
         + (
             "property float nx\nproperty float ny\nproperty float nz\n"
             if include_normals
             else ""
         )
         + f"element face {len(faces)}\n"
-        "property list uchar int vertex_indices\nend_header\n"
+        + "property list uchar int vertex_indices\nend_header\n"
     ).encode("ascii")
     vertices = b"".join(
         struct.pack("<6f", *position, *normal)
@@ -176,7 +176,7 @@ def test_short_reads_preserve_exact_source_with_bounded_requests(
     original = mesh_bytes()
 
     class ShortReadStream(io.BytesIO):
-        largest_request = 0
+        largest_request: int = 0
 
         @override
         def read(self, size: int | None = -1) -> bytes:
@@ -295,7 +295,7 @@ def test_authoritative_arrays_are_readonly_and_owned(limits: ScanLimits) -> None
     stream = io.BytesIO(mesh_bytes())
     workspace = prepare_scan(stream, "generated.ply", limits)
     before = workspace.original_bytes
-    stream.seek(0)
+    _ = stream.seek(0)
     _ = stream.write(b"corrupted input")
     assert workspace.original_bytes == before
     for array in (
