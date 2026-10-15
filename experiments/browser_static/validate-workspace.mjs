@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
 import { compareSemanticBatch } from './semantic-parity.mjs';
+import { WORKSPACE_GRAPH_SCHEMA, WORKSPACE_GRAPH_PROJECTION, workspaceSemanticCases } from './workspace-semantic.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -31,6 +32,8 @@ const report = {
   runtime: site.manifest.runtime, capabilities: site.manifest.capabilities,
   requests: [], unexpected_requests: [], api_requests: [], page_errors: [], checks: {},
   artifact_unchanged: null,
+  workspace_graph_schema: WORKSPACE_GRAPH_SCHEMA, workspace_graph_projection: WORKSPACE_GRAPH_PROJECTION,
+  browser_workspace: {}, native_workspace: {},
 };
 const saveReport = () => writeFile(path.join(output, 'workspace.json'), JSON.stringify(report, null, 2) + '\n');
 
@@ -56,8 +59,8 @@ with tempfile.TemporaryDirectory(prefix='native-workspace-', dir=output) as temp
         archive.extractall(root)
     sys.path.insert(0, str(root))
     from experiments.browser_runtime.workspace import BrowserWorkspace
-    snapshots, evaluations = {}, {}
-    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots, 'evaluation_responses': evaluations}
+    snapshots, evaluations, proofs = {}, {}, {}
+    result = {'versions': {'python': platform.python_version(), 'numpy': np.__version__, 'pydantic': pydantic.__version__}, 'snapshots': snapshots, 'evaluation_responses': evaluations, 'workspace': proofs}
     try:
         for name, recipe in recipes.items():
             workspace = BrowserWorkspace(root / 'examples/nozzle-bayonette-simplified')
@@ -68,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix='native-workspace-', dir=output) as temp
             # Match the browser's idleGraph observation, retaining the distinct
             # evaluation response and independently enforcing its acceptance.
             snapshots[name] = unpack(workspace.call_json('getGraph'))
+            metadata = unpack(workspace.call_json('loadWorkspace'))
+            proofs[name] = {'generation': workspace.workspace_generation, 'metadata': metadata, 'graph': metadata['graph']}
             assert evaluations[name]['required_failures'] == []
             assert evaluations[name]['evaluation_running'] is False
             assert 'evaluation_error' not in evaluations[name]
@@ -123,6 +128,11 @@ async function boundedEvaluate(page, operation, value, timeout = 30000) {
 const readGraph = page => boundedEvaluate(page, async () => {
   const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
   return getBackend().getGraph();
+});
+const workspaceProof = page => boundedEvaluate(page, async () => {
+  const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
+  const bundle = await getBackend().loadWorkspace();
+  return { generation: bundle.generation, metadata: bundle.metadata, graph: bundle.graph };
 });
 async function idleGraph(page) {
   await page.waitForFunction(async () => {
@@ -185,6 +195,7 @@ try {
   };
   const page = await makePage();
   const initial = await idleGraph(page);
+  report.browser_workspace.default = await workspaceProof(page);
   report.checks.default_thirty_nodes = initial.recipe.nodes.length === 30;
   assert.ok(report.checks.default_thirty_nodes, 'The packaged default must retain all 30 numeric actions');
   report.readiness = await page.evaluate(() => window.workspaceWorkerReadiness);
@@ -263,6 +274,7 @@ try {
   await page.locator('#tool').selectOption('orbit');
   await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
   edited = await idleGraph(page);
+  report.browser_workspace.edited = await workspaceProof(page);
   report.checks.ui_selection_edit_and_evaluation = true;
 
   const downloadPromise = page.waitForEvent('download');
@@ -277,6 +289,7 @@ try {
   await page.close();
   const replayPage = await makePage();
   await idleGraph(replayPage);
+  report.browser_workspace.replay_before = await workspaceProof(replayPage);
   await replayPage.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
   const approveReplay = replayPage.waitForEvent('dialog').then(async dialog => {
     assert.equal(dialog.type(), 'confirm');
@@ -286,10 +299,14 @@ try {
   await replayPage.locator('#file').setInputFiles({ name: 'replayed-actions.json', mimeType: 'application/json', buffer: recipeBytes });
   await approveReplay;
   report.checks.explicit_replay_discard_confirmation = true;
+  await replayPage.waitForFunction(() => !document.querySelector('main').inert
+    && !document.querySelector('#load').disabled && document.querySelector('#source-progress').hidden,
+  null, { timeout: 30000 });
   await replayPage.waitForFunction(async token => {
     const { getBackend } = await import(new URL('backend.js', document.baseURI).href);
     return (await getBackend().getGraph()).token === token;
   }, edited.token, { timeout: 30000 });
+  report.browser_workspace.replay_after = await workspaceProof(replayPage);
   await replayPage.getByRole('button', { name: 'Evaluate all', exact: true }).click();
   const replayed = await idleGraph(replayPage);
   const browserSnapshots = JSON.stringify({ default: initial, edited, replayed });
@@ -302,12 +319,8 @@ try {
   report.native_versions = native.versions;
   report.native_evaluation_responses = native.evaluation_responses;
   report.native_snapshots = native.snapshots;
-  const receipt = await compareSemanticBatch({ nativePython, site, output, report, cases: [
-    { id: 'replay', profile: 'graph-snapshot', actual: replayed, expected: edited },
-    { id: 'default', profile: 'graph-snapshot', actual: initial, expected: native.snapshots.default },
-    { id: 'edited', profile: 'graph-snapshot', actual: edited, expected: native.snapshots.edited },
-    { id: 'replayed', profile: 'graph-snapshot', actual: replayed, expected: native.snapshots.edited },
-  ] });
+  report.native_workspace = native.workspace;
+  const receipt = await compareSemanticBatch({ nativePython, site, output, report, cases: workspaceSemanticCases(report) });
   report.replay_comparison = receipt.cases[0];
   report.native_comparison = { default: receipt.cases[1], edited: receipt.cases[2], replayed: receipt.cases[3] };
   report.checks.recipe_download_new_worker_replay = true;

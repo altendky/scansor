@@ -17,9 +17,10 @@ The native/common UI already supplies empty projects, the source picker and
 read-only Source inspection, gated by backend capabilities. Worker import/recovery
 implements the bounded source tier; full both-backend UI acceptance remains
 [#243](https://github.com/altendky/scansor/issues/243). Native transactional
-source-aware actions reopening is delivered; its worker path remains
-[#244](https://github.com/altendky/scansor/issues/244), with worker `sourceActions`
-unavailable.
+source-aware actions reopening is delivered. Its bounded worker adapter is
+implemented under [#244](https://github.com/altendky/scansor/issues/244), with
+explicit versioned capability gating; actual both-mode reopening and recovery
+acceptance remain delivery gates.
 This work adds neither persistence nor broader numerical-family support. The
 full numerical delivery gate in #240 and its draft stack remain separate.
 
@@ -81,6 +82,43 @@ always be reread unchanged. Failed reading, identity validation or replay keeps
 the checkpoint/actions available for diagnosis and retry. Reload, tab closure or
 browser/process loss can require reacquiring the source and loading saved actions.
 Filename is a locating hint; computed starts/results are not authored actions.
+
+## Source-aware saved actions
+
+The common Load actions workflow uses read-only descriptor inspection before
+requesting a source File. Inspection neither replaces the accepted recipe nor
+changes the recovery checkpoint. Empty actions need no source; a matching generic
+source reuses immutable accepted geometry; a missing source requires explicit
+lookup of the exact original bytes. Moving or renaming unchanged bytes is valid.
+Filename hints never authorize filesystem access. Legacy actions require their
+explicitly compatible loaded example and never select one implicitly.
+
+The protocol-6 worker declares source-actions contract version 1. The generated
+application explicitly enables that capability when constructing its backend;
+old or missing contracts fail closed, with no capability change after startup.
+Authoritative schema, interpretation, source identity, cursor, discard approval,
+CAD availability and exact declared File size are checked before source reads.
+Preparation repeats validation against parsed evidence, and the actual attached
+File size must also match the saved descriptor before slicing or staging.
+
+Opening prepares a fresh graph privately and uses the existing complete transfer,
+coordinator adoption and Python promotion boundary. It does not publish a
+source-only intermediate project. Matching opens retain the verified original
+File without uploading it again; located opens adopt the supplied File. Empty
+and example opens release stale user-file authority. Every normal open advances
+the accepted source generation; Force retains that accepted generation and
+reconstructs computed results as dirty. Accepted import warnings are copied into
+the generation-scoped checkpoint so normalized recipes do not erase them during
+recovery; warnings in user JSON have no authority.
+
+The actual UI acceptance probe retains full reopened and post-Force evaluation
+graphs for comparison against the native scene under the selected bounded
+semantic policy. Source arrays remain strict. Its coverage includes raw-source
+save/reopen, renamed lookup, matching reuse, unsupported settings, wrong bytes,
+empty and explicit legacy actions, stale inspection, popup and docked drafts,
+Cancel, pre-adoption Force, and accepted-but-undisplayed recovery with explicit
+Retry. A completed probe and current-head CI are required before delivery; its
+test hooks observe the shipped application and disclose transport holds.
 
 ## Measured initial browser tier
 

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { createWorkerBackend } from './worker-backend.js';
 import { createBackend } from './backend.js';
 
@@ -132,7 +134,7 @@ function candidate(request, { generation = 1, kind = 'scan', identity = { source
     source_mode: { kind, ...(kind === 'example' ? { example: 'nozzle' } : {}) }, source_identity: identity,
     metadata: { project_generation: generation, vertices: empty ? 0 : 3, triangles: empty ? 0 : 1,
       positions: { dtype: '<f4', components: 3 }, indices: { dtype: '<u4', components: 3 },
-      capabilities: { source_import: sourceProfile } },
+      capabilities: { source_import: sourceProfile }, import_warnings: [] },
     graph: sourceGraph(generation, token, nodes || (empty ? [] : [{ operation: 'source', id: 'source' }])),
     positions: new ArrayBuffer(empty ? 0 : 36), indices: new ArrayBuffer(empty ? 0 : 12), ...changes };
 }
@@ -144,6 +146,353 @@ function sourcePromotion(worker, request, generation = 1) {
   worker.reply({ id: request.id, kind: 'source-promoted', operationId: request.payload.operationId,
     workspaceGeneration: generation });
 }
+
+const actionsProfile = { supported: true, version: 1 };
+function actionsReady(extra = {}) {
+  return sourceReady({ worker_protocol: { version: 6, source_actions: actionsProfile },
+    source_actions: actionsProfile, ...extra });
+}
+async function actionsFixture(options = {}, initial = {}) {
+  const value = fixture({ initialMode: 'empty', sourceActions: true, ...options });
+  const loading = value.backend.initialize();
+  value.worker.reply(actionsReady(initial));
+  await loading;
+  return value;
+}
+function actionsCandidate(request, { warnings = [], sourceKind = 'generic', ...options } = {}) {
+  const result = candidate(request, options);
+  result.metadata.import_warnings = structuredClone(warnings);
+  return { ...result, purpose: 'open-actions', sourceKind,
+    uploadRequired: request.payload.file !== undefined, import_warning_count: warnings.length };
+}
+function inspection(request, extra = {}) {
+  return { generation: request.payload.generation, token: request.payload.token,
+    classification: 'locate', uploadRequired: true, descriptor: { source_bytes: 30 },
+    recipe: { nodes: [{ id: 'saved', operation: 'source' }] }, import_warnings: [], ...extra };
+}
+
+test('actual worker preparation rejects a mismatched attached File before any slice or staging allocation', async () => {
+  // Exercise the production transaction body with its external Python/FS seams
+  // stubbed. No copy of the size policy or source-text presence assertion.
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('async function prepareSource(request)');
+  const end = source.indexOf('\nfunction workspaceCall(', start);
+  assert(start >= 0 && end > start, 'Production worker transaction boundary changed');
+  for (const size of [90, 100, 110]) {
+    let slices = 0, allocations = 0, preflights = 0, staged = 0, promotions = 0, unlinked = 0;
+    const file = sourceFile(size);
+    file.slice = (...args) => { slices++; return Blob.prototype.slice.apply(file, args); };
+    const context = vm.createContext({
+      activeSource: { id: 1, operationId: 'probe', cancelled: false }, minimumGeneration: 0, sourcePoisoned: false,
+      sourceBoundary: undefined, workspaceHasCad: false,
+      manifest: { worker_protocol: { source_import: { supported: true,
+        limits: { max_source_bytes: 1000, chunk_bytes: 64 } }, source_actions: actionsProfile } },
+      sourceTransferMetrics: {}, sourceCancelled: () => Error('Cancelled'),
+      python: { FS: { mkdirTree() { allocations++; }, open() { allocations++; return {}; },
+        write(stream, chunk) { staged += chunk.byteLength; }, close() {}, unlink() { unlinked++; } } },
+      sourceCall(method, payload) {
+        if (method === 'preflight_actions_json') {
+          assert.equal(payload.file, undefined); assert.equal(payload.source.size, 100); preflights++;
+          return { uploadRequired: true, requiresCad: false, descriptor: { source_bytes: 100 } };
+        }
+        if (method === 'prepare_source_json') {
+          assert.equal(staged, 100);
+          return { workspaceGeneration: 1, metadata: { capabilities: {} }, graph: { recipe: { nodes: [] } } };
+        }
+        assert.equal(method, 'promote_source_json'); promotions++;
+      },
+      loadCad: async () => assert.fail('Unexpected CAD load'), yieldMessages: async () => {}, cadActions: new Set(),
+      postMessage(message) { if (message.kind === 'source-candidate') context.sourceBoundary.resolve(true); },
+      ownedBuffer: () => { assert.equal(size, 100, 'Rejected source must not transfer display buffers'); return new ArrayBuffer(0); },
+    });
+    vm.runInContext(source.slice(start, end) + '\nglobalThis.prepare = prepareSource;', context);
+    const preparing = context.prepare({ id: 1, generation: 0, payload: { operationId: 'probe', purpose: 'open-actions',
+      source: { filename: 'x.ply', size: 100 }, file } });
+    if (size === 100) {
+      await preparing;
+      assert.equal(slices, 2); assert.equal(staged, 100); assert.equal(promotions, 1); assert.equal(unlinked, 1);
+    } else {
+      await assert.rejects(preparing, error => error.code === 'source_mismatch');
+      assert.equal(slices, 0); assert.equal(allocations, 0); assert.equal(promotions, 0);
+    }
+    assert.equal(preflights, 1);
+  }
+});
+
+test('source actions are frozen opt-in and missing or malformed readiness never advertises usable methods', async () => {
+  const disabled = fixture();
+  assert.equal(disabled.backend.capabilities.sourceActions, false);
+  for (const name of ['inspectActions', 'openActions'])
+    await assert.rejects(disabled.backend[name]({ recipe: {} }), error => error.code === 'unsupported_capability');
+  assert.equal(disabled.worker.calls.length, 0);
+  disabled.backend.close();
+  assert.throws(() => fixture({ sourceActions: 1 }), error => error.code === 'unsupported_capability');
+  for (const corrupt of [value => { value.worker_protocol.version = 5; },
+    value => { delete value.source_actions; },
+    value => { value.source_actions = { supported: 1, version: 1 }; },
+    value => { value.worker_protocol = { version: 6, source_actions: { supported: true, version: true } }; },
+    value => { value.source_actions = { ...actionsProfile, unknown: true }; },
+    value => { value.graph.project_generation = 2 ** 53; }]) {
+    const { backend, worker } = fixture({ sourceActions: true }), loading = backend.initialize();
+    const value = structuredClone(actionsReady()); corrupt(value); worker.reply(value);
+    await assert.rejects(loading, error => error.code === 'worker_startup_failed');
+    assert.equal(worker.terminated, 1);
+    backend.close();
+  }
+});
+
+test('inspection clones raw intent before startup and never remembers a saved recipe or changes Force authority', async () => {
+  const value = fleet({ initialMode: 'empty', sourceActions: true }), recipe = { nodes: [{ id: 'raw-name', operation: 'source' }] };
+  const inspecting = value.backend.inspectActions({ recipe, generation: 0, token: 'empty' });
+  recipe.nodes[0].id = 'caller-mutated';
+  let worker = value.workers[0]; worker.reply(actionsReady()); await settle();
+  const request = worker.calls.at(-1);
+  assert.equal(request.operation, 'inspect-actions');
+  assert.equal(request.generation, 0);
+  assert.equal(request.payload.recipe.nodes[0].id, 'raw-name');
+  const response = inspection(request);
+  worker.reply({ id: request.id, ok: true, result: response });
+  assert.deepEqual(await inspecting, response);
+  assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe);
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(actionsReady({ id: worker.calls[0].id })); await settle();
+  const restore = worker.calls.at(-1);
+  assert.deepEqual(restore.payload.recovery.recipe, sourceGraph().recipe);
+  sourceTransfer(worker, restore, candidate(restore, { generation: 0, kind: 'empty', token: 'empty', identity: {} }));
+  sourcePromotion(worker, restore, 0); await restoring;
+  value.backend.close();
+});
+
+test('inspection rejects stale cursors and malformed responses instead of mutating accepted graph', async () => {
+  for (const corrupt of [value => { value.token = 'other'; }, value => { value.generation = 1; },
+    value => { value.uploadRequired = 1; }, value => { value.import_warnings = {}; },
+    value => { value.descriptor = null; }, value => { value.recipe = {}; }]) {
+    const { backend, worker } = await actionsFixture();
+    await assert.rejects(backend.inspectActions({ recipe: {}, generation: 1, token: 'empty' }),
+      error => error.code === 'observation_superseded');
+    const inspecting = backend.inspectActions({ recipe: {}, generation: 0, token: 'empty' }); await settle();
+    const request = worker.calls.at(-1), response = inspection(request); corrupt(response);
+    worker.reply({ id: request.id, ok: true, result: response });
+    await assert.rejects(inspecting, error => error.code === 'worker_failed');
+    assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe);
+    backend.close();
+  }
+});
+
+test('located actions clone original intent, retain actual File and publish warnings only as accepted metadata/counts', async () => {
+  const { backend, worker } = await actionsFixture(), file = sourceFile(), records = [];
+  const recipe = { nodes: [{ id: 'raw', operation: 'source' }] };
+  await assert.rejects(backend.openActions({ recipe, generation: 0, token: 'empty' }),
+    error => error.code === 'confirmation_required');
+  const opening = backend.openActions({ recipe, file, generation: 0, token: 'empty', confirmedDiscard: true },
+    { onProgress: value => records.push(value) });
+  recipe.nodes[0].id = 'mutated'; await settle();
+  const request = worker.calls.at(-1);
+  assert.equal(request.payload.kind, undefined);
+  assert.equal(request.payload.purpose, 'open-actions');
+  assert.equal(request.payload.recipe.nodes[0].id, 'raw');
+  assert.equal(request.payload.file, file);
+  assert.deepEqual(request.payload.source, { filename: 'original.ply', size: 30 });
+  await assert.rejects(backend.addScan({ file, generation: 0, token: 'empty' }), error => error.code === 'source_busy');
+  await assert.rejects(backend.inspectActions({ recipe, generation: 0, token: 'empty' }), error => error.code === 'source_busy');
+  const warnings = [{ id: 'point-2', old_name: 'Point', new_name: 'Point point', kind: 'feature' }];
+  const result = actionsCandidate(request, { warnings });
+  sourceTransfer(worker, request, result); sourcePromotion(worker, request);
+  const accepted = await opening;
+  assert.deepEqual(accepted.metadata.import_warnings, warnings);
+  const status = await backend.getSourceOperation(records[0]);
+  assert.equal(status.purpose, 'open-actions'); assert.equal(status.uploadRequired, true);
+  assert.equal(status.import_warning_count, 1); assert.equal(status.acceptedGeneration, 1);
+  for (const key of ['recipe', 'file', 'descriptor', 'source_identity', 'import_warnings', 'metadata'])
+    assert.equal(Object.hasOwn(status, key), false);
+  backend.close();
+});
+
+test('matching actions retain the accepted File and original warnings through Force after caller mutates delivered metadata', async () => {
+  const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(actionsReady()); await loading;
+  const file = sourceFile(), importing = value.backend.addScan({ file, generation: 0, token: 'empty' }); await settle();
+  let request = worker.calls.at(-1), result = candidate(request, { identity: { b: 2, a: 1 } });
+  sourceTransfer(worker, request, result); sourcePromotion(worker, request); await importing;
+  const warnings = [{ id: 'point-2', old_name: 'Point', new_name: 'Point point', kind: 'feature' }];
+  const opening = value.backend.openActions({ recipe: { nodes: [] }, generation: 1, token: 'source', confirmedDiscard: true });
+  await settle(); request = worker.calls.at(-1);
+  assert.equal(Object.hasOwn(request.payload, 'file'), false);
+  assert.equal(Object.hasOwn(request.payload, 'source'), false);
+  result = actionsCandidate(request, { generation: 2, token: 'opened', identity: { a: 1, b: 2 }, warnings });
+  sourceTransfer(worker, request, result); sourcePromotion(worker, request, 2);
+  const accepted = await opening; accepted.metadata.import_warnings[0].new_name = 'Caller changed its copy';
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(actionsReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+  assert.equal(request.payload.kind, 'scan'); assert.equal(request.payload.file, file);
+  assert.equal(request.payload.recovery.generation, 2);
+  assert.deepEqual(request.payload.recovery.import_warnings, warnings);
+  const recovered = candidate(request, { generation: 2, token: 'opened', identity: { a: 1, b: 2 } });
+  recovered.metadata.import_warnings = structuredClone(warnings);
+  sourceTransfer(worker, request, recovered);
+  sourcePromotion(worker, request, 2); await restoring;
+  value.backend.close();
+});
+
+test('empty actions advance epoch without upload and clear previous File from Force checkpoint', async () => {
+  const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(actionsReady()); await loading;
+  const importing = value.backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }); await settle();
+  let request = worker.calls.at(-1); sourceTransfer(worker, request, candidate(request)); sourcePromotion(worker, request); await importing;
+  const opening = value.backend.openActions({ recipe: { nodes: [] }, generation: 1, token: 'source', confirmedDiscard: true });
+  await settle(); request = worker.calls.at(-1);
+  sourceTransfer(worker, request, actionsCandidate(request, { generation: 2, kind: 'empty', sourceKind: 'empty', token: 'empty', identity: {} }));
+  sourcePromotion(worker, request, 2); assert.equal((await opening).generation, 2);
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(actionsReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+  assert.equal(request.payload.kind, 'empty'); assert.equal(request.payload.file, undefined);
+  sourceTransfer(worker, request, candidate(request, { generation: 2, kind: 'empty', token: 'empty', identity: {} }));
+  sourcePromotion(worker, request, 2); await restoring; value.backend.close();
+});
+
+test('matching legacy actions preserve actual example identity without manufacturing a generic File', async () => {
+  const identity = { source_sha256: 'legacy' };
+  const { backend, worker } = await actionsFixture({}, { source_mode: { kind: 'example', example: 'nozzle' },
+    source_identity: identity, graph: sourceGraph(0, 'example', [{ id: 'source', operation: 'source' }]) });
+  const opening = backend.openActions({ recipe: { nodes: [] }, generation: 0, token: 'example', confirmedDiscard: true });
+  await settle(); const request = worker.calls.at(-1);
+  sourceTransfer(worker, request, actionsCandidate(request, { sourceKind: 'legacy', kind: 'example', identity }));
+  sourcePromotion(worker, request); assert.equal((await opening).source_mode.example, 'nozzle'); backend.close();
+});
+
+test('malformed action candidates fail closed before adopting metadata or source authority', async () => {
+  for (const corrupt of [value => { delete value.purpose; }, value => { value.sourceKind = 'other'; },
+    value => { value.uploadRequired = 1; }, value => { value.uploadRequired = false; },
+    value => { value.metadata.import_warnings = null; }, value => { value.import_warning_count = 1; },
+    value => { value.sourceKind = 'empty'; }]) {
+    const { backend, worker } = await actionsFixture();
+    const opening = backend.openActions({ recipe: {}, file: sourceFile(), generation: 0, token: 'empty', confirmedDiscard: true });
+    await settle(); const request = worker.calls.at(-1), result = actionsCandidate(request); corrupt(result);
+    sourceTransfer(worker, request, result);
+    await assert.rejects(opening, error => error.code === 'worker_failed');
+    assert.deepEqual(await backend.exportRecipe(), sourceGraph().recipe); backend.close();
+  }
+});
+
+test('no-upload generic and legacy candidates cannot substitute another accepted source identity', async () => {
+  for (const kind of ['generic', 'legacy']) {
+    const initial = kind === 'legacy' ? { source_mode: { kind: 'example', example: 'nozzle' },
+      source_identity: { source_sha256: 'legacy' }, graph: sourceGraph(0, 'source', [{ id: 'source', operation: 'source' }]) } : {};
+    const { backend, worker } = await actionsFixture({}, initial);
+    if (kind === 'generic') {
+      const importing = backend.addScan({ file: sourceFile(), generation: 0, token: 'empty' }); await settle();
+      const request = worker.calls.at(-1); sourceTransfer(worker, request, candidate(request));
+      sourcePromotion(worker, request); await importing;
+    }
+    const accepted = await backend.exportRecipe(), cursor = kind === 'generic' ? 1 : 0;
+    const opening = backend.openActions({ recipe: {}, generation: cursor, token: 'source', confirmedDiscard: true });
+    await settle(); const request = worker.calls.at(-1);
+    sourceTransfer(worker, request, actionsCandidate(request, { generation: cursor + 1, sourceKind: kind,
+      kind: kind === 'generic' ? 'scan' : 'example', identity: { source_sha256: 'substituted' } }));
+    await assert.rejects(opening, error => error.code === 'worker_failed');
+    assert.deepEqual(await backend.exportRecipe(), accepted); backend.close();
+  }
+});
+
+test('Force rejects changed accepted warning/source metadata and retains authority for a later explicit retry', async () => {
+  for (const fault of ['warnings', 'identity']) {
+    const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(actionsReady()); await loading;
+    const file = sourceFile(), warnings = [{ id: 'point-2', old_name: 'Point', new_name: 'Point point', kind: 'feature' }];
+    const opening = value.backend.openActions({ recipe: {}, file, generation: 0, token: 'empty', confirmedDiscard: true });
+    await settle(); let request = worker.calls.at(-1), accepted = actionsCandidate(request, { warnings });
+    sourceTransfer(worker, request, accepted); sourcePromotion(worker, request); await opening;
+    const failed = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(actionsReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+    const incorrect = candidate(request);
+    incorrect.metadata.import_warnings = fault === 'warnings' ? [] : structuredClone(warnings);
+    if (fault === 'identity') incorrect.source_identity = { source_sha256: 'substituted' };
+    sourceTransfer(worker, request, incorrect);
+    await assert.rejects(failed, error => error.code === 'worker_failed');
+    assert.deepEqual(await value.backend.exportRecipe(), accepted.graph.recipe);
+    const retry = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(actionsReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+    assert.equal(request.payload.file, file);
+    assert.deepEqual(request.payload.recovery.import_warnings, warnings);
+    const correct = candidate(request); correct.metadata.import_warnings = structuredClone(warnings);
+    sourceTransfer(worker, request, correct); sourcePromotion(worker, request); await retry;
+    value.backend.close();
+  }
+});
+
+test('actions terminal history remains bounded and contains no raw recipe warnings or File payload', async () => {
+  const { backend, worker } = await actionsFixture(); let first, last;
+  for (let cursor = 0; cursor < 65; cursor++) {
+    const opening = backend.openActions({ recipe: { nodes: [] }, generation: cursor, token: 'empty', confirmedDiscard: true });
+    await settle(); const request = worker.calls.at(-1);
+    first ??= request.payload.operationId; last = request.payload.operationId;
+    sourceTransfer(worker, request, actionsCandidate(request, { generation: cursor + 1, kind: 'empty', sourceKind: 'empty',
+      token: 'empty', identity: {} }));
+    sourcePromotion(worker, request, cursor + 1); await opening;
+  }
+  await assert.rejects(backend.getSourceOperation({ operationId: first }), error => error.code === 'unknown_operation');
+  const record = await backend.getSourceOperation({ operationId: last });
+  assert.equal(record.acceptedGeneration, 65); assert.equal(record.uploadRequired, false);
+  assert.equal(record.import_warning_count, 0); assert.equal(record.purpose, 'open-actions');
+  assert(Object.values(record).every(value => ['string', 'number', 'boolean'].includes(typeof value)));
+  backend.close();
+});
+
+test('preflight rejection and preadoption Cancel keep old project while late Cancel after adoption cannot reverse actions', async () => {
+  for (const stage of ['preflight', 'cancel-before', 'cancel-after']) {
+    const { backend, worker } = await actionsFixture(), records = [];
+    const opening = backend.openActions({ recipe: {}, file: sourceFile(), generation: 0, token: 'empty', confirmedDiscard: true },
+      { onProgress: record => records.push(record) }); await settle();
+    const request = worker.calls.at(-1), result = actionsCandidate(request);
+    if (stage === 'preflight') {
+      worker.reply({ id: request.id, ok: false, error: { code: 'source_mismatch', message: 'Declared byte length differs' } });
+      await assert.rejects(opening, error => error.code === 'source_mismatch');
+    } else if (stage === 'cancel-before') {
+      sourceTransfer(worker, request, result, { confirm: false });
+      await backend.cancelSourceOperation(records[0]);
+      worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+      assert.equal(worker.calls.at(-1).accepted, false);
+      worker.reply({ id: request.id, ok: false, error: { code: 'source_cancelled', message: 'Cancelled' } });
+      await assert.rejects(opening, error => error.code === 'source_cancelled');
+    } else {
+      sourceTransfer(worker, request, result);
+      assert.equal((await backend.cancelSourceOperation(records[0])).status, 'accepted');
+      assert(!worker.calls.some(call => call.operation === 'cancel-source'));
+      sourcePromotion(worker, request); await opening;
+    }
+    assert.deepEqual(await backend.exportRecipe(), stage === 'cancel-after' ? result.graph.recipe : sourceGraph().recipe);
+    backend.close();
+  }
+});
+
+test('Force before and after actions adoption retains the correct File recipe warnings and epoch despite lost ack', async () => {
+  for (const adopted of [false, true]) {
+    const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(actionsReady()); await loading;
+    const originalFile = sourceFile(), importing = value.backend.addScan({ file: originalFile, generation: 0, token: 'empty' });
+    await settle(); let request = worker.calls.at(-1), original = candidate(request);
+    sourceTransfer(worker, request, original); sourcePromotion(worker, request); await importing;
+    const newFile = sourceFile(), warnings = [{ id: 'point-2', old_name: 'Point', new_name: 'Point point', kind: 'feature' }];
+    const opening = value.backend.openActions({ recipe: {}, file: newFile, generation: 1, token: 'source', confirmedDiscard: true });
+    await settle(); request = worker.calls.at(-1);
+    const result = actionsCandidate(request, { generation: 2, token: 'opened', identity: { source_sha256: 'new' }, warnings });
+    sourceTransfer(worker, request, result, { confirm: adopted });
+    const interrupted = assert.rejects(opening, error => error.code === (adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled'));
+    const old = worker, restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+    sourcePromotion(old, request, 2);
+    worker.reply(actionsReady({ id: worker.calls[0].id })); await settle(); const restore = worker.calls.at(-1);
+    assert.equal(restore.payload.file, adopted ? newFile : originalFile);
+    assert.equal(restore.payload.recovery.generation, adopted ? 2 : 1);
+    assert.deepEqual(restore.payload.recovery.recipe, adopted ? result.graph.recipe : original.graph.recipe);
+    assert.deepEqual(restore.payload.recovery.import_warnings, adopted ? warnings : []);
+    const recovered = candidate(restore, { generation: adopted ? 2 : 1, token: adopted ? 'opened' : 'source',
+      identity: adopted ? result.source_identity : original.source_identity });
+    recovered.metadata.import_warnings = structuredClone(adopted ? warnings : []);
+    sourceTransfer(worker, restore, recovered);
+    sourcePromotion(worker, restore, adopted ? 2 : 1); await restoring; await interrupted;
+    value.backend.close();
+  }
+});
 
 test('source candidate adopts only after complete transfer confirmation and resolves after promotion', async () => {
   const { backend, worker } = await sourceFixture(), progress = [], file = sourceFile();
