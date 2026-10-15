@@ -79,6 +79,26 @@ code and publishes neither evidence nor temporary build files. Its summary is
 the selection record. Source lock changes on today's main do not invalidate a
 valid older release; rollback uses the selected commit's approved inventory.
 
+Historical semantic-policy support is explicit and bounded. The current verifier
+supports `bounded-semantic-parity-v1` implementations with SHA-256
+`6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967`
+(current) and
+`f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26`
+(reviewed historical implementation from main commit
+`b1b87227d547bee9f4c85066a30e96d8ad87e463`). It verifies repository-owned
+implementation bytes before loading them, requires both runtime profiles to
+identify the same supported policy, and recomputes complete retained receipts
+under that exact original implementation. It never loads artifact policy code
+or substitutes today's comparison semantics. The selection record includes the
+chosen policy version and hash.
+
+A supported policy is necessary, not sufficient: today's outer evidence schema,
+25 stages, provenance, source/asset/notice checks and archive limits still apply.
+Unknown or changed policy bytes reject, as do missing trusted implementations.
+Adding or revoking a supported hash requires a reviewed repository change;
+neither the version label nor this registry promises indefinite compatibility.
+Historical verifier copies are not packaged into the worker or published site.
+
 Numerical-only workspace and source reports also bind to their own complete
 site and runtime manifests, capability profile and manifest-listed asset bytes.
 Those assets travel under `evidence/numerical-assets/` for validation, including
@@ -237,7 +257,8 @@ tracked separately in #214.
 Record a known good selection before every update. Roll back by manually
 dispatching the same workflow with that selection's original run/artifact/hashes
 and `publish: true`. It restores the complete matching site, not just its HTML.
-The validator rejects expired or changed artifacts. CI artifacts currently last
+The validator rejects expired, changed or unsupported-policy artifacts. A local
+copy or registered historical policy does not override expiry. CI artifacts currently last
 **14 days**; the Pages transport artifact lasts **one day**. Indefinite rollback
 is not provided. A local copy helps review but is not accepted as a replacement
 for an expired GitHub artifact. A long-term release archive is follow-up scope.

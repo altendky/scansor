@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from tests.test_semantic_parity import retained_cone_pair as retained_cone_pair
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "pages_artifact", ROOT / "scripts/validate-pages-artifact.py"
@@ -21,6 +23,7 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC is not None and SPEC.loader is not None
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
+HISTORICAL_POLICY = "f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26"
 
 
 def encoded(value: Any) -> bytes:
@@ -31,7 +34,9 @@ def record(name: str, data: bytes, **extra: Any) -> dict[str, Any]:
     return {"path": name, **VALIDATOR.identity(data), **extra}
 
 
-def semantic_report(name: str) -> dict[str, Any]:
+def semantic_report(
+    name: str, policy_hash: str = VALIDATOR.CURRENT_SEMANTIC_POLICY
+) -> dict[str, Any]:
     """Synthetic complete records, never evidence of actual worker execution."""
     graph: dict[str, Any] = {
         "recipe": {
@@ -102,7 +107,7 @@ def semantic_report(name: str) -> dict[str, Any]:
         ]
         authoring = source_authoring_fixture()
         return {
-            **semantic_evidence([*cases, *authoring_batch(authoring)]),
+            **semantic_evidence([*cases, *authoring_batch(authoring)], policy_hash),
             "ui_authoring": authoring,
             "source_graph_schema": VALIDATOR.SOURCE_GRAPH_SCHEMA,
             "source_graph_projection": list(VALIDATOR.SOURCE_GRAPH_PROJECTION),
@@ -178,14 +183,14 @@ def semantic_report(name: str) -> dict[str, Any]:
                 for key, value in native.items()
             },
         }
-        result.update(semantic_evidence(workspace_batch(result)["cases"]))
+        result.update(semantic_evidence(workspace_batch(result)["cases"], policy_hash))
         return result
     value = {"fit": {"radius": 1.0}}
     cases = [
         {"id": case_id, "profile": profile, "actual": value, "expected": value}
         for case_id in ids
     ]
-    result = semantic_evidence(cases)
+    result = semantic_evidence(cases, policy_hash)
     return copy.deepcopy(result)
 
 
@@ -327,9 +332,11 @@ def authoring_batch(authoring: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def semantic_evidence(cases: list[dict[str, Any]]) -> dict[str, Any]:
+def semantic_evidence(
+    cases: list[dict[str, Any]], policy_hash: str = VALIDATOR.CURRENT_SEMANTIC_POLICY
+) -> dict[str, Any]:
     raw = encoded({"cases": cases})
-    receipt = VALIDATOR.trusted_semantic_policy()["compare_batch"](cases)
+    receipt = VALIDATOR.trusted_semantic_policy(policy_hash)["compare_batch"](cases)
     receipt["input_sha256"] = VALIDATOR.sha256(raw)
     return {
         "semantic_parity": receipt,
@@ -746,8 +753,12 @@ def test_repository_and_run_linkage_cannot_be_substituted(
 
 
 @pytest.fixture
-def selected(tmp_path: Path) -> dict[str, Any]:
+def selected(tmp_path: Path, request: pytest.FixtureRequest) -> dict[str, Any]:
     """A tiny schema-valid historical package, with no real browser claims."""
+    policy_hash = getattr(request, "param", VALIDATOR.CURRENT_SEMANTIC_POLICY)
+    helper_bytes = (
+        ROOT / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[policy_hash]
+    ).read_bytes()
     locks = tmp_path / "selected-locks"
     locks.mkdir()
     numeric = b"synthetic runtime; never executed"
@@ -851,9 +862,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
     source_zip = tmp_path / "source.zip"
     with zipfile.ZipFile(source_zip, "w") as archive:
         archive.writestr(example_path, example)
-        archive.writestr(
-            VALIDATOR.SEMANTIC_POLICY, (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
-        )
+        archive.writestr(VALIDATOR.SEMANTIC_POLICY, helper_bytes)
     runtime_files, runtime_redistribution = supplement(["numeric", "cad"])
     runtime_files.update(
         {
@@ -883,9 +892,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             {
                 "path": VALIDATOR.SEMANTIC_POLICY,
                 "archive_path": VALIDATOR.SEMANTIC_POLICY,
-                "sha256": VALIDATOR.sha256(
-                    (ROOT / VALIDATOR.SEMANTIC_POLICY).read_bytes()
-                ),
+                "sha256": VALIDATOR.sha256(helper_bytes),
             },
         ],
         "assets": [
@@ -1080,7 +1087,7 @@ def selected(tmp_path: Path) -> dict[str, Any]:
             },
         }
         if name in VALIDATOR.SEMANTIC_DRIVERS:
-            report.update(semantic_report(name))
+            report.update(semantic_report(name, policy_hash))
         if name.startswith("numerical-"):
             report["runtime"] = copy.deepcopy(numeric_site["runtime"])
             if name == "numerical-workspace":
@@ -2276,6 +2283,173 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
         _ = path.write_text('{"changed":"today"}')
     monkeypatch.setattr(VALIDATOR, "ROOT", today)
     assert validate(selected)["verified"] is True
+
+
+@pytest.mark.parametrize(
+    "selected", [HISTORICAL_POLICY, VALIDATOR.CURRENT_SEMANTIC_POLICY], indirect=True
+)
+def test_supported_distinct_policy_artifacts_use_exact_original_receipts(
+    selected: dict[str, Any],
+) -> None:
+    runtime = json.loads(selected["members"]["evidence/runtime-manifest.json"])
+    digest = runtime["source_files"][-1]["sha256"]
+    result = validate(selected)
+    assert result["semantic_policy"] == {
+        "version": "bounded-semantic-parity-v1",
+        "sha256": digest,
+    }
+    assert digest in VALIDATOR.SUPPORTED_SEMANTIC_POLICIES
+    for name in VALIDATOR.SEMANTIC_DRIVERS:
+        report = json.loads(selected["members"][f"evidence/{name}.json"])
+        assert report["semantic_parity"]["policy_sha256"] == digest
+    # A historical verifier dependency is not a public-site asset.
+    assert not (selected["tmp"] / "public-site/scripts/semantic-policies").exists()
+
+
+@pytest.mark.parametrize("policy_hash", list(VALIDATOR.SUPPORTED_SEMANTIC_POLICIES))
+@pytest.mark.parametrize("fault", ["missing", "tampered", "symlink"])
+def test_registered_policy_bytes_are_checked_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_hash: str, fault: str
+) -> None:
+    path = tmp_path / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[policy_hash]
+    path.parent.mkdir(parents=True)
+    if fault == "tampered":
+        _ = path.write_text("raise AssertionError('untrusted policy executed')\n")
+    elif fault == "symlink":
+        path.symlink_to(ROOT / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[policy_hash])
+    monkeypatch.setattr(VALIDATOR, "ROOT", tmp_path)
+
+    def must_not_execute(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("policy must reject before runpy")
+
+    monkeypatch.setattr(VALIDATOR.runpy, "run_path", must_not_execute)
+    with pytest.raises(ValueError, match=r"regular input|trusted policy changed"):
+        _ = VALIDATOR.trusted_semantic_policy(policy_hash)
+
+
+def test_unknown_policy_never_selects_a_path_or_executes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def must_not_execute(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("unknown policy executed")
+
+    monkeypatch.setattr(VALIDATOR.runpy, "run_path", must_not_execute)
+    with pytest.raises(ValueError, match="unsupported semantic policy"):
+        _ = VALIDATOR.trusted_semantic_policy("../artifact-policy.py")
+
+
+@pytest.mark.parametrize("selected", [HISTORICAL_POLICY], indirect=True)
+@pytest.mark.parametrize("fault", ["missing", "tampered"])
+def test_historical_archive_needs_intact_trusted_copy_before_any_output(
+    selected: dict[str, Any], monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    trusted_root = selected["tmp"] / "trusted-checkout"
+    path = trusted_root / VALIDATOR.SUPPORTED_SEMANTIC_POLICIES[HISTORICAL_POLICY]
+    path.parent.mkdir(parents=True)
+    if fault == "tampered":
+        _ = path.write_text("raise AssertionError('not trusted')\n")
+    monkeypatch.setattr(VALIDATOR, "ROOT", trusted_root)
+    with pytest.raises(ValueError, match=r"regular input|trusted policy changed"):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+    assert not (selected["tmp"] / "selection.json").exists()
+
+
+def test_real_cone_policy_boundary_does_not_substitute_current_semantics(
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    actual, expected = retained_cone_pair
+    before = encoded([actual, expected])
+    current = VALIDATOR.trusted_semantic_policy()
+    historical = VALIDATOR.trusted_semantic_policy(HISTORICAL_POLICY)
+    receipt = current["compare_semantic"](actual, expected, profile="numeric-fit")
+    assert receipt["complete"] is True
+    assert any(
+        item["reason"] == "discarded computed cone-v2 selected-data initializer"
+        for item in receipt["diagnostic_differences"]
+    )
+    with pytest.raises(historical["SemanticParityError"]):
+        _ = historical["compare_semantic"](actual, expected, profile="numeric-fit")
+    assert encoded([actual, expected]) == before
+
+
+@pytest.mark.parametrize("selected", [HISTORICAL_POLICY], indirect=True)
+@pytest.mark.parametrize("fault", ["receipt-policy", "geometry", "budget"])
+def test_historical_archive_rejects_rehashed_receipt_and_semantic_mutations(
+    selected: dict[str, Any],
+    retained_cone_pair: tuple[dict[str, Any], dict[str, Any]],
+    fault: str,
+) -> None:
+    # Complete recorded producer schema, with equal starts supported by f437.
+    value = retained_cone_pair[1]
+    cases: list[dict[str, Any]] = [
+        {
+            "id": "crash-force",
+            "profile": "result-map",
+            "actual": {"fit": copy.deepcopy(value)},
+            "expected": {"fit": copy.deepcopy(value)},
+        }
+    ]
+    report = semantic_evidence(cases, HISTORICAL_POLICY)
+    if fault == "receipt-policy":
+        # A valid receipt from another trusted helper must not be substituted.
+        report = semantic_evidence(cases)
+    elif fault == "geometry":
+        cases[0]["actual"]["fit"]["analytic"]["radius"] += 1
+        refresh_semantic_input(report, {"cases": cases})
+    else:
+        # Equal over-budget operands must fail independently, not just differ.
+        for key in ("actual", "expected"):
+            attempts = cases[0][key]["fit"]["initialization"]["recovery"]["attempts"]
+            attempts[0]["evaluations"] = 513
+        refresh_semantic_input(report, {"cases": cases})
+    name = "recovery"
+    members = selected["members"]
+    original = json.loads(members[f"evidence/{name}.json"])
+    original.update(report)
+    members[f"evidence/{name}.json"] = encoded(original)
+    verification = json.loads(members["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == name)["evidence"] = {
+        "path": name + ".json",
+        **VALIDATOR.identity(members[f"evidence/{name}.json"]),
+    }
+    members["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    with pytest.raises((ValueError, AssertionError)):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+    assert not (selected["tmp"] / "selection.json").exists()
+
+
+@pytest.mark.parametrize("selected", [HISTORICAL_POLICY], indirect=True)
+@pytest.mark.parametrize("fault", ["unknown", "mixed", "duplicate", "extra-field"])
+def test_historical_archive_rejects_refreshed_policy_inventory_before_loading(
+    selected: dict[str, Any], monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    manifest, runtime, files = numerical_fixture_parts(selected)
+    helper = runtime["source_files"][-1]
+    if fault == "unknown":
+        helper["sha256"] = "0" * 64
+    elif fault == "mixed":
+        helper["sha256"] = VALIDATOR.CURRENT_SEMANTIC_POLICY
+    elif fault == "duplicate":
+        runtime["source_files"].append(copy.deepcopy(helper))
+    else:
+        helper["module"] = "artifact-controlled.py"
+    rewrite_numerical_fixture(selected, manifest, runtime, files)
+
+    def must_not_load(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "inconsistent manifest policies must reject before loading"
+        )
+
+    monkeypatch.setattr(VALIDATOR, "trusted_semantic_policy", must_not_load)
+    with pytest.raises(
+        ValueError, match=r"packaged semantic policy differs|mixed semantic"
+    ):
+        _ = validate(selected)
+    assert not (selected["tmp"] / "public-site").exists()
+    assert not (selected["tmp"] / "selection.json").exists()
 
 
 @pytest.mark.parametrize(
