@@ -8,8 +8,8 @@ The graph adapter owns membership, initialization stages, and publication.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import asdict, dataclass
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,7 +28,11 @@ from experiments.support_intent import (
     support_record,
 )
 from experiments.surface_primitives import basis, revolution_geometry
-from scansor.constrained_least_squares import solve_constrained_least_squares
+from scansor.constrained_least_squares import (
+    ConstrainedLeastSquaresFailure,
+    ConstrainedLeastSquaresResult,
+    solve_constrained_least_squares,
+)
 
 Array = NDArray[np.float64]
 
@@ -45,6 +49,82 @@ class PointInput:
     result: dict[str, Any]
     free: bool
     source: str | None = None
+
+
+@dataclass(frozen=True)
+class PlaneInput:
+    result: dict[str, Any]
+    free: bool
+    axis: str | None = None
+    construction: str | None = None
+    source: str | None = None
+
+
+@dataclass(frozen=True)
+class RotationInput:
+    axis: str
+    members: tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class MirrorInput:
+    plane: str
+    members: tuple[str, str]
+
+
+@dataclass(frozen=True)
+class RadiusDistanceInput:
+    radius_surface: str
+    plane_surface: str
+    reference_plane: str
+    sign: int | None = None
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+class RelationshipFailure(ValueError):
+    def __init__(
+        self, message: str, *, code: str = "invalid-input", details: Any = None
+    ) -> None:
+        self.code: str = code
+        self.diagnostic: dict[str, Any] = _json_safe(
+            {
+                "kind": "relationship_fit_failure",
+                "code": code,
+                "message": message,
+                "details": details,
+            }
+        )
+        super().__init__(message)
+
+
+def _finite_array(value: Any, shape: tuple[int, ...], label: str) -> Array:
+    try:
+        raw = np.asarray(value)
+        if raw.dtype.kind not in "iuf":
+            raise ValueError("expected real numeric values")
+        result = np.array(raw, dtype=float, copy=True)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise RelationshipFailure(f"{label} must contain finite real values") from error
+    if result.shape != shape or not np.isfinite(result).all():
+        raise RelationshipFailure(f"{label} has invalid shape or nonfinite values")
+    return result
+
+
+def _checked_norm(value: Array, label: str) -> float:
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        norm = float(np.linalg.norm(value))
+    if not np.isfinite(norm) or norm <= 0:
+        raise RelationshipFailure(f"{label} has an unrepresentable direction length")
+    return norm
 
 
 @dataclass(frozen=True)
@@ -78,6 +158,10 @@ def fit_relationship_component(
     centers: dict[str, PointInput] | None = None,
     *,
     control: AttemptControl | None = None,
+    planes: dict[str, PlaneInput] | None = None,
+    rotations: tuple[RotationInput, ...] = (),
+    mirrors: tuple[MirrorInput, ...] = (),
+    radius_distances: tuple[RadiusDistanceInput, ...] = (),
 ) -> dict[str, Any]:
     """Fit planes and lateral surfaces while retaining every declared equality.
 
@@ -89,28 +173,167 @@ def fit_relationship_component(
     """
     if control is not None:
         control.checkpoint()
-    legacy = not any(
-        "analytic" in surface.result or "support_intent" in surface.result
-        for surface in surfaces
-    ) and all(
-        "parameters" in axis.result and not axis.result.get("axis_is_directed", False)
-        for axis in axes.values()
+    planes = planes or {}
+    symmetry = bool(planes or rotations or mirrors or radius_distances)
+    by_id = {surface.id: surface for surface in surfaces}
+    if symmetry:
+        if any(
+            not isinstance(cast(object, key), str) or not key
+            for key in [*by_id, *axes, *planes]
+        ):
+            raise RelationshipFailure("relationship IDs must be nonempty strings")
+        if (
+            any(
+                not isinstance(cast(object, value), PlaneInput)
+                for value in planes.values()
+            )
+            or any(
+                not isinstance(cast(object, value), RotationInput)
+                for value in rotations
+            )
+            or any(
+                not isinstance(cast(object, value), MirrorInput) for value in mirrors
+            )
+            or any(
+                not isinstance(cast(object, value), RadiusDistanceInput)
+                for value in radius_distances
+            )
+        ):
+            raise RelationshipFailure(
+                "relationship inputs have unsupported record types"
+            )
+        if len(by_id) != len(surfaces) or not surfaces:
+            raise RelationshipFailure(
+                "relationship observations need distinct surface IDs"
+            )
+        for surface in surfaces:
+            if (
+                surface.points.ndim != 2
+                or surface.points.shape[1] != 3
+                or surface.weights.shape != (len(surface.points),)
+                or not len(surface.points)
+                or not np.isfinite(surface.points).all()
+                or not np.isfinite(surface.weights).all()
+                or np.any(surface.weights <= 0)
+            ):
+                raise RelationshipFailure(
+                    "relationship observations need finite XYZ rows and positive weights"
+                )
+        for relation in (*rotations, *mirrors):
+            count = 3 if isinstance(relation, RotationInput) else 2
+            if not isinstance(cast(object, relation.members), (tuple, list)) or any(
+                not isinstance(cast(object, key), str) or not key
+                for key in relation.members
+            ):
+                raise RelationshipFailure(
+                    "symmetry member IDs must be nonempty strings"
+                )
+            if (
+                len(relation.members) != count
+                or len(set(relation.members)) != count
+                or any(key not in by_id for key in relation.members)
+            ):
+                raise RelationshipFailure(
+                    "symmetry requires distinct available members"
+                )
+            kinds = {by_id[key].kind for key in relation.members}
+            if len(kinds) != 1 or not kinds <= {"plane", "cylinder", "cone"}:
+                raise RelationshipFailure(
+                    "symmetry members must have the same supported kind"
+                )
+            if isinstance(relation, RotationInput):
+                if (
+                    not isinstance(cast(object, relation.axis), str)
+                    or relation.axis not in axes
+                ):
+                    raise RelationshipFailure("rotation axis is unavailable")
+            elif not isinstance(cast(object, relation.plane), str):
+                raise RelationshipFailure("mirror datum ID must be a string")
+        for datum in planes.values():
+            if datum.source is not None and not isinstance(
+                cast(object, datum.source), str
+            ):
+                raise RelationshipFailure("plane provider alias ID must be a string")
+            if datum.axis is not None and not isinstance(cast(object, datum.axis), str):
+                raise RelationshipFailure("datum axis ID must be a string")
+        for relation in radius_distances:
+            if any(
+                not isinstance(cast(object, key), str) or not key
+                for key in (
+                    relation.radius_surface,
+                    relation.plane_surface,
+                    relation.reference_plane,
+                )
+            ):
+                raise RelationshipFailure(
+                    "radius-distance IDs must be nonempty strings"
+                )
+        for key, axis in axes.items():
+            if not isinstance(cast(object, axis), AxisInput):
+                raise RelationshipFailure("axis inputs have unsupported record types")
+            if axis.source is not None and not isinstance(
+                cast(object, axis.source), str
+            ):
+                raise RelationshipFailure("axis provider alias ID must be a string")
+            direction = _finite_array(
+                axis.result.get("axis_display"), (3,), "axis direction"
+            )
+            point = _finite_array(axis.result.get("point_display"), (3,), "axis point")
+            _ = _checked_norm(direction, "axis")
+            if (
+                direction.shape != (3,)
+                or point.shape != (3,)
+                or not np.isfinite(direction).all()
+                or not np.isfinite(point).all()
+                or np.linalg.norm(direction) <= 0
+            ):
+                raise RelationshipFailure(
+                    f"axis {key} needs finite point and direction"
+                )
+    legacy = (
+        not symmetry
+        and not any(
+            "analytic" in surface.result or "support_intent" in surface.result
+            for surface in surfaces
+        )
+        and all(
+            "parameters" in axis.result
+            and not axis.result.get("axis_is_directed", False)
+            for axis in axes.values()
+        )
     )
 
     def root_axis(key: str) -> str:
         seen: set[str] = set()
         while axes[key].source is not None:
             if key in seen:
+                if symmetry:
+                    raise RelationshipFailure("axis provider aliases contain a cycle")
                 raise ValueError("axis provider aliases contain a cycle")
             seen.add(key)
             source = axes[key].source
             assert source is not None
             if source not in axes:
+                if symmetry:
+                    raise RelationshipFailure("axis provider alias is unavailable")
                 raise ValueError("axis provider alias is unavailable")
             key = source
         return key
 
     axis_roots = {key: root_axis(key) for key in axes}
+    plane_roots: dict[str, str] = {}
+    for key in planes:
+        current, seen = key, set[str]()
+        while planes[current].source is not None:
+            if current in seen:
+                raise RelationshipFailure("plane provider aliases contain a cycle")
+            seen.add(current)
+            source = planes[current].source
+            if source not in planes:
+                raise RelationshipFailure("plane provider alias is unavailable")
+            assert source is not None
+            current = source
+        plane_roots[key] = current
     all_weights = np.concatenate([surface.weights for surface in surfaces])
     frame = CoordinateFrame.from_observations(
         np.concatenate([surface.points for surface in surfaces]), all_weights
@@ -137,7 +360,13 @@ def fit_relationship_component(
             continue
         value = axis.result
         direction = np.array(value["axis_display"], dtype=float)
-        direction /= np.linalg.norm(direction)
+        direction_length = float(np.linalg.norm(direction))
+        if not (
+            symmetry
+            and not axis.free
+            and abs(direction_length - 1) <= 8 * np.finfo(float).eps
+        ):
+            direction /= direction_length
         point = (np.asarray(value["point_display"], dtype=float) - origin) / length
         if axis.free:
             axis_slots[key] = len(initial)
@@ -167,6 +396,54 @@ def fit_relationship_component(
                     point -= point[2] / direction[2] * direction
             fixed_axes[key] = (point, direction)
     plane_slots: dict[str, int] = {}
+    fixed_planes: dict[str, tuple[Array, float]] = {}
+    plane_alias_signs: dict[str, float] = {}
+    plane_specs: dict[str, tuple[str | None, str | None]] = {}
+    plane_equations: dict[str, Array] = {}
+    for key, datum in planes.items():
+        equation = _finite_array(
+            datum.result.get("plane_equation"), (4,), "datum plane equation"
+        )
+        norm = _checked_norm(equation[:3], "datum plane")
+        with np.errstate(over="ignore", invalid="ignore"):
+            plane_equations[key] = (
+                equation
+                if abs(norm - 1) <= 8 * np.finfo(float).eps
+                else equation / norm
+            )
+        if not np.isfinite(plane_equations[key]).all():
+            raise RelationshipFailure("normalized datum plane is unrepresentable")
+    for key, datum in planes.items():
+        equation = plane_equations[key]
+        if (
+            equation.shape != (4,)
+            or not np.isfinite(equation).all()
+            or np.linalg.norm(equation[:3]) <= 0
+        ):
+            raise RelationshipFailure(
+                "datum plane needs a finite nonzero world equation"
+            )
+        if datum.axis is not None and datum.axis not in axes:
+            raise RelationshipFailure("datum plane axis is unavailable")
+        if datum.construction not in {
+            None,
+            "contains_axis",
+            "parallel_to_axis",
+            "perpendicular_to_axis",
+        }:
+            raise RelationshipFailure("unsupported datum plane construction")
+        provider_key = plane_roots[key]
+        reference = plane_equations[provider_key]
+        plane_alias_signs[key] = 1.0 if equation[:3] @ reference[:3] >= 0 else -1.0
+        if datum.source is not None:
+            continue
+        offset = float((equation[3] - equation[:3] @ origin) / length)
+        plane_specs[key] = (datum.axis, datum.construction)
+        if datum.free:
+            plane_slots[key] = len(initial)
+            initial.extend([*equation[:3], offset])
+        else:
+            fixed_planes[key] = (equation[:3].copy(), offset)
     plane_keys: dict[str, str] = {}
     side_slots: dict[str, int] = {}
     lateral_geometry: dict[str, dict[str, Any]] = {}
@@ -177,7 +454,10 @@ def fit_relationship_component(
         if surface.kind == "plane":
             key = surface.datum or surface.id
             plane_keys[surface.id] = key
-            if key in plane_slots:
+            _ = plane_roots.setdefault(key, key)
+            _ = plane_alias_signs.setdefault(key, 1.0)
+            _ = plane_specs.setdefault(key, (surface.axis, surface.construction))
+            if key in planes or key in plane_slots:
                 continue
             equation_value = value.get("plane_equation")
             if equation_value is None:
@@ -188,7 +468,13 @@ def fit_relationship_component(
                     normal = np.array([parameters[2], parameters[3], 1.0])
                     normal /= np.linalg.norm(normal)
                     equation_value = [*normal, parameters[5]]
-            equation = np.asarray(equation_value, dtype=float)
+            equation = (
+                _finite_array(equation_value, (4,), "surface plane equation")
+                if symmetry
+                else np.asarray(equation_value, dtype=float)
+            )
+            if symmetry:
+                _ = _checked_norm(equation[:3], "surface plane")
             equation /= np.linalg.norm(equation[:3])
             plane_slots[key] = len(initial)
             initial.extend(
@@ -196,6 +482,10 @@ def fit_relationship_component(
             )
         elif surface.kind in {"cylinder", "cone"}:
             if surface.axis not in axes:
+                if symmetry:
+                    raise RelationshipFailure(
+                        "coupled lateral fits require an evaluated axis"
+                    )
                 raise ValueError("coupled lateral fits require an evaluated axis")
             side_slots[surface.id] = len(initial)
             if legacy:
@@ -258,12 +548,17 @@ def fit_relationship_component(
         return point, direction, point_j, direction_j
 
     def plane_geometry(key: str, p: Array) -> tuple[Array, float, Array, Array]:
+        sign = plane_alias_signs[key]
+        key = plane_roots[key]
+        if key in fixed_planes:
+            normal, offset = fixed_planes[key]
+            return sign * normal, sign * offset, np.zeros((3, size)), np.zeros(size)
         start = plane_slots[key]
         return (
-            p[start : start + 3],
-            float(p[start + 3]),
-            identity[start : start + 3],
-            identity[start + 3],
+            sign * p[start : start + 3],
+            sign * float(p[start + 3]),
+            sign * identity[start : start + 3],
+            sign * identity[start + 3],
         )
 
     def point_geometry(key: str, p: Array) -> tuple[Array, Array]:
@@ -329,7 +624,7 @@ def fit_relationship_component(
     # Choose signs per normal-equivalence class, not independently per edge:
     # pairwise initial dot products can create an impossible odd sign cycle.
     p0 = np.asarray(initial)
-    parents = {key: key for key in plane_slots}
+    parents = {key: key for key in (*plane_slots, *fixed_planes)}
 
     def root(key: str) -> str:
         while parents[key] != key:
@@ -338,9 +633,9 @@ def fit_relationship_component(
         return key
 
     for _, group in relationships:
-        anchor = root(plane_keys[group[0]])
+        anchor = root(plane_roots[plane_keys[group[0]]])
         for key in group[1:]:
-            parents[root(plane_keys[key])] = anchor
+            parents[root(plane_roots[plane_keys[key]])] = anchor
     perpendicular_keys: dict[str, str] = {}
     for surface in surfaces:
         if (
@@ -348,18 +643,21 @@ def fit_relationship_component(
             and surface.axis is not None
             and surface.construction == "perpendicular_to_axis"
         ):
-            key = plane_keys[surface.id]
+            key = plane_roots[plane_keys[surface.id]]
             other = perpendicular_keys.setdefault(axis_roots[surface.axis], key)
             parents[root(key)] = root(other)
     orientations = {
         key: 1.0
         if plane_geometry(key, p0)[0] @ plane_geometry(root(key), p0)[0] >= 0
         else -1.0
-        for key in plane_slots
+        for key in parents
     }
     relation_signs = [
         [
-            orientations[plane_keys[group[0]]] * orientations[plane_keys[key]]
+            orientations[plane_roots[plane_keys[group[0]]]]
+            * orientations[plane_roots[plane_keys[key]]]
+            * plane_alias_signs[plane_keys[group[0]]]
+            * plane_alias_signs[plane_keys[key]]
             for key in group[1:]
         ]
         for _, group in relationships
@@ -370,6 +668,10 @@ def fit_relationship_component(
     # Independent near-opposite seeds can otherwise trap Newton projection on
     # incompatible orientation branches despite feasible unoriented planes.
     for representative in dict.fromkeys(root(key) for key in plane_slots):
+        if symmetry:
+            # Explicit datums may have no observation rows; fixed parameters
+            # and free clocking starts retain their declared provider roles.
+            continue
         keys = [key for key in plane_slots if root(key) == representative]
         # Parallel planes share a normal, not necessarily an offset. Center
         # each datum's evidence separately before combining its scatter. This
@@ -412,6 +714,8 @@ def fit_relationship_component(
     for surface in surfaces:
         if surface.kind == "plane":
             key = plane_keys[surface.id]
+            if symmetry and (key in planes or plane_roots[key] in fixed_planes):
+                continue
             normal = plane_geometry(key, p0)[0]
             offset = normalized_weights(surface.weights) @ (points[surface.id] @ normal)
             if surface.axis is not None and surface.construction == "contains_axis":
@@ -432,6 +736,117 @@ def fit_relationship_component(
                 surface.result["parameters"][4] + taper * origin[2] / direction[2]
             ) / length
 
+    if symmetry:
+        for relation in mirrors:
+            if relation.plane not in plane_roots:
+                raise RelationshipFailure("mirror datum plane is unavailable")
+            axis, construction = plane_specs[plane_roots[relation.plane]]
+            if axis is None or construction != "contains_axis":
+                raise RelationshipFailure("mirror datum must contain an available axis")
+        for relation in radius_distances:
+            if (
+                relation.radius_surface not in by_id
+                or by_id[relation.radius_surface].kind != "cylinder"
+                or relation.plane_surface not in plane_keys
+                or relation.reference_plane not in plane_roots
+            ):
+                raise RelationshipFailure(
+                    "radius-distance requires a cylinder, plane surface and datum"
+                )
+            if relation.sign not in (None, -1, 1) or isinstance(
+                cast(object, relation.sign), bool
+            ):
+                raise RelationshipFailure("radius-distance side must be -1 or +1")
+
+    def transformed(
+        relation: RotationInput | MirrorInput, slot: int, p: Array
+    ) -> tuple[Array, Array, Array, Array]:
+        if isinstance(relation, RotationInput):
+            center, direction, center_j, direction_j = axis_geometry(relation.axis, p)
+            provider = axes[axis_roots[relation.axis]].result
+            sign = (
+                1.0
+                if np.asarray(axes[relation.axis].result["axis_display"])
+                @ np.asarray(provider["axis_display"])
+                >= 0
+                else -1.0
+            )
+            direction, direction_j = sign * direction, sign * direction_j
+            angle = slot * 2 * np.pi / 3
+            c, s = np.cos(angle), np.sin(angle)
+
+            def skew(v: Array) -> Array:
+                x, y, z = v
+                return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
+
+            matrix = (
+                c * np.eye(3)
+                + s * skew(direction)
+                + (1 - c) * np.outer(direction, direction)
+            )
+            matrix_j = (
+                np.stack(
+                    [
+                        s * skew(v)
+                        + (1 - c) * (np.outer(v, direction) + np.outer(direction, v))
+                        for v in direction_j.T
+                    ],
+                    axis=2,
+                )
+                if size
+                else np.zeros((3, 3, 0))
+            )
+            translation = center - matrix @ center
+            translation_j = (
+                center_j - matrix @ center_j - np.einsum("ijk,j->ik", matrix_j, center)
+            )
+        else:
+            normal, offset, normal_j, offset_j = plane_geometry(relation.plane, p)
+            matrix = np.eye(3) - 2 * np.outer(normal, normal)
+            matrix_j = -2 * (
+                np.einsum("ik,j->ijk", normal_j, normal)
+                + np.einsum("i,jk->ijk", normal, normal_j)
+            )
+            translation = 2 * offset * normal
+            translation_j = 2 * (offset * normal_j + np.outer(normal, offset_j))
+        return matrix, translation, matrix_j, translation_j
+
+    symmetry_signs: list[list[float]] = []
+    for relation in (*rotations, *mirrors):
+        first = by_id[relation.members[0]]
+        signs: list[float] = []
+        for slot, key in enumerate(relation.members[1:], start=1):
+            matrix = transformed(relation, slot, p0)[0]
+            if first.kind == "plane":
+                a = plane_geometry(plane_keys[first.id], p0)[0]
+                b = plane_geometry(plane_keys[key], p0)[0]
+            else:
+                other_axis = by_id[key].axis
+                assert first.axis is not None and other_axis is not None
+                a = axis_geometry(first.axis, p0)[1]
+                b = axis_geometry(other_axis, p0)[1]
+            signs.append(1.0 if b @ (matrix @ a) >= 0 else -1.0)
+        symmetry_signs.append(signs)
+    distance_branches: list[tuple[float, float]] = []
+    for relation in radius_distances:
+        n, h, _, _ = plane_geometry(plane_keys[relation.plane_surface], p0)
+        ref, offset, _, _ = plane_geometry(relation.reference_plane, p0)
+        alignment = 1.0 if n @ ref >= 0 else -1.0
+        separation = alignment * h - offset
+        if relation.sign is None and separation == 0:
+            raise RelationshipFailure(
+                "radius-distance side is undefined at the initial planes",
+                code="ambiguous",
+            )
+        distance_branches.append(
+            (
+                alignment,
+                float(relation.sign)
+                if relation.sign is not None
+                else (1.0 if separation > 0 else -1.0),
+            )
+        )
+
     def equalities(p: Array) -> tuple[Array, Array]:
         values: list[Array] = []
         jacobians: list[Array] = []
@@ -443,6 +858,24 @@ def fit_relationship_component(
         for key in plane_slots:
             normal, _, normal_j, _ = plane_geometry(key, p)
             append((normal @ normal - 1) / 2, normal @ normal_j)
+        for key, (axis, construction) in plane_specs.items():
+            if key not in planes or axis is None:
+                continue
+            point, direction, point_j, direction_j = axis_geometry(axis, p)
+            normal, offset, normal_j, offset_j = plane_geometry(key, p)
+            if construction == "perpendicular_to_axis":
+                append(
+                    np.cross(normal, direction),
+                    np.cross(normal_j.T, direction).T
+                    + np.cross(normal, direction_j.T).T,
+                )
+            elif construction in {"contains_axis", "parallel_to_axis"}:
+                append(normal @ direction, direction @ normal_j + normal @ direction_j)
+                if construction == "contains_axis":
+                    append(
+                        offset - normal @ point,
+                        offset_j - point @ normal_j - normal @ point_j,
+                    )
         bound: set[str] = set()
         for surface in surfaces:
             if surface.kind != "plane" or surface.axis is None:
@@ -483,6 +916,81 @@ def fit_relationship_component(
             for key in group[1:]:
                 other = side_slots[key]
                 append(p[first] - p[other], identity[first] - identity[other])
+        for relation, signs in zip((*rotations, *mirrors), symmetry_signs, strict=True):
+            first = by_id[relation.members[0]]
+            for slot, (key, sign) in enumerate(
+                zip(relation.members[1:], signs, strict=True), start=1
+            ):
+                matrix, translation, matrix_j, translation_j = transformed(
+                    relation, slot, p
+                )
+                if first.kind == "plane":
+                    n, h, n_j, h_j = plane_geometry(plane_keys[first.id], p)
+                    target = matrix @ n
+                    target_j = matrix @ n_j + np.einsum("ijk,j->ik", matrix_j, n)
+                    offset = h + target @ translation
+                    offset_j = h_j + translation @ target_j + target @ translation_j
+                    other, other_h, other_j, other_h_j = plane_geometry(
+                        plane_keys[key], p
+                    )
+                    append(other - sign * target, other_j - sign * target_j)
+                    append(other_h - sign * offset, other_h_j - sign * offset_j)
+                else:
+                    other_axis = by_id[key].axis
+                    assert first.axis is not None and other_axis is not None
+                    point, direction, point_j, direction_j = axis_geometry(
+                        first.axis, p
+                    )
+                    target_point = matrix @ point + translation
+                    target_point_j = (
+                        matrix @ point_j
+                        + np.einsum("ijk,j->ik", matrix_j, point)
+                        + translation_j
+                    )
+                    target_direction = matrix @ direction
+                    target_direction_j = matrix @ direction_j + np.einsum(
+                        "ijk,j->ik", matrix_j, direction
+                    )
+                    other, other_direction, other_j, other_direction_j = axis_geometry(
+                        other_axis, p
+                    )
+                    delta = np.asarray(other - target_point, dtype=float)
+                    delta_j = np.asarray(other_j - target_point_j, dtype=float)
+                    append(
+                        other_direction - sign * target_direction,
+                        other_direction_j - sign * target_direction_j,
+                    )
+                    append(
+                        np.cross(other_direction, delta),
+                        np.cross(other_direction_j.T, delta).T
+                        + np.cross(other_direction, delta_j.T).T,
+                    )
+                    a, b = side_slots[first.id], side_slots[key]
+                    taper = p[a + 1] if first.kind == "cone" else 0.0
+                    taper_j = (
+                        identity[a + 1] if first.kind == "cone" else np.zeros(size)
+                    )
+                    shift = delta @ target_direction
+                    shift_j = target_direction @ delta_j + delta @ target_direction_j
+                    append(
+                        p[b] - p[a] - taper * shift,
+                        identity[b] - identity[a] - taper_j * shift - taper * shift_j,
+                    )
+                    if first.kind == "cone":
+                        append(
+                            p[b + 1] - sign * taper, identity[b + 1] - sign * taper_j
+                        )
+        for relation, (alignment, side) in zip(
+            radius_distances, distance_branches, strict=True
+        ):
+            n, h, n_j, h_j = plane_geometry(plane_keys[relation.plane_surface], p)
+            ref, offset, ref_j, offset_j = plane_geometry(relation.reference_plane, p)
+            append(alignment * n - ref, alignment * n_j - ref_j)
+            start = side_slots[relation.radius_surface]
+            append(
+                side * (alignment * h - offset) - p[start],
+                side * (alignment * h_j - offset_j) - identity[start],
+            )
         if not values:
             return np.empty(0), np.empty((0, size))
         return np.concatenate(values), np.vstack(jacobians)
@@ -606,15 +1114,62 @@ def fit_relationship_component(
         for surface in surfaces:
             if surface.kind in {"cylinder", "cone"}:
                 _ = canonical_surface(surface, p0)
-    fitted = solve_constrained_least_squares(
-        p0,
-        observations if control is None else lambda p: control.call(observations, p),
-        equalities if control is None else lambda p: control.call(equalities, p),
-        parameter_scales=np.ones(size),
-        geometry_is_valid=valid,
-        max_iterations=100 if control is None else control.limits.max_iterations,
-        max_trials=32 if control is None else control.limits.max_trials,
-    )
+    try:
+        if size == 0 and symmetry:
+            residual, _ = (
+                observations(p0) if control is None else control.call(observations, p0)
+            )
+            constraints, _ = (
+                equalities(p0) if control is None else control.call(equalities, p0)
+            )
+            violation = float(np.max(np.abs(constraints), initial=0.0))
+            if not valid(p0) or violation > 1e-10:
+                raise RelationshipFailure(
+                    "fixed geometry violates declared relationships",
+                    code="infeasible-constraints",
+                )
+            fitted = ConstrainedLeastSquaresResult(
+                (),
+                (float(residual @ residual / 2),),
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                1.0,
+                0.0,
+                violation,
+                "constrained-stationarity",
+            )
+        else:
+            fitted = solve_constrained_least_squares(
+                p0,
+                observations
+                if control is None
+                else lambda p: control.call(observations, p),
+                equalities
+                if control is None
+                else lambda p: control.call(equalities, p),
+                parameter_scales=np.ones(size),
+                # The new exact-symmetry path needs tighter local numerical
+                # stationarity than the historical component default. This is
+                # independent of physical acceptance and preserves old callers.
+                gradient_tolerance=1e-10 if symmetry else 1e-9,
+                geometry_is_valid=valid,
+                max_iterations=100
+                if control is None
+                else control.limits.max_iterations,
+                max_trials=32 if control is None else control.limits.max_trials,
+            )
+    except ConstrainedLeastSquaresFailure as error:
+        if not symmetry:
+            raise
+        raise RelationshipFailure(
+            str(error),
+            code=error.code,
+            details=None if error.diagnostics is None else asdict(error.diagnostics),
+        ) from error
     parameters = np.asarray(fitted.parameters)
     final_constraints, _ = (
         equalities(parameters)
@@ -622,11 +1177,20 @@ def fit_relationship_component(
         else control.call(equalities, parameters)
     )
     if np.max(np.abs(final_constraints), initial=0.0) > 1e-10:
+        if symmetry:
+            raise RelationshipFailure(
+                "joint geometry does not satisfy declared relationships",
+                code="infeasible-constraints",
+            )
         raise ValueError("joint geometry does not satisfy its declared relationships")
     output_axes: dict[str, dict[str, Any]] = {}
     for key, axis in axes.items():
         point, direction, _, _ = axis_geometry(key, parameters)
         world_point = origin + length * point
+        if symmetry and axis_roots[key] in fixed_axes:
+            world_point = np.asarray(
+                axes[axis_roots[key]].result["point_display"]
+            ).copy()
         result = deepcopy(axis.result)
         if not legacy:
             provider = axes[axis_roots[key]].result
@@ -674,6 +1238,41 @@ def fit_relationship_component(
         if "coordinates" in value:
             value["coordinates"] = value["point_display"].copy()
     equations: dict[str, list[float]] = {}
+    output_planes: dict[str, dict[str, Any]] = {}
+    for key, datum in planes.items():
+        normal, offset, _, _ = plane_geometry(key, parameters)
+        world_offset = float(length * offset + normal @ origin)
+        equation = [*map(float, normal), world_offset]
+        equations[key] = equation
+        record = {
+            **deepcopy(datum.result),
+            "plane_equation": equation,
+            "normal_display": normal.tolist(),
+            "resolved_by": "plane_relationship",
+        }
+        axis_key, construction = plane_specs[plane_roots[key]]
+        if axis_key is not None:
+            axis_record = output_axes[axis_key]
+            anchor, direction = (
+                np.asarray(axis_record["point_display"]),
+                np.asarray(axis_record["axis_display"]),
+            )
+            first, second = basis(direction)
+            radial = np.cross(normal, direction)
+            record.update(
+                axis_display=direction.tolist(),
+                point_display=(
+                    anchor + (world_offset - normal @ anchor) * normal
+                ).tolist(),
+                offset=float(world_offset - normal @ anchor),
+                construction=construction,
+                angle_degrees=None
+                if construction == "perpendicular_to_axis"
+                else float(np.degrees(np.arctan2(radial @ second, radial @ first))),
+            )
+        else:
+            record["point_display"] = (world_offset * normal).tolist()
+        output_planes[key] = record
     for surface in surfaces:
         result = deepcopy(surface.result)
         if surface.kind == "plane":
@@ -754,6 +1353,7 @@ def fit_relationship_component(
         "surfaces": output_surfaces,
         "axes": output_axes,
         "points": output_points,
+        **({"planes": output_planes} if symmetry else {}),
         "equations": equations,
         "solver": {
             "termination": fitted.termination,

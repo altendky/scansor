@@ -60,7 +60,11 @@ horizontal axes; optional wrong/stale hints do not replace fresh attempts. Free
 shared cylinder groups use their combined observations and independent radii;
 fixed axes remain exact. Per-axis constrained charts, derived axes, radius
 equalities and rigid reuse consume the canonical geometry. Generic
-rotational/mirror groups remain guarded pending their integration work.
+rotational/mirror groups remain guarded pending their integration work:
+[#272](https://github.com/altendky/scansor/issues/272) supplies the
+[canonical symmetry equations](../experiments/generic-symmetry-fitting.md),
+then [#273](https://github.com/altendky/scansor/issues/273) owns group recovery,
+graph/provider publication, reuse, CAD and actual packaged execution.
 
 The [raw-nozzle acceptance regression](../../../../tests/test_scan_raw_acceptance.py)
 opens only the retained RealityScan PLY bytes into a source-only project, then
