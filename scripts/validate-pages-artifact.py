@@ -91,6 +91,17 @@ EVIDENCE = {
     "numerical-runtime-manifest.json",
 }
 SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
+CURRENT_SEMANTIC_POLICY = (
+    "6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967"
+)
+# Reviewed trusted implementations, never paths supplied by selected evidence.
+SUPPORTED_SEMANTIC_POLICIES = {
+    CURRENT_SEMANTIC_POLICY: SEMANTIC_POLICY,
+    "f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26": (
+        "scripts/semantic-policies/"
+        "f437b7fa77507889335ec686cd9024254963d5c2ca0aadc8d9311a6c664b3e26.py"
+    ),
+}
 SOURCE_GRAPH_DRIVERS = (
     "source-import",
     "source-import-isolated",
@@ -535,12 +546,21 @@ def exact_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def trusted_semantic_policy() -> dict[str, Any]:
-    # Execute only the reviewed checkout helper, never a downloaded archive member.
-    path = ROOT / SEMANTIC_POLICY
-    expected_hash = sha256(regular_bytes(path))
+def trusted_semantic_policy(
+    expected_hash: str = CURRENT_SEMANTIC_POLICY,
+) -> dict[str, Any]:
+    # Hash trusted repository bytes BEFORE executing; archive code is never loaded.
+    require(expected_hash in SUPPORTED_SEMANTIC_POLICIES, "unsupported semantic policy")
+    path = ROOT / SUPPORTED_SEMANTIC_POLICIES[expected_hash]
+    require(sha256(regular_bytes(path)) == expected_hash, "trusted policy changed")
     policy = runpy.run_path(str(path))
-    require(policy["policy_sha256"]() == expected_hash, "trusted policy changed")
+    require(
+        policy.get("POLICY_VERSION") == "bounded-semantic-parity-v1"
+        and callable(policy.get("policy_sha256"))
+        and callable(policy.get("compare_batch"))
+        and policy["policy_sha256"]() == expected_hash,
+        "invalid trusted semantic policy",
+    )
     return policy
 
 
@@ -1193,7 +1213,7 @@ def validate_semantic_parity(
 
 def validate_evidence(
     evidence: dict[str, bytes], site_raw: bytes, runtime_raw: bytes
-) -> None:
+) -> dict[str, str]:
     require(set(evidence) == EVIDENCE, "unexpected or missing evidence files")
     report = object_json(evidence["verification.json"])
     require(
@@ -1276,7 +1296,7 @@ def validate_evidence(
         numerical_runtime.get("manifest_sha256") == sha256(numerical_runtime_raw),
         "numerical runtime manifest identity mismatch",
     )
-    policy = trusted_semantic_policy()
+    policy_hashes: list[str] = []
     for runtime in (
         object_json(runtime_raw),
         object_json(evidence["numerical-runtime-manifest.json"]),
@@ -1286,17 +1306,22 @@ def validate_evidence(
             for value in array_value(runtime.get("source_files"))
             if object_value(value).get("archive_path") == SEMANTIC_POLICY
         ]
+        require(len(helper_records) == 1, "packaged semantic policy differs")
+        helper = helper_records[0]
+        policy_hash = digest_value(helper.get("sha256"))
         require(
-            helper_records
-            == [
-                {
-                    "path": SEMANTIC_POLICY,
-                    "archive_path": SEMANTIC_POLICY,
-                    "sha256": policy["policy_sha256"](),
-                }
-            ],
-            "packaged semantic policy differs from trusted checkout",
+            helper
+            == {
+                "path": SEMANTIC_POLICY,
+                "archive_path": SEMANTIC_POLICY,
+                "sha256": policy_hash,
+            }
+            and policy_hash in SUPPORTED_SEMANTIC_POLICIES,
+            "packaged semantic policy differs from supported trusted policies",
         )
+        policy_hashes.append(policy_hash)
+    require(policy_hashes[0] == policy_hashes[1], "mixed semantic policies")
+    policy = trusted_semantic_policy(policy_hashes[0])
     for name in DRIVERS:
         item = object_json(evidence[f"{name}.json"], limit=driver_json_limit(name))
         require(
@@ -1443,6 +1468,8 @@ def validate_evidence(
                 item.get("source_revision") == site["source_revision"],
                 f"driver {name} source mismatch",
             )
+
+    return {"version": policy["POLICY_VERSION"], "sha256": policy_hashes[0]}
 
 
 def validate_semantics(
@@ -1790,7 +1817,7 @@ def validate(
             runtime_name = f"app/runtime/{runtime_hash}/manifest.json"
             require(runtime_name in assets, "missing runtime manifest asset")
             runtime_raw = read_member(archive, files[f"site/{runtime_name}"])
-            validate_evidence(evidence, site_raw, runtime_raw)
+            semantic_policy = validate_evidence(evidence, site_raw, runtime_raw)
             # All selection/provenance/archive checks precede any output creation.
             output.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(
@@ -1868,6 +1895,7 @@ def validate(
                         name: identity(data) for name, data in lock_bytes.items()
                     },
                     "verification_steps": list(STEPS),
+                    "semantic_policy": semantic_policy,
                     "redistribution_ready": True,
                     "redistribution_gaps": [],
                     "site_files": len(assets) + 1,
