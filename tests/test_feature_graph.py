@@ -457,33 +457,36 @@ def reused_cylinder_graph(
 
 @pytest.mark.parametrize("rotate_target", [False, True])
 @pytest.mark.parametrize("explicit", [False, True])
-def test_managed_reuse_guards_explicit_support_without_disabling_automatic_reuse(
+def test_managed_reuse_transfers_explicit_support_and_preserves_automatic_reuse(
     horizontal_scan: ScanWorkspace, rotate_target: bool, explicit: bool
 ) -> None:
     graph, clone, reused, expected_endpoints = reused_cylinder_graph(
         horizontal_scan, rotate_target=rotate_target, explicit=explicit
     )
     before = graph.snapshot()
-    if explicit:
-        with pytest.raises(ValueError, match="support"):
-            _ = graph.evaluate(token(graph), target=clone)
-        state = graph.snapshot()
-        assert clone in cast(dict[str, str], state["errors"])
-        assert clone not in cast(dict[str, Any], state["results"])
-    else:
-        state = graph.evaluate(token(graph), target=clone)
-        assert not state["errors"]
-        fitted = cast(dict[str, Any], state["results"])[clone]
+    state = graph.evaluate(token(graph), target=clone)
+    assert not state["errors"]
+    fitted = cast(dict[str, Any], state["results"])[clone]
+    if not explicit:
         assert fitted["support_origin"] == "selection"
-        assert fitted["weighted_rms"] < 1e-6
-        assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
-        assert fitted["ids"] == list(range(120, 240))
+    assert fitted["weighted_rms"] < 1e-6
+    assert fitted["analytic"]["radius"] == pytest.approx(2.5, abs=1e-6)
+    assert fitted["ids"] == list(range(120, 240))
     assert state["recipe"] == before["recipe"]
     assert state["token"] == before["token"]
     assert cast(dict[str, Any], state["memberships"])["target"] == list(range(120, 240))
     if explicit:
-        # The canonical proposal retains the correct physical support; the
-        # guard prevents its copied source-Z0 tuple from becoming target intent.
+        # The hard support follows the independently known rigid placement,
+        # including a horizontal occurrence that has no source-Z0 chart.
+        geometry = fitted["analytic"]
+        fitted_endpoints = np.asarray(geometry["origin"]) + np.asarray(
+            geometry["axial_domain"]
+        )[:, None] * np.asarray(geometry["axis"])
+        np.testing.assert_allclose(
+            np.sort(fitted_endpoints, axis=0),
+            np.sort(expected_endpoints, axis=0),
+            atol=1e-6,
+        )
         hint = cast(dict[str, Any], state["results"])[reused]["fit_geometry"]
         endpoints = np.asarray(hint["origin"]) + np.asarray(hint["axial_domain"])[
             :, None
@@ -507,6 +510,7 @@ def test_user_authored_reuse_target_can_set_its_own_explicit_support(
             "label": "Manual target bounds",
             "managed_by": None,
             "managed_key": None,
+            "support_authority": "local",
             "axial_domain": (31.0, 34.0),
         }
     )
@@ -529,7 +533,50 @@ def test_user_authored_reuse_target_can_set_its_own_explicit_support(
     np.testing.assert_allclose(np.sort(endpoints[:, 2]), [31.0, 34.0], atol=1e-6)
 
 
-def changed(graph: FeatureGraph, node_id: str, **changes: object) -> Recipe:
+@pytest.mark.parametrize("target_domain", [None, (-2.0, 9.0)])
+def test_historical_managed_explicit_support_requires_an_authority_choice(
+    horizontal_scan: ScanWorkspace, target_domain: tuple[float, float] | None
+) -> None:
+    graph, clone, _, _ = reused_cylinder_graph(
+        horizontal_scan, rotate_target=True, explicit=True
+    )
+    recipe = changed(graph, clone, support_authority=None, axial_domain=target_domain)
+    graph = FeatureGraph(graph.workspace, recipe)
+    before = graph.snapshot()
+    with pytest.raises(ValueError, match="support"):
+        _ = graph.evaluate(token(graph), target=clone)
+    state = graph.snapshot()
+    assert clone not in cast(dict[str, Any], state["results"])
+    assert state["recipe"] == before["recipe"]
+    assert state["token"] == before["token"]
+
+
+@pytest.mark.parametrize(
+    ("edited", "field", "value"),
+    [
+        ("fit", "managed_by", None),
+        ("fit", "managed_key", "fit/patch/cylinder"),
+        ("selection", "managed_by", None),
+        ("selection", "managed_key", "selection/target/cylinder/target"),
+        ("selection", "source_selection", "target"),
+        ("selection", "target_selection", "patch"),
+    ],
+)
+def test_prototype_support_rejects_inexact_reuse_provenance(
+    horizontal_scan: ScanWorkspace, edited: str, field: str, value: str | None
+) -> None:
+    graph, clone, reused, _ = reused_cylinder_graph(
+        horizontal_scan, rotate_target=True, explicit=True
+    )
+    changes: dict[str, object] = {field: value}
+    if field == "managed_by" and value is None:
+        changes["managed_key"] = None
+    recipe = changed(graph, clone if edited == "fit" else reused, **changes)
+    with pytest.raises(ValueError, match=r"prototype support|reused selection must"):
+        _ = FeatureGraph(graph.workspace, recipe)
+
+
+def changed(graph: FeatureGraph[Workspace], node_id: str, **changes: object) -> Recipe:
     payload = cast(dict[str, Any], graph.snapshot()["recipe"])
     assert isinstance(payload, dict)
     for node in payload["nodes"]:

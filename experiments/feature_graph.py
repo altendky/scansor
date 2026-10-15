@@ -66,6 +66,14 @@ from experiments.selection_region import (
     build_selection_region,
     datum_frame,
 )
+from experiments.support_intent import (
+    SUPPORT_POLICY_VERSION,
+    SupportIntent,
+    SupportIntentFailure,
+    legacy_support,
+    support_record,
+    transform_support,
+)
 from experiments.surface_extents import surface_intersection, trimmed_face
 from experiments.surface_primitives import revolution_geometry, unit, vector
 from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
@@ -121,6 +129,7 @@ class SurfaceFit(Node):
     selections: list[str] = Field(min_length=1, max_length=99)
     kind: Literal["cone", "cylinder", "plane", "sphere"]
     axial_domain: tuple[float, float] | None = None
+    support_authority: Literal["local", "prototype"] | None = None
     axis: str | None = None
     point: str | None = None
     reference_plane: str | None = None
@@ -1611,14 +1620,25 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
 
 
 def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> list[str]:
-    """Return selected fits, their upstream inputs, and enclosed relationships."""
+    """Return copy inputs and enclosed relationships within this occurrence.
+
+    Earlier occurrence providers remain ordinary graph dependencies. Their
+    prototypes and placement inputs are provenance, not additional fits to copy.
+    """
     selected = set(fit_ids)
     closure = set(fit_ids)
 
     def add_upstream() -> bool:
         before = len(closure)
         for key in tuple(closure):
-            closure.update(dependencies(nodes[key]))
+            node = nodes[key]
+            if isinstance(node, ReuseSelection):
+                continue
+            if isinstance(node, (AxisDefinition, PlaneDefinition)) and node.placement:
+                if isinstance(node, PlaneDefinition):
+                    closure.add(node.axis)
+                continue
+            closure.update(dependencies(node))
         return len(closure) != before
 
     while add_upstream():
@@ -1785,7 +1805,7 @@ class StaleGraph(ValueError):
 
 
 class UnsupportedSupportTransfer(ValueError):
-    """Generated inherited bounds need an explicit support-transfer contract."""
+    """Historical generated bounds need an explicit support authority choice."""
 
     def __init__(self, fit: str, reuse: str) -> None:
         self.diagnostic: dict[str, Any] = {
@@ -1796,8 +1816,52 @@ class UnsupportedSupportTransfer(ValueError):
             "issue": 264,
         }
         super().__init__(
-            "Explicit support transfer for imported generated reused fits is not yet supported (#264)"
+            "Choose support from the prototype or local target bounds for this historical generated fit (#264)"
         )
+
+
+def prototype_support_source(
+    surface: SurfaceFit, nodes: dict[str, Feature]
+) -> tuple[FeatureReuse, SurfaceFit, str]:
+    """Verify the complete saved provenance before inheriting hard support."""
+    owner = nodes.get(surface.managed_by or "")
+    key = (surface.managed_key or "").split("/")
+    if not isinstance(owner, FeatureReuse) or len(key) != 3 or key[0] != "fit":
+        raise ValueError(
+            "prototype support requires an exact generated reuse owner/key"
+        )
+    occurrence, source_id = key[1:]
+    source = nodes.get(source_id)
+    if (
+        not isinstance(source, SurfaceFit)
+        or source_id not in owner.fits
+        or occurrence not in owner.target_selections
+        or source.kind != surface.kind
+    ):
+        raise ValueError(
+            "prototype support requires its declared source fit and occurrence"
+        )
+    source_selections: list[str] = []
+    for reference in surface.selections:
+        selected = nodes[reference]
+        if not isinstance(selected, ReuseSelection) or (
+            selected.managed_by != owner.id
+            or selected.reuse != owner.id
+            or selected.fit != source.id
+            or selected.target_selection != occurrence
+            or selected.source_selection not in source.selections
+            or selected.managed_key
+            != f"selection/{occurrence}/{source.id}/{selected.source_selection}"
+        ):
+            raise ValueError(
+                "prototype support requires exact reuse selection provenance"
+            )
+        source_selections.append(selected.source_selection)
+    if source_selections != source.selections:
+        raise ValueError(
+            "prototype support requires all source selections in occurrence order"
+        )
+    return owner, source, occurrence
 
 
 def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
@@ -1812,6 +1876,7 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
             CylinderFitFailure,
             ConeFitFailure,
             UnsupportedSupportTransfer,
+            SupportIntentFailure,
         ),
     ):
         return deepcopy(error.diagnostic)
@@ -2654,6 +2719,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
             seen.add(node.id)
         for node in nodes.values():
+            if isinstance(node, SurfaceFit) and node.support_authority == "prototype":
+                _ = prototype_support_source(node, nodes)
             if (
                 isinstance(node, (AxisDefinition, PlaneDefinition))
                 and node.placement is not None
@@ -4197,26 +4264,61 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
                 return deepcopy(dict(surfaces[reference.surface]))
 
+        def has_explicit_support(surface: SurfaceFit) -> bool:
+            if surface.support_authority == "prototype":
+                _, source, _ = prototype_support_source(surface, nodes)
+                return has_explicit_support(source)
+            return surface.axial_domain is not None
+
         def fitted_ids(surface: SurfaceFit) -> list[int]:
             if (
                 isinstance(self.workspace, ScanWorkspace)
                 and surface.kind in {"cylinder", "cone"}
-                and surface.axial_domain is not None
+                and surface.support_authority is None
                 and isinstance(nodes.get(surface.managed_by or ""), FeatureReuse)
                 and any(
                     isinstance(nodes[ref], ReuseSelection) for ref in surface.selections
+                )
+                and (
+                    surface.axial_domain is not None
+                    or any(
+                        isinstance(selection := nodes[ref], ReuseSelection)
+                        and isinstance(source := nodes[selection.fit], SurfaceFit)
+                        and has_explicit_support(source)
+                        for ref in surface.selections
+                    )
                 )
             ):
                 assert surface.managed_by is not None
                 raise UnsupportedSupportTransfer(surface.id, surface.managed_by)
             return sorted({i for ref in surface.selections for i in membership(ref)})
 
+        def effective_support(
+            surface: SurfaceFit, excluded: set[str] | None = None
+        ) -> SupportIntent:
+            if surface.support_authority != "prototype":
+                return legacy_support(surface.axial_domain)
+            owner, source, occurrence = prototype_support_source(surface, nodes)
+            match = resolved_result(owner.id, excluded)["matches"][occurrence]
+            return transform_support(
+                effective_support(source, excluded),
+                np.asarray(match["rotation"], dtype=float),
+                np.asarray(match["translation"], dtype=float),
+            )
+
         def selected(surface: SurfaceFit) -> FitSelection:
             return FitSelection(
                 surface.id,
                 fitted_ids(surface),
                 surface.kind,
-                surface.axial_domain,
+                None
+                if isinstance(self.workspace, ScanWorkspace)
+                and surface.support_authority == "prototype"
+                else surface.axial_domain,
+                support=effective_support(surface)
+                if isinstance(self.workspace, ScanWorkspace)
+                and surface.kind in {"cylinder", "cone"}
+                else None,
             )
 
         def reject_overlaps(surfaces: list[SurfaceFit]) -> None:
@@ -4299,7 +4401,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if isinstance(self.workspace, ScanWorkspace)
                 else np.asarray(axis_result["parameters"], dtype=float),
                 reference_plane_groups=reference_plane_groups,
-                semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                semantic_intent={
+                    "recipe": recipe.model_dump(mode="json"),
+                    "support_policy_version": SUPPORT_POLICY_VERSION,
+                }
                 if isinstance(self.workspace, ScanWorkspace)
                 else None,
             )
@@ -4378,6 +4483,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                     else None
                 )
                 value = resolved_result(surface.id, excluded)
+                if isinstance(self.workspace, ScanWorkspace) and surface.kind in {
+                    "cylinder",
+                    "cone",
+                }:
+                    value["support_intent"] = support_record(
+                        effective_support(surface, excluded)
+                    )
                 axis_id = fit_axis(surface, nodes)
                 point_id = surface.point
                 if axis_id is None and surface.kind in {"cylinder", "cone"}:
@@ -5020,7 +5132,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ids,
                             {
                                 "family": node.kind,
-                                "surface": node.model_dump(mode="json"),
+                                "recipe": recipe.model_dump(mode="json"),
+                                "support_policy_version": SUPPORT_POLICY_VERSION,
                             },
                             policy_version=CONE_POLICY_VERSION
                             if node.kind == "cone"
@@ -5051,12 +5164,17 @@ class FeatureGraph(Generic[WorkspaceType]):
                             self.workspace.data.normals[ids] @ self.workspace.frame,
                             node.kind,
                             None,
-                            node.axial_domain,
+                            None
+                            if node.support_authority == "prototype"
+                            else node.axial_domain,
                             binding=binding,
                             hint=hint,
                             hint_binding_sha256=binding.sha256
                             if hint is not None
                             else None,
+                            support=effective_support(
+                                node, plan.read_exclusions.get(node.id)
+                            ),
                         )
                         derived["ids"] = ids
                     elif node.axis is None:
@@ -5138,7 +5256,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                             axis_result
                             if isinstance(self.workspace, ScanWorkspace)
                             else np.asarray(axis_result["parameters"], dtype=float),
-                            semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                            semantic_intent={
+                                "recipe": recipe.model_dump(mode="json"),
+                                "support_policy_version": SUPPORT_POLICY_VERSION,
+                            }
                             if isinstance(self.workspace, ScanWorkspace)
                             else None,
                         )
@@ -5433,6 +5554,15 @@ class FeatureGraph(Generic[WorkspaceType]):
                     }
                     if fit_geometry is not None:
                         derived["fit_geometry"] = fit_geometry
+                        derived["support_intent"] = support_record(
+                            transform_support(
+                                effective_support(
+                                    fitted, plan.read_exclusions.get(node.id)
+                                ),
+                                rotation,
+                                translation,
+                            )
+                        )
                     excluded = plan.read_exclusions.get(node.id, set()) - {node.id}
                     if excluded:
                         derived["source_geometry_stage"] = {
@@ -5543,7 +5673,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                             for mirror in mirrors
                         ),
                         reference_plane_groups=reference_plane_groups,
-                        semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                        semantic_intent={
+                            "recipe": recipe.model_dump(mode="json"),
+                            "support_policy_version": SUPPORT_POLICY_VERSION,
+                        }
                         if isinstance(self.workspace, ScanWorkspace)
                         else None,
                     )
@@ -5601,7 +5734,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 )
                                 for rotation in rotations
                             ),
-                            semantic_intent={"recipe": recipe.model_dump(mode="json")}
+                            semantic_intent={
+                                "recipe": recipe.model_dump(mode="json"),
+                                "support_policy_version": SUPPORT_POLICY_VERSION,
+                            }
                             if isinstance(self.workspace, ScanWorkspace)
                             else None,
                         )

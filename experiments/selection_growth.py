@@ -20,6 +20,7 @@ from experiments.mesh_cone_plane_fit import (
 )
 from experiments.mesh_cylinder_fit import Array, fit_selected_cylinder
 from experiments.mesh_sphere_fit import fit_sphere
+from experiments.support_intent import SupportIntent, SupportIntentFailure
 from experiments.surface_primitives import revolution_geometry
 
 
@@ -49,6 +50,7 @@ def fit_seed(
     binding: InitializationBinding | None = None,
     hint: dict[str, Any] | None = None,
     hint_binding_sha256: str | None = None,
+    support: SupportIntent | None = None,
 ) -> dict[str, Any]:
     if kind in {"cylinder", "cone"} and binding is not None:
         fitter = fit_selected_cone if kind == "cone" else fit_selected_cylinder
@@ -60,6 +62,11 @@ def fit_seed(
             hint=hint,
             hint_binding_sha256=hint_binding_sha256,
             domain=domain,
+            support=support,
+        )
+    if support is not None:
+        raise SupportIntentFailure(
+            "authored support requires a bound cylinder or cone fit"
         )
     minimum = 3 if kind == "plane" else 4 if kind == "sphere" else 7
     if (
@@ -293,7 +300,11 @@ def connected_growth(
     # Selection-derived bounds are display extent, not authored growth limits.
     # Evaluate the complete positive sheet directly rather than constructing a
     # whole-source interval whose rounded endpoints can clip boundary vertices.
-    automatic = fit.get("support_origin") == "selection" and "analytic" in fit
+    automatic = (
+        fit.get("support_intent", {}).get("kind", fit.get("support_origin"))
+        == "selection"
+        and "analytic" in fit
+    )
     residual, expected, support = surface_distance(
         points, fit, finite_support=not automatic
     )

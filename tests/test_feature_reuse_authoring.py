@@ -178,6 +178,7 @@ def test_create_is_pure_deterministic_and_preserves_append_output_contract() -> 
     } - {"reuse"}
     assert not plan.removed_ids
     assert _create(recipe).recipe == plan.recipe
+    assert _owned(plan.recipe, "fit/b/outer").support_authority == "prototype"
     reuse = cast(
         FeatureReuse, next(node for node in plan.recipe.nodes if node.id == "reuse")
     )
@@ -352,6 +353,67 @@ def test_legacy_generated_selection_and_fit_are_adopted_without_replacing_ids() 
         if node.id in before_ids
     )
     assert plan.recipe.output == legacy.output
+
+
+@pytest.mark.parametrize("domain", [None, (-3.0, 8.0), (31.0, 34.0)])
+def test_adopting_unowned_targets_preserves_local_support_across_regeneration(
+    domain: tuple[float, float] | None,
+) -> None:
+    payload = _create(_recipe()).recipe.model_dump()
+    for node in payload["nodes"]:
+        if node.get("managed_key") == "fit/b/outer":
+            node.update(
+                managed_by=None,
+                managed_key=None,
+                support_authority=None,
+                axial_domain=domain,
+            )
+        elif node["id"] == "outer":
+            node["axial_domain"] = (-3.0, 8.0)
+    recipe = Recipe.model_validate(payload)
+    adopted = reconcile_feature_reuse(recipe, "reuse", ReuseChanges(), "adopt")
+    target = _owned(adopted.recipe, "fit/b/outer")
+    assert target.axial_domain == domain
+    assert target.support_authority == "local"
+    assert _owned(adopted.recipe, "selection/b/outer/a").managed_by == "reuse"
+    refreshed = reconcile_feature_reuse(
+        adopted.recipe, "reuse", ReuseChanges(tangent_margin=0.5), "refresh"
+    )
+    assert _owned(refreshed.recipe, "fit/b/outer").id == target.id
+    assert _owned(refreshed.recipe, "fit/b/outer").axial_domain == domain
+    assert _owned(refreshed.recipe, "fit/b/outer").support_authority == "local"
+    inherited = refreshed.recipe.model_dump()
+    next(node for node in inherited["nodes"] if node["id"] == target.id)[
+        "support_authority"
+    ] = "prototype"
+    restored = reconcile_feature_reuse(
+        Recipe.model_validate(inherited), "reuse", ReuseChanges(), "restore"
+    )
+    assert _owned(restored.recipe, "fit/b/outer").support_authority == "prototype"
+    assert _owned(restored.recipe, "fit/b/outer").axial_domain == (-3.0, 8.0)
+
+
+@pytest.mark.parametrize("operation", ["fit", "reuse_selection"])
+def test_adoption_rejects_foreign_owned_outputs_without_mutation(
+    operation: str,
+) -> None:
+    payload = _create(_recipe()).recipe.model_dump()
+    owner = next(node for node in payload["nodes"] if node["id"] == "reuse")
+    payload["nodes"].insert(
+        payload["nodes"].index(owner),
+        {**owner, "id": "foreign", "label": "Foreign owner"},
+    )
+    node = next(
+        node
+        for node in payload["nodes"]
+        if node["operation"] == operation and node.get("managed_by") == "reuse"
+    )
+    node["managed_by"] = "foreign"
+    recipe = Recipe.model_validate(payload)
+    before = recipe.model_dump()
+    with pytest.raises(ValueError, match="owned by another feature"):
+        _ = reconcile_feature_reuse(recipe, "reuse", ReuseChanges(), "foreign")
+    assert recipe.model_dump() == before
 
 
 @pytest.mark.parametrize("consumer", ["datum", "face", "equality"])

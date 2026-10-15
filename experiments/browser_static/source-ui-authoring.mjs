@@ -294,13 +294,22 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
       active:{tag:document.activeElement?.tagName,id:document.activeElement?.id,role:document.activeElement?.getAttribute('role'),label:document.activeElement?.getAttribute('aria-label')}}));
     result.evidence.toolbar_focus=[];
     for(const placement of ['Dock left','Dock right','Float','Rotate floating toolbar']){
-      await trigger.click();await page.getByRole('menuitem',{name:placement,exact:true}).click();await trigger.focus();await page.keyboard.press('Enter');
+      await trigger.click();const priorMenu=await page.getByRole('menu').elementHandle();assert.ok(priorMenu);
+      await page.getByRole('menuitem',{name:placement,exact:true}).click();
+      const placedTrigger=await trigger.elementHandle();
+      try{await page.waitForFunction(({menu,trigger})=>!menu.isConnected&&trigger?.isConnected
+        &&trigger===document.activeElement&&trigger.getAttribute('aria-expanded')==='false',
+      {menu:priorMenu,trigger:placedTrigger},{timeout:10000});}
+      finally{await priorMenu.dispose();await placedTrigger?.dispose();}
+      const observation={placement,after_placement_settled:await focusState()};result.evidence.toolbar_focus.push(observation);
+      assert.equal(observation.after_placement_settled.trigger_focused,true);assert.equal(observation.after_placement_settled.menu_open,false);
+      await page.keyboard.press('Enter');
       for(const name of ['New project','Inspect source','Remove scan…']){
         const control=page.getByRole('menuitem',{name,exact:true});await control.click({trial:true});const box=await control.boundingBox();
         assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=381&&box.y+box.height<=701);
       }
       assert.equal(await page.getByRole('menuitem',{name:'Add scan…',exact:true}).getAttribute('data-disabled'),'');
-      const observation={placement,before_escape:await focusState()};result.evidence.toolbar_focus.push(observation);
+      observation.before_escape=await focusState();
       await page.keyboard.press('Escape');observation.after_escape=await focusState();
       await page.getByRole('menu').waitFor({state:'hidden'});
       const element=await trigger.elementHandle();

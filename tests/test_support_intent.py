@@ -7,6 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from experiments.selection_growth import fit_seed
 from experiments.support_intent import (
     PlaneSupport,
     PointSupport,
@@ -259,6 +260,35 @@ def test_missing_or_unknown_support_carrier_cannot_reinterpret_geometry_as_point
             }
         )
     assert failure.value.code == "invalid-support"
+    _ = json.dumps(failure.value.diagnostic, allow_nan=False)
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "plane"])
+def test_unbound_fit_route_rejects_authored_support_instead_of_discarding_it(
+    kind: str,
+) -> None:
+    first, second = np.meshgrid([-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0])
+    if kind == "plane":
+        points = np.column_stack((first.ravel(), second.ravel(), np.zeros(first.size)))
+        normals = np.tile([0.0, 0.0, 1.0], (len(points), 1))
+    else:
+        angle = first.ravel()
+        normals = np.column_stack((np.cos(angle), np.sin(angle), np.zeros(first.size)))
+        points = 2 * normals + np.column_stack(
+            (np.zeros(first.size), np.zeros(first.size), second.ravel())
+        )
+    with pytest.raises(SupportIntentFailure) as failure:
+        _ = fit_seed(
+            points,
+            np.ones(len(points)),
+            normals,
+            kind,
+            None,
+            None,
+            binding=None,
+            support=PlaneSupport((0.0, 0.0, 1.0), 0.0, (-1.0, 1.0)),
+        )
+    assert failure.value.code == "unsupported-support"
     _ = json.dumps(failure.value.diagnostic, allow_nan=False)
 
 

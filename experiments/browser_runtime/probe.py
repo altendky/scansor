@@ -32,6 +32,7 @@ from experiments.feature_graph import (
     Selection,
     SurfaceFit,
 )
+from experiments.feature_reuse_authoring import ReuseChanges, reconcile_feature_reuse
 from experiments.fit_initialization import initialization_binding
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION, fit_selected_cone
 from experiments.mesh_cone_plane_fit import (
@@ -221,6 +222,34 @@ def create_fixture(path: Path) -> None:
         imported_cone_axes=cone_axes,
         imported_cone_slopes=cone_slopes,
         imported_cone_scales=scales,
+        support_points=np.asarray(
+            [
+                np.array([3.0, -4, 5])
+                + cylinder_heights.ravel()[:, None] * np.array([0.0, 0, 1])
+                + (2.5 + taper * cylinder_heights.ravel())[:, None]
+                * np.column_stack(
+                    (
+                        np.cos(cylinder_angles.ravel()),
+                        np.sin(cylinder_angles.ravel()),
+                        np.zeros(60),
+                    )
+                )
+                for taper in (0.0, 0.15)
+            ]
+        ),
+        support_normals=np.asarray(
+            [
+                np.column_stack(
+                    (
+                        np.cos(cylinder_angles.ravel()),
+                        np.sin(cylinder_angles.ravel()),
+                        np.full(60, -taper),
+                    )
+                )
+                / np.hypot(1.0, taper)
+                for taper in (0.0, 0.15)
+            ]
+        ),
     )
 
 
@@ -714,6 +743,149 @@ def imported_cone_probe(
     )
 
 
+def support_transfer_probe(
+    points: NDArray[np.float64],
+    normals: NDArray[np.float64],
+    kind: Literal["cylinder", "cone"],
+    *,
+    replay_evidence: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Freeze explicit source support through actual horizontal occurrence reuse."""
+    rotation = np.asarray([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])
+    translation = np.asarray([20.0, 10, 30])
+    positions = np.vstack((points, points @ rotation + translation))
+    directions = np.vstack((normals, normals @ rotation))
+    faces = [
+        tuple(offset + vertex for vertex in face)
+        for offset in (0, 60)
+        for row in range(4)
+        for column in range(12)
+        for a, b in [(12 * row + column, 12 * row + (column + 1) % 12)]
+        for face in ((a, b, a + 12), (b, b + 12, a + 12))
+    ]
+    header = (
+        "ply\nformat binary_little_endian 1.0\nelement vertex 120\n"
+        "property float x\nproperty float y\nproperty float z\n"
+        "property float nx\nproperty float ny\nproperty float nz\n"
+        f"element face {len(faces)}\nproperty list uchar int vertex_indices\nend_header\n"
+    ).encode("ascii")
+    original = (
+        header
+        + b"".join(
+            struct.pack("<6f", *point, *normal)
+            for point, normal in zip(positions, directions, strict=True)
+        )
+        + b"".join(struct.pack("<B3i", 3, *face) for face in faces)
+    )
+    project = ScanProject()
+    empty = project.accepted
+    accepted = project.commit(
+        project.prepare_add(
+            io.BytesIO(original),
+            f"support-{kind}.ply",
+            ScanLimits(100_000, 200, 300, 10_000_000),
+            generation=empty.generation,
+            token=str(empty.graph.snapshot()["token"]),
+        )
+    )
+    recipe = Recipe.model_validate(accepted.graph.snapshot()["recipe"])
+    recipe.nodes.extend(
+        [
+            Selection(
+                id="patch",
+                label="Source observations",
+                operation="selection",
+                source="scan",
+                ids=list(range(60)),
+            ),
+            Selection(
+                id="target",
+                label="Horizontal occurrence",
+                operation="selection",
+                source="scan",
+                ids=list(range(60, 120)),
+            ),
+            SurfaceFit(
+                id="surface",
+                label="Explicit source patch",
+                operation="fit",
+                selections=["patch"],
+                kind=kind,
+                axial_domain=(1.0, 9.0),
+            ),
+        ]
+    )
+    plan = reconcile_feature_reuse(
+        recipe,
+        "reuse",
+        ReuseChanges(
+            label="Transfer finite support",
+            fits=["surface"],
+            reference_selection="patch",
+            target_selections=["target"],
+            tangent_margin=0.02,
+            normal_margin=0.02,
+        ),
+        "frozen-explicit-support",
+        create=True,
+    )
+    clone = next(
+        node for node in plan.recipe.nodes if node.managed_key == "fit/target/surface"
+    )
+    assert isinstance(clone, SurfaceFit) and clone.support_authority == "prototype"
+    graph = FeatureGraph(accepted.workspace, plan.recipe)
+    state = cast(
+        dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]), target=clone.id)
+    )
+    assert not state["errors"] and not state["diagnostics"], state
+    fitted = state["results"][clone.id]
+    assert fitted["ids"] == list(range(60, 120))
+    geometry = fitted["analytic"]
+    endpoints = np.asarray(geometry["origin"]) + np.asarray(geometry["axial_domain"])[
+        :, None
+    ] * np.asarray(geometry["axis"])
+    np.testing.assert_allclose(
+        endpoints, [[21.0, 6, 27], [29, 6, 27]], rtol=0, atol=1e-5
+    )
+    carrier = fitted["support_intent"]
+    assert carrier["kind"] == "reference-plane" and carrier["interval"] == [1.0, 9.0]
+    replay = FeatureGraph(
+        accepted.workspace, Recipe.model_validate_json(plan.recipe.model_dump_json())
+    )
+    replayed = cast(
+        dict[str, Any],
+        replay.evaluate(str(replay.snapshot()["token"]), target=clone.id),
+    )
+    keys = ("recipe", "token", "states", "errors", "diagnostics", "results")
+    compare_local_replay(replayed, state, f"support.{kind}.replay", replay_evidence)
+    return {
+        "kind": kind,
+        "comparison_length_scale": 1.0,
+        "clone": clone.id,
+        "state": {key: state[key] for key in keys},
+    }
+
+
+def compare_support_transfers(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    assert len(actual) == len(expected), "support_transfers count"
+    receipts: list[dict[str, Any]] = []
+    for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
+        assert (
+            value["comparison_length_scale"]
+            == reference["comparison_length_scale"]
+            == 1.0
+        )
+        compare_intent(
+            value["state"]["recipe"],
+            reference["state"]["recipe"],
+            f"support_transfers[{index}].recipe",
+        )
+        receipts.append(compare_values(value, reference, f"support_transfers[{index}]"))
+    return receipts
+
+
 def analytic_geometry_probe() -> dict[str, Any]:
     """Exact rational spatial cases, independent of fitting and source-Z charts."""
     rotation = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])
@@ -884,6 +1056,19 @@ def numeric(
             )
         ]
         imported_cone_seconds = time.perf_counter() - cone_started
+        support_started = time.perf_counter()
+        support_transfers = [
+            support_transfer_probe(
+                points, normals, kind, replay_evidence=replay_evidence
+            )
+            for points, normals, kind in zip(
+                data["support_points"],
+                data["support_normals"],
+                ("cylinder", "cone"),
+                strict=True,
+            )
+        ]
+        support_seconds = time.perf_counter() - support_started
     started = time.perf_counter()
     workspace = NozzleWorkspace(root / EXAMPLE)
     load_seconds = time.perf_counter() - started
@@ -930,6 +1115,7 @@ def numeric(
             "imported_sphere_cases": len(imported_spheres),
             "imported_cylinder_cases": len(imported_cylinders),
             "imported_cone_cases": len(imported_cones),
+            "support_transfer_cases": len(support_transfers),
             "mesh_vertices": len(workspace.local),
             "mesh_triangles": len(workspace.data.triangles),
             "nozzle_cone": len(workspace.default.lateral_ids),
@@ -942,6 +1128,7 @@ def numeric(
         "imported_spheres": imported_spheres,
         "imported_cylinders": imported_cylinders,
         "imported_cones": imported_cones,
+        "support_transfers": support_transfers,
         "analytic_geometry": analytic_geometry_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
@@ -967,6 +1154,7 @@ def numeric(
             "imported_spheres": imported_sphere_seconds,
             "imported_cylinders": imported_cylinder_seconds,
             "imported_cones": imported_cone_seconds,
+            "support_transfers": support_seconds,
             "workspace_load": load_seconds,
             "nozzle": nozzle_seconds,
             "graph": graph_seconds,
@@ -1262,6 +1450,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     cone_receipts = compare_imported_cones(
         actual["imported_cones"], expected["imported_cones"]
     )
+    support_receipts = compare_support_transfers(
+        actual["support_transfers"], expected["support_transfers"]
+    )
     analytic_receipt = compare_values(
         actual["analytic_geometry"], expected["analytic_geometry"], "analytic_geometry"
     )
@@ -1288,6 +1479,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "imported_sphere_cases": len(actual["imported_spheres"]),
         "imported_cylinder_cases": len(actual["imported_cylinders"]),
         "imported_cone_cases": len(actual["imported_cones"]),
+        "support_transfer_cases": len(actual["support_transfers"]),
         "semantic_parity": {
             "analytic_geometry": analytic_receipt,
             "graph": graph_receipt,
@@ -1295,6 +1487,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
             "imported_spheres": sphere_receipts,
             "imported_cylinders": cylinder_receipts,
             "imported_cones": cone_receipts,
+            "support_transfers": support_receipts,
         },
         "rtol": RTOL,
         "atol": ATOL,

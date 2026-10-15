@@ -19,13 +19,17 @@ from experiments.browser_runtime.probe import (
     compare_imported_cylinders,
     compare_imported_planes,
     compare_imported_spheres,
+    compare_local_replay,
     compare_numeric,
     compare_session,
+    compare_support_transfers,
     create_fixture,
     imported_cone_probe,
     imported_cylinder_probe,
     imported_sphere_probe,
+    support_transfer_probe,
 )
+from experiments.browser_runtime.semantic_parity import SemanticParityError
 from experiments.fit_initialization import DEFAULT_POLICY
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION
 from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION
@@ -160,6 +164,11 @@ def test_frozen_fixture_is_repeatable_and_uses_float64(tmp_path: Path):
         assert data["imported_cones"].shape == (3, 60, 3)
         assert data["imported_cone_normals"].shape == (3, 60, 3)
         assert data["imported_cone_axes"].shape == (3, 3)
+        assert data["support_points"].shape == (2, 60, 3)
+        assert data["support_normals"].shape == (2, 60, 3)
+        np.testing.assert_allclose(
+            np.linalg.norm(data["support_normals"], axis=2), 1, atol=1e-14
+        )
         np.testing.assert_array_equal(data["imported_cone_slopes"], [0.15, -0.2, 1e-7])
         np.testing.assert_allclose(
             np.linalg.norm(data["imported_cone_normals"], axis=2), 1, atol=1e-14
@@ -274,6 +283,7 @@ def test_worker_parity_rejects_changed_canonical_spatial_geometry(
         "imported_spheres": [],
         "imported_cylinders": [],
         "imported_cones": [],
+        "support_transfers": [],
         "analytic_geometry": analytic_geometry_probe(),
     }
     actual = deepcopy(expected)
@@ -1018,6 +1028,129 @@ def imported_cone_record(scale: float) -> dict[str, Any]:
         )
         fitted["solver"] = fixture_solver(scale, 6)
     return report
+
+
+@pytest.mark.parametrize("kind", ["cylinder", "cone"])
+def test_frozen_support_transfer_preserves_physical_bounds_and_recipe(
+    kind: str, tmp_path: Path
+) -> None:
+    fixture = tmp_path / "fixture.npz"
+    create_fixture(fixture)
+    index = 0 if kind == "cylinder" else 1
+    replay_evidence: list[dict[str, Any]] = []
+    with np.load(fixture, allow_pickle=False) as data:
+        report = support_transfer_probe(
+            data["support_points"][index],
+            data["support_normals"][index],
+            "cylinder" if kind == "cylinder" else "cone",
+            replay_evidence=replay_evidence,
+        )
+    encoded = json.loads(json.dumps(report, allow_nan=False))
+    receipts = compare_support_transfers([report], [encoded])
+    assert len(receipts) == 1
+    assert receipts[0]["semantic_complete"] is True
+    assert receipts[0]["budgets_validated"] is True
+    assert receipts[0]["budget_records_validated"] > 0
+    assert len(replay_evidence) == 1
+    replay = replay_evidence[0]
+    assert replay["path"] == f"support.{kind}.replay"
+    assert replay["receipt"]["semantic_complete"] is True
+    assert replay["receipt"]["budgets_validated"] is True
+    assert replay["receipt"]["budget_records_validated"] > 0
+    for side in ("actual", "expected"):
+        assert {
+            "memberships",
+            "derived",
+            "input_catalogue",
+            "input_requirements",
+        } <= replay[side].keys()
+        for key in report["state"]:
+            assert json.loads(json.dumps(replay[side][key])) == encoded["state"][key]
+    assert encoded["state"]["results"][report["clone"]]["support_intent"][
+        "interval"
+    ] == [1.0, 9.0]
+
+
+@pytest.mark.parametrize("field", ["memberships", "derived"])
+def test_local_replay_failure_retains_full_independent_operands_and_receipt(
+    field: str,
+) -> None:
+    expected: dict[str, Any] = {
+        "recipe": {"nodes": []},
+        "results": {},
+        "memberships": {"patch": [1, 2]},
+        "derived": {"axis": {"axis_display": [1.0, 0.0, 0.0]}},
+    }
+    actual = deepcopy(expected)
+    if field == "memberships":
+        actual[field]["patch"] = [1]
+    else:
+        actual[field]["axis"]["axis_display"][0] = 0.0
+    before_actual, before_expected = deepcopy(actual), deepcopy(expected)
+    evidence: list[dict[str, Any]] = []
+    with pytest.raises(SemanticParityError, match=field) as failure:
+        compare_local_replay(actual, expected, "support.failure.replay", evidence)
+    assert len(evidence) == 1
+    retained = evidence[0]
+    assert retained["actual"] == before_actual
+    assert retained["expected"] == before_expected
+    assert retained["receipt"] == failure.value.receipt
+    assert retained["receipt"]["complete"] is False
+    assert actual == before_actual and expected == before_expected
+    actual["memberships"]["patch"].clear()
+    expected["derived"]["axis"]["axis_display"][0] = 42.0
+    assert retained["actual"] == before_actual
+    assert retained["expected"] == before_expected
+
+
+@pytest.mark.parametrize(
+    "changed", ["recipe", "plane", "binding", "membership", "owner"]
+)
+def test_support_transfer_parity_rejects_changed_intent_geometry_and_identity(
+    changed: str,
+) -> None:
+    expected: dict[str, Any] = {
+        "kind": "cylinder",
+        "comparison_length_scale": 1.0,
+        "clone": "copy",
+        "state": {
+            "recipe": {
+                "nodes": [
+                    {
+                        "id": "copy",
+                        "managed_by": "reuse",
+                        "support_authority": "prototype",
+                        "axial_domain": [1.0, 9.0],
+                    }
+                ]
+            },
+            "results": {
+                "copy": {
+                    "support_intent": {
+                        "kind": "reference-plane",
+                        "normal": [1.0, 0, 0],
+                        "offset": 20.0,
+                        "interval": [1.0, 9.0],
+                    },
+                    "ids": [60, 61],
+                    "binding_sha256": "bound-to-intent",
+                }
+            },
+        },
+    }
+    actual = deepcopy(expected)
+    if changed == "recipe":
+        actual["state"]["recipe"]["nodes"][0]["axial_domain"][0] += 1e-12
+    elif changed == "owner":
+        actual["state"]["recipe"]["nodes"][0]["managed_by"] = "foreign"
+    elif changed == "plane":
+        actual["state"]["results"]["copy"]["support_intent"]["offset"] += 0.01
+    elif changed == "binding":
+        actual["state"]["results"]["copy"]["binding_sha256"] = "stale"
+    else:
+        actual["state"]["results"]["copy"]["ids"] = [60]
+    with pytest.raises(AssertionError, match="support_transfers"):
+        _ = compare_support_transfers([actual], [expected])
 
 
 @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
