@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { geometrySelectorIds, isModelClick, scanFitCandidates, segmentDistance } from './model-picking.js';
+import { geometrySelectorIds, isModelClick, pickFieldFeedback, scanFitCandidates, segmentDistance } from './model-picking.js';
+
+test('picker guidance distinguishes empty inputs, optional blanks, temporary locks and list-only geometry', () => {
+  const context = { label: 'Earlier selections', emptyMessage: 'Create a selection first.' };
+  assert.equal(pickFieldFeedback([], context), 'No eligible earlier selections. Create a selection first.');
+  assert.equal(pickFieldFeedback([{ key: '', label: 'None (standalone)' }], context), pickFieldFeedback([], context));
+  const selectable = { key: 'fit', label: 'Fit', modelPickable: false };
+  assert.match(pickFieldFeedback([selectable], context), /Eligible choices.*no pickable 3D geometry.*arrow/);
+  assert.match(pickFieldFeedback([selectable], { ...context, disabled: true, busy: true }), /^Temporarily unavailable/);
+  assert.match(pickFieldFeedback([selectable], { ...context, disabled: true }), /current configuration/);
+  assert.equal(pickFieldFeedback([{ ...selectable, modelPickable: true }], context), '');
+});
+
+test('saved unavailable inputs remain diagnosed when alternative choices are ready', () => {
+  const saved = { key: 'removed', label: 'Missing provider — restore it', selected: true, disabled: true };
+  assert.match(pickFieldFeedback([saved], { label: 'Inputs' }), /Missing provider — restore it/);
+  assert.match(pickFieldFeedback([saved, { key: 'ready', label: 'Replacement' }], { label: 'Inputs' }),
+    /Saved input unavailable.*Choose a replacement or remove it/);
+});
 
 test('scan hits return all eligible memberships without guessing at overlaps', () => {
   const first = { key: 'solved:first', ids: [1, 2, 3] },

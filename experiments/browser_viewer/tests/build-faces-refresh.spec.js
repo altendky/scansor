@@ -15,7 +15,7 @@ async function evaluate(page) {
 }
 
 async function lists(page, label, present) {
-  const target = page.locator('#build-faces-target-options [role=menuitemradio]').filter({ hasText: label });
+  const target = page.locator('#build-faces-target-options [role=menuitemradio]:not(:disabled)').filter({ hasText: label });
   const batch = page.locator('#build-faces-surfaces option').filter({ hasText: label });
   await expect(target).toHaveCount(present ? 1 : 0);
   await expect(batch).toHaveCount(present ? 1 : 0);
