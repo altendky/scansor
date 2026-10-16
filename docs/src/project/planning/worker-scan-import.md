@@ -13,18 +13,19 @@ intent, acceptance certificates and finite budgets are enforced while complete
 discarded traces remain diagnostic evidence. Source arrays retain their strict
 comparison. Delivery requires rebuilt current-head native/worker verification.
 
-The native/common UI already supplies empty projects, the source picker and
-read-only Source inspection, gated by backend capabilities. Worker import/recovery
-implements the bounded source tier; full both-backend UI acceptance remains
-[#243](https://github.com/altendky/scansor/issues/243). Its authoring acceptance
-slice has executed native and CAD/plain worker diagnostics; clean-head profile
-and CI gates remain required before its delivery. Native transactional
-source-aware actions reopening and the bounded #244 worker adapter are delivered,
-the latter through [#291](https://github.com/altendky/scansor/pull/291), with
-explicit versioned capability gating and actual both-mode reopening/recovery
-acceptance. Combined changes still require rebuilt current-head workflow gates.
-This work adds neither persistence nor broader numerical-family support. The
-full numerical delivery gate in #240 and its draft stack remain separate.
+The native/common UI supplies empty projects, the source picker and read-only
+Source inspection, gated by backend capabilities. Bounded native and numerical/CAD
+plain/isolated authoring acceptance is delivered through
+[#243](https://github.com/altendky/scansor/issues/243). Source-aware actions and the
+bounded #244 worker adapter are delivered through
+[#291](https://github.com/altendky/scansor/pull/291), with versioned capability
+gating and actual both-mode reopening/recovery acceptance.
+[#296](https://github.com/altendky/scansor/issues/296) records the actual raw
+cylinder/export/save/reopen workflow; [#295](https://github.com/altendky/scansor/issues/295)
+records repeated actual worker UI resource observations below. Their final
+combined current-head CI and #245 current-main artifact preparation remain
+delivery gates. File retention remains memory-only. Numerical acceptance and
+direct caller cancellation are accounted separately in #240 and #249.
 
 ## Source ownership and publication
 
@@ -175,11 +176,124 @@ stores and logical WebGL sizes overlap and must not be summed. In particular,
 safe-boundary samples do not observe live synchronous parser temporaries.
 The 96 MiB estimate excludes interpreter, browser, GPU and unrelated workloads.
 Other engines, devices and concurrent fitting/CAD remain unmeasured;
-[#245](https://github.com/altendky/scansor/issues/245) retains the improvement and
-complete UI/workflow resource questions. Broader inputs and settings/replacement
-remain #247 and #248.
+[#307](https://github.com/altendky/scansor/issues/307) preserves the staged
+headroom, adverse-workload, transient-copy and capacity-improvement questions.
+[#245](https://github.com/altendky/scansor/issues/245) retains final combined
+workflow/artifact acceptance. Broader inputs and settings/replacement remain
+tracked in #247 and #248.
+
+## Executed actual worker UI observations
+
+On 2026-10-15, the stronger actual-UI protocol below passed from clean signed
+revision `f5dbbdf5fad3ff700fba3af5077c5e10858f3ecb`, before this documentation-only
+update. The complete `worker-source-ui-resources.json` report is 4,419,690 B,
+SHA-256 `8bf4477dbd41b7eb00f66a376255248b6404ba95d5d7d95ebe255d2086c10b68`.
+Its site manifest is
+`5de867bb8fa34dcc9ca3cb9951f420f7e95726cf541b754017356e00959abfb7`;
+the CAD runtime manifest is
+`4deffe9840323ffb67cb9c99695d9968d80cca6cfab0fd858c2d131e08a3544b`.
+Independent data verification matched all 419 site assets, all 83 source ZIP
+members and the full original observation/display digests for all three sources.
+
+The run used headless Chromium 156.0.8078.4, Node 26.10.0, Linux x86-64 and an
+Intel Core i9-9880H, with the pinned Python/NumPy runtime above and SwiftShader.
+Both actual isolation states were checked. Each mode completed six ordinary
+cycles in one page/worker and a separate grid Force/reopen sequence: 41 stages
+per mode, 82 total. Source/recipe identity, accepted epochs, actual current File
+ownership and quiescence checks passed at every applicable boundary. Force
+replaced exactly one worker while preserving the accepted File/recipe/epoch;
+renamed reopening used a new File and the replacement worker. Reset emptied
+source/display arrays, checkpoint File and recipe, with zero owned staging.
+Both contexts/previews and the browser closed normally; no external/API request
+or page error occurred. Trusted inputs and artifact bytes remained unchanged.
+
+| Source | Plain observed imports, cycles 1 / 2 | Isolated observed imports, cycles 1 / 2 | Named NumPy roots | Main named display backing at import |
+| --- | ---: | ---: | ---: | ---: |
+| Raw RealityScan nozzle | 483.7 / 342.1 ms | 394.3 / 488.8 ms | 3,249,866 B | 2,099,868 B |
+| Independent cylinder + plane | 236.4 / 257.5 ms | 193.8 / 327.0 ms | 10,116 B | 6,624 B |
+| Generated 512 × 256 grid | 1,248.3 / 2,480.8 ms | 1,089.6 / 1,970.0 ms | 17,001,106 B | 10,991,640 B |
+
+These intervals run from observed File delivery to visible readiness, including
+the file-selected observation, polling and frame settling. They exclude later
+worker inventory/display hashing and are not isolated parser or presentation
+latencies. The largest ordinary-import main heartbeat gap was 810.8 ms plain and
+389.8 ms isolated; no timing threshold was selected. Grid Wasm capacity reached
+94,240,768 B in both modes and stayed allocated after reset. Largest source and
+staging high-water were each 6,533,891 B; chunks stayed at most 65,536 B.
+Production normals/colors/selection overlays, CDP main/worker heap and backing
+categories, and logical WebGL allocations are retained separately in the report.
+The categories overlap; these finite, instrumented observations establish no
+summed memory peak, immediate reclamation, leak verdict or other-device limit.
 
 ## Reproduction and gates
+
+The additional
+[actual worker product-UI resource driver](../../../../experiments/browser_static/measure-worker-source-ui.mjs)
+runs two preregistered raw nozzle, independent scene and 512 × 256 grid cycles
+in one application page and ordinary worker per plain/isolated Chromium mode.
+Each cycle uses the real File picker, Inspect source, rectangle/through-all
+selection, wheel interaction and New project controls. It observes production
+normals, colors and selection overlays. The 25,000-ID selection limit remains
+separate from the 131,072-vertex source cap. Grid Force is a separately labelled
+worker replacement, followed by saved-actions reopening with a renamed identical
+File. Scalar worker/CDP lifecycle and WeakMap File serials establish continuity;
+the observer keeps no File, Worker, geometry or buffer history.
+The manifest-verified backend module gets one bounded read-only observer inside
+its factory closure. At settled stages it records the actual current checkpoint
+File serial/size, mode, generation, source/settings identity and recipe digest
+and counts. New/reset must show no checkpoint File or active source operation;
+Force must preserve that current File and renamed reopening must replace it.
+The WeakMap serial function is exposed only during each observation and removed
+in `finally`. These ownership observations do not prove GC or reachability.
+Checkpoint recipe digests sort object keys consistently with the backend's
+identity serializer, while preserving all authored values and array order.
+
+The report keeps main/worker CDP heaps and backing stores, always-nonempty-frame
+Wasm capacity, named NumPy roots, immutable source bytes, lifetime staging/chunk
+high-water, production display backing and logical WebGL allocation counters
+separate. Passive heartbeat and rAF gaps span imports; wheel-to-next-render-submit
+is a correlation proxy. Per-import intervals end at observed visible readiness,
+before the subsequent worker inventory and display hashing. They include the
+file-selected main observation, readiness polling and frame settling. Worker
+samples occur only at quiescent boundaries; the
+file-selected interval explicitly reports worker observation as unavailable.
+Completed lifecycle, no active source ownership and no pending worker RPC are
+required before worker inventory. Matching before/after accepted checkpoint,
+recipe, lifecycle and worker identities fence each sample; read notifications
+are not pending worker requests. No operation lease is bypassed or replaced.
+Hashing, conversion, routing and browser instrumentation add measurement work.
+These observations do not establish synchronous parser/process/GPU peaks,
+immediate reclamation, a leak verdict, a performance threshold, other engines or
+fitting/CAD concurrency.
+
+The packaged-native oracle freezes independent source/settings, original row,
+normal, triangle, weight and display digests before browser outcomes. Every
+accepted inspection/selection/Force/reopen boundary compares them, while reset
+checks empty source/display/recipe state and zero owned staging. Source-aware
+reopening preserves the recipe and accepted epochs. External/API fallback,
+hidden worker replacement, missing samples, failed cleanup or changed artifact
+bytes fail the focused report validator. CI runs this gate after the existing
+static verification and retains its JSON reports separately from the published
+release payload; it adds no release-envelope member or admission capacity.
+The driver verifies clean, consistent site/runtime revision identities and exact
+manifest-listed runtime source hashes against its checkout, then freezes and
+rehashes its own helpers, observers, inputs and references. Generated/vendor
+artifact files remain protected by their complete asset inventory and unchanged
+package/build inputs. A matching parent artifact can diagnose the candidate when
+producer bytes agree; delivery still requires a fresh signed-current build and
+the full CI gates. Progress checkpoints preserve the last completed stage, and
+context/server cleanup attempts run independently when one fails.
+Before importing packaged native code, the oracle verifies the source ZIP asset,
+unique exact member closure, paths/types and every expanded member's expected
+size and hash against the manifest and trusted checkout. All members pass before
+any extraction or import; extra, duplicate, aliased or tampered members fail.
+
+```sh
+node experiments/browser_static/measure-worker-source-ui.mjs \
+  --directory "$TASK_SITE" --output "$TASK_WORKER_UI_RESOURCES" \
+  --native-python .venv/bin/python
+node experiments/browser_static/worker-source-resource-validation.test.mjs
+```
 
 Use a freshly built and verified site from this checkout, with reports outside
 the repository and artifact. The

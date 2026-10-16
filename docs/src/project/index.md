@@ -20,8 +20,10 @@ outside the intended boundary.
     computed seeds excluded from saved actions, and fit-family work breakdown;
     shared source foundation, bounded native HTTP import, native/common source
     authoring UI, native source-aware actions and bounded worker import/recovery
-    implemented; worker source-aware actions, broader numerical integration and
-    full both-backend acceptance remain delivery gates
+    implemented; source-aware actions and imported numerical integration have
+    bounded native/worker evidence, extended by actual raw fitting/export/reopen
+    and worker UI resource observations; final combined CI and current-main
+    artifact preparation remain #245 gates
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected
@@ -63,9 +65,9 @@ outside the intended boundary.
     inventory and Cloudflare Workers Static Assets comparison; redistribution
     completion, release validation, DNS and publication remain explicit gates
 - [Generic symmetry equation foundation](experiments/generic-symmetry-fitting.md)
-  - **Bounded numerical foundation:** exact canonical rotation/mirror equations
-    and internal support mathematics; existing fitting paths remain unchanged,
-    while imported graph/recovery/reuse/CAD integration remains a separate gate
+  - **Bounded numerical foundation and imported experiment:** exact canonical
+    rotation/mirror equations and internal support mathematics; imported
+    graph/recovery/reuse/CAD integration has executed bounded native/worker evidence
 - [Native/browser numerical parity](experiments/numerical-runtime-parity.md)
   - **Selected verification contract:** compare published geometry, intent,
     acceptance classifications and finite budgets; retain complete diagnostic
