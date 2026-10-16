@@ -120,7 +120,7 @@ test('open Build faces lists and model picking agree after fit readiness, rename
     await expect(page.locator('#evaluate-all')).toBeEnabled();
   };
   const listed = async (name, count) => {
-    await expect(page.locator('#build-faces-target-options [role=menuitemradio]').filter({ hasText: name })).toHaveCount(count);
+    await expect(page.locator('#build-faces-target-options [role=menuitemradio]:not(:disabled)').filter({ hasText: name })).toHaveCount(count);
     await expect(page.locator('#build-faces-surfaces option').filter({ hasText: name })).toHaveCount(count);
   };
   await page.getByRole('button', { name: 'Build faces…', exact: true }).click();
