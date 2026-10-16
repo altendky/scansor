@@ -327,9 +327,14 @@ export function bindModelPickControls(root, pick, { modelPickable = () => true, 
             if (control.matches('select')) control.dispatchEvent(new Event('change', { bubbles: true }));
             syncField();
           } });
-        field.button.dataset.pickControl = control.id || control.dataset.field || 'boundary';
-        field.element.dataset.selectionControl = control.id || control.dataset.field || 'boundary';
         if (control.matches('select')) {
+          // Preserve the native label's control before inserting labelable
+          // picker buttons ahead of it. A disabled model-pick button must not
+          // become the label target of otherwise eligible list options.
+          for (const nativeLabel of [...(control.labels || [])]) {
+            if (!control.id) control.id = `geometry-input-${pickerSequence}`;
+            if (!nativeLabel.htmlFor) nativeLabel.htmlFor = control.id;
+          }
           // The adjacent button is inside some wrapping labels. Keep its text
           // out of the native input's accessible name.
           if (control.labels?.length && !control.hasAttribute('aria-label') && !control.hasAttribute('aria-labelledby'))
@@ -346,6 +351,8 @@ export function bindModelPickControls(root, pick, { modelPickable = () => true, 
           control.classList.add('geometry-native-input');
           control.setAttribute('aria-hidden', 'true');
         }
+        field.button.dataset.pickControl = control.id || control.dataset.field || 'boundary';
+        field.element.dataset.selectionControl = control.id || control.dataset.field || 'boundary';
         control.before(field.element);
         control.addEventListener('input', syncField);
         control.addEventListener('change', () => { field.button.removeAttribute('aria-invalid'); syncField(); });
