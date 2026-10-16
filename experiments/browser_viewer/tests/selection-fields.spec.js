@@ -87,7 +87,19 @@ test('dynamic geometry dropdown supports keyboard choices, empty eligibility and
   await arrow.focus();
   await page.keyboard.press('ArrowDown');
   const menu = host.getByRole('menu', { name: 'Boundary choices', exact: true });
-  await expect(menu.getByRole('menuitemradio')).toHaveText(['First', 'Last']);
+  await expect(menu.getByRole('menuitemradio')).toHaveText(['First', 'Unavailable', 'Grouped unavailable', 'Last']);
+  await expect(menu.locator('[role="menuitemradio"]:enabled')).toHaveText(['First', 'Last']);
+  for (const name of ['Unavailable', 'Grouped unavailable']) {
+    const unavailable = menu.getByRole('menuitemradio', { name, exact: true });
+    await expect(unavailable).toBeVisible();
+    await expect(unavailable).toBeDisabled();
+    await unavailable.evaluate(option => option.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await expect(host.locator('select')).toHaveValue('');
+  }
+  await expect(menu.getByRole('menuitemradio', { name: 'First', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitemradio', { name: 'Last', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
   await expect(menu.getByRole('menuitemradio', { name: 'First', exact: true })).toBeFocused();
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
@@ -98,12 +110,12 @@ test('dynamic geometry dropdown supports keyboard choices, empty eligibility and
     document.querySelector('#dynamic-selection-field select').replaceChildren(new Option('Choose an output…', ''));
   });
   await arrow.click();
-  await expect(menu).toContainText('No eligible choices');
+  await expect(menu).toContainText('No eligible boundary.');
   await expect(menu.getByRole('menuitemradio')).toHaveCount(0);
   await host.evaluate(element => element.remove());
 });
 
-test('unavailable selected multi inputs remain visible and removable but are excluded from the dropdown', async ({ page }) => {
+test('unavailable selected multi inputs remain visible and removable with disabled dropdown entries', async ({ page }) => {
   await ready(page);
   await page.evaluate(() => {
     const host = document.createElement('div');
@@ -116,7 +128,15 @@ test('unavailable selected multi inputs remain visible and removable but are exc
   await expect(host.locator('.selection-field-row')).toHaveText(['Unavailable saved input×']);
   await host.getByRole('button', { name: 'Show Retained inputs choices', exact: true }).click();
   const menu = host.getByRole('menu');
-  await expect(menu.getByRole('menuitemcheckbox')).toHaveText(['Ready input']);
+  await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(2);
+  await expect(menu.locator('[role="menuitemcheckbox"]:enabled')).toHaveText(['Ready input']);
+  const unavailable = menu.getByRole('menuitemcheckbox', { name: 'Unavailable saved input', exact: true });
+  await expect(unavailable).toBeVisible();
+  await expect(unavailable).toBeDisabled();
+  await expect(unavailable).toHaveAttribute('aria-checked', 'true');
+  await unavailable.evaluate(option => option.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(await host.locator('select').evaluate(select => [...select.selectedOptions].map(option => option.value)))
+    .toEqual(['saved']);
   await page.keyboard.press('Escape');
   await host.getByRole('button', { name: 'Remove Unavailable saved input', exact: true }).click();
   await expect(host.locator('.selection-field-row')).toHaveCount(0);

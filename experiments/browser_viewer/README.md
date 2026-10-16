@@ -225,8 +225,9 @@ Geometry input fields start picking when clicked. Single inputs show their
 selected value; multiple inputs show selected rows with remove buttons and a
 minimum two-row height. Their dropdown arrows show all eligible choices, with
 checkmarks for selected items. Single choices close the dropdown; multiple
-choices toggle selection and keep it open. Unavailable choices are excluded from
-the dropdown, while unavailable saved selections remain visible for repair.
+choices toggle selection and keep it open. Unavailable choices remain visible
+as disabled dropdown entries and are skipped by keyboard navigation. Unavailable
+saved selections also remain visible for replacement or removal.
 Creation tools begin picking at the first required empty geometry input when
 eligible choices are available; inspecting an existing feature does not.
 This also applies to Build faces surfaces/neighbors and relationship participants;
