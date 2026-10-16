@@ -196,6 +196,10 @@ footer #status { margin: 0 0 6px; }
 #icon-legend-content small { display: block; color: #a6b6c5; font-size: 11px; }
 .action-type { color: #b7cfe1; }
 .action-state { width: 16px; height: 16px; }
+#action-list .feature-evaluate { display: flex; align-items: center; justify-content: center; flex: none; padding: 2px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+#action-list .feature-evaluate:hover:not(:disabled) { background: #3b4e60; }
+#action-list .feature-evaluate:focus-visible { outline: 1px solid #77d3ea; outline-offset: 2px; }
+#action-list .feature-evaluate:disabled { cursor: default; }
 .state-ready { color: #67dba2; }
 .state-unevaluated { color: #a6b6c5; }
 .state-stale { color: #f2b544; }

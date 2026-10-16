@@ -2430,6 +2430,10 @@ function canEvaluateFeature(node) {
   return node && !['source', 'selection', 'coaxial', 'perpendicular',
     'rotational_symmetry', ...relationshipOperations].includes(node.operation);
 }
+function evaluateFeature(id) {
+  if (!featureTreeLocked() && !modelPickMode && canEvaluateFeature(graphNode(id)))
+    return evaluateGraph(false, id);
+}
 function canEditManagedSupport(node) {
   return editableManagedSupport(node, graphState.recipe.nodes,
     graphState.recipe.nodes.find(value => value.operation === 'source')?.descriptor);
@@ -2616,6 +2620,8 @@ function renderActions() {
     },
     move: (nodes) => replaceRecipe({ ...structuredClone(graphState.recipe), nodes }),
     edit: editFeature,
+    evaluate: evaluateFeature,
+    canEvaluate: canEvaluateFeature,
     announce: (message, error = false) => {
       $('action-announcement').textContent = message;
       status(message, error);
@@ -6347,7 +6353,7 @@ async function start(recoveredState) {
   $('feature-context-evaluate').onclick = () => {
     const id = featureContextAnchor;
     $('feature-context-menu').hidePopover();
-    if (!featureTreeLocked() && canEvaluateFeature(graphNode(id))) void evaluateGraph(false, id);
+    evaluateFeature(id);
   };
   $('rename-feature-form').onsubmit = async event => {
     event.preventDefault();
