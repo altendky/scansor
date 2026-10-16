@@ -594,10 +594,11 @@ def _fit_selected_group(
     direction = np.asarray(axis["axis_display"])
     if (
         reference_direction is not None
-        and abs(float(direction @ reference_direction)) <= 1e-10
+        and abs(float(direction @ reference_direction)) <= np.sqrt(2e-10)
     ) or (reference_direction is None and reversed_role):
-        # An orthogonal free-axis start supplies no sign preference. Retain a
-        # deterministic sign and apply the authored reversal bit once.
+        # A free-axis start within recovery's angular resolution of orthogonal
+        # supplies no sign preference (axis equivalence uses 1 - |dot| < 1e-10).
+        # Retain a deterministic sign and apply the authored reversal bit once.
         if direction[int(np.argmax(np.abs(direction)))] < 0:
             direction = -direction
         if reversed_role:
