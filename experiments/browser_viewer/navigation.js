@@ -21,6 +21,13 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   const mode = event => event.button === 1 || event.ctrlKey ? 'pan' : event.altKey ? 'upright' : 'rotate';
   const options = {zoomAtCursor: true, rotateAtCursor: true};
   const update = () => {
+    if (active === free) {
+      // Presets and upright rotation can leave world-up almost parallel to the
+      // view. Trackball needs screen-up or tiny horizontal jitter dominates pitch.
+      // Reconstruct it from the rendered orientation, preserving the current roll.
+      camera.lookAt(free.target);
+      camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    }
     const previousQuaternion = camera.quaternion.clone(), previousTarget = free.target.clone();
     active.update();
     if (rotationAnchor) anchorRotation(camera, free.target, rotationAnchor, previousQuaternion, previousTarget);
