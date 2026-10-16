@@ -99,8 +99,10 @@ The local preflight adds no stage or report member to the release envelope.
 
 Historical semantic-policy support is explicit and bounded. The current verifier
 supports `bounded-semantic-parity-v1` implementations with SHA-256
-`49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae`
+`fe67038bde43464219f53d45de6c97ea6721bc49a684b28b97e69c643b485a0f`
 (current),
+`49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae`
+(reviewed historical implementation before shared-axis recovery version 2),
 `6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967`
 (reviewed historical implementation before the selected cylinder condition
 precision allowance), and

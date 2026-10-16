@@ -162,6 +162,7 @@ def fit_relationship_component(
     rotations: tuple[RotationInput, ...] = (),
     mirrors: tuple[MirrorInput, ...] = (),
     radius_distances: tuple[RadiusDistanceInput, ...] = (),
+    gradient_tolerance: float | None = None,
 ) -> dict[str, Any]:
     """Fit planes and lateral surfaces while retaining every declared equality.
 
@@ -1202,7 +1203,9 @@ def fit_relationship_component(
                 # The new exact-symmetry path needs tighter local numerical
                 # stationarity than the historical component default. This is
                 # independent of physical acceptance and preserves old callers.
-                gradient_tolerance=1e-10 if symmetry else 1e-9,
+                gradient_tolerance=(1e-10 if symmetry else 1e-9)
+                if gradient_tolerance is None
+                else gradient_tolerance,
                 geometry_is_valid=valid,
                 max_iterations=100
                 if control is None

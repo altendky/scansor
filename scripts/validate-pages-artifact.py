@@ -94,11 +94,15 @@ EVIDENCE = {
 }
 SEMANTIC_POLICY = "experiments/browser_runtime/semantic_parity.py"
 CURRENT_SEMANTIC_POLICY = (
-    "49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae"
+    "fe67038bde43464219f53d45de6c97ea6721bc49a684b28b97e69c643b485a0f"
 )
 # Reviewed trusted implementations, never paths supplied by selected evidence.
 SUPPORTED_SEMANTIC_POLICIES = {
     CURRENT_SEMANTIC_POLICY: SEMANTIC_POLICY,
+    "49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae": (
+        "scripts/semantic-policies/"
+        "49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae.py"
+    ),
     "6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967": (
         "scripts/semantic-policies/"
         "6aee2a209f719da51b030722224c630a35fc33f68f1397b705aedd48d4901967.py"

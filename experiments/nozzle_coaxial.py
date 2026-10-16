@@ -137,9 +137,9 @@ def _fit_selected_group(
             side.support if side.support is not None else legacy_support(side.domain)
         )
     policy_version = (
-        "selected-revolution-group-recovery-v1"
+        "selected-revolution-group-recovery-v2"
         if has_cones
-        else "selected-cylinder-group-recovery-v1"
+        else "selected-cylinder-group-recovery-v2"
     )
     for selected in all_selected:
         minimum = 3 if selected.kind == "plane" else 6
@@ -470,7 +470,14 @@ def _fit_selected_group(
             )
         try:
             output = fit_relationship_component(
-                surfaces, {"axis": AxisInput(axis, not fixed)}, [], [], control=control
+                surfaces,
+                {"axis": AxisInput(axis, not fixed)},
+                [],
+                [],
+                control=control,
+                # Free-axis starts must converge precisely enough for tied
+                # solutions to agree under the geometry equivalence checks.
+                gradient_tolerance=1e-11 if not fixed else None,
             )
         except RelationshipSupportFailure as error:
             raise LeastSquaresFailure("invalid-initial-geometry", str(error)) from error

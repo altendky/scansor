@@ -1530,7 +1530,18 @@ def test_known_bounded_algorithm_cannot_drop_its_recovery_budget_envelope(
     rejected(actual, copy.deepcopy(actual))
 
 
-def test_genuine_group_members_share_recovery_but_joint_fit_requires_solver() -> None:
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "selected-cylinder-group-recovery-v1",
+        "selected-cylinder-group-recovery-v2",
+        "selected-revolution-group-recovery-v1",
+        "selected-revolution-group-recovery-v2",
+    ],
+)
+def test_genuine_group_members_share_recovery_but_joint_fit_requires_solver(
+    algorithm: str,
+) -> None:
     source = native_scene_fixture()
     workspace = prepare_scan(
         io.BytesIO(source.raw),
@@ -1542,11 +1553,24 @@ def test_genuine_group_members_share_recovery_but_joint_fit_requires_solver() ->
         [FitSelection("side", source.selections["cylinder"], "cylinder", None)],
         [FitSelection("cap", source.selections["plane"], "plane", None)],
     )
+    # Each registered generation uses the same complete group-holder schema.
+    for record in [joint["fit"], *joint["surfaces"].values()]:
+        record["initialization"]["algorithm"] = algorithm
     assert "solver" in joint["fit"]
     for member in joint["surfaces"].values():
         assert "solver" not in member
         assert recovery(member) == recovery(joint["fit"])
     _ = accepted(joint, copy.deepcopy(joint))
+    if algorithm.endswith("-v2"):
+        historical = runpy.run_path(
+            str(
+                Path(__file__).resolve().parents[1]
+                / "scripts/semantic-policies"
+                / "49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae.py"
+            )
+        )
+        with pytest.raises(historical["SemanticParityError"]):
+            _ = historical["compare_semantic"](joint, copy.deepcopy(joint))
     actual = copy.deepcopy(joint)
     del actual["fit"]["solver"]
     rejected(actual, copy.deepcopy(actual))
