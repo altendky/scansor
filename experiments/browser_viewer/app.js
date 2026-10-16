@@ -165,25 +165,38 @@ function fittedPickResult(reference) {
   const output = graphState.results[reference.feature];
   return reference.surface ? output?.surfaces?.[reference.surface] : output;
 }
+function fieldPickChoice(control, option) {
+  if (control.dataset.inputRequirement) {
+    const output = matchingInputOutput(option.key,
+      requirementOutputs(graphState, control.dataset.inputRequirement));
+    return { ...option, reference: output?.reference, inputOutput: output,
+      icon: output?.capability || 'point' };
+  }
+  let reference, exactReference = false;
+  try { reference = JSON.parse(option.key); exactReference = !!reference?.feature; }
+  catch { reference = { feature: option.key }; }
+  if (!reference?.feature) reference = { feature: option.key };
+  const node = graphNode(reference.surface || reference.feature);
+  return { ...option, reference, exactReference, icon: node?.operation === 'fit' ? node.kind : node?.operation || 'selection' };
+}
+function fieldOptionModelPickable(control, key) {
+  if (!graphState || !key) return false;
+  const choice = fieldPickChoice(control, { key });
+  if (choice.inputOutput) return !!choice.inputOutput.preview;
+  return modelPickParts(choice).some(({ node, fitted }) => {
+    if (node.operation === 'surface_intersection')
+      return graphState.states[node.id] === 'ready' && intersectionPreviewPaths(fitted).length > 0;
+    if (['trimmed_face', 'arranged_face', 'body'].includes(node.operation))
+      return graphState.states[node.id] === 'ready' && validGeometryPreview(fitted.preview) && fitted.preview.positions.length > 0;
+    return !!fitted.ids?.length || ['axis', 'point', 'frame', 'transform', 'reference_plane'].includes(node.operation);
+  });
+}
 function modelPickChoices() {
   if (!modelPickMode || !graphState || featureTreeLocked() ||
       buildFacesApplying || relationshipApplying) return [];
   const nodes = graphState.recipe.nodes;
-  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control,
-    { inertRoot: modelPickField?.inertRoot }).map(option => {
-    if (modelPickField.control.dataset.inputRequirement) {
-      const output = matchingInputOutput(option.key,
-        requirementOutputs(graphState, modelPickField.control.dataset.inputRequirement));
-      return { ...option, reference: output?.reference, inputOutput: output,
-        icon: output?.capability || 'point' };
-    }
-    let reference, exactReference = false;
-    try { reference = JSON.parse(option.key); exactReference = !!reference?.feature; }
-    catch { reference = { feature: option.key }; }
-    if (!reference?.feature) reference = { feature: option.key };
-    const node = graphNode(reference.surface || reference.feature);
-    return { ...option, reference, exactReference, icon: node?.operation === 'fit' ? node.kind : node?.operation || 'selection' };
-  });
+  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control)
+    .map(option => fieldPickChoice(modelPickField.control, option));
   if (modelPickMode === 'target') return buildFacesGeometry().choices.map(choice => ({
     ...fittedSurfacePresentation(choice.reference, nodes),
     key: JSON.stringify(choice.reference), reference: choice.reference,
@@ -237,7 +250,7 @@ function inspectModelPick(choice) {
   paintModelPickGuides();
   choice.checkbox?.closest('.face-candidate, .relationship-participant')?.classList.add('model-pick-hover');
 }
-function setModelPickMode(mode) {
+function setModelPickMode(mode, { restoreFocus = true } = {}) {
   const previousField = modelPickField;
   clearModelPickHover();
   $('model-pick-choices').hidePopover();
@@ -249,7 +262,6 @@ function setModelPickMode(mode) {
   paintModelPickGuides();
   if (previousField && mode !== 'field') {
     previousField.button.setAttribute('aria-pressed', 'false');
-    for (const [element, inert] of previousField.locks || []) element.inert = inert;
     if (previousField.suspended) {
       delete previousField.dialog.dataset.modelPickSuspended;
       if (previousField.dialog.isConnected) {
@@ -257,8 +269,7 @@ function setModelPickMode(mode) {
         previousField.dialog.showModal();
       }
     }
-    // The field observer must re-enable the button after its panel is unlocked.
-    queueMicrotask(() => {
+    if (restoreFocus) queueMicrotask(() => {
       if (!modelPickMode && previousField.button.isConnected) previousField.button.focus();
     });
   }
@@ -270,7 +281,7 @@ function setModelPickMode(mode) {
 function startFieldPick(control, button) {
   if (featureTreeLocked() || !nativePickOptions(control).length) return;
   if (modelPickField?.control === control) return;
-  setModelPickMode(null);
+  setModelPickMode(null, { restoreFocus: false });
   const dialog = control.closest('dialog'), suspended = dialog?.matches(':modal') || false;
   modelPickField = { control, button, dialog, suspended,
     ownerId: control.closest('#feature-properties-panel') ? editingFeatureId : undefined };
@@ -278,14 +289,8 @@ function startFieldPick(control, button) {
     dialog.dataset.modelPickSuspended = 'true';
     dialog.close();
     dialog.show();
-    // Keep the draft visible while exposing the viewport. Another create/edit
-    // action must not reinitialize or replace the draft during picking.
+    // Keep the same live form while exposing the viewport.
   }
-  modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
-    .map(element => [element, element.inert]);
-  modelPickField.inertRoot = modelPickField.locks
-    .find(([element, wasInert]) => !wasInert && element.contains(control))?.[0];
-  for (const [element] of modelPickField.locks) element.inert = true;
   button.setAttribute('aria-pressed', 'true');
   setModelPickMode('field');
   revealWorkspacePanel('view');
@@ -294,8 +299,7 @@ function syncModelPickControls() {
   const locked = !graphState || featureTreeLocked() || buildFacesApplying || relationshipApplying,
     facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
     relationshipOpen = $('relationship-dialog').open;
-  const fieldValid = modelPickField && nativePickOptions(modelPickField.control,
-    { inertRoot: modelPickField.inertRoot }).length &&
+  const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
     (modelPickField.ownerId === undefined || modelPickField.ownerId === editingFeatureId) &&
     (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
   if (modelPickMode && (locked ||
@@ -310,7 +314,7 @@ function syncModelPickControls() {
       !relationshipOpen : !facesOpen || (mode === 'neighbor' && !buildFacesCandidates) ||
         (mode === 'target' && !buildFacesGeometry().choices.length));
   }
-  if (faceTargetField) faceTargetField.dropdown.disabled = $('build-faces-target').disabled;
+  if (faceTargetField) faceTargetField.dropdown.disabled = locked || !facesOpen;
   updateFaceNeighborSummary();
   updateRelationshipParticipantField();
   const canvas = renderer?.domElement;
@@ -319,7 +323,7 @@ function syncModelPickControls() {
     canvas.classList.toggle('model-picking', !!modelPickMode);
   }
   $('model-pick-hint').hidden = !modelPickMode;
-  $('stop-model-picking').textContent = modelPickField ? 'Done picking' : 'Stop picking';
+  $('stop-model-picking').textContent = 'Stop picking';
   $('model-pick-message').textContent = modelPickMode === 'field' ?
     `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
@@ -573,7 +577,7 @@ function commitModelPick(key) {
   if (!choice) { $('model-pick-choices').hidePopover(); return; }
   if (modelPickMode === 'field') {
     const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
-    if (commitNativePick(control, key, { inertRoot: modelPickField.inertRoot })) {
+    if (commitNativePick(control, key)) {
       if (multiple) { modelPickGeometryKey = null; paintModelPickGuides(); }
       else setModelPickMode(null);
     }
@@ -770,7 +774,9 @@ function updateFaceNeighborSummary() {
       label: `Unavailable: ${fittedSurfacePresentation(reference, graphState.recipe.nodes).label}`,
       selected: true, disabled: true });
   }
-  faceNeighborField.update(choices, { disabled: !graphState || featureTreeLocked() || buildFacesApplying });
+  faceNeighborField.update(choices, { disabled: !graphState || featureTreeLocked() || buildFacesApplying,
+    busy: !!graphState && (featureTreeLocked() || buildFacesApplying),
+    emptyMessage: 'Choose a surface, then find candidate neighbors. Only supported neighbors with nonempty geometry can be selected.' });
 }
 function renderFaceCandidates(previous = null, exact = false) {
   const candidates = buildFacesCandidates?.candidates || [];
@@ -1169,7 +1175,8 @@ function refreshBuildFacesChoices() {
         label: `Unavailable: ${fittedSurfacePresentation(buildFacesTarget, graphState.recipe.nodes).name}`,
         selected: true, disabled: true,
       }] : []),
-    ], { disabled: featureTreeLocked() || buildFacesApplying });
+    ], { disabled: featureTreeLocked() || buildFacesApplying, busy: featureTreeLocked() || buildFacesApplying,
+      emptyMessage: 'Create and evaluate a supported surface fit before building faces.' });
     const result = graphState.results[buildFacesTarget?.feature],
       targetFit = buildFacesTarget?.surface ? result?.surfaces?.[buildFacesTarget.surface] : result;
     $('focus-face-target').disabled = !targetAvailable || !targetFit?.ids?.length;
@@ -1780,12 +1787,28 @@ function factorAxis(node) {
 }
 const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
 const selectionOperations = ['selection', 'growth', 'region_selection', 'reuse_selection'];
-const solveInputs = (axis) =>
-  graphState.recipe.nodes.filter(
+const solveInputs = (axis, nodes = graphState.recipe.nodes) =>
+  nodes.filter(
     (node) =>
       (node.operation === 'fit' || relationshipOperations.includes(node.operation)) &&
       factorAxis(node) === axis,
   );
+function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected = null) {
+  const axis = $(`${prefix}axis-solve-axis`).value, control = $(`${prefix}axis-solve-factors`),
+    saved = [...control.selectedOptions].map(option => ({ value: option.value, label: option.textContent })),
+    inputs = solveInputs(axis, nodes);
+  choices(control.id, inputs, selected ?? saved.map(option => option.value));
+  const retained = selected ? selected.map(value => saved.find(option => option.value === value) ||
+    { value, label: graphNode(value)?.label || value }) : saved;
+  for (const option of retained) if (
+    ![...control.options].some(current => current.value === option.value)) {
+    const name = graphNode(option.value)?.label || option.label.replace(/^Unavailable: /, '').split(' — must reference')[0],
+      missing = new Option(`Unavailable: ${name} — must reference the selected axis and appear before this joint`, option.value, false, true);
+    missing.disabled = true;
+    control.add(missing);
+  }
+  control.dataset.pickerEmptyMessage = 'Bind cone or cylinder fits to the selected axis (or its reference planes) using Reference geometry, then choose them here. Creating an axis does not bind existing fits. The axis must appear before those fits; move a later axis earlier, or create new fits after it.';
+}
 function activeSelection() {
   const id = graphNode(editingFeatureId)?.operation === 'selection' ? editingFeatureId : selectedFeatureId;
   return graphState?.recipe.nodes.find(
@@ -2069,7 +2092,10 @@ function updateRelationshipParticipantField() {
     selectedRelationshipKind, relationshipParticipantIds).map(({ node, compatible }) => ({
     key: node.id, label: node.label,
     selected: relationshipParticipantIds.has(node.id), disabled: !compatible,
-  })), { disabled: !graphState || featureTreeLocked() || relationshipApplying });
+    modelPickable: graphState.states[node.id] === 'ready' && !!graphState.results[node.id],
+  })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
+    busy: !!graphState && (featureTreeLocked() || relationshipApplying),
+    emptyMessage: 'Create surface fits or reference planes compatible with the selected relationship.' });
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
@@ -2403,6 +2429,7 @@ function acceptGraph(state) {
     }
     for (const option of control.options) option.selected = options.some(saved => saved.value === option.value);
   }
+  if ($('axis-solve-dialog').open) refreshJointFactors('new-');
   showResult();
   showReuseVolumes();
   paint();
@@ -2682,6 +2709,17 @@ function showProperties(force = false) {
     $('feature-state').textContent = actionDescription(node,
       presentation.states[node.id], presentation.errors[node.id]);
     if (node.operation === 'source') showSourceProperties(node);
+    if (node.operation === 'axis_solve') {
+      const earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
+        axis = $('axis-solve-axis').value;
+      choices('axis-solve-axis', earlier.filter(candidate => candidate.operation === 'axis'), [axis]);
+      if (axis && ![...$('axis-solve-axis').options].some(option => option.value === axis)) {
+        const missing = new Option('Unavailable saved axis — restore it or choose a replacement', axis, false, true);
+        missing.disabled = true;
+        $('axis-solve-axis').add(missing);
+      }
+      refreshJointFactors('', earlier);
+    }
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
@@ -2884,15 +2922,7 @@ function showProperties(force = false) {
       earlier.filter((n) => n.operation === 'axis'),
       [node.axis],
     );
-    choices(
-      'axis-solve-factors',
-      earlier.filter(
-        (n) =>
-          (n.operation === 'fit' || relationshipOperations.includes(n.operation)) &&
-          factorAxis(n) === node.axis,
-      ),
-      node.factors,
-    );
+    refreshJointFactors('', earlier, node.factors);
   } else if (node.operation === 'growth') {
     choices(
       'growth-fit',
@@ -4566,7 +4596,19 @@ async function start(recoveredState) {
   $('focus-relationship').onclick = () => focusRelationshipParticipants([...relationshipParticipantIds]);
   initializeSpecializedPickFields();
   $('stop-model-picking').onclick = () => setModelPickMode(null);
-  bindModelPickControls(document, startFieldPick);
+  bindModelPickControls(document, startFieldPick, { modelPickable: fieldOptionModelPickable,
+    busy: () => !!graphState && (featureTreeLocked() || buildFacesApplying || relationshipApplying) });
+  // Picking owns only the active geometry input. Normal editing and workflow
+  // actions remain available and keep their existing draft/discard guards.
+  const leaveFieldPick = event => {
+    if (modelPickMode !== 'field') return;
+    const target = event.target;
+    if (modelPickField.button.closest('.selection-field')?.contains(target) ||
+        target.closest('#viewport, #model-pick-choices, #action-list, #feature-graph-canvas')) return;
+    setModelPickMode(null, { restoreFocus: false });
+  };
+  document.addEventListener('pointerdown', leaveFieldPick, true);
+  document.addEventListener('focusin', leaveFieldPick);
   document.addEventListener('selection-picker-change', event => {
     if (modelPickField?.control === event.target && !event.target.multiple && event.target.matches('select'))
       setModelPickMode(null);
@@ -5184,7 +5226,7 @@ async function start(recoveredState) {
   const updateAxisSolveFactors = () => {
     const axis = $('new-axis-solve-axis').value;
     const inputs = solveInputs(axis);
-    choices('new-axis-solve-factors', inputs, inputs.map((node) => node.id));
+    refreshJointFactors('new-', graphState.recipe.nodes, inputs.map(node => node.id));
   };
   $('new-axis').onclick = () => {
     const sources = graphState.recipe.nodes.filter(
@@ -5481,8 +5523,8 @@ async function start(recoveredState) {
   $('new-reference-plane-construction').onchange = () => showReferencePlaneFields('new-');
   $('reference-plane-construction').onchange = () => showReferencePlaneFields();
   $('axis-solve-axis').onchange = () => {
-    const axis = $('axis-solve-axis').value;
-    choices('axis-solve-factors', solveInputs(axis));
+    const node = graphNode(editingFeatureId);
+    refreshJointFactors('', graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)), []);
   };
   $('selection-region-selection').onchange = () =>
     choices(

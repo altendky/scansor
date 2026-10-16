@@ -41,6 +41,7 @@
 .selection-field .selection-field-dropdown { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; border-left: 1px solid #4b6175; padding: 4px; }
 .selection-field button:hover, .selection-field button:focus-visible { background: #253342; }
 .selection-field-unavailable { color: #f2ce8b; }
+.selection-field .selection-field-feedback { grid-column: 1 / -1; margin: 0; padding: 6px 7px; border-top: 1px solid #314354; font-size: 12px; white-space: normal; }
 .selection-field-options { position: fixed; inset: auto; margin: 0; padding: 4px; overflow: auto; background: #253342; color: #e4eaf1; border: 1px solid #79d8ee; border-radius: 5px; box-shadow: 0 4px 18px #0008; }
 .selection-field-options .selection-field-option { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 7px; text-align: left; font-size: 12px; border: 0; background: transparent; }
 .selection-field-option:hover, .selection-field-option:focus-visible { background: #164b5a; }
