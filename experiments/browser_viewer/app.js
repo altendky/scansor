@@ -169,8 +169,7 @@ function modelPickChoices() {
   if (!modelPickMode || !graphState || featureTreeLocked() ||
       buildFacesApplying || relationshipApplying) return [];
   const nodes = graphState.recipe.nodes;
-  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control,
-    { inertRoot: modelPickField?.inertRoot }).map(option => {
+  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control).map(option => {
     if (modelPickField.control.dataset.inputRequirement) {
       const output = matchingInputOutput(option.key,
         requirementOutputs(graphState, modelPickField.control.dataset.inputRequirement));
@@ -237,7 +236,7 @@ function inspectModelPick(choice) {
   paintModelPickGuides();
   choice.checkbox?.closest('.face-candidate, .relationship-participant')?.classList.add('model-pick-hover');
 }
-function setModelPickMode(mode) {
+function setModelPickMode(mode, { restoreFocus = true } = {}) {
   const previousField = modelPickField;
   clearModelPickHover();
   $('model-pick-choices').hidePopover();
@@ -249,7 +248,6 @@ function setModelPickMode(mode) {
   paintModelPickGuides();
   if (previousField && mode !== 'field') {
     previousField.button.setAttribute('aria-pressed', 'false');
-    for (const [element, inert] of previousField.locks || []) element.inert = inert;
     if (previousField.suspended) {
       delete previousField.dialog.dataset.modelPickSuspended;
       if (previousField.dialog.isConnected) {
@@ -257,8 +255,7 @@ function setModelPickMode(mode) {
         previousField.dialog.showModal();
       }
     }
-    // The field observer must re-enable the button after its panel is unlocked.
-    queueMicrotask(() => {
+    if (restoreFocus) queueMicrotask(() => {
       if (!modelPickMode && previousField.button.isConnected) previousField.button.focus();
     });
   }
@@ -270,7 +267,7 @@ function setModelPickMode(mode) {
 function startFieldPick(control, button) {
   if (featureTreeLocked() || !nativePickOptions(control).length) return;
   if (modelPickField?.control === control) return;
-  setModelPickMode(null);
+  setModelPickMode(null, { restoreFocus: false });
   const dialog = control.closest('dialog'), suspended = dialog?.matches(':modal') || false;
   modelPickField = { control, button, dialog, suspended,
     ownerId: control.closest('#feature-properties-panel') ? editingFeatureId : undefined };
@@ -278,14 +275,8 @@ function startFieldPick(control, button) {
     dialog.dataset.modelPickSuspended = 'true';
     dialog.close();
     dialog.show();
-    // Keep the draft visible while exposing the viewport. Another create/edit
-    // action must not reinitialize or replace the draft during picking.
+    // Keep the same live form while exposing the viewport.
   }
-  modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
-    .map(element => [element, element.inert]);
-  modelPickField.inertRoot = modelPickField.locks
-    .find(([element, wasInert]) => !wasInert && element.contains(control))?.[0];
-  for (const [element] of modelPickField.locks) element.inert = true;
   button.setAttribute('aria-pressed', 'true');
   setModelPickMode('field');
   revealWorkspacePanel('view');
@@ -294,8 +285,7 @@ function syncModelPickControls() {
   const locked = !graphState || featureTreeLocked() || buildFacesApplying || relationshipApplying,
     facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
     relationshipOpen = $('relationship-dialog').open;
-  const fieldValid = modelPickField && nativePickOptions(modelPickField.control,
-    { inertRoot: modelPickField.inertRoot }).length &&
+  const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
     (modelPickField.ownerId === undefined || modelPickField.ownerId === editingFeatureId) &&
     (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
   if (modelPickMode && (locked ||
@@ -319,7 +309,7 @@ function syncModelPickControls() {
     canvas.classList.toggle('model-picking', !!modelPickMode);
   }
   $('model-pick-hint').hidden = !modelPickMode;
-  $('stop-model-picking').textContent = modelPickField ? 'Done picking' : 'Stop picking';
+  $('stop-model-picking').textContent = 'Stop picking';
   $('model-pick-message').textContent = modelPickMode === 'field' ?
     `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
@@ -573,7 +563,7 @@ function commitModelPick(key) {
   if (!choice) { $('model-pick-choices').hidePopover(); return; }
   if (modelPickMode === 'field') {
     const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
-    if (commitNativePick(control, key, { inertRoot: modelPickField.inertRoot })) {
+    if (commitNativePick(control, key)) {
       if (multiple) { modelPickGeometryKey = null; paintModelPickGuides(); }
       else setModelPickMode(null);
     }
@@ -4561,6 +4551,17 @@ async function start(recoveredState) {
   initializeSpecializedPickFields();
   $('stop-model-picking').onclick = () => setModelPickMode(null);
   bindModelPickControls(document, startFieldPick);
+  // Picking owns only the active geometry input. Normal editing and workflow
+  // actions remain available and keep their existing draft/discard guards.
+  const leaveFieldPick = event => {
+    if (modelPickMode !== 'field') return;
+    const target = event.target;
+    if (modelPickField.button.closest('.selection-field')?.contains(target) ||
+        target.closest('#viewport, #model-pick-choices, #action-list, #feature-graph-canvas')) return;
+    setModelPickMode(null, { restoreFocus: false });
+  };
+  document.addEventListener('pointerdown', leaveFieldPick, true);
+  document.addEventListener('focusin', leaveFieldPick);
   document.addEventListener('selection-picker-change', event => {
     if (modelPickField?.control === event.target && !event.target.multiple && event.target.matches('select'))
       setModelPickMode(null);

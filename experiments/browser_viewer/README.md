@@ -243,10 +243,13 @@ for selections/fits and visible guides for points, axes, planes, frames,
 intersections, constructed faces and bodies. While an input is being picked,
 eligible feature-tree clicks fill that input rather than changing the inspected
 feature. Single-input picking finishes immediately; multi-input picking toggles
-items until **Done picking** or Escape. Modal forms stay visible beside the
-viewport during picking and return to modal interaction afterward, with their
-draft intact. Picking runs the same input change handler as the dropdown and
-does not apply the form.
+items while that field is active. Click another geometry field or its dropdown
+to switch inputs directly. Editors and selected-item lists remain scrollable;
+other parameters, Apply/Create, and Cancel remain available without a separate
+completion step. Editing another parameter ends picking without moving focus.
+**Stop picking** and Escape also end picking. Switching workflows retains the
+usual unapplied-change confirmation. Picking runs the same input change handler
+as the dropdown and does not apply the form.
 
 In Faces only mode, identified source-face previews map a click back to a face,
 its fitted surface or containing body. Source-face previews are used even when a

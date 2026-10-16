@@ -46,25 +46,19 @@ export const geometrySelectorIds = new Set(`
   face-surface new-face-surface build-faces-surfaces export-target export-origin-plane export-transform
 `.trim().split(/\s+/));
 
-export function nativePickOptions(control, { inertRoot = null } = {}) {
-  // Picking locks the editor that owns the active input. Only that lock may
-  // be ignored; pre-existing or nested inert regions still exclude inputs.
-  const inertBlocked = element => {
-    const ancestor = element.closest('[inert]');
-    return ancestor && (ancestor !== inertRoot || ancestor.parentElement?.closest('[inert]'));
-  };
+export function nativePickOptions(control) {
   if (!control?.isConnected || control.disabled || control.matches(':disabled') ||
-      control.closest('[hidden], fieldset[disabled]') || inertBlocked(control)) return [];
+      control.closest('[hidden], [inert], fieldset[disabled]')) return [];
   if (control.matches('select')) return [...control.options]
     .filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
     .map(option => ({ key: option.value, label: option.textContent, selected: option.selected }));
   return [...control.querySelectorAll('input[type="checkbox"]')]
-    .filter(input => !input.disabled && !input.matches(':disabled') && !input.closest('[hidden]') && !inertBlocked(input))
+    .filter(input => !input.disabled && !input.matches(':disabled') && !input.closest('[hidden], [inert]'))
     .map(input => ({ key: input.value, label: input.closest('label').textContent.trim(), selected: input.checked }));
 }
 
-export function commitNativePick(control, key, options) {
-  if (!nativePickOptions(control, options).some(option => option.key === key)) return false;
+export function commitNativePick(control, key) {
+  if (!nativePickOptions(control).some(option => option.key === key)) return false;
   if (control.matches('select')) {
     const option = [...control.options].find(option => option.value === key);
     if (control.multiple) option.selected = !option.selected;
@@ -125,6 +119,7 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   };
   const open = () => {
     if (disabled) return;
+    if (!button.disabled) onPick(button);
     popup.showPopover();
     position();
     dropdown.setAttribute('aria-expanded', 'true');
