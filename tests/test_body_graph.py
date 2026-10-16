@@ -273,8 +273,10 @@ def test_owner_review_failure_blocks_body_even_when_previously_ready(
     assert len(calls) == 1
 
 
-def test_owner_sibling_edits_invalidate_body_of_other_managed_face(
+@pytest.mark.parametrize("label_only", [False, True])
+def test_owner_sibling_edits_invalidate_body_only_for_geometry(
     monkeypatch: pytest.MonkeyPatch,
+    label_only: bool,
 ) -> None:
     graph = face_graph(owner=True)
     _ = fake_assembly(monkeypatch)
@@ -292,16 +294,20 @@ def test_owner_sibling_edits_invalidate_body_of_other_managed_face(
     ready = cast(dict[str, Any], graph.evaluate(snapshot(graph)["token"]))
     assert ready["states"]["sibling"] == "ready"
     payload = deepcopy(ready["recipe"])
-    next(node for node in payload["nodes"] if node["id"] == "sibling")["label"] = (
-        "Edited sibling"
-    )
-    stale = cast(
+    sibling = next(node for node in payload["nodes"] if node["id"] == "sibling")
+    if label_only:
+        sibling["label"] = "Edited sibling"
+    else:
+        sibling["boundaries"][0]["keep"] = "negative"
+    after = cast(
         dict[str, Any], graph.replace(Recipe.model_validate(payload), ready["token"])
     )
-    assert stale["states"]["owner"] == "stale"
-    assert stale["states"]["face"] == "stale"
-    assert stale["states"]["body"] == "stale"
-    assert "body" not in stale["results"]
+    for key in ("owner", "face", "body"):
+        assert after["states"][key] == ("ready" if label_only else "stale")
+    if label_only:
+        assert after["results"] == ready["results"]
+    else:
+        assert "body" not in after["results"]
 
 
 def test_stale_body_native_work_is_discarded(monkeypatch: pytest.MonkeyPatch) -> None:
