@@ -87,6 +87,31 @@ test('sphere Reference geometry explains its point-datum prerequisite rather tha
   await expect(reference.getByRole('menuitemradio', { name: 'None (standalone)', exact: true })).toBeVisible();
 });
 
+test('failed Body stays selectable for export diagnostics when model picking is unavailable', async ({ page }) => {
+  const { graph, publish } = await jointScene(page);
+  graph.recipe.nodes.push({ id: 'failed_body', label: 'Open single-face body', operation: 'body',
+    faces: [], sewing_tolerance: 0.000002 });
+  graph.states.failed_body = 'failed';
+  graph.errors.failed_body = 'Open boundary; Body requires exactly one connected shell';
+  await publish();
+  await page.getByRole('button', { name: 'Export CAD…', exact: true }).click();
+  await page.locator('#export-scope').selectOption('body');
+  const target = page.locator('#export-target'), picker = field(page, 'export-target');
+  await expect(picker.locator('.model-field-pick')).toBeDisabled();
+  await expect(picker.locator('.selection-field-dropdown')).toBeEnabled();
+  await expect(picker.locator('.selection-field-feedback')).toContainText('no pickable 3D geometry');
+  expect(await target.evaluate(control => control.labels[0].control === control)).toBe(true);
+  await target.selectOption('failed_body');
+  await expect(target).toHaveValue('failed_body');
+  await expect(page.locator('#export-download')).toBeDisabled();
+  await expect(page.locator('#export-summary')).toContainText('Unavailable: Open single-face body (failed)');
+  await picker.locator('.selection-field-dropdown').click();
+  const option = picker.getByRole('menuitemradio', { name: 'Open single-face body', exact: true });
+  await expect(option).toBeEnabled();
+  await option.click();
+  await expect(page.locator('#export-download')).toBeDisabled();
+});
+
 test('physical geometry stays list-only until it has a current nonempty preview', async ({ page }) => {
   const { graph, publish } = await jointScene(page);
   graph.recipe.nodes.push({ id: 'test_edge', label: 'Intersection output', operation: 'surface_intersection',
@@ -96,20 +121,24 @@ test('physical geometry stays list-only until it has a current nonempty preview'
   await publish();
   await page.evaluate(() => {
     const label = document.createElement('label'), control = document.createElement('select');
+    label.id = 'test-intersection-field';
     label.textContent = 'Boundary intersection';
     label.style.cssText = 'position:fixed;left:500px;top:150px;width:300px;z-index:100';
-    control.id = 'test-intersection';
     control.dataset.boundaryIntersection = '';
     control.append(new Option('Intersection output', 'test_edge'));
     label.append(control);
     document.body.append(label);
   });
-  const picker = field(page, 'test-intersection'), pick = picker.locator('.model-field-pick'),
+  const picker = page.locator('#test-intersection-field .selection-field'), pick = picker.locator('.model-field-pick'),
     feedback = picker.locator('.selection-field-feedback');
   await expect(pick).toBeDisabled();
+  const native = page.locator('#test-intersection-field select'), generatedId = await native.getAttribute('id');
+  expect(generatedId).toBeTruthy();
+  expect(await native.evaluate(control => control.labels[0].control === control)).toBe(true);
   await expect(feedback).toContainText('no pickable 3D geometry');
   graph.results.test_edge.curves = [{ kind: 'line', preview: { positions: [0, 0, 0, 1, 0, 0], indices: [] } }];
   await publish();
+  await expect(native).toHaveAttribute('id', generatedId);
   await expect(pick).toBeEnabled();
   await expect(feedback).toBeHidden();
   graph.states.test_edge = 'stale';
