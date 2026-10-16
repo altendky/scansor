@@ -13,7 +13,7 @@ class Element {
     this.parentElement = null;
     this.attributes = new Map();
     this.classes = new Set();
-    this.style = {};
+    this.style = { setProperty(name, value) { this[name] = value; } };
     this.dataset = new Proxy({}, { set(target, key, value) { target[key] = String(value); return true; } });
     this.classList = {
       add: (...names) => names.forEach((name) => this.classes.add(name)),

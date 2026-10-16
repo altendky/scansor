@@ -51,6 +51,91 @@ async function dragRow(page, from, to, after = false) {
   await page.mouse.up();
 }
 
+async function showDrop(page, from, to, after = false) {
+  await from.locator('.tree-row-content').dispatchEvent('dragstart', { dataTransfer: await page.evaluateHandle(() => new DataTransfer()) });
+  const target = await to.boundingBox();
+  await to.dispatchEvent('dragover', { clientX: target.x + target.width / 2,
+    clientY: target.y + (after ? target.height - 6 : 6) });
+  await expect(to).toHaveClass(after ? /drop-after/ : /drop-before/);
+}
+
+async function expectDropBounds(target, narrower, after = false) {
+  const bounds = await narrower.locator('.tree-row-content').boundingBox();
+  await expect.poll(() => target.evaluate((element, pseudo) => {
+    const style = getComputedStyle(element, pseudo), row = element.getBoundingClientRect();
+    return { left: row.left + element.clientLeft + parseFloat(style.left), width: parseFloat(style.width) };
+  }, after ? '::after' : '::before')).toEqual({ left: bounds.x, width: bounds.width });
+}
+
+test('drop indicators follow selection boxes at nested transitions and the first and last visible rows', async ({ page }) => {
+  const state = await ready(page, true);
+  await showDrop(page, row(page, 'c'), row(page, 'scan'));
+  await expectDropBounds(row(page, 'scan'), row(page, 'scan'));
+  await row(page, 'c').dispatchEvent('dragend');
+
+  await showDrop(page, row(page, 'tree-reuse'), groupRow(page), true);
+  await expectDropBounds(groupRow(page), row(page, 'a'), true);
+  await row(page, 'tree-reuse').dispatchEvent('dragend');
+
+  await showDrop(page, row(page, 'c'), row(page, 'a'));
+  await expectDropBounds(row(page, 'a'), row(page, 'a'));
+  await row(page, 'c').dispatchEvent('dragend');
+
+  await showDrop(page, row(page, 'tree-reuse'), row(page, 'b'), true);
+  await expectDropBounds(row(page, 'b'), row(page, 'b'), true);
+  await row(page, 'tree-reuse').dispatchEvent('dragend');
+  await showDrop(page, row(page, 'tree-reuse'), row(page, 'c'));
+  await expectDropBounds(row(page, 'c'), row(page, 'b'));
+  await row(page, 'tree-reuse').dispatchEvent('dragend');
+
+  await showDrop(page, row(page, 'c'), row(page, 'tree-reuse'), true);
+  await expectDropBounds(row(page, 'tree-reuse'), row(page, 'tree-reuse'), true);
+  await row(page, 'c').dispatchEvent('dragend');
+  await row(page, 'tree-reuse').locator('.tree-toggle').click();
+  const generatedGroup = page.locator('#action-list .managed-target > details > summary');
+  await showDrop(page, row(page, 'c'), row(page, 'tree-reuse'), true);
+  await expectDropBounds(row(page, 'tree-reuse'), generatedGroup, true);
+  await row(page, 'c').dispatchEvent('dragend');
+  expect(state.writes).toHaveLength(0);
+});
+
+test('drop indicator width follows resizing and scrolling during an active drag', async ({ page }) => {
+  const state = await ready(page, true);
+  const source = await row(page, 'c').locator('.tree-row-content').boundingBox(),
+    target = await row(page, 'a').boundingBox(), x = target.x + target.width / 2;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, target.y + 6, { steps: 12 });
+  await expect(row(page, 'a')).toHaveClass(/drop-before/);
+  await expectDropBounds(row(page, 'a'), row(page, 'a'));
+  const width = (await row(page, 'a').locator('.tree-row-content').boundingBox()).width;
+  await page.locator('#action-list').evaluate(list => { list.style.width = `${list.clientWidth - 40}px`; });
+  await expect.poll(async () => (await row(page, 'a').locator('.tree-row-content').boundingBox()).width).toBeLessThan(width);
+  await expectDropBounds(row(page, 'a'), row(page, 'a'));
+  // Make the actual Features scroller overflow without changing any rows.
+  await page.locator('#action-list').evaluate(list => { list.style.paddingBottom = '600px'; });
+  const scrollTop = await page.locator('#features-panel').evaluate(panel => panel.scrollTop);
+  await page.mouse.wheel(0, 30);
+  await expect.poll(() => page.locator('#features-panel').evaluate(panel => panel.scrollTop)).toBeGreaterThan(scrollTop);
+  const indicated = page.locator('#action-list .drop-before, #action-list .drop-after');
+  await expect(indicated).toHaveCount(1);
+  const after = await indicated.evaluate(element => element.classList.contains('drop-after'));
+  const adjacent = await indicated.evaluateHandle((element, after) => {
+    const rows = [...document.querySelectorAll('#action-list .tree-row')].filter(row => row.checkVisibility()),
+      index = rows.indexOf(element), other = rows[index + (after ? 1 : -1)],
+      width = row => row.querySelector('.tree-row-content').getBoundingClientRect().width;
+    return other && width(other) < width(element) ? other : element;
+  }, after);
+  const expected = await adjacent.evaluate(element => element.querySelector('.tree-row-content').getBoundingClientRect().toJSON());
+  await expect.poll(() => indicated.evaluate((element, pseudo) => {
+    const style = getComputedStyle(element, pseudo);
+    return { left: element.getBoundingClientRect().left + element.clientLeft + parseFloat(style.left), width: parseFloat(style.width) };
+  }, after ? '::after' : '::before')).toEqual({ left: expected.x, width: expected.width });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(state.writes).toHaveLength(0);
+});
+
 test('selection highlights inputs and dependents across multiple rows, collapsed branches and clearing', async ({ page }) => {
   const state = await ready(page, true);
   await expect(page.locator('#feature-relation-legend')).toBeHidden();

@@ -859,6 +859,26 @@ export function renderActionTree(
     return dragPoint.x >= bounds.left && dragPoint.x <= bounds.right &&
       dragPoint.y >= bounds.top && dragPoint.y <= bounds.bottom;
   }
+  function updateDropIndicator(row, after) {
+    if (!row) return;
+    // Closed details can retain layout boxes in Chromium. Use the tree's
+    // expanded ordering so hidden descendants cannot narrow the last marker.
+    const visible = treeController.tree.getItems().map(item => item.getItemData().row),
+      index = visible.indexOf(row),
+      adjacent = visible[index + (after ? 1 : -1)],
+      boxes = [row, adjacent].flatMap(target => {
+        const content = target?.querySelectorAll('.tree-row-content')[0];
+        return content ? [content.getBoundingClientRect()] : [];
+      }),
+      narrowest = boxes.reduce((current, bounds) =>
+        !current || bounds.width < current.width ? bounds : current, null);
+    if (!narrowest) return;
+    row.style.setProperty('--drop-left', `${narrowest.left - row.getBoundingClientRect().left - row.clientLeft}px`);
+    row.style.setProperty('--drop-width', `${narrowest.width}px`);
+  }
+  function refreshDropIndicator() {
+    updateDropIndicator(dropTarget, dropTarget?.classList.contains('drop-after'));
+  }
   function updateDrop(row, y, transfer = null) {
     clearDrop();
     if (!dragged || unavailable() || !row || !list.contains(row) ||
@@ -873,6 +893,7 @@ export function renderActionTree(
     dropSlot = slot;
     dropTarget = row;
     row.classList.add(after ? 'drop-after' : 'drop-before');
+    updateDropIndicator(row, after);
     row.classList.toggle('drop-invalid', !!candidate.error);
     if (transfer) transfer.dropEffect = candidate.error ? 'none' : 'move';
     if (candidate.error) announce(candidate.error, true);
@@ -947,8 +968,12 @@ export function renderActionTree(
   scrollContainer.addEventListener?.('wheel', wheeled, { passive: true });
   document.addEventListener?.('keydown', escapeDrag, true);
   globalThis.addEventListener?.('blur', finishDrag);
+  const dropResizeObserver = globalThis.ResizeObserver ? new ResizeObserver(refreshDropIndicator) : null;
+  dropResizeObserver?.observe(scrollContainer);
+  dropResizeObserver?.observe(list);
   treeDragCleanups.set(list, () => {
     finishDrag();
+    dropResizeObserver?.disconnect();
     scrollContainer.removeEventListener?.('scroll', scrolled);
     scrollContainer.removeEventListener?.('wheel', wheeled);
     document.removeEventListener?.('keydown', escapeDrag, true);
