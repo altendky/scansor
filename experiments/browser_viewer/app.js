@@ -169,7 +169,8 @@ function modelPickChoices() {
   if (!modelPickMode || !graphState || featureTreeLocked() ||
       buildFacesApplying || relationshipApplying) return [];
   const nodes = graphState.recipe.nodes;
-  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control).map(option => {
+  if (modelPickMode === 'field') return nativePickOptions(modelPickField?.control,
+    { inertRoot: modelPickField?.inertRoot }).map(option => {
     if (modelPickField.control.dataset.inputRequirement) {
       const output = matchingInputOutput(option.key,
         requirementOutputs(graphState, modelPickField.control.dataset.inputRequirement));
@@ -256,7 +257,10 @@ function setModelPickMode(mode) {
         previousField.dialog.showModal();
       }
     }
-    previousField.button.focus();
+    // The field observer must re-enable the button after its panel is unlocked.
+    queueMicrotask(() => {
+      if (!modelPickMode && previousField.button.isConnected) previousField.button.focus();
+    });
   }
   syncModelPickControls();
   updateActionTreeLocks();
@@ -279,6 +283,8 @@ function startFieldPick(control, button) {
   }
   modelPickField.locks = [...document.querySelectorAll('.prototype-toolbar, #feature-properties-panel')]
     .map(element => [element, element.inert]);
+  modelPickField.inertRoot = modelPickField.locks
+    .find(([element, wasInert]) => !wasInert && element.contains(control))?.[0];
   for (const [element] of modelPickField.locks) element.inert = true;
   button.setAttribute('aria-pressed', 'true');
   setModelPickMode('field');
@@ -288,7 +294,8 @@ function syncModelPickControls() {
   const locked = !graphState || featureTreeLocked() || buildFacesApplying || relationshipApplying,
     facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
     relationshipOpen = $('relationship-dialog').open;
-  const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
+  const fieldValid = modelPickField && nativePickOptions(modelPickField.control,
+    { inertRoot: modelPickField.inertRoot }).length &&
     (modelPickField.ownerId === undefined || modelPickField.ownerId === editingFeatureId) &&
     (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
   if (modelPickMode && (locked ||
@@ -566,7 +573,7 @@ function commitModelPick(key) {
   if (!choice) { $('model-pick-choices').hidePopover(); return; }
   if (modelPickMode === 'field') {
     const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
-    if (commitNativePick(control, key)) {
+    if (commitNativePick(control, key, { inertRoot: modelPickField.inertRoot })) {
       if (multiple) { modelPickGeometryKey = null; paintModelPickGuides(); }
       else setModelPickMode(null);
     }
