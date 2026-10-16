@@ -3811,7 +3811,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                     "graph changed; reload the current graph before editing"
                 )
             before = {n.id: n for n in self._recipe.nodes}
-            affected = {n.id for n in recipe.nodes if before.get(n.id) != n}
+            # Labels are presentation metadata. Keep evaluated geometry (and
+            # settled failures) while the recipe token still tracks the rename.
+            affected = {
+                node.id
+                for node in recipe.nodes
+                if (previous := before.get(node.id)) is None
+                or previous.model_copy(update={"label": node.label}) != node
+            }
             after_nodes = {n.id: n for n in recipe.nodes}
             changed_outputs = affected | (before.keys() - after_nodes.keys())
             # The build action's cached inventory also depends on its children,

@@ -192,6 +192,46 @@ test('published graph refreshes preserve an ordinary fit draft and the original 
   await expect(page.locator('#properties-title')).toHaveText('End surface');
 });
 
+for (const auto of [true, false]) test(`rename retains evaluated features and dependents with Auto ${auto ? 'enabled' : 'disabled'}`, async ({ page }) => {
+  await ready(page);
+  const original = await readGraph(page), evaluations = [], automatic = [];
+  try {
+    await page.getByRole('checkbox', { name: 'Auto', exact: true }).setChecked(auto);
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().endsWith('/api/graph/evaluate')) evaluations.push(request.url());
+      if (request.method() === 'POST' && request.url().endsWith('/api/graph/ensure')) automatic.push(request.url());
+    });
+    for (const id of ['outer_band', 'side']) {
+      const priorAutomatic = automatic.length;
+      await contextAction(page, id, 'rename');
+      await page.locator('#rename-feature-label').fill(`Renamed ${id}`);
+      const response = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
+        response.request().method() === 'POST');
+      await page.locator('#rename-feature-form').getByRole('button', { name: 'Rename', exact: true }).click();
+      const saved = await (await response).json();
+      expect(saved.states).toEqual(original.states);
+      expect(saved.results).toEqual(original.results);
+      await expect(page.locator('#rename-feature-dialog')).toBeHidden();
+      await expect(page.locator('#evaluate-all')).toBeEnabled();
+      await expect(feature(page, id)).toContainText(`Renamed ${id}`);
+      if (auto) await expect.poll(() => automatic.length).toBeGreaterThan(priorAutomatic);
+      else expect(automatic).toEqual([]);
+    }
+    expect(evaluations).toEqual([]);
+    await contextAction(page, 'side', 'edit');
+    await expect(page.locator('#fit-inputs option[value="outer_band"]')).toHaveText('Renamed outer_band');
+    await page.locator('#axial-start').fill('-1');
+    const response = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
+      response.request().method() === 'POST');
+    await page.locator('#apply-properties').click();
+    const edited = await (await response).json();
+    expect(edited.states.side).toBe('stale');
+    expect(edited.states.fit).toBe('stale');
+    if (auto) await expect.poll(async () => (await readGraph(page)).states.fit).toBe('ready');
+    else expect((await readGraph(page)).states.side).toBe('stale');
+  } finally { await restoreGraph(page, original); }
+});
+
 test('tree Rename and Evaluate target the clicked feature without opening an edit session', async ({ page }) => {
   await ready(page);
   const original = await readGraph(page);

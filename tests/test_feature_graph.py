@@ -2268,6 +2268,24 @@ def test_failure_status_is_authoritative(graph: FeatureGraph) -> None:
     assert graph.snapshot()["result"] is None
 
 
+def test_rename_does_not_retry_settled_failures(graph: FeatureGraph) -> None:
+    _ = graph.replace(changed(graph, "top_face", ids=[]), token(graph))
+    with pytest.raises(ValueError, match="at least"):
+        _ = graph.evaluate(token(graph), all_actions=True)
+    before = graph.snapshot()
+    assert cast(dict[str, str], before["states"])["end"] == "failed"
+    after = graph.replace(
+        changed(graph, "end", label="Renamed failed fit"), token(graph)
+    )
+
+    assert after["states"] == before["states"]
+    assert after["errors"] == before["errors"]
+    assert not graph.needs_evaluation(token(graph), all_actions=True)
+    settled = graph.ensure_current(token(graph), all_actions=True)
+    assert settled["states"] == before["states"]
+    assert settled["errors"] == before["errors"]
+
+
 def test_evaluate_all_isolates_failures_and_recovers_dependents(
     graph: FeatureGraph,
 ) -> None:
