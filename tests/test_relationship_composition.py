@@ -2025,7 +2025,7 @@ def test_generic_mixed_cone_group_preserves_axis_roles_and_reference_planes(
         assert result["weighted_rms"] < 2e-5
         assert (
             result["initialization"]["algorithm"]
-            == "selected-revolution-group-recovery-v1"
+            == "selected-revolution-group-recovery-v2"
         )
     cap = np.asarray(fitted["surfaces"]["cap"]["plane_equation"])
     assert abs(cap[:3] @ axis) > 1 - 1e-10

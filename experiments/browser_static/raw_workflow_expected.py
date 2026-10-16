@@ -25,7 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 RAW_SHA256 = "537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358"
-POLICY_SHA256 = "49a268047d3e9ccaf343fae889e0b6560cf3e34785ec596ea963f3f842a363ae"
+POLICY_SHA256 = "fe67038bde43464219f53d45de6c97ea6721bc49a684b28b97e69c643b485a0f"
 PROJECTION = (
     "recipe",
     "token",

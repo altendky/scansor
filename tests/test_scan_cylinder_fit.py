@@ -825,8 +825,13 @@ def test_source_fit_axis_is_fixed_for_an_imported_downstream_cylinder() -> None:
 
 
 @pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize(
+    ("reference_x", "hemisphere"),
+    [(-1e-3, -1), (-1e-6, 1), (0, 1), (1e-6, 1), (1e-3, 1)],
+)
+@pytest.mark.parametrize("reverse", [False, True])
 def test_shared_horizontal_cylinders_and_cap_recover_from_wrong_free_axis(
-    partial: bool,
+    partial: bool, reference_x: float, hemisphere: int, reverse: bool
 ) -> None:
     from experiments.nozzle_coaxial import FitSelection, fit_group
     from experiments.selection_growth import connected_growth
@@ -869,13 +874,15 @@ def test_shared_horizontal_cylinders_and_cap_recover_from_wrong_free_axis(
             )
         ],
         axis_initial={
-            "axis_display": [0, 0, -1],
+            "axis_display": ([-reference_x, 0, -1] if reverse else [reference_x, 0, 1]),
             "point_display": [1e4, -1e4, 1e4],
-            "direction_reversed": True,
+            "direction_reversed": reverse,
         },
     )
     assert fitted["axis_is_directed"] is True
-    np.testing.assert_allclose(fitted["axis_display"], -axis, atol=1e-5)
+    np.testing.assert_allclose(
+        fitted["axis_display"], hemisphere * (-axis if reverse else axis), atol=1e-5
+    )
     for name, radius in (("inner", 2.5), ("outer", 4.0)):
         surface = fitted["surfaces"][name]
         anchor, direction, actual_radius = geometry(surface)

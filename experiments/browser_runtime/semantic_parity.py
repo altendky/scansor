@@ -126,12 +126,16 @@ _ALGORITHMS = {
     "selected-cone-recovery-v2",
     "joint-algebraic-shared-sphere-v1",
     "selected-cylinder-group-recovery-v1",
+    "selected-cylinder-group-recovery-v2",
     "selected-revolution-group-recovery-v1",
+    "selected-revolution-group-recovery-v2",
     "selected-symmetry-group-recovery-v1",
 }
 _GROUP_ALGORITHMS = {
     "selected-cylinder-group-recovery-v1",
+    "selected-cylinder-group-recovery-v2",
     "selected-revolution-group-recovery-v1",
+    "selected-revolution-group-recovery-v2",
     "selected-symmetry-group-recovery-v1",
 }
 _CONE_FIT_FIELDS = {
