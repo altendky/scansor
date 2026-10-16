@@ -6355,7 +6355,7 @@ async function start(recoveredState) {
     const recipe = structuredClone(graphState.recipe), node = recipe.nodes.find(node => node.id === renameFeatureId);
     if (!node || managedOwnerId(node, recipe.nodes)) return;
     node.label = $('rename-feature-label').value;
-    if (await replaceRecipe(recipe, false)) $('rename-feature-dialog').close();
+    if (await replaceRecipe(recipe)) $('rename-feature-dialog').close();
     else $('rename-feature-error').textContent = $('status').textContent;
   };
   $('rename-feature-dialog').onclose = () => { renameFeatureId = null; focusContextFeature(); };

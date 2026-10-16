@@ -99,6 +99,41 @@ def evaluate(graph: FeatureGraph, target: str) -> dict[str, Any]:
     return cast(dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]), target))
 
 
+@pytest.mark.parametrize("identifier", ["outer_band", "side_factor", "axis"])
+def test_rename_preserves_ready_geometry_and_connected_provider(
+    workspace: NozzleWorkspace, identifier: str
+) -> None:
+    graph = frame_graph(workspace, "axis")
+    before = evaluate(graph, "frame")
+    assert before["results"]["axis"]["resolved_by"] == "connected_fits"
+    recipe = deepcopy(before["recipe"])
+    renamed = next(node for node in recipe["nodes"] if node["id"] == identifier)
+    renamed["label"] = "Renamed geometry"
+
+    after = cast(
+        dict[str, Any], graph.replace(Recipe.model_validate(recipe), before["token"])
+    )
+
+    assert after["token"] != before["token"]
+    assert after["revision"] > before["revision"]
+    assert after["recipe"] == recipe
+    for key in ("states", "results", "derived", "memberships", "errors"):
+        assert after[key] == before[key]
+    assert not graph.needs_evaluation(str(after["token"]), targets=["frame"])
+    # A real fit edit still invalidates the connected axis, its sibling fit,
+    # and consumers whose geometry was published through the cached provider.
+    changed = deepcopy(recipe)
+    side = next(node for node in changed["nodes"] if node["id"] == "side_factor")
+    side["axial_domain"] = [-1, 4]
+    invalidated = cast(
+        dict[str, Any],
+        graph.replace(Recipe.model_validate(changed), str(after["token"])),
+    )
+    for key in ("axis", "side_factor", "plane_factor", "frame"):
+        assert invalidated["states"][key] == "stale"
+        assert key not in invalidated["results"]
+
+
 @pytest.mark.parametrize("reference", ["axis", "datum"])
 def test_explicit_solve_removal_invalidates_cached_resolved_frame(
     workspace: NozzleWorkspace, reference: str
