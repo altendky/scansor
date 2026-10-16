@@ -224,7 +224,7 @@ footer #status { margin: 0 0 6px; }
 .generated-badge { flex: none; padding: 2px 5px; border: 1px solid #526a7e; border-radius: 999px; color: #9fb5c6; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
 .managed-note { padding: 9px; border-left: 3px solid #77d3ea; background: #1d2b37; }
 .managed-note span { display: block; margin-bottom: 7px; }
-.drop-before::before, .drop-after::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: #77d3ea; pointer-events: none; }
+.drop-before::before, .drop-after::after { content: ''; position: absolute; left: var(--drop-left); width: var(--drop-width); height: 2px; background: #77d3ea; pointer-events: none; }
 /* Center both directions on the same 1px gap between adjacent rows. */
 .drop-before::before { top: -1.5px; } .drop-after::after { bottom: -1.5px; }
 .drop-invalid::before, .drop-invalid::after { background: #ffab94; }
