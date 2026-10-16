@@ -238,6 +238,43 @@ test('popup multi-input picks preserve the draft, toggle selections and do not a
   expect(errors).toEqual([]);
 });
 
+test('existing fit inputs stay pickable while the editor is locked and retain uncommitted toggles', async ({ page }) => {
+  const errors = [], edits = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await ready(page);
+  page.on('request', request => {
+    if (request.method() === 'POST' && /\/api\/(graph|session)$|\/evaluate$/.test(request.url())) edits.push(request.url());
+  });
+  await page.locator('.action-select[data-action-id="end"]').click({ button: 'right' });
+  await page.locator('#feature-context-edit').click();
+  const input = page.locator('#fit-inputs'), panel = page.locator('#feature-properties-panel'),
+    selected = () => input.evaluate(select => [...select.selectedOptions].map(option => option.value));
+  const original = await selected();
+  await page.locator('[data-pick-control="fit-inputs"]').click();
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
+  await expect(page.locator('#model-pick-hint')).toBeVisible();
+  expect(await panel.evaluate(element => element.inert)).toBe(true);
+  const point = await patch(page, 'Outer band');
+  await page.mouse.click(point.x, point.y);
+  expect(await selected()).toEqual(['outer_band', ...original]);
+  await page.mouse.click(point.x, point.y);
+  expect(await selected()).toEqual(original);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#model-pick-hint')).toBeHidden();
+  expect(await panel.evaluate(element => element.inert)).toBe(false);
+  expect(await selected()).toEqual(['outer_band', ...original]);
+  await expect(page.locator('[data-pick-control="fit-inputs"]')).toBeFocused();
+  await page.locator('[data-pick-control="fit-inputs"]').click();
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
+  await page.locator('#stop-model-picking').click();
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
+  expect(await panel.evaluate(element => element.inert)).toBe(false);
+  await expect(page.locator('[data-pick-control="fit-inputs"]')).toBeFocused();
+  expect(edits).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test('datum guide picks retain a nonmodal single-input form with its draft and enum unchanged', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -314,6 +351,42 @@ test('native picking rejects hidden/disabled inputs, preserves multi-toggle and 
   });
   expect(result).toEqual({ keys: ['first'], first: true, selected: 1, toggle: true, deselected: 0,
     locked: false, hidden: false, disabled: false, events: ['input', 'change', 'input', 'change'], bound: true });
+});
+
+test('active picker ignores only its editor lock and keeps other input eligibility checks', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const { nativePickOptions, commitNativePick } = await import('/model-picking.js');
+    const host = document.createElement('div'), nested = document.createElement('div'),
+      control = document.createElement('select');
+    control.append(new Option('First', 'first'), new Option('Locked', 'locked'));
+    control.options[1].disabled = true;
+    nested.append(control);
+    host.append(nested);
+    document.body.append(host);
+    host.inert = true;
+    const options = { inertRoot: host }, keys = () => nativePickOptions(control, options).map(option => option.key),
+      blocked = nativePickOptions(control).length, allowed = keys(), committed = commitNativePick(control, 'first', options),
+      locked = commitNativePick(control, 'locked', options);
+    nested.inert = true;
+    const nestedBlocked = keys();
+    nested.inert = false;
+    nested.hidden = true;
+    const hiddenBlocked = keys();
+    nested.hidden = false;
+    control.disabled = true;
+    const disabledBlocked = keys();
+    control.disabled = false;
+    const outer = document.createElement('div');
+    outer.inert = true;
+    document.body.append(outer);
+    outer.append(host);
+    const outerBlocked = keys();
+    outer.remove();
+    return { blocked, allowed, committed, locked, nestedBlocked, hiddenBlocked, disabledBlocked, outerBlocked };
+  });
+  expect(result).toEqual({ blocked: 0, allowed: ['first'], committed: true, locked: false,
+    nestedBlocked: [], hiddenBlocked: [], disabledBlocked: [], outerBlocked: [] });
 });
 
 test('faces-only picks retain source face and exact solved surface identities under a sewn body', async ({ page }) => {
