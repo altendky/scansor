@@ -179,11 +179,15 @@ test('highlights exclude the gutter and chevron but contain the feature and stat
   await expect(item(page, 'a')).toHaveAttribute('aria-selected', 'true');
   for (const target of [row(page, 'a'), row(page, 'scan'), row(page, 'tree-reuse')]) {
     const outer = await target.boundingBox(), content = await target.locator('.tree-row-content').boundingBox(),
-      icon = await target.locator('.action-type').boundingBox(), status = await target.locator('.action-state').boundingBox();
+      icon = await target.locator('.action-type').boundingBox(), status = await target.locator('.action-state').boundingBox(),
+      statusControl = await target.locator('.feature-evaluate').count()
+        ? await target.locator('.feature-evaluate').boundingBox() : status;
     expect(content.x - outer.x).toBe(22);
     expect(icon.x - content.x).toBeGreaterThanOrEqual(0);
     expect(icon.x - content.x).toBeLessThanOrEqual(6);
-    expect(content.x + content.width - status.x - status.width).toBeLessThanOrEqual(6);
+    expect(content.x + content.width - statusControl.x - statusControl.width).toBeLessThanOrEqual(6);
+    expect(status.x).toBeGreaterThanOrEqual(statusControl.x);
+    expect(status.x + status.width).toBeLessThanOrEqual(statusControl.x + statusControl.width);
     expect(await target.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
   }
   const branch = row(page, 'tree-reuse'),

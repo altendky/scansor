@@ -46,25 +46,19 @@ export const geometrySelectorIds = new Set(`
   face-surface new-face-surface build-faces-surfaces export-target export-origin-plane export-transform
 `.trim().split(/\s+/));
 
-export function nativePickOptions(control, { inertRoot = null } = {}) {
-  // Picking locks the editor that owns the active input. Only that lock may
-  // be ignored; pre-existing or nested inert regions still exclude inputs.
-  const inertBlocked = element => {
-    const ancestor = element.closest('[inert]');
-    return ancestor && (ancestor !== inertRoot || ancestor.parentElement?.closest('[inert]'));
-  };
+export function nativePickOptions(control) {
   if (!control?.isConnected || control.disabled || control.matches(':disabled') ||
-      control.closest('[hidden], fieldset[disabled]') || inertBlocked(control)) return [];
+      control.closest('[hidden], [inert], fieldset[disabled]')) return [];
   if (control.matches('select')) return [...control.options]
     .filter(option => option.value && !option.disabled && !option.closest('optgroup[disabled]'))
     .map(option => ({ key: option.value, label: option.textContent, selected: option.selected }));
   return [...control.querySelectorAll('input[type="checkbox"]')]
-    .filter(input => !input.disabled && !input.matches(':disabled') && !input.closest('[hidden]') && !inertBlocked(input))
+    .filter(input => !input.disabled && !input.matches(':disabled') && !input.closest('[hidden], [inert]'))
     .map(input => ({ key: input.value, label: input.closest('label').textContent.trim(), selected: input.checked }));
 }
 
-export function commitNativePick(control, key, options) {
-  if (!nativePickOptions(control, options).some(option => option.key === key)) return false;
+export function commitNativePick(control, key) {
+  if (!nativePickOptions(control).some(option => option.key === key)) return false;
   if (control.matches('select')) {
     const option = [...control.options].find(option => option.value === key);
     if (control.multiple) option.selected = !option.selected;
@@ -77,13 +71,43 @@ export function commitNativePick(control, key, options) {
 
 let pickerSequence = 0;
 
+export function pickFieldFeedback(choices, { label, disabled = false, busy = false, emptyMessage = '' } = {}) {
+  if (disabled) return busy ? 'Temporarily unavailable while another action is running. Wait for it to finish.'
+    : 'This input is unavailable in the current configuration.';
+  const eligible = choices.filter(choice => choice.key && !choice.disabled),
+    unavailable = choices.filter(choice => choice.key && choice.disabled),
+    saved = unavailable.filter(choice => choice.selected);
+  if (!eligible.length) return `No eligible ${label.toLowerCase()}. ${emptyMessage ||
+    'Create a compatible feature before this input, or evaluate or repair an unavailable provider.'}` +
+    (unavailable.length ? ` ${saved[0]?.label || unavailable[0].label}.` : '');
+  if (saved.length) return `Saved input unavailable: ${saved.map(choice => choice.label).join('; ')}. Choose a replacement or remove it.`;
+  if (eligible.every(choice => choice.modelPickable === false))
+    return 'Eligible choices have no pickable 3D geometry. Use the arrow to choose from the list; evaluate their providers to show available geometry.';
+  return '';
+}
+
+function emptyPickMessage(control) {
+  if (control.dataset.pickerEmptyMessage) return control.dataset.pickerEmptyMessage;
+  const id = control.id.replace(/^new-/, '');
+  if (control.dataset.inputRequirement === 'constrainable_point') return 'Create a point datum before this sphere fit.';
+  if (id === 'fit-inputs') return 'Create a selection before this surface fit.';
+  if (id === 'fit-reference') return 'Create an axis or plane datum before this fit. Move a later datum earlier, or create a new fit after it.';
+  if (['reference-plane-axis', 'axis-solve-axis', 'rotation-axis'].includes(id))
+    return 'Create an explicit axis before this feature.';
+  if (['axis-source', 'axis-source-fit'].includes(id)) return 'Create a cone or cylinder surface fit before this axis.';
+  if (['point-source', 'point-source-fit'].includes(id)) return 'Create a sphere fit before this point.';
+  if (control.dataset.inputRequirement === 'point') return 'Create a point datum, sphere fit, or single-vertex selection before this feature. Evaluate its provider.';
+  if (control.dataset.inputRequirement === 'direction') return 'Create an axis or plane output before this feature. Evaluate its provider.';
+  return '';
+}
+
 // The visible field shows selections; its arrow is the only entry to the list
 // of available choices. Native inputs remain the form's source of truth.
 export function createPickField(root, { label, multiple = false, onPick, onChange,
   popupContent = null, id = null, onInspect = () => {}, onRemove = onChange, onChoose = () => {} }) {
   const element = root.createElement('div'), selected = root.createElement('ul'),
     button = root.createElement('button'), dropdown = root.createElement('button'),
-    popup = root.createElement('div');
+    popup = root.createElement('div'), feedback = root.createElement('p');
   element.className = 'selection-field';
   element.classList.toggle('selection-field-multiple', multiple);
   selected.className = 'selection-field-selected';
@@ -100,12 +124,17 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   dropdown.setAttribute('aria-expanded', 'false');
   popup.className = 'selection-field-options';
   popup.id = `selection-field-options-${++pickerSequence}`;
+  feedback.id = `selection-field-feedback-${pickerSequence}`;
+  feedback.className = 'selection-field-feedback hint';
+  feedback.hidden = true;
+  button.setAttribute('aria-describedby', feedback.id);
+  dropdown.setAttribute('aria-describedby', feedback.id);
   popup.setAttribute('popover', 'auto');
   popup.setAttribute('role', popupContent ? 'dialog' : 'menu');
   popup.setAttribute('aria-label', `${label} choices`);
   dropdown.setAttribute('aria-controls', popup.id);
   if (popupContent) popup.append(popupContent);
-  element.append(selected, button, dropdown, popup);
+  element.append(selected, button, dropdown, popup, feedback);
   let records = [], disabled = false, signature = null;
   const close = (focus = false) => {
     popup.hidePopover();
@@ -125,6 +154,7 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   };
   const open = () => {
     if (disabled) return;
+    if (!button.disabled) onPick(button);
     popup.showPopover();
     position();
     dropdown.setAttribute('aria-expanded', 'true');
@@ -146,7 +176,7 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     event.preventDefault();
     event.stopPropagation();
     open();
-    const options = popup.querySelectorAll('[role^="menuitem"]');
+    const options = popup.querySelectorAll('[role^="menuitem"]:not(:disabled)');
     options[event.key === 'ArrowUp' ? options.length - 1 : 0]?.focus();
   };
   popup.addEventListener('keydown', event => {
@@ -157,7 +187,7 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
       return;
     }
     if (popupContent || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const options = [...popup.querySelectorAll('[role^="menuitem"]')];
+    const options = [...popup.querySelectorAll('[role^="menuitem"]:not(:disabled)')];
     if (!options.length) return;
     event.preventDefault();
     event.stopPropagation();
@@ -170,18 +200,20 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     dropdown.setAttribute('aria-expanded', String(popup.matches(':popover-open')));
     if (!popup.matches(':popover-open')) onInspect(null);
   });
-  const update = (choices, { disabled: locked = false } = {}) => {
+  const update = (choices, { disabled: locked = false, busy = false, emptyMessage = '' } = {}) => {
     records = choices;
     disabled = locked;
-    const next = JSON.stringify([choices, locked]);
+    const next = JSON.stringify([choices, locked, busy, emptyMessage]);
     if (signature === next) return;
     signature = next;
     const chosen = records.filter(record => record.selected), eligible = records.filter(record => !record.disabled);
-    button.disabled = locked || !eligible.some(record => record.key);
+    button.disabled = locked || !eligible.some(record => record.key && record.modelPickable !== false);
     dropdown.disabled = locked;
     if (locked) close();
     button.textContent = multiple ? `Pick ${label}…` : chosen[0]?.label || `Pick ${label}…`;
     button.title = multiple ? `Pick ${label} in the model` : chosen[0]?.label || `Pick ${label} in the model`;
+    feedback.textContent = pickFieldFeedback(records, { label, disabled: locked, busy, emptyMessage });
+    feedback.hidden = !feedback.textContent;
     selected.hidden = !multiple;
     if (multiple) selected.replaceChildren(...chosen.map(record => {
       const row = root.createElement('li'), name = root.createElement('button'), remove = root.createElement('button');
@@ -205,13 +237,14 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     // Keep dropdown options in place while multiselect updates their checks.
     const current = new Map([...popup.querySelectorAll('[data-selection-key]')]
       .map(option => [option.dataset.selectionKey, option]));
-    const options = eligible.map(record => {
+    const options = records.map(record => {
       const option = current.get(record.key) || root.createElement('button');
       option.type = 'button';
       option.className = 'selection-field-option';
       option.dataset.selectionKey = record.key;
       option.setAttribute('role', multiple ? 'menuitemcheckbox' : 'menuitemradio');
       option.setAttribute('aria-checked', String(record.selected));
+      option.disabled = !!record.disabled;
       if (option.dataset.selectionLabel !== record.label) {
         option.dataset.selectionLabel = record.label;
         const check = root.createElement('span'), text = root.createElement('span');
@@ -237,15 +270,15 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     if (!options.length) {
       const empty = root.createElement('p');
       empty.className = 'hint';
-      empty.textContent = 'No eligible choices';
+      empty.textContent = feedback.textContent || 'No eligible choices';
       popup.append(empty);
     }
     if (popup.matches(':popover-open')) position();
   };
-  return { element, button, dropdown, popup, update };
+  return { element, button, dropdown, popup, feedback, update };
 }
 
-export function bindModelPickControls(root, pick) {
+export function bindModelPickControls(root, pick, { modelPickable = () => true, busy = () => false } = {}) {
   const fields = new WeakMap();
   const sync = () => {
     for (const control of root.querySelectorAll('select, #body-face-choices, #new-body-face-choices')) {
@@ -264,7 +297,8 @@ export function bindModelPickControls(root, pick) {
             [...control.querySelectorAll('input[type="checkbox"]')].map(input => ({ key: input.value,
               label: input.closest('label').textContent.trim(), selected: input.checked,
               disabled: input.disabled || input.matches(':disabled') }));
-          field.update(records, { disabled: !!control.disabled || control.matches(':disabled') ||
+          field.update(records.map(record => ({ ...record, modelPickable: modelPickable(control, record.key) })),
+            { emptyMessage: emptyPickMessage(control), busy: busy(), disabled: !!control.disabled || control.matches(':disabled') ||
             !!control.closest('[hidden], [inert], fieldset[disabled]') });
         };
         field = createPickField(root, { label, multiple: control.multiple || !control.matches('select'),
@@ -323,7 +357,8 @@ export function bindModelPickControls(root, pick) {
   };
   sync();
   const observer = new MutationObserver(sync);
-  observer.observe(root.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'inert'] });
+  observer.observe(root.body, { childList: true, subtree: true, attributes: true,
+    attributeFilter: ['disabled', 'hidden', 'inert', 'data-picker-empty-message'] });
   return observer;
 }
 

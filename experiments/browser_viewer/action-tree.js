@@ -653,6 +653,8 @@ export function renderActionTree(
     select,
     clearSelection = () => {},
     edit = () => {},
+    evaluate = () => {},
+    canEvaluate = () => false,
     move,
     announce,
     groupContextMenu = () => {},
@@ -685,6 +687,49 @@ export function renderActionTree(
   const relations = featureSelectionRelations(nodes, selectedIds, ownerById);
   const unavailable = () => list.getAttribute('aria-busy') === 'true' || locked();
   const lockControls = [], treeItems = [];
+  function evaluationStatus(node, state) {
+    const status = icon(state, `action-state state-${state}`);
+    if (!canEvaluate(node)) return status;
+    const button = document.createElement('button'),
+      label = `Evaluate ${node.label} (${actionDescription(node, state)})`;
+    button.type = 'button';
+    button.className = 'feature-evaluate';
+    button.dataset.evaluateId = node.id;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.draggable = false;
+    button.append(status);
+    const update = () => { button.disabled = unavailable() || !canEvaluate(node); };
+    lockControls.push(update);
+    update();
+    button.onpointerdown = event => event.stopPropagation();
+    button.onmousedown = event => {
+      event.stopPropagation();
+      // Prevent the enclosing draggable content from taking this gesture.
+      if (event.button === 0) { event.preventDefault(); button.focus(); }
+    };
+    button.ondragstart = button.ondblclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    button.onkeydown = button.onkeyup = event => event.stopPropagation();
+    button.onclick = async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled || unavailable() || !canEvaluate(node)) return;
+      const restoreFocus = document.activeElement === button;
+      await evaluate(node.id);
+      // Evaluation rebuilds rows. Preserve the action's keyboard focus only
+      // while the user has stayed on this tree item throughout the operation.
+      if (restoreFocus && list.contains(document.activeElement) &&
+          document.activeElement.closest('.tree-item')?.dataset.treeKey === `feature/${node.id}`) {
+        const current = [...list.querySelectorAll('.feature-evaluate')]
+          .find(element => element.dataset.evaluateId === node.id);
+        if (current && !current.disabled) current.focus();
+      }
+    };
+    return button;
+  }
   let treeController;
   list.setAttribute('role', 'tree');
   list.setAttribute('aria-label', 'Features in evaluation order');
@@ -1010,7 +1055,7 @@ export function renderActionTree(
     row.dataset.dropEnd = end;
     row.dataset.dropScope = scope || '';
     row.onpointerdown = (event) => {
-      if (event.button !== 0 || unavailable() || !contentClick(row, event)) return;
+      if (event.button !== 0 || unavailable() || event.target.closest('.feature-evaluate') || !contentClick(row, event)) return;
       row.closest('.tree-item')?.focus();
       finishDrag();
       suppressClick = null;
@@ -1078,7 +1123,7 @@ export function renderActionTree(
       // Real mouse/touch gestures use pointer capture so wheel scrolling stays
       // available. Retain native handlers for non-pointer/synthetic clients.
       if (pointerDrag) { event.preventDefault(); return; }
-      if (unavailable() || !event.target.closest('.tree-row-content')) { event.preventDefault(); return; }
+      if (unavailable() || event.target.closest('.feature-evaluate') || !event.target.closest('.tree-row-content')) { event.preventDefault(); return; }
       dragged = selectionDragBlock(row, block);
       if (!dragged) { event.preventDefault(); return; }
       event.dataTransfer.effectAllowed = 'move';
@@ -1147,12 +1192,7 @@ export function renderActionTree(
       button.append(badge);
     }
     if (quality) button.append(qualityBadge(quality, generated ? ownerById.get(node.id) : null));
-    button.append(
-      icon(
-        relationship ? 'ready' : states[node.id],
-        `action-state state-${relationship ? 'ready' : states[node.id]}`,
-      ),
-    );
+    button.append(evaluationStatus(node, relationship ? 'ready' : states[node.id]));
     if (!owned.length) {
       treeItem(item, button, `feature/${node.id}`, () => select(node.id), openContextMenu);
       if (!generated) draggableRow(button, [node.id], node.id, node.label);
@@ -1179,7 +1219,7 @@ export function renderActionTree(
         icon(node.operation === 'fit' ? node.kind : node.operation, 'action-type'),
         label,
         ...(ownerQuality ? [qualityBadge(ownerQuality)] : []),
-        icon(summaryState, `action-state state-${summaryState}`),
+        evaluationStatus(node, summaryState),
       );
       const entry = treeItem(item, summary, `feature/${node.id}`, () => select(node.id), openContextMenu);
       entry.relatedIds = [...managedSubtreeIds(node.id, nodes)];
