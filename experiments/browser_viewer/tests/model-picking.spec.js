@@ -200,7 +200,7 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
   await expect(chooser).toBeHidden();
 });
 
-test('popup multi-input picks preserve the draft, toggle selections and do not apply or select tree features', async ({ page }) => {
+test('popup multi-input picks preserve drafts and guard workflow switches without a completion step', async ({ page }) => {
   const errors = [], edits = [];
   page.on('pageerror', error => errors.push(error.message));
   await ready(page);
@@ -215,10 +215,11 @@ test('popup multi-input picks preserve the draft, toggle selections and do not a
   expect(await page.locator('#fit-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(false);
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
   const create = page.getByRole('button', { name: 'Surface fit', exact: true });
-  expect(await create.evaluate(button => !!button.closest('[inert]'))).toBe(true);
-  const box = await create.boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await create.evaluate(button => !!button.closest('[inert]'))).toBe(false);
+  page.once('dialog', dialog => dialog.dismiss());
+  await create.click();
   await expect(page.locator('#new-fit-label')).toHaveValue('My uncommitted fit');
+  await page.locator('[data-pick-control="new-fit-inputs"]').click();
   const point = await patch(page, 'Outer band');
   await page.mouse.click(point.x, point.y);
   expect(await page.locator('#new-fit-inputs').evaluate(select => [...select.selectedOptions].map(option => option.value))).toEqual(['outer_band']);
@@ -238,40 +239,65 @@ test('popup multi-input picks preserve the draft, toggle selections and do not a
   expect(errors).toEqual([]);
 });
 
-test('existing fit inputs stay pickable while the editor is locked and retain uncommitted toggles', async ({ page }) => {
+for (const docked of [false, true]) test(`existing ${docked ? 'docked' : 'floating'} editor stays usable while picking and applies its draft directly`, async ({ page }) => {
   const errors = [], edits = [];
   page.on('pageerror', error => errors.push(error.message));
   await ready(page);
+  await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  const graph = await (await page.request.get('/api/graph')).json();
+  let savedRecipe;
+  await page.route(/\/api\/graph$/, async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    savedRecipe = route.request().postDataJSON().recipe;
+    await route.fulfill({ json: { ...graph, recipe: savedRecipe, token: 'picked-editor-draft' } });
+  });
   page.on('request', request => {
     if (request.method() === 'POST' && /\/api\/(graph|session)$|\/evaluate$/.test(request.url())) edits.push(request.url());
   });
   await page.locator('.action-select[data-action-id="end"]').click({ button: 'right' });
   await page.locator('#feature-context-edit').click();
+  if (docked) await page.locator('#dock-edit').click();
   const input = page.locator('#fit-inputs'), panel = page.locator('#feature-properties-panel'),
     selected = () => input.evaluate(select => [...select.selectedOptions].map(option => option.value));
   const original = await selected();
   await page.locator('[data-pick-control="fit-inputs"]').click();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
   await expect(page.locator('#model-pick-hint')).toBeVisible();
-  expect(await panel.evaluate(element => element.inert)).toBe(true);
+  expect(await panel.evaluate(element => element.inert)).toBe(false);
   const point = await patch(page, 'Outer band');
   await page.mouse.click(point.x, point.y);
   expect(await selected()).toEqual(['outer_band', ...original]);
   await page.mouse.click(point.x, point.y);
   expect(await selected()).toEqual(original);
   await page.mouse.click(point.x, point.y);
+  const selectedRows = page.locator('[data-selection-control="fit-inputs"] .selection-field-selected');
+  await selectedRows.evaluate(element => { element.style.maxHeight = '28px'; });
+  await selectedRows.hover();
+  await page.mouse.wheel(0, 100);
+  await expect.poll(() => selectedRows.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
   await page.keyboard.press('Escape');
   await expect(page.locator('#model-pick-hint')).toBeHidden();
   expect(await panel.evaluate(element => element.inert)).toBe(false);
   expect(await selected()).toEqual(['outer_band', ...original]);
   await expect(page.locator('[data-pick-control="fit-inputs"]')).toBeFocused();
   await page.locator('[data-pick-control="fit-inputs"]').click();
+  await page.locator('#axial-start').fill('-1');
+  await expect(page.locator('#axial-start')).toBeFocused();
+  await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
+  await page.locator('[data-pick-control="fit-inputs"]').click();
+  const scrollHost = panel;
+  await scrollHost.evaluate(element => { element.style.maxHeight = '230px'; element.style.overflow = 'auto'; });
+  await scrollHost.hover();
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => scrollHost.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'field');
-  await page.locator('#stop-model-picking').click();
+  await page.locator('#apply-properties').click();
   await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
   expect(await panel.evaluate(element => element.inert)).toBe(false);
-  await expect(page.locator('[data-pick-control="fit-inputs"]')).toBeFocused();
-  expect(edits).toEqual([]);
+  expect(savedRecipe.nodes.find(node => node.id === 'end').axial_domain[0]).toBe(-1);
+  expect(savedRecipe.nodes.find(node => node.id === 'end').selections).toEqual(['outer_band', ...original]);
+  expect(edits.filter(url => url.endsWith('/api/graph'))).toHaveLength(1);
   expect(errors).toEqual([]);
 });
 
@@ -309,6 +335,14 @@ test('datum guide picks retain a nonmodal single-input form with its draft and e
   await page.locator('[data-pick-control="new-frame-origin"]').click();
   await expect(page.locator('#frame-dialog')).toBeVisible();
   expect(await page.locator('#frame-dialog').evaluate(dialog => dialog.matches(':modal'))).toBe(false);
+  // Another field's dropdown takes over the model immediately, preserving the
+  // first field's draft and without visiting Stop picking.
+  await page.locator('[data-selection-control="new-frame-primary-reference"] .selection-field-dropdown').click();
+  await expect(page.locator('[data-pick-control="new-frame-origin"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-pick-control="new-frame-primary-reference"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#new-frame-origin')).toHaveValue(JSON.stringify({ feature: 'other_point', output: 'point', context: 'other_point' }));
+  await page.keyboard.press('Escape');
+  await page.locator('[data-pick-control="new-frame-origin"]').click();
   const origin = await patch(page, 'Pick origin');
   await page.mouse.click(origin.x, origin.y);
   await expect(page.locator('#frame-dialog')).toBeVisible();
@@ -353,7 +387,7 @@ test('native picking rejects hidden/disabled inputs, preserves multi-toggle and 
     locked: false, hidden: false, disabled: false, events: ['input', 'change', 'input', 'change'], bound: true });
 });
 
-test('active picker ignores only its editor lock and keeps other input eligibility checks', async ({ page }) => {
+test('native picking rejects inert ancestors at every level', async ({ page }) => {
   await ready(page);
   const result = await page.evaluate(async () => {
     const { nativePickOptions, commitNativePick } = await import('/model-picking.js');
@@ -365,9 +399,10 @@ test('active picker ignores only its editor lock and keeps other input eligibili
     host.append(nested);
     document.body.append(host);
     host.inert = true;
-    const options = { inertRoot: host }, keys = () => nativePickOptions(control, options).map(option => option.key),
-      blocked = nativePickOptions(control).length, allowed = keys(), committed = commitNativePick(control, 'first', options),
-      locked = commitNativePick(control, 'locked', options);
+    const keys = () => nativePickOptions(control).map(option => option.key),
+      blocked = keys(), committed = commitNativePick(control, 'first');
+    host.inert = false;
+    const allowed = keys(), locked = commitNativePick(control, 'locked');
     nested.inert = true;
     const nestedBlocked = keys();
     nested.inert = false;
@@ -385,7 +420,7 @@ test('active picker ignores only its editor lock and keeps other input eligibili
     outer.remove();
     return { blocked, allowed, committed, locked, nestedBlocked, hiddenBlocked, disabledBlocked, outerBlocked };
   });
-  expect(result).toEqual({ blocked: 0, allowed: ['first'], committed: true, locked: false,
+  expect(result).toEqual({ blocked: [], allowed: ['first'], committed: false, locked: false,
     nestedBlocked: [], hiddenBlocked: [], disabledBlocked: [], outerBlocked: [] });
 });
 
