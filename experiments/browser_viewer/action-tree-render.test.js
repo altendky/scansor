@@ -235,7 +235,7 @@ function fixture(nodes = base, groups = []) {
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
-  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
+  const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], evaluations: [], evaluable: new Set(), selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
     list: new Element('ul') };
   state.render = () => {
     const updateLocks = renderActionTree(state.list, {
@@ -243,6 +243,7 @@ function fixture(nodes = base, groups = []) {
     qualities: state.qualities,
     createTree: createHeadlessFeatureTree,
     locked: () => state.locked, select: (id) => state.inspections.push(id),
+    evaluate: id => state.evaluations.push(id), canEvaluate: node => state.evaluable.has(node.id),
     move: async (next) => { state.moves.push(next); state.nodes = next; state.render(); return true; },
     announce: (message, error) => state.announcements.push({ message, error }),
     contextMenu: (id, position) => state.contexts.push({ id, position }),
@@ -271,6 +272,43 @@ function fixture(nodes = base, groups = []) {
   state.render();
   return state;
 }
+
+test('feature evaluation controls preserve status and isolate activation from tree gestures', () => {
+  const state = fixture();
+  state.evaluable = new Set(['wall', 'batch', 'face']);
+  state.states.wall = 'failed';
+  const updateLocks = state.render(), buttons = state.list.querySelectorAll('.feature-evaluate'),
+    button = buttons.find(element => element.dataset.evaluateId === 'wall');
+  assert.deepEqual(buttons.map(element => element.dataset.evaluateId).sort(), ['batch', 'face', 'wall']);
+  assert.match(button.getAttribute('aria-label'), /Evaluate Wall.*Failed/);
+  assert.equal(button.querySelectorAll('.state-failed').length, 1);
+  const click = event(button);
+  button.onclick(click);
+  assert.equal(click.stopped, true);
+  assert.deepEqual(state.evaluations, ['wall']);
+  for (const handler of ['onpointerdown', 'onkeydown', 'onkeyup', 'ondblclick', 'ondragstart']) {
+    const gesture = event(button, { key: 'Enter' });
+    button[handler](gesture);
+    assert.equal(gesture.stopped, true);
+  }
+  const drag = event(button);
+  state.row('wall').ondragstart(drag);
+  assert.equal(drag.prevented, true);
+  state.locked = true;
+  // Recheck live locks even before the lifecycle refresh reaches the button.
+  button.onclick(event(button));
+  assert.deepEqual(state.evaluations, ['wall']);
+  updateLocks();
+  assert.equal(button.disabled, true);
+  state.locked = false;
+  updateLocks();
+  assert.equal(button.disabled, false);
+  state.evaluable.delete('wall');
+  button.onclick(event(button));
+  assert.deepEqual(state.evaluations, ['wall']);
+  assert.deepEqual(state.inspections, []);
+  assert.deepEqual(state.moves, []);
+});
 
 test('lifecycle lock updates preserve tree controls and empty-group restrictions', () => {
   const state = fixture([source, point('a')], [{ id: 'empty', label: 'Empty' }]),

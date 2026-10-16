@@ -541,7 +541,10 @@ panel is open; closing it clears the helper highlights.
    it, rename it, and add more selections as needed.
 2. **Surface fit** chooses cone, cylinder, plane or sphere and one or more earlier
    selections. Overlapping input memberships count each source vertex once.
-   Evaluate the fit to inspect its own parameters, guide and residuals. Plane
+   Evaluate the fit to inspect its own parameters, guide and residuals. Click its
+   status indicator in the feature tree, or focus that button and press Enter or
+   Space, to evaluate the feature and its inputs without changing selection or
+   opening its editor. Context-menu **Evaluate** provides the same action. Plane
    fits can have independent orientations and do not require a joint solve.
    Standalone sphere fits resolve an independent center and radius. A sphere may
    instead reference a point datum. Sphere selection growth and exact STEP
