@@ -1798,7 +1798,7 @@ function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected =
     missing.disabled = true;
     control.add(missing);
   }
-  control.dataset.pickerEmptyMessage = 'Create a Coaxial relationship using this axis and at least two cone/cylinder fits, or bind fits to the axis (or its reference planes) using Reference geometry. Inputs must appear before this joint. Creating an axis alone does not bind existing fits.';
+  control.dataset.pickerEmptyMessage = 'Create a Coaxial relationship using this axis and at least two cone/cylinder fits, or bind fits to the axis (or its reference planes) using Reference geometry. For individual bindings, the axis must appear before those fits. Inputs must appear before this joint. Creating an axis does not bind existing fits.';
 }
 function activeSelection() {
   const id = graphNode(editingFeatureId)?.operation === 'selection' ? editingFeatureId : selectedFeatureId;
