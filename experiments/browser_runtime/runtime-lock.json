@@ -123,6 +123,7 @@
       "experiments/nozzle_coaxial.py",
       "experiments/nozzle_joint_view.py",
       "experiments/nozzle_session.py",
+      "experiments/relationship_inputs.py",
       "experiments/run_nozzle_cylinder.py",
       "experiments/run_nozzle_cylinder_plane.py",
       "experiments/scan_actions.py",

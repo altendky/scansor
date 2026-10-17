@@ -123,23 +123,18 @@ test('selected rows keep precedence when other rows are both inputs and dependen
   assert.equal(state.list.querySelectorAll('.feature-dependent').length, 0);
 });
 
-test('relationship choices only expose physical fits and required datums, not graph contexts', () => {
-  const sphere = { id: 'ball', operation: 'fit', kind: 'sphere' },
-    bound = { ...cylinder, id: 'bound', axis: 'axis' },
-    boundPlane = { ...plane, id: 'bound-plane', reference_plane: 'datum' },
-    datum = { id: 'datum', operation: 'reference_plane', construction: 'contains_axis', axis: 'axis' },
-    axial = { ...datum, id: 'axial', construction: 'perpendicular_to_axis' },
-    nodes = [...base, sphere, bound, boundPlane, datum, axial];
-  const ids = (kind, selected) => relationshipParticipantChoices(nodes, kind, selected).map(({ node }) => node.id);
-  assert.deepEqual(ids(null), ['wall', 'shoulder', 'ball', 'bound', 'bound-plane', 'datum', 'axial']);
-  assert.deepEqual(ids('coincident_planes'), ['shoulder', 'bound-plane']);
-  assert.deepEqual(ids('parallel_planes'), ['shoulder', 'bound-plane']);
-  assert.deepEqual(ids('equal_radii'), ['wall', 'ball', 'bound']);
-  assert.deepEqual(ids('mirror'), ['wall', 'shoulder', 'datum']);
-  assert.deepEqual(ids('radius_plane_distance'), ['shoulder', 'bound', 'datum', 'axial']);
-  const retained = relationshipParticipantChoices(nodes, 'equal_radii', new Set(['shoulder']));
-  assert.equal(retained.find(({ node }) => node.id === 'shoulder').compatible, false);
-  assert.equal(retained.find(({ node }) => node.id === 'wall').compatible, true);
+test('relationship rows consume backend capability decisions for arbitrary providers', () => {
+  const output = { reference: { feature: 'new-provider', output: 'plane', context: 'published' },
+    label: 'Published plane', availability: 'ready', compatible: true, dependencies: ['new-provider', 'published'] },
+    state = { recipe: { nodes: [{ id: 'new-provider', operation: 'future_provider' }, { id: 'published' }] },
+      relationship_contracts: { parallel_planes: { roles: { participants: 'planes' } } },
+      input_requirements: { planes: { choices: [output], unavailable: [] } } };
+  const choices = relationshipParticipantChoices(state, 'parallel_planes');
+  assert.equal(choices.length, 1);
+  assert.deepEqual(choices[0].reference, output.reference);
+  assert.equal(choices[0].compatible, true);
+  const removed = '{"feature":"removed","output":"plane","context":"saved"}';
+  assert.equal(relationshipParticipantChoices(state, 'parallel_planes', new Set([removed])).at(-1).compatible, false);
 });
 
 test('relationship rows support icon labels, selection, hover/keyboard inspection, focus and stable list position', () => {

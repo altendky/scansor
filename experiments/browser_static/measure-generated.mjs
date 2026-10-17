@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { verifySite, startPreview, prepareReports, sha256 } from './server.mjs';
+import { SOURCE_GRAPH_PROJECTION, projectSourceGraph } from './source-semantic.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -103,8 +104,8 @@ function compare(actual, expected) {
       for (const [k, v] of Object.entries(e)) visit(a[k], v, `${location}.${k}`);
     } else assert.deepEqual(a, e, location);
   };
-  for (const key of ['recipe', 'token', 'states', 'errors', 'diagnostics', 'memberships', 'results', 'result', 'derived', 'input_catalogue', 'input_requirements'])
-    visit(actual[key], expected[key], key);
+  const projectedActual = projectSourceGraph(actual), projectedExpected = projectSourceGraph(expected);
+  for (const key of SOURCE_GRAPH_PROJECTION) visit(projectedActual[key], projectedExpected[key], key);
   return { numbers_compared: numbers, max_absolute_difference: max, max_parameter_difference: parameter,
     max_residual_difference: residual, max_difference_path: where, rtol: 1e-10, atol: 1e-10 };
 }

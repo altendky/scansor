@@ -241,11 +241,26 @@ empty-tree click, or Escape clears the set. **Relationship…** opens one builde
 prefilled from that set, but every participant can also be chosen inside the
 dialog. Applicable exact relationships are enabled and ambiguous valid choices
 remain explicit; incompatible choices stay visible with a reason instead of
-silently dropping operands. The first direct multi-fit plane relationships are
+silently dropping operands. The direct plane relationships are
 **Coincident** (shared normal and offset) and **Parallel** (shared normal with
-independent offsets). Connected plane relationships solve as one component and
-do not require a joint action. A plane already governed by explicit reference
-geometry anchors that component to its resolved datum orientation.
+independent offsets). They accept compatible outputs from fitted and reference
+planes, including multiple reference planes. Connected plane relationships solve
+as one component and do not require a joint action.
+
+The relationship builder consumes the shared output catalogue and input
+requirements used by other feature inputs. Features advertise capabilities;
+relationship signatures declare required capabilities, participant counts, and
+roles. The dropdown and model picker share those contracts instead of retaining
+separate feature-kind eligibility lists. Parallel requires plane orientation;
+Coincident requires the complete plane. Provider kinds do not introduce separate
+relationship variants.
+
+Direct parameter-owner inputs bind the original observations or datum
+declarations. An explicitly selected output from another solve context is a fixed
+geometry read in the downstream solve; it does not reactivate the upstream
+observations or substitute a different publication. Existing geometry readers
+retain their output-context rules. Capability compatibility does not by itself
+make an input free or fixed.
 
 **Provisional successor direction with a first internal contract, 2026-09-20:**
 generalized model semantics make reference geometry and solve participation

@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
 
+const bindingCheckbox = (page, feature, output) => page.locator(`input[data-participant-id=${
+  JSON.stringify(JSON.stringify({ feature, output, context: feature }))}]`);
+
 async function ready(page) {
   await page.goto('/');
   await expect(page.locator('#viewport canvas')).toBeVisible();
@@ -76,12 +79,12 @@ test('model picks use complete fit IDs for target and the existing neighbor chec
   }
 });
 
-test('relationship model picks preserve physical participant IDs and list eligibility', async ({ page }) => {
+test('relationship model picks preserve exact owner output references and list eligibility', async ({ page }) => {
   await ready(page);
   await page.getByRole('button', { name: 'Relationship…', exact: true }).click();
   await page.locator('#pick-relationship-participant').click();
   const side = await patch(page, 'Outer surface');
-  const checkbox = page.locator('input[data-participant-id="side"]');
+  const checkbox = bindingCheckbox(page, 'side', 'surface');
   await page.mouse.click(side.x, side.y);
   await expect(checkbox).toBeChecked();
   await page.mouse.click(side.x, side.y);
@@ -171,12 +174,14 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
   const graph = await (await page.request.get('/api/graph')).json();
   graph.results.end.ids = graph.results.side.ids;
   graph.results.fit.surfaces.end.ids = graph.results.fit.surfaces.side.ids;
+  graph.derived.end.ids = graph.derived.side.ids;
   await page.route(/\/api\/graph(?:\?.*)?$/, route => route.request().method() === 'GET'
     ? route.fulfill({ json: graph }) : route.continue());
   await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
   await page.reload();
   await expect(page.locator('#evaluate-all')).toBeEnabled();
   await page.getByRole('button', { name: 'Relationship…', exact: true }).click();
+  await page.locator('#relationship-kind').selectOption('mirror');
   await page.locator('#pick-relationship-participant').click();
   const point = await patch(page, '2 items here');
   await page.mouse.click(point.x, point.y);
@@ -190,13 +195,13 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
     input.dispatchEvent(new Event('input'));
   });
   await chooser.getByRole('button', { name: /End surface/ }).click();
-  await expect(page.locator('input[data-participant-id="end"]')).toBeChecked();
+  await expect(bindingCheckbox(page, 'end', 'plane')).toBeChecked();
   await page.locator('#relationship-filter').evaluate(input => { input.value = ''; input.dispatchEvent(new Event('input')); });
   await page.mouse.click(point.x, point.y);
   await expect(chooser).toBeVisible();
   await chooser.getByRole('button', { name: /End surface/ }).click();
-  await expect(page.locator('input[data-participant-id="end"]')).not.toBeChecked();
-  await expect(page.locator('input[data-participant-id="side"]')).not.toBeChecked();
+  await expect(bindingCheckbox(page, 'end', 'plane')).not.toBeChecked();
+  await expect(bindingCheckbox(page, 'side', 'surface')).not.toBeChecked();
   await expect(chooser).toBeHidden();
 });
 

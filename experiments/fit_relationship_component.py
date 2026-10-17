@@ -46,11 +46,18 @@ class AxisInput:
 
 @dataclass(frozen=True)
 class PlaneInput:
+    """Plane roles; an optional signed placement derives from its current axis.
+
+    Omit offset_from_axis to retain a free plane's independent offset. Supplying
+    it preserves a construction's placement while only orientation participates.
+    """
+
     result: dict[str, Any]
     free: bool
     axis: str | None = None
     construction: str | None = None
     source: str | None = None
+    offset_from_axis: float | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +170,7 @@ def fit_relationship_component(
     mirrors: tuple[MirrorInput, ...] = (),
     radius_distances: tuple[RadiusDistanceInput, ...] = (),
     gradient_tolerance: float | None = None,
+    coordinate_frame: CoordinateFrame | None = None,
 ) -> dict[str, Any]:
     """Fit planes and lateral surfaces while retaining every declared equality.
 
@@ -171,6 +179,9 @@ def fit_relationship_component(
     any direction. A referenced plane has one equation shared by all its fits.
     Parallel-to-axis planes retain an independent offset; contains-axis planes
     do not. Opposite plane orientations are reconciled together with offsets.
+    Plane relationships can name either observed plane surfaces or plane datums.
+    Without observations, an optional coordinate frame supplies numerical scale;
+    otherwise an identity chart is used. Equalities must identify every free DOF.
     """
     if control is not None:
         control.checkpoint()
@@ -203,7 +214,7 @@ def fit_relationship_component(
             raise RelationshipFailure(
                 "relationship inputs have unsupported record types"
             )
-        if len(by_id) != len(surfaces) or not surfaces:
+        if len(by_id) != len(surfaces):
             raise RelationshipFailure(
                 "relationship observations need distinct surface IDs"
             )
@@ -257,6 +268,15 @@ def fit_relationship_component(
                 raise RelationshipFailure("plane provider alias ID must be a string")
             if datum.axis is not None and not isinstance(cast(object, datum.axis), str):
                 raise RelationshipFailure("datum axis ID must be a string")
+            if datum.offset_from_axis is not None and (
+                datum.axis is None
+                or isinstance(datum.offset_from_axis, bool)
+                or not isinstance(cast(object, datum.offset_from_axis), (int, float))
+                or not np.isfinite(datum.offset_from_axis)
+            ):
+                raise RelationshipFailure(
+                    "constructed plane placement needs an axis and finite relative offset"
+                )
         for relation in radius_distances:
             if any(
                 not isinstance(cast(object, key), str) or not key
@@ -335,10 +355,25 @@ def fit_relationship_component(
             assert source is not None
             current = source
         plane_roots[key] = current
-    all_weights = np.concatenate([surface.weights for surface in surfaces])
-    frame = CoordinateFrame.from_observations(
-        np.concatenate([surface.points for surface in surfaces]), all_weights
-    )
+    if surfaces:
+        all_weights = np.concatenate([surface.weights for surface in surfaces])
+        frame = CoordinateFrame.from_observations(
+            np.concatenate([surface.points for surface in surfaces]), all_weights
+        )
+    else:
+        if not planes:
+            raise RelationshipFailure("relationship needs observations or plane datums")
+        all_weights = np.empty(0)
+        frame = coordinate_frame or CoordinateFrame(np.zeros(3), 1.0)
+        if (
+            frame.origin.shape != (3,)
+            or not np.isfinite(frame.origin).all()
+            or not np.isfinite(frame.length)
+            or frame.length <= 0
+        ):
+            raise RelationshipFailure(
+                "coordinate frame needs finite origin and positive length"
+            )
     origin, length = frame.origin, frame.length
     initial: list[float] = []
     centers = centers or {}
@@ -449,7 +484,7 @@ def fit_relationship_component(
             initial.extend([*equation[:3], offset])
         else:
             fixed_planes[key] = (equation[:3].copy(), offset)
-    plane_keys: dict[str, str] = {}
+    plane_keys: dict[str, str] = {key: key for key in planes}
     side_slots: dict[str, int] = {}
     lateral_geometry: dict[str, dict[str, Any]] = {}
     lateral_support: dict[str, SupportIntent] = {}
@@ -576,9 +611,13 @@ def fit_relationship_component(
         return p[start : start + 3], identity[start : start + 3]
 
     points = {surface.id: (surface.points - origin) / length for surface in surfaces}
-    square_weights = np.sqrt(normalized_weights(all_weights))
+    square_weights = (
+        np.sqrt(normalized_weights(all_weights)) if surfaces else np.empty(0)
+    )
 
     def observations(p: Array) -> tuple[Array, Array]:
+        if not surfaces:
+            return np.empty(0), np.empty((0, size))
         residuals: list[Array] = []
         jacobians: list[Array] = []
         for surface in surfaces:
@@ -626,6 +665,16 @@ def fit_relationship_component(
             jacobians
         ) * square_weights[:, None]
 
+    for relation, group in relationships:
+        if relation not in {"parallel", "coincident"}:
+            raise RelationshipFailure("unsupported plane relationship")
+        if len(group) < 2 or len(set(group)) != len(group):
+            raise RelationshipFailure("plane relationships need distinct plane inputs")
+        if any(key not in plane_keys for key in group):
+            raise RelationshipFailure(
+                "plane relationship input is unavailable or not a plane"
+            )
+
     # Choose signs per normal-equivalence class, not independently per edge:
     # pairwise initial dot products can create an impossible odd sign cycle.
     p0 = np.asarray(initial)
@@ -642,14 +691,10 @@ def fit_relationship_component(
         for key in group[1:]:
             parents[root(plane_roots[plane_keys[key]])] = anchor
     perpendicular_keys: dict[str, str] = {}
-    for surface in surfaces:
-        if (
-            surface.kind == "plane"
-            and surface.axis is not None
-            and surface.construction == "perpendicular_to_axis"
-        ):
-            key = plane_roots[plane_keys[surface.id]]
-            other = perpendicular_keys.setdefault(axis_roots[surface.axis], key)
+    for plane_key, (axis, construction) in plane_specs.items():
+        if axis is not None and construction == "perpendicular_to_axis":
+            key = plane_roots[plane_key]
+            other = perpendicular_keys.setdefault(axis_roots[axis], key)
             parents[root(key)] = root(other)
     orientations = {
         key: 1.0
@@ -868,6 +913,14 @@ def fit_relationship_component(
                 continue
             point, direction, point_j, direction_j = axis_geometry(axis, p)
             normal, offset, normal_j, offset_j = plane_geometry(key, p)
+            relative_offset = planes[key].offset_from_axis
+            if relative_offset is not None:
+                # An orientation-only operand keeps its authored placement as
+                # a dependency of the current axis, not a fixed world plane.
+                append(
+                    offset - normal @ point - relative_offset / length,
+                    offset_j - point @ normal_j - normal @ point_j,
+                )
             if construction == "perpendicular_to_axis":
                 append(
                     np.cross(normal, direction),
@@ -1211,6 +1264,7 @@ def fit_relationship_component(
                 if control is None
                 else control.limits.max_iterations,
                 max_trials=32 if control is None else control.limits.max_trials,
+                allow_empty_observations=not surfaces,
             )
     except ConstrainedLeastSquaresFailure as error:
         if not symmetry:

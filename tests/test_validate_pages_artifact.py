@@ -64,6 +64,8 @@ def semantic_report(
         "derived": {},
         "input_catalogue": [],
         "input_requirements": {},
+        "input_contracts": {},
+        "relationship_contracts": {},
         "revision": 1,
     }
     profile, ids = VALIDATOR.SEMANTIC_DRIVERS[name]
@@ -276,6 +278,8 @@ def source_authoring_fixture() -> dict[str, Any]:
             },
             "input_catalogue": [],
             "input_requirements": {},
+            "input_contracts": {},
+            "relationship_contracts": {},
             "required_failures": [],
         }
         native[key] = copy.deepcopy(graph)

@@ -85,6 +85,7 @@ def solve_constrained_least_squares(
     max_iterations: int = 100,
     max_trials: int = 32,
     max_projection_iterations: int = 32,
+    allow_empty_observations: bool = False,
 ) -> ConstrainedLeastSquaresResult:
     """Minimize ``0.5 * ||residual / residual_scale||**2`` with exact equalities.
 
@@ -94,6 +95,8 @@ def solve_constrained_least_squares(
     feasibility is measured after division by these scales. Redundant equality
     rows are supported by SVD, but observations must identify every free tangent
     direction. An infeasible start is projected before fitting observations.
+    With explicit empty-observation support, equalities must determine every
+    parameter: a remaining free tangent still fails the same rank check.
     """
     try:
         current = np.asarray(initial, dtype=np.float64).copy()
@@ -123,6 +126,7 @@ def solve_constrained_least_squares(
         or max_iterations < 0
         or max_trials < 1
         or max_projection_iterations < 1
+        or type(allow_empty_observations) is not bool
     ):
         raise ConstrainedLeastSquaresFailure(
             "invalid-input", "invalid parameters, scales, tolerances, or limits"
@@ -181,7 +185,7 @@ def solve_constrained_least_squares(
         expected_count = equality_count if equality else observation_count
         if (
             residual.ndim != 1
-            or (not equality and residual.size == 0)
+            or (not equality and residual.size == 0 and not allow_empty_observations)
             or jacobian.shape != (residual.size, current.size)
             or not bool(np.isfinite(residual).all())
             or not bool(np.isfinite(jacobian).all())

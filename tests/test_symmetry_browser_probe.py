@@ -87,6 +87,8 @@ def test_actual_imported_symmetry_probe_checks_rows_support_truth_and_replay(
             "derived",
             "input_catalogue",
             "input_requirements",
+            "input_contracts",
+            "relationship_contracts",
         } <= evidence[side].keys()
         assert (
             json.loads(json.dumps(evidence[side], allow_nan=False)) == encoded["state"]

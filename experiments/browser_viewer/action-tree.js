@@ -236,7 +236,7 @@ export function nodeReferences(node) {
     return [...new Set(refs)];
   }
   if (node.operation === 'equal_radii') return node.surfaces;
-  if (node.operation === 'plane_relationship') return node.surfaces;
+  if (node.operation === 'plane_relationship') return [...new Set(node.surfaces.flatMap(outputReferenceIds))];
   return node.constraints || [];
 }
 
@@ -416,25 +416,7 @@ function icon(name, className = '') {
 }
 export { icon as featureIcon };
 
-// Relationship authorship uses physical fit IDs, not partial solve outputs.
-// Keep incompatible selected participants visible so changing kind is reversible.
-export function relationshipParticipantChoices(nodes, kind, selected = new Set()) {
-  const standalone = (node) => !node.axis && !node.point && !node.reference_plane;
-  const eligible = (node) => {
-    if (node.operation === 'reference_plane')
-      return !kind || kind === 'radius_plane_distance' ||
-        (kind === 'mirror' && node.construction === 'contains_axis');
-    if (node.operation !== 'fit') return false;
-    if (['coincident_planes', 'parallel_planes'].includes(kind)) return node.kind === 'plane';
-    if (kind === 'equal_radii') return ['cylinder', 'sphere'].includes(node.kind);
-    if (kind === 'mirror') return ['cone', 'cylinder', 'plane'].includes(node.kind) && standalone(node);
-    if (kind === 'radius_plane_distance')
-      return (node.kind === 'cylinder' && !!node.axis) || (node.kind === 'plane' && standalone(node));
-    return ['plane', 'cylinder', 'cone', 'sphere'].includes(node.kind);
-  };
-  return nodes.filter((node) => eligible(node) || selected.has(node.id))
-    .map((node) => ({ node, compatible: eligible(node) }));
-}
+export { relationshipParticipantChoices } from './relationship-inputs.js';
 
 export function renderRelationshipParticipants(container, {
   choices, selected, change, inspect, focus, locked = () => false,

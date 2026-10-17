@@ -1,4 +1,5 @@
 import { nodeReferences } from './action-tree.js';
+import { referenceFeature } from './feature-inputs.js';
 
 const supportedKinds = new Set(['plane', 'cylinder', 'cone']);
 const aggregates = new Set(['joint_fit', 'axis_solve', 'equal_radii', 'plane_relationship']);
@@ -59,7 +60,11 @@ export function surfaceReferenceChoices(nodes, results = {}, recipeNodes = nodes
           else if (factor?.operation === 'mirror_symmetry') factor.surfaces.forEach(visit);
         }
       } else if (['equal_radii', 'plane_relationship'].includes(node.operation)) {
-        node.surfaces.forEach(visit);
+        // A read from another publication does not become an owned member of
+        // this relationship's geometry context.
+        node.surfaces.filter(reference => typeof reference === 'string' ||
+          !reference.context || reference.context === reference.feature)
+          .map(referenceFeature).forEach(visit);
       } else nodeReferences(node).forEach(visit);
       for (const id of members) {
         if (evaluated.size && !evaluated.has(id)) continue;
