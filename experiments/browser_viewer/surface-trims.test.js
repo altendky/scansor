@@ -30,6 +30,25 @@ const face = { id: 'face', label: 'Wall face', operation: 'trimmed_face', surfac
 const nodes = [{ id: 'source', label: 'Scan', operation: 'source' }, selection, cylinder, plane,
   { id: 'axis', label: 'Axis', operation: 'axis' }, solve, intersection, face];
 
+test('Coaxial publishes only member surface contexts and keeps datum initialization as a DAG prerequisite', () => {
+  const seed = { ...cylinder, id: 'seed', label: 'Initialization only' },
+    other = { ...cylinder, id: 'other', label: 'Other cone', kind: 'cone' },
+    axis = { id: 'axis', operation: 'axis', source_fit: 'seed' },
+    group = { id: 'coaxial', label: 'Coaxial', operation: 'coaxial_group', axis: 'axis', surfaces: ['wall', 'other'] },
+    joint = { ...solve, factors: ['coaxial', 'shoulder'] },
+    all = [seed, axis, cylinder, other, plane, group, joint],
+    choices = surfaceReferenceChoices(all), contexts = id => choices.filter(choice => choice.reference.feature === id).map(choice => choice.reference.surface);
+  assert.deepEqual(surfaceReferenceChoices(all.filter(node => node !== joint))
+    .filter(choice => choice.reference.feature === 'coaxial').map(choice => choice.reference.surface), ['wall', 'other']);
+  assert.deepEqual(contexts('coaxial'), []);
+  assert.equal(choices.some(choice => choice.reference.feature === 'wall'), false);
+  assert.equal(choices.some(choice => choice.reference.feature === 'other'), false);
+  assert.deepEqual(contexts('joint'), ['wall', 'other', 'shoulder']);
+  assert.deepEqual(nodeReferences(group), ['axis', 'wall', 'other']);
+  const graph = buildFeatureGraph({ nodes: all }, { lens: 'relationships', showSelections: true });
+  assert.ok(graph.edges.some(edge => edge.from === 'axis' && edge.to === 'coaxial'));
+});
+
 test('scan-supported bulk selection adds to a draft and reports only actual changes', () => {
   const preview = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], indices: [0, 1, 2] },
     proposal = { status: 'suggested', suggested_region_keys: ['supported', 'missing', 'invalid'],

@@ -66,6 +66,19 @@ export function inputOptionRecords(outputs, selected = null) {
 }
 
 export function renderInputChoices(control, outputs, selected = control.value) {
+  if (control.multiple) {
+    const values = Array.isArray(selected) ? selected : selected ? [selected] : [], records = new Map();
+    for (const value of values.length ? values : [null]) for (const option of inputOptionRecords(outputs, value)) {
+      const previous = records.get(option.key);
+      records.set(option.key, { ...option, selected: option.selected || !!previous?.selected });
+    }
+    control.replaceChildren(...[...records.values()].map(record => {
+      const option = new Option(record.label, record.key, false, record.selected);
+      option.disabled = record.disabled;
+      return option;
+    }));
+    return;
+  }
   const options = inputOptionRecords(outputs, selected);
   control.replaceChildren(new Option('Choose an output…', '', false, !options.some(option => option.selected)),
     ...options.map(record => {

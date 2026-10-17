@@ -35,6 +35,7 @@ export const geometrySelectorIds = new Set(`
   region-selection-clock new-region-selection-clock feature-reuse-fits new-feature-reuse-fits
   feature-reuse-reference new-feature-reuse-reference feature-reuse-target new-feature-reuse-target
   axis-solve-axis new-axis-solve-axis axis-solve-factors new-axis-solve-factors
+  coaxial-group-axis coaxial-group-members
   constraint-a constraint-b mirror-plane new-mirror-plane mirror-input-0 mirror-input-1
   new-mirror-input-0 new-mirror-input-1 parallel-surface new-parallel-surface
   parallel-reference new-parallel-reference equal-radius-surface new-equal-radius-surface
@@ -98,6 +99,8 @@ function emptyPickMessage(control) {
   if (['point-source', 'point-source-fit'].includes(id)) return 'Create a sphere fit before this point.';
   if (control.dataset.inputRequirement === 'point') return 'Create a point datum, sphere fit, or single-vertex selection before this feature. Evaluate its provider.';
   if (control.dataset.inputRequirement === 'direction') return 'Create an axis or plane output before this feature. Evaluate its provider.';
+  if (control.dataset.inputRequirement === 'coaxial_axis') return 'Create a datum axis before this Coaxial relationship. Published solve axes cannot be rebound.';
+  if (control.dataset.inputRequirement === 'coaxial_members') return 'Create at least two cone or cylinder fits before this Coaxial relationship. Published solve outputs cannot be rebound.';
   return '';
 }
 

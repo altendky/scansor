@@ -239,6 +239,14 @@ class Coaxial(Node):
     reference: str
 
 
+class CoaxialGroup(Node):
+    """Multiple independent lateral shapes share one explicit datum line."""
+
+    operation: Literal["coaxial_group"]
+    axis: str
+    surfaces: list[str] = Field(min_length=2, max_length=32)
+
+
 class RotationalSymmetry(Node):
     operation: Literal["rotational_symmetry"]
     axis: str
@@ -461,7 +469,7 @@ class AxisSolve(Node):
 
     operation: Literal["axis_solve"]
     axis: str
-    factors: list[str] = Field(min_length=2, max_length=32)
+    factors: list[str] = Field(min_length=1, max_length=32)
 
 
 class SurfaceReference(Record):
@@ -563,6 +571,7 @@ Feature = Annotated[
     | ReuseSelection
     | Perpendicular
     | Coaxial
+    | CoaxialGroup
     | RotationalSymmetry
     | JointFit
     | AxisDefinition
@@ -758,6 +767,8 @@ def dependencies(node: Feature) -> list[str]:
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
         return [node.surface, node.reference]
+    if isinstance(node, CoaxialGroup):
+        return [node.axis, *node.surfaces]
     if isinstance(node, RotationalSymmetry):
         return [node.axis, *node.planes]
     if isinstance(node, JointFit):
@@ -874,14 +885,31 @@ def surface_reference_kind(
         sides, planes = joint_surfaces(feature, nodes)
         members = [surface.id for surface in [*sides, *planes]]
     elif isinstance(feature, AxisSolve):
-        members = [ref for ref in feature.factors if isinstance(nodes[ref], SurfaceFit)]
+        members = [
+            surface.id for surface in selected_symmetry_inputs(feature, nodes)[0]
+        ]
         members.extend(
             ref
             for factor in feature.factors
             if isinstance(nodes[factor], MirrorSymmetry)
             for ref in cast(MirrorSymmetry, nodes[factor]).surfaces
         )
-    elif isinstance(feature, EqualRadii):
+        members.extend(
+            endpoint.feature
+            for ref in feature.factors
+            if isinstance(factor := nodes[ref], PlaneRelationship)
+            for endpoint in plane_relationship_endpoints(factor, nodes)
+            if endpoint.is_binding
+            and isinstance(nodes[endpoint.feature], PlaneDefinition)
+        )
+    elif isinstance(feature, (EqualRadii, CoaxialGroup)):
+        if isinstance(feature, CoaxialGroup) and any(
+            isinstance(node, AxisSolve) and node.axis == feature.axis
+            for node in nodes.values()
+        ):
+            raise ValueError(
+                "coaxial group geometry is unavailable on an explicitly solved axis; choose a fitted member in the named solve context"
+            )
         members = feature.surfaces
     elif isinstance(feature, PlaneRelationship):
         members = [
@@ -945,7 +973,35 @@ def is_standalone_fit(node: SurfaceFit) -> bool:
     return node.axis is None and node.point is None and node.reference_plane is None
 
 
-def fit_axis(node: SurfaceFit, nodes: dict[str, Feature]) -> str | None:
+def coaxial_axis_bindings(nodes: dict[str, Feature]) -> dict[str, str]:
+    """Compile explicit identities without changing saved fit declarations."""
+    bindings: dict[str, str] = {}
+    for group in nodes.values():
+        if not isinstance(group, CoaxialGroup):
+            continue
+        if not isinstance(nodes.get(group.axis), AxisDefinition):
+            raise ValueError("coaxial group requires an explicit datum axis")
+        if len(set(group.surfaces)) != len(group.surfaces):
+            raise ValueError("coaxial group members must be distinct")
+        for key in group.surfaces:
+            fit = nodes.get(key)
+            if not isinstance(fit, SurfaceFit) or fit.kind not in {"cone", "cylinder"}:
+                raise ValueError("coaxial group requires cone or cylinder fit owners")
+            existing = bindings.get(key, fit.axis)
+            if existing is not None and existing != group.axis:
+                raise ValueError(
+                    f"{fit.label}: conflicting datum axes in coaxial relationships"
+                )
+            bindings[key] = group.axis
+    return bindings
+
+
+def fit_axis(
+    node: SurfaceFit, nodes: dict[str, Feature], bindings: dict[str, str] | None = None
+) -> str | None:
+    bindings = coaxial_axis_bindings(nodes) if bindings is None else bindings
+    if node.id in bindings:
+        return bindings[node.id]
     if node.axis is not None:
         return node.axis
     if node.reference_plane is not None:
@@ -960,13 +1016,18 @@ def automatic_axis_components(
 ) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
     """Connected fit evidence for manually initialized (free) axes."""
     components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
+    bindings = coaxial_axis_bindings(nodes)
+    declared_axes = set(bindings.values())
     for axis in nodes.values():
-        if not isinstance(axis, AxisDefinition) or axis.initial_parameters is None:
+        if not isinstance(axis, AxisDefinition) or (
+            axis.initial_parameters is None and axis.id not in declared_axes
+        ):
             continue
         factors = [
             node
             for node in nodes.values()
-            if isinstance(node, SurfaceFit) and fit_axis(node, nodes) == axis.id
+            if isinstance(node, SurfaceFit)
+            and fit_axis(node, nodes, bindings) == axis.id
         ]
         if not any(factor.kind in ("cone", "cylinder") for factor in factors):
             continue
@@ -1034,6 +1095,7 @@ def automatic_plane_relationship_components(
     relationships = [
         node for node in nodes.values() if isinstance(node, PlaneRelationship)
     ]
+    axis_bindings = coaxial_axis_bindings(nodes)
     pending = set(relationship.id for relationship in relationships)
     endpoints = {
         relationship.id: plane_relationship_endpoints(relationship, nodes)
@@ -1054,7 +1116,8 @@ def automatic_plane_relationship_components(
         axes = {
             axis
             for surface in surfaces
-            if (axis := fit_axis(cast(SurfaceFit, surface), nodes)) is not None
+            if (axis := fit_axis(cast(SurfaceFit, surface), nodes, axis_bindings))
+            is not None
         }
         axes.update(
             node.axis
@@ -1084,7 +1147,11 @@ def automatic_plane_relationship_components(
                 for key in axes
                 if isinstance(axis := nodes[key], AxisDefinition)
                 and (
-                    axis.initial_parameters is not None or axis.source_fit in owner_ids
+                    axis.initial_parameters is not None
+                    or (
+                        axis.source_fit in owner_ids
+                        and axis_bindings.get(axis.source_fit or "") != key
+                    )
                 )
             },
             {
@@ -1118,7 +1185,9 @@ def automatic_plane_relationship_components(
                 node.id
                 for node in nodes.values()
                 if isinstance(node, SurfaceFit)
-                and (fit_axis(node, nodes) in axes or node.point in points)
+                and (
+                    fit_axis(node, nodes, axis_bindings) in axes or node.point in points
+                )
             )
             if include_radii:
                 for node in nodes.values():
@@ -1148,7 +1217,7 @@ def automatic_plane_relationship_components(
             complete = all(
                 not isinstance(node, SurfaceFit)
                 or (
-                    fit_axis(node, nodes) not in expanded_axes
+                    fit_axis(node, nodes, axis_bindings) not in expanded_axes
                     and node.point not in expanded_points
                 )
                 or node.id in expanded_owners
@@ -1220,6 +1289,7 @@ class GeometryInfluence:
         str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
     ]
     providers: dict[str, ProviderInfluence]
+    axis_bindings: dict[str, str]
 
     def memberships(self) -> dict[str, frozenset[str]]:
         # A plane group's first task identity can change when actions reorder.
@@ -1244,14 +1314,52 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
             for node in nodes.values()
             if isinstance(node, PlaneDefinition) and node.axis == axis
         }
+        if cast(AxisDefinition, nodes[axis]).initial_parameters is None:
+            aliases = frozenset(
+                key for key in aliases if isinstance(nodes[key], SurfaceFit)
+            )
+        groups = [
+            node.id
+            for node in nodes.values()
+            if isinstance(node, CoaxialGroup) and node.axis == axis
+        ]
+        prerequisites = frozenset(members)
+        if groups:
+            composed = next(
+                (entry for entry in planes.values() if axis in entry[2]), None
+            )
+            if composed is not None and not coaxial_seed_component(
+                axis, composed, nodes
+            ):
+                composed = None
+            selected = composed[1] if composed is not None else axes[axis][0]
+            request = AxisSolve.model_construct(
+                id=task,
+                label="Connected coaxial solve",
+                operation="axis_solve",
+                axis=axis,
+                factors=[
+                    *groups,
+                    *(surface.id for surface in selected),
+                    *(
+                        [relation.id for relation in composed[0]]
+                        if composed is not None and selected is composed[1]
+                        else []
+                    ),
+                ],
+            )
+            _, inputs, _ = selected_symmetry_inputs(request, nodes)
+            prerequisites = frozenset(inputs | {axis})
+            members = members | {surface.id for surface in selected}
+            aliases = aliases | {surface.id for surface in selected}
         providers[task] = ProviderInfluence(
             task,
             ("axis", axis),
             frozenset(members),
             aliases,
-            frozenset(members),
+            prerequisites,
             frozenset(),
-            {task: aliases},
+            {task: aliases, **{group: aliases for group in groups}},
         )
     for point, (_, members) in points.items():
         task = "@point/" + point
@@ -1301,7 +1409,38 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
             | (frozenset(members) - aliases),
             {key: aliases - relation_ids for key in relation_ids},
         )
-    return GeometryInfluence(axes, points, planes, providers)
+    return GeometryInfluence(
+        axes, points, planes, providers, coaxial_axis_bindings(nodes)
+    )
+
+
+def coaxial_seed_component(
+    axis: str,
+    component: tuple[list[PlaneRelationship], list[SurfaceFit], set[str]],
+    nodes: dict[str, Feature],
+) -> bool:
+    """The bounded single-line adapter cannot replace general component roles."""
+    relations, surfaces, _ = component
+    if any(surface.kind not in {"cone", "cylinder", "plane"} for surface in surfaces):
+        return False
+    endpoints = [
+        endpoint
+        for relation in relations
+        for endpoint in plane_relationship_endpoints(relation, nodes)
+    ]
+    if any(not endpoint.is_binding for endpoint in endpoints):
+        return False
+    axes = {
+        linked
+        for surface in surfaces
+        if (linked := fit_axis(surface, nodes)) is not None
+    }
+    axes.update(
+        datum.axis
+        for endpoint in endpoints
+        if isinstance(datum := nodes[endpoint.feature], PlaneDefinition)
+    )
+    return axes == {axis}
 
 
 @dataclass(frozen=True)
@@ -1391,15 +1530,18 @@ def compile_execution_plan(
     nodes = {node.id: node for node in recipe.nodes}
     plane_components = influence.plane_components
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
-    named_inputs = (
-        {
-            node.id: selected_symmetry_inputs(node, nodes)
-            for node in recipe.nodes
-            if has_selected_symmetry(node, nodes)
-        }
-        if selected_named_solves
-        else {}
-    )
+    named_inputs = {
+        node.id: selected_symmetry_inputs(node, nodes)
+        for node in recipe.nodes
+        if has_selected_symmetry(node, nodes)
+        and (
+            selected_named_solves
+            or (
+                isinstance(node, AxisSolve)
+                and any(isinstance(nodes[key], CoaxialGroup) for key in node.factors)
+            )
+        )
+    }
     for key, (_, prerequisites, _) in named_inputs.items():
         task_dependencies[key] = prerequisites.copy()
     for node in recipe.nodes:
@@ -1470,6 +1612,18 @@ def compile_execution_plan(
                 task_dependencies[publisher].add(task)
             for output in outputs:
                 providers.setdefault(output, set()).add(publisher)
+
+    # Coaxial declarations initialize their owned fits from the complete
+    # selected problem, rather than requiring successful standalone members.
+    # A fixed source-fit axis still needs its real raw initializer first.
+    for task, (kind, axis) in solves.items():
+        if kind != "axis" or axis not in influence.axis_bindings.values():
+            continue
+        definition = cast(AxisDefinition, nodes[axis])
+        raw_source = definition.source_fit
+        for key in aliases[task]:
+            if isinstance(nodes[key], SurfaceFit) and key != raw_source:
+                task_dependencies[key].add(task)
 
     for node in recipe.nodes:
         if (
@@ -1806,6 +1960,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
     relationship_types = (
         Perpendicular,
         Coaxial,
+        CoaxialGroup,
         RotationalSymmetry,
         JointFit,
         MirrorSymmetry,
@@ -1857,7 +2012,10 @@ def has_selected_symmetry(node: Feature, nodes: dict[str, Feature]) -> bool:
         and any(isinstance(nodes[key], RotationalSymmetry) for key in node.constraints)
     ) or (
         isinstance(node, AxisSolve)
-        and any(isinstance(nodes[key], MirrorSymmetry) for key in node.factors)
+        and any(
+            isinstance(nodes[key], (MirrorSymmetry, CoaxialGroup, PlaneRelationship))
+            for key in node.factors
+        )
     )
 
 
@@ -1882,6 +2040,22 @@ def selected_symmetry_inputs(
             factor = nodes[key]
             if isinstance(factor, SurfaceFit):
                 members[key] = factor
+            elif isinstance(factor, CoaxialGroup):
+                axes.add(factor.axis)
+                members.update(
+                    (ref, cast(SurfaceFit, nodes[ref])) for ref in factor.surfaces
+                )
+            elif isinstance(factor, PlaneRelationship):
+                for endpoint in plane_relationship_endpoints(factor, nodes):
+                    if not endpoint.is_binding:
+                        raise ValueError(
+                            "named plane factors require direct parameter owners"
+                        )
+                    owner = nodes[endpoint.feature]
+                    if isinstance(owner, SurfaceFit):
+                        members[owner.id] = owner
+                    elif isinstance(owner, PlaneDefinition):
+                        planes.add(owner.id)
             elif isinstance(factor, MirrorSymmetry):
                 planes.add(factor.plane)
                 members.update(
@@ -1896,8 +2070,9 @@ def selected_symmetry_inputs(
         raise ValueError("expected a named symmetry solve")
     prerequisites = {ref for surface in surfaces for ref in surface.selections}
     for surface in surfaces:
-        if surface.axis is not None:
-            axes.add(surface.axis)
+        axis = fit_axis(surface, nodes)
+        if axis is not None:
+            axes.add(axis)
         if surface.reference_plane is not None:
             planes.add(surface.reference_plane)
     for key in planes:
@@ -2929,6 +3104,7 @@ class FeatureGraph(Generic[WorkspaceType]):
 
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
+        _ = coaxial_axis_bindings(nodes)
         positions = {node.id: index for index, node in enumerate(recipe.nodes)}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
@@ -3399,6 +3575,26 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "legacy coaxial relationship requires two distinct standalone cone/cylinder fits"
                     )
+            elif isinstance(node, CoaxialGroup):
+                _ = validate_relationship_inputs(
+                    "coaxial", [node.axis, *node.surfaces], recipe
+                )
+                sources = {
+                    selection_source(nodes[key], nodes)
+                    for ref in node.surfaces
+                    for key in cast(SurfaceFit, nodes[ref]).selections
+                }
+                if len(sources) != 1:
+                    raise ValueError("coaxial group members must share one source")
+                for candidate in nodes.values():
+                    if isinstance(candidate, JointFit):
+                        sides, _ = joint_surfaces(candidate, nodes)
+                        if set(node.surfaces).intersection(
+                            surface.id for surface in sides
+                        ):
+                            raise ValueError(
+                                "coaxial group members already belong to a legacy joint; use an axis solve"
+                            )
             elif isinstance(node, AxisDefinition):
                 if node.source_fit is not None:
                     source_fit = nodes[node.source_fit]
@@ -3599,12 +3795,37 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if len(set(node.factors)) != len(node.factors):
                     raise ValueError("axis solve factor references must be unique")
                 factors = [nodes[ref] for ref in node.factors]
+                for factor in factors:
+                    if not isinstance(factor, PlaneRelationship):
+                        continue
+                    referenced_axes: set[str] = set()
+                    for endpoint in plane_relationship_endpoints(factor, nodes):
+                        if not endpoint.is_binding:
+                            raise ValueError(
+                                "named plane factors require direct parameter owners"
+                            )
+                        owner = nodes[endpoint.feature]
+                        linked = (
+                            owner.axis
+                            if isinstance(owner, PlaneDefinition)
+                            else fit_axis(cast(SurfaceFit, owner), nodes)
+                        )
+                        if linked is not None:
+                            referenced_axes.add(linked)
+                    if referenced_axes != {node.axis}:
+                        raise ValueError(
+                            "named plane factors must reference only the selected axis"
+                        )
                 if any(
                     not (
                         isinstance(factor, SurfaceFit)
                         and fit_axis(factor, nodes) == node.axis
                         and factor.kind in ("cone", "cylinder", "plane")
                     )
+                    and not (
+                        isinstance(factor, CoaxialGroup) and factor.axis == node.axis
+                    )
+                    and not isinstance(factor, PlaneRelationship)
                     and not (
                         isinstance(factor, MirrorSymmetry)
                         and isinstance(nodes[factor.plane], PlaneDefinition)
@@ -3634,9 +3855,28 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "axis solve inputs must be bound fits or relationships on its axis"
                     )
-                typed_factors = [
-                    factor for factor in factors if isinstance(factor, SurfaceFit)
-                ]
+                typed_factors = (
+                    selected_symmetry_inputs(node, nodes)[0]
+                    if has_selected_symmetry(node, nodes)
+                    else [
+                        factor for factor in factors if isinstance(factor, SurfaceFit)
+                    ]
+                )
+                if len(typed_factors) < 2:
+                    raise ValueError(
+                        "axis solve requires at least two distinct fit observations"
+                    )
+                active_ids = {factor.id for factor in typed_factors}
+                for group in nodes.values():
+                    if (
+                        isinstance(group, CoaxialGroup)
+                        and group.axis == node.axis
+                        and active_ids.intersection(group.surfaces)
+                        and not set(group.surfaces) <= active_ids
+                    ):
+                        raise ValueError(
+                            "select the complete coaxial group in the axis solve"
+                        )
                 mirror_factors = [
                     factor for factor in factors if isinstance(factor, MirrorSymmetry)
                 ]
@@ -3662,7 +3902,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
                 mirror_radii = constrained_mirror_radii(factors, nodes)
                 if (
-                    not any(factor.kind == "plane" for factor in typed_factors)
+                    sum(factor.kind in ("cone", "cylinder") for factor in typed_factors)
+                    < 2
+                    and not any(factor.kind == "plane" for factor in typed_factors)
                     and not mirror_factors
                 ):
                     raise ValueError(
@@ -4357,6 +4599,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         PlaneDefinition,
                         AxisSolve,
                         EqualRadii,
+                        CoaxialGroup,
                         PlaneRelationship,
                         SurfaceIntersection,
                         TrimmedFace,
@@ -4597,7 +4840,6 @@ class FeatureGraph(Generic[WorkspaceType]):
 
         def solve_selected_symmetry(node: JointFit | AxisSolve) -> dict[str, Any]:
             """Lower saved factors directly from original memberships and roles."""
-            assert isinstance(self.workspace, ScanWorkspace)
             surfaces, _, _ = selected_symmetry_inputs(node, nodes)
             reject_overlaps(surfaces)
             axis_records: dict[str, AxisInput] = {}
@@ -4649,6 +4891,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             rotations: list[RotationInput] = []
             mirrors: list[MirrorInput] = []
             distances: list[RadiusDistanceInput] = []
+            relationships: list[tuple[str, tuple[str, ...]]] = []
             member_axes: dict[str, str] = {}
             if isinstance(node, JointFit):
                 sides, _ = joint_surfaces(node, nodes)
@@ -4679,6 +4922,24 @@ class FeatureGraph(Generic[WorkspaceType]):
                 # Retain the complete-cluster validation, while the component's
                 # radius-distance equation itself supplies the parallel normal.
                 _ = constrained_mirror_radii(factors, nodes)
+                relation_datums = {
+                    endpoint.feature
+                    for factor in factors
+                    if isinstance(factor, PlaneRelationship)
+                    for endpoint in plane_relationship_endpoints(factor, nodes)
+                    if isinstance(nodes[endpoint.feature], PlaneDefinition)
+                }
+                full_datums = {
+                    endpoint.feature
+                    for factor in factors
+                    if isinstance(factor, PlaneRelationship)
+                    and factor.relation == "coincident"
+                    for endpoint in plane_relationship_endpoints(factor, nodes)
+                } | {
+                    surface.reference_plane
+                    for surface in surfaces
+                    if surface.reference_plane
+                }
                 for factor in factors:
                     if isinstance(factor, MirrorSymmetry):
                         add_plane(factor.plane)
@@ -4698,10 +4959,36 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 distance.reference_plane,
                             )
                         )
+                    elif isinstance(factor, PlaneRelationship):
+                        ids: list[str] = []
+                        for endpoint in plane_relationship_endpoints(factor, nodes):
+                            if not endpoint.is_binding:
+                                raise ValueError(
+                                    "named plane factors require direct parameter owners"
+                                )
+                            ids.append(endpoint.feature)
+                            if endpoint.feature in relation_datums:
+                                add_plane(endpoint.feature)
+                                record = plane_records[endpoint.feature]
+                                if record.free and endpoint.feature not in full_datums:
+                                    definition = initialized_plane(
+                                        cast(PlaneDefinition, nodes[endpoint.feature]),
+                                        record.result,
+                                    )
+                                    plane_records[endpoint.feature] = PlaneInput(
+                                        record.result,
+                                        True,
+                                        axis=record.axis,
+                                        construction=record.construction,
+                                        offset_from_axis=definition.offset,
+                                    )
+                        relationships.append((factor.relation, tuple(ids)))
 
             selected_surfaces: list[SelectedSurface] = []
             for surface in surfaces:
-                axis = member_axes.get(surface.id, surface.axis)
+                axis = member_axes.get(
+                    surface.id, fit_axis(surface, nodes, influence.axis_bindings)
+                )
                 datum = surface.reference_plane
                 construction = None
                 if datum is not None:
@@ -4718,7 +5005,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 selected_surfaces.append(
                     SelectedSurface(selected(surface), axis, datum, construction)
                 )
-            return fit_selected_symmetry_group(
+            fitted = fit_selected_symmetry_group(
                 self.workspace,
                 SelectedSymmetryGroup(
                     tuple(selected_surfaces),
@@ -4728,6 +5015,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                     rotations=tuple(rotations),
                     mirrors=tuple(mirrors),
                     radius_distances=tuple(distances),
+                    relationships=tuple(relationships),
+                    gradient_tolerance=1e-11
+                    if any(
+                        isinstance(nodes[key], CoaxialGroup)
+                        for key in getattr(node, "factors", ())
+                    )
+                    else None,
+                    axis_anchor_reference=(0.0, 0.0, 0.0)
+                    if any(
+                        isinstance(nodes[key], CoaxialGroup)
+                        for key in getattr(node, "factors", ())
+                    )
+                    else None,
                     common_axis_directed=not axis_records[common].free,
                     axis_alias_signs={key: 1 for key in axis_records},
                     plane_alias_signs={key: 1 for key in plane_records},
@@ -4737,6 +5037,51 @@ class FeatureGraph(Generic[WorkspaceType]):
                     },
                 ),
             )
+            if any(
+                isinstance(nodes[key], CoaxialGroup)
+                for key in getattr(node, "factors", ())
+            ):
+                if axis_records[common].free:
+                    direction = np.asarray(fitted["axis_display"])
+                    reference = np.asarray(
+                        axis_records[common].result.get("axis_display", [])
+                    )
+                    if (
+                        reference.shape == (3,)
+                        and np.isfinite(reference).all()
+                        and np.linalg.norm(reference) > 0
+                    ):
+                        reference = reference / np.linalg.norm(reference)
+                    else:
+                        reference = np.zeros(3)
+                    alignment = float(direction @ reference)
+                    if abs(alignment) > np.sqrt(2e-10):
+                        if alignment < 0:
+                            direction = -direction
+                    else:
+                        if direction[int(np.argmax(np.abs(direction)))] < 0:
+                            direction = -direction
+                        if cast(AxisDefinition, nodes[common]).direction_reversed:
+                            direction = -direction
+                    fitted["axis_display"] = direction.tolist()
+                    fitted["axes"][common]["axis_display"] = direction.tolist()
+                    for key, record in plane_records.items():
+                        if (
+                            record.offset_from_axis is not None
+                            and record.construction == "perpendicular_to_axis"
+                        ):
+                            definition = initialized_plane(
+                                cast(PlaneDefinition, nodes[key]), record.result
+                            )
+                            plane = reference_plane_result(fitted, definition)
+                            fitted["planes"][key].update(plane)
+                            fitted["equations"][key] = plane["plane_equation"]
+                fitted["resolved"] = {
+                    **fitted["surfaces"],
+                    **fitted["axes"],
+                    **fitted["planes"],
+                }
+            return fitted
 
         def solver_plane_phase(reference_id: str) -> float | None:
             plane = initialized_plane(
@@ -4775,6 +5120,41 @@ class FeatureGraph(Generic[WorkspaceType]):
             }
             if len(sources) != 1:
                 raise ValueError("connected fits on a free axis must share one source")
+            coaxial = [
+                item
+                for item in recipe.nodes
+                if isinstance(item, CoaxialGroup) and item.axis == axis_id
+            ]
+            composed = next(
+                (
+                    entry
+                    for entry in plane_relationship_components.values()
+                    if axis_id in entry[2]
+                ),
+                None,
+            )
+            if (
+                coaxial
+                and composed is not None
+                and coaxial_seed_component(axis_id, composed, nodes)
+            ):
+                relations, all_surfaces, _ = composed
+                request = AxisSolve.model_construct(
+                    id="@axis/" + axis_id,
+                    label="Connected coaxial solve",
+                    operation="axis_solve",
+                    axis=axis_id,
+                    factors=list(
+                        dict.fromkeys(
+                            [
+                                *(item.id for item in coaxial),
+                                *(surface.id for surface in all_surfaces),
+                                *(relation.id for relation in relations),
+                            ]
+                        )
+                    ),
+                )
+                return solve_selected_symmetry(request)
             sides = [factor for factor in fitted_factors if factor.kind != "plane"]
             planes = [
                 factor
@@ -4797,7 +5177,34 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for reference_id, group in referenced_plane_factors.items()
             )
             axis_result = derived_result(axis_id)
-            return fit_group(
+            if cast(AxisDefinition, nodes[axis_id]).initial_parameters is None:
+                if reference_plane_groups and isinstance(self.workspace, ScanWorkspace):
+                    request = AxisSolve.model_construct(
+                        id="@axis/" + axis_id,
+                        label="Fixed coaxial solve",
+                        operation="axis_solve",
+                        axis=axis_id,
+                        factors=[
+                            *(item.id for item in coaxial),
+                            *(factor.id for factor in fitted_factors),
+                        ],
+                    )
+                    return solve_selected_symmetry(request)
+                return fit_fixed_axis_group(
+                    self.workspace,
+                    [selected(side) for side in sides],
+                    [selected(plane) for plane in planes],
+                    axis_result
+                    if isinstance(self.workspace, ScanWorkspace)
+                    else np.asarray(axis_result["parameters"], dtype=float),
+                    semantic_intent={
+                        "recipe": recipe.model_dump(mode="json"),
+                        "support_policy_version": SUPPORT_POLICY_VERSION,
+                    }
+                    if isinstance(self.workspace, ScanWorkspace)
+                    else None,
+                )
+            fitted = fit_group(
                 self.workspace,
                 [selected(side) for side in sides],
                 [selected(plane) for plane in planes],
@@ -4812,6 +5219,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if isinstance(self.workspace, ScanWorkspace)
                 else None,
             )
+            if coaxial and isinstance(self.workspace, ScanWorkspace):
+                direction = np.asarray(fitted["axis_display"])
+                point = np.asarray(fitted["point_display"])
+                point -= (point @ direction) * direction
+                fitted["point_display"] = point.tolist()
+                for plane in fitted.get("reference_planes", {}).values():
+                    normal = np.asarray(plane["normal_display"])
+                    offset = plane["plane_equation"][3] - normal @ point
+                    plane.update(
+                        point_display=(point + offset * normal).tolist(),
+                        offset=float(offset),
+                    )
+            return fitted
 
         def solve_connected_point(
             point_id: str, fitted_factors: list[SurfaceFit]
@@ -4889,11 +5309,8 @@ class FeatureGraph(Generic[WorkspaceType]):
             axes = {
                 key: AxisInput(
                     resolved_result(key, excluded),
-                    (
-                        cast(AxisDefinition, nodes[key]).initial_parameters is not None
-                        if datum_aware
-                        else key in connected_components
-                    )
+                    (cast(AxisDefinition, nodes[key]).initial_parameters is not None)
+                    and (datum_aware or key in connected_components)
                     and key not in plan.explicit_axes,
                 )
                 for key in axis_ids
@@ -5023,7 +5440,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                         raise ValueError(
                             "coupled axis initializer must be a lateral fit"
                         )
-                    axes[key] = AxisInput(axis.result, False, source.axis)
+                    if source.axis != key:
+                        axes[key] = AxisInput(axis.result, False, source.axis)
             for key, center in list(centers.items()):
                 point_node = nodes.get(key)
                 if (
@@ -5285,6 +5703,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if kind == "axis":
                     assert axis_result is not None
                     self._connected_solves[identifier] = axis_result
+                    if identifier in influence.axis_bindings.values():
+                        for member, value in axis_result["surfaces"].items():
+                            if member not in self._derived:
+                                self._derived[member] = deepcopy(value)
+                            self._states[member] = "ready"
+                            _ = self._errors.pop(member, None)
+                            _ = self._diagnostics.pop(member, None)
                 elif kind == "point":
                     self._connected_point_solves[identifier] = resolved
                 else:
@@ -6087,6 +6512,24 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 }
                             ),
                         }
+                elif isinstance(node, CoaxialGroup):
+                    solve = self._connected_solves.get(node.axis)
+                    if solve is not None:
+                        axis = connected_axis_result(
+                            cast(AxisDefinition, nodes[node.axis]),
+                            derived_result(node.axis),
+                            solve,
+                        )
+                        derived = {
+                            **deepcopy(solve),
+                            "format": "scansor-coaxial-group-v1",
+                            "axis": node.axis,
+                            "resolved": {
+                                node.axis: axis,
+                                **deepcopy(solve["surfaces"]),
+                                **deepcopy(solve.get("reference_planes", {})),
+                            },
+                        }
                 elif isinstance(node, EqualRadii):
                     surfaces = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
                     surface_ids = [fitted_ids(surface) for surface in surfaces]
@@ -6106,7 +6549,16 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "connected plane solve did not publish its relationship"
                     )
                 elif (
-                    isinstance(self.workspace, ScanWorkspace)
+                    (
+                        isinstance(self.workspace, ScanWorkspace)
+                        or (
+                            isinstance(node, AxisSolve)
+                            and any(
+                                isinstance(nodes[key], CoaxialGroup)
+                                for key in node.factors
+                            )
+                        )
+                    )
                     and isinstance(node, (AxisSolve, JointFit))
                     and has_selected_symmetry(node, nodes)
                 ):

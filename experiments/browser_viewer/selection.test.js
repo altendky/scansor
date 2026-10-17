@@ -212,6 +212,7 @@ test('relationship emphasis unions participant observations without growth seeds
   ];
   const memberships = { a: [2, 1, 2], b: [4, 2, 3], guidance: [99], grown: [2, 3] };
   const cases = [
+    { operation: 'coaxial_group', axis: 'guide-axis', surfaces: ['first', 'second'] },
     { operation: 'coaxial', surface: 'first', reference: 'second' },
     { operation: 'perpendicular', lateral: 'first', plane: 'second' },
     { operation: 'rotational_symmetry', axis: 'participant-axis', planes: ['first', 'second', 'third'] },

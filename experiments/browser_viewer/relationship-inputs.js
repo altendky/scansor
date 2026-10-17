@@ -60,13 +60,23 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
     return { valid: false, reason: 'Mirror members must have the same geometry kind.', roles };
   if (signature.semantic_check === 'same_axis' && roles.radius[0]?.axis !== roles.datum[0]?.axis)
     return { valid: false, reason: 'The radius and reference plane must use the same axis.', roles };
+  if (signature.semantic_check === 'compatible_axis' && roles.members.some(output =>
+    output.axis && output.axis !== roles.axis[0].reference.feature))
+    return { valid: false, reason: 'A member already uses another axis. Remove its binding or choose that axis; fit types and bindings are not changed automatically.', roles };
+  if (signature.semantic_check === 'compatible_axis' && nodes.some(node => node.operation === 'coaxial_group' &&
+    node.axis !== roles.axis[0].reference.feature && roles.members.some(output => node.surfaces.includes(output.reference.feature))))
+    return { valid: false, reason: 'A member belongs to another Coaxial relationship using a different axis. Edit that relationship or choose the same axis.', roles };
   return { valid: true, roles };
 }
 
-export function relationshipNodeInputs(state, kind, selected) {
-  const validity = relationshipValidity(state, kind, selected);
+export function relationshipNodeInputs(state, kind, selected, nodes = state?.recipe?.nodes || []) {
+  const validity = relationshipValidity(state, kind, selected, nodes);
   if (!validity.valid) throw new Error(validity.reason);
   const signature = state.relationship_contracts[kind], feature = output => output.reference.feature;
+  if (signature.operation === 'coaxial_group') return {
+    operation: signature.operation, axis: feature(validity.roles.axis[0]),
+    surfaces: validity.roles.members.map(feature),
+  };
   if (signature.operation === 'plane_relationship') return {
     operation: signature.operation, relation: signature.relation,
     surfaces: validity.roles.participants.map(output => output.reference),
@@ -94,4 +104,58 @@ export function relationshipOutputValue(state, output) {
   let value = state.derived?.[context];
   if (context !== reference.feature) value = (value?.resolved || value?.surfaces || value?.outputs)?.[reference.feature];
   return value || output.preview || null;
+}
+
+export function axisFactorMembers(node, nodes) {
+  const byId = new Map(nodes.map(candidate => [candidate.id, candidate]));
+  if (node?.operation === 'fit') return [node];
+  const references = ['coaxial_group', 'mirror_symmetry', 'plane_relationship'].includes(node?.operation)
+    ? node.surfaces : node?.operation === 'parallel' ? [node.surface]
+      : node?.operation === 'equal' ? [node.left.surface, node.right.surface] : [];
+  return [...new Set((references || []).filter(reference => typeof reference === 'string' ||
+    !reference.context || reference.context === reference.feature).map(referenceFeature))]
+    .map(id => byId.get(id)).filter(member => member?.operation === 'fit');
+}
+
+export function axisFactorAxis(node, nodes) {
+  const byId = new Map(nodes.map(candidate => [candidate.id, candidate])),
+    memberAxis = member => member.axis || byId.get(member.reference_plane)?.axis;
+  if (node?.operation === 'coaxial_group') return node.axis;
+  if (node?.operation === 'fit') {
+    const axes = new Set([memberAxis(node), ...nodes.filter(candidate => candidate.operation === 'coaxial_group' &&
+      candidate.surfaces.includes(node.id)).map(candidate => candidate.axis)].filter(Boolean));
+    return axes.size === 1 ? [...axes][0] : null;
+  }
+  if (node?.operation === 'mirror_symmetry') return byId.get(node.plane)?.axis;
+  if (node?.operation === 'parallel') return byId.get(node.reference_plane)?.axis;
+  if (node?.operation === 'equal') {
+    const distance = [node.left, node.right].find(value => value.measurement === 'plane_distance');
+    return byId.get(distance?.reference_plane)?.axis;
+  }
+  if (node?.operation === 'plane_relationship') {
+    if (node.surfaces.some(reference => typeof reference !== 'string' &&
+      reference.context && reference.context !== reference.feature)) return null;
+    const axes = new Set((node.surfaces || []).filter(reference => typeof reference === 'string' ||
+      !reference.context || reference.context === reference.feature)
+      .map(reference => byId.get(referenceFeature(reference))).filter(Boolean).map(memberAxis).filter(Boolean));
+    return axes.size === 1 ? [...axes][0] : null;
+  }
+  return null;
+}
+
+export function axisSolveInputs(axis, nodes) {
+  return axis ? nodes.filter(node => axisFactorAxis(node, nodes) === axis) : [];
+}
+
+export function axisSolveValidity(axis, factorIds, nodes) {
+  const byId = new Map(nodes.map(node => [node.id, node])),
+    factors = factorIds.map(id => byId.get(id));
+  if (!axis || !factors.length || factors.some(node => !node || axisFactorAxis(node, nodes) !== axis))
+    return { valid: false, reason: 'Choose an axis and compatible fits or relationships on that axis.' };
+  const members = [...new Map(factors.flatMap(node => axisFactorMembers(node, nodes)).map(member => [member.id, member])).values()],
+    lateral = members.filter(member => ['cone', 'cylinder'].includes(member.kind)),
+    plane = members.some(member => member.kind === 'plane') || factors.some(node => node.operation === 'mirror_symmetry');
+  if (members.length < 2 || !lateral.length || !(lateral.length >= 2 || plane))
+    return { valid: false, reason: 'Choose at least two distinct fitted surfaces: two coaxial cone/cylinder fits, or one with plane evidence. A Coaxial relationship supplies its member fits.' };
+  return { valid: true, members };
 }

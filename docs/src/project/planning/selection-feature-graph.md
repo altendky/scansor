@@ -262,6 +262,14 @@ observations or substitute a different publication. Existing geometry readers
 retain their output-context rules. Capability compatibility does not by itself
 make an input free or fixed.
 
+**Coaxial** selects one datum axis and two or more cone/cylinder axis-owner
+outputs. The same shared contracts govern its picker and backend validation.
+Members need not already reference the datum individually. The relationship
+shares their axis line and preserves independent radii and tapers. Its axis and
+members remain editable, and a Joint can select the group as a factor without
+counting duplicated member observations. Published geometry reads remain
+distinct from the direct owner bindings used to author this relationship.
+
 **Provisional successor direction with a first internal contract, 2026-09-20:**
 generalized model semantics make reference geometry and solve participation
 explicit rather than connect fitted surfaces through a joint-owned hidden axis.

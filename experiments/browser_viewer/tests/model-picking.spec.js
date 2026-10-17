@@ -82,6 +82,7 @@ test('model picks use complete fit IDs for target and the existing neighbor chec
 test('relationship model picks preserve exact owner output references and list eligibility', async ({ page }) => {
   await ready(page);
   await page.getByRole('button', { name: 'Relationship…', exact: true }).click();
+  await page.locator('#relationship-kind').selectOption('mirror');
   await page.locator('#pick-relationship-participant').click();
   const side = await patch(page, 'Outer surface');
   const checkbox = bindingCheckbox(page, 'side', 'surface');

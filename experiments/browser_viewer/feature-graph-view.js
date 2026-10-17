@@ -2,6 +2,7 @@ import { actionDescription, managedOwnerId, nodeReferences } from './action-tree
 
 export const relationshipOperations = new Set([
   'coaxial',
+  'coaxial_group',
   'perpendicular',
   'rotational_symmetry',
   'mirror_symmetry',

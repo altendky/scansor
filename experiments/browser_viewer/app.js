@@ -14,7 +14,8 @@ import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
-  relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue } from './relationship-inputs.js';
+  relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
+  axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -1780,25 +1781,9 @@ function showBodyDiagnostics(diagnostic) {
     container.append(button);
   }
 }
-function factorAxis(node) {
-  if (node?.operation === 'fit')
-    return node.axis || graphNode(node.reference_plane)?.axis;
-  if (node?.operation === 'mirror_symmetry') return graphNode(node.plane)?.axis;
-  if (node?.operation === 'parallel') return graphNode(node.reference_plane)?.axis;
-  if (node?.operation === 'equal') {
-    const distance = [node.left, node.right].find((value) => value.measurement === 'plane_distance');
-    return graphNode(distance?.reference_plane)?.axis;
-  }
-  return null;
-}
 const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
 const selectionOperations = ['selection', 'growth', 'region_selection', 'reuse_selection'];
-const solveInputs = (axis, nodes = graphState.recipe.nodes) =>
-  nodes.filter(
-    (node) =>
-      (node.operation === 'fit' || relationshipOperations.includes(node.operation)) &&
-      factorAxis(node) === axis,
-  );
+const solveInputs = (axis, nodes = graphState.recipe.nodes) => axisSolveInputs(axis, nodes);
 function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected = null) {
   const axis = $(`${prefix}axis-solve-axis`).value, control = $(`${prefix}axis-solve-factors`),
     saved = [...control.selectedOptions].map(option => ({ value: option.value, label: option.textContent })),
@@ -1813,7 +1798,7 @@ function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected =
     missing.disabled = true;
     control.add(missing);
   }
-  control.dataset.pickerEmptyMessage = 'Bind cone or cylinder fits to the selected axis (or its reference planes) using Reference geometry, then choose them here. Creating an axis does not bind existing fits. The axis must appear before those fits; move a later axis earlier, or create new fits after it.';
+  control.dataset.pickerEmptyMessage = 'Create a Coaxial relationship using this axis and at least two cone/cylinder fits, or bind fits to the axis (or its reference planes) using Reference geometry. For individual bindings, the axis must appear before those fits. Inputs must appear before this joint. Creating an axis does not bind existing fits.';
 }
 function activeSelection() {
   const id = graphNode(editingFeatureId)?.operation === 'selection' ? editingFeatureId : selectedFeatureId;
@@ -2028,7 +2013,9 @@ function updateRelationshipParticipantField() {
     modelPickable: !!relationshipOutputValue(graphState, output),
   })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
     busy: !!graphState && (featureTreeLocked() || relationshipApplying),
-    emptyMessage: 'Create or evaluate outputs compatible with the selected relationship. Reference planes and plane fits can participate in Parallel and Coincident.' });
+    emptyMessage: selectedRelationshipKind === 'coaxial'
+      ? 'Choose one datum axis and at least two cone or cylinder fits. Create missing fits or an axis first; published solve outputs are fixed reads and cannot be rebound here.'
+      : 'Create or evaluate outputs compatible with the selected relationship. Reference planes and plane fits can participate in Parallel and Coincident.' });
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
@@ -2067,6 +2054,7 @@ function paintRelationshipPreview() {
       if (!node || !values) continue;
       if (!relationshipPlaneGuide(output, color, relationshipOverlays) && node.operation === 'fit')
         fitGuide(node, values, color, relationshipOverlays);
+      else if (node.operation === 'axis' && values.axis_display) axisGuide(values, color, relationshipOverlays);
     }
   }
   updateFaceReviewDisplay();
@@ -2707,6 +2695,7 @@ function showProperties(force = false) {
     ['reuse-selection-properties', node.operation === 'reuse_selection'],
     ['equal-radii-properties', node.operation === 'equal_radii'],
     ['plane-relationship-properties', node.operation === 'plane_relationship'],
+    ['coaxial-group-properties', node.operation === 'coaxial_group'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
     ['rotation-properties', node.operation === 'rotational_symmetry'],
@@ -2720,7 +2709,7 @@ function showProperties(force = false) {
     ['body-properties', node.operation === 'body'],
   ])
     $(id).hidden = !enabled;
-  for (const id of ['surface-intersection-properties', 'trimmed-face-properties'])
+  for (const id of ['surface-intersection-properties', 'trimmed-face-properties', 'coaxial-group-properties'])
     for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
   for (const input of $('body-properties').querySelectorAll('input'))
     input.disabled = $('body-properties').hidden;
@@ -2979,6 +2968,11 @@ function showProperties(force = false) {
       return new Option(output?.label || `${graphNode(referenceFeature(reference))?.label || referenceFeature(reference)} · unavailable output`,
         inputReferenceKey(reference), false, true);
     }));
+  } else if (node.operation === 'coaxial_group') {
+    geometryInputChoices('coaxial-group-axis', 'coaxial_axis', earlier,
+      { feature: node.axis, output: 'axis', context: node.axis });
+    geometryInputChoices('coaxial-group-members', 'coaxial_members', earlier,
+      node.surfaces.map(feature => ({ feature, output: 'axis', context: feature })));
   } else if (['coaxial', 'perpendicular'].includes(node.operation)) {
     choices(
       'constraint-a',
@@ -3608,6 +3602,7 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     } else if (
       [
         'coaxial',
+        'coaxial_group',
         'perpendicular',
         'rotational_symmetry',
         'equal_radii',
@@ -3747,7 +3742,7 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     if (result.construction !== 'contains_axis')
       values['Offset'] = result.offset.toFixed(5);
     values['Normal'] = result.normal_display.map((v) => v.toFixed(5)).join(', ');
-  } else if (['joint_fit', 'axis_solve'].includes(node.operation)) {
+  } else if (['joint_fit', 'axis_solve', 'coaxial_group'].includes(node.operation)) {
     drawGuide(axisGuide, result, '#ffd166');
     for (const plane of Object.values(result.mirror_planes || {}))
       drawGuide(referencePlaneGuide, plane, '#ff8fe5');
@@ -5860,14 +5855,9 @@ async function start(recoveredState) {
     event.preventDefault();
     const axis = $('new-axis-solve-axis').value,
       factors = chosen('new-axis-solve-factors'),
-      kinds = new Set(
-        factors.filter((id) => graphNode(id).operation === 'fit').map((id) => graphNode(id).kind),
-      ),
-      hasSide = kinds.has('cone') || kinds.has('cylinder'),
-      hasPlaneEvidence = kinds.has('plane') || factors.some((id) => graphNode(id).operation === 'mirror_symmetry');
-    if (!axis || !hasSide || !hasPlaneEvidence) {
-      $('axis-solve-error').textContent =
-        'Choose one free axis, a cone or cylinder on it, and either a plane fit on that axis or one of its planes.';
+      validity = axisSolveValidity(axis, factors, graphState.recipe.nodes);
+    if (!validity.valid) {
+      $('axis-solve-error').textContent = validity.reason;
       return;
     }
     const saved = await appendActions([
@@ -6215,6 +6205,15 @@ async function start(recoveredState) {
     if (node.operation === 'coaxial') {
       node.surface = $('constraint-a').value;
       node.reference = $('constraint-b').value;
+    }
+    if (node.operation === 'coaxial_group') {
+      const selected = new Set([$('coaxial-group-axis').value, ...chosen('coaxial-group-members')].filter(Boolean)),
+        earlier = recipe.nodes.slice(0, recipe.nodes.indexOf(node)),
+        validity = relationshipInputValidity(graphState, 'coaxial', selected, earlier);
+      if (!validity.valid) { status(validity.reason, true); return; }
+      const inputs = relationshipNodeInputs(graphState, 'coaxial', selected, earlier);
+      node.axis = inputs.axis;
+      node.surfaces = inputs.surfaces;
     }
     if (node.operation === 'perpendicular') {
       node.lateral = $('constraint-a').value;

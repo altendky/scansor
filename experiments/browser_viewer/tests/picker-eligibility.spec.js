@@ -38,6 +38,7 @@ test('empty joint explains binding and ordering, then snapshots refresh factors 
   await expect(factors.locator('.model-field-pick')).toBeDisabled();
   await expect(feedback).toContainText('No eligible fits and relationships');
   await expect(feedback).toContainText('Reference geometry');
+  await expect(feedback).toContainText('Create a Coaxial relationship');
   await expect(feedback).toContainText('axis must appear before those fits');
   await factors.locator('.selection-field-dropdown').click();
   await expect(factors.getByRole('menu')).toContainText('Creating an axis does not bind existing fits');

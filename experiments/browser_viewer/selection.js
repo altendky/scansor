@@ -198,7 +198,7 @@ export function featureVertexIds(nodes, memberships, featureId) {
               ? [node.lateral, node.plane]
               : node.operation === 'rotational_symmetry'
                 ? [node.axis, ...node.planes]
-                : ['mirror_symmetry', 'plane_relationship', 'equal_radii'].includes(node.operation)
+                : ['mirror_symmetry', 'plane_relationship', 'equal_radii', 'coaxial_group'].includes(node.operation)
                   ? node.surfaces.map(referenceFeature)
                   : node.operation === 'parallel'
                     ? [node.surface]
