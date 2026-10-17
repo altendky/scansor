@@ -94,6 +94,25 @@ they can supply evidence for placement. Observation-free relationships add no
 synthetic observations: incompatible fixed inputs fail feasibility checks, and
 remaining unidentified free quantities fail rank checks.
 
+The bounded **Coaxial** relationship binds one explicit datum axis to two or more
+cone or cylinder fits, including mixed groups. Fits can begin unbound; the
+relationship does not rewrite their individual reference-geometry declarations.
+They share the complete axis line, while radii and cone tapers remain
+independent. Existing bindings to the same datum are compatible; conflicting
+datum bindings require an explicit repair.
+
+Coaxial and Parallel can express the common construction separately: relate the
+lateral fits to Center, construct Base perpendicular to Center, and relate the
+plane fits to Base. Connected evaluation retains both declarations in one solve.
+A Joint can select a Coaxial group as a factor; its actual member observations
+count once even when a member is also selected directly. The existing pairwise
+Coaxial representation remains compatible with saved recipes.
+
+In this path, a free axis uses the point closest to the workspace origin as its
+representative origin. An orientation-only reference plane derives its placement
+from that stable origin. Equivalent line representations from numerical charts
+therefore cannot move an otherwise identical datum plane.
+
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an
 explicit typed transform with declared direction and provenance; current

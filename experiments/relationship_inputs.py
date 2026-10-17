@@ -64,6 +64,14 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         },
         "semantic_check": "same_axis",
     },
+    "coaxial": {
+        "label": "Coaxial",
+        "base_name": "Coaxial",
+        "summary": "Same axis line; independent radii and taper.",
+        "operation": "coaxial_group",
+        "roles": {"axis": "coaxial_axis", "members": "coaxial_members"},
+        "semantic_check": "compatible_axis",
+    },
 }
 
 
@@ -213,4 +221,23 @@ def validate_relationship_inputs(
             nodes[datum.feature], "axis", None
         ):
             raise ValueError("radius and reference plane must use the same axis")
+    if signature.get("semantic_check") == "compatible_axis":
+        axis = roles["axis"][0].feature
+        if any(
+            getattr(nodes[endpoint.feature], "axis", None) not in (None, axis)
+            for endpoint in roles["members"]
+        ):
+            raise ValueError(
+                "coaxial members already bound to another axis must be unbound or use the selected axis"
+            )
+        members = {endpoint.feature for endpoint in roles["members"]}
+        if any(
+            candidate.operation == "coaxial_group"
+            and getattr(candidate, "axis", None) != axis
+            and members.intersection(getattr(candidate, "surfaces", []))
+            for candidate in recipe.nodes
+        ):
+            raise ValueError(
+                "coaxial members already belong to a relationship using another axis"
+            )
     return roles

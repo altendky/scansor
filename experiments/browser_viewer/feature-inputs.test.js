@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inputChoices, inputOptionRecords, inputReferenceKey, matchingInputOutput,
-  readInputReference } from './feature-inputs.js';
+  readInputReference, renderInputChoices } from './feature-inputs.js';
 
 const point = (feature, output = 'point', context = feature) => ({
   reference: { feature, output, context }, capability: 'point', label: `${feature} — ${output}`,
@@ -71,4 +71,21 @@ test('unavailable or ambiguous legacy meanings remain strings until explicit rep
 test('ready geometry rejected by parameter ownership remains unavailable to the picker', () => {
   const readOnly = { ...center, reason: 'This input requires an adjustable parameter owner, not read-only geometry' };
   assert.equal(inputOptionRecords([readOnly])[0].disabled, true);
+});
+
+test('multiple owner input controls retain all saved choices, including unavailable repairs', () => {
+  const previous = globalThis.Option;
+  globalThis.Option = class {
+    constructor(label, value, _defaultSelected, selected) { Object.assign(this, { label, value, selected }); }
+  };
+  try {
+    const control = { multiple: true, replaceChildren(...options) { this.options = options; } },
+      missing = { feature: 'removed', output: 'axis', context: 'removed' };
+    renderInputChoices(control, [datum, center], [datum.reference, missing]);
+    assert.deepEqual(control.options.filter(option => option.selected).map(option => option.value),
+      [inputReferenceKey(datum.reference), inputReferenceKey(missing)]);
+    assert.equal(control.options.at(-1).disabled, true);
+    renderInputChoices(control, [datum, center], []);
+    assert.equal(control.options.some(option => option.selected), false);
+  } finally { globalThis.Option = previous; }
 });

@@ -56,7 +56,8 @@ test('guide hit testing clamps to the segment, including a point guide', () => {
 });
 
 test('model pick registry excludes enum, organizational and tree selection controls', () => {
-  for (const id of ['new-fit-inputs', 'frame-origin', 'new-intersection-first', 'export-target'])
+  for (const id of ['new-fit-inputs', 'frame-origin', 'new-intersection-first', 'export-target',
+    'coaxial-group-axis', 'coaxial-group-members'])
     assert.equal(geometrySelectorIds.has(id), true);
   for (const id of ['new-fit-kind', 'organizational-group', 'action-list', 'export-mode', 'new-scale-output'])
     assert.equal(geometrySelectorIds.has(id), false);

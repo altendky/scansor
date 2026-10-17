@@ -2,7 +2,7 @@ import { nodeReferences } from './action-tree.js';
 import { referenceFeature } from './feature-inputs.js';
 
 const supportedKinds = new Set(['plane', 'cylinder', 'cone']);
-const aggregates = new Set(['joint_fit', 'axis_solve', 'equal_radii', 'plane_relationship']);
+const aggregates = new Set(['joint_fit', 'axis_solve', 'equal_radii', 'plane_relationship', 'coaxial_group']);
 
 export function surfaceReferencePresentation(reference, nodes) {
   const contextNode = nodes.find((node) => node.id === reference.feature),
@@ -27,17 +27,20 @@ export function surfaceReferenceChoices(nodes, results = {}, recipeNodes = nodes
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const explicitlySolvedAxes = new Set(recipeNodes
     .filter((node) => node.operation === 'axis_solve').map((node) => node.axis));
+  const coaxialAxes = new Map(recipeNodes.filter(node => node.operation === 'coaxial_group')
+    .flatMap(node => node.surfaces.map(id => [id, node.axis])));
   const options = [];
   for (const node of nodes) {
     if ((node.operation === 'fit' && supportedKinds.has(node.kind)) ||
         node.operation === 'reference_plane') {
-      const axis = node.axis || byId.get(node.reference_plane)?.axis;
+      const axis = node.axis || byId.get(node.reference_plane)?.axis || coaxialAxes.get(node.id);
       if (axis && explicitlySolvedAxes.has(axis)) continue;
       const reference = { feature: node.id, surface: null };
       options.push({ reference,
         label: surfaceReferencePresentation(reference, nodes).label,
         kind: node.operation === 'reference_plane' ? 'plane' : node.kind });
     } else if (aggregates.has(node.operation)) {
+      if (node.operation === 'coaxial_group' && explicitlySolvedAxes.has(node.axis)) continue;
       // Numerical component results may include extra geometry. They can limit
       // availability, but never enlarge a context's declared member contract.
       const evaluated = new Set(Object.keys(results[node.id]?.surfaces || {}));
@@ -57,9 +60,11 @@ export function surfaceReferenceChoices(nodes, results = {}, recipeNodes = nodes
         for (const id of node.factors) {
           const factor = byId.get(id);
           if (factor?.operation === 'fit') visit(id);
-          else if (factor?.operation === 'mirror_symmetry') factor.surfaces.forEach(visit);
+          else if (['mirror_symmetry', 'coaxial_group', 'plane_relationship'].includes(factor?.operation))
+            factor.surfaces.filter(reference => typeof reference === 'string' ||
+              !reference.context || reference.context === reference.feature).map(referenceFeature).forEach(visit);
         }
-      } else if (['equal_radii', 'plane_relationship'].includes(node.operation)) {
+      } else if (['equal_radii', 'plane_relationship', 'coaxial_group'].includes(node.operation)) {
         // A read from another publication does not become an owned member of
         // this relationship's geometry context.
         node.surfaces.filter(reference => typeof reference === 'string' ||

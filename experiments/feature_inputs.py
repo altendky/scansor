@@ -97,6 +97,21 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "min_count": 2,
         "max_count": 33,
     },
+    "coaxial_axis": {
+        "capabilities": ["axis_line"],
+        "uses": ["binding"],
+        "ownership": "datum",
+        "min_count": 1,
+        "max_count": 1,
+    },
+    "coaxial_members": {
+        "capabilities": ["axis_line"],
+        "uses": ["binding"],
+        "ownership": "fit",
+        "geometry_kinds": ["cone", "cylinder"],
+        "min_count": 2,
+        "max_count": 32,
+    },
     "relationship_radius": {
         "capabilities": ["radius"],
         "uses": ["binding"],
@@ -234,14 +249,17 @@ def output_catalogue(
     from experiments.feature_graph import (
         AxisDefinition,
         AxisSolve,
+        CoaxialGroup,
         JointFit,
         MirrorSymmetry,
         PlaneDefinition,
+        PlaneRelationship,
         Selection,
         SurfaceFit,
         dependencies,
         describe_geometry_influence,
         joint_surfaces,
+        plane_relationship_endpoints,
     )
 
     nodes = {node.id: node for node in recipe.nodes}
@@ -269,8 +287,18 @@ def output_catalogue(
             members += [
                 ref
                 for factor in node.factors
-                if isinstance(nodes[factor], MirrorSymmetry)
-                for ref in cast(MirrorSymmetry, nodes[factor]).surfaces
+                if isinstance(nodes[factor], (MirrorSymmetry, CoaxialGroup))
+                for ref in cast(MirrorSymmetry | CoaxialGroup, nodes[factor]).surfaces
+            ]
+            members += [
+                endpoint.feature
+                for factor in node.factors
+                if isinstance(nodes[factor], PlaneRelationship)
+                for endpoint in plane_relationship_endpoints(
+                    cast(PlaneRelationship, nodes[factor]), nodes
+                )
+                if endpoint.is_binding
+                and isinstance(nodes[endpoint.feature], SurfaceFit)
             ]
         else:
             continue
@@ -353,7 +381,13 @@ def output_catalogue(
                     "ready",
                 )
             reason: str | None = None
-            if unsupported and context in geometry_contexts:
+            publisher = nodes.get(context)
+            if isinstance(publisher, CoaxialGroup) and publisher.axis in explicit_axes:
+                availability, reason = (
+                    "ambiguous",
+                    "An explicit joint owns this axis; choose its member output instead of this Coaxial context",
+                )
+            elif unsupported and context in geometry_contexts:
                 availability, reason = (
                     "ambiguous",
                     "This solve does not declare a datum output",

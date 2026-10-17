@@ -39,7 +39,7 @@ from experiments.fit_relationship_component import (
 )
 from experiments.fit_solver import AttemptControl, normalized_weights
 from experiments.mesh_cylinder_fit import cylinder_basis
-from experiments.scan_workspace import ScanWorkspace
+from experiments.scan_workspace import Workspace
 from experiments.selection_growth import surface_distance
 from experiments.support_intent import (
     SUPPORT_POLICY_VERSION,
@@ -103,6 +103,8 @@ class SelectedSymmetryGroup:
     semantic_intent: dict[str, Any] | None = None
     axis_alias_signs: Mapping[str, int] = field(default_factory=dict)
     plane_alias_signs: Mapping[str, int] = field(default_factory=dict)
+    gradient_tolerance: float | None = None
+    axis_anchor_reference: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "surfaces", tuple(self.surfaces))
@@ -376,7 +378,7 @@ def _rotation(axis: Array, angle: float) -> Array:
 
 
 def fit_selected_symmetry_group(
-    workspace: ScanWorkspace,
+    workspace: Workspace,
     group: SelectedSymmetryGroup,
     *,
     policy: RecoveryPolicy | None = None,
@@ -397,7 +399,7 @@ def fit_selected_symmetry_group(
 
 
 def _fit_selected_symmetry_group(
-    workspace: ScanWorkspace,
+    workspace: Workspace,
     group: SelectedSymmetryGroup,
     *,
     policy: RecoveryPolicy | None,
@@ -407,7 +409,7 @@ def _fit_selected_symmetry_group(
     policy = RecoveryPolicy() if policy is None else policy
     guard = AttemptControl(policy.attempt, cancelled)
     guard.checkpoint()
-    if workspace.descriptor is None or workspace.source_sha256 is None:
+    if workspace.source_sha256 is None:
         raise SymmetryFitFailure("invalid-input", "an accepted source is required")
     if (
         any(
@@ -487,7 +489,8 @@ def _fit_selected_symmetry_group(
             or len(members) < 2
             or len(set(members)) != len(members)
             or any(
-                key not in by_id or by_id[key].selection.kind != "plane"
+                key not in pr
+                and (key not in by_id or by_id[key].selection.kind != "plane")
                 for key in members
             )
         ):
@@ -676,6 +679,11 @@ def _fit_selected_symmetry_group(
                 "source": value.source,
                 "axis": value.axis,
                 "construction": value.construction,
+                **(
+                    {"offset_from_axis": value.offset_from_axis}
+                    if value.offset_from_axis is not None
+                    else {}
+                ),
                 "sign": plane_sign[key],
             }
             for key, value in group.planes.items()
@@ -694,6 +702,16 @@ def _fit_selected_symmetry_group(
             for r in group.radius_distances
         ],
         "support_policy": SUPPORT_POLICY_VERSION,
+        **(
+            {"gradient_tolerance": group.gradient_tolerance}
+            if group.gradient_tolerance is not None
+            else {}
+        ),
+        **(
+            {"axis_anchor_reference": group.axis_anchor_reference}
+            if group.axis_anchor_reference is not None
+            else {}
+        ),
     }
     if group.semantic_intent is None or "recipe" not in group.semantic_intent:
         intent["support"] = {
@@ -715,7 +733,9 @@ def _fit_selected_symmetry_group(
     try:
         binding = initialization_binding(
             workspace.source_sha256,
-            workspace.descriptor.interpretation_sha256,
+            workspace.source_descriptor.interpretation_sha256
+            if workspace.source_descriptor is not None
+            else workspace.reference_sha256,
             selected_ids,
             intent,
             policy_version=SYMMETRY_POLICY_VERSION,
@@ -1015,16 +1035,46 @@ def _fit_selected_symmetry_group(
                 datum_records[key] = deepcopy(original)
                 continue
             normal = phases.get(key)
+            if (
+                normal is None
+                and original.construction == "perpendicular_to_axis"
+                and original.axis is not None
+                and ar[original.axis] == common_root
+            ):
+                normal = axis_sign[original.axis] * direction
+            observed = {
+                s.selection.id
+                for s in group.surfaces
+                if s.datum is not None and pr.get(s.datum) == key
+            }
+            # Relationship endpoints also supply selected plane evidence. They
+            # are independently owned observations, not datum-bound aliases.
+            related = {key}
+            while True:
+                expanded = related | {
+                    member
+                    for _, members in group.relationships
+                    if related.intersection(
+                        pr.get(member, member) for member in members
+                    )
+                    for member in members
+                }
+                if expanded == related:
+                    break
+                related = expanded
+            observed.update(
+                member
+                for member in related
+                if member in by_id and by_id[member].selection.kind == "plane"
+            )
+            ordered_observed = [
+                s.selection.id for s in group.surfaces if s.selection.id in observed
+            ]
             if normal is None:
-                observed = [
-                    s.selection.id
-                    for s in group.surfaces
-                    if s.datum is not None and pr.get(s.datum) == key
-                ]
-                if observed:
-                    p = np.vstack([q[k] for k in observed])
-                    w = np.concatenate([weights[k] for k in observed])
-                    n = np.vstack([normals[k] for k in observed])
+                if ordered_observed:
+                    p = np.vstack([q[k] for k in ordered_observed])
+                    w = np.concatenate([weights[k] for k in ordered_observed])
+                    n = np.vstack([normals[k] for k in ordered_observed])
                     geometry = _start(p, w, n, "plane")[0]
                     normal = geometry.axis
                     offset = float(
@@ -1036,7 +1086,12 @@ def _fit_selected_symmetry_group(
                         "free datum has no selected-data initializer",
                     )
             else:
-                offset = float(normal @ point)
+                if ordered_observed and original.offset_from_axis is None:
+                    p = np.vstack([points[k] for k in ordered_observed])
+                    w = np.concatenate([weights[k] for k in ordered_observed])
+                    offset = float(normal @ np.average(p, axis=0, weights=w))
+                else:
+                    offset = float(normal @ point)
             datum_records[key] = replace(
                 original, result={"plane_equation": [*normal.tolist(), offset]}
             )
@@ -1272,17 +1327,51 @@ def _fit_selected_symmetry_group(
             )
         evidence[candidate.id] = candidate_evidence
         try:
-            return fit_relationship_component(
+            output = fit_relationship_component(
                 surfaces,
                 root_records,
                 [(kind, list(ids)) for kind, ids in group.relationships],
                 [list(ids) for ids in group.radii],
                 control=control,
                 planes=datum_records,
+                gradient_tolerance=group.gradient_tolerance,
                 rotations=group.rotations,
                 mirrors=group.mirrors,
                 radius_distances=group.radius_distances,
             )
+            if group.axis_anchor_reference is not None:
+                reference = np.asarray(group.axis_anchor_reference)
+                for root in set(ar.values()):
+                    if not axes[root].free:
+                        continue
+                    record = output["axes"][root]
+                    anchor, direction = (
+                        np.asarray(record["point_display"]),
+                        np.asarray(record["axis_display"]),
+                    )
+                    canonical = anchor + ((reference - anchor) @ direction) * direction
+                    for key in ar:
+                        if ar[key] == root:
+                            output["axes"][key]["point_display"] = canonical.tolist()
+                    for key, datum in group.planes.items():
+                        if datum.axis is None or ar[datum.axis] != root:
+                            continue
+                        plane = output["planes"][key]
+                        normal = np.asarray(plane["normal_display"])
+                        offset = float(plane["plane_equation"][3])
+                        if datum.free and datum.offset_from_axis is not None:
+                            # This unobserved placement derives from a stable
+                            # line representative, never a proposal's gauge.
+                            offset = float(normal @ canonical + datum.offset_from_axis)
+                            plane["plane_equation"] = [*normal.tolist(), offset]
+                            output["equations"][key] = plane["plane_equation"]
+                        plane.update(
+                            point_display=(
+                                canonical + (offset - normal @ canonical) * normal
+                            ).tolist(),
+                            offset=float(offset - normal @ canonical),
+                        )
+            return output
         except RelationshipFailure as error:
             failures[candidate.id] = deepcopy(error.diagnostic)
             raise LeastSquaresFailure(cast(Any, error.code), str(error)) from error
@@ -1517,12 +1606,12 @@ def _fit_selected_symmetry_group(
         "selected_area": {s.id: float(weights[s.id].sum()) for s in selections},
         "surfaces": output["surfaces"],
         "axes": output["axes"],
-        "planes": output["planes"],
+        "planes": output.get("planes", {}),
         "equations": output["equations"],
         "mirror_planes": {
             key: output["planes"][key]
             for key in dict.fromkeys(m.plane for m in group.mirrors)
         },
-        "reference_planes": output["planes"],
+        "reference_planes": output.get("planes", {}),
         "initialization": initialization,
     }
