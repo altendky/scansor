@@ -1,3 +1,5 @@
+import { referenceFeature } from './feature-inputs.js';
+
 // Source row IDs remain unchanged. Rectangle selection includes hidden vertices.
 export function editSelection(session, region, hits, operation) {
   return {
@@ -197,7 +199,7 @@ export function featureVertexIds(nodes, memberships, featureId) {
               : node.operation === 'rotational_symmetry'
                 ? [node.axis, ...node.planes]
                 : ['mirror_symmetry', 'plane_relationship', 'equal_radii'].includes(node.operation)
-                  ? node.surfaces
+                  ? node.surfaces.map(referenceFeature)
                   : node.operation === 'parallel'
                     ? [node.surface]
                     : node.operation === 'equal'

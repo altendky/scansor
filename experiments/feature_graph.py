@@ -67,6 +67,12 @@ from experiments.nozzle_session import (
     NozzleWorkspace,
     VertexId,
 )
+from experiments.relationship_inputs import (
+    RELATIONSHIP_SIGNATURES,
+    RelationshipEndpoint,
+    normalize_endpoint,
+    validate_relationship_inputs,
+)
 from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
 from experiments.selected_symmetry_fit import (
     SelectedSurface,
@@ -443,11 +449,11 @@ class EqualRadii(Node):
 
 
 class PlaneRelationship(Node):
-    """Exact orientation, and optionally offset, shared by plane fits."""
+    """Exact orientation, and optionally offset, shared by plane outputs."""
 
     operation: Literal["plane_relationship"]
     relation: Literal["coincident", "parallel"]
-    surfaces: list[str] = Field(min_length=2, max_length=33)
+    surfaces: list[FeatureInput] = Field(min_length=2, max_length=33)
 
 
 class AxisSolve(Node):
@@ -833,7 +839,11 @@ def dependencies(node: Feature) -> list[str]:
     if isinstance(node, EqualRadii):
         return node.surfaces
     if isinstance(node, PlaneRelationship):
-        return node.surfaces
+        return list(
+            dict.fromkeys(
+                dep for ref in node.surfaces for dep in reference_dependencies(ref)
+            )
+        )
     if isinstance(node, AxisSolve):
         return [node.axis, *node.factors]
     return []
@@ -871,15 +881,26 @@ def surface_reference_kind(
             if isinstance(nodes[factor], MirrorSymmetry)
             for ref in cast(MirrorSymmetry, nodes[factor]).surfaces
         )
-    elif isinstance(feature, (EqualRadii, PlaneRelationship)):
+    elif isinstance(feature, EqualRadii):
         members = feature.surfaces
+    elif isinstance(feature, PlaneRelationship):
+        members = [
+            endpoint.owner
+            for endpoint in plane_relationship_endpoints(feature, nodes)
+            if endpoint.owner is not None
+        ]
     else:
         raise ValueError(
             "surface reference must name a fit, reference plane, or explicit geometry context"
         )
     if reference.surface not in members:
         raise ValueError("geometry context requires an explicit member surface")
-    return cast(SurfaceFit, nodes[reference.surface]).kind
+    member = nodes[reference.surface]
+    return (
+        "plane"
+        if isinstance(member, PlaneDefinition)
+        else cast(SurfaceFit, member).kind
+    )
 
 
 def validate_face_review_references(
@@ -989,6 +1010,21 @@ def automatic_equal_radius_components(
     }
 
 
+def plane_relationship_endpoints(
+    relationship: PlaneRelationship, nodes: dict[str, Feature]
+) -> list[RelationshipEndpoint]:
+    """Keep parameter bindings distinct from exact publication reads."""
+    requirement = (
+        "relationship_plane_orientation"
+        if relationship.relation == "parallel"
+        else "relationship_plane"
+    )
+    return [
+        normalize_endpoint(reference, nodes, requirement)
+        for reference in relationship.surfaces
+    ]
+
+
 def automatic_plane_relationship_components(
     nodes: dict[str, Feature],
     *,
@@ -999,33 +1035,73 @@ def automatic_plane_relationship_components(
         node for node in nodes.values() if isinstance(node, PlaneRelationship)
     ]
     pending = set(relationship.id for relationship in relationships)
-    by_id = {relationship.id: relationship for relationship in relationships}
+    endpoints = {
+        relationship.id: plane_relationship_endpoints(relationship, nodes)
+        for relationship in relationships
+    }
+    bindings = {
+        key: {endpoint.owner for endpoint in values if endpoint.owner is not None}
+        for key, values in endpoints.items()
+    }
     components: dict[
         str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
     ] = {}
 
-    def linked_datums(surface_ids: set[str]) -> tuple[set[str], set[str]]:
+    def linked_datums(owner_ids: set[str]) -> tuple[set[str], set[str]]:
+        surfaces = [
+            nodes[key] for key in owner_ids if isinstance(nodes[key], SurfaceFit)
+        ]
         axes = {
             axis
-            for key in surface_ids
-            if (axis := fit_axis(cast(SurfaceFit, nodes[key]), nodes)) is not None
+            for surface in surfaces
+            if (axis := fit_axis(cast(SurfaceFit, surface), nodes)) is not None
         }
+        axes.update(
+            node.axis
+            for key in owner_ids
+            if isinstance(node := nodes[key], PlaneDefinition)
+        )
         points = {
             point
-            for key in surface_ids
-            if (point := cast(SurfaceFit, nodes[key]).point) is not None
+            for surface in surfaces
+            if (point := cast(SurfaceFit, surface).point) is not None
         }
         axes.update(
             node.id
             for node in nodes.values()
-            if isinstance(node, AxisDefinition) and node.source_fit in surface_ids
+            if isinstance(node, AxisDefinition) and node.source_fit in owner_ids
         )
         points.update(
             node.id
             for node in nodes.values()
-            if isinstance(node, PointDefinition) and node.source_fit in surface_ids
+            if isinstance(node, PointDefinition) and node.source_fit in owner_ids
         )
-        return axes, points
+        # A fixed upstream datum is an input, not a shared variable. Source-fit
+        # datums join only when that source fit itself is active in this solve.
+        return (
+            {
+                key
+                for key in axes
+                if isinstance(axis := nodes[key], AxisDefinition)
+                and (
+                    axis.initial_parameters is not None or axis.source_fit in owner_ids
+                )
+            },
+            {
+                key
+                for key in points
+                if isinstance(point := nodes[key], PointDefinition)
+                and (point.source_fit is None or point.source_fit in owner_ids)
+            },
+        )
+
+    def adjustable_owners(owner_ids: set[str]) -> set[str]:
+        axes, _ = linked_datums(owner_ids)
+        return {
+            key
+            for key in owner_ids
+            if not isinstance(node := nodes[key], PlaneDefinition) or node.axis in axes
+        }
 
     while pending:
         first = next(
@@ -1034,10 +1110,11 @@ def automatic_plane_relationship_components(
             if relationship.id in pending
         )
         relation_ids = {first}
-        surface_ids = set(by_id[first].surfaces)
+        owner_ids = bindings[first].copy()
+
         while True:
-            axes, points = linked_datums(surface_ids)
-            surface_ids.update(
+            axes, points = linked_datums(owner_ids)
+            owner_ids.update(
                 node.id
                 for node in nodes.values()
                 if isinstance(node, SurfaceFit)
@@ -1045,40 +1122,42 @@ def automatic_plane_relationship_components(
             )
             if include_radii:
                 for node in nodes.values():
-                    if isinstance(node, EqualRadii) and surface_ids.intersection(
+                    if isinstance(node, EqualRadii) and owner_ids.intersection(
                         node.surfaces
                     ):
-                        surface_ids.update(node.surfaces)
+                        owner_ids.update(node.surfaces)
             connected = {
                 relationship.id
                 for relationship in relationships
                 if relationship.id in pending
-                and surface_ids.intersection(relationship.surfaces)
+                and (
+                    adjustable_owners(owner_ids).intersection(
+                        adjustable_owners(bindings[relationship.id])
+                    )
+                    or axes.intersection(linked_datums(bindings[relationship.id])[0])
+                    or points.intersection(linked_datums(bindings[relationship.id])[1])
+                )
             }
-            expanded_surfaces = {
-                surface
+            expanded_owners = {
+                owner
                 for relationship_id in connected | relation_ids
-                for surface in by_id[relationship_id].surfaces
+                for owner in bindings[relationship_id]
             }
-            expanded_surfaces.update(surface_ids)
-            expanded_axes, expanded_points = linked_datums(expanded_surfaces)
+            expanded_owners.update(owner_ids)
+            expanded_axes, expanded_points = linked_datums(expanded_owners)
             complete = all(
                 not isinstance(node, SurfaceFit)
                 or (
                     fit_axis(node, nodes) not in expanded_axes
                     and node.point not in expanded_points
                 )
-                or node.id in expanded_surfaces
+                or node.id in expanded_owners
                 for node in nodes.values()
             )
-            if (
-                connected <= relation_ids
-                and expanded_surfaces == surface_ids
-                and complete
-            ):
+            if connected <= relation_ids and expanded_owners == owner_ids and complete:
                 break
             relation_ids.update(connected)
-            surface_ids.update(expanded_surfaces)
+            owner_ids.update(expanded_owners)
         pending.difference_update(relation_ids)
         component_relationships = [
             relationship
@@ -1088,12 +1167,12 @@ def automatic_plane_relationship_components(
         component_surfaces = [
             cast(SurfaceFit, nodes[node_id])
             for node_id in nodes
-            if node_id in surface_ids
+            if node_id in owner_ids and isinstance(nodes[node_id], SurfaceFit)
         ]
-        axes, points = linked_datums(surface_ids)
+        axes, points = linked_datums(owner_ids)
         members = {
             *relation_ids,
-            *surface_ids,
+            *owner_ids,
             *axes,
             *points,
             *(
@@ -1106,7 +1185,7 @@ def automatic_plane_relationship_components(
                 for node in nodes.values()
                 if include_radii
                 and isinstance(node, EqualRadii)
-                and set(node.surfaces) <= surface_ids
+                and set(node.surfaces) <= owner_ids
             ),
         }
         for relationship_id in relation_ids:
@@ -1200,14 +1279,26 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         if task in providers:
             continue
         relation_ids = frozenset(relation.id for relation in relations)
-        aliases = frozenset(members)
+        aliases = frozenset(
+            key
+            for key in members
+            if not isinstance(node := nodes[key], PlaneDefinition)
+            or node.axis in members
+        )
+        exact_contexts = frozenset(
+            endpoint.context
+            for relation in relations
+            for endpoint in plane_relationship_endpoints(relation, nodes)
+            if not endpoint.is_binding
+        )
         providers[task] = ProviderInfluence(
             task,
             ("planes", first),
+            frozenset(members),
             aliases,
-            aliases,
-            aliases - relation_ids,
-            frozenset(surface.id for surface in surfaces),
+            (frozenset(members) - relation_ids) | exact_contexts,
+            frozenset(surface.id for surface in surfaces)
+            | (frozenset(members) - aliases),
             {key: aliases - relation_ids for key in relation_ids},
         )
     return GeometryInfluence(axes, points, planes, providers)
@@ -1323,6 +1414,8 @@ def compile_execution_plan(
                 for ref in (distance.first_point, distance.second_point)
             )
             if isinstance(node, ScaleDefinition)
+            else tuple(node.surfaces)
+            if isinstance(node, PlaneRelationship)
             else None
         )
         if references is not None and any(
@@ -1571,6 +1664,11 @@ def compile_execution_plan(
                 for ref in (distance.first_point, distance.second_point)
             )
             if isinstance(node, ScaleDefinition)
+            else tuple(
+                endpoint.owner if endpoint.is_binding else endpoint.reference
+                for endpoint in plane_relationship_endpoints(node, nodes)
+            )
+            if isinstance(node, PlaneRelationship)
             else None
         )
         implicit_dependencies = (
@@ -2524,6 +2622,14 @@ def fit_plane_relationships(
     ids: list[list[int]],
 ) -> dict[str, Any]:
     """Solve a connected set of exact coincident/parallel plane constraints."""
+    nodes: dict[str, Feature] = {surface.id: surface for surface in surfaces}
+    relation_surfaces = {
+        relationship.id: [
+            endpoint.feature
+            for endpoint in plane_relationship_endpoints(relationship, nodes)
+        ]
+        for relationship in relationships
+    }
     parent = {surface.id: surface.id for surface in surfaces}
 
     def root(surface_id: str) -> str:
@@ -2540,8 +2646,8 @@ def fit_plane_relationships(
     for relationship in relationships:
         if relationship.relation != "coincident":
             continue
-        anchor = relationship.surfaces[0]
-        for surface_id in relationship.surfaces[1:]:
+        anchor = relation_surfaces[relationship.id][0]
+        for surface_id in relation_surfaces[relationship.id][1:]:
             union(anchor, surface_id)
 
     groups: dict[str, list[int]] = {}
@@ -3401,6 +3507,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "mirror symmetry requires matching fit types; existing fits are not converted"
                     )
+                _ = validate_relationship_inputs(
+                    "mirror", [node.plane, *node.surfaces], recipe
+                )
             elif isinstance(node, ParallelToPlane):
                 surface = nodes[node.surface]
                 reference = nodes[node.reference_plane]
@@ -3445,6 +3554,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "radius and plane-distance measurements must use the same axis"
                     )
+                _ = validate_relationship_inputs(
+                    "radius_plane_distance",
+                    [radius.surface, distance.surface, distance.reference_plane],
+                    recipe,
+                )
             elif isinstance(node, EqualRadii):
                 if len(set(node.surfaces)) != len(node.surfaces):
                     raise ValueError("all-equal radius inputs must be unique")
@@ -3466,17 +3580,18 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "a fit may belong to only one all-equal radius relationship"
                     )
+                _ = validate_relationship_inputs("equal_radii", node.surfaces, recipe)
             elif isinstance(node, PlaneRelationship):
-                if len(set(node.surfaces)) != len(node.surfaces):
+                kind = (
+                    "parallel_planes"
+                    if node.relation == "parallel"
+                    else "coincident_planes"
+                )
+                endpoints = validate_relationship_inputs(kind, node.surfaces, recipe)[
+                    "participants"
+                ]
+                if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
                     raise ValueError("plane relationship inputs must be unique")
-                surfaces = [nodes[ref] for ref in node.surfaces]
-                if any(
-                    not isinstance(surface, SurfaceFit) or surface.kind != "plane"
-                    for surface in surfaces
-                ):
-                    raise ValueError("plane relationships require plane fits")
-                for surface in surfaces:
-                    validate_parameter_owner(surface, "constrainable_plane")
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -3595,6 +3710,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                     for ref in (distance.first_point, distance.second_point)
                 )
                 if isinstance(node, ScaleDefinition)
+                else tuple(node.surfaces)
+                if isinstance(node, PlaneRelationship)
                 else ()
             )
         ):
@@ -3786,6 +3903,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                 "derived": deepcopy(self._derived),
                 "results": resolved,
                 "input_catalogue": catalogue,
+                "input_contracts": deepcopy(REQUIREMENTS),
+                "relationship_contracts": deepcopy(RELATIONSHIP_SIGNATURES),
                 "input_requirements": {
                     name: input_choices(
                         self._recipe, requirement=name, catalogue=catalogue
@@ -4722,7 +4841,27 @@ class FeatureGraph(Generic[WorkspaceType]):
             include_radii: bool = True,
             radius_groups: tuple[EqualRadii, ...] | None = None,
         ) -> dict[str, Any]:
-            if not any(fit_axis(surface, nodes) for surface in surfaces):
+            endpoints = {
+                relation.id: plane_relationship_endpoints(relation, nodes)
+                for relation in relations
+            }
+            datum_ids = {
+                endpoint.owner
+                for group in endpoints.values()
+                for endpoint in group
+                if endpoint.owner is not None
+                and isinstance(nodes[endpoint.owner], PlaneDefinition)
+            }
+            has_exact_contexts = any(
+                not endpoint.is_binding
+                for group in endpoints.values()
+                for endpoint in group
+            )
+            if (
+                not datum_ids
+                and not has_exact_contexts
+                and not any(fit_axis(surface, nodes) for surface in surfaces)
+            ):
                 return fit_plane_relationships(
                     self.workspace,
                     relations,
@@ -4732,6 +4871,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 )
             from experiments.fit_relationship_component import (
                 AxisInput,
+                PlaneInput,
                 PointInput,
                 SurfaceInput,
                 fit_relationship_component,
@@ -4742,10 +4882,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for surface in surfaces
                 if (axis := fit_axis(surface, nodes)) is not None
             )
+            axis_ids.update(
+                (cast(PlaneDefinition, nodes[key]).axis, None) for key in datum_ids
+            )
+            datum_aware = bool(datum_ids or has_exact_contexts)
             axes = {
                 key: AxisInput(
                     resolved_result(key, excluded),
-                    key in connected_components and key not in plan.explicit_axes,
+                    (
+                        cast(AxisDefinition, nodes[key]).initial_parameters is not None
+                        if datum_aware
+                        else key in connected_components
+                    )
+                    and key not in plan.explicit_axes,
                 )
                 for key in axis_ids
             }
@@ -4756,6 +4905,47 @@ class FeatureGraph(Generic[WorkspaceType]):
                 key: PointInput(resolved_result(key, excluded), key in point_components)
                 for key in point_ids
             }
+            datum_records: dict[str, PlaneInput] = {}
+            if datum_aware:
+                # A plane-reference observation already activates the datum's
+                # whole plane, including the historical free offset role.
+                datum_ids.update(
+                    surface.reference_plane
+                    for surface in surfaces
+                    if surface.reference_plane is not None
+                )
+                full_plane_ids = {
+                    surface.reference_plane
+                    for surface in surfaces
+                    if surface.reference_plane is not None
+                } | {
+                    endpoint.owner
+                    for relation in relations
+                    if relation.relation == "coincident"
+                    for endpoint in endpoints[relation.id]
+                    if endpoint.owner is not None
+                }
+                for key in datum_ids:
+                    definition = initialized_plane(
+                        cast(PlaneDefinition, nodes[key]), derived_result(key)
+                    )
+                    datum_records[key] = PlaneInput(
+                        resolved_result(key, excluded),
+                        axes[definition.axis].free,
+                        axis=definition.axis,
+                        construction=definition.construction,
+                        # Parallel consumes orientation only. Unused placement
+                        # remains the authored construction of the current axis.
+                        offset_from_axis=definition.offset
+                        if key not in full_plane_ids
+                        else None,
+                    )
+            for group in endpoints.values():
+                for endpoint in group:
+                    if not endpoint.is_binding:
+                        datum_records[endpoint.key] = PlaneInput(
+                            input_result(endpoint.reference), False
+                        )
             inputs: list[SurfaceInput] = []
             for surface in surfaces:
                 ids = fitted_ids(surface)
@@ -4860,9 +5050,19 @@ class FeatureGraph(Generic[WorkspaceType]):
             fitted = fit_relationship_component(
                 inputs,
                 axes,
-                [(relation.relation, relation.surfaces) for relation in relations],
+                [
+                    (
+                        relation.relation,
+                        [
+                            endpoint.owner or endpoint.key
+                            for endpoint in endpoints[relation.id]
+                        ],
+                    )
+                    for relation in relations
+                ],
                 [relation.surfaces for relation in equal_radii],
                 centers,
+                planes=datum_records,
             )
             for key, axis in fitted["axes"].items():
                 node = nodes.get(key)
@@ -4874,15 +5074,31 @@ class FeatureGraph(Generic[WorkspaceType]):
                         axis["parameters"] = deepcopy(source_surface["parameters"])
             resolved = {
                 **fitted["surfaces"],
-                **{key: value for key, value in fitted["axes"].items() if key in nodes},
+                **{
+                    key: value
+                    for key, value in fitted.get("planes", {}).items()
+                    if key in nodes and datum_records[key].free
+                },
+                **{
+                    key: value
+                    for key, value in fitted["axes"].items()
+                    if key in nodes and (axes[key].free or axes[key].source is not None)
+                },
                 **{
                     key: value
                     for key, value in fitted["points"].items()
                     if key in nodes
+                    and (centers[key].free or centers[key].source is not None)
                 },
             }
             for node in recipe.nodes:
                 if not isinstance(node, PlaneDefinition) or node.axis not in axes:
+                    continue
+                if not axes[node.axis].free and axes[node.axis].source is None:
+                    continue
+                if node.id in fitted.get("planes", {}):
+                    # The component already publishes this datum's exact roles
+                    # and directed construction frame, including moved offsets.
                     continue
                 initializer = initialized_plane(node, derived_result(node.id))
                 axis = fitted["axes"][node.axis]
@@ -4942,12 +5158,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                         key: fitted["surfaces"][key] for key in relation.surfaces
                     },
                 }
+            first_endpoint = endpoints[relations[0].id][0]
+            first_plane = {**fitted["surfaces"], **fitted.get("planes", {})}[
+                first_endpoint.owner or first_endpoint.key
+            ]
             return {
                 "format": "scansor-plane-relationships-v1",
                 "relationships": [relation.id for relation in relations],
-                "normal_display": fitted["surfaces"][relations[0].surfaces[0]][
-                    "plane_equation"
-                ][:3],
+                "normal_display": first_plane["plane_equation"][:3],
                 "surfaces": fitted["surfaces"],
                 "resolved": resolved,
                 "weighted_rms": fitted["weighted_rms"],

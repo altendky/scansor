@@ -38,6 +38,8 @@ PROJECTION = (
     "derived",
     "input_catalogue",
     "input_requirements",
+    "input_contracts",
+    "relationship_contracts",
 )
 TRANSPORT = {
     "revision",

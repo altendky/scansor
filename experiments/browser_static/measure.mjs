@@ -7,6 +7,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import os from 'node:os';
 import {verifySite,startPreview,sha256,prepareReports} from './server.mjs';
+import {SOURCE_GRAPH_PROJECTION,projectSourceGraph} from './source-semantic.mjs';
 const args=process.argv.slice(2);
 const value=(flag,fallback)=>{if(!args.includes(flag))return fallback;const v=args[args.indexOf(flag)+1];if(!v||v.startsWith('--'))throw Error('Missing '+flag+' value');return v;};
 if(!value('--directory')||!value('--output'))throw Error('Usage: node measure.mjs --directory <static-site> --output <fresh external reports> [--playwright-directory <viewer>] [--repository <checkout>] [--native-python <existing interpreter>]');
@@ -171,7 +172,8 @@ function compareGraph(actual,expected){let n=0,max=0,pathAt;
     else if(Array.isArray(b)){assert.equal(a.length,b.length,p);b.forEach((v,i)=>walk(a[i],v,p+'['+i+']'));}
     else if(b!==null&&typeof b==='object'){assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),p);for(const k of Object.keys(b))walk(a[k],b[k],p+'.'+k);}
     else assert.deepEqual(a,b,p);}
-  for(const key of ['recipe','token','states','errors','diagnostics','memberships','result','results','derived','input_catalogue','input_requirements'])walk(actual[key],expected[key],key);
+  const projectedActual=projectSourceGraph(actual),projectedExpected=projectSourceGraph(expected);
+  for(const key of SOURCE_GRAPH_PROJECTION)walk(projectedActual[key],projectedExpected[key],key);
   return {fields:n,max_absolute_difference:max,path:pathAt,rtol:1e-10,atol:1e-10};
 }
 try{

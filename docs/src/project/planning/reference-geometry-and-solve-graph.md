@@ -78,6 +78,22 @@ resolved datum. An axis sourced from an earlier fit is fixed, so downstream obse
 do not move it. An explicit joint remains available to choose active factors or
 add relationships and takes precedence for its solve.
 
+The bounded relationship builder also accepts fitted and reference-plane
+outputs through shared capability requirements. Parallel relates their normals;
+Coincident additionally relates their offsets. A direct owner binding retains
+the declaration's solve roles, while a selected publication from a different
+context remains a fixed downstream read. Multiple reference planes can therefore
+participate without a provider-specific relationship variant.
+
+A newly participating reference plane used only for its orientation retains its
+declared signed offset as an exact construction from the current axis point.
+Its normal can follow the refined axis or clocking. This does not introduce an
+unobserved placement variable into a Parallel solve. Existing datum-bound
+observations and full-plane Coincident factors retain their offset freedom;
+they can supply evidence for placement. Observation-free relationships add no
+synthetic observations: incompatible fixed inputs fail feasibility checks, and
+remaining unidentified free quantities fail rank checks.
+
 Every geometric value belongs to a declared coordinate frame and unit system.
 Directly shared geometry must inhabit the same frame. Crossing frames requires an
 explicit typed transform with declared direction and provenance; current

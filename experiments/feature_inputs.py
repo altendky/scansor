@@ -79,7 +79,147 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "min_count": 1,
         "max_count": 1,
     },
+    "relationship_plane": {
+        "capabilities": ["plane"],
+        "uses": ["binding", "geometry"],
+        "min_count": 2,
+        "max_count": 33,
+    },
+    "relationship_plane_orientation": {
+        "capabilities": ["plane_orientation"],
+        "uses": ["binding", "geometry"],
+        "min_count": 2,
+        "max_count": 33,
+    },
+    "relationship_axis": {
+        "capabilities": ["axis_line"],
+        "uses": ["binding", "geometry"],
+        "min_count": 2,
+        "max_count": 33,
+    },
+    "relationship_radius": {
+        "capabilities": ["radius"],
+        "uses": ["binding"],
+        "geometry_kinds": ["cylinder", "sphere"],
+        "min_count": 2,
+        "max_count": 33,
+    },
+    "mirror_members": {
+        "capabilities": ["surface"],
+        "uses": ["binding"],
+        "geometry_kinds": ["plane", "cylinder", "cone"],
+        "standalone": True,
+        "min_count": 2,
+        "max_count": 2,
+    },
+    "mirror_plane": {
+        "capabilities": ["plane"],
+        "uses": ["binding"],
+        "ownership": "datum",
+        "constructions": ["contains_axis"],
+        "min_count": 1,
+        "max_count": 1,
+    },
+    "distance_radius": {
+        "capabilities": ["radius"],
+        "uses": ["binding"],
+        "geometry_kinds": ["cylinder"],
+        "axis_bound": True,
+        "min_count": 1,
+        "max_count": 1,
+    },
+    "distance_plane": {
+        "capabilities": ["plane"],
+        "uses": ["binding"],
+        "ownership": "fit",
+        "standalone": True,
+        "min_count": 1,
+        "max_count": 1,
+    },
+    "distance_datum": {
+        "capabilities": ["plane"],
+        "uses": ["binding"],
+        "ownership": "datum",
+        "min_count": 1,
+        "max_count": 1,
+    },
 }
+
+
+def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
+    """One structural capability registry, independent of solve discovery."""
+    operation = node.operation
+    kind = getattr(node, "kind", None)
+    owner = (
+        "fit"
+        if operation == "fit"
+        else "datum"
+        if operation in {"axis", "point", "reference_plane"}
+        else None
+    )
+    metadata = {
+        "ownership": owner,
+        "geometry_kind": kind
+        or {"axis": "axis", "point": "point", "reference_plane": "plane"}.get(
+            operation
+        ),
+        "axis": getattr(node, "axis", None),
+        "construction": getattr(node, "construction", None),
+        "standalone": operation == "fit"
+        and not any(
+            getattr(node, field, None) for field in ("axis", "point", "reference_plane")
+        ),
+    }
+
+    def output(
+        name: str, capabilities: list[str], *, bind: bool = False
+    ) -> dict[str, Any]:
+        return {
+            **metadata,
+            "output": name,
+            "capabilities": capabilities,
+            "parameter_owner": {"feature": node.id, "output": name, "kind": owner}
+            if bind
+            else None,
+        }
+
+    if operation == "selection":
+        return [
+            output("single_node", ["point"]),
+            output("observations", ["observations"]),
+        ]
+    if operation == "point":
+        return [output("point", ["point"], bind=True)]
+    if operation == "axis":
+        return [output("axis", ["direction", "axis_line"], bind=True)]
+    if operation == "reference_plane":
+        return [output("plane", ["plane", "plane_orientation", "surface"], bind=True)]
+    if operation != "fit":
+        return []
+    if kind == "sphere":
+        return [
+            output("center", ["point"], bind=True),
+            output("surface", ["surface"], bind=True),
+            output("radius", ["scalar", "radius"], bind=True),
+            output("observations", ["observations"]),
+        ]
+    if kind == "plane":
+        return [
+            output("plane", ["plane", "plane_orientation", "surface"], bind=True),
+            output("observations", ["observations"]),
+        ]
+    if kind in {"cylinder", "cone"}:
+        return [
+            output("surface", ["surface"], bind=True),
+            output("axis", ["axis_line"], bind=True),
+            *(
+                [output("radius", ["scalar", "radius"], bind=True)]
+                if kind == "cylinder"
+                else []
+            ),
+            output("observations", ["observations"]),
+        ]
+    return []
 
 
 def output_catalogue(
@@ -97,7 +237,6 @@ def output_catalogue(
         JointFit,
         MirrorSymmetry,
         PlaneDefinition,
-        PointDefinition,
         Selection,
         SurfaceFit,
         dependencies,
@@ -165,22 +304,15 @@ def output_catalogue(
 
     descriptors: list[dict[str, Any]] = []
     for node in recipe.nodes:
-        if isinstance(node, Selection):
-            output, capability, ownership = "single_node", "point", None
-        elif isinstance(node, PointDefinition):
-            output, capability, ownership = "point", "point", "datum"
-        elif isinstance(node, PlaneDefinition):
-            output, capability, ownership = "plane", "plane", "datum"
-        elif isinstance(node, AxisDefinition):
-            output, capability, ownership = "axis", "direction", "datum"
-        elif isinstance(node, SurfaceFit) and node.kind in ("sphere", "plane"):
-            output = "center" if node.kind == "sphere" else "plane"
-            capability, ownership = (
-                ("point" if node.kind == "sphere" else "plane"),
-                "fit",
-            )
-        else:
+        specs = declared_output_specs(node)
+        if not specs:
             continue
+        primary = specs[0]
+        output, capability, ownership = (
+            primary["output"],
+            primary["capabilities"][0],
+            primary["ownership"],
+        )
         offered = list(dict.fromkeys(contexts.get(node.id, [])))
         # Explicit axis solves have no declared datum-member output yet.
         unsupported = (
@@ -195,6 +327,9 @@ def output_catalogue(
         ]
         if not offered:
             offered = [node.id]
+        geometry_contexts = set(offered)
+        if primary["parameter_owner"]:
+            offered = list(dict.fromkeys([node.id, *offered]))
         for context in offered:
             reference = OutputReference(feature=node.id, output=output, context=context)
             prerequisites = context_members.get(context, {node.id}) | {node.id}
@@ -218,7 +353,7 @@ def output_catalogue(
                     "ready",
                 )
             reason: str | None = None
-            if unsupported:
+            if unsupported and context in geometry_contexts:
                 availability, reason = (
                     "ambiguous",
                     "This solve does not declare a datum output",
@@ -266,22 +401,32 @@ def output_catalogue(
                     "constrainable": constrainable,
                     "dependencies": closure(prerequisites),
                     "preview": preview,
+                    "capabilities": primary["capabilities"],
+                    "uses": (["geometry"] if context in geometry_contexts else [])
+                    + (
+                        ["binding"]
+                        if context == node.id and primary["parameter_owner"]
+                        else []
+                    ),
+                    "parameter_owner": primary["parameter_owner"]
+                    if context == node.id
+                    else None,
+                    **{
+                        key: primary[key]
+                        for key in (
+                            "geometry_kind",
+                            "axis",
+                            "construction",
+                            "standalone",
+                        )
+                    },
                 }
             )
-            extras = (
-                [("observations", "observations")]
-                if isinstance(node, Selection)
-                else [
-                    ("surface", "surface"),
-                    ("radius", "scalar"),
-                    ("observations", "observations"),
-                ]
-                if isinstance(node, SurfaceFit) and node.kind == "sphere"
-                else [("observations", "observations")]
-                if isinstance(node, SurfaceFit)
-                else []
-            )
-            for extra_output, extra_capability in extras:
+            for extra in specs[1:]:
+                extra_output, extra_capability = (
+                    extra["output"],
+                    extra["capabilities"][0],
+                )
                 descriptor = deepcopy(descriptors[-1])
                 descriptor.update(
                     reference=OutputReference(
@@ -290,6 +435,16 @@ def output_catalogue(
                     capability=extra_capability,
                     label=f"{node.label} — {extra_output}",
                     preview=None,
+                    capabilities=extra["capabilities"],
+                    parameter_owner=extra["parameter_owner"]
+                    if context == node.id
+                    else None,
+                    uses=(["geometry"] if context in geometry_contexts else [])
+                    + (
+                        ["binding"]
+                        if context == node.id and extra["parameter_owner"]
+                        else []
+                    ),
                 )
                 if isinstance(node, Selection):
                     descriptor.update(
@@ -300,12 +455,18 @@ def output_catalogue(
                 if extra_capability == "observations":
                     descriptor["preview"] = None
                 elif descriptor["availability"] == "ready":
-                    descriptor["preview"] = resolve_output(
-                        OutputReference.model_validate(descriptor["reference"]),
-                        nodes,
-                        values,
-                        coordinates=coordinates,
-                    )
+                    try:
+                        descriptor["preview"] = resolve_output(
+                            OutputReference.model_validate(descriptor["reference"]),
+                            nodes,
+                            values,
+                            coordinates=coordinates,
+                        )
+                    except (ValueError, KeyError, IndexError):
+                        descriptor.update(
+                            availability="blocked",
+                            reason="The declared output is unavailable; evaluate its provider",
+                        )
                 descriptors.append(descriptor)
     return descriptors
 
@@ -320,8 +481,13 @@ def compatibility_reason(
     if requirement not in REQUIREMENTS:
         raise ValueError(f"unknown input requirement {requirement!r}")
     contract = REQUIREMENTS[requirement]
-    if descriptor["capability"] not in contract["capabilities"]:
+    if not set(descriptor.get("capabilities", [descriptor["capability"]])).intersection(
+        contract["capabilities"]
+    ):
         return "This output does not provide the required capability"
+    uses = contract.get("uses", ["geometry"])
+    if not set(descriptor.get("uses", ["geometry"])).intersection(uses):
+        return "This output does not provide the required input role"
     if contract.get("ownership") and (
         descriptor["ownership"] != contract["ownership"]
         or not descriptor["constrainable"]
@@ -329,6 +495,20 @@ def compatibility_reason(
         return (
             "This input requires an adjustable parameter owner, not read-only geometry"
         )
+    if (
+        contract.get("geometry_kinds")
+        and descriptor.get("geometry_kind") not in contract["geometry_kinds"]
+    ):
+        return "This output has an incompatible geometry kind"
+    if contract.get("standalone") and not descriptor.get("standalone"):
+        return "This input requires a standalone parameter owner"
+    if contract.get("axis_bound") and not descriptor.get("axis"):
+        return "This input requires an axis-bound parameter owner"
+    if (
+        contract.get("constructions")
+        and descriptor.get("construction") not in contract["constructions"]
+    ):
+        return "This input requires a compatible datum construction"
     if source is not None and descriptor["source"] not in (None, source):
         return "This output belongs to a different source"
     if frame is not None and descriptor["frame"] != frame:
@@ -369,15 +549,26 @@ def input_choices(
         descriptor["compatible"] = reason is None
         ref = OutputReference.model_validate(descriptor["reference"])
         retained_output = reference_key(ref) in retained_keys
+        if not retained_output and not set(
+            descriptor.get("uses", ["geometry"])
+        ).intersection(REQUIREMENTS[requirement].get("uses", ["geometry"])):
+            continue
         if (
             reason is not None
             and not retained_output
-            and descriptor["capability"]
-            not in REQUIREMENTS[requirement]["capabilities"]
+            and not set(
+                descriptor.get("capabilities", [descriptor["capability"]])
+            ).intersection(REQUIREMENTS[requirement]["capabilities"])
         ):
             # Outputs of another capability are noise, whereas ownership
             # restrictions explain why otherwise relevant geometry is rejected.
             continue
+        if "binding" in REQUIREMENTS[requirement].get("uses", []) and descriptor.get(
+            "parameter_owner"
+        ):
+            # Binding original observations/parameters does not read a failed
+            # coupled publication. A corrective relationship remains authorable.
+            descriptor.update(availability="ready", reason=None)
         if reason is None and consumer_id in positions:
             if consumer_id in descriptor["dependencies"]:
                 reason = "This output would create a dependency cycle"
@@ -498,12 +689,24 @@ def resolve_output(
     if reference.output == "center":
         return {"point_display": list(raw["parameters"][:3])}
     if reference.output == "surface":
+        if getattr(node, "kind", None) == "sphere":
+            return {
+                "kind": raw.get("kind", "sphere"),
+                "parameters": list(raw["parameters"]),
+            }
         return {
-            "kind": raw.get("kind", "sphere"),
-            "parameters": list(raw["parameters"]),
+            key: deepcopy(raw[key])
+            for key in ("kind", "analytic", "parameters", "axial_domain")
+            if key in raw
         }
     if reference.output == "radius":
-        return {"value": float(raw["parameters"][3]), "semantic": "radius"}
+        if getattr(node, "kind", None) == "cylinder":
+            from experiments.surface_primitives import revolution_geometry
+
+            radius = revolution_geometry(raw)["radius"]
+        else:
+            radius = raw["parameters"][3]
+        return {"value": float(radius), "semantic": "radius"}
     if reference.output == "observations":
         return {"ids": list(raw["ids"])}
     if reference.output == "point":
@@ -561,6 +764,14 @@ def resolve_output(
             "point_display": point_array.tolist(),
         }
     if reference.output == "axis":
+        if node.operation == "fit":
+            from experiments.surface_primitives import revolution_geometry
+
+            geometry = revolution_geometry(raw)
+            return {
+                "axis_display": list(geometry["axis"]),
+                "point_display": list(geometry["origin"]),
+            }
         return {
             "axis_display": list(raw["axis_display"]),
             "point_display": list(raw["point_display"]),

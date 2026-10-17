@@ -615,6 +615,18 @@ test('solver-component output never enlarges declared geometry context membershi
   assert.deepEqual(members('legacy'), ['wall', 'shoulder']);
 });
 
+test('typed plane relationships publish owner members without claiming fixed context reads', () => {
+  const observed = { ...plane, id: 'observed', label: 'Observed plane' };
+  const relation = { id: 'parallel', label: 'Mixed inputs', operation: 'plane_relationship',
+    surfaces: [{ feature: 'shoulder', output: 'plane', context: 'shoulder' },
+      { feature: 'observed', output: 'plane', context: 'earlier' }] };
+  const options = surfaceReferenceChoices([plane, observed, relation], {
+    parallel: { surfaces: { shoulder: {}, observed: {} } },
+  });
+  assert.deepEqual(options.filter(option => option.reference.feature === 'parallel')
+    .map(option => option.reference), [{ feature: 'parallel', surface: 'shoulder' }]);
+});
+
 test('implicit axis geometry is available directly; explicit solves require named member context', () => {
   const boundWall = { ...cylinder, axis: 'axis' };
   const datum = { id: 'datum', label: 'Datum', operation: 'reference_plane', axis: 'axis' };

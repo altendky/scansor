@@ -221,6 +221,10 @@ test('relationship emphasis unions participant observations without growth seeds
       right: { measurement: 'plane_distance', surface: 'second', reference_plane: 'guide-plane' } },
     { operation: 'plane_relationship', relation: 'coincident', surfaces: ['first', 'second', 'first'] },
     { operation: 'plane_relationship', relation: 'parallel', surfaces: ['first', 'second', 'first'] },
+    { operation: 'plane_relationship', relation: 'parallel', surfaces: [
+      { feature: 'first', output: 'plane', context: 'first' },
+      { feature: 'second', output: 'plane', context: 'earlier-publication' },
+    ] },
     { operation: 'equal_radii', surfaces: ['first', 'second', 'first'] },
   ];
   for (const relationship of cases) {

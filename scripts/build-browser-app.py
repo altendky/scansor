@@ -43,6 +43,7 @@ UI_FILES = (
     "feature-graph-view.js",
     "feature-names.js",
     "feature-inputs.js",
+    "relationship-inputs.js",
     "residual-display.js",
     "reuse-volume.js",
     "surface-trims.js",
