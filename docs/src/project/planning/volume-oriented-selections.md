@@ -178,6 +178,43 @@ complete recipe. Initial load, explicit save/export, and worker recovery retain
 the full portable actions. Older worker protocols keep their original polling
 requests.
 
+### Browser authoring and inspection
+
+Selection groups expose scan entries and their owned volumes as nested tree rows.
+These rows are inspection and editing targets, not additional graph features;
+fits, dependency highlighting, reordering and evaluation still address the
+Selection group. Only its current painted entry accepts node gestures. Inactive
+entries retain their source identity, and generated entries remain read-only.
+
+The Selection inspector offers explicit mesh or fitted plane/cylinder/cone
+capture. Surface choices come from the existing output catalogue, checked
+against the actual authoring solve's Selection inputs. Unavailable choices
+explain the missing authoring scan, inputs or compatible surface. Create and
+Replace are separate operations. Replacing a volume from a new scan moves that
+volume to the current entry and updates its incoming links atomically; its
+original painted entry remains intact. Generated authoring observations are
+frozen as provenance before those links change, preventing feedback into the
+new definition. Deleting a linked volume requires explicitly clearing or changing
+its consumers first.
+
+Each control independently offers Auto or Override. Saved Auto and resolved
+values remain inspectable after unloading the source. Accepted support cells
+and inward/outward guides appear in the model. Preview pages contain at most
+2,048 cells and at most 1,000,000 bytes; the inspector requests 1,024 at a time,
+labels partial previews, and allows navigating every saved cell. These guides
+do not claim to display a sealed Boolean boundary or an exact padded footprint.
+The complete generated membership remains the authoritative query result.
+Late replies are fenced by source generation, graph token, owned reference and
+archive digest, and replaced preview buffers are disposed.
+
+The imported-scan **Replace scan…** action preserves committed definitions and
+asks separately about unfinished edits. Missing source-volume choice is still
+explicit, including when a single candidate exists. Native and worker adapters
+share the same volume controls; worker protocol 10 advertises their bounded
+profile. Earlier runtimes retain their previous core behavior and reject these
+new operations explicitly. Simultaneous scans and painting generated membership
+remain deferred.
+
 ### Selection entries and evaluation
 
 Nested Selection records retain the existing feature ID and contain source-bound

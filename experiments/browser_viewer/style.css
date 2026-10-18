@@ -238,6 +238,20 @@ footer #status { margin: 0 0 6px; }
 aside input:not([type="checkbox"]):not([type="range"]) { display: block; width: 100%; padding: 7px; }
 aside select[multiple] { min-height: 80px; }
 .editing-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.selection-entry-row, .selection-volume-row { min-width: 0; }
+.owned-selection-badge { flex: none; color: #a6b6c5; font-size: 10px; }
+.owned-selection-action { flex: none; font-size: 11px; }
+#selection-owned-editor { min-width: 0; border: 0; padding: 0; }
+#selection-owned-editor > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#selection-owned-editor .hint { overflow-wrap: anywhere; }
+#selection-owned-editor select, #selection-owned-editor input { width: 100%; min-width: 0; box-sizing: border-box; }
+#selection-owned-editor fieldset { min-width: 0; margin: 10px 0; border: 1px solid #344351; }
+.owned-control { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; margin: 8px 0; }
+.owned-control .hint { margin: 0; }
+.owned-editor-footer { position: sticky; bottom: -10px; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; margin-top: 8px; background: #1c2a35; border-top: 1px solid #344351; z-index: 1; }
+.owned-editor-footer button { flex: 1 1 120px; white-space: normal; min-width: 0; margin: 0; }
+.owned-preview-pages { display: flex; flex-wrap: wrap; gap: 6px; }
+.owned-preview-pages button { flex: 1 1 100px; margin: 0; }
 details { margin: 12px 0; }
 
 #creation-toolbar { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: stretch; gap: 12px; padding: 7px 20px; border-bottom: 1px solid #344351; }

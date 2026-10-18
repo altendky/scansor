@@ -68,6 +68,7 @@ from experiments.scan_workspace import (
     ScanWorkspace,
     check_cancelled,
 )
+from experiments.selection_volume_operations import dispatch as volume_operation
 from scansor.selection_bundle import SelectionBundle
 
 ASSETS = Path(__file__).with_name("browser_viewer")
@@ -651,6 +652,7 @@ class Handler(BaseHTTPRequestHandler):
         "/fit-intent.js": ("fit-intent.js", "text/javascript"),
         "/model-picking.js": ("model-picking.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
+        "/selection-owned-editor.js": ("selection-owned-editor.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
             "node_modules/three/build/three.module.js",
@@ -811,6 +813,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             metadata["actions_limits"] = actions_limits()
             metadata["selection_entries"] = {"version": 1}
+            metadata["selection_volumes"] = {"version": 1, "max_preview_cells": 2048}
             metadata["source_replacement"] = {
                 "supported": isinstance(state.workspace, ScanWorkspace)
                 and state.workspace.descriptor is not None,
@@ -1052,6 +1055,12 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/ensure",
             "/api/graph/feature-reuse/preview",
             "/api/graph/feature-reuse/apply",
+            "/api/graph/selection-volumes/author",
+            "/api/graph/selection-volumes/options",
+            "/api/graph/selection-volumes/choose",
+            "/api/graph/selection-volumes/choices",
+            "/api/graph/selection-volumes/preview",
+            "/api/graph/selection-volumes/delete",
             "/api/graph/build-faces/preview",
             "/api/graph/build-faces/candidates",
             "/api/graph/build-faces/apply",
@@ -1104,6 +1113,30 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError(f"could not load example: {error}") from error
                 self.reply_generation = self.app.accepted().generation
                 self.json_reply(200, {"active": self.app.active_example})
+                return
+            volume_routes = {
+                "/api/graph/selection-volumes/author": "authorSelectionVolume",
+                "/api/graph/selection-volumes/options": "setSelectionVolumeOptions",
+                "/api/graph/selection-volumes/choose": "chooseSelectionVolume",
+                "/api/graph/selection-volumes/choices": "getSelectionVolumeChoices",
+                "/api/graph/selection-volumes/preview": "getSelectionVolumePreview",
+                "/api/graph/selection-volumes/delete": "deleteSelectionVolume",
+            }
+            if self.path in volume_routes:
+                with self.app.lock:
+                    _ = self.fence_source()
+                    if self.app.graph_job is not None and not self.app.graph_job.done():
+                        self.json_reply(
+                            409,
+                            {
+                                "error": "wait for graph evaluation before editing volumes"
+                            },
+                        )
+                        return
+                    state = volume_operation(
+                        self.app.graph, volume_routes[self.path], json.loads(body)
+                    )
+                self.json_reply(200, state)
                 return
             if self.path in (
                 "/api/graph/feature-reuse/preview",

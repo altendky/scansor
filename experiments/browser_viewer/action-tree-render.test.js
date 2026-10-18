@@ -230,12 +230,17 @@ function fixture(nodes = base, groups = []) {
   renderActionTree.expandedManaged = new Set();
   renderActionTree.expandedTargets = new Set();
   renderActionTree.collapsedGroups = new Set();
+  renderActionTree.collapsedOwned = new Set();
   const state = { nodes, groups, moves: [], announcements: [], contexts: [], inspections: [], groupContexts: [], evaluations: [], evaluable: new Set(), selected: new Set(), qualities: {}, states: {}, errors: {}, locked: false,
+    ownedSelection: null, ownedSelections: [], ownedEdits: [], activeEntryKeys: new Set(), diagnostics: {}, derived: {},
     list: new Element('ul') };
   state.render = () => {
     const updateLocks = renderActionTree(state.list, {
     nodes: state.nodes, groups: state.groups, selected: state.selected, states: state.states, errors: state.errors,
     qualities: state.qualities,
+    ownedSelection: state.ownedSelection, activeEntryKeys: state.activeEntryKeys,
+    diagnostics: state.diagnostics, derived: state.derived,
+    selectOwned: (...ids) => state.ownedSelections.push(ids), editOwned: (...ids) => state.ownedEdits.push(ids),
     createTree: createHeadlessFeatureTree,
     locked: () => state.locked, select: (id) => state.inspections.push(id),
     evaluate: id => state.evaluations.push(id), canEvaluate: node => state.evaluable.has(node.id),
@@ -591,6 +596,128 @@ test('tree rows expose hierarchy, navigate visible items without selecting, and 
   batch.onkeydown(event(batch, { key: 'Enter' }));
   assert.deepEqual(state.inspections, ['batch']);
   assert.equal(state.list.querySelectorAll('.tree-item').filter(item => item.tabIndex === 0).length, 1);
+});
+
+const nestedSelection = () => ({ id: 'selection', label: 'Rim', operation: 'selection', source: 'source', entries: [
+  { id: 'original', scan: { source_sha256: 'a'.repeat(64), descriptor: { filename: 'Original scan.ply' } },
+    mode: 'painted', ids: [2, 4, 8], volumes: [{ id: 'mesh', label: 'Rim volume', kind: 'mesh' }] },
+  { id: 'replacement', scan: { source_sha256: 'b'.repeat(64), descriptor: null },
+    mode: 'generated', source_volume: null, volumes: [] },
+] });
+
+test('nested Selection records render typed ownership without adding graph features or feature controls', () => {
+  const selection = nestedSelection(), original = structuredClone(selection),
+    state = fixture([source, selection, { ...plane, selections: ['selection'] }]);
+  state.evaluable = new Set(['selection']);
+  state.activeEntryKeys.add('selection-entry/selection/replacement');
+  state.render();
+  const entry = state.item('selection-entry/selection/original'),
+    volume = state.item('selection-volume/selection/original/mesh'),
+    pending = state.item('selection-entry/selection/replacement');
+  assert.ok(entry && volume && pending);
+  assert.equal(entry.getAttribute('aria-level'), '2');
+  assert.equal(volume.getAttribute('aria-level'), '3');
+  assert.match(entry.getAttribute('aria-label'), /Original scan.ply.*Painted selection.*Saved scan.*3 nodes/);
+  assert.match(volume.getAttribute('aria-label'), /Rim volume.*mesh volume/);
+  assert.match(pending.getAttribute('aria-label'), /Scan bbbbbbbb.*Current scan.*Choose source volume/);
+  assert.equal(pending.querySelectorAll('.state-needs_input').length, 1);
+  for (const child of [entry, volume, pending]) {
+    const row = child.children[0].tagName === 'details' ? child.children[0].children[0] : child.children[0];
+    assert.equal(row.dataset.actionId, undefined);
+    assert.equal(row.dataset.reorderKey, undefined);
+    assert.equal(row.classList.contains('action-drop-target'), false);
+    assert.equal(dragContent(row).draggable, false);
+    assert.equal(row.onpointerdown, undefined);
+    assert.equal(row.reorderKeydown, undefined);
+    assert.equal(row.oncontextmenu, undefined);
+    assert.equal(child.querySelectorAll('.feature-evaluate').length, 0);
+  }
+  assert.equal(state.row('selection').dataset.actionId, 'selection');
+  assert.equal(state.row('selection').classList.contains('action-drop-target'), true);
+  assert.equal(state.row('selection').querySelectorAll('.feature-evaluate').length, 1);
+  assert.deepEqual(state.ids(), ['source', 'selection', 'shoulder']);
+  assert.deepEqual(selection, original);
+});
+
+test('owned record activation, edit and quick action never invoke feature callbacks and respect edit locks', () => {
+  const state = fixture([source, nestedSelection()]),
+    volumeItem = state.item('selection-volume/selection/original/mesh'),
+    volume = volumeItem.children[0],
+    pending = state.item('selection-entry/selection/replacement').children[0],
+    choose = pending.querySelectorAll('.owned-selection-action')[0];
+  volume.onclick(event(volume));
+  volume.onclick(event(volume, { detail: 2, type: 'click' }));
+  choose.onclick(event(choose));
+  assert.deepEqual(state.ownedSelections, [['selection', 'original', 'mesh']]);
+  assert.deepEqual(state.ownedEdits, [['selection', 'original', 'mesh'], ['selection', 'replacement', null]]);
+  volumeItem.onkeydown(event(volumeItem, { key: 'F2' }));
+  assert.deepEqual(state.ownedEdits.at(-1), ['selection', 'original', 'mesh']);
+  state.locked = true;
+  volume.onclick(event(volume));
+  volume.onclick(event(volume, { detail: 2, type: 'click' }));
+  choose.onclick(event(choose));
+  volumeItem.onkeydown(event(volumeItem, { key: 'F2' }));
+  assert.equal(state.ownedSelections.length, 1);
+  assert.equal(state.ownedEdits.length, 3);
+  assert.deepEqual(state.inspections, []);
+  assert.deepEqual(state.evaluations, []);
+  assert.deepEqual(state.contexts, []);
+  assert.deepEqual(state.moves, []);
+});
+
+test('owned hierarchy supports keyboard activation, persistent expansion, selection and focus across rerenders', () => {
+  const state = fixture([source, nestedSelection()]),
+    parent = state.item('feature/selection'), entryKey = 'selection-entry/selection/original',
+    volumeKey = 'selection-volume/selection/original/mesh';
+  parent.onkeydown(event(parent, { key: 'ArrowRight' }));
+  assert.equal(document.activeElement, state.item(entryKey));
+  state.item(entryKey).onkeydown(event(state.item(entryKey), { key: 'ArrowRight' }));
+  assert.equal(document.activeElement, state.item(volumeKey));
+  state.item(volumeKey).onkeydown(event(state.item(volumeKey), { key: 'Enter' }));
+  assert.deepEqual(state.ownedSelections, [['selection', 'original', 'mesh']]);
+  state.ownedSelection = volumeKey;
+  state.render();
+  assert.equal(document.activeElement, state.item(volumeKey));
+  assert.equal(state.item(volumeKey).getAttribute('aria-selected'), 'true');
+  assert.equal(state.item(entryKey).getAttribute('aria-selected'), 'false');
+  state.item(volumeKey).onkeydown(event(state.item(volumeKey), { key: 'ArrowLeft' }));
+  assert.equal(document.activeElement, state.item(entryKey));
+  state.item(entryKey).onkeydown(event(state.item(entryKey), { key: 'ArrowLeft' }));
+  state.render();
+  assert.equal(state.item(entryKey).getAttribute('aria-expanded'), 'false');
+  assert.equal(document.activeElement, state.item(entryKey));
+  state.item(entryKey).onkeydown(event(state.item(entryKey), { key: 'ArrowDown' }));
+  assert.equal(document.activeElement, state.item('selection-entry/selection/replacement'));
+  state.item('selection-entry/selection/replacement').onkeydown(event(document.activeElement, { key: ' ', code: 'Space' }));
+  assert.deepEqual(state.ownedSelections.at(-1), ['selection', 'replacement', null]);
+  assert.deepEqual(state.inspections, []);
+});
+
+test('active generated counts and setup diagnostics are scoped to the current scan entry', () => {
+  const selection = nestedSelection();
+  selection.entries[1].source_volume = { selection: 'selection', entry: 'original', volume: 'mesh' };
+  const state = fixture([source, selection]);
+  state.activeEntryKeys.add('selection-entry/selection/replacement');
+  state.derived.selection = { ids: [1, 3, 5, 7] };
+  state.diagnostics.selection = { entry: 'replacement', message: 'Load the authoring scan to refresh this volume' };
+  state.render();
+  assert.match(state.item('selection-entry/selection/replacement').getAttribute('aria-label'), /4 nodes.*Load the authoring scan/);
+  assert.doesNotMatch(state.item('selection-entry/selection/original').getAttribute('aria-label'), /Load the authoring scan|4 nodes/);
+  assert.equal(state.list.querySelectorAll('.owned-selection-action').length, 0);
+  state.activeEntryKeys.clear();
+  state.activeEntryKeys.add('selection-entry/selection/original');
+  state.render();
+  assert.doesNotMatch(state.item('selection-entry/selection/replacement').getAttribute('aria-label'), /4 nodes|Load the authoring scan/);
+});
+
+test('legacy flat selections retain leaf feature behavior without synthetic ownership', () => {
+  const state = fixture([source, { id: 'selection', label: 'Old selection', operation: 'selection', source: 'source', ids: [1] }]);
+  assert.equal(state.list.querySelectorAll('.tree-item').length, 2);
+  assert.equal(state.item('feature/selection').getAttribute('aria-expanded'), null);
+  assert.equal(state.list.querySelectorAll('.selection-entry').length, 0);
+  state.row('selection').onclick(event(state.row('selection')));
+  assert.deepEqual(state.inspections, ['selection']);
+  assert.deepEqual(state.ownedSelections, []);
 });
 
 test('Alt arrow reorders whole rows while plain arrows only move focus', async () => {

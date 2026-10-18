@@ -37,12 +37,15 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
     ['getSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['cancelSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['inspectActions', backend.capabilities.sourceActions], ['openActions', backend.capabilities.sourceActions],
+    ...['authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume',
+      'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume']
+      .map(method => [method, backend.capabilities.selectionVolumes]),
   ]) {
     if (supported && typeof backend[method] !== 'function')
       throw new BackendError(`Backend "${type}" does not implement ${method}.`,
         { code: 'unsupported_operation' });
     selected[method] = supported ? backend[method].bind(backend)
-      : async () => { throw new BackendError('This backend does not support this source operation.',
+      : async () => { throw new BackendError('This backend does not support this operation.',
         { code: 'unsupported_capability' }); };
   }
   for (const [capability, methods] of Object.entries({

@@ -23,6 +23,7 @@ import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
 import { getBackend } from './backend.js';
 import { createSourceProjectController } from './source-project.js';
+import { createSelectionOwnedEditor, ownedKey } from './selection-owned-editor.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
 import { activeDisplayTransform } from './display-transform.js';
 import { exportInputIssues, exportScopePlan } from './cad-export.js';
@@ -70,6 +71,7 @@ import {
   resolvedSelectionIds,
   editPaintedMembership,
   initialPaintedEntry,
+  activeSelectionEntry,
 } from './selection.js';
 
 const $ = (id) => document.getElementById(id);
@@ -94,6 +96,7 @@ let pending = false,
   frames = 0;
 let graphState, selectedFeatureId, editingGroupId = null;
 let editingFeatureId = null;
+let ownedSelectionContext = null, ownedSelectionEditor, ownedVolumePreview;
 let groupContextAnchor = null;
 let renameFeatureId = null;
 let featurePropertiesApplying = false;
@@ -1570,14 +1573,45 @@ function showReuseVolumes() {
     reuseVolumes.userData.volumeCount++;
   }
 }
+function paintOwnedVolumePreview(preview) {
+  if (!ownedVolumePreview) return;
+  for (const child of [...ownedVolumePreview.children]) {
+    ownedVolumePreview.remove(child); child.geometry.dispose(); child.material.dispose();
+  }
+  if (preview) {
+    const support = new Float32Array(preview.positions), normals = preview.normals;
+    for (const [distance, color, opacity] of [[0, '#78d7ef', 0.3],
+      [-(preview.resolved?.inward_thickness || 0), '#f2b544', 0.13],
+      [preview.resolved?.outward_thickness || 0, '#bd91f4', 0.13]]) {
+      const values = Float32Array.from(support, (value, index) => value + distance * normals[index]);
+      if (!values.every(Number.isFinite)) {
+        status('Volume guide exceeds the display coordinate range; inspect its saved controls.', true);
+        continue;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity,
+        side: THREE.DoubleSide, depthWrite: false, depthTest: false });
+      const object = new THREE.Mesh(geometry, material); object.renderOrder = 8;
+      ownedVolumePreview.add(object);
+    }
+  }
+  draw();
+}
 function graphNode(id) {
   return graphState?.recipe.nodes.find((n) => n.id === referenceFeature(readInputReference(id)));
 }
-function selectOnly(id) {
+function clearOwnedSelection() {
+  ownedSelectionContext = null;
+  ownedSelectionEditor?.clear();
+}
+function selectOnly(id, { keepOwned = !!editingFeatureId } = {}) {
+  if (!keepOwned) clearOwnedSelection();
   selectedFeatureIds = new Set(id ? [id] : []);
   selectedFeatureId = id || null;
 }
 function toggleFeatureSelection(id) {
+  if (!editingFeatureId) clearOwnedSelection();
   if (selectedFeatureIds.has(id)) selectedFeatureIds.delete(id);
   else selectedFeatureIds.add(id);
   selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
@@ -1816,6 +1850,8 @@ function selectionSource(node) {
 }
 function activeSelection() {
   const node = inspectedSelection();
+  if (ownedSelectionContext?.volume || ownedSelectionContext?.entry &&
+    activeSelectionEntry(node, selectionSource(node), metadata)?.id !== ownedSelectionContext.entry) return null;
   return selectionEditState(node, selectionSource(node), metadata).editable ? node : null;
 }
 function choices(id, nodes, selected = []) {
@@ -2431,6 +2467,19 @@ function editFeature(id, { inspect = false } = {}) {
   editWorkflowApplied();
   return true;
 }
+function editOwnedSelection(selection, entry, volume = null) {
+  if (featureTreeLocked() || !prepareEditSession()) return false;
+  setModelPickMode(null);
+  selectOnly(selection);
+  ownedSelectionContext = { selection, entry, ...(volume ? { volume } : {}) };
+  editingFeatureId = selection;
+  $('feature-properties-panel').dataset.editOwner = selection;
+  showProperties(true);
+  showEditWorkflow('feature-properties-panel');
+  refreshFeatureSelection();
+  editWorkflowApplied();
+  return true;
+}
 function openFeatureRename(id) {
   const node = graphNode(id);
   if (!node || featureTreeLocked() || managedOwnerId(node, graphState.recipe.nodes)) return;
@@ -2561,6 +2610,15 @@ function renderActions() {
     nodes: graphState.recipe.nodes,
     groups: graphState.recipe.groups || [],
     selected: selectedFeatureIds,
+    ownedSelection: ownedKey(ownedSelectionContext),
+    activeEntryKeys: new Set(graphState.recipe.nodes.filter(node => node.operation === 'selection').flatMap(node => {
+      const entry = activeSelectionEntry(node, selectionSource(node), metadata);
+      return entry ? [`selection-entry/${node.id}/${entry.id}`] : [];
+    })),
+    diagnostics: graphState.diagnostics || {},
+    derived: graphState.derived || {},
+    selectOwned: editOwnedSelection,
+    editOwned: editOwnedSelection,
     clearSelection: clearFeatureSelection,
     states: graphState.states,
     errors: graphState.errors,
@@ -2626,6 +2684,10 @@ function showSourceProperties(node) {
 }
 function showProperties(force = false) {
   supportAuthorityControl();
+  const ownedNode = graphNode(editingFeatureId || selectedFeatureId);
+  const showOwned = ownedNode?.operation === 'selection' && metadata?.selection_volumes?.version === 1 &&
+    backend.capabilities.selectionVolumes;
+  ownedSelectionEditor?.show(showOwned ? ownedSelectionContext || { selection: ownedNode.id } : null);
   // The tree selection is free to change while an edit session owns the form.
   // Polling updates availability without recreating controls or losing drafts.
   if (editingFeatureId && !force) {
@@ -2673,7 +2735,8 @@ function showProperties(force = false) {
   const node = graphNode(editingFeatureId || selectedFeatureId),
     earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node));
   showSourceProperties(node);
-  $('selection-tools').hidden = node.operation !== 'selection';
+  $('selection-tools').hidden = node.operation !== 'selection' || !!ownedSelectionContext?.volume ||
+    !!ownedSelectionContext?.entry && !activeSelection();
   $('feature-inspection').hidden = [
     'selection',
     ...relationshipOperations,
@@ -3119,8 +3182,8 @@ function showProperties(force = false) {
   $('fit-support-authority-row').hidden = !supportEditable;
   $('fit-support-authority').value = node.support_authority || '';
   $('managed-feature-note').hidden = !managed;
-  $('action-properties').hidden = ['source', 'selection'].includes(node.operation);
-  $('apply-properties').hidden = (managed && !supportEditable) || ['build_faces', 'arranged_face', 'reuse_selection',
+  $('action-properties').hidden = node.operation === 'source' || node.operation === 'selection' && !showOwned;
+  $('apply-properties').hidden = node.operation === 'selection' || (managed && !supportEditable) || ['build_faces', 'arranged_face', 'reuse_selection',
     'equal_radii', 'plane_relationship'].includes(node.operation);
   if (managed) {
     $('managed-owner-name').textContent = owner?.label || ownerId;
@@ -4147,6 +4210,7 @@ function prepareWorkspace(bundle) {
     // Every allocation and source validation finished before the controller
     // deliberately ends the approved draft and invokes this synchronous swap.
     resetSourcePicking();
+    clearOwnedSelection();
     setModelPickMode(null);
     const oldGeometry = new Set([mesh.geometry, selectedPoints.geometry, focusedPoints.geometry,
       overlapMarkers.geometry, overlapHalo.geometry]);
@@ -4432,6 +4496,8 @@ async function start(recoveredState) {
   reuseVolumes = new THREE.Group();
   reuseVolumes.userData.volumeCount = 0;
   modelRoot.add(reuseVolumes);
+  ownedVolumePreview = new THREE.Group();
+  modelRoot.add(ownedVolumePreview);
   buildFacesOverlays = new THREE.Group();
   modelRoot.add(buildFacesOverlays);
   relationshipOverlays = new THREE.Group();
@@ -4467,6 +4533,7 @@ async function start(recoveredState) {
     }
   }, true);
   document.addEventListener('edit-session-closed', () => {
+    clearOwnedSelection();
     editingFeatureId = null;
     delete $('feature-properties-panel').dataset.editOwner;
     if (modelPickField) modelPickField.suspended = false;
@@ -6274,6 +6341,7 @@ async function start(recoveredState) {
   };
   $('action-properties').onsubmit = async event => {
     event.preventDefault();
+    if (ownedSelectionContext || graphNode(editingFeatureId)?.operation === 'selection') return;
     if (featureTreeLocked()) return;
     featurePropertiesApplying = true;
     updateEvaluationControls();
@@ -6820,6 +6888,21 @@ async function start(recoveredState) {
       }
     };
   }
+  ownedSelectionEditor = createSelectionOwnedEditor({ root: $('selection-owned-editor'), backend,
+    getCurrent: () => ({ graph: graphState, metadata, generation: workspaceGeneration }),
+    onGraph: graph => { acceptGraph(graph); if ($('auto-evaluate').checked) queueEnsureAll(); },
+    onOpen: context => editOwnedSelection(context.selection, context.entry, context.volume),
+    onStatus: status, onApplied: editWorkflowApplied,
+    isLocked: featureTreeLocked,
+    onBusy: value => { authoringApplying = value; updateEvaluationControls(); },
+    onPreview: paintOwnedVolumePreview,
+    onFocus: preview => {
+      const box = new THREE.Box3(new THREE.Vector3(...preview.bounds.min), new THREE.Vector3(...preview.bounds.max));
+      modelRoot.updateMatrixWorld(true);
+      box.applyMatrix4(modelRoot.matrixWorld);
+      focusGeometryBox(box, $('feature-properties-panel'));
+    },
+  });
   viewerSetup = true;
   acceptGraph(state);
   sourceProject = createSourceProjectController({

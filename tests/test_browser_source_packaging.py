@@ -57,6 +57,29 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
 
 
 @pytest.mark.parametrize(
+    "fault", ["old", "missing", "bool", "float", "unknown", "limit"]
+)
+def test_selection_volume_profile_requires_exact_bounded_contract(fault: str) -> None:
+    protocol = RUNTIME["worker_protocol"]()
+    assert protocol["version"] == 10
+    assert protocol["selection_volumes"] == {"version": 1, "max_preview_cells": 2048}
+    if fault == "old":
+        protocol["version"] = 9
+    elif fault == "missing":
+        del protocol["selection_volumes"]
+    elif fault == "bool":
+        protocol["selection_volumes"]["version"] = True
+    elif fault == "float":
+        protocol["selection_volumes"]["max_preview_cells"] = 2048.0
+    elif fault == "unknown":
+        protocol["selection_volumes"]["unexpected"] = True
+    else:
+        protocol["selection_volumes"]["max_preview_cells"] = 2049
+    with pytest.raises(ValueError):
+        RUNTIME["validate_worker_protocol"](protocol)
+
+
+@pytest.mark.parametrize(
     "fault",
     [
         "old",

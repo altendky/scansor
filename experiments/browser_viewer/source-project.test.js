@@ -4,7 +4,7 @@ import { createSourceProjectController } from './source-project.js';
 
 // Small DOM port for controller lifecycle tests; actual markup, File input,
 // rendering, focus, and native requests are covered by source-project.spec.js.
-function fixture({ sourceImport = false, sourceActions = false, empty = false } = {}) {
+function fixture({ sourceImport = false, sourceActions = false, sourceReplacement = false, empty = false } = {}) {
   const previous = { document: globalThis.document, window: globalThis.window };
   const elements = new Map();
   const element = id => {
@@ -18,13 +18,13 @@ function fixture({ sourceImport = false, sourceActions = false, empty = false } 
   globalThis.window = { confirm: () => true };
   element('main');
   const source = { id: 'scan', operation: 'source', source_sha256: 'source', reference_sha256: 'reference' };
-  let state = { generation: sourceImport || sourceActions ? 1 : undefined, token: 'before',
-    recipe: { nodes: empty ? [] : [source] }, metadata: {} };
+  let state = { generation: sourceImport || sourceActions || sourceReplacement ? 1 : undefined, token: 'before',
+    recipe: { nodes: empty ? [] : [source] }, metadata: sourceReplacement ? { source_replacement: { supported: true } } : {} };
   const calls = [], busy = [], installed = [], messages = [], warnings = [];
-  let proofCurrent = true;
+  let proofCurrent = true, proofAllowed = true, proofRequests = 0;
   const graph = { token: 'after', recipe: { nodes: [source] } };
   const bundle = { metadata: {}, positions: new ArrayBuffer(0), indices: new ArrayBuffer(0) };
-  const backend = { capabilities: { sourceImport, sourceActions },
+  const backend = { capabilities: { sourceImport, sourceActions, sourceReplacement },
     async getExampleRecipe() { calls.push('recipe'); return graph.recipe; },
     async replaceRecipe(payload) { calls.push(['replace', payload]); return graph; },
     async selectExample(payload) { calls.push(['example', payload]); },
@@ -35,11 +35,12 @@ function fixture({ sourceImport = false, sourceActions = false, empty = false } 
     },
     async getGraph() { calls.push('graph'); return graph; },
     async addScan() { throw Error('Unsupported import must not be invoked'); },
+    async replaceScan() { throw Error('Unsupported replacement must not be invoked'); },
     async resetProject() { throw Error('Unsupported reset must not be invoked'); },
   };
   const controller = createSourceProjectController({ backend, getCurrent: () => state,
     canTransition: () => !busy.at(-1), setTransitionBusy: value => busy.push(value),
-    prepareTransition: () => ({ isCurrent: () => proofCurrent, finish: () => calls.push('finish') }),
+    prepareTransition: () => { proofRequests++; return proofAllowed ? { isCurrent: () => proofCurrent, finish: () => calls.push('finish') } : null; },
     prepareWorkspace(value) {
       const install = () => {
         calls.push('install'); installed.push(value);
@@ -55,6 +56,7 @@ function fixture({ sourceImport = false, sourceActions = false, empty = false } 
   return { controller, backend, calls, busy, installed, elements, messages, warnings, source, getCurrent: () => state,
     advance: () => { state = { ...state, token: 'changed' }; },
     stale: () => { proofCurrent = false; },
+    denyProof: () => { proofAllowed = false; }, proofRequests: () => proofRequests,
     restore() { globalThis.document = previous.document; globalThis.window = previous.window; } };
 }
 
@@ -436,5 +438,201 @@ test('source Retry stays blocked during runtime recovery and becomes reachable a
     await f.elements.get('retry-source-workspace').onclick();
     assert.equal(f.installed.length, 1);
     assert.equal(f.elements.get('main').inert, false);
+  } finally { f.restore(); }
+});
+
+test('replacement requires both the backend capability and active-source metadata', async () => {
+  for (const options of [{}, { sourceImport: true }, { sourceReplacement: true, empty: true }]) {
+    const f = fixture(options);
+    try {
+      f.controller.refresh();
+      assert.equal(f.elements.get('replace-scan').disabled, true);
+      assert.equal(f.controller.beginReplacementChooser(), false);
+      assert.equal(await f.controller.replaceScan({ name: 'new.ply' }), false);
+      assert.equal(f.proofRequests(), 0);
+      assert.equal(f.calls.length, 0);
+    } finally { f.restore(); }
+  }
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    f.getCurrent().metadata.source_replacement.supported = false;
+    f.controller.refresh();
+    assert.equal(f.elements.get('replace-scan').disabled, true);
+    assert.equal(f.controller.beginReplacementChooser(), false);
+  } finally { f.restore(); }
+});
+
+test('replacement chooser cancellation retains the draft and committed actions', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    window.confirm = () => assert.fail('Preserving replacement must not discard all committed actions');
+    const before = structuredClone(f.getCurrent());
+    f.controller.refresh();
+    assert.equal(f.elements.get('replace-scan').disabled, false);
+    assert.equal(f.controller.beginReplacementChooser(), true);
+    assert.equal(f.elements.get('replacement-file').clicked, true);
+    assert.equal(f.proofRequests(), 1);
+    f.elements.get('replacement-file').listeners.cancel();
+    assert.equal(await f.controller.chooseReplacementFile({ name: 'late.ply' }), false);
+    assert.deepEqual(f.getCurrent(), before);
+    assert.deepEqual(f.busy, []);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(f.installed.length, 0);
+  } finally { f.restore(); }
+});
+
+test('declining unfinished-edit transition proof never opens a replacement picker', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    f.denyProof();
+    assert.equal(f.controller.beginReplacementChooser(), false);
+    assert.equal(f.elements.get('replacement-file').clicked, undefined);
+    assert.equal(await f.controller.chooseReplacementFile({ name: 'late.ply' }), false);
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.busy, []);
+  } finally { f.restore(); }
+});
+
+test('replacement selection keeps its original cursor and draft proof across the native picker', async () => {
+  for (const change of ['cursor', 'draft', 'another chooser', 'no file']) {
+    const f = fixture({ sourceImport: true, sourceReplacement: true });
+    try {
+      assert.equal(f.controller.beginReplacementChooser(), true);
+      if (change === 'cursor') f.advance();
+      if (change === 'draft') f.stale();
+      if (change === 'another chooser') f.elements.get('load').onclick();
+      const proofRequests = f.proofRequests();
+      assert.equal(await f.controller.chooseReplacementFile(change === 'no file' ? undefined : { name: 'new.ply' }), false);
+      assert.equal(f.proofRequests(), proofRequests, 'Late picker completion cannot acquire fresh draft authority');
+      assert.equal(f.calls.includes('finish'), false);
+      assert.equal(f.installed.length, 0);
+      assert.deepEqual(f.busy, []);
+    } finally { f.restore(); }
+  }
+});
+
+test('successful replacement finishes the captured edit proof only after complete display preparation', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    window.confirm = () => assert.fail('Replacement must preserve authored definitions');
+    const file = { name: 'aligned.ply' }, before = structuredClone(f.getCurrent());
+    const bundle = { ...await f.backend.loadWorkspace(), generation: 2, graph: { token: 'new-scan', recipe: before.recipe } };
+    f.backend.replaceScan = async (payload, { onProgress }) => {
+      f.calls.push(['replacement', payload]);
+      assert.equal(f.elements.get('main').inert, true);
+      assert.equal(f.elements.get('source-progress').hidden, false);
+      assert.equal(f.calls.includes('finish'), false);
+      onProgress({ operationId: 'replace', status: 'preparing', phase: 'faces', completed: 1, total: 2 });
+      assert.match(f.elements.get('source-progress-detail').textContent, /faces.*1.*2/);
+      return bundle;
+    };
+    assert.equal(await f.controller.replaceScan(file), true);
+    assert.deepEqual(f.calls.find(value => value?.[0] === 'replacement'), ['replacement', { file, generation: 1, token: 'before' }]);
+    assert.equal(f.proofRequests(), 1);
+    assert.ok(f.calls.indexOf('finish') < f.calls.indexOf('install'));
+    assert.equal(f.getCurrent().generation, 2);
+    assert.deepEqual(f.getCurrent().recipe, before.recipe);
+    assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+    assert.match(f.messages.at(-1)[0], /Scan replaced.*source volume/);
+  } finally { f.restore(); }
+});
+
+test('replacement Cancel uses the reserved cursor and keeps the prior editor until safe completion', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true }), pending = deferred();
+  try {
+    const before = structuredClone(f.getCurrent());
+    f.backend.replaceScan = async (_, { onProgress }) => {
+      onProgress({ operationId: 'replacement', status: 'preparing', phase: 'vertices' });
+      await pending.promise;
+      throw Object.assign(Error('Stopped'), { code: 'cancelled' });
+    };
+    f.backend.cancelSourceOperation = async payload => {
+      assert.deepEqual(payload, { operationId: 'replacement', generation: 1, token: 'before' });
+      return { operationId: 'replacement', status: 'cancelling' };
+    };
+    const operation = f.controller.replaceScan({ name: 'aligned.ply' });
+    await f.controller.cancel();
+    assert.equal(f.elements.get('cancel-source-import').disabled, true);
+    assert.equal(f.elements.get('main').inert, true);
+    pending.resolve();
+    assert.equal(await operation, false);
+    assert.deepEqual(f.getCurrent(), before);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(f.installed.length, 0);
+    assert.equal(f.busy.at(-1), false);
+  } finally { f.restore(); }
+});
+
+test('known replacement rejection restores controls while uncertain acceptance requires explicit workspace reload', async () => {
+  for (const code of ['invalid_source', 'transport_error', 'accepted_workspace_unavailable']) {
+    const f = fixture({ sourceImport: true, sourceReplacement: true });
+    try {
+      const before = structuredClone(f.getCurrent());
+      f.backend.replaceScan = async () => { throw Object.assign(Error('Replacement reply'), { code }); };
+      assert.equal(await f.controller.replaceScan({ name: 'aligned.ply' }), false);
+      assert.deepEqual(f.getCurrent(), before);
+      assert.equal(f.calls.includes('finish'), false);
+      assert.equal(f.installed.length, 0);
+      if (code === 'invalid_source') {
+        assert.equal(f.busy.at(-1), false);
+        assert.equal(f.elements.get('main').inert, false);
+      } else {
+        assert.equal(f.busy.at(-1), true);
+        assert.equal(f.elements.get('source-unavailable').hidden, false);
+        f.backend.loadWorkspace = async () => ({ generation: 2, metadata: {}, graph: { token: 'replacement', recipe: before.recipe } });
+        await f.elements.get('retry-source-workspace').onclick();
+        assert.equal(f.getCurrent().generation, 2);
+        assert.deepEqual(f.getCurrent().recipe, before.recipe);
+        assert.equal(f.calls.filter(value => value === 'finish').length, 1);
+        assert.equal(f.busy.at(-1), false);
+      }
+    } finally { f.restore(); }
+  }
+});
+
+test('replacement accepted after a draft edit remains fenced without closing the changed editor', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    f.backend.replaceScan = async () => { f.stale(); return f.backend.loadWorkspace(); };
+    assert.equal(await f.controller.replaceScan({ name: 'aligned.ply' }), false);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(f.calls.includes('dispose'), true);
+    assert.equal(f.installed.length, 0);
+    assert.equal(f.elements.get('main').inert, true);
+  } finally { f.restore(); }
+});
+
+test('Force on either side of replacement adoption keeps the right source fence and prior draft', async () => {
+  for (const adopted of [false, true]) {
+    const f = fixture({ sourceImport: true, sourceReplacement: true }), pending = deferred();
+    try {
+      f.backend.replaceScan = async () => {
+        await pending.promise;
+        throw Object.assign(Error('Worker stopped'), { code: adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled' });
+      };
+      const operation = f.controller.replaceScan({ name: 'aligned.ply' });
+      f.controller.lockRuntime();
+      const recovery = f.controller.prepareRuntimeRestore({ project_generation: adopted ? 2 : 1 }, () => { f.elements.get('main').inert = false; });
+      pending.resolve();
+      assert.equal(await operation, false);
+      assert.equal(await recovery, !adopted);
+      assert.equal(f.calls.includes('finish'), false);
+      assert.equal(f.installed.length, 0);
+      assert.equal(f.elements.get('main').inert, adopted);
+      assert.equal(f.busy.at(-1), adopted);
+    } finally { f.restore(); }
+  }
+});
+
+test('Force invalidates a replacement file picker even when the recovered cursor is unchanged', async () => {
+  const f = fixture({ sourceImport: true, sourceReplacement: true });
+  try {
+    assert.equal(f.controller.beginReplacementChooser(), true);
+    f.controller.lockRuntime();
+    assert.equal(await f.controller.prepareRuntimeRestore({ project_generation: 1 }, () => {}), true);
+    assert.equal(await f.controller.chooseReplacementFile({ name: 'late.ply' }), false);
+    assert.equal(f.calls.includes('finish'), false);
+    assert.equal(f.installed.length, 0);
   } finally { f.restore(); }
 });

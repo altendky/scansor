@@ -34,7 +34,8 @@ const COMMANDS = {
     ['export-cad', 'Export CAD…', 'body']],
 };
 const PROJECT_SOURCE_COMMANDS = [['new-project', 'New project', 'source'],
-  ['add-scan', 'Add scan…', 'upload'], ['inspect-source', 'Inspect source', 'source'],
+  ['add-scan', 'Add scan…', 'upload'], ['replace-scan', 'Replace scan…', 'upload'],
+  ['inspect-source', 'Inspect source', 'source'],
   ['remove-scan', 'Remove scan…', 'source']];
 const originalCommand = id => document.getElementById(id);
 const ToolbarHostContext = createContext(null);

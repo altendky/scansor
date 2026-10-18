@@ -12,7 +12,7 @@ const prepareFixtures = () => JSON.parse(execFileSync(python, ['-c', [
   'import base64,json',
   'from tests.native_scan_fixture import native_scene_fixture,native_grid_fixture',
   'def record(f): return dict(raw=base64.b64encode(f.raw).decode(), positions=f.positions.tolist(), triangles=f.triangles.tolist())',
-  'print(json.dumps(dict(scene=record(native_scene_fixture()),grid=record(native_grid_fixture(4,3)))))',
+  'print(json.dumps(dict(scene=record(native_scene_fixture()),grid=record(native_grid_fixture(4,3)),dense=record(native_grid_fixture(6,5)))))',
 ].join('\n')], { cwd: repository, encoding: 'utf8', env: { ...process.env, OPENBLAS_NUM_THREADS: '1' } }));
 let fixture;
 
@@ -163,6 +163,170 @@ test.beforeEach(async ({ page, sourceOrigin }) => {
   await expect(page.locator('#viewport canvas')).toBeVisible();
   await expect(page.locator('[data-add-scan]')).toBeEnabled();
   await expect(page.locator('#startup-error')).toBeHidden();
+});
+
+test('Replace scan toolbar chooser preserves cancelled drafts and retains definitions with pending new entries', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await imported(page, memoryFile('original-grid.ply', fixture.grid));
+  const authored = await rectanglePlane(page, fixture.grid.positions.length, 'Retained plane');
+  await draft(page);
+  const before = await metadata(page);
+  const confirmations = [];
+  const accept = dialog => { confirmations.push(dialog.message()); void dialog.accept(); };
+  page.on('dialog', accept);
+  try {
+    const cancelledChooser = page.waitForEvent('filechooser');
+    await command(page, 'Replace scan…');
+    const cancelled = await cancelledChooser;
+    expect(await cancelled.element().getAttribute('id')).toBe('replacement-file');
+    await cancelled.setFiles([]);
+    await page.locator('#replacement-file').dispatchEvent('cancel');
+    await expectDraft(page);
+    expect((await metadata(page)).graph.recipe).toEqual(before.graph.recipe);
+    expect((await metadata(page)).project_generation).toBe(before.project_generation);
+    await expect(page.locator('#source-progress')).toBeHidden();
+
+    const selectedChooser = page.waitForEvent('filechooser');
+    await command(page, 'Replace scan…');
+    await (await selectedChooser).setFiles(memoryFile('aligned-replacement.ply', fixture.scene));
+    await expect.poll(async () => (await metadata(page)).source?.filename).toBe('aligned-replacement.ply');
+    await expect(page.locator('#source-progress')).toBeHidden();
+    await expect(page.locator('#viewport canvas')).toBeVisible();
+    const after = await metadata(page);
+    expect(after.project_generation).toBe(before.project_generation + 1);
+    expect(after.vertices).toBe(fixture.scene.positions.length);
+    expect(after.graph.recipe.nodes.map(node => node.id)).toEqual(before.graph.recipe.nodes.map(node => node.id));
+    expect(after.graph.recipe.nodes.filter(node => !['source', 'selection'].includes(node.operation)))
+      .toEqual(before.graph.recipe.nodes.filter(node => !['source', 'selection'].includes(node.operation)));
+    const originalSelection = before.graph.recipe.nodes.find(node => node.id === authored.selection.id);
+    const retainedSelection = after.graph.recipe.nodes.find(node => node.id === authored.selection.id);
+    if (originalSelection.entries) {
+      expect(retainedSelection.entries.slice(0, originalSelection.entries.length)).toEqual(originalSelection.entries);
+    } else {
+      expect(retainedSelection.entries[0].ids).toEqual(originalSelection.ids);
+      expect(retainedSelection.entries[0].depth).toBe(originalSelection.depth);
+    }
+    const target = retainedSelection.entries.at(-1);
+    expect(target.mode).toBe('generated');
+    expect(target.source_volume).toBeNull();
+    expect(target.ids).toBeNull();
+    expect(target.volumes).toEqual([]);
+    expect(after.graph.states[retainedSelection.id]).toBe('needs_input');
+    expect(after.graph.states[authored.fit.id]).toBe('needs_input');
+    expect(after.graph.errors).toEqual({});
+    expect(confirmations.some(message => /current source and committed actions/i.test(message))).toBe(false);
+    expect(errors).toEqual([]);
+  } finally { page.off('dialog', accept); }
+});
+
+test('owned mesh volume capture and preview drive explicit replacement membership without repainting', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await imported(page, memoryFile('authored-grid.ply', fixture.grid));
+  const authored = await rectanglePlane(page, fixture.grid.positions.length, 'Shared grid plane');
+  await page.locator(`[data-action-id="${authored.selection.id}"]`).dispatchEvent('dblclick');
+  const editor = page.locator('#selection-owned-editor');
+  await expect(editor).toBeVisible();
+  await editor.getByRole('button', { name: 'Create volume…', exact: true }).click();
+  await page.locator('#owned-volume-label').fill('Grid support');
+  await page.locator('#owned-volume-kind').selectOption('mesh');
+  await editor.getByRole('button', { name: 'Capture volume', exact: true }).click();
+  await expect.poll(async () => {
+    const node = (await graph(page)).recipe.nodes.find(node => node.id === authored.selection.id);
+    return node.entries?.[0].volumes?.length;
+  }).toBe(1);
+  const captured = await metadata(page), selection = captured.graph.recipe.nodes.find(node => node.id === authored.selection.id),
+    entry = selection.entries[0], volume = entry.volumes[0];
+  expect(entry.ids).toEqual(Array.from({ length: fixture.grid.positions.length }, (_, id) => id));
+  const volumeRow = page.locator(`[data-owned-selection-id="${selection.id}"][data-owned-entry-id="${entry.id}"][data-owned-volume-id="${volume.id}"]`);
+  await expect(volumeRow).toBeVisible();
+  await volumeRow.dispatchEvent('keydown', { key: 'F2' });
+  await expect(editor).toContainText('support cells');
+  await expect(editor).not.toContainText('Loading accepted support preview…');
+  await expect(page.locator('#owned-inward_thickness-mode')).toHaveValue('auto');
+  await page.locator('#owned-inward_thickness-mode').selectOption('override');
+  await page.locator('#owned-inward_thickness').fill('0.01');
+  await page.locator('#owned-inward_thickness').evaluate(input => { window.retainedOwnedDraft = input; });
+  const draftDialogs = [], dismissDraftDialog = dialog => { draftDialogs.push(dialog.message()); void dialog.dismiss(); };
+  page.on('dialog', dismissDraftDialog);
+  try {
+    await page.locator(`[data-action-id="${captured.graph.recipe.nodes.find(node => node.operation === 'source').id}"]`).click();
+    await expect(page.locator('#owned-inward_thickness')).toBeVisible();
+    await expect(page.locator('#owned-inward_thickness')).toHaveValue('0.01');
+    expect(await page.locator('#owned-inward_thickness').evaluate(input => input === window.retainedOwnedDraft)).toBe(true);
+    expect(draftDialogs).toEqual([]);
+  } finally { page.off('dialog', dismissDraftDialog); }
+  await page.locator('#owned-inward_thickness-mode').selectOption('auto');
+
+  const reference = { selection: selection.id, entry: entry.id, volume: volume.id };
+  const preview = async state => {
+    const savedVolume = state.graph.recipe.nodes.find(node => node.id === selection.id).entries[0].volumes[0];
+    const response = await page.request.post(new URL('/api/graph/selection-volumes/preview', page.url()).href, {
+      headers: { 'X-Scansor-Request': '1', 'X-Scansor-Generation': String(state.project_generation) },
+      data: { token: state.graph.token, reference, archive_sha256: savedVolume.archive.sha256, offset: 0, limit: 2048 },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    return response.json();
+  };
+  const originalPreview = await preview(captured);
+  await page.locator('#owned-outward_thickness-mode').selectOption('override');
+  await page.locator('#owned-outward_thickness').fill('0.1');
+  await editor.getByRole('button', { name: 'Apply volume controls', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === selection.id).entries[0].volumes[0].options.outward_thickness).toBe(0.1);
+  await expect(editor).toHaveAttribute('aria-busy', 'false');
+  const overridden = await metadata(page), overriddenPreview = await preview(overridden);
+  expect(overriddenPreview.positions).toEqual(originalPreview.positions);
+  expect(overriddenPreview.normals).toEqual(originalPreview.normals);
+  expect(overriddenPreview.resolved.inward_thickness).toBe(originalPreview.resolved.inward_thickness);
+  expect(overriddenPreview.options.inward_thickness).toBeNull();
+  expect(overriddenPreview.resolved.outward_thickness).toBe(0.1);
+  await page.locator('#owned-outward_thickness-mode').selectOption('auto');
+  await editor.getByRole('button', { name: 'Apply volume controls', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === selection.id).entries[0].volumes[0]).toEqual(volume);
+  await expect(editor).toHaveAttribute('aria-busy', 'false');
+  const choosing = page.waitForEvent('filechooser');
+  await command(page, 'Replace scan…');
+  await (await choosing).setFiles(memoryFile('dense-aligned-grid.ply', fixture.dense));
+  await expect.poll(async () => (await metadata(page)).source?.filename).toBe('dense-aligned-grid.ply');
+  await expect(page.locator('#source-progress')).toBeHidden();
+  const pending = await metadata(page), targetSelection = pending.graph.recipe.nodes.find(node => node.id === selection.id),
+    targetEntry = targetSelection.entries.at(-1);
+  expect(targetSelection.entries[0]).toEqual(entry);
+  expect(targetEntry.source_volume).toBeNull();
+  expect(pending.graph.states[selection.id]).toBe('needs_input');
+  await page.getByRole('button', { name: `Choose source volume for ${selection.label} · dense-aligned-grid.ply`, exact: true }).click();
+  const sourceChoice = page.locator('#owned-source-volume');
+  const value = JSON.stringify(reference, Object.keys(reference).sort());
+  await expect(sourceChoice.locator(`option[value='${value}']`)).toBeEnabled();
+  await sourceChoice.selectOption(value);
+  await editor.getByRole('button', { name: 'Apply source volume', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === selection.id).entries.at(-1).source_volume).toEqual(reference);
+  await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).states[authored.fit.id]).toBe('ready');
+  const regenerated = await graph(page);
+  expect(regenerated.memberships[selection.id]).toEqual(Array.from({ length: fixture.dense.positions.length }, (_, id) => id));
+  expect(regenerated.results[authored.fit.id].ids).toEqual(regenerated.memberships[selection.id]);
+  expect(regenerated.recipe.nodes.find(node => node.id === selection.id).entries[0]).toEqual(entry);
+  expect(regenerated.errors).toEqual({});
+
+  await page.locator(`[data-owned-selection-id="${selection.id}"][data-owned-entry-id="${entry.id}"][data-owned-volume-id="${volume.id}"]`).dispatchEvent('keydown', { key: 'F2' });
+  await expect(editor).toContainText('support cells');
+  const acceptDelete = dialog => { void dialog.accept(); };
+  page.on('dialog', acceptDelete);
+  try { await editor.getByRole('button', { name: 'Delete volume…', exact: true }).click(); }
+  finally { page.off('dialog', acceptDelete); }
+  await expect(editor).toContainText(/linked|referenced|used by/i);
+  expect((await graph(page)).recipe).toEqual(regenerated.recipe);
+  await editor.getByRole('button', { name: 'Create / replace volume…', exact: true }).click();
+  await page.locator('#owned-author-mode').selectOption('create');
+  await page.locator('#owned-volume-label').fill('Adopted dense support');
+  await editor.getByRole('button', { name: 'Capture volume', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === selection.id).entries.at(-1).volumes.length).toBe(1);
+  const adopted = (await graph(page)).recipe.nodes.find(node => node.id === selection.id);
+  expect(adopted.entries[0]).toEqual(entry);
+  expect(adopted.entries.at(-1).volumes[0].captured_ids).toEqual(regenerated.memberships[selection.id]);
+  expect(errors).toEqual([]);
 });
 
 test('empty entry opens the actual RealityScan File as one inspected source with unchanged coordinates', async ({ page }) => {

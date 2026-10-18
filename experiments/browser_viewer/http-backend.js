@@ -98,6 +98,12 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     if (result?.graph?.states) result.graph = rememberGraph(result.graph, known);
     return result;
   };
+  const volumeRequest = (path, payload, options) => {
+    const profile = acceptedMetadata?.selection_volumes;
+    if (!profile || Object.keys(profile).length !== 2 || profile.version !== 1 || profile.max_preview_cells !== 2048)
+      return Promise.reject(new BackendError('This backend does not support selection volumes.', { code: 'unsupported_capability' }));
+    return graphRequest(`/api/graph/selection-volumes/${path}`, payload, options);
+  };
   const operationPath = operationId => {
     if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(operationId))
       throw new BackendError('Invalid source operation identity.', { code: 'invalid_operation' });
@@ -196,7 +202,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
-      sourceImport: true, sourceActions: true, sourceReplacement: true }),
+      sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -231,6 +237,12 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     },
     replaceRecipe: (payload, options) => graphRequest('/api/graph', payload, options),
     importRecipe: (payload, options) => graphRequest('/api/graph/import', payload, options),
+    authorSelectionVolume: (payload, options) => volumeRequest('author', payload, options),
+    setSelectionVolumeOptions: (payload, options) => volumeRequest('options', payload, options),
+    chooseSelectionVolume: (payload, options) => volumeRequest('choose', payload, options),
+    getSelectionVolumeChoices: (payload, options) => volumeRequest('choices', payload, options),
+    getSelectionVolumePreview: (payload, options) => volumeRequest('preview', payload, options),
+    deleteSelectionVolume: (payload, options) => volumeRequest('delete', payload, options),
     async inspectActions(payload, options) {
       const result = await graphRequest('/api/actions/inspect', payload, options);
       if (result.generation !== payload.generation || result.token !== payload.token
