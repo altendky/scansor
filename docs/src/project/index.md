@@ -39,6 +39,11 @@ outside the intended boundary.
     broader reference geometry remains an implementation gate; exact compound
     definitions with independently placed occurrences are recorded only as an
     exploratory later direction
+- [Volume-oriented selections](planning/volume-oriented-selections.md)
+  - **Agreed direction and staged implementation:** Selection groups with one
+    entry per scan, owned mesh/analytic volumes, automatic active-scan Fit inputs,
+    explicit conversion setup, and aligned scan replacement without repainting;
+    implementation tracked separately from the existing v1 region envelopes
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit points and

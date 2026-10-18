@@ -396,6 +396,12 @@ edit-history policy.
 
 ## Reusable fitted selection regions
 
+The [volume-oriented selection design](volume-oriented-selections.md) records the
+later agreed direction for grouped scan entries, footprint-preserving volumes,
+and aligned scan replacement. The v1 operations described below retain their
+existing bounding-envelope semantics; they do not preserve arbitrary holes or
+disconnected painted patches.
+
 **Provisional experiment with a bounded browser slice, 2026-09-23.** A
 source-vertex selection can
 be lifted into a transferable region by combining its fitted analytic surface,
@@ -416,7 +422,7 @@ recipe records; whether compound definitions and occurrences become first-class
 semantic feature-graph records, and how transferred boundaries behave near
 missing data, remain open.
 
-The browser implements two same-source cylinder/plane slices. A low-level
+The browser implements two same-source plane/cylinder/cone slices. A low-level
 **Region** action stores a fitted surface footprint, tangential and
 surface-normal margins, source-normal tolerance, and a frame defined by an axis,
 perpendicular axial plane, and axis-parallel clock plane. **Apply** places that
