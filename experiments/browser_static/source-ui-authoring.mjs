@@ -158,8 +158,9 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     {epoch:bundle.generation,token:bundle.graph.token},{timeout:180000});
     const publication=await page.evaluate(({epoch,token})=>window.__authoringTransport243.graphs.findLast(graph=>graph.project_generation===epoch
       &&graph.token===token&&graph.evaluation_running===false&&Array.isArray(graph.required_failures)),{epoch:bundle.generation,token:bundle.graph.token});
-    // Production owns recipe-less publication merging. Observe its accepted
-    // state rather than inventing a recipe inside this transport observer.
+    // The shipped backend restores a token-matched recipe omitted from compact
+    // evaluation messages. Compare that real UI state with the observed
+    // terminal publication, preserving all geometry and status assertions.
     const graph=(await coherent()).graph;
     for(const [key,value]of Object.entries(publication))assert.deepEqual(graph[key],value,'published '+key);
     assertAcceptedSourceGraph(graph,{generation:bundle.generation,recipe,token:bundle.graph.token});
