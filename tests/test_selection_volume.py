@@ -17,6 +17,7 @@ from experiments.selection_volume import (
     apply_selection_volume,
     build_selection_volume,
     selection_volume_coverage,
+    update_selection_volume_options,
     validate_selection_volume,
 )
 
@@ -613,3 +614,89 @@ def test_support_cell_budget_reports_a_clear_failure(
     monkeypatch.setattr(volume_kernel, "MAX_CELLS", 2)
     with pytest.raises(ValueError, match="exceeds 2 support cells"):
         _ = build_selection_volume(points, normals, faces, [0])
+
+
+@pytest.mark.parametrize("control", list(VolumeOptions.model_fields))
+def test_saved_auto_defaults_survive_overrides_and_source_unload(control: str) -> None:
+    points, normals, faces = grid()
+    points[:, 2] = np.linspace(-0.2, 0.6, len(points))
+    overrides = {
+        "inward_thickness": 2.0,
+        "outward_thickness": 3.0,
+        "edge_padding": 0.25,
+        "normal_angle_degrees": 40.0,
+    }
+    saved = build_selection_volume(
+        points,
+        normals,
+        faces,
+        np.arange(len(points)),
+        kind="plane",
+        fit={"kind": "plane", "plane_equation": [0, 0, 1, 0]},
+        options=overrides,
+    )
+    assert saved["defaults"]["outward_thickness"] - saved["defaults"][
+        "inward_thickness"
+    ] == pytest.approx(0.4)
+    restored = json.loads(json.dumps(saved))
+    del points, normals, faces, saved
+
+    changed = update_selection_volume_options(restored, {control: None})
+    assert changed["options"][control] is None
+    assert changed["resolved"][control] == restored["defaults"][control]
+    for name in overrides:
+        if name != control:
+            assert changed["options"][name] == overrides[name]
+            assert changed["resolved"][name] == overrides[name]
+    assert restored["options"] == overrides
+    for name in (
+        "patch_vertices",
+        "patch_normals",
+        "footprint",
+        "surface",
+        "provenance",
+        "defaults",
+    ):
+        assert changed[name] == restored[name]
+
+    automatic = update_selection_volume_options(
+        changed, VolumeOptions(**dict.fromkeys(overrides))
+    )
+    assert automatic["options"] == dict.fromkeys(overrides)
+    assert {name: automatic["resolved"][name] for name in overrides} == automatic[
+        "defaults"
+    ]
+
+
+def test_option_updates_preserve_unsupplied_controls_and_validate_input() -> None:
+    *_, saved = volume(options={"outward_thickness": 0.7})
+    updated = update_selection_volume_options(saved, VolumeOptions(edge_padding=0.25))
+    assert updated["options"]["outward_thickness"] == 0.7
+    assert updated["options"]["edge_padding"] == 0.25
+    assert update_selection_volume_options(updated, {}) == updated
+    with pytest.raises(ValueError):
+        _ = update_selection_volume_options(saved, {"edge_padding": -1})
+    with pytest.raises(ValueError):
+        _ = update_selection_volume_options(saved, {"unknown": 1})
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["missing", "null", "negative", "nonfinite", "resolved-mismatch", "unknown"],
+)
+def test_malformed_saved_defaults_are_rejected(change: str) -> None:
+    *_, saved = volume()
+    if change == "missing":
+        del saved["defaults"]
+    elif change == "null":
+        saved["defaults"]["edge_padding"] = None
+    elif change == "negative":
+        saved["defaults"]["edge_padding"] = -1
+    elif change == "nonfinite":
+        saved["defaults"]["edge_padding"] = np.nan
+    elif change == "resolved-mismatch":
+        saved["defaults"]["inward_thickness"] += 1
+    else:
+        saved["defaults"]["unknown"] = 0
+    with pytest.raises(ValueError):
+        _ = validate_selection_volume(saved)

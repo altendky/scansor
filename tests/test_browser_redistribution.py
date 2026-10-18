@@ -17,6 +17,20 @@ ASSEMBLER = runpy.run_path(str(ROOT / "scripts/build-browser-redistribution.py")
 RUNTIME = runpy.run_path(str(ROOT / "scripts/build-browser-runtime.py"))
 
 
+def test_checked_in_redistribution_binds_the_current_worker_source_inventory() -> None:
+    inventory = json.loads(
+        (ROOT / "scripts/browser-redistribution-lock.json").read_text()
+    )
+    runtime_hash = hashlib.sha256(
+        (ROOT / "experiments/browser_runtime/runtime-lock.json").read_bytes()
+    ).hexdigest()
+    assert inventory["bindings"]["runtime_lock_sha256"] == runtime_hash
+    expected = inventory["requirements"]["existing-core-and-wheel-notices"][
+        "expected_evidence"
+    ]
+    assert expected["runtime_lock_sha256"] == runtime_hash
+
+
 @pytest.fixture
 def package(tmp_path: Path) -> tuple[Path, Path, dict[str, Any]]:
     inputs = tmp_path / "inputs"

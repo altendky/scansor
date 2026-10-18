@@ -133,8 +133,10 @@ length as spacing. Each thickness is the corresponding oriented source residual
 envelope plus one quarter of that spacing. Automatic edge padding is zero to
 retain the discrete footprint. Automatic orientation tolerance is the maximum
 source deviation plus five degrees, bounded to five through ninety degrees.
-The saved record includes nullable overrides, resolved values, algorithm version,
-accepted support geometry, and provenance. These defaults are provisional
+The saved record includes nullable overrides, the source-derived automatic
+defaults, resolved values, algorithm version, accepted support geometry, and
+provenance. Retaining the defaults permits returning a control to Auto after
+unloading the authoring scan. These defaults are provisional
 engineering choices with generated-fixture evidence, not physical tolerances.
 
 Membership queries use a bounding-box hierarchy with bounded leaves and chunked

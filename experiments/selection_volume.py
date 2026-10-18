@@ -356,6 +356,7 @@ def build_selection_volume(
             "footprint": footprint,
             "normal_sign": sign,
             "options": controls.model_dump(),
+            "defaults": defaults,
             "resolved": {
                 **resolved,
                 "spacing": spacing,
@@ -378,6 +379,7 @@ def validate_selection_volume(payload: object) -> dict[str, Any]:
         "footprint",
         "normal_sign",
         "options",
+        "defaults",
         "resolved",
         "provenance",
         "selected_count",
@@ -406,6 +408,14 @@ def validate_selection_volume(payload: object) -> dict[str, Any]:
     ):
         raise ValueError("invalid saved selected count")
     controls = VolumeOptions.model_validate(payload["options"])
+    defaults = payload["defaults"]
+    if not isinstance(defaults, dict) or set(defaults) != set(
+        VolumeOptions.model_fields
+    ):
+        raise ValueError("invalid saved automatic volume controls")
+    if any(value is None for value in defaults.values()):
+        raise ValueError("saved automatic controls cannot be null")
+    _ = VolumeOptions.model_validate(defaults)
     resolved = payload["resolved"]
     if not isinstance(resolved, dict) or set(resolved) != {
         *VolumeOptions.model_fields,
@@ -428,8 +438,11 @@ def validate_selection_volume(payload: object) -> dict[str, Any]:
     ):
         raise ValueError("saved spacing must be positive and finite")
     for key, value in controls.model_dump().items():
-        if value is not None and value != resolved[key]:
-            raise ValueError("saved overrides disagree with resolved controls")
+        expected_value = defaults[key] if value is None else value
+        if expected_value != resolved[key]:
+            raise ValueError(
+                "saved automatic or overridden controls disagree with resolved controls"
+            )
     surface = payload["surface"]
     if payload["kind"] == "mesh":
         if surface is not None or payload["footprint"] != []:
@@ -548,6 +561,28 @@ def validate_selection_volume(payload: object) -> dict[str, Any]:
         return json.loads(json.dumps(payload, allow_nan=False))
     except (ValueError, TypeError) as error:
         raise ValueError("selection volume must contain finite JSON values") from error
+
+
+def update_selection_volume_options(
+    volume: object, options: VolumeOptions | dict[str, Any]
+) -> dict[str, Any]:
+    """Update supplied controls without source buffers or rebuilding geometry.
+
+    Only explicitly supplied fields change; null restores that field's saved
+    automatic value. Omitted fields retain their previous overrides. Persisted
+    defaults include the original residual envelope, which cannot be recovered
+    from a fitted volume's projected support after its source is unloaded.
+    """
+    saved = validate_selection_volume(volume)
+    changes = (
+        options
+        if isinstance(options, VolumeOptions)
+        else VolumeOptions.model_validate(options)
+    )
+    saved["options"].update(changes.model_dump(exclude_unset=True))
+    for name, value in saved["options"].items():
+        saved["resolved"][name] = saved["defaults"][name] if value is None else value
+    return validate_selection_volume(saved)
 
 
 def _cross2(a: Array, b: Array) -> Array:
