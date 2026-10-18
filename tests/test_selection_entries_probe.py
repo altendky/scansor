@@ -39,6 +39,13 @@ def test_probe_transfers_a_generated_entry_and_retains_one_shared_fit(
         and evidence["replay_equal"]
     )
     assert all(evidence["refresh"].values())
+    interface = evidence["volume_interface"]
+    assert interface["surface_kinds"] == ["plane"]
+    assert interface["source_choices"] == 1
+    assert interface["preview_pages"] > 1
+    assert len(interface["support_positions"]) == len(interface["support_normals"])
+    assert interface["adopted_captured_ids"] == evidence["transferred"]["membership"]
+    assert interface["reparented_and_fresh"] and interface["original_paint_preserved"]
     assert evidence["replacement"] == {
         "staged_without_publication": True,
         "new_entry_pending": True,
@@ -60,6 +67,8 @@ def test_probe_transfers_a_generated_entry_and_retains_one_shared_fit(
         "geometry",
         "replay",
         "replacement",
+        "preview",
+        "adoption",
     ],
 )
 def test_parity_rejects_changed_scan_entry_behavior(
@@ -102,6 +111,10 @@ def test_parity_rejects_changed_scan_entry_behavior(
         entry["transferred"]["fit"]["plane_equation"][0] = 0.25
     elif mutation == "replacement":
         entry["replacement"]["new_entry_pending"] = False
+    elif mutation == "preview":
+        entry["volume_interface"]["support_positions"][0] += 1
+    elif mutation == "adoption":
+        entry["volume_interface"]["adopted_captured_ids"].append(24)
     else:
         entry["replay_equal"] = False
     with pytest.raises(AssertionError, match="selection_entries"):

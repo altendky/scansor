@@ -13,6 +13,8 @@ let workspaceCadEnabled = false;
 let workspaceHasCad = false;
 let cadInitialization;
 const cadOperations = new Set(['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']);
+const selectionVolumeOperations = new Set(['authorSelectionVolume', 'setSelectionVolumeOptions',
+  'chooseSelectionVolume', 'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume']);
 const cadActions = new Set(['surface_intersection', 'trimmed_face', 'arranged_face', 'build_faces', 'body']);
 let chain = Promise.resolve();
 let interruptBuffer;
@@ -136,7 +138,7 @@ async function prepareSource(request) {
     void ignoredFile;
     let uploadRequired = payload.kind === 'scan';
     if (payload.purpose === 'replace-scan' &&
-      (manifest.worker_protocol?.version !== 9 || manifest.worker_protocol?.replace_scan?.supported !== true))
+      (![9, 10].includes(manifest.worker_protocol?.version) || manifest.worker_protocol?.replace_scan?.supported !== true))
       throw Object.assign(new Error('This runtime does not support scan replacement.'), { code: 'unsupported_capability' });
     if (payload.purpose === 'open-actions') {
       if (manifest.worker_protocol?.source_actions?.supported !== true)
@@ -353,6 +355,12 @@ async function dispatch(request) {
     postMessage({ id, ok: true, result });
     return;
   }
+  if (selectionVolumeOperations.has(operation)) {
+    const profile = manifest.worker_protocol?.selection_volumes;
+    if (manifest.worker_protocol?.version !== 10 || !profile || Object.keys(profile).length !== 2 ||
+      profile.version !== 1 || profile.max_preview_cells !== 2048)
+      throw Object.assign(new Error('This runtime does not support selection volumes.'), { code: 'unsupported_capability' });
+  }
   ensureWorkspace();
   if (request.workspaceGeneration !== undefined
     && request.workspaceGeneration !== python.runPython('browser_workspace.workspace_generation'))
@@ -369,7 +377,7 @@ async function dispatch(request) {
     Array.isArray(payload?.recipe?.nodes) && payload.recipe.nodes.some(node => cadActions.has(node?.operation))))
     await loadCad({ workspace: true });
   if (generation < minimumGeneration) return;
-  const interruptible = ['evaluateGraph', 'ensureGraph'].includes(operation) && !workspaceHasCad;
+  const interruptible = (['evaluateGraph', 'ensureGraph'].includes(operation) || selectionVolumeOperations.has(operation)) && !workspaceHasCad;
   // Main-thread lifecycle delivery can lag behind the worker. Eligibility must
   // be enforced here so a late numerical Cancel never injects SIGINT into CAD.
   python.setInterruptBuffer(interruptible ? interruptBuffer?.subarray(0, 1) : undefined);

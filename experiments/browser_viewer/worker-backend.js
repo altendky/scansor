@@ -24,11 +24,14 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, replacementProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
+  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
-  const mutations = new Set(['replaceRecipe', 'importRecipe', 'selectExample', 'applyFeatureReuse', 'applyFaces']);
+  const volumeOperations = ['authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume',
+    'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume'];
+  const mutations = new Set(['replaceRecipe', 'importRecipe', 'selectExample', 'applyFeatureReuse', 'applyFaces',
+    'authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume', 'deleteSelectionVolume']);
   const superseded = () => new BackendError('The requested operation changed. Try again.', { code: 'observation_superseded' });
   const cancelled = () => new BackendError('Browser computation was cancelled. Evaluate again when ready.',
     { code: 'computation_cancelled', status: 409 });
@@ -49,6 +52,8 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const validReplacementProfile = profile => profile && Object.keys(profile).length === 4 &&
     profile.supported === true && profile.version === 1 && profile.alignment === 'already-aligned' &&
     profile.source_kind === 'generic-scan';
+  const validSelectionVolumeProfile = profile => profile && Object.keys(profile).length === 2 &&
+    profile.version === 1 && profile.max_preview_cells === 2048;
   const identityJSON = value => JSON.stringify(value, function(key, item) {
     return item && typeof item === 'object' && !Array.isArray(item)
       ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item;
@@ -333,7 +338,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -393,21 +398,26 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
                 replacementProfile = data.worker_protocol?.replace_scan;
-                if (data.worker_protocol?.version === 9 && !validReplacementProfile(replacementProfile))
+                if ([9, 10].includes(data.worker_protocol?.version) && !validReplacementProfile(replacementProfile))
                   throw new Error('Invalid worker scan replacement profile.');
-                if (data.worker_protocol?.version !== 9 && replacementProfile !== undefined)
+                if (![9, 10].includes(data.worker_protocol?.version) && replacementProfile !== undefined)
                   throw new Error('Unexpected worker scan replacement profile.');
                 recipePolling = data.worker_protocol?.version >= 7;
-                if ([8, 9].includes(data.worker_protocol?.version) &&
+                selectionVolumeProfile = data.worker_protocol?.selection_volumes;
+                if (data.worker_protocol?.version === 10 && !validSelectionVolumeProfile(selectionVolumeProfile))
+                  throw new Error('Invalid worker selection volumes profile.');
+                if (data.worker_protocol?.version !== 10 && selectionVolumeProfile !== undefined)
+                  throw new Error('Unexpected worker selection volumes profile.');
+                if ([8, 9, 10].includes(data.worker_protocol?.version) &&
                   (!data.worker_protocol.selection_entries ||
                     Object.keys(data.worker_protocol.selection_entries).length !== 1 ||
                     data.worker_protocol.selection_entries.version !== 1))
                   throw new Error('Invalid worker selection entries profile.');
-                if (sourceProfile?.supported && (![5, 6, 7, 8, 9].includes(data.worker_protocol?.version)
+                if (sourceProfile?.supported && (![5, 6, 7, 8, 9, 10].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (![7, 8, 9].includes(data.worker_protocol?.version)
+                if (sourceActions && (![7, 8, 9, 10].includes(data.worker_protocol?.version)
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
                   || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
@@ -651,7 +661,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   };
   for (const operation of ['loadWorkspace', 'getGraph', 'replaceRecipe', 'importRecipe',
     'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse',
-    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']) {
+    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', ...volumeOperations]) {
     backend[operation] = async (payload = {}, options = {}) => {
       const signal = options.signal || payload.signal, serial = cancellationSerial;
       signal?.throwIfAborted();
@@ -660,6 +670,12 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
       if (sourceOperation) throw sourceBusy();
+      if (volumeOperations.includes(operation)) {
+        if (!validSelectionVolumeProfile(selectionVolumeProfile))
+          throw new BackendError('This worker does not support selection volumes.', { code: 'unsupported_capability' });
+        if (latestGraph?.evaluation_running || mutations.has(operation) && pending.size)
+          throw new BackendError('Wait for the current evaluation or edit to finish.', { code: 'evaluation_busy', status: 409 });
+      }
       if (operation === 'loadWorkspace' && acceptedGeneration !== undefined
         && (payload.generation !== undefined && payload.generation !== acceptedGeneration
           || payload.token !== undefined && payload.token !== latestGraph?.token)) throw superseded();

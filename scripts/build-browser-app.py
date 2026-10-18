@@ -54,6 +54,7 @@ UI_FILES = (
     "fit-intent.js",
     "model-picking.js",
     "selection.js",
+    "selection-owned-editor.js",
     "navigation.js",
     "navigation-math.js",
     "style.css",

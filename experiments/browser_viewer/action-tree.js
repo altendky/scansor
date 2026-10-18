@@ -648,6 +648,12 @@ export function renderActionTree(
     groupContextMenu = () => {},
     contextMenu = () => {},
     qualities = {},
+    ownedSelection = null,
+    selectOwned = () => {},
+    editOwned = () => {},
+    activeEntryKeys = new Set(),
+    diagnostics = {},
+    derived = {},
     createTree,
     scrollContainer = list.parentElement || list,
   },
@@ -660,6 +666,7 @@ export function renderActionTree(
     dropSlot = null, dropTarget = null, pointerDrag = null, dragPoint = null, scrollFrame = null,
     scrollTime = null, wheelPauseUntil = 0, suppressClick = null;
   const expandedManaged = renderActionTree.expandedManaged ||= new Set(),
+    collapsedOwned = renderActionTree.collapsedOwned ||= new Set(),
     expandedTargets = renderActionTree.expandedTargets ||= new Set(),
     collapsedGroups = renderActionTree.collapsedGroups ||= new Set(),
     byId = new Map(nodes.map((node) => [node.id, node])),
@@ -1132,10 +1139,92 @@ export function renderActionTree(
     return items.filter((item) => states[item.id] === state)
       .map((item) => `${item.label} · ${errors[item.id] || actionDescription(item, state)}`).join('\n');
   }
+  // Owned records are navigation entries, never executable or reorderable
+  // features. In particular they have no actionId or graph dependencies.
+  function ownedItem(node, scanEntry, volume = null) {
+    const key = volume ? `selection-volume/${node.id}/${scanEntry.id}/${volume.id}`
+      : `selection-entry/${node.id}/${scanEntry.id}`,
+      item = document.createElement('li'),
+      hasChildren = !volume && !!scanEntry.volumes?.length,
+      details = hasChildren ? document.createElement('details') : null,
+      row = document.createElement(hasChildren ? 'summary' : 'div'),
+      label = document.createElement('span'), badge = document.createElement('span'),
+      active = activeEntryKeys.has(`selection-entry/${node.id}/${scanEntry.id}`),
+      pending = !volume && scanEntry.mode === 'generated' && !scanEntry.source_volume,
+      diagnostic = !volume && active && diagnostics[node.id]?.entry === scanEntry.id
+        ? diagnostics[node.id] : null,
+      ids = scanEntry.mode === 'painted' ? scanEntry.ids
+        : active ? derived[node.id]?.ids : null,
+      name = volume ? volume.label : scanEntry.scan.descriptor?.filename ||
+        `Scan ${scanEntry.scan.source_sha256.slice(0, 8)}`,
+      description = volume ? `${volume.kind} volume` : [
+        scanEntry.mode === 'painted' ? 'Painted selection' : 'Generated selection',
+        active ? 'Current scan' : 'Saved scan',
+        Array.isArray(ids) ? `${ids.length} nodes` : '',
+        pending ? 'Choose source volume' : diagnostic?.message,
+      ].filter(Boolean).join(' · '),
+      activate = () => { if (!unavailable()) selectOwned(node.id, scanEntry.id, volume?.id || null); },
+      editRecord = () => { if (!unavailable()) editOwned(node.id, scanEntry.id, volume?.id || null); };
+    item.className = volume ? 'selection-volume' : 'selection-entry';
+    row.className = `action-row ${volume ? 'selection-volume-row' : 'selection-entry-row'}`;
+    row.dataset.ownedKey = key;
+    row.dataset.ownedSelectionId = node.id;
+    row.dataset.ownedEntryId = scanEntry.id;
+    if (volume) row.dataset.ownedVolumeId = volume.id;
+    row.title = `${name} · ${description}`;
+    row.setAttribute('aria-label', row.title);
+    label.className = 'action-name';
+    label.textContent = name;
+    badge.className = 'owned-selection-badge';
+    badge.textContent = description;
+    row.append(icon(volume ? volume.kind === 'mesh' ? 'selection_region' : volume.kind : 'selection', 'action-type'), label, badge);
+    if (pending || diagnostic) row.append(icon('needs_input', 'action-state state-needs_input'));
+    const entry = treeItem(item, row, key, activate);
+    entry.owned = true;
+    item.setAttribute('aria-keyshortcuts', 'F2');
+    item.setAttribute('aria-description', 'Press F2 or double-click to edit.');
+    const keydown = item.onkeydown;
+    item.onkeydown = row.onkeydown = event => {
+      if (event.target.closest('.tree-item') !== item) return;
+      if (event.key === 'F2') {
+        event.preventDefault(); event.stopPropagation(); editRecord();
+      } else keydown(event);
+    };
+    row.ondblclick = event => {
+      event.preventDefault(); event.stopPropagation();
+      if (event.type === 'dblclick' && event.detail > 0) return;
+      if (!event.target.closest('.tree-toggle') && contentClick(row, event)) editRecord();
+    };
+    if (pending) {
+      const choose = document.createElement('button');
+      choose.type = 'button';
+      choose.className = 'owned-selection-action';
+      choose.textContent = 'Choose source volume';
+      choose.setAttribute('aria-label', `Choose source volume for ${node.label} · ${name}`);
+      const update = () => { choose.disabled = unavailable(); };
+      lockControls.push(update); update();
+      for (const name of ['onpointerdown', 'onmousedown', 'onkeydown', 'onkeyup', 'ondblclick'])
+        choose[name] = event => event.stopPropagation();
+      choose.onclick = event => { event.preventDefault(); event.stopPropagation(); editRecord(); };
+      row.append(choose);
+    }
+    if (details) {
+      details.className = 'tree-group selection-entry-group';
+      branch(entry, details, !collapsedOwned.has(key), open => {
+        if (open) collapsedOwned.delete(key); else collapsedOwned.add(key);
+      });
+      const children = childList();
+      children.append(...scanEntry.volumes.map(volume => ownedItem(node, scanEntry, volume)));
+      details.append(row, children);
+      item.append(details);
+    } else item.append(row);
+    return item;
+  }
   function actionItem(node, generated = false) {
     const index = nodes.indexOf(node),
       item = document.createElement('li'),
-      owned = managed.get(node.id) || [];
+      owned = managed.get(node.id) || [],
+      selectionEntries = node.operation === 'selection' ? node.entries || [] : [];
     item.className = 'action-entry';
     const button = document.createElement('div');
     let contextRow = button;
@@ -1181,7 +1270,7 @@ export function renderActionTree(
     }
     if (quality) button.append(qualityBadge(quality, generated ? ownerById.get(node.id) : null));
     button.append(evaluationStatus(node, relationship ? 'ready' : states[node.id]));
-    if (!owned.length) {
+    if (!owned.length && !selectionEntries.length) {
       treeItem(item, button, `feature/${node.id}`, () => select(node.id), openContextMenu);
       if (!generated) draggableRow(button, [node.id], node.id, node.label);
       else button.draggable = false;
@@ -1211,12 +1300,15 @@ export function renderActionTree(
       );
       const entry = treeItem(item, summary, `feature/${node.id}`, () => select(node.id), openContextMenu);
       entry.relatedIds = [...managedSubtreeIds(node.id, nodes)];
-      branch(entry, details, expandedManaged.has(node.id), open => {
-        if (open) expandedManaged.add(node.id); else expandedManaged.delete(node.id);
+      branch(entry, details, selectionEntries.length ? !collapsedOwned.has(entry.key) : expandedManaged.has(node.id), open => {
+        if (selectionEntries.length) {
+          if (open) collapsedOwned.delete(entry.key); else collapsedOwned.add(entry.key);
+        } else if (open) expandedManaged.add(node.id); else expandedManaged.delete(node.id);
       });
       draggableRow(summary, [node.id], node.id, node.label, generated ? ownerById.get(node.id) : null);
       details.append(summary);
       const targetList = childList();
+      targetList.append(...selectionEntries.map(scanEntry => ownedItem(node, scanEntry)));
       const targets = new Map();
       for (const child of owned) {
         const target =
@@ -1356,7 +1448,7 @@ export function renderActionTree(
     };
     entry.refreshRelations();
   }
-  treeController = createTree(list, treeItems, { selectedIds, focusedKey });
+  treeController = createTree(list, treeItems, { selectedIds, focusedKey, ownedSelection });
   list.ondragover = (event) => {
     if (!dragged || unavailable()) {
       clearDrop();

@@ -176,6 +176,127 @@ async function replacementFixture() {
   return { ...value, original, originalFile };
 }
 
+const selectionVolumeProfile = { version: 1, max_preview_cells: 2048 };
+const volumeMethods = ['authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume',
+  'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume'];
+function volumeReady(extra = {}) {
+  const response = replacementReady(extra);
+  response.worker_protocol = { ...response.worker_protocol, version: 10, selection_volumes: selectionVolumeProfile };
+  return response;
+}
+
+test('selection volume protocol is strict and old entry/replacement workers remain usable without volume methods', async () => {
+  for (const profile of [undefined, null, { ...selectionVolumeProfile, version: true },
+    { ...selectionVolumeProfile, max_preview_cells: 2049 }, { ...selectionVolumeProfile, extra: true }]) {
+    const value = fixture(), loading = value.backend.initialize(), response = volumeReady();
+    response.worker_protocol.selection_volumes = profile;
+    value.worker.reply(response);
+    await assert.rejects(loading, /selection volumes profile/);
+  }
+  for (const version of [8, 9]) {
+    const value = fixture(), loading = value.backend.initialize(), response = replacementReady();
+    response.worker_protocol.version = version;
+    if (version === 8) delete response.worker_protocol.replace_scan;
+    value.worker.reply(response); await loading;
+    for (const method of volumeMethods)
+      await assert.rejects(value.backend[method]({ token: 'empty' }), error => error.code === 'unsupported_capability');
+    assert.equal(value.worker.calls.length, 1);
+    value.backend.close();
+  }
+});
+
+test('all volume operations carry payloads, queries preserve graph authority, and accepted mutations update recovery recipe', async () => {
+  const value = fixture(), loading = value.backend.initialize();
+  value.worker.reply(volumeReady()); await loading;
+  let accepted = sourceGraph(), revision = 0;
+  for (const method of volumeMethods) {
+    const query = method.startsWith('get'), before = await value.backend.exportRecipe(),
+      payload = { token: accepted.token, selection: 'patch', reference: { selection: 'patch', entry: 'entry', volume: 'volume' } },
+      calling = value.backend[method](payload);
+    await settle(); const request = value.worker.calls.at(-1);
+    assert.equal(request.operation, method);
+    assert.deepEqual(request.payload, payload);
+    const result = query ? { token: accepted.token, volumes: [], positions: [] }
+      : sourceGraph(0, `volume-${++revision}`, [{ operation: 'selection', id: 'patch', entries: [{ id: method }] }]);
+    value.worker.reply({ id: request.id, ok: true, result });
+    assert.deepEqual(await calling, result);
+    assert.deepEqual(await value.backend.exportRecipe(), query ? before : result.recipe);
+    if (!query) accepted = result;
+  }
+  value.backend.close();
+});
+
+test('volume mutations reject active evaluation and overlapping edits before publication fences advance', async () => {
+  const value = fixture(), loading = value.backend.initialize();
+  value.worker.reply(volumeReady({ graph: sourceGraph(0, 'busy') })); await loading;
+  value.worker.reply({ kind: 'graph', generation: 0, state: sourceGraph(0, 'busy', []) });
+  const evaluating = value.backend.evaluateGraph({ token: 'busy' }); await settle();
+  const evaluate = value.worker.calls.at(-1);
+  value.worker.reply({ id: evaluate.id, ok: true, result: { ...sourceGraph(0, 'busy'), evaluation_running: true } });
+  await evaluating;
+  for (const method of volumeMethods)
+    await assert.rejects(value.backend[method]({ token: 'busy' }), error => error.code === 'evaluation_busy');
+  assert.equal(value.worker.calls.at(-1), evaluate);
+  value.worker.reply({ kind: 'graph', generation: 0, state: sourceGraph(0, 'busy') });
+  const edit = value.backend.authorSelectionVolume({ token: 'busy' }); await settle();
+  const request = value.worker.calls.at(-1);
+  await assert.rejects(value.backend.deleteSelectionVolume({ token: 'busy' }), error => error.code === 'evaluation_busy');
+  value.worker.reply({ id: request.id, ok: true, result: sourceGraph(0, 'authored') });
+  await edit;
+  value.backend.close();
+});
+
+test('Force after owned volume edits replays the full accepted recipe against the retained File', async () => {
+  const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+  let worker = value.workers[0]; worker.reply(volumeReady()); await loading;
+  const file = sourceFile(), importing = value.backend.addScan({ file, generation: 0, token: 'empty' });
+  await settle(); let request = worker.calls.at(-1), original = candidate(request);
+  sourceTransfer(worker, request, original); sourcePromotion(worker, request); await importing;
+  const editing = value.backend.setSelectionVolumeOptions({ token: 'source', options: { inward: 0.25 } });
+  await settle(); request = worker.calls.at(-1);
+  const changed = sourceGraph(1, 'owned-edit', [{ operation: 'selection', id: 'patch', entries: [{ id: 'entry', volumes: [{ options: { inward: 0.25 } }] }] }]);
+  worker.reply({ id: request.id, ok: true, result: changed }); await editing;
+  const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+  worker.reply(volumeReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+  assert.equal(request.payload.file, file);
+  assert.deepEqual(request.payload.recovery.recipe, changed.recipe);
+  assert.deepEqual(request.payload.recovery.identity, original.source_identity);
+  assert.equal(request.payload.recovery.generation, 1);
+  const recovered = candidate(request, { generation: 1, token: 'owned-edit', nodes: changed.recipe.nodes,
+    identity: original.source_identity });
+  sourceTransfer(worker, request, recovered); sourcePromotion(worker, request); await restoring;
+  value.backend.close();
+});
+
+test('cancelled volume authoring cannot replace the committed recipe with a late mutation reply', async () => {
+  const value = fixture(), loading = value.backend.initialize(), original = sourceGraph();
+  value.worker.reply(volumeReady()); await loading;
+  const editing = value.backend.authorSelectionVolume({ token: 'empty', selection: 'patch' });
+  await settle(); const mutation = value.worker.calls.at(-1);
+  const rejected = assert.rejects(editing, error => error.code === 'computation_cancelled');
+  const stopping = value.backend.cancelComputation(), cancel = value.worker.calls.at(-1);
+  assert.equal(cancel.operation, 'cancel');
+  assert.deepEqual(cancel.payload.recipe, original.recipe);
+  value.worker.reply({ id: mutation.id, ok: true, result: sourceGraph(0, 'late', [{ id: 'unaccepted' }]) });
+  value.worker.reply({ id: cancel.id, ok: true, result: original });
+  await stopping; await rejected;
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
+  value.backend.close();
+});
+
+test('production worker rejects unnegotiated volume operations before Python checkpoint or mutation', async () => {
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8'),
+    start = source.indexOf('async function dispatch(request)'), end = source.indexOf('\n// Queue all requests;', start);
+  for (const protocol of [{ version: 9 }, { version: 10, selection_volumes: { version: 1 } }]) {
+    const context = vm.createContext({ initialization: Promise.resolve(), minimumGeneration: 0,
+      manifest: { worker_protocol: protocol }, selectionVolumeOperations: new Set(volumeMethods),
+      python: { runPython: () => assert.fail('Unsupported volume operation must not touch Python') } });
+    vm.runInContext(source.slice(start, end) + '\nglobalThis.dispatchVolume = dispatch;', context);
+    await assert.rejects(context.dispatchVolume({ id: 1, generation: 0, operation: 'authorSelectionVolume', payload: {} }),
+      error => error.code === 'unsupported_capability');
+  }
+});
+
 test('replacement requires exact negotiated profile and an accepted imported scan', async () => {
   for (const profile of [undefined, null, { ...replacementProfile, version: true },
     { ...replacementProfile, alignment: 'automatic' }, { ...replacementProfile, extra: true }]) {

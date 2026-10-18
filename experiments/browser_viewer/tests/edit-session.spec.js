@@ -314,7 +314,9 @@ test('context group assignment preserves parameter drafts and selections have no
     await expect(page.locator('#delete-action')).toHaveCount(0);
     await expect(page.locator('#action-group')).toHaveCount(0);
     await contextAction(page, 'outer_band', 'edit');
-    await expect(page.locator('#action-properties')).toBeHidden();
+    await expect(page.locator('#selection-owned-editor')).toBeVisible();
+    await expect(page.locator('#action-property-fields > :not(#selection-owned-editor):visible')).toHaveCount(0);
+    await expect(page.locator('#apply-properties')).toBeHidden();
     await expect(page.locator('#selection-tools')).toBeVisible();
   } finally { await restoreGraph(page, original); }
 });

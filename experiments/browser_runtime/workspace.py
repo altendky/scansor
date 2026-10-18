@@ -340,6 +340,7 @@ class BrowserWorkspace:
             "source_identity": self._identity(source),
             "actions_limits": actions_limits(),
             "selection_entries": {"version": 1},
+            "selection_volumes": {"version": 1, "max_preview_cells": 2048},
             "source_replacement": {
                 "supported": self._scan_limits is not None
                 and source.project is not None
@@ -1232,6 +1233,30 @@ class BrowserWorkspace:
                 "token": payload["token"],
                 **inspection.json(),
             }
+        if operation in {
+            "authorSelectionVolume",
+            "setSelectionVolumeOptions",
+            "chooseSelectionVolume",
+            "getSelectionVolumeChoices",
+            "getSelectionVolumePreview",
+            "deleteSelectionVolume",
+        }:
+            if self._pending is not None:
+                raise WorkspaceError(
+                    "Wait for graph evaluation before editing selection volumes.",
+                    "evaluation_busy",
+                    409,
+                )
+            mutation = operation not in {
+                "getSelectionVolumeChoices",
+                "getSelectionVolumePreview",
+            }
+            if mutation:
+                self._check_mutation()
+            from experiments.selection_volume_operations import dispatch
+
+            result = dispatch(self.graph, operation, payload)
+            return self._snapshot() if mutation else result
         if operation == "replaceRecipe":
             self._check_mutation()
             request = GraphRequest.model_validate(payload)

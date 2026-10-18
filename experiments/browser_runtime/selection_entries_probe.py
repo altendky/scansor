@@ -11,6 +11,8 @@ from experiments.feature_graph import FeatureGraph, Recipe, Selection, Source
 from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
 from experiments.selection_entries import VolumeReference
+from experiments.selection_volume_authoring import authoring_fingerprint, resolve_volume
+from experiments.selection_volume_operations import dispatch
 from experiments.selection_volume_transactions import author_volume
 
 
@@ -193,6 +195,71 @@ def selection_entries_probe() -> dict[str, Any]:
     assert final_owner.entries[0].volumes[0].archive == accepted.archive
     assert final_owner.entries[1].ids is None
     assert final_owner.entries[1].volumes == []
+
+    # Exercise the same bounded commands used by the owned-volume editor, in
+    # both native Python and the actually shipped numerical browser runtime.
+    ui_choices = dispatch(
+        reopened,
+        "getSelectionVolumeChoices",
+        {
+            "token": replay["token"],
+            "selection": "patch",
+        },
+    )
+    preview_positions: list[float] = []
+    preview_normals: list[float] = []
+    offset = 0
+    pages = 0
+    while True:
+        page = dispatch(
+            reopened,
+            "getSelectionVolumePreview",
+            {
+                "token": replay["token"],
+                "reference": reference.model_dump(),
+                "archive_sha256": accepted.archive.sha256,
+                "offset": offset,
+                "limit": 3,
+            },
+        )
+        preview_positions.extend(page["positions"])
+        preview_normals.extend(page["normals"])
+        pages += 1
+        if page["next_offset"] is None:
+            break
+        offset = page["next_offset"]
+    adopting = dispatch(
+        reopened,
+        "authorSelectionVolume",
+        {
+            "token": replay["token"],
+            "selection": "patch",
+            "entry": final_owner.entries[1].id,
+            "mode": "replace",
+            "target": reference.model_dump(),
+            "label": "Adopted target support",
+            "kind": "plane",
+            "fit": {"feature": "plane"},
+        },
+    )
+    adopted_recipe = Recipe.model_validate(adopting["recipe"])
+    adopted_ref = VolumeReference(
+        selection="patch", entry=final_owner.entries[1].id, volume="region"
+    )
+    adopted_owner, adopted_entry, adopted_volume = resolve_volume(
+        adopted_recipe, adopted_ref
+    )
+    assert adopted_entry.source_volume == adopted_ref
+    assert adopted_volume.captured_ids == ids
+    assert adopted_volume.authoring_fingerprint == authoring_fingerprint(
+        adopted_recipe, adopted_owner, adopted_entry, adopted_volume
+    )
+    assert adopted_owner.entries and adopted_owner.entries[0].ids == [0, 1, 3, 4]
+    assert adopted_owner.entries[0].volumes == []
+    adopted_state = cast(
+        dict[str, Any], reopened.evaluate(str(adopting["token"]), target="plane")
+    )
+    assert adopted_state["states"]["plane"] == "ready"
     return {
         "format": "selection-entries-probe-v1",
         "source_vertices": len(original.local),
@@ -227,4 +294,20 @@ def selection_entries_probe() -> dict[str, Any]:
         "preserved_original": True,
         "generated_only": True,
         "replay_equal": True,
+        "volume_interface": {
+            "surface_kinds": [
+                choice["kind"]
+                for choice in ui_choices["surfaces"]
+                if choice["eligible"]
+            ],
+            "source_choices": len(ui_choices["volumes"]),
+            "preview_pages": pages,
+            "support_positions": preview_positions,
+            "support_normals": preview_normals,
+            "adopted_captured_ids": adopted_volume.captured_ids,
+            "adopted_membership": adopted_state["memberships"]["patch"],
+            "adopted_fit": _plane(adopted_state),
+            "reparented_and_fresh": True,
+            "original_paint_preserved": True,
+        },
     }

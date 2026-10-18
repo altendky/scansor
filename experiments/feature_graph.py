@@ -4260,6 +4260,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 raise StaleGraph("graph changed after evaluation")
             return self._token()
 
+    @property
+    def volume_cache(self) -> VolumeCache:
+        """Share the single bounded archive cache with read-only UI previews."""
+        return self._volume_cache
+
     def snapshot(
         self, if_revision: int | None = None, if_recipe_token: str | None = None
     ) -> dict[str, object]:

@@ -31,6 +31,57 @@ test('HTTP mutations preserve payloads, headers, errors and request identities',
   await assert.rejects(backend.forceRestart(), error => error.code === 'unsupported_capability');
 });
 
+test('HTTP owned volume methods use negotiated bounded routes and retain source generation fences', async () => {
+  const calls = [], profile = { version: 1, max_preview_cells: 2048 },
+    methods = { authorSelectionVolume: 'author', setSelectionVolumeOptions: 'options', chooseSelectionVolume: 'choose',
+      getSelectionVolumeChoices: 'choices', getSelectionVolumePreview: 'preview', deleteSelectionVolume: 'delete' };
+  const backend = createBackend({ fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json({ project_generation: 12, selection_volumes: profile,
+      graph: { token: 'original', revision: 1, project_generation: 12, states: {}, recipe: { nodes: [] } },
+      positions: { url: '/positions' }, indices: { url: '/indices' } });
+    if (path === '/positions' || path === '/indices') return new Response(new ArrayBuffer(0),
+      { headers: { 'X-Scansor-Generation': '12' } });
+    return Response.json({ token: 'current', path });
+  } });
+  await assert.rejects(backend.authorSelectionVolume({ token: 'original' }), error => error.code === 'unsupported_capability');
+  assert.equal(calls.length, 0);
+  await backend.loadWorkspace();
+  assert.equal(backend.capabilities.selectionVolumes, true);
+  for (const [method, route] of Object.entries(methods)) {
+    const payload = { token: 'original', reference: { selection: 'rim', entry: 'scan', volume: 'mesh' } };
+    const result = await backend[method](payload), request = calls.at(-1);
+    assert.equal(request.path, `/api/graph/selection-volumes/${route}`);
+    assert.equal(request.init.headers['X-Scansor-Generation'], '12');
+    assert.equal(request.init.headers['X-Scansor-Request'], '1');
+    assert.deepEqual(JSON.parse(request.init.body), payload);
+    assert.equal(result.path, request.path);
+  }
+  backend.close();
+});
+
+test('HTTP rejects malformed volume profiles before mutation and preserves structured stale errors', async () => {
+  for (const selection_volumes of [undefined, { version: true, max_preview_cells: 2048 },
+    { version: 1, max_preview_cells: 2049 }, { version: 1, max_preview_cells: 2048, extra: true }]) {
+    const paths = [], backend = createHttpBackend({ fetch: async path => {
+      paths.push(path);
+      if (path === '/api/meta') return Response.json({ selection_volumes, positions: { url: '/p' }, indices: { url: '/i' } });
+      return new Response(new ArrayBuffer(0));
+    } });
+    await backend.loadWorkspace();
+    await assert.rejects(backend.deleteSelectionVolume({ token: 'known' }), error => error.code === 'unsupported_capability');
+    assert.equal(paths.length, 3); backend.close();
+  }
+  const backend = createHttpBackend({ fetch: async path => path === '/api/meta'
+    ? Response.json({ selection_volumes: { version: 1, max_preview_cells: 2048 }, positions: { url: '/p' }, indices: { url: '/i' } })
+    : path === '/p' || path === '/i' ? new Response(new ArrayBuffer(0))
+      : Response.json({ error: { code: 'stale_graph', message: 'Graph changed before volume operation' } }, { status: 409 }) });
+  await backend.loadWorkspace();
+  await assert.rejects(backend.getSelectionVolumeChoices({ token: 'old' }),
+    error => error.code === 'stale_graph' && error.status === 409);
+  backend.close();
+});
+
 test('workspace and CAD results expose owned buffers rather than URLs or HTTP responses', async () => {
   const positions = new Float32Array([1, 2, 3]), indices = new Uint32Array([0, 0, 0]),
     bytes = new Uint8Array([80, 75, 3, 4]);

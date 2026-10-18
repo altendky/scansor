@@ -27,7 +27,7 @@ const scansorInteractions = {
   },
 };
 
-export function createHeadlessFeatureTree(list, entries, { selectedIds, focusedKey }) {
+export function createHeadlessFeatureTree(list, entries, { selectedIds, focusedKey, ownedSelection = null }) {
   let controller = controllers.get(list);
   if (!controller) {
     let data = new Map(), updating = true;
@@ -91,7 +91,7 @@ export function createHeadlessFeatureTree(list, entries, { selectedIds, focusedK
           else if (value === undefined) entry.item.removeAttribute(name);
           else entry.item.setAttribute(name, value);
         }
-        if (!entry.row.dataset.actionId) entry.item.removeAttribute('aria-selected');
+        if (!entry.row.dataset.actionId && !entry.owned) entry.item.removeAttribute('aria-selected');
         entry.row.classList.toggle('feature-selected', instance.isSelected());
       }
       list.dataset.focusedTreeKey = tree.getFocusedItem()?.getId() || '';
@@ -111,7 +111,8 @@ export function createHeadlessFeatureTree(list, entries, { selectedIds, focusedK
           data.get(parent).children.push(entry.key);
           tree.getItemInstance(entry.key).registerElement(entry.item);
         }
-        const selectedItems = nextEntries.filter(entry => options.selectedIds.has(entry.row.dataset.actionId))
+        const selectedItems = nextEntries.filter(entry => options.selectedIds.has(entry.row.dataset.actionId) ||
+          (entry.owned && options.ownedSelection === entry.key))
           .map(entry => entry.key),
           expandedItems = nextEntries.filter(entry => entry.details?.open).map(entry => entry.key);
         tree.setConfig(previous => ({ ...previous,
@@ -150,6 +151,6 @@ export function createHeadlessFeatureTree(list, entries, { selectedIds, focusedK
     list.dataset.treeLibrary = 'headless-tree';
     controllers.set(list, controller);
   }
-  controller.update(entries, { selectedIds, focusedKey });
+  controller.update(entries, { selectedIds, focusedKey, ownedSelection });
   return controller;
 }

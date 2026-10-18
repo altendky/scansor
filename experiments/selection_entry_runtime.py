@@ -68,7 +68,9 @@ def current_entry(selection: Selection, workspace: Workspace) -> SelectionEntry 
     )
 
 
-def _frame(geometry: dict[str, Any]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+def volume_frame(
+    geometry: dict[str, Any],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     frame = geometry.get("provenance", {}).get("source_frame")
     if not isinstance(frame, dict) or set(frame) != {"origin", "basis"}:
         raise ValueError("accepted volume requires its authoring coordinate frame")
@@ -99,7 +101,7 @@ def volume_geometry(
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     geometry = cache.get(volume.archive, cancelled=cancelled)
-    _ = _frame(geometry)
+    _ = volume_frame(geometry)
     return geometry
 
 
@@ -169,7 +171,7 @@ def resolve_membership(
     assert entry.source_volume is not None
     _, _, volume = resolve_volume(recipe, entry.source_volume)
     geometry = volume_geometry(cache, volume, cancelled=cancelled)
-    origin, basis = _frame(geometry)
+    origin, basis = volume_frame(geometry)
     points = (workspace.data.xyz - origin) @ basis
     normals = workspace.data.normals @ basis
     ids = apply_selection_volume(
@@ -223,7 +225,7 @@ def validate_records(recipe: Recipe, workspace: Workspace, cache: VolumeCache) -
                     raise ValueError(
                         "accepted volume does not match its authoring scan"
                     )
-                origin, basis = _frame(geometry)
+                origin, basis = volume_frame(geometry)
                 if entry.scan.key == binding.key and (
                     not np.array_equal(origin, workspace.origin)
                     or not np.array_equal(basis, workspace.frame)
