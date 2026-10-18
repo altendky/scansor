@@ -37,13 +37,15 @@ SOURCE_IMPORT_PROFILE = {
 
 
 def worker_protocol() -> dict[str, Any]:
+    limits = runpy.run_path(str(ROOT / "experiments/actions_limits.py"))
+
     return {
-        "version": 6,
+        "version": 7,
         "bootstrap": "initialize",
         "workspace": "single-scan-candidate-transactions",
         "cad": "lazy-approved-ocp",
         "source_import": json.loads(json.dumps(SOURCE_IMPORT_PROFILE)),
-        "source_actions": {"supported": True, "version": 1},
+        "source_actions": limits["actions_profile"](),
     }
 
 
@@ -63,6 +65,7 @@ def validate_worker_protocol(value: object) -> None:
         or actions != expected["source_actions"]
         or type(actions["supported"]) is not bool
         or type(actions["version"]) is not int
+        or any(type(number) is not int for number in actions["limits"].values())
     ):
         raise ValueError("unsupported worker source-actions capability")
     profile = value["source_import"]

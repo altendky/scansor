@@ -73,6 +73,36 @@ test('Restore retains the delivered fixed-source worker graph without requiring 
 const deferred = () => { let resolve; const promise = new Promise(value => { resolve = value; }); return { resolve, promise }; };
 const locatedInspection = { classification: 'locate', uploadRequired: true, descriptor: { filename: 'original.ply' } };
 
+test('actions file admission honors the workspace byte limit before reading', async () => {
+  for (const declared of [undefined, 32 * 1024 * 1024]) {
+    const f = fixture({ sourceActions: true });
+    try {
+      if (declared !== undefined) f.getCurrent().metadata.actions_limits = { max_json_bytes: declared };
+      const maximum = declared ?? 1_000_000;
+      let reads = 0, inspections = 0;
+      f.backend.inspectActions = async payload => {
+        inspections++; return { ...payload, ...locatedInspection, recipe: payload.recipe };
+      };
+      await f.controller.loadActionsFile({ size: maximum, text: async () => { reads++; return '{"nodes":[]}'; } });
+      assert.equal(reads, 1); assert.equal(inspections, 1);
+      await f.controller.loadActionsFile({ size: maximum + 1, text: () => assert.fail('Oversized file was read') });
+      assert.equal(inspections, 1);
+      assert.match(f.messages.at(-1)[0], declared === undefined ? /under 1 MB/ : /32 MiB/);
+    } finally { f.restore(); }
+  }
+});
+
+test('invalid advertised actions limit cannot disable file admission', async () => {
+  for (const maximum of [0, -1, NaN, '33554432', 2 ** 53]) {
+    const f = fixture({ sourceActions: true });
+    try {
+      f.getCurrent().metadata.actions_limits = { max_json_bytes: maximum };
+      assert.equal(await f.controller.loadActionsFile({ size: 10, text: () => assert.fail('Invalid limit read the file') }), false);
+      assert.match(f.messages.at(-1)[0], /Invalid actions byte limit/);
+    } finally { f.restore(); }
+  }
+});
+
 test('lookup, chooser cancellation and wrong-file retry preserve the raw recipe and live draft', async () => {
   const f = fixture({ sourceActions: true });
   try {

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from experiments.browser_runtime.workspace import BrowserWorkspace
+from experiments.feature_graph import Recipe
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/nozzle-bayonette-simplified"
 
@@ -217,6 +218,60 @@ def test_graph_revision_cursor_and_lifecycle_only_status(workspace: BrowserWorks
     changed = success(call(workspace, "getGraph", revision=original["revision"]))
     assert changed["revision"] > original["revision"] and not changed.get("unchanged")
     assert call(workspace, "getGraph", revision=True)["error"]["status"] == 422
+
+
+def test_known_recipe_polling_omits_only_the_exact_current_definition(
+    workspace: BrowserWorkspace,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    original = snapshot(workspace)
+    token = original["token"]
+    target = original["recipe"]["nodes"][0]["id"]
+    success(prepare(workspace, "evaluateGraph", token=token, target=target))
+    success(finish(workspace))
+
+    def no_recipe_dump(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("unchanged recipe must not be cloned during polling")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Recipe, "model_dump", no_recipe_dump)
+        changed = success(
+            call(
+                workspace, "getGraph", revision=original["revision"], recipe_token=token
+            )
+        )
+    assert changed["revision"] > original["revision"]
+    assert changed["states"][target] == "ready"
+    assert "recipe" not in changed and not changed.get("unchanged")
+    full = success(
+        call(
+            workspace, "getGraph", revision=changed["revision"], recipe_token="obsolete"
+        )
+    )
+    assert full["recipe"] == original["recipe"] and not full.get("unchanged")
+    assert success(call(workspace, "exportRecipe")) == original["recipe"]
+
+
+def test_worker_evaluation_publication_can_retain_host_recipe(
+    workspace: BrowserWorkspace,
+):
+    original = snapshot(workspace)
+    prepared = json.loads(
+        workspace.prepare_evaluation_json(
+            "evaluateGraph",
+            json.dumps(
+                {
+                    "token": original["token"],
+                    "target": original["recipe"]["nodes"][0]["id"],
+                }
+            ),
+            original["token"],
+        )
+    )
+    assert success(prepared)["run"]
+    finished = success(json.loads(workspace.finish_evaluation_json(original["token"])))
+    assert finished["token"] == original["token"] and "recipe" not in finished
+    assert success(call(workspace, "exportRecipe")) == original["recipe"]
 
 
 def test_ensure_retains_failed_nodes_until_explicit_evaluation_retry(

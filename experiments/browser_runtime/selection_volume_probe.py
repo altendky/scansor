@@ -14,6 +14,7 @@ from experiments.selection_volume import (
     selection_volume_coverage,
     validate_selection_volume,
 )
+from experiments.volume_archive import decode_selection_volume, encode_selection_volume
 
 
 def _grid(count: int, scale: float) -> tuple[NDArray[np.float64], NDArray[np.int64]]:
@@ -64,7 +65,9 @@ def selection_volume_probe() -> list[dict[str, Any]]:
                 provenance={"probe": "painted-annulus", "scale": scale},
             )
             encoded = json.loads(json.dumps(volume, allow_nan=False))
-            restored = validate_selection_volume(encoded)
+            archive = encode_selection_volume(encoded)
+            restored = validate_selection_volume(decode_selection_volume(archive))
+            assert restored == volume
             original_ids = apply_selection_volume(
                 source, normals, np.ones(len(source)), restored
             )
@@ -92,6 +95,7 @@ def selection_volume_probe() -> list[dict[str, Any]]:
                     "kind": kind,
                     "scale": scale,
                     "volume": restored,
+                    "archive_content_sha256": archive.sha256,
                     "source_ids": original_ids,
                     "dense_ids": dense_ids,
                     "reverse_ids": reverse_ids,

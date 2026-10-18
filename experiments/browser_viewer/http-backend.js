@@ -28,7 +28,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   pollInterval = 150, wait = pause } = {}) {
   const lifetime = new AbortController();
   let nextRequestId = 0;
-  let sourcePublication = 0, acceptedGeneration, acceptedMetadata;
+  let sourcePublication = 0, acceptedGeneration, acceptedMetadata, latestGraph;
   const signalFor = signal => signal
     ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal;
   const superseded = () => new BackendError('The accepted workspace changed. Reload the current workspace.',
@@ -74,9 +74,29 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       throw new BackendError(error.message, { code: 'transport_error', requestId });
     }
   }
-  const graphRequest = (path, payload, options = {}, binary = false) => request(path, payload,
-    { ...options, binary, generation: acceptedGeneration,
-      ...(binary && acceptedGeneration !== undefined ? { expectedGeneration: acceptedGeneration } : {}) });
+  function rememberGraph(state, known = latestGraph) {
+    if (!state?.token || state.unchanged) return state;
+    if (!state.recipe) {
+      const matching = [latestGraph, known].find(value => value?.recipe && value.token === state.token);
+      if (!matching)
+        throw new BackendError('Invalid recipe-less graph response. Reload the current actions.');
+      const { evaluation_error: previousError, ...previous } = matching;
+      void previousError;
+      state = { ...previous, ...state };
+    }
+    if (!Number.isSafeInteger(latestGraph?.revision) || !Number.isSafeInteger(state.revision)
+      || state.revision >= latestGraph.revision) latestGraph = state;
+    return state;
+  }
+  const graphRequest = async (path, payload, options = {}, binary = false) => {
+    const known = latestGraph;
+    const result = await request(path, payload,
+      { ...options, binary, generation: acceptedGeneration,
+        ...(binary && acceptedGeneration !== undefined ? { expectedGeneration: acceptedGeneration } : {}) });
+    if (result?.states && result.token) return rememberGraph(result, known);
+    if (result?.graph?.states) result.graph = rememberGraph(result.graph, known);
+    return result;
+  };
   const operationPath = operationId => {
     if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(operationId))
       throw new BackendError('Invalid source operation identity.', { code: 'invalid_operation' });
@@ -193,12 +213,19 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       signalFor(options.signal).throwIfAborted();
       acceptedGeneration = cursor;
       acceptedMetadata = metadata;
+      latestGraph = metadata.graph;
       return { metadata: { ...metadata, positions: positionsInfo, indices: indicesInfo }, positions, indices,
         generation: cursor, graph: metadata.graph };
     },
-    getGraph: ({ revision, ...options } = {}) => request(
-      Number.isSafeInteger(revision) && revision >= 0 ? `/api/graph?revision=${revision}` : '/api/graph',
-      undefined, { ...options, generation: acceptedGeneration }),
+    async getGraph({ revision, ...options } = {}) {
+      const known = latestGraph;
+      const query = new URLSearchParams();
+      if (Number.isSafeInteger(revision) && revision >= 0) query.set('revision', revision);
+      if (query.has('revision') && known?.recipe) query.set('recipe_token', known.token);
+      const suffix = query.size ? `?${query}` : '';
+      return rememberGraph(await request(`/api/graph${suffix}`,
+        undefined, { ...options, generation: acceptedGeneration }), known);
+    },
     replaceRecipe: (payload, options) => graphRequest('/api/graph', payload, options),
     importRecipe: (payload, options) => graphRequest('/api/graph/import', payload, options),
     async inspectActions(payload, options) {

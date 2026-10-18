@@ -20,6 +20,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 from typing_extensions import TypeVar
 
+from experiments.actions_limits import check_portable_actions
 from experiments.feature_inputs import (
     REQUIREMENTS,
     FeatureInput,
@@ -3963,6 +3964,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 describe_geometry_influence(nodes),
                 selected_named_solves=isinstance(self.workspace, ScanWorkspace),
             )
+        check_portable_actions(recipe.model_dump(mode="json"))
         return recipe.model_copy(deep=True)
 
     def _input_values(self) -> dict[str, dict[str, Any]]:
@@ -4027,14 +4029,18 @@ class FeatureGraph(Generic[WorkspaceType]):
         # Content token detects conflicting client edits without an edit history.
         return self._content_token
 
-    def snapshot(self, if_revision: int | None = None) -> dict[str, object]:
+    def snapshot(
+        self, if_revision: int | None = None, if_recipe_token: str | None = None
+    ) -> dict[str, object]:
         """Read one publication atomically, omitting unchanged geometry.
 
         Observable state/result mutations must advance _revision under self.lock;
         recipe content tokens alone cannot identify evaluation publications.
         """
         with self.lock:
-            if if_revision == self._revision:
+            if if_revision == self._revision and (
+                if_recipe_token is None or if_recipe_token == self._token()
+            ):
                 return {
                     "token": self._token(),
                     "revision": self._revision,
@@ -4133,7 +4139,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 coordinates=self.workspace.local,
             )
             return {
-                "recipe": self._recipe.model_dump(),
+                **(
+                    {}
+                    if if_recipe_token == self._token()
+                    else {"recipe": self._recipe.model_dump()}
+                ),
                 "token": self._token(),
                 "revision": self._revision,
                 "states": self._states.copy(),

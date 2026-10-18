@@ -98,6 +98,7 @@
   "sources": {
     "numeric": [
       "experiments/__init__.py",
+      "experiments/actions_limits.py",
       "experiments/browser_runtime/semantic_parity.py",
       "experiments/browser_runtime/selection_volume_probe.py",
       "experiments/browser_runtime/workspace.py",
@@ -137,6 +138,7 @@
       "experiments/support_intent.py",
       "experiments/surface_extents.py",
       "experiments/surface_primitives.py",
+      "experiments/volume_archive.py",
       "src/scansor/__init__.py",
       "src/scansor/_plyio/__init__.py",
       "src/scansor/_plyio/format.py",

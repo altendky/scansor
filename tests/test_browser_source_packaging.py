@@ -57,7 +57,17 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
 
 
 @pytest.mark.parametrize(
-    "fault", ["old", "missing", "disabled", "bool", "number", "unknown"]
+    "fault",
+    [
+        "old",
+        "missing",
+        "disabled",
+        "bool",
+        "number",
+        "unknown",
+        "limit-float",
+        "limit-missing",
+    ],
 )
 def test_worker_actions_profile_requires_the_exact_supported_contract(
     fault: str,
@@ -73,6 +83,10 @@ def test_worker_actions_profile_requires_the_exact_supported_contract(
         protocol["source_actions"]["version"] = True
     elif fault == "number":
         protocol["source_actions"]["supported"] = 1
+    elif fault == "limit-float":
+        protocol["source_actions"]["limits"]["max_json_bytes"] = float(32 * 1024 * 1024)
+    elif fault == "limit-missing":
+        del protocol["source_actions"]["limits"]["max_volume_expanded_bytes"]
     else:
         protocol["source_actions"]["unrecognized"] = True
     with pytest.raises(ValueError):

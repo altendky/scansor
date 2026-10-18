@@ -154,11 +154,38 @@ The numerical runtime probe exercises an annular mesh/plane selection, density
 changes, serialization/replay, and normal-side rejection in native Python and
 workers.
 
+### Portable accepted geometry
+
+The `scansor-volume-archive-v1` record stores one validated v2 volume as
+zlib-compressed canonical JSON encoded with base64. Its content digest identifies
+the uncompressed canonical geometry, independently of compressor versions.
+Ordinary record validation and snapshots do not decompress it. Explicit adoption
+checks the encoded size, exact expanded length, digest, canonical JSON, and volume
+geometry; it rejects extra compressed streams and trailing data.
+
+The shared actions profile admits up to 32 MiB of actions JSON, 16 MiB of encoded
+data per volume, and 128 MiB of expanded geometry per volume. Graph acceptance
+also reserves the normalized saved file's formatting, so generated children
+cannot silently make accepted work too large to reopen. Recipe-bearing requests
+have a separate 1,000,000-byte controls allowance; other controls and scan-buffer
+admission limits remain independent. These are admission bounds, not a measured
+browser memory guarantee or a promise that every maximum-size selection fits.
+
+Conditional graph polling includes the known recipe token. Evaluation-only
+revisions can omit that recipe while publishing new states and results. Both
+transports retain the exact matching definition; a different token requires the
+complete recipe. Initial load, explicit save/export, and worker recovery retain
+the full portable actions. Older worker protocols keep their original polling
+requests.
+
 ### Remaining integration
 
 - [Shared volume geometry foundation](https://github.com/altendky/scansor/issues/332):
   versioned mesh/analytic support, automatic defaults and independent overrides,
   membership, serialization, coverage, and numerical runtime evidence.
+- [Portable volume archives](https://github.com/altendky/scansor/issues/337):
+  bounded archive adoption, shared actions admission, and recipe-preserving
+  evaluation polling.
 - [Selection groups and scan entries](https://github.com/altendky/scansor/issues/333):
   ownership, source-context provenance, active-scan resolution, needs-input state,
   and old-recipe behavior.

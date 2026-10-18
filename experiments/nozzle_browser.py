@@ -17,6 +17,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from experiments.actions_limits import (
+    MAX_ACTIONS_REQUEST_BYTES,
+    MAX_CONTROL_JSON_BYTES,
+    actions_limits,
+    actions_profile,
+    check_actions_envelope,
+)
 from experiments.browser_examples import (
     EXAMPLES,
     example_directory,
@@ -731,7 +738,7 @@ class Handler(BaseHTTPRequestHandler):
                     },
                     "capabilities": {
                         **capabilities,
-                        "source_actions": {"supported": True},
+                        "source_actions": actions_profile(),
                         "source_import": {
                             "supported": True,
                             "formats": ["binary-triangle-ply-v1"],
@@ -746,6 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                         "max_regions": MAX_REGIONS,
                     },
                 }
+            metadata["actions_limits"] = actions_limits()
             self.json_reply(200, metadata)
         elif self.path == "/api/graph/example":
             with self.app.lock:
@@ -758,24 +766,38 @@ class Handler(BaseHTTPRequestHandler):
                     strict_parsing=True,
                 )
                 revision = None
+                recipe_token = None
                 if query:
-                    values = query.get("revision", [])
-                    if (
-                        set(query) != {"revision"}
-                        or len(values) != 1
-                        or not values[0].isascii()
-                        or not values[0].isdecimal()
-                    ):
+                    if set(query) - {"revision", "recipe_token"}:
                         raise ValueError("expected one nonnegative integer revision")
-                    revision = int(values[0])
-            except ValueError:
-                self.json_reply(
-                    422, {"error": "expected one nonnegative integer revision"}
-                )
+                    if "revision" in query:
+                        values = query["revision"]
+                        if (
+                            len(values) != 1
+                            or not values[0].isascii()
+                            or not values[0].isdecimal()
+                        ):
+                            raise ValueError(
+                                "expected one nonnegative integer revision"
+                            )
+                        revision = int(values[0])
+                    if "recipe_token" in query:
+                        values = query["recipe_token"]
+                        if (
+                            len(values) != 1
+                            or not 1 <= len(values[0]) <= 128
+                            or not values[0].isascii()
+                        ):
+                            raise ValueError("expected one known recipe token")
+                        recipe_token = values[0]
+            except ValueError as error:
+                self.json_reply(422, {"error": str(error)})
                 return
             with self.app.lock, self.app.graph.lock:
                 self.reply_generation = self.app.accepted().generation
-                state = self.app.graph.snapshot(if_revision=revision)
+                state = self.app.graph.snapshot(
+                    if_revision=revision, if_recipe_token=recipe_token
+                )
                 job, token = self.app.graph_job, self.app.graph_job_token
                 running = job is not None and not job.done()
                 state["evaluation_running"] = running
@@ -870,15 +892,20 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self.json_reply(200 if result["terminal"] else 202, result)
                 return True
-            if not 0 < length <= 1_000_000:
+            actions = path in {"/api/actions/inspect", "/api/actions/open"}
+            maximum = MAX_ACTIONS_REQUEST_BYTES if actions else MAX_CONTROL_JSON_BYTES
+            if not 0 < length <= maximum:
                 raise ScanImportError(
-                    "Expected source controls under 1 MB.", "invalid_upload"
+                    f"Expected source controls within the {maximum:,}-byte request limit.",
+                    "invalid_upload",
                 )
             body = self.rfile.read(length)
             if len(body) != length:
                 raise ScanImportError(
                     "Truncated source control request.", "invalid_upload"
                 )
+            if actions:
+                check_actions_envelope(json.loads(body))
             if path == "/api/sources/imports":
                 request = SourceImportRequest.model_validate_json(body)
                 result = self.app.source_imports.reserve(
@@ -969,10 +996,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 1_000_000:
-                raise ValueError("expected a session under 1 MB")
+            actions = self.path in {
+                "/api/graph",
+                "/api/graph/import",
+                "/api/graph/feature-reuse/preview",
+                "/api/graph/feature-reuse/apply",
+                "/api/graph/build-faces/preview",
+                "/api/graph/build-faces/candidates",
+                "/api/graph/build-faces/apply",
+            }
+            maximum = MAX_ACTIONS_REQUEST_BYTES if actions else MAX_CONTROL_JSON_BYTES
+            if not 0 < length <= maximum:
+                raise ValueError(
+                    f"expected a request within the {maximum:,}-byte JSON limit"
+                )
             self.connection.settimeout(5)
             body = self.rfile.read(length)
+            if actions:
+                check_actions_envelope(json.loads(body))
             if self.path == "/api/graph/import":
                 imported = RecipeImportRequest.model_validate_json(body)
                 recipe, warnings = import_recipe(imported.recipe)

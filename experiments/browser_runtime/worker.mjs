@@ -232,8 +232,11 @@ function workspaceCall(method, operation, payload) {
   ensureWorkspace();
   python.globals.set('browser_operation', operation);
   python.globals.set('browser_payload', JSON.stringify(payload || {}));
+  python.globals.set('browser_known_recipe_token', payload?.token || null);
   const envelope = JSON.parse(python.runPython(method === 'finish_evaluation_json'
-    ? 'browser_workspace.finish_evaluation_json()'
+    ? 'browser_workspace.finish_evaluation_json(if_recipe_token=browser_known_recipe_token)'
+    : method === 'prepare_evaluation_json'
+    ? 'browser_workspace.prepare_evaluation_json(browser_operation, browser_payload, if_recipe_token=browser_known_recipe_token)'
     : `browser_workspace.${method}(browser_operation, browser_payload)`));
   if (!envelope.ok) {
     const error = new Error(envelope.error.message);
