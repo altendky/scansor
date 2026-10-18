@@ -1,0 +1,37 @@
+{
+  "reason": "Preserve the currently committed OCP artifacts and previously approved OCCT lineage. Any version or artifact change needs explicit review; wrapper Apache metadata alone does not cover its linked kernel.",
+  "approval_reference": "scripts/ocp-rebuild/ACKNOWLEDGMENTS.md",
+  "python": {
+    "cadquery-ocp-novtk": {
+      "version": "8.0.1.1.0",
+      "hashes": [
+        "sha256:3f47080e5e4381f0ad8bed14cd19fd16f006550abec441db54f7ec417ebb1ac0",
+        "sha256:65c56795870b1249a0ad9ef0814a38844be64bcdc2b86beaab01f9416edcc14b",
+        "sha256:78b9033a47d72049b290c18e2c4c80bffc56c055b52eb60f49aca76550a9ddc8",
+        "sha256:7dec43cd08a4600d970ee60a358a4c4e0f88a64261ac38e5fe55a29704f18f81",
+        "sha256:9df1e3700016bee819c0a8627880f37de47540eef63e8adb368f659a0fdeff78",
+        "sha256:a8fe4d9d67eebec876eb213a03ff2b267060f7fe0661736555e6e71874331c56",
+        "sha256:af3ecbeaf28ee4df17a07c8a3b88e3009bb820c7f4c7d7d1732745d064c96781",
+        "sha256:b76212dcda2ea19a501b26225f5d36ae1a5eed35e594c2af948a534e7f82a908",
+        "sha256:d0f3747b7e486f315793d4d4166daf5146ad6088beae8ddc950193d2513b1ca8",
+        "sha256:dd5e239d0ba0863e3a2ca8de71c563d3375f1c075e493eb7650609de22d85240"
+      ]
+    },
+    "cadquery-ocp-proxy": {
+      "version": "8.0.1.1.0",
+      "hashes": [
+        "sha256:98c71bb60cfb651afe179b134ab88580fd75384fce0cc6d633f727002cd18abd"
+      ]
+    },
+    "cadquery-ocp-stubs": {
+      "version": "8.0.1.1.0",
+      "hashes": [
+        "sha256:0366906c1303b1c19814b871a6aa3494a2df2aaf52af2742337cdd45e6a9ee66",
+        "sha256:0b23659d9243b6b86313837e36f4d9623d341cdc9eec87ea94bf2028abf2040e",
+        "sha256:d1b83dd23193646f4c23ad08e8f86b4fa731d4354c7dab5a80d8b0fea75c205b",
+        "sha256:e04f54e6f286b38422c5ab9240e3de9e5a484fc76b400a399c19df5b670581ed",
+        "sha256:fcb92e6e5118f1dfc7c85d4a0a1547c93d238546474e3bc0c7169e5d86e198d9"
+      ]
+    }
+  }
+}
