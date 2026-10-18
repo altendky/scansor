@@ -99,6 +99,7 @@
     "numeric": [
       "experiments/__init__.py",
       "experiments/browser_runtime/semantic_parity.py",
+      "experiments/browser_runtime/selection_volume_probe.py",
       "experiments/browser_runtime/workspace.py",
       "experiments/browser_runtime/symmetry_probe.py",
       "experiments/face_building_limits.py",
@@ -131,6 +132,7 @@
       "experiments/scan_workspace.py",
       "experiments/selection_growth.py",
       "experiments/selection_region.py",
+      "experiments/selection_volume.py",
       "experiments/selected_symmetry_fit.py",
       "experiments/support_intent.py",
       "experiments/surface_extents.py",
