@@ -2465,9 +2465,10 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
         "build-browser-redistribution.py",
     ):
         _ = shutil.copyfile(ROOT / "scripts" / name, today / "scripts" / name)
-    helper = today / VALIDATOR.SEMANTIC_POLICY
-    helper.parent.mkdir(parents=True)
-    _ = shutil.copyfile(ROOT / VALIDATOR.SEMANTIC_POLICY, helper)
+    for name in (VALIDATOR.SEMANTIC_POLICY, "experiments/actions_limits.py"):
+        helper = today / name
+        helper.parent.mkdir(parents=True, exist_ok=True)
+        _ = shutil.copyfile(ROOT / name, helper)
     for name in (
         "experiments/browser_runtime/runtime-lock.json",
         "scripts/browser-redistribution-lock.json",

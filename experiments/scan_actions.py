@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from experiments.actions_limits import check_actions_json
 from experiments.feature_graph import Recipe, Source
 from experiments.feature_recipe_import import ImportWarning, import_recipe
 from experiments.scan_workspace import (
@@ -54,6 +55,9 @@ def preflight_actions(value: object) -> ScanActions:
     No fitting, example selection, interpretation change or filesystem access occurs.
     """
     try:
+        check_actions_json(
+            value.model_dump(mode="json") if isinstance(value, Recipe) else value
+        )
         recipe, warnings = import_recipe(value)
     except ValidationError as error:
         messages = [

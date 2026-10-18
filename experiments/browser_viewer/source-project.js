@@ -300,7 +300,12 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     invalidateActions();
     const intent = actionsIntent, expected = cursor();
     try {
-      if (file.size > 1_000_000) throw new Error('Recipe must be under 1 MB');
+      const declared = getCurrent().metadata.actions_limits?.max_json_bytes;
+      if (declared !== undefined && (!Number.isSafeInteger(declared) || declared <= 0))
+        throw new Error('Invalid actions byte limit. Reload the current workspace.');
+      const maximum = declared ?? 1_000_000;
+      if (file.size > maximum) throw new Error(declared === undefined ? 'Recipe must be under 1 MB' :
+        `Actions exceed the ${(maximum / 1048576).toLocaleString()} MiB file limit`);
       const recipe = JSON.parse(await file.text());
       if (!validIntent(intent, expected)) return false;
       return await inspectActions(recipe, intent, expected);

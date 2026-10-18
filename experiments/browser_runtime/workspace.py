@@ -22,6 +22,14 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
+from experiments.actions_limits import (
+    MAX_ACTIONS_JSON_BYTES,
+    MAX_ACTIONS_REQUEST_BYTES,
+    MAX_CONTROL_JSON_BYTES,
+    actions_limits,
+    check_actions_envelope,
+    check_actions_json,
+)
 from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.feature_graph import (
     FeatureGraph,
@@ -330,6 +338,7 @@ class BrowserWorkspace:
             "project_generation": generation,
             "source_mode": self._mode(source),
             "source_identity": self._identity(source),
+            "actions_limits": actions_limits(),
             "capabilities": {**capabilities, "source_import": source_import},
             "face_building_limits": {
                 "max_pair_checks": MAX_PAIRS,
@@ -437,7 +446,7 @@ class BrowserWorkspace:
         def preflight() -> dict[str, Any]:
             if self._preparing_source:
                 raise ScanImportError("Source preparation is active.", "source_busy")
-            payload = self._payload(payload_json)
+            payload = self._payload(payload_json, actions=True)
             inspection = self._preflight_actions(payload)
             return {
                 "generation": self._workspace_generation,
@@ -572,12 +581,14 @@ class BrowserWorkspace:
         """
 
         def prepare() -> dict[str, Any]:
+            if recovery_recipe is not None:
+                check_actions_json(recovery_recipe)
             if self._preparing_source:
                 raise ScanImportError("Source preparation is active.", "source_busy")
             self._preparing_source = True
             try:
                 return self._prepare_source(
-                    self._payload(payload_json),
+                    self._payload(payload_json, actions=True),
                     source_path,
                     progress,
                     cancelled,
@@ -891,7 +902,7 @@ class BrowserWorkspace:
             raise ScanImportError(
                 "Cancellation checkpoint belongs to another source.", "stale_source"
             )
-        recipe = Recipe.model_validate(self._payload(recipe_json))
+        recipe = Recipe.model_validate(self._payload(recipe_json, recipe=True))
         self._check_capabilities(recipe)
         if self._evaluation_lease is not None:
             self._evaluation_lease.close()
@@ -941,12 +952,27 @@ class BrowserWorkspace:
             )
 
     @staticmethod
-    def _payload(value: str) -> dict[str, Any]:
-        if len(value.encode()) > 1_000_000:
-            raise ValueError("expected a request under 1 MB")
+    def _payload(
+        value: str, *, actions: bool = False, recipe: bool = False
+    ) -> dict[str, Any]:
+        maximum = (
+            MAX_ACTIONS_JSON_BYTES
+            if recipe
+            else MAX_ACTIONS_REQUEST_BYTES
+            if actions
+            else MAX_CONTROL_JSON_BYTES
+        )
+        if len(value.encode()) > maximum:
+            raise ValueError(
+                f"expected a request within the {maximum:,}-byte JSON limit"
+            )
         parsed = json.loads(value)
         if not isinstance(parsed, dict):
             raise ValueError("expected a JSON object request")
+        if recipe:
+            check_actions_json(parsed)
+        elif actions:
+            check_actions_envelope(parsed)
         return cast(dict[str, Any], parsed)
 
     @staticmethod
@@ -967,8 +993,13 @@ class BrowserWorkspace:
             )
         self._pristine = False
 
-    def _snapshot(self, revision: int | None = None) -> dict[str, Any]:
-        state = cast(dict[str, Any], self.graph.snapshot(if_revision=revision))
+    def _snapshot(
+        self, revision: int | None = None, recipe_token: str | None = None
+    ) -> dict[str, Any]:
+        state = cast(
+            dict[str, Any],
+            self.graph.snapshot(if_revision=revision, if_recipe_token=recipe_token),
+        )
         state["project_generation"] = self._workspace_generation
         state["evaluation_running"] = self._pending is not None
         if (
@@ -1018,9 +1049,20 @@ class BrowserWorkspace:
             "message": (message or type(error).__name__)[:1200],
         }
 
-    def _json(self, operation: Callable[[], Any]) -> str:
+    def _json(
+        self, operation: Callable[[], Any], *, if_recipe_token: str | None = None
+    ) -> str:
         try:
-            return json.dumps({"ok": True, "result": operation()}, allow_nan=False)
+            value = operation()
+            if isinstance(value, dict) and if_recipe_token is not None:
+                publication: object = cast(dict[str, Any], value).get("state", value)
+                if (
+                    isinstance(publication, dict)
+                    and cast(dict[str, Any], publication).get("token")
+                    == if_recipe_token
+                ):
+                    _ = cast(dict[str, Any], publication).pop("recipe", None)
+            return json.dumps({"ok": True, "result": value}, allow_nan=False)
         except KeyboardInterrupt:
             self.clear_export()
             return json.dumps(
@@ -1043,7 +1085,18 @@ class BrowserWorkspace:
         if operation == "exportCad":
             # Even malformed or rejected requests must not expose a prior ZIP.
             self.clear_export()
-        return self._json(lambda: self._call(operation, self._payload(payload_json)))
+        actions = operation in {
+            "replaceRecipe",
+            "importRecipe",
+            "inspectActions",
+            "applyFeatureReuse",
+            "faceCandidates",
+            "previewFaces",
+            "applyFaces",
+        }
+        return self._json(
+            lambda: self._call(operation, self._payload(payload_json, actions=actions))
+        )
 
     def enable_cad(self) -> None:
         """Enable existing CAD paths after the host verifies/extracts the wheel.
@@ -1094,11 +1147,18 @@ class BrowserWorkspace:
             self._keys(payload, set())
             return self._source_metadata(self._source, self._workspace_generation)
         if operation == "getGraph":
-            self._keys(payload, {"revision"})
+            self._keys(payload, {"revision", "recipe_token"})
             revision = payload.get("revision")
             if revision is not None and (type(revision) is not int or revision < 0):
                 raise ValueError("expected a nonnegative integer revision")
-            return self._snapshot(revision)
+            recipe_token = payload.get("recipe_token")
+            if recipe_token is not None and (
+                not isinstance(recipe_token, str)
+                or not 1 <= len(recipe_token) <= 128
+                or not recipe_token.isascii()
+            ):
+                raise ValueError("expected one known recipe token")
+            return self._snapshot(revision, recipe_token)
         if operation == "inspectActions":
             self._keys(payload, {"generation", "token", "recipe"})
             inspection = self._inspect_actions(payload)
@@ -1270,8 +1330,13 @@ class BrowserWorkspace:
         self._export_buffer = export_cad(self.workspace, snapshot, request)
         return {"bytes": len(self._export_buffer), "content_type": "application/zip"}
 
-    def prepare_evaluation_json(self, operation: str, payload_json: str) -> str:
-        return self._json(lambda: self._prepare(operation, self._payload(payload_json)))
+    def prepare_evaluation_json(
+        self, operation: str, payload_json: str, if_recipe_token: str | None = None
+    ) -> str:
+        return self._json(
+            lambda: self._prepare(operation, self._payload(payload_json)),
+            if_recipe_token=if_recipe_token,
+        )
 
     def _prepare(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._check_open()
@@ -1359,8 +1424,8 @@ class BrowserWorkspace:
             },
         }
 
-    def finish_evaluation_json(self) -> str:
-        return self._json(self._finish)
+    def finish_evaluation_json(self, if_recipe_token: str | None = None) -> str:
+        return self._json(self._finish, if_recipe_token=if_recipe_token)
 
     def _finish(self) -> dict[str, Any]:
         self._check_open()

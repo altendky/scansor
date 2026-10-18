@@ -137,7 +137,7 @@ test('same-token publications are accepted before completion and advance the sna
   const state = await waitForGraphEvaluation(f.options);
   assert.deepEqual(f.accepted, [publication]);
   assert.deepEqual(f.requests.map(entry => entry.path),
-    ['/api/graph?revision=4', '/api/graph?revision=4', '/api/graph?revision=8']);
+    ['/api/graph?revision=4', '/api/graph?revision=4', '/api/graph?revision=8&recipe_token=recipe']);
   assert.equal(state.revision, 8);
 });
 
@@ -145,7 +145,7 @@ test('bootstrap polling takes its cursor from the full snapshot returned by the 
   const f = fixture([snapshot({ face: 'ready' }, { revision: 7, evaluation_running: true }),
     unchanged(7, { evaluation_running: false })]);
   await waitForGraphEvaluation(f.options);
-  assert.deepEqual(f.requests.map(entry => entry.path), ['/api/graph', '/api/graph?revision=7']);
+  assert.deepEqual(f.requests.map(entry => entry.path), ['/api/graph', '/api/graph?revision=7&recipe_token=recipe']);
   assert.equal(f.accepted.length, 1);
 });
 

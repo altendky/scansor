@@ -147,9 +147,12 @@ function sourcePromotion(worker, request, generation = 1) {
     workspaceGeneration: generation });
 }
 
-const actionsProfile = { supported: true, version: 1 };
+const actionsProfile = { supported: true, version: 2, limits: {
+  max_json_bytes: 32 * 1024 * 1024, max_request_bytes: 32 * 1024 * 1024 + 1_000_000,
+  max_volume_encoded_bytes: 16 * 1024 * 1024, max_volume_expanded_bytes: 128 * 1024 * 1024,
+} };
 function actionsReady(extra = {}) {
-  return sourceReady({ worker_protocol: { version: 6, source_actions: actionsProfile },
+  return sourceReady({ worker_protocol: { version: 7, source_actions: actionsProfile },
     source_actions: actionsProfile, ...extra });
 }
 async function actionsFixture(options = {}, initial = {}) {
@@ -1052,6 +1055,86 @@ test('pushed running acknowledgements and completion before subscription cannot 
   const late = value.backend.graphUpdates();
   assert.equal((await late.next()).value.evaluation_running, false);
   assert.equal((await late.next()).done, true);
+  value.backend.close();
+});
+
+test('recipe-less worker publications retain saved actions and clear transient unchanged status', async () => {
+  const value = await initialized();
+  const original = graph({ evaluation_running: true, evaluation_error: 'Previous failure',
+    recipe: { nodes: [{ id: 'source', operation: 'source' },
+      { id: 'selection', vertex_ids: [2, 7, 11], volume: { encoded: 'saved-volume' } }] } });
+  await requestReply(value, 'getGraph', {}, original);
+  const stream = value.backend.graphUpdates();
+  assert.deepEqual((await stream.next()).value.recipe, original.recipe);
+  const compact = stream.next();
+  value.worker.reply({ kind: 'graph', generation: 0,
+    state: { token: 'token', revision: 3, unchanged: true, status: 'running', evaluation_running: true } });
+  const compactState = (await compact).value;
+  assert.deepEqual(compactState.recipe, original.recipe);
+  assert.equal(Object.hasOwn(compactState, 'unchanged'), false);
+  const terminal = stream.next();
+  value.worker.reply({ kind: 'graph', generation: 0, state: { token: 'token', revision: 4,
+    states: { selection: 'ready' }, errors: {}, results: { selection: { count: 3 } }, evaluation_running: false } });
+  const terminalState = (await terminal).value;
+  assert.deepEqual(terminalState.recipe, original.recipe);
+  assert.deepEqual(terminalState.states, { selection: 'ready' });
+  assert.equal(Object.hasOwn(terminalState, 'unchanged'), false);
+  assert.equal(Object.hasOwn(terminalState, 'evaluation_error'), false);
+  assert.equal(Object.hasOwn(terminalState, 'status'), false);
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
+  assert.equal((await stream.next()).done, true);
+  const reading = value.backend.getGraph({ revision: 4 });
+  await settle();
+  const request = value.worker.calls.at(-1);
+  assert.deepEqual(request.payload, { revision: 4 });
+  value.worker.reply({ id: request.id, ok: true, result: { token: 'token', revision: 5,
+    states: { selection: 'ready' }, errors: {}, evaluation_running: false } });
+  assert.deepEqual((await reading).recipe, original.recipe);
+  value.backend.close();
+});
+
+test('worker recipe polling uses the negotiated protocol without breaking older runtimes', async () => {
+  for (const version of [6, 7]) {
+    const value = fixture(), loading = value.backend.initialize();
+    value.worker.reply({ ...ready, worker_protocol: { version } });
+    await loading;
+    await requestReply(value, 'getGraph', {}, graph());
+    const reading = value.backend.getGraph({ revision: 3 });
+    await settle();
+    const request = value.worker.calls.at(-1);
+    assert.deepEqual(request.payload, version >= 7
+      ? { revision: 3, recipe_token: 'token' } : { revision: 3 });
+    value.worker.reply({ id: request.id, ok: true,
+      result: { token: 'token', revision: 3, unchanged: true, evaluation_running: false } });
+    assert.equal((await reading).unchanged, true);
+    assert.deepEqual(await value.backend.exportRecipe(), graph().recipe);
+    value.backend.close();
+  }
+});
+
+test('Force recovery retains the full saved recipe after recipe-less worker publications', async () => {
+  const value = fleet(), loading = value.backend.initialize(), first = value.workers[0];
+  const original = graph({ recipe: { nodes: [{ id: 'source', operation: 'source' },
+    { id: 'selection', vertex_ids: [2, 7, 11], volume: { encoded: 'saved-volume' } }] } });
+  first.reply({ ...ready, graph: original, source_identity: { sha: 'immutable' } });
+  await loading;
+  first.reply({ kind: 'graph', generation: 0, state: { token: 'token', revision: 4,
+    states: { selection: 'ready' }, evaluation_running: false } });
+  first.reply({ kind: 'graph', generation: 0,
+    state: { token: 'token', revision: 4, unchanged: true, evaluation_running: false } });
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
+  const restarting = value.backend.forceRestart(), second = value.workers[1];
+  second.reply({ ...ready, id: second.calls[0].id, graph: graph({ token: 'fresh' }),
+    source_identity: { sha: 'immutable' } });
+  await settle();
+  const replay = second.calls.at(-1);
+  assert.equal(replay.operation, 'replaceRecipe');
+  assert.deepEqual(replay.payload.recipe, original.recipe);
+  second.reply({ id: replay.id, ok: true, result: graph({ recipe: original.recipe, revision: 1 }) });
+  const recovered = await restarting;
+  assert.deepEqual(recovered.recipe, original.recipe);
+  assert.equal(Object.hasOwn(recovered, 'unchanged'), false);
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
   value.backend.close();
 });
 

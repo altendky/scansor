@@ -24,7 +24,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, checkpoint, sourceOperation, sourceSequence = 0;
+  let acceptedGeneration, sourceProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
@@ -37,8 +37,14 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const unavailable = () => terminalError || new BackendError('The backend is closed.', { code: 'backend_closed' });
   const wake = () => { for (const notify of observers) notify(); };
   const sourceBusy = () => new BackendError('A source operation is still active.', { code: 'source_busy', status: 409 });
-  const actionsProfile = value => value && Object.keys(value).length === 2
-    && value.supported === true && value.version === 1;
+  const actionsProfile = value => {
+    const keys = ['max_json_bytes', 'max_request_bytes', 'max_volume_encoded_bytes', 'max_volume_expanded_bytes'];
+    return value && Object.keys(value).length === 3 && value.supported === true && value.version === 2
+      && value.limits && Object.keys(value.limits).length === keys.length
+      && keys.every(key => Number.isSafeInteger(value.limits[key]) && value.limits[key] > 0)
+      && value.limits.max_request_bytes >= value.limits.max_json_bytes
+      && value.limits.max_volume_encoded_bytes <= value.limits.max_json_bytes;
+  };
   const unsupportedActions = () => new BackendError('This worker does not support source actions.', { code: 'unsupported_capability' });
   const identityJSON = value => JSON.stringify(value, function(key, item) {
     return item && typeof item === 'object' && !Array.isArray(item)
@@ -96,9 +102,13 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       committedRecipe = structuredClone(state.recipe);
       if (checkpoint) checkpoint.recipe = structuredClone(state.recipe);
     } else if (latestGraph?.token === state.token) {
-      const { evaluation_error: oldError, ...previous } = latestGraph;
+      const { evaluation_error: oldError, unchanged: oldUnchanged, status: oldStatus, ...previous } = latestGraph;
       void oldError;
-      latestGraph = { ...previous, ...state };
+      void oldUnchanged;
+      void oldStatus;
+      const { unchanged, ...publication } = state;
+      void unchanged;
+      latestGraph = { ...previous, ...publication };
     } else return;
     wake();
   };
@@ -373,12 +383,14 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 }
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
-                if (sourceProfile?.supported && (![5, 6].includes(data.worker_protocol?.version)
+                recipePolling = data.worker_protocol?.version >= 7;
+                if (sourceProfile?.supported && (![5, 6, 7].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (data.worker_protocol?.version !== 6
+                if (sourceActions && (data.worker_protocol?.version !== 7
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
+                  || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
                   || data.graph.project_generation < 0 || !data.graph.token || !Array.isArray(data.graph.recipe?.nodes)))
                   throw new Error('Invalid worker source actions profile.');
@@ -636,7 +648,15 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       const value = { ...payload };
       delete value.signal;
       if (operation === 'loadWorkspace') { delete value.generation; delete value.token; }
-      return send(operation, value, signal);
+      if (recipePolling && operation === 'getGraph' && Number.isSafeInteger(value.revision) && value.revision >= 0
+        && latestGraph?.recipe) value.recipe_token = latestGraph.token;
+      const result = await send(operation, value, signal);
+      if (result?.states && !result.recipe && !result.unchanged) {
+        if (!latestGraph?.recipe || latestGraph.token !== result.token || latestGraph.revision !== result.revision)
+          throw new BackendError('Invalid recipe-less graph response. Reload the current actions.');
+        return latestGraph;
+      }
+      return result;
     };
   }
   backend.addScan = (payload, options) => startSource('scan', payload, options);

@@ -4,6 +4,7 @@
 # pyright: reportPrivateUsage=false
 
 import io
+import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
@@ -12,7 +13,8 @@ from typing import Any, cast
 
 import pytest
 
-from experiments import native_scan_import
+from experiments import native_scan_import, nozzle_browser
+from experiments.actions_limits import MAX_CONTROL_JSON_BYTES, actions_limits
 from experiments.feature_graph import Recipe
 from experiments.feature_recipe_import import import_recipe
 from experiments.nozzle_browser import ExampleRequest, ProjectResetRequest
@@ -22,6 +24,28 @@ from tests.test_native_scan_http import NativeHttp, triangle_bytes
 from tests.test_native_scan_http import native_http as native_http
 
 EMPTY = {"schema_version": 2, "nodes": [], "output": None}
+
+
+def test_native_actions_request_exact_byte_boundary(
+    native_http: NativeHttp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = native_http
+    original = http.metadata()["graph"]
+    payload = json.dumps({"token": original["token"], "recipe": EMPTY}).encode()
+    maximum = 512
+    monkeypatch.setattr(nozzle_browser, "MAX_ACTIONS_REQUEST_BYTES", maximum)
+    admitted = payload + b" " * (maximum - len(payload))
+    headers = {"Content-Type": "application/json"}
+    status, state, _ = http.request(
+        "/api/graph", admitted, generation=0, headers=headers
+    )
+    assert status == 200, state
+    status, rejected, _ = http.request(
+        "/api/graph", admitted + b" ", generation=0, headers=headers
+    )
+    assert status == 422 and "512-byte" in rejected["error"]
+    assert http.metadata()["graph"]["recipe"] == original["recipe"]
 
 
 def open_actions(
@@ -45,6 +69,69 @@ def open_actions(
 def saved(http: NativeHttp) -> dict[str, Any]:
     _ = http.import_triangle()
     return http.metadata()["graph"]["recipe"]
+
+
+def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) -> None:
+    http = native_http
+    recipe = saved(http)
+    recipe["nodes"].extend(
+        {
+            "id": f"p{index}",
+            "operation": "point",
+            "label": f"Point {index} " + "界" * 100,
+            "initial_coordinates": [1, 2, 3],
+        }
+        for index in range(1500)
+    )
+    original = http.metadata()["graph"]
+    assert len(json.dumps(recipe).encode()) > 1_000_000
+    assert http.metadata()["actions_limits"] == actions_limits()
+    status, changed, _ = http.request(
+        "/api/graph",
+        {"token": original["token"], "recipe": recipe},
+        generation=http.cursor()["generation"],
+    )
+    assert status == 200, changed
+    status, full, _ = http.request("/api/graph")
+    assert status == 200 and len(full["recipe"]["nodes"]) == 1501
+    status, compact, _ = http.request(
+        f"/api/graph?revision={full['revision']}&recipe_token={full['token']}"
+    )
+    assert status == 200 and compact["unchanged"] and "recipe" not in compact
+    status, wrong, _ = http.request(
+        f"/api/graph?revision={full['revision']}&recipe_token=obsolete"
+    )
+    assert (
+        status == 200
+        and wrong["recipe"] == full["recipe"]
+        and not wrong.get("unchanged")
+    )
+    assert http.metadata()["graph"]["token"] == full["token"]
+
+
+@pytest.mark.parametrize("path", ["/api/project/reset", "/api/graph/ensure"])
+def test_oversized_controls_are_rejected_before_reading_the_body(
+    native_http: NativeHttp, path: str
+) -> None:
+    http = native_http
+    _ = http.import_triangle()
+    original = http.metadata()["graph"]
+    cursor = http.cursor()
+    # Admission rejects Content-Length before reading rejected bytes. Sending a
+    # large body with urllib races that early response/close against sendall,
+    # which can raise BrokenPipe without exposing the server's valid 422 reply.
+    # Withhold the body to exercise header-time rejection deterministically.
+    status, error, _ = http.request(
+        path,
+        b"",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(MAX_CONTROL_JSON_BYTES + 1),
+        },
+    )
+    assert status == 422 and "1,000,000-byte" in error["error"]
+    assert http.metadata()["graph"] == original
+    assert http.cursor() == cursor
 
 
 def test_inspect_is_read_only_and_matching_open_reuses_source_with_fresh_graph(

@@ -112,7 +112,7 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
       set onmessage(callback){super.onmessage=event=>{
         const data=event.data,operation=h.operations.get(data.id);
         const graph=data.kind==='graph'?data.state:data.ok&&['evaluateGraph','ensureGraph'].includes(operation)?data.result:null;
-        if(graph?.recipe)h.graphs.push(structuredClone(graph));
+        if(graph)h.graphs.push(structuredClone(graph));
         if(this.index===h.target&&(data.kind===h.hold||(h.heldRequest===data.id&&data.kind==='transfer-confirmed'))){
           h.heldRequest=data.id;h.held.push(()=>callback?.(event));return;
         }
@@ -155,8 +155,13 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     await page.waitForFunction(({epoch,token})=>window.__authoringTransport243.graphs.some(graph=>graph.project_generation===epoch&&graph.token===token
       &&graph.evaluation_running===false&&Array.isArray(graph.required_failures)&&Object.values(graph.states).every(state=>state==='ready')),
     {epoch:bundle.generation,token:bundle.graph.token},{timeout:180000});
-    const graph=await page.evaluate(({epoch,token})=>window.__authoringTransport243.graphs.findLast(graph=>graph.project_generation===epoch
+    const publication=await page.evaluate(({epoch,token})=>window.__authoringTransport243.graphs.findLast(graph=>graph.project_generation===epoch
       &&graph.token===token&&graph.evaluation_running===false&&Array.isArray(graph.required_failures)),{epoch:bundle.generation,token:bundle.graph.token});
+    // The shipped backend restores a token-matched recipe omitted from compact
+    // evaluation messages. Compare that real UI state with the observed
+    // terminal publication, preserving all geometry and status assertions.
+    const graph=(await coherent()).graph;
+    for(const [key,value]of Object.entries(publication))assert.deepEqual(graph[key],value,'published '+key);
     assertAcceptedSourceGraph(graph,{generation:bundle.generation,recipe,token:bundle.graph.token});
     result.graphs[key]=graph;result.graph_generations[key]=bundle.generation;
     await writeFile(path.join(output,'ui-authoring-'+key+'-graph.json'),JSON.stringify(graph,null,2)+'\n');return graph;
@@ -409,7 +414,10 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
   }finally{
     if(!result.complete)result.failure_snapshot=await page.evaluate(()=>({display:globalThis.__authoringDisplay243?.(),
       lifecycle:globalThis.__authoringBackend243?.getLifecycle(),status:document.querySelector('#status')?.textContent,
-      prepared:window.__authoringTransport243?.prepared,held:window.__authoringTransport243?.held.length})).catch(error=>({error:String(error)}));
+      prepared:window.__authoringTransport243?.prepared,held:window.__authoringTransport243?.held.length,
+      graph_publications:window.__authoringTransport243?.graphs.slice(-3).map(graph=>({token:graph.token,revision:graph.revision,
+        project_generation:graph.project_generation,recipe_present:!!graph.recipe,states:graph.states,
+        evaluation_running:graph.evaluation_running,required_failures:graph.required_failures}))})).catch(error=>({error:String(error)}));
     await context.close();
   }
 }

@@ -86,6 +86,71 @@ test('HTTP observation rejects mismatched compact revisions and propagates midst
   await assert.rejects(iterator.next(), /Network failed/);
 });
 
+test('HTTP polling reuses the matching recipe and replaces it when the actions token changes', async () => {
+  const original = { nodes: [{ id: 'selection', vertex_ids: [2, 7, 11], volume: { encoded: 'saved-volume' } }] };
+  const replacement = { nodes: [{ id: 'replacement', vertex_ids: [3] }] };
+  const paths = [], replies = [
+    { token: 'original', revision: 1, recipe: original, states: { selection: 'error' },
+      evaluation_error: 'Previous failure', status: 'running', evaluation_running: true },
+    { token: 'original', revision: 2, states: { selection: 'ready' }, errors: {}, evaluation_running: true },
+    { token: 'replacement', revision: 3, recipe: replacement,
+      states: { replacement: 'ready' }, evaluation_running: false },
+  ];
+  const backend = createHttpBackend({ fetch: async path => {
+    paths.push(path); return Response.json(replies.shift());
+  }, wait: async () => {} });
+  const updates = [];
+  for await (const state of backend.graphUpdates()) updates.push(state);
+  assert.deepEqual(paths, ['/api/graph', '/api/graph?revision=1&recipe_token=original',
+    '/api/graph?revision=2&recipe_token=original']);
+  assert.deepEqual(updates[1].recipe, original);
+  assert.deepEqual(updates[1].states, { selection: 'ready' });
+  assert.equal(Object.hasOwn(updates[1], 'evaluation_error'), false);
+  assert.equal(Object.hasOwn(updates[1], 'status'), false);
+  assert.deepEqual(updates[2].recipe, replacement);
+  assert.deepEqual(await backend.exportRecipe(updates[1]), original);
+  backend.close();
+});
+
+test('late HTTP reads cannot replace the recipe needed by newer polling', async () => {
+  let releaseOld, releaseNew;
+  const first = { token: 'old', revision: 1, recipe: { nodes: ['old'] }, states: {} };
+  const next = { token: 'new', revision: 2, recipe: { nodes: ['new'] }, states: {} };
+  let reads = 0;
+  const backend = createHttpBackend({ fetch: (path, init) => {
+    if (init.method === 'POST') return Response.json(next);
+    if (++reads === 1) return Response.json(first);
+    if (reads === 2) return new Promise(resolve => { releaseOld = resolve; });
+    assert.match(path, /recipe_token=new/);
+    return new Promise(resolve => { releaseNew = resolve; });
+  } });
+  await backend.getGraph();
+  const older = backend.getGraph({ revision: 1 });
+  await backend.replaceRecipe({ token: 'old', recipe: next.recipe });
+  const newer = backend.getGraph({ revision: 2 });
+  releaseOld(Response.json(first));
+  await older;
+  releaseNew(Response.json({ token: 'new', revision: 3, states: { new: 'ready' } }));
+  assert.deepEqual((await newer).recipe, next.recipe);
+  backend.close();
+});
+
+test('HTTP rejects recipe-less graph responses without a matching cached actions token', async () => {
+  for (const cached of [false, true]) {
+    const paths = [], replies = [
+      ...(cached ? [{ token: 'original', revision: 1, recipe: { nodes: [{ id: 'source' }] } }] : []),
+      { token: 'different', revision: 2, states: { source: 'ready' }, evaluation_running: false },
+    ];
+    const backend = createHttpBackend({ fetch: async path => {
+      paths.push(path); return Response.json(replies.shift());
+    } });
+    if (cached) await backend.getGraph();
+    await assert.rejects(backend.getGraph({ revision: 1 }), /Invalid recipe-less graph response/);
+    assert.equal(paths.at(-1), cached ? '/api/graph?revision=1&recipe_token=original' : '/api/graph?revision=1');
+    backend.close();
+  }
+});
+
 test('aborted reads cannot yield obsolete responses even when fetch ignores its signal', async () => {
   const controller = new AbortController();
   const backend = createHttpBackend({ fetch: async () => {
