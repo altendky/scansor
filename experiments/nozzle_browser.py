@@ -754,6 +754,7 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 }
             metadata["actions_limits"] = actions_limits()
+            metadata["selection_entries"] = {"version": 1}
             self.json_reply(200, metadata)
         elif self.path == "/api/graph/example":
             with self.app.lock:
@@ -800,6 +801,13 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 job, token = self.app.graph_job, self.app.graph_job_token
                 running = job is not None and not job.done()
+                if (
+                    job is not None
+                    and not running
+                    and state.get("evaluation_origin_token") == token
+                ):
+                    token = str(state["token"])
+                    self.app.graph_job_token = token
                 state["evaluation_running"] = running
                 if job is not None and not running and token == state["token"]:
                     try:
@@ -1156,6 +1164,16 @@ class Handler(BaseHTTPRequestHandler):
                                 raise ValueError(
                                     "ensure expects targets, not a target or recipe"
                                 )
+                            if (
+                                self.app.graph_job is not None
+                                and self.app.graph_job.done()
+                            ):
+                                with suppress(StaleGraph):
+                                    self.app.graph_job_token = (
+                                        self.app.graph.publication_token(
+                                            self.app.graph_job_token
+                                        )
+                                    )
                             needed, ready_state = self.app.graph.readiness_status(
                                 payload.token, payload.targets, payload.all_actions
                             )

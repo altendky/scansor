@@ -676,10 +676,10 @@ test('reused outputs affect owner presentation and recover without retained erro
   assert.equal(repaired.errors.batch, undefined);
 });
 
-test('defined relationships do not hide failed or blocked execution', () => {
+test('defined relationships do not hide failed, blocked or pending input execution', () => {
   for (const operation of ['mirror_symmetry', 'parallel', 'equal']) {
     const node = { id: operation, label: operation, operation }, state = fixture([node]);
-    for (const status of ['failed', 'blocked']) {
+    for (const status of ['failed', 'blocked', 'needs_input']) {
       state.states = { [operation]: status };
       state.errors = { [operation]: 'Upstream problem' };
       state.render();
@@ -688,6 +688,32 @@ test('defined relationships do not hide failed or blocked execution', () => {
       assert.match(actionDescription(node, status, 'Upstream problem'), /Upstream problem/);
     }
   }
+});
+
+test('pending selection setup has a question-mark status and no evaluation action', () => {
+  const state = fixture();
+  state.states = { wall: 'needs_input' };
+  state.evaluable.add('wall');
+  state.render();
+  const row = state.row('wall');
+  assert.match(row.getAttribute('aria-label'), /Needs input/);
+  assert.equal(row.querySelectorAll('.state-needs_input').length, 1);
+  assert.equal(row.querySelectorAll('.feature-evaluate').length, 0);
+  assert.deepEqual(state.evaluations, []);
+});
+
+test('owned and grouped pending inputs outrank ready or stale presentation', () => {
+  const nodes = [source, cylinder, plane, owner, edge, face],
+    states = Object.fromEntries(nodes.map(node => [node.id, 'ready']));
+  states.edge = 'stale';
+  states.face = 'needs_input';
+  const presentation = featureTreePresentation(nodes, states);
+  assert.equal(presentation.states.batch, 'needs_input');
+  const state = fixture(nodes, [{ id: 'group', label: 'Waiting' }]);
+  state.nodes = nodes.map(node => node.id === 'batch' ? { ...node, group_id: 'group' } : node);
+  state.states = states;
+  state.render();
+  assert.ok(state.list.querySelectorAll('.state-needs_input').length >= 2);
 });
 
 test('shared surface icons use the same paths as feature-tree rows', () => {

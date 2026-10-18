@@ -6,6 +6,7 @@ import path from 'node:path';
 import {sha256} from './server.mjs';
 import {sourceEvidenceSuffix,readSourceEvidence} from './source-import-harness.mjs';
 import {assertAcceptedSourceGraph} from './source-semantic.mjs';
+import {paintedSelectionMembership} from './source-authoring-semantic.mjs';
 
 const appSuffix=`
 globalThis.__authoringBackend243=backend;
@@ -194,8 +195,13 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     assert.ok(gesture,'A rectangle corner must be reachable through the actual unobscured canvas');
     await page.mouse.move(...gesture.start);await page.mouse.down();await page.mouse.move(...gesture.end,{steps:10});await page.mouse.up();
     await page.waitForFunction(({id,ids})=>{const d=globalThis.__authoringDisplay243(),node=d.graph.recipe.nodes.find(node=>node.id===id);
-      return !d.selection_pending&&!d.selection_drawing&&node?.depth==='through_all'&&JSON.stringify(node.ids)===JSON.stringify(ids);},{id:node.id,ids},{timeout:120000});
-    await ready(page);result.gestures.push({name:label,selection:node.id,view,depth:'through_all',expected_ids:ids,canvas:box,...gesture});return node.id;
+      const source=d.graph.recipe.nodes.find(n=>n.operation==='source'),entry=Array.isArray(node?.entries)?node.entries.find(e=>
+        e.scan.source_sha256===source.source_sha256&&e.scan.reference_sha256===source.reference_sha256&&e.scan.vertices===d.metadata.vertices):node;
+      return !d.selection_pending&&!d.selection_drawing&&entry?.depth==='through_all'&&JSON.stringify(entry.ids)===JSON.stringify(ids);},{id:node.id,ids},{timeout:120000});
+    await ready(page);const selected=await display(page),actual=selected.graph.recipe.nodes.find(n=>n.id===node.id),source=selected.graph.recipe.nodes.find(n=>n.operation==='source');
+    assert.deepEqual(paintedSelectionMembership(actual,source,selected.metadata.vertices,{nestedRequired:selected.metadata.selection_entries?.version===1}).ids,ids);
+    assert.deepEqual(selected.graph.memberships[node.id],ids);
+    result.gestures.push({name:label,selection:node.id,view,depth:'through_all',expected_ids:ids,canvas:box,...gesture});return node.id;
   };
   const fit=async(kind,input,label)=>{
     await page.getByRole('button',{name:'Surface fit',exact:true}).click();await page.locator('#new-fit-kind').selectOption(kind);

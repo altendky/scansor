@@ -1,6 +1,101 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { editSelection, rectangleHits, featureVertexIds } from './selection.js';
+import { editSelection, rectangleHits, featureVertexIds, activeSelectionEntry,
+  selectionEditState, resolvedSelectionIds, editPaintedMembership, initialPaintedEntry } from './selection.js';
+
+const scan = { id: 'scan', operation: 'source', source_sha256: 'a'.repeat(64),
+  reference_sha256: 'b'.repeat(64), descriptor: { filename: 'scan.ply', vertices: 10 } },
+  metadata = { vertices: 10 },
+  firstEntry = () => initialPaintedEntry(scan, metadata, 'first'),
+  grouped = entries => ({ id: 'selection', operation: 'selection', source: 'scan', entries }),
+  snapshot = (node, memberships = {}, states = {}) => ({ recipe: { nodes: [scan, node] }, memberships, states });
+
+test('entry resolution requires exact bytes, reference interpretation and vertex count', () => {
+  const first = firstEntry(), other = { ...firstEntry(), id: 'other',
+    scan: { ...firstEntry().scan, source_sha256: 'c'.repeat(64) } }, node = grouped([other, first]);
+  assert.equal(activeSelectionEntry(node, scan, metadata), first);
+  assert.equal(activeSelectionEntry(node, { ...scan, reference_sha256: 'd'.repeat(64) }, metadata), null);
+  assert.equal(activeSelectionEntry(node, scan, { vertices: 11 }), null);
+  assert.equal(activeSelectionEntry(node, { ...scan, id: 'another-source' }, metadata), null);
+  assert.equal(activeSelectionEntry(node, scan, {}), null);
+  assert.equal(activeSelectionEntry(grouped([first, { ...first, id: 'duplicate' }]), scan, metadata), null);
+  assert.equal(activeSelectionEntry(node, { ...scan, descriptor: { filename: 'renamed.ply' } }, metadata), first);
+});
+
+test('painting updates only the active entry and preserves original entries and owned volumes', () => {
+  const first = { ...firstEntry(), ids: [1], volumes: [{ id: 'volume', archive: { data: 'retained' } }] },
+    previous = { ...firstEntry(), id: 'previous', ids: [8], scan: { ...first.scan, source_sha256: 'c'.repeat(64) } },
+    node = grouped([previous, first]), next = editPaintedMembership(node, scan, metadata, [0, 2], 'through_all');
+  assert.deepEqual(next.entries[1].ids, [0, 2]);
+  assert.equal(next.entries[1].depth, 'through_all');
+  assert.deepEqual(next.entries[1].volumes, first.volumes);
+  assert.deepEqual(next.entries[0], previous);
+  assert.deepEqual(node.entries[1].ids, [1]);
+  assert.equal(Object.hasOwn(next, 'ids'), false);
+  assert.equal(Object.hasOwn(next, 'depth'), false);
+});
+
+test('generated and unavailable entries cannot be painted, including empty pending entries', () => {
+  const generated = { ...firstEntry(), mode: 'generated', source_volume: null };
+  delete generated.ids;
+  const pending = grouped([generated]), chosen = grouped([{ ...generated,
+    source_volume: { selection: 'other', entry: 'previous', volume: 'patch' } }]);
+  assert.match(selectionEditState(pending, scan, metadata).message, /Choose source volume/);
+  assert.match(selectionEditState(chosen, scan, metadata).message, /cannot be painted/);
+  for (const node of [pending, chosen, grouped([])]) {
+    assert.equal(selectionEditState(node, scan, metadata).editable, false);
+    assert.throws(() => editPaintedMembership(node, scan, metadata, [], 'first_surface'));
+  }
+});
+
+test('resolved generated memberships come only from current ready publications', () => {
+  const generated = { ...firstEntry(), mode: 'generated', source_volume: { selection: 's', entry: 'e', volume: 'v' } };
+  delete generated.ids;
+  const node = grouped([generated]);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, { selection: [2, 4] }, { selection: 'ready' }), metadata), [2, 4]);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, { selection: [2, 4] }, { selection: 'needs_input' }), metadata), []);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, {}, { selection: 'ready' }), metadata), []);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, { selection: [2, 4] }, { selection: 'ready' }), { vertices: 20 }), []);
+});
+
+test('published memberships override authored painted IDs without falling back from null', () => {
+  const node = grouped([{ ...firstEntry(), ids: [1] }]);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node), metadata), [1]);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, { selection: [2] }), metadata), [2]);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node, { selection: null }), metadata), []);
+  const growth = { id: 'growth', operation: 'growth' };
+  assert.deepEqual(resolvedSelectionIds(growth, snapshot(node, { growth: [6] }), metadata), [6]);
+});
+
+test('legacy selection read and edit preserve the flat format', () => {
+  const node = { id: 'selection', operation: 'selection', source: 'scan', ids: [0, 4], depth: 'through_all' };
+  assert.equal(selectionEditState(node, scan, metadata).editable, true);
+  assert.deepEqual(resolvedSelectionIds(node, snapshot(node), metadata), [0, 4]);
+  assert.deepEqual(editPaintedMembership(node, scan, metadata, [2], 'first_surface'),
+    { ...node, ids: [2], depth: 'first_surface' });
+  assert.deepEqual(node.ids, [0, 4]);
+  assert.deepEqual(resolvedSelectionIds(node, { recipe: { nodes: [node] } }, metadata), []);
+});
+
+test('new entries contain no default volume and cannot alias the source descriptor', () => {
+  const entry = firstEntry();
+  assert.deepEqual(entry.ids, []);
+  assert.deepEqual(entry.volumes, []);
+  assert.equal(entry.mode, 'painted');
+  assert.equal(entry.depth, 'first_surface');
+  assert.equal(entry.scan.reference_sha256, scan.reference_sha256);
+  entry.scan.descriptor.filename = 'changed.ply';
+  assert.equal(scan.descriptor.filename, 'scan.ply');
+  assert.throws(() => initialPaintedEntry(scan, { vertices: 0 }, 'new'), /identity is unavailable/);
+});
+
+test('painting rejects malformed IDs and preserves the source binding', () => {
+  const node = grouped([firstEntry()]);
+  for (const ids of [[2, 1], [1, 1], [-1], [10], [true], [1.5], ['1'], Array.from({ length: 25_001 }, (_, i) => i)])
+    assert.throws(() => editPaintedMembership(node, scan, metadata, ids, 'first_surface'), /sorted, unique/);
+  assert.throws(() => editPaintedMembership(node, scan, metadata, [], 'other'), /valid selection depth/);
+  assert.deepEqual(node.entries[0], firstEntry());
+});
 
 test('adding moves source IDs between regions without mutating the saved session', () => {
   const original = { lateral_ids: [1, 4], plane_ids: [2, 3] };

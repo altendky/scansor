@@ -19,6 +19,7 @@ import numpy as np
 import pydantic
 from numpy.typing import NDArray
 
+from experiments.browser_runtime.selection_entries_probe import selection_entries_probe
 from experiments.browser_runtime.selection_volume_probe import selection_volume_probe
 from experiments.browser_runtime.semantic_parity import (
     SemanticParityError,
@@ -1151,6 +1152,7 @@ def numeric(
         "imported_symmetries": imported_symmetries,
         "analytic_geometry": analytic_geometry_probe(),
         "selection_volumes": selection_volume_probe(),
+        "selection_entries": selection_entries_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
             json.dumps(
@@ -1510,6 +1512,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     volume_receipt = compare_values(
         actual["selection_volumes"], expected["selection_volumes"], "selection_volumes"
     )
+    entry_receipt = compare_values(
+        actual["selection_entries"], expected["selection_entries"], "selection_entries"
+    )
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
     np.testing.assert_allclose(
         actual["synthetic"]["residuals"],
@@ -1538,6 +1543,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
         "semantic_parity": {
             "analytic_geometry": analytic_receipt,
             "selection_volumes": volume_receipt,
+            "selection_entries": entry_receipt,
             "graph": graph_receipt,
             "imported_planes": plane_receipts,
             "imported_spheres": sphere_receipts,

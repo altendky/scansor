@@ -162,6 +162,26 @@ async function actionsFixture(options = {}, initial = {}) {
   await loading;
   return value;
 }
+test('entry-aware workers require a precise selection entry capability', async () => {
+  for (const entries of [undefined, null, { version: true }, { version: 2 }, { version: 1, extra: true }]) {
+    const { backend, worker } = fixture({ initialMode: 'empty', sourceActions: true });
+    const loading = backend.initialize();
+    const response = actionsReady();
+    response.worker_protocol = { ...response.worker_protocol, version: 8, selection_entries: entries };
+    worker.reply(response);
+    await assert.rejects(loading, /selection entries profile/);
+    assert.equal(worker.terminated, 1);
+  }
+  const { backend, worker } = fixture({ initialMode: 'empty', sourceActions: true });
+  const loading = backend.initialize();
+  const response = actionsReady();
+  response.worker_protocol = { ...response.worker_protocol, version: 8, selection_entries: { version: 1 } };
+  worker.reply(response);
+  await loading;
+  assert.equal(backend.capabilities.sourceActions, true);
+  backend.close();
+});
+
 function actionsCandidate(request, { warnings = [], sourceKind = 'generic', ...options } = {}) {
   const result = candidate(request, options);
   result.metadata.import_warnings = structuredClone(warnings);

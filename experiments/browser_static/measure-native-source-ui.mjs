@@ -64,8 +64,8 @@ globalThis.__nativeSourceUi285=async(hashes=false)=>{
   const name=names.get(object)||object.type+'.'+objects;
   for(const[key,a]of Object.entries(object.geometry.attributes))add(name+'.'+key,a.array||a.data?.array);
   add(name+'.indices',object.geometry.index?.array);});
- const selection=graphState.recipe.nodes.filter(n=>n.operation==='selection').map(n=>({id:n.id,count:n.ids.length,
-   min_id:n.ids.length?n.ids.reduce((a,b)=>Math.min(a,b),Infinity):null,max_id:n.ids.length?n.ids.reduce((a,b)=>Math.max(a,b),-Infinity):null}));
+ const selection=graphState.recipe.nodes.filter(n=>n.operation==='selection').map(n=>{const ids=graphState.memberships?.[n.id]||n.ids||[];return{id:n.id,count:ids.length,
+   min_id:ids.length?ids.reduce((a,b)=>Math.min(a,b),Infinity):null,max_id:ids.length?ids.reduce((a,b)=>Math.max(a,b),-Infinity):null};});
  const indices=mesh.geometry.index?.array;
  const digest=async array=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
    new Uint8Array(array.buffer,array.byteOffset,array.byteLength)))).map(v=>v.toString(16).padStart(2,'0')).join('');

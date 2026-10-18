@@ -231,6 +231,92 @@ def test_observations_and_native_replay_use_all_actual_ids(
     assert output["semantic_parity"]["policy_sha256"] == oracle.POLICY_SHA256
 
 
+def nested_painted_case(
+    observation: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    nodes = observation["graphs"]["original"]["recipe"]["nodes"]
+    source, selection = copy.deepcopy(nodes[0]), copy.deepcopy(nodes[1])
+    ids = selection.pop("ids")
+    depth = selection.pop("depth", "through_all")
+    selection["entries"] = [
+        {
+            "id": "original_entry",
+            "mode": "painted",
+            "scan": {
+                "source_sha256": source["source_sha256"],
+                "reference_sha256": source["reference_sha256"],
+                "vertices": source["descriptor"]["vertices"],
+                "descriptor": copy.deepcopy(source["descriptor"]),
+            },
+            "ids": ids,
+            "depth": depth,
+            "source_volume": None,
+            "volumes": [],
+        }
+    ]
+    return selection, source
+
+
+def test_independent_oracle_accepts_original_ids_in_nested_painted_entry(
+    observation: dict[str, Any],
+) -> None:
+    selection, source = nested_painted_case(observation)
+    membership = oracle.painted_membership(
+        selection, source, source["descriptor"]["vertices"], nested_required=True
+    )
+    assert membership["ids"] == observation["gesture"]["expected_ids"]
+    assert "ids" not in selection and "depth" not in selection
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "source",
+        "reference",
+        "count",
+        "descriptor",
+        "mode",
+        "volume",
+        "source_volume",
+        "duplicate_ids",
+        "unsorted_ids",
+        "flat_alias",
+        "multiple_entries",
+    ],
+)
+def test_independent_nested_selection_oracle_rejects_identity_and_membership_faults(
+    observation: dict[str, Any], fault: str
+) -> None:
+    selection, source = nested_painted_case(observation)
+    entry = selection["entries"][0]
+    if fault == "source":
+        entry["scan"]["source_sha256"] = "d" * 64
+    elif fault == "reference":
+        entry["scan"]["reference_sha256"] = "d" * 64
+    elif fault == "count":
+        entry["scan"]["vertices"] += 1
+    elif fault == "descriptor":
+        entry["scan"]["descriptor"]["vertices"] += 1
+    elif fault == "mode":
+        entry["mode"] = "generated"
+    elif fault == "volume":
+        entry["volumes"] = [{"id": "unrequested"}]
+    elif fault == "source_volume":
+        entry["source_volume"] = {"selection": "s", "entry": "e", "volume": "v"}
+    elif fault == "duplicate_ids":
+        entry["ids"].append(entry["ids"][-1])
+    elif fault == "unsorted_ids":
+        entry["ids"].reverse()
+    elif fault == "flat_alias":
+        selection["ids"] = entry["ids"]
+    else:
+        selection["entries"].append(copy.deepcopy(entry))
+    with pytest.raises(ValueError):
+        _ = oracle.painted_membership(
+            selection, source, source["descriptor"]["vertices"]
+        )
+
+
 @pytest.mark.parametrize(
     "fault",
     [

@@ -339,6 +339,7 @@ class BrowserWorkspace:
             "source_mode": self._mode(source),
             "source_identity": self._identity(source),
             "actions_limits": actions_limits(),
+            "selection_entries": {"version": 1},
             "capabilities": {**capabilities, "source_import": source_import},
             "face_building_limits": {
                 "max_pair_checks": MAX_PAIRS,
@@ -1450,15 +1451,19 @@ class BrowserWorkspace:
         except Exception as error:
             message = str(self._error(error)["message"])
             self._last_error = message
-            self._job_errors[(request.token, pending.roots)] = message
+            self._job_errors[
+                (self.graph.publication_token(request.token), pending.roots)
+            ] = message
         finally:
             self._pending = None
             if self._evaluation_lease is not None:
                 self._evaluation_lease.close()
                 self._evaluation_lease = None
+        published_token = self.graph.publication_token(request.token)
+        self._last_token = published_token
         state = cast(
             dict[str, Any],
-            self.graph.readiness_snapshot(request.token, sorted(pending.roots)),
+            self.graph.readiness_snapshot(published_token, sorted(pending.roots)),
         )
         state["evaluation_running"] = False
         state["project_generation"] = self._workspace_generation

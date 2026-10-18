@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { SOURCE_AUTHORING_SCHEMA, SOURCE_AUTHORING_CASES, authoringSemanticCases } from './source-authoring-semantic.mjs';
+import { SOURCE_AUTHORING_SCHEMA, SOURCE_AUTHORING_CASES, authoringSemanticCases, paintedSelectionMembership } from './source-authoring-semantic.mjs';
 import { compareSemanticBatch } from './semantic-parity.mjs';
 import { sha256 } from './server.mjs';
 
@@ -40,6 +40,64 @@ function report() {
     cases: Object.entries(SOURCE_AUTHORING_CASES).map(([name, fields]) => ({ name, complete: true, ...Object.fromEntries(fields.map(key => [key, true])) })),
     graphs, native_graphs: native, graph_generations: { raw: 2, raw_edited: 2, scene: 4 }, evidence: { raw_source: raw, scene_source: scene } } };
 }
+function groupedReport() {
+  const value = report();
+  for (const side of ['graphs', 'native_graphs']) for (const state of Object.values(value.ui_authoring[side])) {
+    const source = state.recipe.nodes[0], selection = state.recipe.nodes[1];
+    selection.entries = [{ id: 'original_entry', mode: 'painted', ids: selection.ids, depth: 'through_all',
+      scan: { source_sha256: source.source_sha256, reference_sha256: source.reference_sha256,
+        vertices: source.descriptor.vertices, descriptor: structuredClone(source.descriptor) }, source_volume: null, volumes: [] }];
+    delete selection.ids;
+  }
+  return value;
+}
+
+test('nested painted entries preserve exact original observations on both transports', () => {
+  const value = groupedReport(), before = structuredClone(value);
+  const cases = authoringSemanticCases(value);
+  assert.equal(cases.length, 3);
+  for (const item of cases) assert.deepEqual(item.actual, item.expected);
+  assert.deepEqual(value, before);
+});
+
+for (const [name, mutate] of [
+  ['source bytes', e => { e.scan.source_sha256 = 'd'.repeat(64); }],
+  ['reference identity', e => { e.scan.reference_sha256 = 'd'.repeat(64); }],
+  ['vertex count', e => { e.scan.vertices++; }],
+  ['descriptor', e => { e.scan.descriptor.vertices++; }],
+  ['generated entry', e => { e.mode = 'generated'; }],
+  ['implicit volume', e => { e.volumes = [{ id: 'unrequested' }]; }],
+  ['source choice', e => { e.source_volume = { selection: 'other', entry: 'e', volume: 'v' }; }],
+  ['duplicate IDs', e => { e.ids = [0, 0, 1]; }],
+  ['unsorted IDs', e => { e.ids.reverse(); }],
+  ['foreign row', e => { e.ids.push(3); }],
+]) test('nested authoring oracle rejects ' + name, () => {
+  for (const side of ['graphs', 'native_graphs']) {
+    const value = groupedReport();
+    mutate(value.ui_authoring[side].raw.recipe.nodes[1].entries[0]);
+    assert.throws(() => authoringSemanticCases(value));
+  }
+});
+
+test('nested authoring oracle rejects multiple entries, flat aliases and stale publication', () => {
+  for (const mutate of [
+    (selection, _state) => { selection.entries.push(structuredClone(selection.entries[0])); },
+    (selection, _state) => { selection.ids = [0, 1, 2]; },
+    (selection, _state) => { selection.depth = 'through_all'; },
+    (_selection, state) => { state.memberships.selected = [0]; },
+    (selection, _state) => { selection.entries = {}; },
+  ]) {
+    const value = groupedReport(), state = value.ui_authoring.graphs.raw;
+    mutate(state.recipe.nodes[1], state);
+    assert.throws(() => authoringSemanticCases(value));
+  }
+});
+
+test('new selection profile cannot fall back to a legacy flat fixture', () => {
+  const state = report().ui_authoring.graphs.raw;
+  assert.throws(() => paintedSelectionMembership(state.recipe.nodes[1], state.recipe.nodes[0], 3,
+    { nestedRequired: true }), /requires an entry/);
+});
 
 test('exact three source-bound graph operands retain every raw field and independent epoch', () => {
   const value = report(), before = structuredClone(value), cases = authoringSemanticCases(value);

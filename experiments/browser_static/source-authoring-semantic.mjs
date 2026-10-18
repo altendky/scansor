@@ -38,6 +38,36 @@ function descriptorBinding(descriptor) {
   const semantic = Object.fromEntries(Object.keys(descriptor).filter(key => key !== 'filename').sort().map(key => [key, descriptor[key]]));
   return createHash('sha256').update(JSON.stringify(semantic)).digest('hex');
 }
+// Independent acceptance oracle for user-painted observations. Initial grouped
+// selections own exactly one source-bound entry and never an implicit volume.
+// Legacy flat recipes remain intentional fixtures/reopen inputs.
+export function paintedSelectionMembership(selection, source, vertices, { nestedRequired = false } = {}) {
+  assert.equal(selection.operation, 'selection');
+  assert.equal(selection.source, source.id);
+  let membership = selection;
+  if (selection.entries !== undefined && selection.entries !== null) {
+    assert.ok(Array.isArray(selection.entries), 'scan entries must be a list');
+    assert.equal(selection.entries.length, 1, 'one initial scan entry');
+    assert.equal(Object.hasOwn(selection, 'ids'), false, 'group has no flat membership');
+    assert.equal(Object.hasOwn(selection, 'depth'), false, 'depth belongs to the entry');
+    membership = selection.entries[0];
+    assert.match(membership.id, /^[a-zA-Z0-9_-]{1,64}$/);
+    assert.equal(membership.mode, 'painted');
+    assert.equal(membership.scan.source_sha256, source.source_sha256);
+    assert.equal(membership.scan.reference_sha256, source.reference_sha256);
+    assert.equal(membership.scan.vertices, vertices);
+    assert.deepEqual(membership.scan.descriptor, source.descriptor);
+    assert.equal(descriptorBinding(membership.scan.descriptor), source.reference_sha256);
+    assert.deepEqual(membership.volumes, [], 'painting does not create a volume');
+    assert.ok(membership.source_volume === undefined || membership.source_volume === null);
+  } else assert.equal(nestedRequired, false, 'new grouped-selection profile requires an entry');
+  assert.ok(Array.isArray(membership.ids));
+  assert.ok(membership.ids.length <= 25_000);
+  assert.ok(membership.ids.every((id, index) => Number.isSafeInteger(id) && id >= 0 && id < vertices &&
+    (index === 0 || membership.ids[index - 1] < id)), 'canonical original source IDs');
+  if (membership.depth !== undefined) assert.ok(['through_all', 'first_surface'].includes(membership.depth));
+  return membership;
+}
 function sourceEvidence(evidence) {
   const d = evidence.descriptor;
   const binding = descriptorBinding(d);
@@ -81,8 +111,8 @@ function graphEvidence(graph, source, binding, generation) {
   assert.equal(node.source_sha256, source.source_sha256); assert.equal(node.reference_sha256, binding);
   assert.deepEqual(node.descriptor, source.descriptor);
   for (const selection of graph.recipe.nodes.filter(value => value.operation === 'selection')) {
-    assert.equal(selection.source, node.id);
-    assert.ok(Array.isArray(selection.ids) && selection.ids.every(id => Number.isSafeInteger(id) && id >= 0 && id < source.vertices));
+    const membership = paintedSelectionMembership(selection, node, source.vertices);
+    assert.deepEqual(graph.memberships[selection.id], membership.ids);
   }
 }
 

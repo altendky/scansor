@@ -915,14 +915,49 @@ def validate_source_authoring_evidence(
             )
             for node in nodes:
                 if node.get("operation") == "selection":
-                    ids = array_value(node.get("ids"))
+                    membership = node
+                    if node.get("entries") is not None:
+                        entries = array_value(node["entries"])
+                        require(
+                            len(entries) == 1
+                            and "ids" not in node
+                            and "depth" not in node,
+                            "source authoring initial Selection must own one scan entry",
+                        )
+                        membership = object_value(entries[0])
+                        scan = object_value(membership.get("scan"))
+                        require(
+                            isinstance(membership.get("id"), str)
+                            and re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", membership["id"])
+                            is not None
+                            and membership.get("mode") == "painted"
+                            and membership.get("source_volume") is None
+                            and membership.get("volumes") == []
+                            and scan.get("source_sha256") == source["source_sha256"]
+                            and scan.get("reference_sha256") == binding
+                            and type(scan.get("vertices")) is int
+                            and scan["vertices"] == source["vertices"]
+                            and exact_json(scan.get("descriptor"))
+                            == exact_json(descriptor),
+                            "source authoring painted entry binding/ownership invalid",
+                        )
+                    ids = array_value(membership.get("ids"))
                     require(
                         node.get("source") == authored_source["id"]
+                        and membership.get("depth", "through_all")
+                        in ("through_all", "first_surface")
+                        and len(ids) <= 25_000
                         and all(
-                            type(value) is int and 0 <= value < source["vertices"]
-                            for value in ids
+                            type(value) is int
+                            and 0 <= value < source["vertices"]
+                            and (index == 0 or ids[index - 1] < value)
+                            for index, value in enumerate(ids)
                         ),
                         "source authoring selection binding/IDs invalid",
+                    )
+                    require(
+                        object_value(graph.get("memberships")).get(node["id"]) == ids,
+                        "source authoring selection membership differs from painted IDs",
                     )
         require(
             exact_json(actual["recipe"]) == exact_json(expected["recipe"])

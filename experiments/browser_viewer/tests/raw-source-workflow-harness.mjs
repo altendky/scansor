@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { paintedSelectionMembership } from '../../browser_static/source-authoring-semantic.mjs';
 
 export const RAW_WORKFLOW_SCHEMA = 'scansor-raw-source-workflow-v1';
 export const RAW_SOURCE_SHA256 = '537880eb7e7e20d515cb838a0acfdc19d5f661bdb6ae81e80328c8490ad82358';
@@ -175,11 +176,17 @@ export async function runRawSourceWorkflowUi({ page, rawPath, output, snapshot, 
     const expectedIds = rectangleIds(value.positions, view, delivered);
     assert(expectedIds.length > 0 && expectedIds.length < 24999, 'independently projected partial original-source selection');
     report.gesture.expected_ids = expectedIds;
-    value = await until(page, snapshot, value => unlocked(value) && graph(value).recipe.nodes.some(node => node.operation === 'selection' && node.ids.length), 'pointer membership committed');
+    value = await until(page, snapshot, value => unlocked(value) && graph(value).recipe.nodes.some(node =>
+      node.operation === 'selection' && graph(value).memberships[node.id]?.length), 'pointer membership committed');
     const selections = graph(value).recipe.nodes.filter(node => node.operation === 'selection');
     assert.equal(selections.length, 1);
     const selection = selections[0];
-    assert.deepEqual(selection.ids, expectedIds, 'actual pointer IDs equal independent original-row projection');
+    const source = graph(value).recipe.nodes.find(node => node.operation === 'source'),
+      membership = paintedSelectionMembership(selection, source, value.metadata.vertices,
+        { nestedRequired: value.metadata.selection_entries?.version === 1 });
+    assert.deepEqual(membership.ids, expectedIds, 'actual pointer IDs equal independent original-row projection');
+    assert.equal(membership.depth, 'through_all');
+    assert.deepEqual(graph(value).memberships[selection.id], expectedIds);
     report.selection_id = selection.id;
     await checkpoint(report);
 
