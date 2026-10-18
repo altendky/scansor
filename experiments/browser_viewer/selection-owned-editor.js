@@ -35,31 +35,52 @@ export function volumeAuthorPayload({ token, selection, entry, mode, target, vol
 
 // Read requests can finish after a source change or a different volume opens.
 // Never publish those buffers, even if the old object still exists in a recipe.
-export function createVolumePreviewReader({ request, current, publish, dispose = () => {} }) {
+export function createVolumePreviewReader({ request, current, publish, progress = () => {}, dispose = () => {} }) {
   let sequence = 0;
   function clear() { sequence++; dispose(); }
-  async function load(reference, archive_sha256, offset = 0) {
+  async function load(reference, archive_sha256) {
     const ticket = ++sequence, before = current(), token = before.token, generation = before.generation;
-    let preview;
-    try { preview = await request({ token, reference, archive_sha256, offset, limit: 1024 }); }
-    catch (error) {
-      if (ticket !== sequence || token !== current().token || generation !== current().generation) return null;
-      throw error;
+    const stale = () => {
+      const after = current();
+      return ticket !== sequence || token !== after.token || generation !== after.generation ||
+        referenceKey(reference) !== referenceKey(after.reference) || archive_sha256 !== after.archive_sha256;
+    };
+    dispose();
+    let first, positions, normals, signature, offset = 0;
+    while (true) {
+      let page;
+      try { page = await request({ token, reference, archive_sha256, offset, limit: 1024 }); }
+      catch (error) { if (stale()) return null; throw error; }
+      if (stale()) return null;
+      const stop = offset + page.returned_cells;
+      if (page.token !== token || page.archive_sha256 !== archive_sha256 ||
+        referenceKey(page.reference) !== referenceKey(reference) || page.offset !== offset ||
+        !Number.isSafeInteger(page.returned_cells) || page.returned_cells < 1 || page.returned_cells > 1024 ||
+        !Number.isSafeInteger(page.total_cells) || page.total_cells < stop || page.total_cells > 600000 ||
+        page.positions?.length !== page.returned_cells * 9 || page.normals?.length !== page.positions.length ||
+        !page.positions.every(value => Number.isFinite(value) && Math.abs(value) <= 3.402823466e38) || !page.normals.every(Number.isFinite) ||
+        ![page.bounds?.min, page.bounds?.max].every(vector => vector?.length === 3 && vector.every(Number.isFinite)) ||
+        page.next_offset !== (stop < page.total_cells ? stop : null))
+        throw Error('The accepted volume preview is incomplete or inconsistent.');
+      const metadata = JSON.stringify([page.total_cells, page.kind, page.label, page.freshness,
+        page.options, page.defaults, page.resolved, page.bounds]);
+      if (!first) {
+        first = page; signature = metadata;
+        // Match the accepted archive's 600,000-cell bound without retaining
+        // every JSON page or repeatedly copying the accumulated geometry.
+        positions = new Float32Array(page.total_cells * 9);
+        normals = new Float32Array(positions.length);
+      } else if (metadata !== signature) throw Error('The accepted volume preview changed while loading.');
+      positions.set(page.positions, offset * 9); normals.set(page.normals, offset * 9);
+      offset = stop;
+      progress(offset, page.total_cells);
+      if (stale()) return null;
+      if (page.next_offset === null) {
+        const preview = { ...first, offset: 0, returned_cells: offset, next_offset: null, positions, normals };
+        publish(preview); return preview;
+      }
+      first = { ...first, positions: null, normals: null };
     }
-    const after = current();
-    if (ticket !== sequence || token !== after.token || generation !== after.generation ||
-      referenceKey(reference) !== referenceKey(after.reference) || archive_sha256 !== after.archive_sha256) return null;
-    if (preview.token !== token || preview.archive_sha256 !== archive_sha256 ||
-      referenceKey(preview.reference) !== referenceKey(reference) || preview.offset !== offset ||
-      !Number.isSafeInteger(preview.returned_cells) || preview.returned_cells < 0 || preview.returned_cells > 1024 ||
-      !Number.isSafeInteger(preview.total_cells) || preview.total_cells < offset + preview.returned_cells ||
-      preview.positions?.length !== preview.returned_cells * 9 || preview.normals?.length !== preview.positions.length ||
-      !preview.positions.every(value => Number.isFinite(value) && Math.abs(value) <= 3.402823466e38) || !preview.normals.every(Number.isFinite) ||
-      ![preview.bounds?.min, preview.bounds?.max].every(vector => vector?.length === 3 && vector.every(Number.isFinite)) ||
-      preview.returned_cells === 0 && preview.next_offset !== null ||
-      preview.next_offset !== null && preview.next_offset !== offset + preview.returned_cells)
-      throw Error('The accepted volume preview is incomplete or inconsistent.');
-    dispose(); publish(preview); return preview;
   }
   return { load, clear };
 }
@@ -88,7 +109,7 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
   const input = (id, value, label, parent = root) => {
     const node = element('input'); node.id = id; node.value = value; field(label, node, parent); return node;
   };
-  let message, detail, sourceChoice, fitChoice, fitFeedback, targetChoice, previewStatus, pagePrevious, pageNext, pageFocus;
+  let message, detail, sourceChoice, fitChoice, fitFeedback, targetChoice, previewStatus, pageFocus;
   const record = () => ownedRecord(getCurrent().graph, context);
   const source = () => getCurrent().graph.recipe.nodes.find(node => node.operation === 'source');
   const active = () => activeSelectionEntry(record().selection, source(), getCurrent().metadata);
@@ -103,14 +124,15 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
   const reader = createVolumePreviewReader({ request: payload => backend.getSelectionVolumePreview(payload),
     current: currentPreview, dispose: () => {
       preview = null; onPreview(null);
-      for (const control of [pagePrevious, pageNext, pageFocus]) if (control) control.disabled = true;
+      if (pageFocus) pageFocus.disabled = true;
+    }, progress: (loaded, total) => {
+      if (previewStatus) previewStatus.textContent = `Loading accepted support preview: ${loaded.toLocaleString()} of ${total.toLocaleString()} support cells…`;
     }, publish: value => {
       preview = value; onPreview(value); updateControls(value); updatePreviewStatus();
     } });
   function updatePreviewStatus() {
     if (!previewStatus || !preview) return;
-    previewStatus.textContent = `${preview.offset + 1}–${preview.offset + preview.returned_cells} of ${preview.total_cells.toLocaleString()} support cells. ${preview.returned_cells < preview.total_cells ? 'Partial preview; use pages to inspect all support. ' : ''}Accepted support with inward/outward guides; normal filtering also applies. ${preview.freshness === 'current' ? '' : `Status: ${preview.freshness}.`}`;
-    pagePrevious.disabled = preview.offset === 0; pageNext.disabled = preview.next_offset === null;
+    previewStatus.textContent = `All ${preview.total_cells.toLocaleString()} support cells. Accepted support with inward/outward guides; normal filtering also applies. ${preview.freshness === 'current' ? '' : `Status: ${preview.freshness}.`}`;
     pageFocus.disabled = false;
   }
   function updateControls(values) {
@@ -186,11 +208,11 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       if (untouched && !author) onApplied();
     } catch (error) { if (ticket === choiceSequence && key === renderedKey) message.textContent = error.message; }
   }
-  async function loadPreview(offset = 0) {
+  async function loadPreview() {
     const reference = currentPreview();
     if (!reference.reference) return;
-    try { await reader.load(reference.reference, reference.archive_sha256, offset); }
-    catch (error) { message.textContent = error.message; }
+    try { await reader.load(reference.reference, reference.archive_sha256); }
+    catch (error) { message.textContent = error.message; previewStatus.textContent = 'Accepted support preview unavailable; no incomplete support is displayed.'; }
   }
   function authorForm(replace = null) {
     // Capture is a continuation of this volume's live control intent. Validate
@@ -273,10 +295,8 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       }, footer);
       previewStatus = hint('Loading accepted support preview…');
       const pages = element('div', undefined, 'owned-preview-pages'); root.append(pages);
-      pagePrevious = button('Previous cells', () => loadPreview(Math.max(0, preview.offset - 1024)), pages);
-      pageNext = button('Next cells', () => loadPreview(preview.next_offset), pages);
       pageFocus = button('Focus volume', () => onFocus(preview), pages);
-      pagePrevious.disabled = pageNext.disabled = pageFocus.disabled = true;
+      pageFocus.disabled = true;
       hint('Mesh support is a union of local slabs. Coverage is a sampled warning and can miss small gaps.');
       void loadPreview();
     } else {

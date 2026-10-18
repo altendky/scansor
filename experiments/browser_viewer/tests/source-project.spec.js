@@ -12,7 +12,7 @@ const prepareFixtures = () => JSON.parse(execFileSync(python, ['-c', [
   'import base64,json',
   'from tests.native_scan_fixture import native_scene_fixture,native_grid_fixture',
   'def record(f): return dict(raw=base64.b64encode(f.raw).decode(), positions=f.positions.tolist(), triangles=f.triangles.tolist())',
-  'print(json.dumps(dict(scene=record(native_scene_fixture()),grid=record(native_grid_fixture(4,3)),dense=record(native_grid_fixture(6,5)))))',
+  'print(json.dumps(dict(scene=record(native_scene_fixture()),grid=record(native_grid_fixture(4,3)),dense=record(native_grid_fixture(6,5)),multipage=record(native_grid_fixture(16,16)))))',
 ].join('\n')], { cwd: repository, encoding: 'utf8', env: { ...process.env, OPENBLAS_NUM_THREADS: '1' } }));
 let fixture;
 
@@ -218,6 +218,45 @@ test('Replace scan toolbar chooser preserves cancelled drafts and retains defini
     expect(confirmations.some(message => /current source and committed actions/i.test(message))).toBe(false);
     expect(errors).toEqual([]);
   } finally { page.off('dialog', accept); }
+});
+
+test('owned volume preview automatically displays complete support across bounded pages', async ({ page }) => {
+  const errors = [], pages = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await imported(page, memoryFile('multipage-grid.ply', fixture.multipage));
+  const authored = await rectanglePlane(page, fixture.multipage.positions.length, 'Multipage plane');
+  await page.locator(`[data-action-id="${authored.selection.id}"]`).dispatchEvent('dblclick');
+  const editor = page.locator('#selection-owned-editor');
+  await editor.getByRole('button', { name: 'Create volume…', exact: true }).click();
+  await editor.getByRole('button', { name: 'Capture volume', exact: true }).click();
+  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.id === authored.selection.id).entries?.[0].volumes.length).toBe(1);
+  const before = await graph(page), selection = before.recipe.nodes.find(node => node.id === authored.selection.id),
+    entry = selection.entries[0], volume = entry.volumes[0];
+  await page.route('**/api/graph/selection-volumes/preview', async route => {
+    const response = await route.fetch(), value = await response.json();
+    pages.push({ request: route.request().postDataJSON(), response: value });
+    await route.fulfill({ response });
+  });
+  const row = page.locator(`[data-owned-selection-id="${selection.id}"][data-owned-entry-id="${entry.id}"][data-owned-volume-id="${volume.id}"]`);
+  await row.dispatchEvent('keydown', { key: 'F2' });
+  await expect(editor).toContainText(/All [\d,]+ support cells/);
+  expect(pages.length).toBeGreaterThan(1);
+  const total = pages[0].response.total_cells;
+  expect(total).toBeGreaterThan(1024);
+  let loaded = 0;
+  for (const { request, response } of pages) {
+    expect(request.offset).toBe(loaded); expect(request.limit).toBe(1024);
+    expect(response.offset).toBe(loaded); expect(response.total_cells).toBe(total);
+    expect(response.returned_cells).toBeLessThanOrEqual(1024);
+    loaded += response.returned_cells;
+    expect(response.next_offset).toBe(loaded < total ? loaded : null);
+  }
+  expect(loaded).toBe(total);
+  await expect(editor).toContainText(`All ${total.toLocaleString('en-US')} support cells`);
+  await expect(editor.getByRole('button', { name: 'Focus volume', exact: true })).toBeEnabled();
+  await expect(editor.getByRole('button', { name: 'Next cells', exact: true })).toHaveCount(0);
+  expect((await graph(page)).recipe).toEqual(before.recipe);
+  expect(errors).toEqual([]);
 });
 
 test('owned mesh volume capture and preview drive explicit replacement membership without repainting', async ({ page }) => {

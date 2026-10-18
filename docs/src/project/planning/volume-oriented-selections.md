@@ -200,8 +200,9 @@ its consumers first.
 Each control independently offers Auto or Override. Saved Auto and resolved
 values remain inspectable after unloading the source. Accepted support cells
 and inward/outward guides appear in the model. Preview pages contain at most
-2,048 cells and at most 1,000,000 bytes; the inspector requests 1,024 at a time,
-labels partial previews, and allows navigating every saved cell. These guides
+2,048 cells and at most 1,000,000 bytes; the inspector automatically requests
+1,024 at a time, reports loading progress, and displays the complete accepted
+support only after every page is validated. These guides
 do not claim to display a sealed Boolean boundary or an exact padded footprint.
 The complete generated membership remains the authoritative query result.
 Late replies are fenced by source generation, graph token, owned reference and

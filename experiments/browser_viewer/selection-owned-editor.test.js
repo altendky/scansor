@@ -140,13 +140,76 @@ test('creating a volume uses current entry and leaves create/replace explicit', 
   assert.equal(Object.hasOwn(payload, 'target'), false); assert.equal(Object.hasOwn(payload, 'fit'), false);
 });
 
-test('preview pages expose their partial bounds and clear rendered resources on context change', async () => {
+test('preview automatically includes every support page and clears resources on context change', async () => {
   const f = fixture(); f.editor.show({ selection: 'selection', entry: 'original', volume: 'saved' }); await settle();
-  assert.match(f.text(), /Partial preview/); assert.equal(f.editor.preview.returned_cells, 1);
-  await f.button('Next cells').onclick(); await settle();
-  assert.equal(f.calls.filter(([name]) => name === 'preview').at(-1)[1].offset, 1);
+  assert.match(f.text(), /All 2 support cells/); assert.equal(f.editor.preview.returned_cells, 2);
+  assert.equal(f.editor.preview.positions.length, 18);
+  assert.deepEqual(f.calls.filter(([name]) => name === 'preview').map(([, payload]) => payload.offset), [0, 1]);
+  assert.equal(f.button('Next cells'), undefined); assert.equal(f.button('Previous cells'), undefined);
   f.editor.show({ selection: 'selection', entry: 'original' });
   assert.equal(f.publications.at(-1), null); assert.equal(f.editor.preview, null);
+});
+
+test('a multipage preview is published once only after its distinct final cell is loaded', async () => {
+  const state = { token: 't', generation: 1, reference, archive_sha256: 'digest' },
+    pending = deferred(), calls = [], publications = [], progress = [];
+  const reader = createVolumePreviewReader({ current: () => state,
+    request: async payload => {
+      calls.push(payload);
+      if (payload.offset === 1000) await pending.promise;
+      const count = payload.offset === 0 ? 1000 : 37;
+      return { ...previewResponse(payload), total_cells: 1037, returned_cells: count,
+        next_offset: payload.offset === 0 ? 1000 : null,
+        positions: Array.from({ length: count * 9 }, (_, index) => payload.offset * 9 + index),
+        normals: Array(count * 9).fill(1) };
+    }, publish: value => publications.push(value), progress: (...value) => progress.push(value) });
+  const loading = reader.load(reference, 'digest'); await settle();
+  assert.equal(publications.length, 0); assert.deepEqual(progress, [[1000, 1037]]);
+  assert.deepEqual(calls.map(payload => [payload.offset, payload.limit]), [[0, 1024], [1000, 1024]]);
+  pending.resolve(); const preview = await loading;
+  assert.equal(publications.length, 1); assert.equal(preview.returned_cells, 1037);
+  assert.equal(preview.offset, 0); assert.equal(preview.next_offset, null);
+  assert.deepEqual([...preview.positions], Array.from({ length: 1037 * 9 }, (_, index) => index));
+  assert.deepEqual([...preview.normals], Array(1037 * 9).fill(1));
+});
+
+test('later-page failure or inconsistent metadata never publishes incomplete geometry', async () => {
+  for (const defect of ['failure', 'total', 'bounds', 'early-end', 'empty', 'over-budget']) {
+    let disposed = 0;
+    const state = { token: 't', generation: 1, reference, archive_sha256: 'digest' };
+    const reader = createVolumePreviewReader({ current: () => state, dispose: () => disposed++,
+      request: async payload => {
+        const page = previewResponse(payload);
+        if (payload.offset === 0) return page;
+        if (defect === 'failure') throw Error('Preview request failed');
+        return { ...page, ...{
+          total: { total_cells: 3, next_offset: 2 }, bounds: { bounds: { min: [0, 0, 0], max: [2, 2, 0] } },
+          'early-end': { total_cells: 3 }, empty: { returned_cells: 0 }, 'over-budget': { total_cells: 600001 },
+        }[defect] };
+      }, publish: () => assert.fail('Partial preview published') });
+    await assert.rejects(reader.load(reference, 'digest'), /failed|incomplete|changed/);
+    assert.equal(disposed, 1);
+  }
+});
+
+test('later pages and their failures are ignored after a preview is abandoned or replaced', async () => {
+  for (const change of ['clear', 'token', 'generation', 'reference', 'archive', 'failure']) {
+    const pending = deferred(); let count = 0;
+    let state = { token: 't', generation: 1, reference, archive_sha256: 'digest' };
+    const reader = createVolumePreviewReader({ current: () => state,
+      request: async payload => {
+        count++;
+        if (payload.offset) { await pending.promise; if (change === 'failure') throw Error('Old request failed'); }
+        return previewResponse(payload);
+      }, publish: () => assert.fail('Abandoned preview published') });
+    const loading = reader.load(reference, 'digest'); await settle();
+    if (change === 'clear' || change === 'failure') reader.clear();
+    if (change === 'token') state = { ...state, token: 'new' };
+    if (change === 'generation') state = { ...state, generation: 2 };
+    if (change === 'reference') state = { ...state, reference: { ...reference, volume: 'other' } };
+    if (change === 'archive') state = { ...state, archive_sha256: 'new' };
+    pending.resolve(); assert.equal(await loading, null); assert.equal(count, 2);
+  }
 });
 
 test('late preview is rejected after token, source generation, volume or archive change', async () => {
