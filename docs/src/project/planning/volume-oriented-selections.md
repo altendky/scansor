@@ -215,6 +215,36 @@ Cancel recovery preserves this evidence. An otherwise valid refreshed volume can
 still produce an ordinary target fit failure under the existing fitting rules.
 Unavailable selections outside a requested solve do not block that solve.
 
+### Aligned scan replacement
+
+The shared project coordinator prepares replacement bytes, retained definitions,
+and fresh display buffers privately. Native HTTP and worker adapters expose an
+explicit replacement operation through the existing bounded upload and candidate
+acceptance lifecycle. The current implementation supports imported scans in the
+same evaluation frame. Bundled examples with a separate captured frame require
+additional frame-persistence work.
+
+Replacement converts remaining flat selections against the old source before
+changing the active Source identity. It preserves feature/group IDs, original
+entries, accepted archives and shared definitions. Each genuinely new binding
+gets a generated entry with no chosen volume, even if one candidate exists.
+Returning to an exact previous binding reuses its entry; a filename change does
+not define a new binding. All fits, matching, growth, finite support and downstream
+geometry recompute against the newly active observations.
+
+Source generation, recipe token, candidate owner and prepared revision fence
+publication. An invalid upload, cancellation, an intervening edit, or a changed
+candidate leaves the prior project accepted. Worker recovery checkpoints the new
+File and complete retained actions together at source acceptance: Force before
+acceptance reconstructs the previous project; Force afterward reconstructs the
+new one. Saved actions identify the active scan to locate and retain inactive
+entry metadata and accepted geometry without loading every original scan.
+
+The numerical runtime probe now exercises the shared replacement and reopen
+transactions directly, including pending choice, linked transfer and replay using
+only the active scan's bytes. The browser command and authoring controls remain
+the next delivery slice.
+
 ### Delivery slices
 
 - [Shared volume geometry foundation](https://github.com/altendky/scansor/issues/332):

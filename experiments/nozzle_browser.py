@@ -12,7 +12,7 @@ from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, BinaryIO, ClassVar, cast, override
+from typing import Any, BinaryIO, ClassVar, Literal, cast, override
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -94,6 +94,7 @@ class SourceCursor(BaseModel):
 class SourceImportRequest(SourceCursor):
     filename: str
     size: int
+    purpose: Literal["add-scan", "replace-scan"] = "add-scan"
 
 
 class ProjectResetRequest(SourceCursor):
@@ -403,6 +404,60 @@ class NozzleServer(ThreadingHTTPServer):
 
             return NativeOpenCandidate(install, warning_count)
 
+        def prepare_replace(
+            path: Path,
+            filename: str,
+            progress: Callable[[ScanProgress], None],
+            cancelled: Callable[[], bool],
+        ) -> NativeOpenCandidate:
+            if matching is None or matching.workspace.descriptor is None:
+                raise ScanImportError(
+                    "Replace scan requires an imported scan; retained example frames are not supported.",
+                    "unsupported_replacement",
+                )
+            project = ScanProject()
+            initial = project.accepted
+            with path.open("rb") as stream:
+                candidate = project.prepare_replace(
+                    stream,
+                    filename,
+                    self.source_imports.limits,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    matching=matching,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+            prepared = project.commit_replace(candidate, cancelled=cancelled)
+            check_cancelled(cancelled)
+
+            def install() -> int:
+                current = self.accepted()
+                current_owner = (
+                    self._project if self._project is not None else self._legacy
+                )
+                if (
+                    current_owner is not owner
+                    or current.generation != state.generation
+                    or current.graph.snapshot()["token"] != original_token
+                ):
+                    raise ScanImportError(
+                        "Project changed before replacing the scan.", "stale_source"
+                    )
+                if self.busy():
+                    raise ScanImportError("Wait for active computation.", "source_busy")
+                check_cancelled(cancelled)
+                self.clear_jobs()
+                self.active_example = None
+                self.example_recipe = Recipe(schema_version=2, nodes=[], output=None)
+                self._generation_offset = (
+                    state.generation + 1 - project.accepted.generation
+                )
+                self._project, self._legacy = project, None
+                return state.generation + 1
+
+            return NativeOpenCandidate(install, len(prepared.import_warnings))
+
         return NativeImportContext(
             self._project,
             state.generation,
@@ -410,6 +465,7 @@ class NozzleServer(ThreadingHTTPServer):
             owner,
             state.workspace,
             prepare_open,
+            prepare_replace,
         )
 
     def inspect_actions(self, request: ActionsInspectRequest) -> dict[str, object]:
@@ -755,6 +811,13 @@ class Handler(BaseHTTPRequestHandler):
                 }
             metadata["actions_limits"] = actions_limits()
             metadata["selection_entries"] = {"version": 1}
+            metadata["source_replacement"] = {
+                "supported": isinstance(state.workspace, ScanWorkspace)
+                and state.workspace.descriptor is not None,
+                "version": 1,
+                "alignment": "already-aligned",
+                "source_kind": "generic-scan",
+            }
             self.json_reply(200, metadata)
         elif self.path == "/api/graph/example":
             with self.app.lock:
@@ -921,6 +984,7 @@ class Handler(BaseHTTPRequestHandler):
                     token=request.token,
                     filename=request.filename,
                     size=request.size,
+                    purpose=request.purpose,
                 )
                 self.json_reply(202, result)
             elif path == "/api/actions/inspect":

@@ -24,7 +24,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
+  let acceptedGeneration, sourceProfile, replacementProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
@@ -46,6 +46,9 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       && value.limits.max_volume_encoded_bytes <= value.limits.max_json_bytes;
   };
   const unsupportedActions = () => new BackendError('This worker does not support source actions.', { code: 'unsupported_capability' });
+  const validReplacementProfile = profile => profile && Object.keys(profile).length === 4 &&
+    profile.supported === true && profile.version === 1 && profile.alignment === 'already-aligned' &&
+    profile.source_kind === 'generic-scan';
   const identityJSON = value => JSON.stringify(value, function(key, item) {
     return item && typeof item === 'object' && !Array.isArray(item)
       ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item;
@@ -213,6 +216,8 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
           acceptedFile = undefined;
         }
       } else if (bundle.source_mode?.kind !== operation.kind) throw new Error('Source candidate kind changed.');
+      if (operation.purpose === 'replace-scan' && bundle.purpose !== 'replace-scan')
+        throw new Error('Replacement candidate purpose changed.');
       const importWarnings = structuredClone(bundle.metadata.import_warnings || []);
       bundle.transferOwnership = { sender_detached: true, positions_bytes: bundle.positions.byteLength,
         indices_bytes: bundle.indices.byteLength, copied_js_bytes: bundle.positions.byteLength + bundle.indices.byteLength,
@@ -270,7 +275,10 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     if (closed || terminalError) throw unavailable();
     if (!sourceProfile?.supported) throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
     const opening = payload.purpose === 'open-actions';
+    const replacing = payload.purpose === 'replace-scan';
     if (opening && !sourceActions) throw unsupportedActions();
+    if (replacing && (!validReplacementProfile(replacementProfile) || checkpoint?.mode.kind !== 'scan'))
+      throw new BackendError('This worker requires an imported aligned scan for replacement.', { code: 'unsupported_capability' });
     if (sourceOperation) throw sourceBusy();
     if (payload.generation !== acceptedGeneration || payload.token !== latestGraph?.token) throw superseded();
     if (latestGraph.evaluation_running || pending.size) throw sourceBusy();
@@ -283,14 +291,14 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
         throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
     }
     const operationId = `source_${lifetime}_${++sourceSequence}`;
-    const operation = { kind, purpose: opening ? 'open-actions' : 'source', file, onProgress,
+    const operation = { kind, purpose: opening ? 'open-actions' : replacing ? 'replace-scan' : 'source', file, onProgress,
       retainedFile: opening ? checkpoint?.file : undefined, baseIdentity: structuredClone(sourceIdentity),
       baseMode: opening ? structuredClone(checkpoint?.mode) : undefined,
       baseGeneration: acceptedGeneration, baseToken: latestGraph.token,
       recoveryGeneration: restore?.generation, record: { operationId, generation: payload.generation,
         token: payload.token, revision: 0, status: 'reserved', phase: 'reserved', completed: 0,
         total: file?.size || 0, unit: 'bytes', terminal: false,
-        ...(opening ? { purpose: 'open-actions' } : {}) } };
+        ...(opening || replacing ? { purpose: opening ? 'open-actions' : 'replace-scan' } : {}) } };
     if (restore) {
       operation.recoveryIdentity = structuredClone(restore.identity);
       operation.recoveryWarnings = structuredClone(restore.import_warnings || []);
@@ -302,6 +310,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     const value = { operationId, ...(opening ? { purpose: 'open-actions', recipe: payload.recipe,
       confirmedDiscard: payload.confirmedDiscard,
       ...(file === undefined ? {} : { file, source: { filename: file.name || 'scan.ply', size: file.size } }) } : { kind }),
+      ...(replacing ? { purpose: 'replace-scan' } : {}),
       generation: payload.generation, token: payload.token,
       ...(kind === 'scan' ? { file, filename: file.name || 'scan.ply' } : {}),
       ...(kind === 'empty' ? { confirmedDiscard: payload.confirmedDiscard } : {}),
@@ -324,7 +333,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -383,17 +392,22 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 }
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
+                replacementProfile = data.worker_protocol?.replace_scan;
+                if (data.worker_protocol?.version === 9 && !validReplacementProfile(replacementProfile))
+                  throw new Error('Invalid worker scan replacement profile.');
+                if (data.worker_protocol?.version !== 9 && replacementProfile !== undefined)
+                  throw new Error('Unexpected worker scan replacement profile.');
                 recipePolling = data.worker_protocol?.version >= 7;
-                if (data.worker_protocol?.version === 8 &&
+                if ([8, 9].includes(data.worker_protocol?.version) &&
                   (!data.worker_protocol.selection_entries ||
                     Object.keys(data.worker_protocol.selection_entries).length !== 1 ||
                     data.worker_protocol.selection_entries.version !== 1))
                   throw new Error('Invalid worker selection entries profile.');
-                if (sourceProfile?.supported && (![5, 6, 7, 8].includes(data.worker_protocol?.version)
+                if (sourceProfile?.supported && (![5, 6, 7, 8, 9].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (![7, 8].includes(data.worker_protocol?.version)
+                if (sourceActions && (![7, 8, 9].includes(data.worker_protocol?.version)
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
                   || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
@@ -665,6 +679,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     };
   }
   backend.addScan = (payload, options) => startSource('scan', payload, options);
+  backend.replaceScan = (payload, options) => startSource('scan', { ...payload, purpose: 'replace-scan' }, options);
   backend.inspectActions = async ({ recipe, generation: cursor, token }, { signal } = {}) => {
     if (!sourceActions) throw unsupportedActions();
     const raw = structuredClone(recipe), serial = cancellationSerial;

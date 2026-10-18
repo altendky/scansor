@@ -33,6 +33,7 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
       { code: 'unsupported_capability' }); };
   for (const [method, supported] of [
     ['addScan', backend.capabilities.sourceImport], ['resetProject', backend.capabilities.sourceImport],
+    ['replaceScan', backend.capabilities.sourceReplacement],
     ['getSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['cancelSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['inspectActions', backend.capabilities.sourceActions], ['openActions', backend.capabilities.sourceActions],

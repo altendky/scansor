@@ -275,6 +275,48 @@ function sourceRecord(overrides = {}) {
     ...overrides };
 }
 
+test('HTTP replacement is explicitly negotiated and preserves the existing import handshake', async () => {
+  const profile = { supported: true, version: 1, alignment: 'already-aligned', source_kind: 'generic-scan' },
+    calls = [], file = Object.assign(new Blob(['replacement']), { name: 'rescan.ply' });
+  let accepted = false;
+  const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json({ ...metadata(accepted ? 2 : 1, accepted ? 'replacement' : 'original'), source_replacement: profile });
+    if (path.startsWith('/mesh/')) return meshResponse(path, accepted ? 2 : 1);
+    if (path === '/api/sources/imports') return Response.json(sourceRecord({ generation: 1, token: 'original', purpose: 'replace-scan' }));
+    accepted = true;
+    return Response.json(sourceRecord({ generation: 1, token: 'original', purpose: 'replace-scan', revision: 1,
+      terminal: true, status: 'accepted', acceptedGeneration: 2 }));
+  } });
+  await backend.loadWorkspace();
+  const bundle = await backend.replaceScan({ file, generation: 1, token: 'original' });
+  assert.equal(bundle.generation, 2);
+  const reserved = calls.find(call => call.path === '/api/sources/imports');
+  assert.deepEqual(JSON.parse(reserved.init.body), { generation: 1, token: 'original', filename: 'rescan.ply', size: file.size, purpose: 'replace-scan' });
+  assert.equal(calls.find(call => call.path.endsWith('/bytes')).init.body, file);
+  assert.equal(backend.capabilities.sourceReplacement, true);
+  backend.close();
+});
+
+test('HTTP replacement rejects undeclared profiles before reserving work', async () => {
+  for (const profile of [undefined, { supported: false }, { supported: true, version: 1, alignment: 'automatic', source_kind: 'generic-scan' },
+    { supported: true, version: 1, alignment: 'already-aligned', source_kind: 'generic-scan', extra: true }]) {
+    const paths = [], backend = createHttpBackend({ fetch: async path => {
+      paths.push(path);
+      return path === '/api/meta' ? Response.json({ ...metadata(), source_replacement: profile }) : meshResponse(path, 0);
+    } });
+    await backend.loadWorkspace();
+    await assert.rejects(backend.replaceScan({ file: new Blob(['scan']), generation: 0, token: 'empty' }), error => error.code === 'unsupported_capability');
+    assert(!paths.includes('/api/sources/imports'));
+    backend.close();
+  }
+  const backend = createBackend({ type: 'limited', factories: { limited: () => {
+    const value = createHttpBackend(); value.capabilities = { ...value.capabilities, sourceReplacement: false }; return value;
+  } } });
+  await assert.rejects(backend.replaceScan({}), error => error.code === 'unsupported_capability');
+  backend.close();
+});
+
 function metadata(generation = 0, token = 'empty', limit = 10_000) {
   return { project_generation: generation, source: generation ? { source_sha256: 'source' } : null,
     bounds: null, vertices: 0, triangles: 0,

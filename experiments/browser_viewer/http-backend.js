@@ -146,7 +146,9 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         || !Number.isSafeInteger(value.revision) || value.revision < 0 || typeof value.terminal !== 'boolean'
         || value.status === 'accepted' && (!value.terminal || !Number.isSafeInteger(value.acceptedGeneration)
           || value.acceptedGeneration <= generation)
-        || purpose && (value.purpose !== purpose || value.uploadRequired !== !!file
+        || purpose && value.purpose !== purpose
+        || purpose === 'replace-scan' && value.status === 'accepted' && value.acceptedGeneration !== generation + 1
+        || purpose === 'open-actions' && (value.uploadRequired !== !!file
           || value.status === 'accepted' && (value.acceptedGeneration !== generation + 1
             || !Number.isSafeInteger(value.import_warning_count) || value.import_warning_count < 0)))
         throw invalidOperation(value);
@@ -156,7 +158,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     };
     const deliver = async () => {
       const bundle = await deliverAccepted(operation, { signal: active }, publication);
-      if (!purpose) return bundle;
+      if (purpose !== 'open-actions') return bundle;
       const warnings = bundle.metadata.import_warnings;
       if (!Array.isArray(warnings) || warnings.length !== operation.import_warning_count) {
         const cause = new BackendError('Accepted actions warnings do not match their workspace receipt.', { code: 'invalid_workspace' });
@@ -194,7 +196,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
-      sourceImport: true, sourceActions: true }),
+      sourceImport: true, sourceActions: true, sourceReplacement: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -287,6 +289,18 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         { generation, token, filename: file.name || 'scan.ply', size: file.size },
         { signal, publication, sourceMutation: true });
       return observeSourceOperation(operation, { generation, token, file, signal, onProgress, publication });
+    },
+    async replaceScan({ file, generation, token }, { signal, onProgress = () => {} } = {}) {
+      const profile = acceptedMetadata?.source_replacement;
+      if (profile?.supported !== true || Object.keys(profile).length !== 4 || profile.version !== 1 || profile.alignment !== 'already-aligned'
+        || profile.source_kind !== 'generic-scan')
+        throw new BackendError('This workspace does not support aligned scan replacement.', { code: 'unsupported_capability' });
+      validateFile(file);
+      const publication = ++sourcePublication;
+      const operation = await request('/api/sources/imports',
+        { generation, token, filename: file.name || 'scan.ply', size: file.size, purpose: 'replace-scan' },
+        { signal, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, file, signal, onProgress, publication, purpose: 'replace-scan' });
     },
     async *graphUpdates({ revision, signal, isCurrent = () => true } = {}) {
       const active = signalFor(signal), publication = sourcePublication;

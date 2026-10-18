@@ -40,13 +40,19 @@ def worker_protocol() -> dict[str, Any]:
     limits = runpy.run_path(str(ROOT / "experiments/actions_limits.py"))
 
     return {
-        "version": 8,
+        "version": 9,
         "bootstrap": "initialize",
         "workspace": "single-scan-candidate-transactions",
         "cad": "lazy-approved-ocp",
         "source_import": json.loads(json.dumps(SOURCE_IMPORT_PROFILE)),
         "source_actions": limits["actions_profile"](),
         "selection_entries": {"version": 1},
+        "replace_scan": {
+            "supported": True,
+            "version": 1,
+            "alignment": "already-aligned",
+            "source_kind": "generic-scan",
+        },
     }
 
 
@@ -62,6 +68,14 @@ def validate_worker_protocol(value: object) -> None:
         raise ValueError("unsupported worker workspace protocol; rebuild it")
     actions = value["source_actions"]
     entries = value["selection_entries"]
+    replacement = value["replace_scan"]
+    if (
+        not isinstance(replacement, dict)
+        or replacement != expected["replace_scan"]
+        or replacement["supported"] is not True
+        or type(replacement["version"]) is not int
+    ):
+        raise ValueError("unsupported worker scan-replacement capability")
     if (
         not isinstance(entries, dict)
         or entries != {"version": 1}

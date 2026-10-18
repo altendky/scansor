@@ -8,12 +8,9 @@ import struct
 from typing import Any, cast
 
 from experiments.feature_graph import FeatureGraph, Recipe, Selection, Source
+from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
-from experiments.selection_entries import (
-    SelectionEntry,
-    VolumeReference,
-    source_binding,
-)
+from experiments.selection_entries import VolumeReference
 from experiments.selection_volume_transactions import author_volume
 
 
@@ -130,13 +127,23 @@ def selection_entries_probe() -> dict[str, Any]:
     assert refreshed["memberships"]["patch"] == [0, 1, 3, 4]
 
     target = _scan(5)
-    portable = json.loads(json.dumps(refreshed["recipe"], allow_nan=False))
-    portable["nodes"][0] = _source(target).model_dump(mode="json")
-    target_entry = SelectionEntry(
-        id="target", scan=source_binding(target), mode="generated"
+    project = ScanProject()
+    positions, indices = original.display_buffers()
+    original_accepted = AcceptedScan(1, original, graph, positions, indices)
+    limits = ScanLimits(8192, 25, 32, 2_000_000, chunk_bytes=1024)
+    candidate = project.prepare_replace(
+        io.BytesIO(target.original_bytes),
+        target.name,
+        limits,
+        generation=0,
+        token=str(project.accepted.graph.snapshot()["token"]),
+        matching=original_accepted,
     )
-    portable["nodes"][1]["entries"].append(target_entry.model_dump(mode="json"))
-    transferred = FeatureGraph(target, Recipe.model_validate(portable))
+    assert project.accepted.workspace.descriptor is None
+    assert _snapshot(graph) == refreshed
+    transferred = project.commit_replace(candidate).graph
+    assert transferred.workspace.source_sha256 == target.source_sha256
+    assert transferred.workspace.source_sha256 != original.source_sha256
     waiting = cast(
         dict[str, Any],
         transferred.evaluate(str(_snapshot(transferred)["token"]), target="plane"),
@@ -161,7 +168,17 @@ def selection_entries_probe() -> dict[str, Any]:
     ids = ready["memberships"]["patch"]
     assert len(ids) > 4 and 24 not in ids
     stored = Recipe.model_validate_json(json.dumps(ready["recipe"], allow_nan=False))
-    reopened = FeatureGraph(target, stored)
+    replay_project = ScanProject()
+    opened = replay_project.prepare_open(
+        stored.model_dump(mode="json"),
+        generation=0,
+        token=str(replay_project.accepted.graph.snapshot()["token"]),
+        confirmed_discard=True,
+        stream=io.BytesIO(target.original_bytes),
+        filename="renamed-target.ply",
+        limits=limits,
+    )
+    reopened = replay_project.commit_open(opened).graph
     replay = cast(
         dict[str, Any],
         reopened.evaluate(str(_snapshot(reopened)["token"]), target="plane"),
@@ -188,6 +205,12 @@ def selection_entries_probe() -> dict[str, Any]:
             "archive_changed": True,
             "token_changed": True,
             "request_receipt_matches": True,
+        },
+        "replacement": {
+            "staged_without_publication": True,
+            "new_entry_pending": True,
+            "source_observations_changed": True,
+            "reopen_active_bytes_only": True,
         },
         "waiting": {
             "states": {key: waiting["states"][key] for key in ("patch", "plane")},
