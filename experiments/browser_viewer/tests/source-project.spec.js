@@ -326,6 +326,58 @@ test('owned mesh volume capture and preview drive explicit replacement membershi
   const adopted = (await graph(page)).recipe.nodes.find(node => node.id === selection.id);
   expect(adopted.entries[0]).toEqual(entry);
   expect(adopted.entries.at(-1).volumes[0].captured_ids).toEqual(regenerated.memberships[selection.id]);
+  await expect(editor).toHaveAttribute('aria-busy', 'false');
+  const beforeSave = await graph(page), downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save actions', exact: true }).click();
+  const download = await downloading;
+  let savedText = '';
+  for await (const part of await download.createReadStream()) savedText += part.toString();
+  const saved = JSON.parse(savedText);
+  expect(saved).toEqual(beforeSave.recipe);
+
+  const sourceUploads = [];
+  const recordUploads = request => {
+    if (request.method() === 'POST' && /\/bytes$/.test(request.url())) sourceUploads.push(request.url());
+  };
+  page.on('request', recordUploads);
+  const stopDialogs = acceptDialogs(page);
+  try {
+    await command(page, 'New project');
+    await expect(page.locator('[data-add-scan]')).toBeEnabled();
+    expect((await graph(page)).recipe.nodes).toEqual([]);
+    const openingActions = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Load actions', exact: true }).click();
+    const actionsChooser = await openingActions;
+    expect(await actionsChooser.element().getAttribute('id')).toBe('file');
+    await actionsChooser.setFiles({ name: 'saved-volumes.json', mimeType: 'application/json', buffer: Buffer.from(savedText) });
+    await expect(page.locator('#locate-source-dialog')).toBeVisible();
+    const hint = await page.locator('#locate-source-hint').textContent();
+    expect(hint).toContain('dense-aligned-grid.ply');
+    expect(hint).not.toContain('authored-grid.ply');
+    expect(sourceUploads).toEqual([]);
+    const locatingActive = page.waitForEvent('filechooser');
+    await page.locator('#choose-located-source').click();
+    const activeChooser = await locatingActive;
+    expect(await activeChooser.element().getAttribute('id')).toBe('locate-source-file');
+    await activeChooser.setFiles(memoryFile('renamed-exact-active-grid.ply', fixture.dense));
+    await expect(page.locator('#locate-source-dialog')).toBeHidden();
+    await expect.poll(async () => (await metadata(page)).source?.filename).toBe('renamed-exact-active-grid.ply');
+    await expect(page.locator('#source-progress')).toBeHidden();
+    const reopened = await metadata(page);
+    expect(reopened.vertices).toBe(fixture.dense.positions.length);
+    expect(reopened.graph.recipe).toEqual(saved);
+    await page.getByRole('button', { name: 'Evaluate all', exact: true }).click();
+    await expect.poll(async () => (await graph(page)).states[authored.fit.id]).toBe('ready');
+    const replay = await graph(page), replaySelection = replay.recipe.nodes.find(node => node.id === selection.id);
+    expect(replay.recipe).toEqual(saved);
+    expect(replaySelection.entries).toEqual(adopted.entries);
+    expect(replaySelection.entries.at(-1).source_volume).toEqual(reference);
+    expect(replay.memberships[selection.id]).toEqual(regenerated.memberships[selection.id]);
+    expect(replay.results[authored.fit.id].ids).toEqual(regenerated.memberships[selection.id]);
+    expect(replay.errors).toEqual({});
+    expect(sourceUploads).toHaveLength(1);
+    await expect(page.locator('#locate-source-dialog')).toBeHidden();
+  } finally { stopDialogs(); page.off('request', recordUploads); }
   expect(errors).toEqual([]);
 });
 
