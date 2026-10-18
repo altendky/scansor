@@ -372,6 +372,7 @@ def output_catalogue(
                         for state in (
                             "failed",
                             "blocked",
+                            "needs_input",
                             "running",
                             "stale",
                             "unevaluated",
@@ -392,7 +393,12 @@ def output_catalogue(
                     "ambiguous",
                     "This solve does not declare a datum output",
                 )
-            elif isinstance(node, Selection) and len(node.ids) != 1:
+            elif availability == "needs_input":
+                reason = "Configure the selection inputs before using this output"
+            elif (
+                isinstance(node, Selection)
+                and len(values.get(node.id, {}).get("ids", node.ids)) != 1
+            ):
                 availability, reason = (
                     "blocked",
                     "Select exactly one node for a point output",
@@ -705,14 +711,21 @@ def resolve_output(
 
     node = nodes[reference.feature]
     context = reference.context or reference.feature
+    selection_ids = (
+        values.get(node.id, {}).get("ids", node.ids)
+        if isinstance(node, Selection)
+        else []
+    )
     if isinstance(node, Selection) and reference.output == "single_node":
-        if len(node.ids) != 1 or coordinates is None:
+        if len(selection_ids) != 1 or coordinates is None:
             raise ValueError("a point output requires exactly one selected node")
         return {
-            "point_display": np.asarray(coordinates[node.ids[0]], dtype=float).tolist()
+            "point_display": np.asarray(
+                coordinates[selection_ids[0]], dtype=float
+            ).tolist()
         }
     if isinstance(node, Selection) and reference.output == "observations":
-        return {"ids": list(node.ids), "source": node.source}
+        return {"ids": list(selection_ids), "source": node.source}
     raw = values[context]
     if context != reference.feature:
         raw = raw.get("resolved", raw.get("surfaces", {})).get(

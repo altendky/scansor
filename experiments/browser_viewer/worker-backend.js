@@ -102,9 +102,10 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       committedRecipe = structuredClone(state.recipe);
       if (checkpoint) checkpoint.recipe = structuredClone(state.recipe);
     } else if (latestGraph?.token === state.token) {
-      const { evaluation_error: oldError, unchanged: oldUnchanged, ...previous } = latestGraph;
+      const { evaluation_error: oldError, unchanged: oldUnchanged, status: oldStatus, ...previous } = latestGraph;
       void oldError;
       void oldUnchanged;
+      void oldStatus;
       const { unchanged, ...publication } = state;
       void unchanged;
       latestGraph = { ...previous, ...publication };
@@ -383,11 +384,16 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
                 recipePolling = data.worker_protocol?.version >= 7;
-                if (sourceProfile?.supported && (![5, 6, 7].includes(data.worker_protocol?.version)
+                if (data.worker_protocol?.version === 8 &&
+                  (!data.worker_protocol.selection_entries ||
+                    Object.keys(data.worker_protocol.selection_entries).length !== 1 ||
+                    data.worker_protocol.selection_entries.version !== 1))
+                  throw new Error('Invalid worker selection entries profile.');
+                if (sourceProfile?.supported && (![5, 6, 7, 8].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (data.worker_protocol?.version !== 7
+                if (sourceActions && (![7, 8].includes(data.worker_protocol?.version)
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
                   || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)

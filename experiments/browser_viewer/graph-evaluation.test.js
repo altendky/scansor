@@ -207,3 +207,50 @@ test('compact completion updates lifecycle state even when the final readiness r
   assert.equal(cached.evaluation_running, false);
   assert.deepEqual(f.accepted, []);
 });
+
+test('automatic archive refresh follows the published token for the final readiness check', async () => {
+  const refreshed = snapshot({ face: 'ready' }, {
+    token: 'refreshed', evaluation_origin_token: 'recipe', revision: 2,
+  });
+  const f = fixture([{ evaluation_running: true }, refreshed, refreshed]);
+  const result = await ensureGraphCurrent(f.options);
+  assert.equal(result.token, 'refreshed');
+  assert.deepEqual(f.requests.at(-1), {
+    path: '/api/graph/ensure', value: { token: 'refreshed', targets: ['face'] },
+  });
+});
+
+test('refresh receipts cannot bypass a cancelled operation', async () => {
+  const refreshed = snapshot({ face: 'ready' }, {
+    token: 'refreshed', evaluation_origin_token: 'recipe',
+  });
+  const f = fixture([refreshed]);
+  let current = true;
+  f.options.isCurrent = () => current;
+  f.options.request = async () => { current = false; return refreshed; };
+  await assert.rejects(ensureGraphCurrent(f.options), /operation changed/);
+  assert.deepEqual(f.accepted, []);
+});
+
+test('missing volume setup reports the input diagnostic', async () => {
+  const f = fixture([snapshot({ face: 'needs_input' }, {
+    diagnostics: { face: { message: 'Choose source volume for Patch.' } },
+  })]);
+  await assert.rejects(ensureGraphCurrent(f.options), /Choose source volume for Patch/);
+});
+
+test('a refresh already accepted by another observer still completes its original request', async () => {
+  const cached = snapshot({ face: 'ready' }, {
+    token: 'refreshed', evaluation_origin_token: 'recipe', revision: 2,
+    evaluation_running: true,
+  });
+  const f = fixture([{
+    token: 'refreshed', evaluation_origin_token: 'recipe', revision: 2,
+    unchanged: true, evaluation_running: false,
+  }]);
+  f.options.getState = () => cached;
+  const result = await waitForGraphEvaluation(f.options);
+  assert.equal(result.token, 'refreshed');
+  assert.equal(result.evaluation_running, false);
+  assert.deepEqual(f.accepted, []);
+});

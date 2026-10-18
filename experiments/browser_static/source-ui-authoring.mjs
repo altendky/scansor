@@ -6,6 +6,7 @@ import path from 'node:path';
 import {sha256} from './server.mjs';
 import {sourceEvidenceSuffix,readSourceEvidence} from './source-import-harness.mjs';
 import {assertAcceptedSourceGraph} from './source-semantic.mjs';
+import {paintedSelectionMembership} from './source-authoring-semantic.mjs';
 
 const appSuffix=`
 globalThis.__authoringBackend243=backend;
@@ -112,7 +113,7 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
       set onmessage(callback){super.onmessage=event=>{
         const data=event.data,operation=h.operations.get(data.id);
         const graph=data.kind==='graph'?data.state:data.ok&&['evaluateGraph','ensureGraph'].includes(operation)?data.result:null;
-        if(graph?.recipe)h.graphs.push(structuredClone(graph));
+        if(graph)h.graphs.push(structuredClone(graph));
         if(this.index===h.target&&(data.kind===h.hold||(h.heldRequest===data.id&&data.kind==='transfer-confirmed'))){
           h.heldRequest=data.id;h.held.push(()=>callback?.(event));return;
         }
@@ -155,8 +156,12 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     await page.waitForFunction(({epoch,token})=>window.__authoringTransport243.graphs.some(graph=>graph.project_generation===epoch&&graph.token===token
       &&graph.evaluation_running===false&&Array.isArray(graph.required_failures)&&Object.values(graph.states).every(state=>state==='ready')),
     {epoch:bundle.generation,token:bundle.graph.token},{timeout:180000});
-    const graph=await page.evaluate(({epoch,token})=>window.__authoringTransport243.graphs.findLast(graph=>graph.project_generation===epoch
+    const publication=await page.evaluate(({epoch,token})=>window.__authoringTransport243.graphs.findLast(graph=>graph.project_generation===epoch
       &&graph.token===token&&graph.evaluation_running===false&&Array.isArray(graph.required_failures)),{epoch:bundle.generation,token:bundle.graph.token});
+    // Production owns recipe-less publication merging. Observe its accepted
+    // state rather than inventing a recipe inside this transport observer.
+    const graph=(await coherent()).graph;
+    for(const [key,value]of Object.entries(publication))assert.deepEqual(graph[key],value,'published '+key);
     assertAcceptedSourceGraph(graph,{generation:bundle.generation,recipe,token:bundle.graph.token});
     result.graphs[key]=graph;result.graph_generations[key]=bundle.generation;
     await writeFile(path.join(output,'ui-authoring-'+key+'-graph.json'),JSON.stringify(graph,null,2)+'\n');return graph;
@@ -189,8 +194,13 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
     assert.ok(gesture,'A rectangle corner must be reachable through the actual unobscured canvas');
     await page.mouse.move(...gesture.start);await page.mouse.down();await page.mouse.move(...gesture.end,{steps:10});await page.mouse.up();
     await page.waitForFunction(({id,ids})=>{const d=globalThis.__authoringDisplay243(),node=d.graph.recipe.nodes.find(node=>node.id===id);
-      return !d.selection_pending&&!d.selection_drawing&&node?.depth==='through_all'&&JSON.stringify(node.ids)===JSON.stringify(ids);},{id:node.id,ids},{timeout:120000});
-    await ready(page);result.gestures.push({name:label,selection:node.id,view,depth:'through_all',expected_ids:ids,canvas:box,...gesture});return node.id;
+      const source=d.graph.recipe.nodes.find(n=>n.operation==='source'),entry=Array.isArray(node?.entries)?node.entries.find(e=>
+        e.scan.source_sha256===source.source_sha256&&e.scan.reference_sha256===source.reference_sha256&&e.scan.vertices===d.metadata.vertices):node;
+      return !d.selection_pending&&!d.selection_drawing&&entry?.depth==='through_all'&&JSON.stringify(entry.ids)===JSON.stringify(ids);},{id:node.id,ids},{timeout:120000});
+    await ready(page);const selected=await display(page),actual=selected.graph.recipe.nodes.find(n=>n.id===node.id),source=selected.graph.recipe.nodes.find(n=>n.operation==='source');
+    assert.deepEqual(paintedSelectionMembership(actual,source,selected.metadata.vertices,{nestedRequired:selected.metadata.selection_entries?.version===1}).ids,ids);
+    assert.deepEqual(selected.graph.memberships[node.id],ids);
+    result.gestures.push({name:label,selection:node.id,view,depth:'through_all',expected_ids:ids,canvas:box,...gesture});return node.id;
   };
   const fit=async(kind,input,label)=>{
     await page.getByRole('button',{name:'Surface fit',exact:true}).click();await page.locator('#new-fit-kind').selectOption(kind);
@@ -409,7 +419,10 @@ export async function validateSourceUiAuthoring({browser,site,preview,prefix,sou
   }finally{
     if(!result.complete)result.failure_snapshot=await page.evaluate(()=>({display:globalThis.__authoringDisplay243?.(),
       lifecycle:globalThis.__authoringBackend243?.getLifecycle(),status:document.querySelector('#status')?.textContent,
-      prepared:window.__authoringTransport243?.prepared,held:window.__authoringTransport243?.held.length})).catch(error=>({error:String(error)}));
+      prepared:window.__authoringTransport243?.prepared,held:window.__authoringTransport243?.held.length,
+      graph_publications:window.__authoringTransport243?.graphs.slice(-3).map(graph=>({token:graph.token,revision:graph.revision,
+        project_generation:graph.project_generation,recipe_present:!!graph.recipe,states:graph.states,
+        evaluation_running:graph.evaluation_running,required_failures:graph.required_failures}))})).catch(error=>({error:String(error)}));
     await context.close();
   }
 }

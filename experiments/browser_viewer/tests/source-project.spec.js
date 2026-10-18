@@ -3,6 +3,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { paintedSelectionMembership } from '../../browser_static/source-authoring-semantic.mjs';
 
 const repository = fileURLToPath(new URL('../../..', import.meta.url));
 const python = process.env.SCANSOR_TEST_PYTHON || path.join(repository, '.venv/bin/python');
@@ -54,6 +55,9 @@ test.beforeAll(() => { fixture = prepareFixtures(); });
 
 const metadata = async page => (await page.request.get(new URL('/api/meta', page.url()).href)).json();
 const graph = async page => (await metadata(page)).graph;
+const painted = (selection, state, meta) => paintedSelectionMembership(selection,
+  state.recipe.nodes.find(node => node.operation === 'source'), meta.vertices,
+  { nestedRequired: meta.selection_entries?.version === 1 });
 
 async function command(page, name) {
   await page.getByRole('button', { name: 'Project toolbar options', exact: true }).click();
@@ -117,9 +121,12 @@ async function rectanglePlane(page, count, label) {
   await page.mouse.down();
   await page.mouse.move(canvas.x + canvas.width - 8, canvas.y + canvas.height - 8, { steps: 10 });
   await page.mouse.up();
-  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.operation === 'selection')?.ids.length).toBe(count);
-  const selection = (await graph(page)).recipe.nodes.find(node => node.operation === 'selection');
-  expect(selection.ids).toEqual(Array.from({ length: count }, (_, id) => id));
+  await expect.poll(async () => {
+    const state = await graph(page), selection = state.recipe.nodes.find(node => node.operation === 'selection');
+    return state.memberships[selection?.id]?.length;
+  }).toBe(count);
+  const selected = await metadata(page), selection = selected.graph.recipe.nodes.find(node => node.operation === 'selection');
+  expect(painted(selection, selected.graph, selected).ids).toEqual(Array.from({ length: count }, (_, id) => id));
   await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
   await page.locator('#new-fit-label').fill(label);
   await page.locator('#new-fit-kind').selectOption('plane');
@@ -236,8 +243,12 @@ test('independent source display keeps all original rows and user rectangle sele
   await page.mouse.down();
   await page.mouse.move(canvas.x + canvas.width - 8, canvas.y + canvas.height - 35, { steps: 10 });
   await page.mouse.up();
-  await expect.poll(async () => (await graph(page)).recipe.nodes.find(node => node.operation === 'selection')?.ids.length).toBe(12);
-  const selection = (await graph(page)).recipe.nodes.find(node => node.operation === 'selection');
+  await expect.poll(async () => {
+    const state = await graph(page), selection = state.recipe.nodes.find(node => node.operation === 'selection');
+    return state.memberships[selection?.id]?.length;
+  }).toBe(12);
+  const selected = await metadata(page), selection = selected.graph.recipe.nodes.find(node => node.operation === 'selection');
+  expect(painted(selection, selected.graph, selected).ids).toEqual(Array.from({ length: 12 }, (_, id) => id));
   await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
   await page.locator('#new-fit-kind').selectOption('plane');
   await page.locator('#new-fit-inputs').selectOption(selection.id);
@@ -279,7 +290,8 @@ test('raw RealityScan File supports real full-row pointer selection, plane evalu
     for (const id of [a, b, c]) weights[id] += share;
   }
   let squared = 0, total = 0, minimumWeight = Infinity, maximumResidualDifference = 0;
-  for (const [offset, id] of selection.ids.entries()) {
+  const selectedIds = painted(selection, state, meta).ids;
+  for (const [offset, id] of selectedIds.entries()) {
     minimumWeight = Math.min(minimumWeight, weights[id]);
     const residual = points[id * 3] * equation[0] + points[id * 3 + 1] * equation[1] + points[id * 3 + 2] * equation[2] - equation[3];
     maximumResidualDifference = Math.max(maximumResidualDifference, Math.abs(result.residuals[offset] - residual));
@@ -298,7 +310,7 @@ test('raw RealityScan File supports real full-row pointer selection, plane evalu
   const after = await metadata(page);
   expect(after.project_generation).toBe(meta.project_generation);
   expect(after.source.source_sha256).toBe(meta.source.source_sha256);
-  expect(after.graph.recipe.nodes.find(node => node.id === selection.id).ids).toEqual(selection.ids);
+  expect(painted(after.graph.recipe.nodes.find(node => node.id === selection.id), after.graph, after).ids).toEqual(selectedIds);
   expect((await (await page.request.get(new URL(after.positions.url, page.url()).href)).body()).equals(positionsBytes)).toBe(true);
   expect(errors).toEqual([]);
 });

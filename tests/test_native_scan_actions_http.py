@@ -14,7 +14,7 @@ from typing import Any, cast
 import pytest
 
 from experiments import native_scan_import, nozzle_browser
-from experiments.actions_limits import actions_limits
+from experiments.actions_limits import MAX_CONTROL_JSON_BYTES, actions_limits
 from experiments.feature_graph import Recipe
 from experiments.feature_recipe_import import import_recipe
 from experiments.nozzle_browser import ExampleRequest, ProjectResetRequest
@@ -78,12 +78,13 @@ def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) 
         {
             "id": f"p{index}",
             "operation": "point",
-            "label": f"Point {index} " + "x" * 100,
+            "label": f"Point {index} " + "界" * 100,
             "initial_coordinates": [1, 2, 3],
         }
-        for index in range(5000)
+        for index in range(1500)
     )
     original = http.metadata()["graph"]
+    assert len(json.dumps(recipe).encode()) > 1_000_000
     assert http.metadata()["actions_limits"] == actions_limits()
     status, changed, _ = http.request(
         "/api/graph",
@@ -92,7 +93,7 @@ def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) 
     )
     assert status == 200, changed
     status, full, _ = http.request("/api/graph")
-    assert status == 200 and len(full["recipe"]["nodes"]) == 5001
+    assert status == 200 and len(full["recipe"]["nodes"]) == 1501
     status, compact, _ = http.request(
         f"/api/graph?revision={full['revision']}&recipe_token={full['token']}"
     )
@@ -105,11 +106,32 @@ def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) 
         and wrong["recipe"] == full["recipe"]
         and not wrong.get("unchanged")
     )
+    assert http.metadata()["graph"]["token"] == full["token"]
+
+
+@pytest.mark.parametrize("path", ["/api/project/reset", "/api/graph/ensure"])
+def test_oversized_controls_are_rejected_before_reading_the_body(
+    native_http: NativeHttp, path: str
+) -> None:
+    http = native_http
+    _ = http.import_triangle()
+    original = http.metadata()["graph"]
+    cursor = http.cursor()
+    # Admission rejects Content-Length before reading rejected bytes. Sending a
+    # large body with urllib races that early response/close against sendall,
+    # which can raise BrokenPipe without exposing the server's valid 422 reply.
+    # Withhold the body to exercise header-time rejection deterministically.
     status, error, _ = http.request(
-        "/api/project/reset", {**http.cursor(), "unknown": "x" * 1_000_000}
+        path,
+        b"",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(MAX_CONTROL_JSON_BYTES + 1),
+        },
     )
     assert status == 422 and "1,000,000-byte" in error["error"]
-    assert http.metadata()["graph"]["token"] == full["token"]
+    assert http.metadata()["graph"] == original
+    assert http.cursor() == cursor
 
 
 def test_inspect_is_read_only_and_matching_open_reuses_source_with_fresh_graph(

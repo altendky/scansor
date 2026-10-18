@@ -113,7 +113,7 @@ export async function validateSourceUiActions({browser,site,preview,prefix,sourc
       }
       set onmessage(callback){super.onmessage=event=>{
         const data=event.data;
-        if(data.kind==='graph'&&data.state?.recipe)h.graphs.push(structuredClone(data.state));
+        if(data.kind==='graph'&&data.state)h.graphs.push(structuredClone(data.state));
         const own=this.index===h.target;
         if(own&&(data.kind===h.kind||(h.heldRequest===data.id&&data.kind==='transfer-confirmed')
           ||h.kind==='inspection'&&h.operations.get(data.id)==='inspect-actions'&&data.ok!==undefined)){
@@ -167,10 +167,16 @@ export async function validateSourceUiActions({browser,site,preview,prefix,sourc
     await page.waitForFunction(({epoch,token})=>window.__actionsTransport244.graphs.some(graph=>graph.project_generation===epoch
       &&graph.token===token&&graph.evaluation_running===false&&Array.isArray(graph.required_failures)
       &&Object.values(graph.states).every(state=>state==='ready')),{epoch,token:bundle.graph.token},{timeout:180000});
-    const graph=await page.evaluate(({epoch,token})=>window.__actionsTransport244.graphs.findLast(graph=>graph.project_generation===epoch
+    const publication=await page.evaluate(({epoch,token})=>window.__actionsTransport244.graphs.findLast(graph=>graph.project_generation===epoch
       &&graph.token===token&&graph.evaluation_running===false&&Array.isArray(graph.required_failures)),{epoch,token:bundle.graph.token});
+    // Evaluation messages may omit a recipe already cached for this token.
+    // Observe that actual terminal message, then verify the complete state
+    // reconstructed by the shipped UI/backend rather than inventing a recipe
+    // in the transport observer or accepting an old pre-evaluation snapshot.
+    const display=await coherent(),graph=display.graph;
+    for(const [key,value]of Object.entries(publication))assert.deepEqual(graph[key],value,'published '+key);
     assertAcceptedSourceGraph(graph,{generation:epoch,recipe,token:bundle.graph.token});
-    const display=await coherent();assert.deepEqual(display.graph.recipe,graph.recipe);return {graph,epoch,display};
+    return {graph,epoch,display};
   };
   const scenePhysical=graph=>{
     const cylinder=graph.results.cylinder,plane=graph.results.plane,geometry=cylinder.analytic;
@@ -340,7 +346,10 @@ export async function validateSourceUiActions({browser,site,preview,prefix,sourc
   }finally{
     if(!result.complete)result.failure_snapshot=await page.evaluate(()=>({display:globalThis.__actionsUiDisplay244?.(),
       lifecycle:globalThis.__actionsUiBackend244?.getLifecycle(),status:document.querySelector('#status')?.textContent,
-      held:window.__actionsTransport244?.held.length,prepared:window.__actionsTransport244?.prepared})).catch(error=>({error:String(error)}));
+      held:window.__actionsTransport244?.held.length,prepared:window.__actionsTransport244?.prepared,
+      graph_publications:window.__actionsTransport244?.graphs.slice(-3).map(graph=>({token:graph.token,revision:graph.revision,
+        project_generation:graph.project_generation,recipe_present:!!graph.recipe,states:graph.states,
+        evaluation_running:graph.evaluation_running,required_failures:graph.required_failures}))})).catch(error=>({error:String(error)}));
     await context.close();
   }
 }

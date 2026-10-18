@@ -66,6 +66,10 @@ import {
   featureVertexIds,
   mirrorFitInputs,
   rotationalFitInputs,
+  selectionEditState,
+  resolvedSelectionIds,
+  editPaintedMembership,
+  initialPaintedEntry,
 } from './selection.js';
 
 const $ = (id) => document.getElementById(id);
@@ -413,10 +417,11 @@ function modelPickParts(choice) {
     if (resolved) { fitted = fittedPickResult(resolved); fitReference = resolved; }
   }
   if (!fitted && selectionOperations.includes(node.operation) && graphState.states[node.id] === 'ready')
-    fitted = { ids: node.ids };
+    fitted = { ids: resolvedSelectionIds(node, graphState, metadata) };
   if (!fitted) return [];
   if (node.operation === 'selection_region') fitted = { ...fitted,
-    ids: fittedPickResult({ feature: node.selection })?.ids || graphNode(node.selection)?.ids };
+    ids: fittedPickResult({ feature: node.selection })?.ids ||
+      resolvedSelectionIds(graphNode(node.selection), graphState, metadata) };
   if (fitted.surfaces && !reference.surface) return Object.entries(fitted.surfaces).flatMap(([id, value]) => {
     const member = graphNode(id);
     return member ? [{ node: member, fitted: value, reference: { feature: reference.feature, surface: id } }] : [];
@@ -1800,11 +1805,18 @@ function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected =
   }
   control.dataset.pickerEmptyMessage = 'Create a Coaxial relationship using this axis and at least two cone/cylinder fits, or bind fits to the axis (or its reference planes) using Reference geometry. For individual bindings, the axis must appear before those fits. Inputs must appear before this joint. Creating an axis does not bind existing fits.';
 }
-function activeSelection() {
+function inspectedSelection() {
   const id = graphNode(editingFeatureId)?.operation === 'selection' ? editingFeatureId : selectedFeatureId;
   return graphState?.recipe.nodes.find(
     (node) => node.id === id && node.operation === 'selection',
   );
+}
+function selectionSource(node) {
+  return graphState?.recipe.nodes.find(candidate => candidate.operation === 'source' && candidate.id === node?.source);
+}
+function activeSelection() {
+  const node = inspectedSelection();
+  return selectionEditState(node, selectionSource(node), metadata).editable ? node : null;
 }
 function choices(id, nodes, selected = []) {
   $(id).replaceChildren(
@@ -2197,8 +2209,8 @@ function editMembership(groups, region, hits, operation) {
 async function change(next, region, depth) {
   const recipe = structuredClone(graphState.recipe),
     node = recipe.nodes.find((n) => n.id === region);
-  node.ids = next[region];
-  node.depth = depth;
+  recipe.nodes[recipe.nodes.indexOf(node)] = editPaintedMembership(
+    node, selectionSource(node), metadata, next[region], depth);
   await replaceRecipe(recipe);
 }
 async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphState.token) {
@@ -2291,7 +2303,8 @@ function acceptGraph(state) {
   );
   selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
   session = Object.fromEntries(
-    state.recipe.nodes.filter((n) => n.operation === 'selection').map((n) => [n.id, n.ids]),
+    state.recipe.nodes.filter((n) => n.operation === 'selection')
+      .map((n) => [n.id, resolvedSelectionIds(n, state, metadata)]),
   );
   const transformChanged = updateDisplayTransform();
   choices(
@@ -2368,7 +2381,7 @@ function focusContextFeature() {
   (target?.closest('.tree-item') || $('features-panel')).focus();
 }
 function canEvaluateFeature(node) {
-  return node && !['source', 'selection', 'coaxial', 'perpendicular',
+  return node && graphState.states[node.id] !== 'needs_input' && !['source', 'selection', 'coaxial', 'perpendicular',
     'rotational_symmetry', ...relationshipOperations].includes(node.operation);
 }
 function evaluateFeature(id) {
@@ -2665,7 +2678,9 @@ function showProperties(force = false) {
     'selection',
     ...relationshipOperations,
   ].includes(node.operation);
-  if (node.operation === 'selection') $('selection-depth').value = node.depth;
+  const selectionState = selectionEditState(node, selectionSource(node), metadata);
+  $('selection-edit-fields').hidden = node.operation === 'selection' && !selectionState.editable;
+  if (node.operation === 'selection') $('selection-depth').value = selectionState.depth;
   $('properties-title').textContent = node.label;
   const presentation = featureTreePresentation(graphState.recipe.nodes, graphState.states, graphState.errors);
   $('feature-state').textContent = actionDescription(
@@ -2679,6 +2694,8 @@ function showProperties(force = false) {
     : node.operation === 'source'
       ? 'Captured source mesh.'
       : 'No earlier action inputs.';
+  if (node.operation === 'selection' && selectionState.message)
+    $('feature-description').textContent += ' ' + selectionState.message;
   for (const [id, enabled] of [
     ['fit-properties', node.operation === 'fit'],
     ['axis-properties', node.operation === 'axis'],
@@ -3937,8 +3954,8 @@ function paint() {
   selectedPoints.visible = $('points').checked;
   overlays.visible = $('guides').checked;
   updateFaceReviewDisplay();
-  $('counts').textContent = activeSelection()
-    ? `${session[activeSelection().id].length.toLocaleString()} selected vertices`
+  $('counts').textContent = inspectedSelection()
+    ? `${(session[inspectedSelection().id] || []).length.toLocaleString()} selected vertices`
     : '';
   renderer.domElement.style.cursor = !facesOnly && activeSelection() && $('tool').value !== 'orbit'
     ? 'crosshair' : 'default';
@@ -3954,7 +3971,7 @@ function updateEvaluationControls() {
   const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
   const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('action-property-fields').disabled = evaluationLocked;
-  $('selection-edit-fields').disabled = evaluationLocked;
+  $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
   $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
   $('choose-example').disabled = featureTreeLocked();
   for (const id of ['add-selection', 'new-fit', 'new-point', 'new-axis', 'new-reference-plane',
@@ -4005,12 +4022,12 @@ async function runGraphEvaluation(allActions, target, retry, intent) {
   paint();
   status(allActions ? 'Evaluating all actions…' : 'Evaluating action and earlier inputs…');
   try {
-    const token = graphState.token;
+    let token = graphState.token;
     if (retry) {
       // Evaluate buttons are the explicit retry path; Auto and output consumers
       // only ensure current work, preserving failures until inputs change.
-      await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
-        getState: () => graphState, acceptEvaluationStatus, isCurrent });
+      token = (await waitForGraphEvaluation({ token, backend, acceptState: acceptGraph,
+        getState: () => graphState, acceptEvaluationStatus, isCurrent })).token;
       if (!isCurrent()) throw new Error('Computation was cancelled. Evaluate again when ready.');
       await backend.evaluateGraph({
         token, ...(allActions ? { all_actions: true } : { target }),
@@ -6354,13 +6371,15 @@ async function start(recoveredState) {
     focusContextFeature();
   };
   $('add-selection').onclick = async () => {
+    const source = graphState.recipe.nodes.find((n) => n.operation === 'source');
     const node = {
       id: uid('selection'),
       label: nextFeatureLabel('Selection'),
       operation: 'selection',
-      source: graphState.recipe.nodes.find((n) => n.operation === 'source').id,
-      ids: [],
-      depth: 'first_surface',
+      source: source.id,
+      ...(metadata.selection_entries?.version === 1
+        ? { entries: [initialPaintedEntry(source, metadata, uid('entry'))] }
+        : { ids: [], depth: 'first_surface' }),
     };
     if (await appendActions([node])) {
       editFeature(node.id);

@@ -1,5 +1,67 @@
 import { referenceFeature } from './feature-inputs.js';
 
+// A source feature ID is reused when the active scan changes. Entry identity
+// therefore follows exact bytes/interpretation/count, never IDs or filenames.
+export function activeSelectionEntry(node, source, metadata) {
+  if (!Array.isArray(node?.entries) || source?.id !== node.source ||
+    !Number.isSafeInteger(metadata?.vertices) || metadata.vertices <= 0) return null;
+  const matches = node.entries.filter(entry => entry.scan?.source_sha256 === source.source_sha256 &&
+    entry.scan?.reference_sha256 === source.reference_sha256 && entry.scan?.vertices === metadata.vertices);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function selectionEditState(node, source, metadata) {
+  if (node?.operation !== 'selection' || !source || source.id !== node.source ||
+    !Number.isSafeInteger(metadata?.vertices) || metadata.vertices <= 0)
+    return { editable: false, entry: null, depth: 'through_all',
+      message: 'This selection is unavailable for the current scan.' };
+  if (!Array.isArray(node.entries))
+    return { editable: true, entry: null, depth: node.depth || 'through_all', message: '' };
+  const entry = activeSelectionEntry(node, source, metadata);
+  if (!entry) return { editable: false, entry: null, depth: 'through_all',
+    message: 'This selection has no unique entry for the current scan.' };
+  return { entry, editable: entry.mode === 'painted', depth: entry.depth || 'through_all',
+    message: entry.mode === 'painted' ? '' : entry.source_volume
+      ? 'Generated selection. Membership follows its source volume and cannot be painted.'
+      : 'Choose source volume to generate this scan’s selection.' };
+}
+
+export function resolvedSelectionIds(node, snapshot, metadata) {
+  if (!node) return [];
+  if (node.operation !== 'selection') return snapshot.memberships?.[node.id] || [];
+  const source = snapshot.recipe?.nodes.find(candidate => candidate.id === node.source && candidate.operation === 'source'),
+    state = selectionEditState(node, source, metadata);
+  if (!state.editable && !state.entry) return [];
+  if (state.entry?.mode === 'generated' && snapshot.states?.[node.id] !== 'ready') return [];
+  if (Object.hasOwn(snapshot.memberships || {}, node.id))
+    return Array.isArray(snapshot.memberships[node.id]) ? snapshot.memberships[node.id] : [];
+  return state.entry?.mode === 'painted' ? state.entry.ids || [] : !Array.isArray(node.entries) ? node.ids || [] : [];
+}
+
+export function editPaintedMembership(node, source, metadata, ids, depth) {
+  const state = selectionEditState(node, source, metadata);
+  if (!state.editable) throw new Error(state.message);
+  if (!['through_all', 'first_surface'].includes(depth)) throw new Error('Choose a valid selection depth.');
+  if (!Array.isArray(ids) || ids.length > 25_000 || ids.some((id, index) =>
+    !Number.isSafeInteger(id) || id < 0 || id >= metadata.vertices || index > 0 && ids[index - 1] >= id))
+    throw new Error('Selection IDs must be sorted, unique, and within this scan (up to 25,000 vertices).');
+  const next = structuredClone(node), target = state.entry
+    ? next.entries.find(entry => entry.id === state.entry.id) : next;
+  target.ids = [...ids];
+  target.depth = depth;
+  if (state.entry) { delete next.ids; delete next.depth; }
+  return next;
+}
+
+export function initialPaintedEntry(source, metadata, id, depth = 'first_surface') {
+  if (!source?.source_sha256 || !source?.reference_sha256 ||
+    !Number.isSafeInteger(metadata?.vertices) || metadata.vertices <= 0)
+    throw new Error('The current scan identity is unavailable. Reload the workspace.');
+  return { id, scan: { source_sha256: source.source_sha256,
+    reference_sha256: source.reference_sha256, vertices: metadata.vertices,
+    descriptor: source.descriptor ? structuredClone(source.descriptor) : null }, mode: 'painted', ids: [], depth, volumes: [] };
+}
+
 // Source row IDs remain unchanged. Rectangle selection includes hidden vertices.
 export function editSelection(session, region, hits, operation) {
   return {

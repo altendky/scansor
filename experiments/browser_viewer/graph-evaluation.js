@@ -2,7 +2,9 @@
 // Callers name their outputs; they do not decide whether cached work is current.
 function checkCurrent(state, token, isCurrent) {
   if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
-  if (state.token !== token) throw new Error('Actions changed. Try again with the current actions.');
+  if (state.token !== token && state.evaluation_origin_token !== token)
+    throw new Error('Actions changed. Try again with the current actions.');
+  return state.token;
 }
 export async function waitForGraphEvaluation({ token, backend, acceptState,
   getState = () => null, acceptEvaluationStatus = () => {}, isCurrent = () => true }) {
@@ -13,7 +15,7 @@ export async function waitForGraphEvaluation({ token, backend, acceptState,
     if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
     const revision = state?.revision,
       conditional = Number.isSafeInteger(revision) && revision >= 0;
-    checkCurrent(response, token, isCurrent);
+    token = checkCurrent(response, token, isCurrent);
     if (response.unchanged) {
       if (!conditional || response.revision !== revision || !state.recipe)
         throw new Error('Invalid unchanged graph response. Reload the current actions.');
@@ -41,11 +43,12 @@ export async function ensureGraphCurrent({ targets, token, backend, acceptState,
     if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
     state = await backend.ensureGraph({ token, targets: ids });
     if (state.recipe) {
-      checkCurrent(state, token, isCurrent);
+      token = checkCurrent(state, token, isCurrent);
       acceptState(state);
     }
     if (!state.evaluation_running) break;
-    await waitForGraphEvaluation({ token, backend, acceptState, getState, acceptEvaluationStatus, isCurrent });
+    state = await waitForGraphEvaluation({ token, backend, acceptState, getState, acceptEvaluationStatus, isCurrent });
+    token = state.token;
     // A joined job can have different targets. Ask the backend again after it
     // finishes, so that available geometry does not bypass required validation.
   } while (true);
@@ -58,6 +61,8 @@ export async function ensureGraphCurrent({ targets, token, backend, acceptState,
     if (!byId.has(id)) throw new Error('A requested output was removed. Review the current actions.');
     if (['failed', 'blocked'].includes(state.states[id]))
       throw new Error(state.errors?.[id] || `Could not evaluate ${byId.get(id).label || id}.`);
+    if (state.states[id] === 'needs_input')
+      throw new Error(state.diagnostics?.[id]?.message || 'Choose source volumes for the input selections.');
     if (state.states[id] !== 'ready')
       throw new Error(`${byId.get(id).label || id} is not ready.`);
   }

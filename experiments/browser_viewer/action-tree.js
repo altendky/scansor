@@ -42,6 +42,7 @@ const paths = {
   running: 'M12 2a10 10 0 0 1 10 10',
   failed: 'M12 3 2 21h20ZM12 9v5m0 3v.5',
   blocked: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5Zm7 4v3',
+  needs_input: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0M9 8a3 3 0 0 1 6 0c0 2-3 2-3 5m0 4h.01',
   grip: 'M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01',
   expand: 'm9 5 7 7-7 7',
   download: 'M4 15v5h16v-5M12 3v12m-5-5 5 5 5-5',
@@ -88,6 +89,7 @@ const states = {
   running: 'Evaluating',
   failed: 'Failed',
   blocked: 'Blocked',
+  needs_input: 'Needs input',
 };
 // Reference entries use the same names and drawings as the tree and pickers.
 export const featureIconLegend = [
@@ -119,12 +121,13 @@ export const featureIconLegend = [
     plane_relationship: 'Coincident or parallel planes',
     joint_fit: 'Also used as the fallback for unknown feature types',
     blocked: 'A dependency or generated output prevents evaluation',
+    needs_input: 'Choose a source volume or resolve pending selection setup',
   }[name],
 })) }));
 export function actionDescription(node, state, error) {
   const kind = node.operation === 'fit' ? `${node.kind} fit` : operations[node.operation];
   if (['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&
-      !['failed', 'blocked'].includes(state))
+      !['failed', 'blocked', 'needs_input'].includes(state))
     return `${kind || node.operation} · Defined${error ? ` · ${error}` : ''}`;
   return `${kind || node.operation} · ${states[state] || state}${error ? ` · ${error}` : ''}`;
 }
@@ -148,7 +151,7 @@ export function featureTreePresentation(nodes, featureStates, featureErrors = {}
     ])].filter((child) => byId.has(child));
     outputs.forEach(visit);
     const members = [id, ...outputs];
-    for (const state of ['failed', 'blocked', 'running', 'stale', 'unevaluated', 'ready']) {
+    for (const state of ['failed', 'blocked', 'needs_input', 'running', 'stale', 'unevaluated', 'ready']) {
       const cause = members.find((member) => (presentedStates[member] || 'unevaluated') === state);
       if (cause === undefined) continue;
       presentedStates[id] = state;
@@ -674,7 +677,7 @@ export function renderActionTree(
   const lockControls = [], treeItems = [];
   function evaluationStatus(node, state) {
     const status = icon(state, `action-state state-${state}`);
-    if (!canEvaluate(node)) return status;
+    if (state === 'needs_input' || !canEvaluate(node)) return status;
     const button = document.createElement('button'),
       label = `Evaluate ${node.label} (${actionDescription(node, state)})`;
     button.type = 'button';
@@ -1121,7 +1124,7 @@ export function renderActionTree(
     };
   }
   function stateFor(items) {
-    for (const state of ['failed', 'blocked', 'running', 'stale', 'unevaluated'])
+    for (const state of ['failed', 'blocked', 'needs_input', 'running', 'stale', 'unevaluated'])
       if (items.some((item) => states[item.id] === state)) return state;
     return 'ready';
   }
@@ -1142,7 +1145,7 @@ export function renderActionTree(
     button.classList.toggle('feature-selected', selectedIds.has(node.id));
     if (generated) button.dataset.managed = 'true';
     const relationship = ['mirror_symmetry', 'parallel', 'equal'].includes(node.operation) &&
-        !['failed', 'blocked'].includes(states[node.id]),
+        !['failed', 'blocked', 'needs_input'].includes(states[node.id]),
       description = actionDescription(node, states[node.id], errors[node.id]),
       quality = qualities[node.id];
     button.title = `${node.label} · ${description}${quality ? `\n${quality.tooltip}` : ''}`;

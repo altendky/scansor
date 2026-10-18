@@ -10,14 +10,23 @@ import argparse
 import hashlib
 import json
 import math
+from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
 from typing import Annotated, Any, ClassVar, Generic, Literal, cast, final
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    TypeAdapter,
+    model_serializer,
+    model_validator,
+)
 from typing_extensions import TypeVar
 
 from experiments.actions_limits import check_portable_actions
@@ -74,12 +83,32 @@ from experiments.relationship_inputs import (
     normalize_endpoint,
     validate_relationship_inputs,
 )
-from experiments.scan_workspace import ScanWorkspace, SourceDescriptor, Workspace
+from experiments.scan_workspace import (
+    ScanCancelled,
+    ScanWorkspace,
+    SourceDescriptor,
+    Workspace,
+    check_cancelled,
+)
 from experiments.selected_symmetry_fit import (
     SelectedSurface,
     SelectedSymmetryGroup,
     SymmetryFitFailure,
     fit_selected_symmetry_group,
+)
+from experiments.selection_entries import (
+    SelectionEntry,
+    VolumeReference,
+    membership_projection,
+    source_binding,
+    validate_entries,
+)
+from experiments.selection_entry_runtime import (
+    VolumeCache,
+    current_entry,
+    entry_diagnostic,
+    resolve_membership,
+    validate_records,
 )
 from experiments.selection_growth import PlaneFitFailure, connected_growth, fit_seed
 from experiments.selection_region import (
@@ -139,8 +168,40 @@ class Source(Node):
 class Selection(Node):
     operation: Literal["selection"]
     source: str
-    ids: list[VertexId] = Field(max_length=25_000)
+    ids: list[VertexId] = Field(default_factory=list, max_length=25_000)
     depth: Literal["through_all", "first_surface"] = "through_all"
+    entries: list[SelectionEntry] | None = Field(
+        default=None, min_length=1, max_length=128
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def one_membership_format(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            payload = cast(dict[str, Any], value)
+            if payload.get("entries") is not None and {"ids", "depth"} & payload.keys():
+                raise ValueError("entry selections cannot also define flat membership")
+            if payload.get("entries") is None and "ids" not in payload:
+                raise ValueError("a painted selection requires IDs")
+        return value
+
+    @model_validator(mode="after")
+    def unique_entries(self) -> Selection:
+        if self.entries is not None:
+            _ = validate_entries(self.entries)
+        return self
+
+    @model_serializer(mode="wrap")
+    def membership_record(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        value = cast(dict[str, Any], handler(self))
+        if self.entries is None:
+            _ = value.pop("entries", None)
+        else:
+            _ = value.pop("ids", None)
+            _ = value.pop("depth", None)
+        return value
 
 
 class SurfaceFit(Node):
@@ -3016,6 +3077,7 @@ class GraphFailureCheckpoint:
     states: dict[str, str]
     errors: dict[str, str]
     diagnostics: dict[str, dict[str, Any]]
+    volume_refresh_errors: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 WorkspaceType = TypeVar(
@@ -3040,12 +3102,24 @@ def recipe_content_token(recipe: Recipe) -> str:
 
 @final
 class FeatureGraph(Generic[WorkspaceType]):
-    def __init__(self, workspace: WorkspaceType, recipe: Recipe) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceType,
+        recipe: Recipe,
+        *,
+        refresh_volumes: bool = True,
+        fit_intent: dict[str, Any] | None = None,
+    ) -> None:
         self._workspace = workspace
+        self._refresh_volumes = refresh_volumes
+        self._fit_intent = deepcopy(fit_intent)
+        self._evaluation_origin_token: str | None = None
+        self._volume_refresh_errors: dict[str, tuple[str, str]] = {}
         # Generic sources bind content/interpretation; retained example adapters
         # preserve their existing explicit legacy reference identity.
         self.reference_sha256 = workspace_reference_sha256(workspace)
         self.lock = RLock()
+        self._volume_cache: VolumeCache = VolumeCache()
         self._recipe = self.validate(recipe)
         self._content_token = recipe_content_token(self._recipe)
         self._revision = 0  # Observable publications, independent of recipe edits.
@@ -3058,11 +3132,128 @@ class FeatureGraph(Generic[WorkspaceType]):
         self._derived: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self._diagnostics: dict[str, dict[str, Any]] = {}
-        self._epoch = 0  # In-flight invalidation only; no retained previous states.
+        self._epoch: int = (
+            0  # In-flight invalidation only; no retained previous states.
+        )
         # One lightweight successful validation per task; no retained BReps.
         self._validation_reviews: dict[
             tuple[str, bool], tuple[str, dict[str, Any]]
         ] = {}
+        self._mark_needs_input()
+
+    def _selection_intent(self, node: Selection, recipe: Recipe) -> dict[str, Any]:
+        value = node.model_dump(exclude={"label", "entries", "ids", "depth"})
+        if node.entries is None:
+            return {
+                **value,
+                "entry": {
+                    "scan": source_binding(self.workspace).key,
+                    "mode": "painted",
+                    "ids": node.ids,
+                    "depth": node.depth,
+                },
+            }
+        entry = current_entry(node, self.workspace)
+        if entry is None:
+            return {**value, "entry": None}
+        value["entry"] = {"scan": entry.scan.key, **membership_projection(entry)}
+        if entry.source_volume is not None:
+            from experiments.selection_volume_authoring import (
+                authoring_fingerprint,
+                resolve_volume,
+            )
+
+            owner, original, volume = resolve_volume(recipe, entry.source_volume)
+            value["volume"] = {
+                "sha256": volume.archive.sha256,
+                "accepted_fingerprint": volume.authoring_fingerprint,
+                "current_fingerprint": authoring_fingerprint(
+                    recipe, owner, original, volume
+                ),
+            }
+        return value
+
+    def _volume_references(self, plan: ExecutionPlan) -> set[str]:
+        references: set[str] = set()
+        for node in self._recipe.nodes:
+            if (
+                not isinstance(node, Selection)
+                or node.entries is None
+                or node.id not in plan.order
+            ):
+                continue
+            for entry in node.entries:
+                references.update(
+                    f"{node.id}/{entry.id}/{volume.id}" for volume in entry.volumes
+                )
+            entry = current_entry(node, self.workspace)
+            if entry is not None and entry.source_volume is not None:
+                ref = entry.source_volume
+                references.add(f"{ref.selection}/{ref.entry}/{ref.volume}")
+        return references
+
+    def _mark_needs_input(self) -> None:
+        """Settle missing setup and discard every affected published output."""
+        waiting: dict[str, set[str]] = {}
+        diagnostics: dict[str, dict[str, Any]] = {}
+        for node in self._recipe.nodes:
+            if isinstance(node, Selection) and node.entries is not None:
+                diagnostic = entry_diagnostic(self._recipe, node, self.workspace)
+                if diagnostic is not None:
+                    reference = diagnostic.get("volume")
+                    if reference is not None:
+                        key = "/".join(
+                            reference[name] for name in ("selection", "entry", "volume")
+                        )
+                        failure = self._volume_refresh_errors.get(key)
+                        if failure is not None and failure[0] == diagnostic.get(
+                            "refresh_fingerprint"
+                        ):
+                            diagnostic = {
+                                **diagnostic,
+                                "refresh_error": failure[1],
+                                "message": f"The authoring inputs could not refresh this volume: {failure[1]}",
+                            }
+                    waiting[node.id] = {node.id}
+                    diagnostics[node.id] = diagnostic
+        if not waiting:
+            return
+        nodes = {node.id: node for node in self._recipe.nodes}
+        plan = compile_execution_plan(
+            self._recipe,
+            set(nodes),
+            describe_geometry_influence(nodes),
+            selected_named_solves=isinstance(self.workspace, ScanWorkspace),
+        )
+        changed = True
+        while changed:
+            changed = False
+            for task, dependencies_ in plan.dependencies.items():
+                causes = set().union(
+                    *(waiting.get(dep, set()) for dep in dependencies_)
+                )
+                if causes and not causes <= waiting.get(task, set()):
+                    waiting.setdefault(task, set()).update(causes)
+                    changed = True
+        for task, causes in waiting.items():
+            for key in plan.aliases.get(task, set()) | (
+                {task} if task in nodes else set()
+            ):
+                self._states[key] = "needs_input"
+                _ = self._errors.pop(key, None)
+                _ = self._derived.pop(key, None)
+                _ = self._results.pop(key, None)
+                _ = self._connected_solves.pop(key, None)
+                _ = self._connected_point_solves.pop(key, None)
+                self._diagnostics[key] = diagnostics.get(
+                    key,
+                    {
+                        "code": "needs_input",
+                        "action": "configure_selections",
+                        "blocked_by": sorted(causes),
+                        "message": "Choose source volumes for the input selections",
+                    },
+                )
 
     @property
     def workspace(self) -> WorkspaceType:
@@ -3074,7 +3265,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             states = {
                 key: state
                 for key, state in self._states.items()
-                if state in {"failed", "blocked"}
+                if state in {"failed", "blocked", "needs_input"}
             }
             return GraphFailureCheckpoint(
                 self._recipe.model_copy(deep=True),
@@ -3088,6 +3279,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         if key in states
                     }
                 ),
+                self._volume_refresh_errors.copy(),
             )
 
     def restore_failures(self, checkpoint: GraphFailureCheckpoint) -> None:
@@ -3095,11 +3287,16 @@ class FeatureGraph(Generic[WorkspaceType]):
         with self.lock:
             if checkpoint.token != self._token():
                 raise StaleGraph("failure checkpoint belongs to another recipe")
-            if any(state != "unevaluated" for state in self._states.values()):
+            if self._revision != 0 or any(
+                state not in {"unevaluated", "needs_input"}
+                for state in self._states.values()
+            ):
                 raise ValueError("failure restoration requires a fresh graph")
             self._states.update(checkpoint.states)
             self._errors.update(checkpoint.errors)
             self._diagnostics.update(deepcopy(checkpoint.diagnostics))
+            self._volume_refresh_errors = checkpoint.volume_refresh_errors.copy()
+            self._mark_needs_input()
             if checkpoint.states:
                 self._revision += 1
 
@@ -3227,13 +3424,22 @@ class FeatureGraph(Generic[WorkspaceType]):
             elif isinstance(node, Selection):
                 if not isinstance(nodes[node.source], Source):
                     raise ValueError("selection input must be a source")
-                if node.ids != sorted(set(node.ids)) or (
-                    node.ids and node.ids[-1] >= len(self.workspace.local)
+                entry = current_entry(node, self.workspace)
+                ids = (
+                    node.ids
+                    if node.entries is None
+                    else entry.ids
+                    if entry is not None
+                    else None
+                )
+                if ids is not None and (
+                    ids != sorted(set(ids))
+                    or (ids and ids[-1] >= len(self.workspace.local))
                 ):
                     raise ValueError(
                         "selection IDs must be unique, sorted, and in range"
                     )
-                if node.ids and np.any(self.workspace.data.weights[node.ids] <= 0):
+                if ids and np.any(self.workspace.data.weights[ids] <= 0):
                     raise ValueError("selection requires positive incident area")
             elif isinstance(node, SurfaceFit):
                 if len(set(node.selections)) != len(node.selections):
@@ -3964,6 +4170,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 describe_geometry_influence(nodes),
                 selected_named_solves=isinstance(self.workspace, ScanWorkspace),
             )
+        if any(
+            isinstance(node, Selection) and node.entries is not None
+            for node in recipe.nodes
+        ):
+            validate_records(recipe, self.workspace, self._volume_cache)
         check_portable_actions(recipe.model_dump(mode="json"))
         return recipe.model_copy(deep=True)
 
@@ -3973,6 +4184,19 @@ class FeatureGraph(Generic[WorkspaceType]):
         # held; copying every stored face here needlessly duplicates provenance.
         values = cast(dict[str, dict[str, Any]], {**self._derived, **self._results})
         nodes = {node.id: node for node in self._recipe.nodes}
+        for selection in self._recipe.nodes:
+            if not isinstance(selection, Selection) or selection.entries is None:
+                continue
+            entry = current_entry(selection, self.workspace)
+            ids = (
+                entry.ids
+                if entry is not None and entry.mode == "painted"
+                else self._derived.get(selection.id, {}).get("ids")
+            )
+            values[selection.id] = {
+                "ids": list(ids) if ids is not None else [],
+                "source": selection.source,
+            }
         for point_id, solve in self._connected_point_solves.items():
             values["@point/" + point_id] = {
                 "outputs": {point_id: solve["point"]},
@@ -4029,6 +4253,13 @@ class FeatureGraph(Generic[WorkspaceType]):
         # Content token detects conflicting client edits without an edit history.
         return self._content_token
 
+    def publication_token(self, request_token: str) -> str:
+        """Resolve only a refresh committed by this exact evaluation request."""
+        with self.lock:
+            if request_token not in {self._token(), self._evaluation_origin_token}:
+                raise StaleGraph("graph changed after evaluation")
+            return self._token()
+
     def snapshot(
         self, if_revision: int | None = None, if_recipe_token: str | None = None
     ) -> dict[str, object]:
@@ -4045,6 +4276,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                     "token": self._token(),
                     "revision": self._revision,
                     "unchanged": True,
+                    **(
+                        {"evaluation_origin_token": self._evaluation_origin_token}
+                        if self._evaluation_origin_token is not None
+                        else {}
+                    ),
                 }
             publication_values = self._input_values()
             resolved = deepcopy({**self._derived, **self._results})
@@ -4146,6 +4382,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 ),
                 "token": self._token(),
                 "revision": self._revision,
+                **(
+                    {"evaluation_origin_token": self._evaluation_origin_token}
+                    if self._evaluation_origin_token is not None
+                    else {}
+                ),
                 "states": self._states.copy(),
                 "errors": self._errors.copy(),
                 "diagnostics": deepcopy(self._diagnostics),
@@ -4165,6 +4406,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                 },
                 "memberships": {
                     n.id: n.ids.copy()
+                    if isinstance(n, Selection) and n.entries is None
+                    else publication_values.get(n.id, {}).get("ids")
                     if isinstance(n, Selection)
                     else deepcopy(self._derived.get(n.id, {}).get("ids"))
                     for n in self._recipe.nodes
@@ -4188,7 +4431,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                 node.id
                 for node in recipe.nodes
                 if (previous := before.get(node.id)) is None
-                or previous.model_copy(update={"label": node.label}) != node
+                or (
+                    self._selection_intent(previous, self._recipe)
+                    != self._selection_intent(node, recipe)
+                    if isinstance(previous, Selection) and isinstance(node, Selection)
+                    else previous.model_copy(update={"label": node.label}) != node
+                )
             }
             after_nodes = {n.id: n for n in recipe.nodes}
             changed_outputs = affected | (before.keys() - after_nodes.keys())
@@ -4271,7 +4519,20 @@ class FeatureGraph(Generic[WorkspaceType]):
                 key: "stale" if value == "running" else value
                 for key, value in self._states.items()
             }
+            current_volumes = {
+                f"{node.id}/{entry.id}/{volume.id}"
+                for node in recipe.nodes
+                if isinstance(node, Selection)
+                for entry in node.entries or []
+                for volume in entry.volumes
+            }
+            self._volume_refresh_errors = {
+                key: failure
+                for key, failure in self._volume_refresh_errors.items()
+                if key in current_volumes
+            }
             self._recipe = recipe
+            self._evaluation_origin_token = None
             self._content_token = recipe_content_token(recipe)
             self._epoch += 1
             self._revision += 1
@@ -4280,6 +4541,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for key, value in self._validation_reviews.items()
                 if key[0] in after_nodes and key[0] not in affected
             }
+            self._mark_needs_input()
             return self.snapshot()
 
     @staticmethod
@@ -4484,8 +4746,35 @@ class FeatureGraph(Generic[WorkspaceType]):
         with self.lock:
             plan = self._ensure_plan(token, targets, all_actions)
             nodes = {node.id: node for node in self._recipe.nodes}
+            if self._refresh_volumes:
+                from experiments.selection_volume_authoring import (
+                    authoring_fingerprint,
+                    resolve_volume,
+                )
+
+                for reference_key in self._volume_references(plan):
+                    selection_id, entry_id, volume_id = reference_key.split("/")
+                    owner, entry, volume = resolve_volume(
+                        self._recipe,
+                        VolumeReference(
+                            selection=selection_id, entry=entry_id, volume=volume_id
+                        ),
+                    )
+                    if entry.scan.key != source_binding(self.workspace).key:
+                        continue
+                    fingerprint = authoring_fingerprint(
+                        self._recipe, owner, entry, volume
+                    )
+                    if (
+                        fingerprint != volume.authoring_fingerprint
+                        and self._volume_refresh_errors.get(reference_key, (None, ""))[
+                            0
+                        ]
+                        != fingerprint
+                    ):
+                        return True, None
             if any(
-                self._states[key] not in {"ready", "failed", "blocked"}
+                self._states[key] not in {"ready", "failed", "blocked", "needs_input"}
                 for key in plan.order
                 if key in nodes
             ):
@@ -4494,7 +4783,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if task not in plan.order:
                     continue
                 members = plan.aliases[task]
-                if any(self._states[key] in {"failed", "blocked"} for key in members):
+                if any(
+                    self._states[key] in {"failed", "blocked", "needs_input"}
+                    for key in members
+                ):
                     continue
                 if kind == "axis" and identifier not in self._connected_solves:
                     return True, None
@@ -4563,6 +4855,141 @@ class FeatureGraph(Generic[WorkspaceType]):
         *,
         targets: list[str] | None = None,
         retry_failed: bool = True,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        check_cancelled(cancelled)
+        with self.lock:
+            if token != self._token():
+                raise StaleGraph("graph changed before evaluation")
+            references: set[str] = set()
+            if self._refresh_volumes and any(
+                isinstance(node, Selection) and node.entries is not None
+                for node in self._recipe.nodes
+            ):
+                if target is not None and (targets is not None or all_actions):
+                    raise ValueError(
+                        "evaluation target cannot also specify targets or all actions"
+                    )
+                plan = self._ensure_plan(
+                    token, [target] if target is not None else targets, all_actions
+                )
+                references = self._volume_references(plan)
+            original = self._recipe.model_copy(deep=True) if references else None
+            epoch = self._epoch
+        if original is not None:
+            from experiments.selection_volume_authoring import authoring_fingerprint
+            from experiments.selection_volume_transactions import staged_refresh
+
+            updated, errors = staged_refresh(
+                self, original, references=references, cancelled=cancelled
+            )
+            failures = {
+                key: value
+                for key, value in self._volume_refresh_errors.items()
+                if key not in references
+            }
+            for node in updated.nodes:
+                if isinstance(node, Selection) and node.entries is not None:
+                    for entry in node.entries:
+                        for volume in entry.volumes:
+                            key = f"{node.id}/{entry.id}/{volume.id}"
+                            if key in errors:
+                                failures[key] = (
+                                    authoring_fingerprint(updated, node, entry, volume),
+                                    errors[key],
+                                )
+            if updated != original:
+                candidate = FeatureGraph(
+                    self.workspace, original, refresh_volumes=False
+                )
+                with self.lock:
+                    if token != self._token() or epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during volume refresh; candidate discarded"
+                        )
+                    candidate._states = self._states.copy()
+                    candidate._results = deepcopy(self._results)
+                    candidate._derived = deepcopy(self._derived)
+                    candidate._connected_solves = deepcopy(self._connected_solves)
+                    candidate._connected_point_solves = deepcopy(
+                        self._connected_point_solves
+                    )
+                    candidate._errors = self._errors.copy()
+                    candidate._diagnostics = deepcopy(self._diagnostics)
+                    candidate._validation_reviews = deepcopy(self._validation_reviews)
+                _ = candidate.replace(updated, token)
+                candidate._volume_refresh_errors = failures
+                candidate._mark_needs_input()
+                candidate_revision = candidate._revision
+                error: Exception | None = None
+                try:
+                    _ = candidate._evaluate(
+                        str(candidate.snapshot()["token"]),
+                        target,
+                        all_actions,
+                        targets=targets,
+                        retry_failed=retry_failed,
+                        cancelled=cancelled,
+                    )
+                except (StaleGraph, ScanCancelled):
+                    raise
+                except Exception as failure:
+                    if candidate._revision == candidate_revision:
+                        raise
+                    error = failure
+                with self.lock:
+                    check_cancelled(cancelled)
+                    if token != self._token() or epoch != self._epoch:
+                        raise StaleGraph(
+                            "graph changed during volume refresh; candidate discarded"
+                        )
+                    # Candidate revisions are private. Publish the entire recipe
+                    # and its matching stores once, behind the existing fence.
+                    self._recipe = candidate._recipe
+                    self._content_token = candidate._content_token
+                    self._states = candidate._states
+                    self._results = candidate._results
+                    self._derived = candidate._derived
+                    self._connected_solves = candidate._connected_solves
+                    self._connected_point_solves = candidate._connected_point_solves
+                    self._errors = candidate._errors
+                    self._diagnostics = candidate._diagnostics
+                    self._validation_reviews = candidate._validation_reviews
+                    self._volume_cache = candidate._volume_cache
+                    self._volume_refresh_errors = candidate._volume_refresh_errors
+                    self._evaluation_origin_token = token
+                    self._epoch += 1
+                    self._revision += 1
+                if error is not None:
+                    raise error
+                return self.snapshot()
+            with self.lock:
+                if token != self._token() or epoch != self._epoch:
+                    raise StaleGraph(
+                        "graph changed during volume refresh; candidate discarded"
+                    )
+                if failures != self._volume_refresh_errors:
+                    self._volume_refresh_errors = failures
+                    self._mark_needs_input()
+                    self._revision += 1
+        return self._evaluate(
+            token,
+            target,
+            all_actions,
+            targets=targets,
+            retry_failed=retry_failed,
+            cancelled=cancelled,
+        )
+
+    def _evaluate(
+        self,
+        token: str,
+        target: str | None = None,
+        all_actions: bool = False,
+        *,
+        targets: list[str] | None = None,
+        retry_failed: bool = True,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         with self.lock:
             if token != self._token():
@@ -4630,9 +5057,21 @@ class FeatureGraph(Generic[WorkspaceType]):
             )
             order = plan.order
 
+        def recovery_recipe() -> dict[str, Any]:
+            if self._fit_intent is not None:
+                return self._fit_intent
+            from experiments.selection_volume_authoring import semantic_recipe
+
+            if any(
+                isinstance(node, Selection) and node.entries is not None
+                for node in recipe.nodes
+            ):
+                return semantic_recipe(recipe, source_binding(self.workspace))
+            return recipe.model_dump(mode="json")
+
         def membership(selection_id: str) -> list[int]:
             selection = nodes[selection_id]
-            if isinstance(selection, Selection):
+            if isinstance(selection, Selection) and selection.entries is None:
                 return selection.ids
             with self.lock:
                 if epoch != self._epoch:
@@ -5042,7 +5481,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     axis_alias_signs={key: 1 for key in axis_records},
                     plane_alias_signs={key: 1 for key in plane_records},
                     semantic_intent={
-                        "recipe": recipe.model_dump(mode="json"),
+                        "recipe": recovery_recipe(),
                         "support_policy_version": SUPPORT_POLICY_VERSION,
                     },
                 ),
@@ -5208,7 +5647,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if isinstance(self.workspace, ScanWorkspace)
                     else np.asarray(axis_result["parameters"], dtype=float),
                     semantic_intent={
-                        "recipe": recipe.model_dump(mode="json"),
+                        "recipe": recovery_recipe(),
                         "support_policy_version": SUPPORT_POLICY_VERSION,
                     }
                     if isinstance(self.workspace, ScanWorkspace)
@@ -5223,7 +5662,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 else np.asarray(axis_result["parameters"], dtype=float),
                 reference_plane_groups=reference_plane_groups,
                 semantic_intent={
-                    "recipe": recipe.model_dump(mode="json"),
+                    "recipe": recovery_recipe(),
                     "support_policy_version": SUPPORT_POLICY_VERSION,
                 }
                 if isinstance(self.workspace, ScanWorkspace)
@@ -5744,6 +6183,15 @@ class FeatureGraph(Generic[WorkspaceType]):
         arrangements: dict[str, Any] = {}
         failures: dict[str, set[str]] = {}
         evaluation_errors: list[Exception] = []
+        for task in order:
+            waiting = {
+                key
+                for key in plan.aliases.get(task, set())
+                | ({task} if task in nodes else set())
+                if self._states.get(key) == "needs_input"
+            }
+            if waiting:
+                failures[task] = waiting
 
         def note_failure(task: str, error: Exception, causes: set[str]) -> None:
             """Keep independent branches running; discard dependent geometry."""
@@ -5840,6 +6288,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
 
         for key in order:
+            check_cancelled(cancelled)
             if key in failures:
                 continue
             if isinstance(nodes.get(key), Body):
@@ -5922,8 +6371,21 @@ class FeatureGraph(Generic[WorkspaceType]):
                 self._revision += 1
             try:
                 result = None
-                derived = None
-                if isinstance(node, SurfaceIntersection):
+                derived: dict[str, Any] | None = None
+                if isinstance(node, Selection) and node.entries is not None:
+                    ids, coverage = resolve_membership(
+                        recipe,
+                        node,
+                        self.workspace,
+                        self._volume_cache,
+                        cancelled=cancelled,
+                    )
+                    if ids is None:
+                        raise ValueError("selection requires input before evaluation")
+                    derived = {"ids": ids, "source": node.source}
+                    if coverage is not None:
+                        derived["coverage"] = coverage
+                elif isinstance(node, SurfaceIntersection):
                     derived = surface_intersection(
                         referenced_surface(node.first), referenced_surface(node.second)
                     )
@@ -5988,10 +6450,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 ]
                             ),
                         )
-                    derived = arrangements[intent_key].select(
-                        node.selector.model_dump()
-                    )
-                    derived["surface"] = node.surface.model_dump()
+                    derived = {
+                        **arrangements[intent_key].select(node.selector.model_dump()),
+                        "surface": node.surface.model_dump(),
+                    }
                 elif isinstance(node, TrimmedFace):
                     surface = referenced_surface(node.surface)
                     derived = trimmed_face(
@@ -6069,7 +6531,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ids,
                             {
                                 "family": node.kind,
-                                "recipe": recipe.model_dump(mode="json"),
+                                "recipe": recovery_recipe(),
                                 "support_policy_version": SUPPORT_POLICY_VERSION,
                             },
                             policy_version=CONE_POLICY_VERSION
@@ -6194,7 +6656,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             if isinstance(self.workspace, ScanWorkspace)
                             else np.asarray(axis_result["parameters"], dtype=float),
                             semantic_intent={
-                                "recipe": recipe.model_dump(mode="json"),
+                                "recipe": recovery_recipe(),
                                 "support_policy_version": SUPPORT_POLICY_VERSION,
                             }
                             if isinstance(self.workspace, ScanWorkspace)
@@ -6644,7 +7106,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         ),
                         reference_plane_groups=reference_plane_groups,
                         semantic_intent={
-                            "recipe": recipe.model_dump(mode="json"),
+                            "recipe": recovery_recipe(),
                             "support_policy_version": SUPPORT_POLICY_VERSION,
                         }
                         if isinstance(self.workspace, ScanWorkspace)
@@ -6705,7 +7167,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 for rotation in rotations
                             ),
                             semantic_intent={
-                                "recipe": recipe.model_dump(mode="json"),
+                                "recipe": recovery_recipe(),
                                 "support_policy_version": SUPPORT_POLICY_VERSION,
                             }
                             if isinstance(self.workspace, ScanWorkspace)
@@ -6751,7 +7213,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     isinstance(node, (TrimmedFace, ArrangedFace))
                     and derived is not None
                 ):
-                    face_derived = cast(dict[str, Any], derived)
+                    face_derived = derived
                     face_derived["boundary_sources"] = node.boundary_sources
                     if node.boundary_sources:
                         face_derived["shared_boundary_review"] = (

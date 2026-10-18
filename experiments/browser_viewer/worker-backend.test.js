@@ -162,6 +162,26 @@ async function actionsFixture(options = {}, initial = {}) {
   await loading;
   return value;
 }
+test('entry-aware workers require a precise selection entry capability', async () => {
+  for (const entries of [undefined, null, { version: true }, { version: 2 }, { version: 1, extra: true }]) {
+    const { backend, worker } = fixture({ initialMode: 'empty', sourceActions: true });
+    const loading = backend.initialize();
+    const response = actionsReady();
+    response.worker_protocol = { ...response.worker_protocol, version: 8, selection_entries: entries };
+    worker.reply(response);
+    await assert.rejects(loading, /selection entries profile/);
+    assert.equal(worker.terminated, 1);
+  }
+  const { backend, worker } = fixture({ initialMode: 'empty', sourceActions: true });
+  const loading = backend.initialize();
+  const response = actionsReady();
+  response.worker_protocol = { ...response.worker_protocol, version: 8, selection_entries: { version: 1 } };
+  worker.reply(response);
+  await loading;
+  assert.equal(backend.capabilities.sourceActions, true);
+  backend.close();
+});
+
 function actionsCandidate(request, { warnings = [], sourceKind = 'generic', ...options } = {}) {
   const result = candidate(request, options);
   result.metadata.import_warnings = structuredClone(warnings);
@@ -1068,7 +1088,7 @@ test('recipe-less worker publications retain saved actions and clear transient u
   assert.deepEqual((await stream.next()).value.recipe, original.recipe);
   const compact = stream.next();
   value.worker.reply({ kind: 'graph', generation: 0,
-    state: { token: 'token', revision: 3, unchanged: true, evaluation_running: true } });
+    state: { token: 'token', revision: 3, unchanged: true, status: 'running', evaluation_running: true } });
   const compactState = (await compact).value;
   assert.deepEqual(compactState.recipe, original.recipe);
   assert.equal(Object.hasOwn(compactState, 'unchanged'), false);
@@ -1080,6 +1100,7 @@ test('recipe-less worker publications retain saved actions and clear transient u
   assert.deepEqual(terminalState.states, { selection: 'ready' });
   assert.equal(Object.hasOwn(terminalState, 'unchanged'), false);
   assert.equal(Object.hasOwn(terminalState, 'evaluation_error'), false);
+  assert.equal(Object.hasOwn(terminalState, 'status'), false);
   assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
   assert.equal((await stream.next()).done, true);
   const reading = value.backend.getGraph({ revision: 4 });

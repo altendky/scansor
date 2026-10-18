@@ -333,6 +333,67 @@ def fit_arithmetic(
     }
 
 
+def painted_membership(
+    selection: dict[str, Any],
+    source: dict[str, Any],
+    vertices: int,
+    *,
+    nested_required: bool = False,
+) -> dict[str, Any]:
+    """Independently check original membership, not the UI's resolver helper."""
+    require(selection["source"] == source["id"], "selection source differs")
+    entries = selection.get("entries")
+    membership = selection
+    if entries is not None:
+        require(
+            isinstance(entries, list) and len(entries) == 1,
+            "initial entry count differs",
+        )
+        require(
+            "ids" not in selection and "depth" not in selection,
+            "group contains flat membership",
+        )
+        require(isinstance(entries[0], dict), "invalid initial entry record")
+        membership = cast(dict[str, Any], entries[0])
+        require(membership.get("mode") == "painted", "initial entry is not painted")
+        identifier = membership.get("id")
+        require(
+            isinstance(identifier, str)
+            and 1 <= len(identifier) <= 64
+            and all(
+                char.isascii() and (char.isalnum() or char in "_-")
+                for char in identifier
+            ),
+            "invalid initial entry identity",
+        )
+        binding = membership["scan"]
+        require(
+            binding["source_sha256"] == source["source_sha256"]
+            and binding["reference_sha256"] == source["reference_sha256"]
+            and type(binding["vertices"]) is int
+            and binding["vertices"] == vertices
+            and binding["descriptor"] == source["descriptor"],
+            "selection entry source binding differs",
+        )
+        require(membership.get("volumes") == [], "painting created an implicit volume")
+        require(
+            membership.get("source_volume") is None,
+            "painted entry chose a source volume",
+        )
+        require(membership.get("depth") == "through_all", "painted entry depth differs")
+    else:
+        require(not nested_required, "grouped selection profile requires an entry")
+    ids = membership.get("ids")
+    require(
+        isinstance(ids, list)
+        and len(ids) <= 25_000
+        and all(type(value) is int and 0 <= value < vertices for value in ids)
+        and ids == sorted(set(ids)),
+        "invalid painted original-row membership",
+    )
+    return membership
+
+
 def validate_observations(
     report: dict[str, Any], geometry: RawGeometry, raw: bytes
 ) -> dict[str, Any]:
@@ -461,9 +522,19 @@ def validate_observations(
             "accepted source differs",
         )
         selection, fit_node = nodes[report["selection_id"]], nodes[report["fit_id"]]
+        membership = painted_membership(
+            selection,
+            source,
+            len(geometry.positions),
+            nested_required=checkpoint["metadata"]
+            .get("selection_entries", {})
+            .get("version")
+            == 1,
+        )
         require(
             selection["source"] == source["id"]
-            and selection["ids"] == expected_ids
+            and membership["ids"] == expected_ids
+            and graph["memberships"][selection["id"]] == expected_ids
             and fit_node["selections"] == [selection["id"]]
             and fit_node["kind"] == "cylinder",
             "browser-authored selection/fit differs",

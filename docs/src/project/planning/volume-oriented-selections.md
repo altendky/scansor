@@ -178,7 +178,44 @@ complete recipe. Initial load, explicit save/export, and worker recovery retain
 the full portable actions. Older worker protocols keep their original polling
 requests.
 
-### Remaining integration
+### Selection entries and evaluation
+
+Nested Selection records retain the existing feature ID and contain source-bound
+entries. A painted entry owns its vertex IDs and depth; a generated entry owns a
+reference to exactly one accepted volume. The source binding includes both byte
+identity and interpretation, including the captured vertex count. Display names
+do not select an entry. Legacy flat selections remain readable and editable;
+conversion is explicit, while newly created browser selections have a first
+painted entry when the backend advertises the entry capability.
+
+Owned volumes store their authoring construction, optional fitted-surface
+reference, controls, accepted archive, and an authoring fingerprint. The
+fingerprint covers the actual source-context solve closure, including connected
+constraints, while excluding labels, owned caches, and unrelated scan entries.
+Authoring uses the ordinary evaluator with that scan's observations and complete
+constraint context. It does not independently seed a hidden unconstrained fit.
+
+Explicitly adopting a generated scan entry captures its generated observation
+membership for volume authoring. Other generated inputs in the same solve
+closure are captured too. These immutable authoring observations break a feedback
+loop through the shared active-scan Fit; ordinary painted authoring inputs remain
+live. Generated entries themselves remain linked to the chosen accepted volume.
+
+Evaluation refreshes changed volumes only when their exact authoring scan is
+loaded. It stages updated archives and matching results privately, then publishes
+both behind the current recipe/operation fence. Cancellation or an intervening
+edit discards that publication. A refresh can change the recipe token; its
+completion carries the originating token so native and worker callers can follow
+that specific publication. Ordinary edits do not carry this receipt.
+
+Missing configuration and unavailable or failed authoring refreshes settle as
+`needs_input`, remove stale dependent geometry, and retain an actionable diagnostic.
+A failed refresh does not automatically repeat until its authoring inputs change.
+Cancel recovery preserves this evidence. An otherwise valid refreshed volume can
+still produce an ordinary target fit failure under the existing fitting rules.
+Unavailable selections outside a requested solve do not block that solve.
+
+### Delivery slices
 
 - [Shared volume geometry foundation](https://github.com/altendky/scansor/issues/332):
   versioned mesh/analytic support, automatic defaults and independent overrides,

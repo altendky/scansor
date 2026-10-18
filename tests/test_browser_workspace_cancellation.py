@@ -11,6 +11,7 @@ import pytest
 
 from experiments.browser_runtime.workspace import BrowserWorkspace, WorkspaceError
 from experiments.feature_graph import FeatureGraph, Recipe, StaleGraph
+from experiments.selection_entries import source_binding
 from tests.test_browser_workspace import (
     EXAMPLE,
     call,
@@ -245,6 +246,39 @@ def test_failure_checkpoint_is_recipe_bound_and_requires_fresh_graph(
     _ = evaluate(workspace)
     with pytest.raises(ValueError, match="fresh graph"):
         workspace.graph.restore_failures(checkpoint)
+
+
+def test_cancel_recovery_preserves_selections_waiting_for_a_volume(
+    workspace: BrowserWorkspace,
+):
+    payload = deepcopy(snapshot(workspace)["recipe"])
+    selection = next(
+        node for node in payload["nodes"] if node["operation"] == "selection"
+    )
+    selection.pop("ids")
+    selection.pop("depth", None)
+    selection["entries"] = [
+        {
+            "id": "pending",
+            "scan": source_binding(workspace.workspace).model_dump(),
+            "mode": "generated",
+        }
+    ]
+    pending = success(replace(workspace, payload))
+    assert pending["states"][selection["id"]] == "needs_input"
+    workspace.checkpoint_operation()
+    success(
+        prepare(workspace, "evaluateGraph", token=pending["token"], all_actions=True)
+    )
+    success(finish(workspace))
+    recovered = success(restore(workspace, pending["recipe"]))
+    assert recovered["token"] == pending["token"]
+    assert recovered["states"][selection["id"]] == "needs_input"
+    assert (
+        recovered["diagnostics"][selection["id"]]
+        == pending["diagnostics"][selection["id"]]
+    )
+    assert recovered["errors"] == {} and recovered["results"] == {}
 
 
 def test_cancelled_export_restores_same_cad_source_and_next_export_succeeds(

@@ -80,8 +80,9 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       const matching = [latestGraph, known].find(value => value?.recipe && value.token === state.token);
       if (!matching)
         throw new BackendError('Invalid recipe-less graph response. Reload the current actions.');
-      const { evaluation_error: previousError, ...previous } = matching;
+      const { evaluation_error: previousError, status: previousStatus, ...previous } = matching;
       void previousError;
+      void previousStatus;
       state = { ...previous, ...state };
     }
     if (!Number.isSafeInteger(latestGraph?.revision) || !Number.isSafeInteger(state.revision)
