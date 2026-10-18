@@ -4,3 +4,11 @@
 self-hosted-runner:
   labels:
     - ubuntu-26.04
+
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      # actionlint v1.7.12 rejects GitHub's supported self-repository syntax.
+      # Remove this syntax-only compatibility rule when actionlint supports it:
+      # https://github.com/rhysd/actionlint/issues/711
+      - 'reusable workflow call "\$/\.github/workflows/reflow-[^" ]+\.yml" at "uses" is not following the format'

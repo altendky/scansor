@@ -405,7 +405,9 @@ conflict-only rebasing, and pre-commit updates are enabled.
 
 Discovery covers the root Python project and uv lock, root mise tools and lock,
 GitHub workflows, pre-commit hooks, and the browser experiment's npm package and
-lock. PEP 723 scripts and other retained experiment environments are excluded;
+lock. An explicit `includePaths` allowlist enforces this scope because manager
+file patterns add to built-in defaults. Generated mise manifests, `mise.demo.toml`,
+PEP 723 scripts and other retained experiment environments are excluded;
 their exact versions are evidence that must be updated deliberately.
 
 Python support constraints in `requires-python` do not update automatically.
@@ -413,6 +415,8 @@ Two separately grouped patch streams maintain Python 3.12 and 3.13 in both
 `mise.toml` and the workflow matrices/commands. Native mise extraction updates
 only its primary Python entry, so a custom regex manager owns both versions.
 Adding another supported minor requires changing that manager and its rules.
+Node updates stay within the currently selected 25.x release line. Changing that
+major is a separate tooling decision.
 Historical documentation snapshots are not rewritten by these updates.
 
 Native managers maintain uv/npm locks. Mise and Python-tool updates run two
@@ -433,6 +437,30 @@ the existing branch protections/required checks. Dependency PRs are not labelled
 or merged automatically. Mergify must also be installed for Scansor, and the
 repository must have an `enqueue` label. Neither bot receives a branch-protection
 bypass from this configuration.
+
+The required `Dependency licenses` CI job audits every registry package/version
+in `uv.lock`, including development and other-platform transitives, through
+[PyPI's version-specific metadata API](https://docs.pypi.org/api/json/). It also
+resolves the existing build-system requirement ranges and their transitives with
+uv's universal, no-build mode and audits that resolved metadata without changing
+the declared ranges. It checks every dependency entry in the browser npm lock,
+including optional
+platform packages and the pinned FlexLayout fork. Run it locally with
+`mise exec -- python -m experiments.dependency_licenses`. It does not install or
+execute dependency code. Missing metadata, unknown license identifiers, invalid
+expressions, unavailable registry evidence, and GPL/LGPL/AGPL metadata fail the
+gate. Recognized legacy MIT/Apache/PSF/BSD classifiers are accepted when explicit
+license metadata is absent; BSD classification does not assert a specific BSD
+variant. New identifiers require a deliberate policy review.
+
+This is a package-metadata gate, not proof of every bundled native component's
+license. Existing OCCT approval and browser redistribution evidence remain
+separate requirements. `scripts/dependency-license-native-baseline.json` binds
+the currently committed OCP Python packages to exact versions and artifact
+hashes so a wrapper's Apache metadata cannot silently admit a changed kernel
+build. Changes to those artifacts require explicit license/approval review;
+the baseline does not grant a new exception. No general GPL-family exception or
+unknown-license bypass is provided.
 
 ## Packaging, Documentation, and Release Deferrals
 

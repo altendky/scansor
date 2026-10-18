@@ -32,16 +32,16 @@ jobs:
 
   mise:
     name: Mise
-    uses: ./.github/workflows/reflow-mise.yml
+    uses: $/.github/workflows/reflow-mise.yml
 
   pre-commit:
     name: Pre-commit
-    uses: ./.github/workflows/reflow-pre-commit.yml
+    uses: $/.github/workflows/reflow-pre-commit.yml
 
   python:
     name: Python
     needs: python-versions
-    uses: ./.github/workflows/reflow-python.yml
+    uses: $/.github/workflows/reflow-python.yml
     with:
       python-versions: ${{ needs.python-versions.outputs.versions }}
       primary-python: ${{ needs.python-versions.outputs.primary }}
@@ -49,21 +49,39 @@ jobs:
   browser:
     name: Browser
     needs: python-versions
-    uses: ./.github/workflows/reflow-browser.yml
+    uses: $/.github/workflows/reflow-browser.yml
     with:
       primary-python: ${{ needs.python-versions.outputs.primary }}
 
   mesh-numeric:
     name: Mesh numerical conformance
     needs: python-versions
-    uses: ./.github/workflows/reflow-mesh-numeric.yml
+    uses: $/.github/workflows/reflow-mesh-numeric.yml
     with:
       python-versions: ${{ needs.python-versions.outputs.versions }}
+
+  dependency-licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Inspect every locked package, including dependencies for other platforms,
+      # without installing or executing dependency code.
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5
+        with:
+          install_args: python uv
+          cache: false
+
+      - name: Check Python and browser dependency licenses
+        run: python -m experiments.dependency_licenses
 
   all:
     name: all
     if: ${{ !cancelled() }}
-    needs: [python-versions, mise, pre-commit, python, browser, mesh-numeric]
+    needs: [python-versions, mise, pre-commit, python, browser, mesh-numeric, dependency-licenses]
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
@@ -73,13 +91,13 @@ jobs:
   tag-release:
     needs: all
     if: github.repository == 'altendky/scansor' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
-    uses: ./.github/workflows/reflow-tag-release.yml
+    uses: $/.github/workflows/reflow-tag-release.yml
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
   release:
     needs: all
     if: github.repository == 'altendky/scansor' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_ENABLED == 'true'
-    uses: ./.github/workflows/reflow-release.yml
+    uses: $/.github/workflows/reflow-release.yml
     secrets:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

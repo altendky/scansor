@@ -5,6 +5,13 @@
   "enabledManagers": ["github-actions", "mise", "pep621", "npm", "pre-commit", "custom.regex"],
   // Historical PEP 723 experiment environments are retained evidence, not a
   // maintained dependency surface. Keep discovery scoped to the active project.
+  // managerFilePatterns adds to defaults, so use a discovery allowlist as well.
+  "includePaths": [
+    "pyproject.toml", "uv.lock", "mise.toml", "mise.lock",
+    ".github/**", ".pre-commit-config.yaml",
+    "experiments/browser_viewer/package.json",
+    "experiments/browser_viewer/package-lock.json"
+  ],
   "pep621": { "managerFilePatterns": ["/^pyproject\\.toml$/"] },
   "mise": { "managerFilePatterns": ["/^mise\\.toml$/"] },
   "npm": { "managerFilePatterns": ["/^experiments/browser_viewer/package\\.json$/"] },
@@ -21,6 +28,8 @@
     }
   ],
   "packageRules": [
+    // Node release-line changes require an explicit tooling decision.
+    { "matchPackageNames": ["node"], "allowedVersions": ">=25 <26" },
     // Native mise extraction updates only the primary Python entry. The custom
     // manager instead maintains both tested minors in CI's shared pin source.
     { "matchManagers": ["mise"], "matchPackageNames": ["python", "python/cpython"], "enabled": false },
