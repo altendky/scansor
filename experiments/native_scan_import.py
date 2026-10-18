@@ -17,7 +17,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from threading import Condition, Event, Lock, RLock
-from typing import BinaryIO, cast
+from typing import BinaryIO, Literal, cast
 from uuid import uuid4
 
 from experiments.scan_actions import inspect_actions
@@ -54,6 +54,13 @@ class NativeImportContext:
                 Callable[[ScanProgress], None],
                 Callable[[], bool],
             ],
+            NativeOpenCandidate,
+        ]
+        | None
+    ) = None
+    prepare_replace: (
+        Callable[
+            [Path, str, Callable[[ScanProgress], None], Callable[[], bool]],
             NativeOpenCandidate,
         ]
         | None
@@ -212,8 +219,16 @@ class NativeScanImports:
             return self._active is not None
 
     def reserve(
-        self, *, generation: int, token: str, filename: str, size: int
+        self,
+        *,
+        generation: int,
+        token: str,
+        filename: str,
+        size: int,
+        purpose: Literal["add-scan", "replace-scan"] = "add-scan",
     ) -> dict[str, object]:
+        if purpose not in {"add-scan", "replace-scan"}:
+            raise ScanImportError("Unknown source import purpose.", "invalid_operation")
         if (
             type(generation) is not int
             or generation < 0
@@ -249,12 +264,28 @@ class NativeScanImports:
                 raise ScanImportError(
                     "Project changed before source reservation.", "stale_source"
                 )
-            if context.project is None:
+            if purpose == "replace-scan":
+                if context.project is None or context.prepare_replace is None:
+                    raise ScanImportError(
+                        "Replace scan requires an imported scan; retained example frames are not supported.",
+                        "unsupported_replacement",
+                    )
+                accepted = context.project.accepted
+                if accepted.workspace.descriptor is None:
+                    raise ScanImportError(
+                        "Replace scan requires an existing imported scan.",
+                        "source_required",
+                    )
+                context.project.check_replace(
+                    generation=accepted.generation, token=token
+                )
+            elif context.project is None:
                 raise ScanImportError(
                     "Add scan requires an empty project.", "source_exists"
                 )
-            accepted = context.project.accepted
-            context.project.check_add(generation=accepted.generation, token=token)
+            else:
+                accepted = context.project.accepted
+                context.project.check_add(generation=accepted.generation, token=token)
             operation = _Operation(
                 uuid4().hex,
                 generation,
@@ -264,6 +295,8 @@ class NativeScanImports:
                 self._clock(),
                 context.project,
                 accepted.generation,
+                purpose=purpose,
+                context=context if purpose == "replace-scan" else None,
                 total=size,
             )
             self._operations[operation.id] = operation
@@ -534,7 +567,17 @@ class NativeScanImports:
         try:
             opened: NativeOpenCandidate | None = None
             candidate: PreparedScan | None = None
-            if operation.purpose == "open-actions":
+            if operation.purpose == "replace-scan":
+                context = operation.context
+                assert context is not None and context.prepare_replace is not None
+                assert path is not None
+                opened = context.prepare_replace(
+                    path,
+                    operation.filename,
+                    progress,
+                    operation.cancelled.is_set,
+                )
+            elif operation.purpose == "open-actions":
                 context = operation.context
                 assert context is not None and context.prepare_open is not None
                 opened = context.prepare_open(

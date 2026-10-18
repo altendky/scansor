@@ -162,6 +162,115 @@ async function actionsFixture(options = {}, initial = {}) {
   await loading;
   return value;
 }
+const replacementProfile = { supported: true, version: 1, alignment: 'already-aligned', source_kind: 'generic-scan' };
+function replacementReady(extra = {}) {
+  return actionsReady({ worker_protocol: { version: 9, source_actions: actionsProfile,
+    selection_entries: { version: 1 }, replace_scan: replacementProfile }, ...extra });
+}
+async function replacementFixture() {
+  const value = fixture({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+  value.worker.reply(replacementReady()); await loading;
+  const originalFile = sourceFile(), importing = value.backend.addScan({ file: originalFile, generation: 0, token: 'empty' });
+  await settle(); const request = value.worker.calls.at(-1), original = candidate(request);
+  sourceTransfer(value.worker, request, original); sourcePromotion(value.worker, request); await importing;
+  return { ...value, original, originalFile };
+}
+
+test('replacement requires exact negotiated profile and an accepted imported scan', async () => {
+  for (const profile of [undefined, null, { ...replacementProfile, version: true },
+    { ...replacementProfile, alignment: 'automatic' }, { ...replacementProfile, extra: true }]) {
+    const value = fixture({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize(), response = replacementReady();
+    response.worker_protocol.replace_scan = profile;
+    value.worker.reply(response);
+    await assert.rejects(loading, /replacement profile/);
+  }
+  const old = await actionsFixture();
+  await assert.rejects(old.backend.replaceScan({ file: sourceFile(), generation: 0, token: 'empty' }), error => error.code === 'unsupported_capability');
+  assert.equal(old.worker.calls.length, 1); old.backend.close();
+  const empty = fixture({ initialMode: 'empty' }), loading = empty.backend.initialize();
+  empty.worker.reply(replacementReady()); await loading;
+  await assert.rejects(empty.backend.replaceScan({ file: sourceFile(), generation: 0, token: 'empty' }), error => error.code === 'unsupported_capability');
+  empty.backend.close();
+});
+
+test('production worker refuses undeclared replacement before reading or staging File bytes', async () => {
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8'),
+    start = source.indexOf('async function prepareSource(request)'), end = source.indexOf('\nfunction workspaceCall(', start);
+  const context = vm.createContext({ activeSource: { id: 1, cancelled: false }, minimumGeneration: 0,
+    manifest: { worker_protocol: { version: 8, source_import: sourceProfile } }, sourceTransferMetrics: {},
+    sourceCall: () => assert.fail('Undeclared replacement must not enter Python'),
+    python: { FS: new Proxy({}, { get: () => assert.fail('Undeclared replacement must not allocate staging') }) } });
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.prepare = prepareSource;', context);
+  await assert.rejects(context.prepare({ id: 1, generation: 0,
+    payload: { operationId: 'replace', kind: 'scan', purpose: 'replace-scan', file: sourceFile() } }), error => error.code === 'unsupported_capability');
+});
+
+test('replacement adopts complete new File recipe and identity only at confirmed transfer', async () => {
+  const { backend, worker, original } = await replacementFixture(), file = sourceFile(40), progress = [];
+  const replacing = backend.replaceScan({ file, generation: 1, token: 'source' }, { onProgress: record => progress.push(record) });
+  await settle(); const request = worker.calls.at(-1), result = candidate(request,
+    { generation: 2, token: 'replacement', identity: { source_sha256: 'new' }, purpose: 'replace-scan',
+      nodes: [{ id: 'source', operation: 'source' }, { id: 'selection', entries: [{ id: 'new-entry', mode: 'generated', source_volume: null }] }] });
+  assert.equal(request.payload.kind, 'scan'); assert.equal(request.payload.purpose, 'replace-scan');
+  assert.equal(request.payload.file, file);
+  sourceTransfer(worker, request, result, { confirm: false });
+  assert.deepEqual(await backend.exportRecipe(), original.graph.recipe);
+  worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+  assert.deepEqual(await backend.exportRecipe(), result.graph.recipe);
+  assert.equal(progress.at(-1).purpose, 'replace-scan');
+  assert.equal((await backend.cancelSourceOperation(progress[0])).status, 'accepted');
+  sourcePromotion(worker, request, 2);
+  assert.equal((await replacing).graph.token, 'replacement');
+  backend.close();
+});
+
+test('invalid stale failed and cancelled replacement preserve the accepted graph', async () => {
+  const { backend, worker, original } = await replacementFixture();
+  await assert.rejects(backend.replaceScan({ file: sourceFile(), generation: 0, token: 'source' }), error => error.code === 'observation_superseded');
+  await assert.rejects(backend.replaceScan({ file: sourceFile(0), generation: 1, token: 'source' }), /nonempty/);
+  for (const cancel of [false, true]) {
+    const records = [], replacing = backend.replaceScan({ file: sourceFile(), generation: 1, token: 'source' }, { onProgress: r => records.push(r) });
+    await settle(); const request = worker.calls.at(-1);
+    if (cancel) {
+      sourceTransfer(worker, request, candidate(request, { generation: 2, purpose: 'replace-scan' }), { confirm: false });
+      await backend.cancelSourceOperation(records[0]);
+      worker.reply({ id: request.id, kind: 'transfer-confirmed', positions_bytes_after: 0, indices_bytes_after: 0 });
+      assert.equal(worker.calls.at(-1).accepted, false);
+    }
+    worker.reply({ id: request.id, ok: false, error: { code: cancel ? 'source_cancelled' : 'invalid_source', message: cancel ? 'Cancelled' : 'Invalid scan' } });
+    await assert.rejects(replacing, error => error.code === (cancel ? 'source_cancelled' : 'invalid_source'));
+    assert.deepEqual(await backend.exportRecipe(), original.graph.recipe);
+  }
+  backend.close();
+});
+
+test('Force on either side of replacement acceptance restores matching File full recipe identity and epoch', async () => {
+  for (const adopted of [false, true]) {
+    const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(replacementReady()); await loading;
+    const oldFile = sourceFile(), importing = value.backend.addScan({ file: oldFile, generation: 0, token: 'empty' });
+    await settle(); let request = worker.calls.at(-1), original = candidate(request);
+    sourceTransfer(worker, request, original); sourcePromotion(worker, request); await importing;
+    const newFile = sourceFile(40), replacing = value.backend.replaceScan({ file: newFile, generation: 1, token: 'source' });
+    await settle(); request = worker.calls.at(-1);
+    const replacement = candidate(request, { generation: 2, token: 'new', identity: { source_sha256: 'new' }, purpose: 'replace-scan',
+      nodes: [{ id: 'source', operation: 'source' }, { id: 'selection', entries: [{ mode: 'generated', source_volume: null }] }] });
+    sourceTransfer(worker, request, replacement, { confirm: adopted });
+    const interrupted = assert.rejects(replacing, error => error.code === (adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled'));
+    const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(replacementReady({ id: worker.calls[0].id })); await settle(); const restore = worker.calls.at(-1);
+    assert.equal(restore.payload.kind, 'scan');
+    assert.equal(restore.payload.purpose, undefined);
+    assert.equal(restore.payload.file, adopted ? newFile : oldFile);
+    assert.deepEqual(restore.payload.recovery.recipe, adopted ? replacement.graph.recipe : original.graph.recipe);
+    assert.deepEqual(restore.payload.recovery.identity, adopted ? replacement.source_identity : original.source_identity);
+    assert.equal(restore.payload.recovery.generation, adopted ? 2 : 1);
+    const recovered = candidate(restore, { generation: adopted ? 2 : 1, token: adopted ? 'new' : 'source',
+      identity: adopted ? replacement.source_identity : original.source_identity });
+    sourceTransfer(worker, restore, recovered); sourcePromotion(worker, restore, adopted ? 2 : 1);
+    await restoring; await interrupted; value.backend.close();
+  }
+});
 test('entry-aware workers require a precise selection entry capability', async () => {
   for (const entries of [undefined, null, { version: true }, { version: 2 }, { version: 1, extra: true }]) {
     const { backend, worker } = fixture({ initialMode: 'empty', sourceActions: true });

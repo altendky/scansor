@@ -135,6 +135,9 @@ async function prepareSource(request) {
     const { file: ignoredFile, recovery, ...sourcePayload } = payload;
     void ignoredFile;
     let uploadRequired = payload.kind === 'scan';
+    if (payload.purpose === 'replace-scan' &&
+      (manifest.worker_protocol?.version !== 9 || manifest.worker_protocol?.replace_scan?.supported !== true))
+      throw Object.assign(new Error('This runtime does not support scan replacement.'), { code: 'unsupported_capability' });
     if (payload.purpose === 'open-actions') {
       if (manifest.worker_protocol?.source_actions?.supported !== true)
         throw Object.assign(new Error('This runtime does not support source actions.'), { code: 'unsupported_capability' });

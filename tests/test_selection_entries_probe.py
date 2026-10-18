@@ -39,13 +39,28 @@ def test_probe_transfers_a_generated_entry_and_retains_one_shared_fit(
         and evidence["replay_equal"]
     )
     assert all(evidence["refresh"].values())
+    assert evidence["replacement"] == {
+        "staged_without_publication": True,
+        "new_entry_pending": True,
+        "source_observations_changed": True,
+        "reopen_active_bytes_only": True,
+    }
     _ = compare_values(evidence, deepcopy(evidence), "selection_entries")
     serialized = json.dumps(evidence, allow_nan=False)
     assert "sha256" not in serialized and "authoring_fingerprint" not in serialized
 
 
 @pytest.mark.parametrize(
-    "mutation", ["membership", "waiting", "receipt", "coverage", "geometry", "replay"]
+    "mutation",
+    [
+        "membership",
+        "waiting",
+        "receipt",
+        "coverage",
+        "geometry",
+        "replay",
+        "replacement",
+    ],
 )
 def test_parity_rejects_changed_scan_entry_behavior(
     evidence: dict[str, Any], mutation: str
@@ -85,6 +100,8 @@ def test_parity_rejects_changed_scan_entry_behavior(
         entry["transferred"]["coverage"]["fraction"] = 0.5
     elif mutation == "geometry":
         entry["transferred"]["fit"]["plane_equation"][0] = 0.25
+    elif mutation == "replacement":
+        entry["replacement"]["new_entry_pending"] = False
     else:
         entry["replay_equal"] = False
     with pytest.raises(AssertionError, match="selection_entries"):

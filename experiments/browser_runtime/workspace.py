@@ -340,6 +340,14 @@ class BrowserWorkspace:
             "source_identity": self._identity(source),
             "actions_limits": actions_limits(),
             "selection_entries": {"version": 1},
+            "source_replacement": {
+                "supported": self._scan_limits is not None
+                and source.project is not None
+                and source.workspace.source_descriptor is not None,
+                "version": 1,
+                "alignment": "already-aligned",
+                "source_kind": "generic-scan",
+            },
             "capabilities": {**capabilities, "source_import": source_import},
             "face_building_limits": {
                 "max_pair_checks": MAX_PAIRS,
@@ -679,7 +687,63 @@ class BrowserWorkspace:
         kind = payload.get("kind")
         project: ScanProject | None = None
         facts: dict[str, Any] = {}
-        if payload.get("purpose") == "open-actions":
+        if payload.get("purpose") == "replace-scan":
+            if (
+                recovering
+                or kind != "scan"
+                or "recipe" in payload
+                or "source" in payload
+            ):
+                raise ScanImportError(
+                    "Invalid replacement source purpose.", "invalid_source"
+                )
+            if self._scan_limits is None or self._source.project is None:
+                raise ScanImportError(
+                    "Replacement requires an imported aligned scan.",
+                    "unsupported_capability",
+                )
+            current = self._source.project.accepted
+            if current.workspace.descriptor is None:
+                raise ScanImportError(
+                    "Replacement requires an imported aligned scan.",
+                    "unsupported_capability",
+                )
+            filename = payload.get("filename")
+            if (
+                not isinstance(filename, str)
+                or not 0 < len(filename) <= 512
+                or not source_path
+            ):
+                raise ScanImportError(
+                    "Expected a staged replacement scan and filename.", "invalid_source"
+                )
+            project = ScanProject()
+            initial = project.accepted
+            try:
+                with Path(source_path).open("rb") as stream:
+                    replacement = project.prepare_replace(
+                        stream,
+                        filename,
+                        self._scan_limits,
+                        generation=initial.generation,
+                        token=str(initial.graph.snapshot()["token"]),
+                        matching=current,
+                        progress=progress,
+                        cancelled=cancelled,
+                    )
+                self._check_capabilities(
+                    Recipe.model_validate(
+                        replacement.accepted.graph.snapshot()["recipe"]
+                    )
+                )
+                _ = project.commit_replace(replacement, cancelled=cancelled)
+            except OSError as error:
+                raise ScanImportError(
+                    f"Staged source is unavailable: {error}", "source_unavailable"
+                ) from error
+            source = _BrowserSource(project, None, self._source.import_warnings)
+            facts = {"purpose": "replace-scan"}
+        elif payload.get("purpose") == "open-actions":
             if recovering:
                 raise ScanImportError(
                     "Recovery reconstructs an accepted source checkpoint.",

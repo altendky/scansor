@@ -20,6 +20,7 @@ from experiments.feature_graph import (
 )
 from experiments.feature_recipe_import import ImportWarning
 from experiments.scan_actions import inspect_actions, preflight_actions
+from experiments.scan_replacement import replacement_recipe
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -52,6 +53,18 @@ class PreparedScan:
 @dataclass(frozen=True)
 class PreparedProject:
     """Whole-project reopen intent, distinct from adding a Source alone."""
+
+    owner: str
+    generation: int
+    token: str
+    prepared_token: str
+    prepared_revision: int
+    accepted: AcceptedScan
+
+
+@dataclass(frozen=True)
+class PreparedReplacement:
+    """An aligned replacement retains definitions and renews source observations."""
 
     owner: str
     generation: int
@@ -180,6 +193,105 @@ class ScanProject:
                 ):
                     raise ScanImportError(
                         "Prepared candidate was modified.", "invalid_candidate"
+                    )
+                self._accepted = candidate.accepted
+                return self._accepted
+
+    def check_replace(
+        self, *, generation: int, token: str, matching: AcceptedScan | None = None
+    ) -> None:
+        """Validate a replacement reservation before allocating source bytes."""
+        with self._lock, self._accepted.graph.lock:
+            self._check(generation, token)
+            previous = matching or self._accepted
+            if previous.workspace.descriptor is None:
+                raise ScanImportError(
+                    "Replace scan requires an imported active scan.",
+                    "source_required",
+                )
+
+    def prepare_replace(
+        self,
+        stream: BinaryIO,
+        filename: str,
+        limits: ScanLimits,
+        *,
+        generation: int,
+        token: str,
+        matching: AcceptedScan | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> PreparedReplacement:
+        """Prepare replacement bytes and retained definitions without publication.
+
+        An adapter can use a private project with an immutable accepted source
+        snapshot; it must also fence its external cursor at publication time.
+        """
+        with self._lock, self._accepted.graph.lock:
+            self.check_replace(generation=generation, token=token, matching=matching)
+            previous = matching or self._accepted
+            with previous.graph.lock:
+                recipe = Recipe.model_validate(previous.graph.snapshot()["recipe"])
+        check_cancelled(cancelled)
+        workspace = prepare_scan(
+            stream, filename, limits, progress=progress, cancelled=cancelled
+        )
+        check_cancelled(cancelled)
+        retained = replacement_recipe(
+            recipe, previous.workspace, workspace, cancelled=cancelled
+        )
+        check_cancelled(cancelled)
+        graph = FeatureGraph(workspace, retained)
+        positions, indices = workspace.display_buffers()
+        state = graph.snapshot()
+        accepted = AcceptedScan(
+            generation + 1,
+            workspace,
+            graph,
+            positions,
+            indices,
+            previous.import_warnings,
+        )
+        check_cancelled(cancelled)
+        return PreparedReplacement(
+            self._owner,
+            generation,
+            token,
+            str(state["token"]),
+            cast(int, state["revision"]),
+            accepted,
+        )
+
+    def commit_replace(
+        self,
+        candidate: PreparedReplacement,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> AcceptedScan:
+        """Publish only an intact candidate for this exact accepted cursor."""
+        if not isinstance(cast(object, candidate), PreparedReplacement):
+            raise ScanImportError(
+                "Expected a Replace Scan candidate.", "invalid_candidate"
+            )
+        with self._lock, self._accepted.graph.lock:
+            check_cancelled(cancelled)
+            self._check(candidate.generation, candidate.token)
+            if (
+                candidate.owner != self._owner
+                or candidate.accepted.generation != candidate.generation + 1
+            ):
+                raise ScanImportError(
+                    "Candidate belongs to another project.", "invalid_candidate"
+                )
+            with candidate.accepted.graph.lock:
+                check_cancelled(cancelled)
+                state = candidate.accepted.graph.snapshot()
+                if (
+                    candidate.prepared_token != state["token"]
+                    or candidate.prepared_revision != state["revision"]
+                ):
+                    raise ScanImportError(
+                        "Prepared replacement was modified.", "invalid_candidate"
                     )
                 self._accepted = candidate.accepted
                 return self._accepted
