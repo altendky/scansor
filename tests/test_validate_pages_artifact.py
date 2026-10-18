@@ -1691,6 +1691,121 @@ def test_source_authoring_retains_all_seven_full_pairs_and_native_readiness(name
     assert report == before
 
 
+def grouped_source_authoring_report(name: str) -> dict[str, Any]:
+    report = semantic_report(name)
+    authoring = report["ui_authoring"]
+    for collection in (authoring["graphs"], authoring["native_graphs"]):
+        for graph in collection.values():
+            source, selection = graph["recipe"]["nodes"][:2]
+            ids = selection.pop("ids")
+            selection["entries"] = [
+                {
+                    "id": "painted_entry",
+                    "mode": "painted",
+                    "ids": ids,
+                    "depth": "through_all",
+                    "source_volume": None,
+                    "volumes": [],
+                    "scan": {
+                        "source_sha256": source["source_sha256"],
+                        "reference_sha256": source["reference_sha256"],
+                        "vertices": source["descriptor"]["vertices"],
+                        "descriptor": copy.deepcopy(source["descriptor"]),
+                    },
+                }
+            ]
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    return report
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+def test_source_authoring_accepts_bound_painted_entries_without_mutating_evidence(
+    name: str,
+):
+    report = grouped_source_authoring_report(name)
+    before = copy.deepcopy(report)
+    VALIDATOR.validate_semantic_parity(
+        report, name, VALIDATOR.trusted_semantic_policy()
+    )
+    assert report == before
+
+
+@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "flat-ids",
+        "flat-depth",
+        "empty",
+        "duplicate",
+        "mode",
+        "id",
+        "source-volume",
+        "implicit-volume",
+        "source-sha",
+        "reference",
+        "vertices",
+        "descriptor",
+        "row-id",
+        "duplicate-id",
+        "membership",
+        "depth",
+    ],
+)
+def test_grouped_source_authoring_rejects_wrong_entry_or_membership_after_hash_refresh(
+    name: str, fault: str
+):
+    report = grouped_source_authoring_report(name)
+    for collection in (
+        report["ui_authoring"]["graphs"],
+        report["ui_authoring"]["native_graphs"],
+    ):
+        graph = collection["raw"]
+        selection = graph["recipe"]["nodes"][1]
+        entry = selection["entries"][0]
+        if fault == "flat-ids":
+            selection["ids"] = [0, 1, 2]
+        elif fault == "flat-depth":
+            selection["depth"] = "through_all"
+        elif fault == "empty":
+            selection["entries"] = []
+        elif fault == "duplicate":
+            selection["entries"].append(copy.deepcopy(entry))
+        elif fault == "mode":
+            entry["mode"] = "generated"
+        elif fault == "id":
+            entry["id"] = "bad/id"
+        elif fault == "source-volume":
+            entry["source_volume"] = {
+                "selection": "picked",
+                "entry": "other",
+                "volume": "region",
+            }
+        elif fault == "implicit-volume":
+            entry["volumes"] = [{"id": "unexpected"}]
+        elif fault == "source-sha":
+            entry["scan"]["source_sha256"] = "d" * 64
+        elif fault == "reference":
+            entry["scan"]["reference_sha256"] = "d" * 64
+        elif fault == "vertices":
+            entry["scan"]["vertices"] = 4
+        elif fault == "descriptor":
+            entry["scan"]["descriptor"]["filename"] = "other.ply"
+        elif fault == "row-id":
+            entry["ids"][0] = True
+        elif fault == "duplicate-id":
+            entry["ids"] = [0, 0, 2]
+        elif fault == "membership":
+            graph["memberships"]["picked"] = [0, 1]
+        elif fault == "depth":
+            entry["depth"] = "invalid"
+    refresh_semantic_input(report, source_batch(report), recompute=True)
+    with pytest.raises(ValueError, match="source authoring"):
+        VALIDATOR.validate_semantic_parity(
+            report, name, VALIDATOR.trusted_semantic_policy()
+        )
+
+
 @pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
 @pytest.mark.parametrize(
     "case,oracle",
