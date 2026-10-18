@@ -91,7 +91,7 @@ test('HTTP polling reuses the matching recipe and replaces it when the actions t
   const replacement = { nodes: [{ id: 'replacement', vertex_ids: [3] }] };
   const paths = [], replies = [
     { token: 'original', revision: 1, recipe: original, states: { selection: 'error' },
-      evaluation_error: 'Previous failure', evaluation_running: true },
+      evaluation_error: 'Previous failure', status: 'running', evaluation_running: true },
     { token: 'original', revision: 2, states: { selection: 'ready' }, errors: {}, evaluation_running: true },
     { token: 'replacement', revision: 3, recipe: replacement,
       states: { replacement: 'ready' }, evaluation_running: false },
@@ -106,6 +106,7 @@ test('HTTP polling reuses the matching recipe and replaces it when the actions t
   assert.deepEqual(updates[1].recipe, original);
   assert.deepEqual(updates[1].states, { selection: 'ready' });
   assert.equal(Object.hasOwn(updates[1], 'evaluation_error'), false);
+  assert.equal(Object.hasOwn(updates[1], 'status'), false);
   assert.deepEqual(updates[2].recipe, replacement);
   assert.deepEqual(await backend.exportRecipe(updates[1]), original);
   backend.close();

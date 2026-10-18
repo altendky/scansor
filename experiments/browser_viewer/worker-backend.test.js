@@ -1068,7 +1068,7 @@ test('recipe-less worker publications retain saved actions and clear transient u
   assert.deepEqual((await stream.next()).value.recipe, original.recipe);
   const compact = stream.next();
   value.worker.reply({ kind: 'graph', generation: 0,
-    state: { token: 'token', revision: 3, unchanged: true, evaluation_running: true } });
+    state: { token: 'token', revision: 3, unchanged: true, status: 'running', evaluation_running: true } });
   const compactState = (await compact).value;
   assert.deepEqual(compactState.recipe, original.recipe);
   assert.equal(Object.hasOwn(compactState, 'unchanged'), false);
@@ -1080,6 +1080,7 @@ test('recipe-less worker publications retain saved actions and clear transient u
   assert.deepEqual(terminalState.states, { selection: 'ready' });
   assert.equal(Object.hasOwn(terminalState, 'unchanged'), false);
   assert.equal(Object.hasOwn(terminalState, 'evaluation_error'), false);
+  assert.equal(Object.hasOwn(terminalState, 'status'), false);
   assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
   assert.equal((await stream.next()).done, true);
   const reading = value.backend.getGraph({ revision: 4 });

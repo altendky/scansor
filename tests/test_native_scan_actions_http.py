@@ -78,12 +78,13 @@ def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) 
         {
             "id": f"p{index}",
             "operation": "point",
-            "label": f"Point {index} " + "x" * 100,
+            "label": f"Point {index} " + "界" * 100,
             "initial_coordinates": [1, 2, 3],
         }
-        for index in range(5000)
+        for index in range(1500)
     )
     original = http.metadata()["graph"]
+    assert len(json.dumps(recipe).encode()) > 1_000_000
     assert http.metadata()["actions_limits"] == actions_limits()
     status, changed, _ = http.request(
         "/api/graph",
@@ -92,7 +93,7 @@ def test_native_large_actions_and_known_recipe_polling(native_http: NativeHttp) 
     )
     assert status == 200, changed
     status, full, _ = http.request("/api/graph")
-    assert status == 200 and len(full["recipe"]["nodes"]) == 5001
+    assert status == 200 and len(full["recipe"]["nodes"]) == 1501
     status, compact, _ = http.request(
         f"/api/graph?revision={full['revision']}&recipe_token={full['token']}"
     )

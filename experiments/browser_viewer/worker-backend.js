@@ -102,9 +102,10 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       committedRecipe = structuredClone(state.recipe);
       if (checkpoint) checkpoint.recipe = structuredClone(state.recipe);
     } else if (latestGraph?.token === state.token) {
-      const { evaluation_error: oldError, unchanged: oldUnchanged, ...previous } = latestGraph;
+      const { evaluation_error: oldError, unchanged: oldUnchanged, status: oldStatus, ...previous } = latestGraph;
       void oldError;
       void oldUnchanged;
+      void oldStatus;
       const { unchanged, ...publication } = state;
       void unchanged;
       latestGraph = { ...previous, ...publication };
