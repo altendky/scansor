@@ -77,6 +77,10 @@ outside the intended boundary.
   - **Selected verification contract:** compare published geometry, intent,
     acceptance classifications and finite budgets; retain complete diagnostic
     traces and measured differences across numerical runtimes
+- [Progressive fitting](planning/progressive-fitting.md)
+  - **Measured no-go for the initial schedule:** complete-recovery measurements
+    preserved accuracy but did not establish useful speedup; production remains
+    unchanged and standalone, joint and native/browser integration stay gated
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,
