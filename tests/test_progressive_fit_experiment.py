@@ -327,3 +327,20 @@ def test_actual_family_failure_controls_preserve_rejections() -> None:
         for item in record["records"]
         if item["case"] == "near-parallel-hard-plane"
     } == {"ambiguous"}
+
+
+def test_actual_control_schemas_and_full_data_certificates() -> None:
+    controls = experiment.run_controls()
+    assert {control["id"] for control in controls} == {
+        "sphere-216",
+        "cone-plane-4096",
+        "public-failure-regressions",
+    }
+    assert all(control["correct"] for control in controls)
+    for control in controls[:2]:
+        expected = 216 if control["id"] == "sphere-216" else 4096
+        assert all(
+            sample["full_residual_count"] == expected
+            for values in control["samples"].values()
+            for sample in values
+        )

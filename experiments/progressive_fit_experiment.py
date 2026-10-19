@@ -688,7 +688,11 @@ def run_controls() -> list[dict[str, Any]]:
     """Unchanged ordinary paths, reported separately from selected-family gains."""
     from experiments.browser_static.workload_cases import SUPPORT
     from experiments.browser_static.workload_cases import fixture as joint_fixture
-    from experiments.mesh_cone_plane_fit import fit_cone_plane
+    from experiments.mesh_cone_plane_fit import (
+        cone_plane_residual_jacobian,
+        fit_cone_plane,
+        valid_cone_geometry,
+    )
     from experiments.mesh_sphere_fit import fit_sphere
 
     azimuth, elevation = np.meshgrid(
@@ -744,11 +748,42 @@ def run_controls() -> list[dict[str, Any]]:
                 result = fit()
                 seconds = time.perf_counter() - began
                 if repetition >= 0:
+                    parameters = np.asarray(result["parameters"])
+                    if name == "sphere-216":
+                        residual = (
+                            np.linalg.norm(points - parameters[:3], axis=1)
+                            - parameters[3]
+                        )
+                        full_weights = normalized_weights(weights)
+                        geometry_valid = bool(parameters[3] > 0)
+                        expected_rank = 4
+                    else:
+                        residual, _ = cone_plane_residual_jacobian(
+                            joint["cone"], joint["plane"], parameters, SUPPORT
+                        )
+                        full_weights = normalized_weights(
+                            np.r_[joint["cw"], joint["pw"]]
+                        )
+                        geometry_valid = valid_cone_geometry(
+                            parameters, SUPPORT, joint["cone"]
+                        )
+                        expected_rank = 7
+                    rms_error = abs(
+                        float(np.sqrt(full_weights @ residual**2))
+                        - result["weighted_rms"]
+                    )
+                    solver = result["solver"]
                     valid = bool(
-                        result["converged"]
+                        solver["termination"] == "projected-gradient"
+                        and solver["scaled_projected_gradient_infinity_norm"] <= 1e-10
+                        and solver["rank"] == expected_rank
+                        and np.isfinite(residual).all()
+                        and np.isfinite(parameters).all()
+                        and np.isfinite(solver["scaled_jacobian_condition"])
+                        and rms_error <= 1e-12
+                        and geometry_valid
                         and result["weighted_rms"] < 0.01
-                        and np.max(np.abs(np.asarray(result["parameters"]) - truth))
-                        < 0.02
+                        and np.max(np.abs(parameters - truth)) < 0.02
                     )
                     samples[variant].append(
                         {
@@ -756,6 +791,9 @@ def run_controls() -> list[dict[str, Any]]:
                             "correct": valid,
                             "weighted_rms": result["weighted_rms"],
                             "parameters": result["parameters"],
+                            "solver": solver,
+                            "full_residual_count": len(residual),
+                            "rms_reconstruction_error": rms_error,
                         }
                     )
         medians = {
