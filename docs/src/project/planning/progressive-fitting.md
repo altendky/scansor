@@ -48,8 +48,10 @@ The literature provides motivation, not a local measurement:
 Start from main `73b098cd32eed663f8fedeb876753667fc36f454`, with its input-derived
 starts and complete recovery behavior. Initial nested stage sizes are 256,
 1,024 and all observations, using a deterministic non-prefix sample order.
-Each stage starts a fresh fixed-row solve; the last solve uses the original
-full-data callback and final tolerances. Full-data coordinates, proposals,
+Each stage starts a fresh fixed-row solve. Preliminary stages use a scaled
+gradient tolerance of `1e-4` (or the original tolerance if that is looser); the
+last solve uses the original full-data callback and final tolerances.
+Full-data coordinates, proposals,
 physical scales, geometry guards and support remain unchanged. Subset evaluation
 must avoid computing full residual/Jacobian arrays first.
 
