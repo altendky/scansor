@@ -1,0 +1,1636 @@
+{
+  "schema_version": 1,
+  "outcome": "no-go",
+  "producer_commit": "f24f487594f8fa5a81b4b552ad2f4a0e9de8d1a9",
+  "raw_report_sha256": "0b4bc5ebe01cff7a50f160429ee197f535fb02923b9f13ac0d035855e86a2c03",
+  "raw_report_bytes": 2561230,
+  "started_utc": "2026-10-19T01:31:10.463356+00:00",
+  "finished_utc": "2026-10-19T01:33:30.444246+00:00",
+  "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43",
+  "python": "3.12.14",
+  "numpy": "2.5.1",
+  "threads": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "preregistration": {
+    "version": "progressive-selected-fit-experiment-v1",
+    "counts": [
+      512,
+      4096,
+      16384
+    ],
+    "seeds": [
+      7,
+      19
+    ],
+    "shapes": [
+      "wide",
+      "narrow"
+    ],
+    "schedule": [
+      256,
+      1024
+    ],
+    "small_bypass": 1024,
+    "coarse_max_iterations": 12,
+    "coarse_gradient_tolerance": 0.0001,
+    "timed_repeats": 3,
+    "warmups_per_variant": 1,
+    "large_minimum_baseline_seconds": 0.05,
+    "large_minimum_median_speedup": 2.0,
+    "large_max_regression": {
+      "relative": 0.1,
+      "seconds": 0.01
+    },
+    "small_max_regression": {
+      "relative": 0.1,
+      "seconds": 0.002
+    },
+    "accuracy": {
+      "paired_geometry": "original RecoveryProblem.equivalent callback",
+      "objective_atol": 1e-12,
+      "objective_rtol": 1e-09,
+      "residual_difference_over_length": 1e-07,
+      "axis_cross_difference": 1e-06,
+      "aligned_scaled_gradient": 1e-10,
+      "independent_gradient": 1e-09,
+      "aligned_condition": 1000000.0,
+      "truth_axis_cross": 0.02,
+      "truth_axis_distance": 0.05,
+      "truth_radius": 0.05,
+      "truth_slope": 0.02
+    },
+    "controls": [
+      "reordered-4096",
+      "nonuniform-density-4096",
+      "sphere-216",
+      "cone-plane-4096",
+      "public-failure-regressions"
+    ]
+  },
+  "sources": {
+    "experiments/progressive_fit_experiment.py": "044f03a5608fef83e6adda8b1184bd79aadbb985f87bff5f6639344b76639982",
+    "experiments/mesh_cone_fit.py": "42213751a78ead8c12b9428b887387ed167f91fc2141f9ee6c31883a529e2352",
+    "experiments/mesh_cylinder_fit.py": "4fe3ac2b822cc1a3e784c69bbe5eaf965f8d934a72417bba1fcca7d27a16b6ef",
+    "experiments/fit_initialization.py": "90eade4519e941b318527af0fe474e168f28084c4ac6ab19e777bf3bc0d75105",
+    "experiments/fit_solver.py": "db511cf9c8a93d2840c2a783db0d3cf6fb47a71c3e94355e68da90b0810c3b53",
+    "experiments/fit_coordinates.py": "e57dad2d4f27861ec94915f5268b512435b54c6c4e992f9267087b3abdd547c8",
+    "experiments/support_intent.py": "b046553996298971ac4d822cedd9a0c9dbc0634dcde7a7fcefb6803abc9a1036",
+    "experiments/surface_primitives.py": "26602abd1dc20e2f687e06e565694e146374f17f627586e5306e09a0a42f8b97",
+    "experiments/mesh_sphere_fit.py": "3c1dcb1aa6465a0d6db9e8554b43e14d3669dbc46d44edcf0c46a00076b924f3",
+    "experiments/mesh_cone_plane_fit.py": "5635188ce26933b9bc93687b899562a5d56c881c21bee6209a817a30557177fc",
+    "experiments/browser_static/workload_cases.py": "e925e689405bc3d3bd39131cbf8be428f6aa7e338eed014582a680dc34040632",
+    "src/scansor/nonlinear_least_squares.py": "631ae3e5882e91aed467519d973a2c1edc29139fd7c50b83509291157f3200f6"
+  },
+  "gate": {
+    "cone": {
+      "continue": false,
+      "complete": true,
+      "controls_valid": true,
+      "accuracy_and_classification": true,
+      "large_cases": 10,
+      "median_large_speedup": 0.9906752303714725,
+      "regressions": [
+        "cone-512-19-narrow-primary",
+        "cone-4096-7-wide-primary",
+        "cone-4096-19-wide-density"
+      ],
+      "missing_cases": []
+    },
+    "cylinder": {
+      "continue": false,
+      "complete": true,
+      "controls_valid": true,
+      "accuracy_and_classification": true,
+      "large_cases": 10,
+      "median_large_speedup": 0.9241272902753622,
+      "regressions": [
+        "cylinder-4096-7-narrow-primary",
+        "cylinder-4096-19-narrow-primary",
+        "cylinder-4096-19-wide-reordered",
+        "cylinder-4096-19-wide-density"
+      ],
+      "missing_cases": []
+    }
+  },
+  "process_lifetime_peak_rss_bytes": 66338816,
+  "caveats": [
+    "Private source copies with identical recovery-observer bookkeeping on both variants; baseline numerical call untouched, progressive changes only that call. Production defaults unchanged; native fitting only.",
+    "Complete clocks include sampling, all recovery work, full geometry guards, final refinement/assessment and result construction; imports, generation and certificate recomputation excluded.",
+    "Stage solver_other_seconds combines linear algebra and all non-callback/non-guard solver overhead; not a pure linear-algebra measurement.",
+    "sampling_seconds measures permutation+hash only; sorting, extraction and normalization remain included in complete fit clocks.",
+    "Independent certificates recompute the full coordinate frame, all residuals and aligned unscaled gradient; strict scaled stationarity/condition checks use original producer certificates. Original family equivalence and full normalized objective tie tolerances also checked.",
+    "Geometry rows counted as full source rows per guard call; initialization and assessment rows are not instrumented, but their cost remains inside complete clocks.",
+    "Process lifetime peak RSS includes both variants, fixtures, imports and reporting; cannot attribute it to a variant."
+  ],
+  "cases": [
+    {
+      "id": "cone-512-7-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 512,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "630edfacc7eb104f81e43a30dbaacba5a7be1d1f7c4a75b4edf9da80b3a37082",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.17913590813986957,
+        "progressive": 0.1917311828583479
+      },
+      "speedup": 0.9343076356662141,
+      "timed_seconds": {
+        "baseline": [
+          0.17053429293446243,
+          0.17913590813986957,
+          0.1828011169563979
+        ],
+        "progressive": [
+          0.20457452698610723,
+          0.1917311828583479,
+          0.1778387560043484
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-512-7-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 512,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "3c886ef0c4a3629d66b370c5628fb2afdedd782cd0e810665549dc31440d160f",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 0.32151939114555717,
+        "progressive": 0.32905855192802846
+      },
+      "speedup": 0.9770886951933093,
+      "timed_seconds": {
+        "baseline": [
+          0.318947521969676,
+          0.32151939114555717,
+          0.32600100291892886
+        ],
+        "progressive": [
+          0.32905855192802846,
+          0.33948732004500926,
+          0.3206592279020697
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-512-19-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 512,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "932f6f440eb1324f5bdecfc2cb335eeeea8722c3b10367e984c1b7a7596e03e2",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.167831651866436,
+        "progressive": 0.1679303739219904
+      },
+      "speedup": 0.9994121250775023,
+      "timed_seconds": {
+        "baseline": [
+          0.16738751204684377,
+          0.167831651866436,
+          0.1879868688993156
+        ],
+        "progressive": [
+          0.1679303739219904,
+          0.17130481987260282,
+          0.16637014504522085
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-512-19-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 512,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "d292977f2362a65ef9463ca0bb88421bc0014426374c23da1b08ab3b8cf24eb8",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 0.3528482639230788,
+        "progressive": 0.39066835306584835
+      },
+      "speedup": 0.9031913159948359,
+      "timed_seconds": {
+        "baseline": [
+          0.29024964896962047,
+          0.4053982668556273,
+          0.3528482639230788
+        ],
+        "progressive": [
+          0.478977088117972,
+          0.39066835306584835,
+          0.35200960701331496
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-7-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "5e0eb727f42a95c4bd3dd20d4c640652f6092c3b368304c6ed3093aad3b579d1",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.6191612528637052,
+        "progressive": 0.702261958969757
+      },
+      "speedup": 0.8816670829956909,
+      "timed_seconds": {
+        "baseline": [
+          0.677135884994641,
+          0.5403487069997936,
+          0.6191612528637052
+        ],
+        "progressive": [
+          0.702261958969757,
+          0.611146308016032,
+          0.8760962390806526
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-7-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "7d789e8b56ab571cc08fc69277f7f5e6e902818521c516662ecf2cbb8405b63b",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 1.0370174960698932,
+        "progressive": 1.0448486700188369
+      },
+      "speedup": 0.9925049682565013,
+      "timed_seconds": {
+        "baseline": [
+          1.3058236460201442,
+          1.0370174960698932,
+          1.0229270970448852
+        ],
+        "progressive": [
+          1.0370017748791724,
+          1.0727376320865005,
+          1.0448486700188369
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-19-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "51034085a4ad64d79efc681fff0921a9d63d0124e146980d0011c8a6264e7827",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.5938631331082433,
+        "progressive": 0.5930697941221297
+      },
+      "speedup": 1.001337682333473,
+      "timed_seconds": {
+        "baseline": [
+          0.6428083141800016,
+          0.5938631331082433,
+          0.5316799599677324
+        ],
+        "progressive": [
+          0.6173909788485616,
+          0.5930697941221297,
+          0.5889078180771321
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-19-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "a535100281eb549a6d29232993ff2c5205aec85a9d5602681455f79e0527170e",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 0.7919906638562679,
+        "progressive": 0.853322034003213
+      },
+      "speedup": 0.9281263489011065,
+      "timed_seconds": {
+        "baseline": [
+          0.7919906638562679,
+          0.8805836080573499,
+          0.687996334861964
+        ],
+        "progressive": [
+          0.853322034003213,
+          0.8033588409889489,
+          0.8895222230348736
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-16384-7-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 16384,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "46793c1851b56b39a1d8954981b225504c3814f6f9b091cbab287fe86783abe0",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 1.300420954125002,
+        "progressive": 1.2562656530644745
+      },
+      "speedup": 1.0351480604065049,
+      "timed_seconds": {
+        "baseline": [
+          1.300420954125002,
+          1.3043181761167943,
+          1.24709506588988
+        ],
+        "progressive": [
+          1.2614215619396418,
+          1.2562656530644745,
+          1.2261789028998464
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 9.770395289884843e-13,
+      "maximum_axis_cross_difference": 1.3843678544237486e-12
+    },
+    {
+      "id": "cone-16384-7-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 16384,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "d6deb21d8a0b081ffd3e162f4ad68c7a4baf5736d9fe3af105f6841525603df9",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 2.339528372976929,
+        "progressive": 2.284681589109823
+      },
+      "speedup": 1.0240063141089502,
+      "timed_seconds": {
+        "baseline": [
+          2.9836408961564302,
+          2.339528372976929,
+          2.2551530520431697
+        ],
+        "progressive": [
+          2.5824889249633998,
+          2.1667426580097526,
+          2.284681589109823
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 1.5716944176228637e-12,
+      "maximum_axis_cross_difference": 3.6157847381201327e-12
+    },
+    {
+      "id": "cone-16384-19-wide-primary",
+      "case": {
+        "family": "cone",
+        "count": 16384,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "c05c6d49ebaa522c5feedd3082144ad2661f283c57098bc612aaff2e5bf84b85",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 1.0633108799811453,
+        "progressive": 1.110420174896717
+      },
+      "speedup": 0.9575752530613436,
+      "timed_seconds": {
+        "baseline": [
+          1.062328599859029,
+          1.0781856351532042,
+          1.0633108799811453
+        ],
+        "progressive": [
+          1.087602165993303,
+          1.110420174896717,
+          1.166969170095399
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-16384-19-narrow-primary",
+      "case": {
+        "family": "cone",
+        "count": 16384,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "6900ca5c8581e52c02aae6389a31a08e79eb5ab48827e8261abceb4de96098aa",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": -0.2
+      },
+      "medians": {
+        "baseline": 1.9422777509316802,
+        "progressive": 1.9641872928477824
+      },
+      "speedup": 0.9888454924864438,
+      "timed_seconds": {
+        "baseline": [
+          1.8282262131106108,
+          1.9422777509316802,
+          2.067977128783241
+        ],
+        "progressive": [
+          2.205289338948205,
+          1.9641872928477824,
+          1.9593663229607046
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-512-7-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 512,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "0c13de49d65d7b96b10655254f2a585d75bf2b8f72683ca349fa4740015ac9b5",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.0835707860533148,
+        "progressive": 0.08597699413076043
+      },
+      "speedup": 0.9720133495969157,
+      "timed_seconds": {
+        "baseline": [
+          0.0835707860533148,
+          0.08342620893381536,
+          0.08488122001290321
+        ],
+        "progressive": [
+          0.08597699413076043,
+          0.08446400589309633,
+          0.08724003797397017
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-512-7-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 512,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "d1b18f79a4c31f1be03119bdaeef211bd06e38d41ff16ace74a08ac6c6e2280e",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.09010401810519397,
+        "progressive": 0.09185552294366062
+      },
+      "speedup": 0.9809319594256632,
+      "timed_seconds": {
+        "baseline": [
+          0.08862713910639286,
+          0.09010401810519397,
+          0.09141016495414078
+        ],
+        "progressive": [
+          0.08896254398860037,
+          0.09998301789164543,
+          0.09185552294366062
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-512-19-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 512,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "85f0732e8ecdbd2b433faeff5db62525519a18fe8c76d6d98c73608a93ed6525",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.08790312288329005,
+        "progressive": 0.08887295401655138
+      },
+      "speedup": 0.9890874434861172,
+      "timed_seconds": {
+        "baseline": [
+          0.08568192203529179,
+          0.08826093003153801,
+          0.08790312288329005
+        ],
+        "progressive": [
+          0.0876893859822303,
+          0.09159795707091689,
+          0.08887295401655138
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-512-19-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 512,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "fb3f026453ee7ccfcabdd5ef06bc3f2b55afe4ac085cd15b97396ae8cb37a799",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.08697326807305217,
+        "progressive": 0.08890800480730832
+      },
+      "speedup": 0.978238891554823,
+      "timed_seconds": {
+        "baseline": [
+          0.08584509091451764,
+          0.08880970883183181,
+          0.08697326807305217
+        ],
+        "progressive": [
+          0.08890800480730832,
+          0.08916372898966074,
+          0.08785305009223521
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-7-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "306a34bb184dba5cc297fec461013e57951e4478c2162a7ea2a43d129f1edbae",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.26956891687586904,
+        "progressive": 0.2722795580048114
+      },
+      "speedup": 0.9900446396020135,
+      "timed_seconds": {
+        "baseline": [
+          0.23596574808470905,
+          0.2835583158303052,
+          0.26956891687586904
+        ],
+        "progressive": [
+          0.2722795580048114,
+          0.26835573208518326,
+          0.2741143961902708
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-7-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "97fda35f74309ec9a57b36e7aeba8d8d75378a14a1d75f31fd89430b63298977",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.23339285887777805,
+        "progressive": 0.3629615299869329
+      },
+      "speedup": 0.6430236804605175,
+      "timed_seconds": {
+        "baseline": [
+          0.23339285887777805,
+          0.23895602580159903,
+          0.23083225078880787
+        ],
+        "progressive": [
+          0.3629615299869329,
+          0.37709829211235046,
+          0.3613940489012748
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-19-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "63c55ba96aa4bc97671d861c3ba14191bc766e9fd8159c3f8329ad161ce7e9cc",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.24420217098668218,
+        "progressive": 0.27724186005070806
+      },
+      "speedup": 0.8808271988292719,
+      "timed_seconds": {
+        "baseline": [
+          0.24403601489029825,
+          0.24420217098668218,
+          0.2564568759407848
+        ],
+        "progressive": [
+          0.2774997230153531,
+          0.27724186005070806,
+          0.27326990594156086
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-19-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "e2de21b6341f30795a24fb5517b0b9dcdd8bfc26ae4905ee52686e34ad68318d",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.2362303698901087,
+        "progressive": 0.3530612918548286
+      },
+      "speedup": 0.6690916714462193,
+      "timed_seconds": {
+        "baseline": [
+          0.2421475520823151,
+          0.23570914007723331,
+          0.2362303698901087
+        ],
+        "progressive": [
+          0.36047842213883996,
+          0.3530612918548286,
+          0.3511188579723239
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-16384-7-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 16384,
+        "seed": 7,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "bd8ea13f6ab3c19802d7c129f07bf96806e2b00711b47442481e4a295fe69559",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.8123157459776849,
+        "progressive": 0.7989267781376839
+      },
+      "speedup": 1.0167586920433571,
+      "timed_seconds": {
+        "baseline": [
+          0.7762842900119722,
+          0.8150786620099097,
+          0.8123157459776849
+        ],
+        "progressive": [
+          0.7989267781376839,
+          0.7916057691909373,
+          0.8164791390299797
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-16384-7-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 16384,
+        "seed": 7,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "7cf29a102648b7c25405878fb4a57a83e2015f9d4a348a2b1be2cc13690984af",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.7476664839778095,
+        "progressive": 0.77283990313299
+      },
+      "speedup": 0.9674273817214526,
+      "timed_seconds": {
+        "baseline": [
+          0.7165442060213536,
+          0.7635562808718532,
+          0.7476664839778095
+        ],
+        "progressive": [
+          0.77283990313299,
+          0.7455007501412183,
+          0.8018302149139345
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 2.5330045836211074e-12,
+      "maximum_axis_cross_difference": 2.9675919433812226e-13
+    },
+    {
+      "id": "cylinder-16384-19-wide-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 16384,
+        "seed": 19,
+        "shape": "wide",
+        "control": "primary"
+      },
+      "input_sha256": "1c581820cecd410704e3edd84e595c5beff9265ab04d340197f32e216cf34578",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.8121190450619906,
+        "progressive": 0.8106485980097204
+      },
+      "speedup": 1.0018139142606062,
+      "timed_seconds": {
+        "baseline": [
+          0.8121190450619906,
+          0.8036434820387512,
+          0.8336858919356018
+        ],
+        "progressive": [
+          0.7885362158995122,
+          0.8106485980097204,
+          0.8241432909853756
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-16384-19-narrow-primary",
+      "case": {
+        "family": "cylinder",
+        "count": 16384,
+        "seed": 19,
+        "shape": "narrow",
+        "control": "primary"
+      },
+      "input_sha256": "bd61054238eac1b60bb75874792a703e898f9118c320fc4b8ea8dd629909cd99",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25916052767440806,
+          0.4319342127906801,
+          0.8638684255813602
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.7736049061641097,
+        "progressive": 0.7785291289910674
+      },
+      "speedup": 0.9936749664931109,
+      "timed_seconds": {
+        "baseline": [
+          0.7736049061641097,
+          0.7704833110328764,
+          0.7913981878664345
+        ],
+        "progressive": [
+          0.7773557230830193,
+          0.8101386800408363,
+          0.7785291289910674
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-19-wide-reordered",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "reordered"
+      },
+      "input_sha256": "ec11267bd480d7d5a0b886a8115f06a7df6dfec756af2cbf7657a4bc3524da29",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.394089677836746,
+        "progressive": 0.39311303896829486
+      },
+      "speedup": 1.002484371597071,
+      "timed_seconds": {
+        "baseline": [
+          0.40896590892225504,
+          0.394089677836746,
+          0.3910730960778892
+        ],
+        "progressive": [
+          0.39377641398459673,
+          0.39238889096304774,
+          0.39311303896829486
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cone-4096-19-wide-density",
+      "case": {
+        "family": "cone",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "density"
+      },
+      "input_sha256": "af8f05cc3e92fabca266daeba06de253bf0336c9e87eac2b411487c19443d58c",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.15
+      },
+      "medians": {
+        "baseline": 0.3475649750325829,
+        "progressive": 0.39434275194071233
+      },
+      "speedup": 0.8813778707027883,
+      "timed_seconds": {
+        "baseline": [
+          0.34693851694464684,
+          0.3570844770874828,
+          0.3475649750325829
+        ],
+        "progressive": [
+          0.3894525938667357,
+          0.40757758100517094,
+          0.39434275194071233
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-19-wide-reordered",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "reordered"
+      },
+      "input_sha256": "a1ad0566c7813d1881eeb0e29abe6f2daa3fde0dd653a521dfb7c78787d96155",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.2338295178487897,
+        "progressive": 0.2707623790483922
+      },
+      "speedup": 0.8635967768882632,
+      "timed_seconds": {
+        "baseline": [
+          0.23415807681158185,
+          0.2338295178487897,
+          0.23381182295270264
+        ],
+        "progressive": [
+          0.2707623790483922,
+          0.2706782091408968,
+          0.27185348188504577
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    },
+    {
+      "id": "cylinder-4096-19-wide-density",
+      "case": {
+        "family": "cylinder",
+        "count": 4096,
+        "seed": 19,
+        "shape": "wide",
+        "control": "density"
+      },
+      "input_sha256": "765b2cb1258e8e5a53bfc3d14a7a2eff540593dcccda0e80fab480c67e269ca6",
+      "truth": {
+        "origin": [
+          80.0,
+          -60.0,
+          40.0
+        ],
+        "axis": [
+          0.25400025400038106,
+          -0.8890008890013336,
+          0.38100038100057154
+        ],
+        "radius": 3.0,
+        "slope": 0.0
+      },
+      "medians": {
+        "baseline": 0.26160392398014665,
+        "progressive": 0.29945278191007674
+      },
+      "speedup": 0.8736065910341224,
+      "timed_seconds": {
+        "baseline": [
+          0.2659433949738741,
+          0.25761560699902475,
+          0.26160392398014665
+        ],
+        "progressive": [
+          0.29905049689114094,
+          0.29945278191007674,
+          0.30038841092027724
+        ]
+      },
+      "paired_checks": {
+        "classification_preserved": true,
+        "accuracy_preserved": true,
+        "original_proposals_preserved": true,
+        "original_family_equivalent": true,
+        "full_normalized_objective_preserved": true
+      },
+      "maximum_residual_difference_over_length": 0.0,
+      "maximum_axis_cross_difference": 0.0
+    }
+  ],
+  "controls": [
+    {
+      "id": "sphere-216",
+      "path": "same ordinary entry point in both variants; no progressive joint/sphere implementation",
+      "medians": {
+        "baseline": 0.0008156690746545792,
+        "progressive": 0.0007995739579200745
+      },
+      "correct": true,
+      "overhead_pass": true
+    },
+    {
+      "id": "cone-plane-4096",
+      "path": "same ordinary entry point in both variants; no progressive joint/sphere implementation",
+      "medians": {
+        "baseline": 0.011877255979925394,
+        "progressive": 0.01170614012517035
+      },
+      "correct": true,
+      "overhead_pass": true
+    },
+    {
+      "id": "public-failure-regressions",
+      "records": [
+        {
+          "case": "near-parallel-hard-plane",
+          "progressive": false,
+          "classification": "ambiguous",
+          "correct": true
+        },
+        {
+          "case": "near-parallel-hard-plane",
+          "progressive": true,
+          "classification": "ambiguous",
+          "correct": true
+        },
+        {
+          "case": "circle-4096",
+          "progressive": false,
+          "classification": "rank-deficient",
+          "correct": true
+        },
+        {
+          "case": "plane-4096",
+          "progressive": false,
+          "classification": "rank-deficient",
+          "correct": true
+        },
+        {
+          "case": "invalid-weight",
+          "progressive": false,
+          "classification": "invalid-input",
+          "correct": true
+        },
+        {
+          "case": "circle-4096",
+          "progressive": true,
+          "classification": "rank-deficient",
+          "correct": true
+        },
+        {
+          "case": "plane-4096",
+          "progressive": true,
+          "classification": "rank-deficient",
+          "correct": true
+        },
+        {
+          "case": "invalid-weight",
+          "progressive": true,
+          "classification": "invalid-input",
+          "correct": true
+        }
+      ],
+      "correct": true,
+      "overhead_pass": true,
+      "timing": "classification-only controls, not a speedup claim"
+    }
+  ]
+}
