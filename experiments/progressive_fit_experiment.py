@@ -1075,12 +1075,12 @@ def main() -> None:
         print(case.id, record["medians"], flush=True)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         _ = args.output.write_text(json.dumps(report, allow_nan=False) + "\n")
-    report["finished_utc"] = datetime.now(UTC).isoformat()
     report["controls"] = run_controls()
     report["gate"] = evaluate_gate(report["cases"], report["controls"])
     report["process_lifetime_peak_rss_bytes"] = (
         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
     )
+    report["finished_utc"] = datetime.now(UTC).isoformat()
     _ = args.output.write_text(json.dumps(report, allow_nan=False) + "\n")
 
 
