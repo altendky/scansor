@@ -77,6 +77,9 @@ outside the intended boundary.
   - **Selected verification contract:** compare published geometry, intent,
     acceptance classifications and finite budgets; retain complete diagnostic
     traces and measured differences across numerical runtimes
+- [Progressive fitting](planning/progressive-fitting.md)
+  - **Experiment-gated proposal:** measure complete recovery speed and full-data
+    accuracy before conditional standalone, joint and native/browser integration
 - [Repeated-boss selection fixture](../../../examples/repeated-boss-selection/README.md)
   - **Exploratory generated fixture:** four compound bosses with clocking flats,
     three spherical corner features, a plate-top orientation reference,
