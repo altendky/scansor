@@ -151,7 +151,9 @@ function verifySource(row,archiveBytes){
   assert.equal(w.source_storage.owned_source_payload_bytes,0);assert.equal(w.source_storage.authority_bytes,fixture.source_bytes);
   assert.equal(w.source_replay.bytes,fixture.source_bytes);assert.equal(w.source_replay.sha256,fixture.source_sha256);
   assert.equal(w.source_replay.eof_verified,true);assert(w.source_replay.read_calls>0&&w.source_replay.max_chunk_bytes<=65536);
-  assert(w.transfer.replay_read_calls>0&&w.transfer.replay_read_bytes>=fixture.source_bytes);
+  // Blob transport counts compressed archive ranges; source_replay counts the
+  // independently verified expanded member. Their byte counts are distinct.
+  assert(w.transfer.replay_read_calls>0&&w.transfer.replay_read_bytes>=archiveBytes);
   assert.equal(w.vertices,fixture.vertices);assert.equal(w.faces,fixture.triangles);assert.equal(w.source_sha256,fixture.source_sha256);
   assert.equal(u.vertices,fixture.vertices);assert.equal(u.triangles,fixture.triangles);assert.equal(u.positions_length,fixture.vertices*3);
   assert.equal(u.indices_length,fixture.triangles*3);assert.deepEqual(u.recipe,fixture.recipe);
