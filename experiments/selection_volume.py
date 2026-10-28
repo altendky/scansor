@@ -692,14 +692,34 @@ def apply_selection_volume(
     *,
     chunk_size: int = 1024,
     cancelled: Callable[[], bool] | None = None,
+    query_rotation: object | None = None,
+    query_translation: object | None = None,
+    max_selected: int | None = None,
 ) -> list[int]:
     """Resolve positive-weight observations; saved authoring row IDs play no role."""
     check_cancelled(cancelled)
     saved = validate_selection_volume(volume)
+    if max_selected is not None and (type(max_selected) is not int or max_selected < 1):
+        raise ValueError("selection membership budget must be a positive integer")
     size = _chunk_size(chunk_size)
     xyz = np.asarray(points, dtype=float)
     directions = np.asarray(normals, dtype=float)
     area_weights = np.asarray(weights, dtype=float)
+    rotation = (
+        np.eye(3)
+        if query_rotation is None
+        else _array(query_rotation, (3, 3), "query rotation")
+    )
+    translation = (
+        np.zeros(3)
+        if query_translation is None
+        else _array(query_translation, (3,), "query translation")
+    )
+    if (
+        not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-10, rtol=0)
+        or np.linalg.det(rotation) < 0
+    ):
+        raise ValueError("volume query rotation must be right-handed orthonormal")
     if (
         xyz.ndim != 2
         or xyz.shape[1] != 3
@@ -740,6 +760,10 @@ def apply_selection_volume(
         check_cancelled(cancelled)
         query = xyz[start : start + size]
         query_normals = directions[start : start + size]
+        if query_rotation is not None or query_translation is not None:
+            with np.errstate(invalid="ignore", over="ignore"):
+                query = query @ rotation + translation
+                query_normals = query_normals @ rotation
         lengths = np.linalg.norm(query_normals, axis=1)
         valid = (
             np.isfinite(query).all(axis=1)
@@ -845,6 +869,10 @@ def apply_selection_volume(
                         found = True
                         break
             if found:
+                if max_selected is not None and len(accepted) >= max_selected:
+                    raise ValueError(
+                        "Placed volume exceeds its selection membership budget"
+                    )
                 accepted.append(start + int(local_id))
     return accepted
 

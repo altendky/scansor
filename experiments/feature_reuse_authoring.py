@@ -7,6 +7,8 @@ from uuid import NAMESPACE_URL, uuid5
 from pydantic import Field
 
 from experiments.feature_graph import (
+    MAX_RECIPE_ACTIONS,
+    CircularReuse,
     FeatureGraph,
     FeatureReuse,
     Recipe,
@@ -16,6 +18,7 @@ from experiments.feature_graph import (
     dependencies,
     discover_reuse_lineage,
 )
+from experiments.feature_reuse import circular_placements
 
 
 class ReuseChanges(Record):
@@ -32,6 +35,7 @@ class ReuseChanges(Record):
         default=None, gt=0, le=90, allow_inf_nan=False
     )
     equal_corresponding_dimensions: bool | None = None
+    circular: CircularReuse | None = None
 
 
 class ReuseAuthoringRequest(Record):
@@ -90,6 +94,20 @@ def reconcile_feature_reuse(
         raise ValueError("This feature reuse action is no longer available.")
     owner.update(changes.model_dump(exclude_unset=True))
     fits = owner.get("fits")
+    circular = (
+        CircularReuse.model_validate(owner["circular"])
+        if owner.get("circular")
+        else None
+    )
+    if circular is not None:
+        owner["target_selections"] = [
+            f"occurrence_{index}" for index in range(1, circular.count)
+        ]
+        if not fits or not isinstance(originals.get(fits[0]), SurfaceFit):
+            raise ValueError("Choose existing source Fits for the circular pattern.")
+        owner["reference_selection"] = cast(SurfaceFit, originals[fits[0]]).selections[
+            0
+        ]
     if not fits or not owner.get("target_selections"):
         raise ValueError("Choose at least one fit and one target selection.")
     if any(not isinstance(originals.get(key), SurfaceFit) for key in fits):
@@ -107,7 +125,7 @@ def reconcile_feature_reuse(
         raise ValueError("A feature reuse cannot reuse its own generated fits.")
     owner.clear()
     owner.update(reuse.model_dump())
-    if reuse.reference_selection in reuse.target_selections:
+    if reuse.circular is None and reuse.reference_selection in reuse.target_selections:
         raise ValueError("The reference selection cannot also be a target.")
     by_id = {node["id"]: node for node in nodes}
     selected = set(reuse.fits)
@@ -128,8 +146,45 @@ def reconcile_feature_reuse(
         for key in reuse.lineage
         if by_id[key]["operation"] in {"fit", "axis", "reference_plane"} | relationships
     ]
+    if circular is not None:
+        # Bound authoring before allocating new child dictionaries or UUIDs.
+        existing_owned = sum(node.managed_by == reuse_id for node in recipe.nodes)
+        per_occurrence = len(copied_sources) + sum(
+            len(cast(SurfaceFit, originals[key]).selections) for key in fits
+        )
+        equalities = (
+            sum(cast(SurfaceFit, originals[key]).kind == "cylinder" for key in fits)
+            if reuse.equal_corresponding_dimensions
+            else 0
+        )
+        if (
+            len(recipe.nodes)
+            - existing_owned
+            + int(create)
+            + (circular.count - 1) * per_occurrence
+            + equalities
+            > MAX_RECIPE_ACTIONS
+        ):
+            raise ValueError(
+                "Circular pattern exceeds the recipe action budget before child allocation"
+            )
     for key in reuse.lineage:
         node = by_id[key]
+        if circular is not None and node["operation"] not in {
+            "source",
+            "selection",
+            "growth",
+            "region_selection",
+            "reuse_selection",
+            "feature_reuse",
+            "fit",
+            "axis",
+            "reference_plane",
+            *relationships,
+        }:
+            raise ValueError(
+                f"Circular reuse cannot clone the {node['operation']} closure at {node['label']}"
+            )
         if node["operation"] == "fit" and key not in selected:
             raise ValueError(
                 f"Include {node['label']} in the reused fits to preserve its datum relationships."
@@ -230,8 +285,16 @@ def reconcile_feature_reuse(
     instances: dict[str, dict[str, str]] = {}
     for target_id in reuse.target_selections:
         target = by_id.get(target_id)
-        if target is None:
+        if target is None and circular is None:
             raise ValueError("A target selection is no longer available.")
+        occurrence = (
+            int(target_id.removeprefix("occurrence_")) if circular is not None else None
+        )
+        target_label = (
+            f"Occurrence {occurrence + 1}"
+            if occurrence is not None
+            else cast(dict[str, Any], target)["label"]
+        )
         mapping: dict[str, str] = {}
         instances[target_id] = mapping
         copied: dict[str, dict[str, Any]] = {}
@@ -244,13 +307,14 @@ def reconcile_feature_reuse(
                 child = output(
                     f"selection/{target_id}/{fit_id}/{source_selection_id}",
                     "reuse_selection",
-                    f"{source_selection['label']} at {target['label']}",
+                    f"{source_selection['label']} at {target_label}",
                 )
                 child.update(
                     reuse=reuse_id,
                     fit=fit_id,
                     source_selection=source_selection_id,
                     target_selection=target_id,
+                    occurrence=occurrence,
                 )
                 outputs.append(child)
                 selections[fit_id].append(child["id"])
@@ -269,7 +333,7 @@ def reconcile_feature_reuse(
             child = output(
                 f"{family}/{target_id}/{source['id']}",
                 operation,
-                f"{source['label']} at {target['label']}",
+                f"{source['label']} at {target_label}",
             )
             mapping[source["id"]] = child["id"]
             copied[source["id"]] = child
@@ -313,6 +377,9 @@ def reconcile_feature_reuse(
                         "reuse": reuse_id,
                         "source": source["id"],
                         "target_selection": target_id,
+                        **(
+                            {"occurrence": occurrence} if occurrence is not None else {}
+                        ),
                     }
             elif operation == "reference_plane":
                 copy["axis"] = remap(source["axis"])
@@ -320,6 +387,7 @@ def reconcile_feature_reuse(
                     "reuse": reuse_id,
                     "source": source["id"],
                     "target_selection": target_id,
+                    **({"occurrence": occurrence} if occurrence is not None else {}),
                 }
             elif operation == "equal":
                 for side in ("left", "right"):
@@ -417,7 +485,43 @@ def reconcile_feature_reuse(
     )
 
 
-def _prepare(graph: FeatureGraph, request: ReuseAuthoringRequest) -> ReusePlan:
+def circular_child_operations(
+    reuse: FeatureReuse, nodes: dict[str, Any]
+) -> dict[str, str]:
+    """Validate saved ownership inventory without reconciling or allocating IDs."""
+    assert reuse.circular is not None
+    expected: dict[str, str] = {}
+    for target in reuse.target_selections:
+        for key in reuse.lineage:
+            node = nodes[key]
+            if node.operation in {
+                "source",
+                "selection",
+                "growth",
+                "region_selection",
+                "reuse_selection",
+                "feature_reuse",
+            }:
+                continue
+            family = (
+                "fit"
+                if node.operation == "fit"
+                else "datum"
+                if node.operation in {"axis", "reference_plane"}
+                else "relationship"
+            )
+            expected[f"{family}/{target}/{key}"] = node.operation
+        for fit in reuse.fits:
+            for selection in nodes[fit].selections:
+                expected[f"selection/{target}/{fit}/{selection}"] = "reuse_selection"
+    if reuse.equal_corresponding_dimensions:
+        for fit in reuse.fits:
+            if nodes[fit].kind == "cylinder":
+                expected[f"equal-radius/{fit}"] = "equal_radii"
+    return expected
+
+
+def _prepare(graph: FeatureGraph[Any], request: ReuseAuthoringRequest) -> ReusePlan:
     snapshot = cast(dict[str, Any], graph.snapshot())
     if snapshot["token"] != request.token:
         raise StaleGraph(
@@ -435,20 +539,79 @@ def _prepare(graph: FeatureGraph, request: ReuseAuthoringRequest) -> ReusePlan:
 
 
 def preview_feature_reuse(
-    graph: FeatureGraph, request: ReuseAuthoringRequest
+    graph: FeatureGraph[Any], request: ReuseAuthoringRequest
 ) -> dict[str, Any]:
     with graph.lock:
         plan = _prepare(graph, request)
+        owner = next(node for node in plan.recipe.nodes if node.id == request.reuse_id)
+        circular_preview: dict[str, Any] | None = None
+        if isinstance(owner, FeatureReuse) and owner.circular is not None:
+            from experiments.selection_volume_authoring import resolve_volume
+
+            circular = owner.circular
+            state = cast(
+                dict[str, Any],
+                graph.ensure_current(request.token, targets=[circular.axis]),
+            )
+            if state["token"] != request.token:
+                raise StaleGraph(
+                    "source authoring changed during circular preview; reload before applying"
+                )
+            ready = state["states"].get(circular.axis) == "ready"
+            circular_preview = {
+                "axis": circular.axis,
+                "count": circular.count,
+                "ready": ready,
+                "error": None
+                if ready
+                else state["errors"].get(
+                    circular.axis,
+                    "The pattern axis is not ready in its upstream context",
+                ),
+                "placements": circular_placements(
+                    state["results"][circular.axis], circular.count
+                )
+                if ready
+                else {},
+                "volumes": [
+                    {
+                        **item.model_dump(),
+                        "archive_sha256": resolve_volume(plan.recipe, item.volume)[
+                            2
+                        ].archive.sha256,
+                    }
+                    for item in circular.volumes
+                ],
+                "occurrences": [
+                    {
+                        "key": f"occurrence_{index}",
+                        "index": index,
+                        "angle_degrees": 360 * index / circular.count,
+                        "children": [
+                            node.id
+                            for node in plan.recipe.nodes
+                            if node.managed_by == owner.id
+                            and f"/occurrence_{index}/" in str(node.managed_key)
+                        ],
+                    }
+                    for index in range(1, circular.count)
+                ],
+            }
         return {
             "token": request.token,
             "recipe": plan.recipe.model_dump(),
             **plan.metadata(),
+            **(
+                {"circular_preview": circular_preview}
+                if circular_preview is not None
+                else {}
+            ),
         }
 
 
 def apply_feature_reuse(
-    graph: FeatureGraph, request: ReuseAuthoringRequest
-) -> dict[str, object]:
+    graph: FeatureGraph[Any], request: ReuseAuthoringRequest
+) -> dict[str, Any]:
     with graph.lock:
         plan = _prepare(graph, request)
         return {
