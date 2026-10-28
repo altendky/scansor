@@ -47,10 +47,13 @@ Reproduction must validate the derived bytes before reusing its selection IDs.
 
 ## Active source and modeling intent
 
-The switching slice will retain source data, not inactive copies of feature
-graphs. Activation must rebuild from the current authored definitions so edits
-made on either scan survive subsequent switches. Shared features and relationships
-remain the same declarations, while evaluations belong to the active scan.
+The shared project coordinator retains one immutable original/reduced workspace
+pair and one active graph. Activation rebuilds from the current authored
+definitions so edits made on either scan survive subsequent switches. Shared
+features and relationships remain the same declarations, while evaluations
+belong to the active scan. The active Source carries the versioned derivation;
+ordinary recipe edits cannot attach, change or remove that source authority.
+An unrelated scan replacement or explicit reset releases the pair.
 
 Selections retain separate source-bound entries. Returning to an exact prior
 binding reuses its entry; reduced vertex IDs never become original vertex IDs.
@@ -59,17 +62,30 @@ Transferring to a new entry follows the existing explicit
 ordinary validity checks run against the target observations. Pending setup or
 unavailable authoring refresh remains an actionable needs-input state.
 
-Save/reopen and worker recovery must preserve the original reference, derivation,
-active choice and authored work together. Actions will reference source data
-rather than embed original bytes. Failed, cancelled or stale creation/activation
-must preserve the previous accepted project and recovery checkpoint.
+Saved actions preserve the original reference, derivation, active choice and
+authored work without embedding scan bytes. Exact original bytes can reconstruct
+either active endpoint, while an available retained pair can be reused. A
+derivative alone cannot reopen actions requiring its original. Opening ordinary
+actions that omit a retained derivative's lineage requires locating its exact
+derived bytes; the original File cannot stand in for them.
+
+Native and worker adapters expose no-upload creation and activation transactions.
+Worker protocol 11 advertises the bounded capability; earlier profiles reject
+these operations. Force recovery retains the original File outside the worker
+and reconstructs the accepted active endpoint before validating its identity.
+Failed, cancelled or stale creation/activation preserves the previous accepted
+project and recovery checkpoint. User-facing creation and active-choice controls
+remain the following delivery slice.
 
 ## Resource and delivery gates
 
 Creating a reduced scan still requires an admitted original. This feature does
 not raise original byte, vertex, triangle or memory limits. Retaining two sources
-and preparing a switch introduces additional allocations; the switching and UI
-slices must bound and measure that lifecycle. Reduced geometry alone is not
+and preparing a switch introduces additional allocations. Aggregate source
+estimates are checked against the existing configured working-set bound; this
+does not measure process-wide memory or guarantee that every admitted original
+can also produce a virtual scan. The UI slice must measure the lifecycle.
+Reduced geometry alone is not
 evidence of whole-application speedup.
 
 1. [Reduction foundation #355](https://github.com/altendky/scansor/issues/355):

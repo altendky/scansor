@@ -48,8 +48,9 @@ outside the intended boundary.
 - [Reduced virtual scans](planning/virtual-scans.md)
   - **Agreed bounded direction and staged implementation:** one original and one
     reproducible reduced derivative, active scan driving display and fitting,
-    source-bound selections and explicit volume transfer; retained-source
-    switching, UI and recovery have separate delivery gates
+    source-bound selections and explicit volume transfer; shared/native/worker
+    transactional switching and recovery implemented, with UI and complete
+    workflow/resource evidence still gated
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit points and

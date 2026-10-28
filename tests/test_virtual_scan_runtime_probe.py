@@ -5,8 +5,14 @@ from typing import Any
 
 import pytest
 
-from experiments.browser_runtime.probe import compare_virtual_scans
-from experiments.browser_runtime.virtual_scan_probe import virtual_scan_probe
+from experiments.browser_runtime.probe import (
+    compare_virtual_scan_transactions,
+    compare_virtual_scans,
+)
+from experiments.browser_runtime.virtual_scan_probe import (
+    virtual_scan_probe,
+    virtual_scan_transactions_probe,
+)
 
 
 @pytest.fixture(scope="module")
@@ -74,3 +80,40 @@ def test_virtual_scan_parity_rejects_changed_refinement_evidence(
     changed[-1]["diagnostics"]["refinement_passes"] += 1
     with pytest.raises(AssertionError, match=r"diagnostics\.refinement_passes"):
         _ = compare_virtual_scans(changed, reports)
+
+
+@pytest.fixture(scope="module")
+def transactions() -> dict[str, Any]:
+    return virtual_scan_transactions_probe()
+
+
+def test_transaction_probe_reconstructs_either_active_choice_and_refits_all_rows(
+    transactions: dict[str, Any],
+) -> None:
+    assert transactions["original_vertices"] == len(transactions["full"]["membership"])
+    assert transactions["reduced_vertices"] == len(transactions["coarse"]["membership"])
+    assert len(transactions["reopens"]) == 2
+    assert (
+        transactions["reopens"][0]["active_binding"]
+        != transactions["reopens"][1]["active_binding"]
+    )
+    assert transactions["returned_label"] == "Edited on original"
+    assert compare_virtual_scan_transactions(deepcopy(transactions), transactions)
+
+
+def test_transaction_probe_parity_rejects_changed_derivation(
+    transactions: dict[str, Any],
+) -> None:
+    changed = deepcopy(transactions)
+    changed["derivation"]["original"]["vertices"] += 1
+    with pytest.raises(AssertionError, match=r"derivation\.original\.vertices"):
+        _ = compare_virtual_scan_transactions(changed, transactions)
+
+
+def test_transaction_probe_parity_rejects_changed_reopened_geometry(
+    transactions: dict[str, Any],
+) -> None:
+    changed = deepcopy(transactions)
+    changed["reopens"][0]["fit"]["parameters"][3] += 0.1
+    with pytest.raises(AssertionError, match="parameters"):
+        _ = compare_virtual_scan_transactions(changed, transactions)

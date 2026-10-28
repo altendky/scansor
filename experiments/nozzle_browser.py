@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, Literal, cast, override
 from urllib.parse import parse_qs, urlsplit
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from experiments.actions_limits import (
     MAX_ACTIONS_REQUEST_BYTES,
@@ -57,10 +57,12 @@ from experiments.native_scan_import import (
     NativeImportContext,
     NativeOpenCandidate,
     NativeScanImports,
+    SourceChange,
+    SourceChangePurpose,
 )
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 from experiments.scan_actions import inspect_actions
-from experiments.scan_project import ScanProject
+from experiments.scan_project import ScanProject, virtual_scan_metadata
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -69,6 +71,7 @@ from experiments.scan_workspace import (
     check_cancelled,
 )
 from experiments.selection_volume_operations import dispatch as volume_operation
+from experiments.virtual_scan_reduction import ReductionSettings
 from scansor.selection_bundle import SelectionBundle
 
 ASSETS = Path(__file__).with_name("browser_viewer")
@@ -96,6 +99,14 @@ class SourceImportRequest(SourceCursor):
     filename: str
     size: int
     purpose: Literal["add-scan", "replace-scan"] = "add-scan"
+
+
+class VirtualScanRequest(SourceCursor):
+    settings: ReductionSettings
+
+
+class ActivateScanRequest(SourceCursor):
+    binding: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class ProjectResetRequest(SourceCursor):
@@ -295,6 +306,12 @@ class NozzleServer(ThreadingHTTPServer):
     def is_generic(self) -> bool:
         return self._project is not None
 
+    def virtual_scan_profile(self) -> dict[str, object]:
+        with self.lock:
+            return virtual_scan_metadata(
+                self._project.accepted if self._project is not None else None
+            )
+
     def busy(self) -> bool:
         return self._active_computations > 0 or any(
             job is not None and not job.done() for job in (self.job, self.graph_job)
@@ -329,7 +346,13 @@ class NozzleServer(ThreadingHTTPServer):
             progress: Callable[[ScanProgress], None],
             cancelled: Callable[[], bool],
         ) -> NativeOpenCandidate:
-            inspection = inspect_actions(value, state.workspace)
+            inspection = inspect_actions(
+                value,
+                state.workspace,
+                retained_sources=matching.retained_sources
+                if matching is not None
+                else (),
+            )
             check_cancelled(cancelled)
             project: ScanProject | None = None
             legacy: NativeAccepted | None = None
@@ -459,6 +482,71 @@ class NozzleServer(ThreadingHTTPServer):
 
             return NativeOpenCandidate(install, len(prepared.import_warnings))
 
+        def prepare_source_change(
+            purpose: SourceChangePurpose,
+            change: SourceChange,
+            progress: Callable[[ScanProgress], None],
+            cancelled: Callable[[], bool],
+        ) -> NativeOpenCandidate:
+            if matching is None or matching.workspace.descriptor is None:
+                raise ScanImportError(
+                    "Virtual scans require an imported original scan.",
+                    "unsupported_virtual_scan",
+                )
+            project = ScanProject()
+            initial = project.accepted
+            if purpose == "create-virtual-scan":
+                assert isinstance(change, ReductionSettings)
+                candidate = project.prepare_virtual_scan(
+                    change,
+                    self.source_imports.limits,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    matching=matching,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+            else:
+                assert isinstance(change, str)
+                candidate = project.prepare_activate_scan(
+                    change,
+                    self.source_imports.limits,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    matching=matching,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+            prepared = project.commit_replace(candidate, cancelled=cancelled)
+            check_cancelled(cancelled)
+
+            def install() -> int:
+                current = self.accepted()
+                current_owner = (
+                    self._project if self._project is not None else self._legacy
+                )
+                if (
+                    current_owner is not owner
+                    or current.generation != state.generation
+                    or current.graph.snapshot()["token"] != original_token
+                ):
+                    raise ScanImportError(
+                        "Project changed before switching scans.", "stale_source"
+                    )
+                if self.busy():
+                    raise ScanImportError("Wait for active computation.", "source_busy")
+                check_cancelled(cancelled)
+                self.clear_jobs()
+                self.active_example = None
+                self.example_recipe = Recipe(schema_version=2, nodes=[], output=None)
+                self._generation_offset = (
+                    state.generation + 1 - project.accepted.generation
+                )
+                self._project, self._legacy = project, None
+                return state.generation + 1
+
+            return NativeOpenCandidate(install, len(prepared.import_warnings))
+
         return NativeImportContext(
             self._project,
             state.generation,
@@ -467,6 +555,7 @@ class NozzleServer(ThreadingHTTPServer):
             state.workspace,
             prepare_open,
             prepare_replace,
+            prepare_source_change,
         )
 
     def inspect_actions(self, request: ActionsInspectRequest) -> dict[str, object]:
@@ -482,7 +571,13 @@ class NozzleServer(ThreadingHTTPServer):
             return {
                 "generation": state.generation,
                 "token": request.token,
-                **inspect_actions(request.recipe, state.workspace).json(),
+                **inspect_actions(
+                    request.recipe,
+                    state.workspace,
+                    retained_sources=self._project.accepted.retained_sources
+                    if self._project is not None
+                    else (),
+                ).json(),
             }
 
     def reset_project(self, request: ProjectResetRequest) -> NativeAccepted:
@@ -783,6 +878,7 @@ class Handler(BaseHTTPRequestHandler):
                 metadata = {
                     **metadata,
                     "import_warnings": list(state.import_warnings),
+                    "virtual_scans": self.app.virtual_scan_profile(),
                     "graph": graph,
                     "positions": {
                         "dtype": "<f4",
@@ -932,6 +1028,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path not in {
             "/api/sources/imports",
+            "/api/sources/virtual",
+            "/api/sources/activate",
             "/api/project/reset",
             "/api/actions/inspect",
             "/api/actions/open",
@@ -988,6 +1086,24 @@ class Handler(BaseHTTPRequestHandler):
                     filename=request.filename,
                     size=request.size,
                     purpose=request.purpose,
+                )
+                self.json_reply(202, result)
+            elif path == "/api/sources/virtual":
+                request = VirtualScanRequest.model_validate_json(body)
+                result = self.app.source_imports.change_source(
+                    generation=request.generation,
+                    token=request.token,
+                    purpose="create-virtual-scan",
+                    change=request.settings,
+                )
+                self.json_reply(202, result)
+            elif path == "/api/sources/activate":
+                request = ActivateScanRequest.model_validate_json(body)
+                result = self.app.source_imports.change_source(
+                    generation=request.generation,
+                    token=request.token,
+                    purpose="activate-scan",
+                    change=request.binding,
                 )
                 self.json_reply(202, result)
             elif path == "/api/actions/inspect":

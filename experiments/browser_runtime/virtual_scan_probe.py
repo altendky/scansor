@@ -5,13 +5,17 @@ from __future__ import annotations
 import hashlib
 import io
 import struct
+from copy import deepcopy
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
 
+from experiments.feature_graph import Recipe
+from experiments.scan_project import ScanProject
 from experiments.scan_workspace import ScanLimits, prepare_scan
+from experiments.selection_volume_transactions import author_volume
 from experiments.virtual_scan_reduction import ReductionSettings, prepare_virtual_scan
 
 LIMITS = ScanLimits(2_000_000, 10_000, 20_000, 16_000_000, chunk_bytes=4096)
@@ -208,3 +212,206 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
             }
         )
     return reports
+
+
+def _project_state(project: ScanProject) -> dict[str, Any]:
+    return cast(dict[str, Any], project.accepted.graph.snapshot())
+
+
+def _plane_record(state: dict[str, Any]) -> dict[str, Any]:
+    value = state["results"]["plane"]
+    return {
+        "kind": value["kind"],
+        "parameters": value["parameters"],
+        "weighted_rms": value["weighted_rms"],
+        "ids": value["ids"],
+    }
+
+
+def _portable_intent(recipe: dict[str, Any]) -> dict[str, Any]:
+    """Retain declared intent and archive content IDs, excluding compression bytes."""
+    result = deepcopy(recipe)
+    for node in result["nodes"]:
+        if node["operation"] != "selection":
+            continue
+        for entry in node.get("entries") or []:
+            for volume in entry["volumes"]:
+                archive = cast(dict[str, Any], volume["archive"])
+                _ = archive.pop("data")
+    return result
+
+
+def virtual_scan_transactions_probe() -> dict[str, Any]:
+    """Author on reduced observations, transfer to the original and reconstruct both."""
+    raw = _sheet_bytes(1.0, 1, False)
+    project = ScanProject()
+    initial = project.accepted
+    candidate = project.prepare_add(
+        io.BytesIO(raw),
+        "transaction-original.ply",
+        LIMITS,
+        generation=initial.generation,
+        token=str(_project_state(project)["token"]),
+    )
+    original = project.commit(candidate).workspace
+    before = project.accepted
+    candidate = project.prepare_virtual_scan(
+        ReductionSettings(divisions=4),
+        LIMITS,
+        generation=before.generation,
+        token=str(_project_state(project)["token"]),
+    )
+    assert project.accepted is before
+    reduced = project.commit_replace(candidate).workspace
+    assert len(reduced.local) < len(original.local)
+    payload = deepcopy(_project_state(project)["recipe"])
+    payload["nodes"].extend(
+        [
+            {
+                "id": "patch",
+                "label": "Coarse painted patch",
+                "operation": "selection",
+                "source": "scan",
+                "ids": list(range(len(reduced.local))),
+            },
+            {
+                "id": "plane",
+                "label": "Shared plane",
+                "operation": "fit",
+                "kind": "plane",
+                "selections": ["patch"],
+            },
+        ]
+    )
+    payload["output"] = "plane"
+    _ = project.accepted.graph.replace(
+        Recipe.model_validate(payload), str(_project_state(project)["token"])
+    )
+    _ = author_volume(
+        project.accepted.graph,
+        str(_project_state(project)["token"]),
+        selection="patch",
+        volume="footprint",
+        label="Coarse footprint",
+        kind="mesh",
+    )
+    coarse = cast(
+        dict[str, Any],
+        project.accepted.graph.ensure_current(
+            str(_project_state(project)["token"]), ["plane"]
+        ),
+    )
+    assert coarse["states"]["plane"] == "ready"
+    _ = project.commit_replace(
+        project.prepare_activate_scan(
+            original.reference_sha256,
+            LIMITS,
+            generation=project.accepted.generation,
+            token=str(coarse["token"]),
+        )
+    )
+    waiting = _project_state(project)
+    assert waiting["states"]["plane"] == "needs_input"
+    assert waiting["results"] == {}
+    assert waiting["diagnostics"]["patch"]["action"] == "choose_source_volume"
+    payload = deepcopy(waiting["recipe"])
+    coarse_entry, target_entry = payload["nodes"][1]["entries"]
+    assert target_entry["source_volume"] is None
+    target_entry["source_volume"] = {
+        "selection": "patch",
+        "entry": coarse_entry["id"],
+        "volume": "footprint",
+    }
+    payload["nodes"][2]["label"] = "Edited on original"
+    _ = project.accepted.graph.replace(
+        Recipe.model_validate(payload), str(waiting["token"])
+    )
+    full = cast(
+        dict[str, Any],
+        project.accepted.graph.ensure_current(
+            str(_project_state(project)["token"]), ["plane"]
+        ),
+    )
+    assert full["states"]["plane"] == "ready" and full["errors"] == {}
+    assert full["memberships"]["patch"] == list(range(len(original.local)))
+    saved_full = deepcopy(full["recipe"])
+    _ = project.commit_replace(
+        project.prepare_activate_scan(
+            reduced.reference_sha256,
+            LIMITS,
+            generation=project.accepted.generation,
+            token=str(full["token"]),
+        )
+    )
+    returned = _project_state(project)
+    assert returned["results"] == {}
+    assert returned["recipe"]["nodes"][2]["label"] == "Edited on original"
+    assert len(returned["recipe"]["nodes"][1]["entries"]) == 2
+    coarse_again = cast(
+        dict[str, Any],
+        project.accepted.graph.ensure_current(str(returned["token"]), ["plane"]),
+    )
+    assert _plane_record(coarse_again) == _plane_record(coarse)
+    assert coarse_again["memberships"]["patch"] == list(range(len(reduced.local)))
+    reopens: list[dict[str, Any]] = []
+    for saved, active, expected in (
+        (saved_full, original, full),
+        (coarse_again["recipe"], reduced, coarse_again),
+    ):
+        reopened = ScanProject()
+        prepared = reopened.prepare_open(
+            saved,
+            generation=reopened.accepted.generation,
+            token=str(_project_state(reopened)["token"]),
+            confirmed_discard=True,
+            stream=io.BytesIO(raw),
+            filename="renamed-original.ply",
+            limits=LIMITS,
+        )
+        accepted = reopened.commit_open(prepared)
+        assert accepted.workspace.reference_sha256 == active.reference_sha256
+        assert len(accepted.retained_sources) == 2
+        assert accepted.retained_sources[0].original_bytes == raw
+        assert accepted.retained_sources[1].original_bytes == reduced.original_bytes
+        evaluated = cast(
+            dict[str, Any],
+            accepted.graph.ensure_current(
+                str(_project_state(reopened)["token"]), ["plane"]
+            ),
+        )
+        assert evaluated["recipe"] == saved
+        assert _plane_record(evaluated) == _plane_record(expected)
+        reopens.append(
+            {
+                "active_binding": active.reference_sha256,
+                "intent": _portable_intent(evaluated["recipe"]),
+                "membership": evaluated["memberships"]["patch"],
+                "fit": _plane_record(evaluated),
+                "retained_bindings": [
+                    item.reference_sha256 for item in accepted.retained_sources
+                ],
+            }
+        )
+    return {
+        "format": "virtual-scan-transactions-probe-v1",
+        "derivation": coarse["recipe"]["nodes"][0]["virtual_scan"],
+        "original_vertices": len(original.local),
+        "reduced_vertices": len(reduced.local),
+        "private_preparation": True,
+        "waiting": {
+            "states": {key: waiting["states"][key] for key in ("patch", "plane")},
+            "action": waiting["diagnostics"]["patch"]["action"],
+            "results": waiting["results"],
+        },
+        "coarse": {
+            "membership": coarse["memberships"]["patch"],
+            "fit": _plane_record(coarse),
+        },
+        "full": {
+            "membership": full["memberships"]["patch"],
+            "fit": _plane_record(full),
+            "coverage": full["derived"]["patch"]["coverage"],
+        },
+        "returned_label": returned["recipe"]["nodes"][2]["label"],
+        "reopens": reopens,
+    }
