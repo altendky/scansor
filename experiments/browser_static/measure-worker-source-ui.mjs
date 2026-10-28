@@ -81,6 +81,7 @@ async function freezeInputs(){
     'experiments/browser_static/measure-worker-source-ui.mjs','experiments/browser_static/worker-source-resource-observers.mjs',
     'experiments/browser_static/worker-source-resource-validation.mjs','experiments/browser_static/worker_source_resource_expected.py',
     'experiments/browser_static/source-import-harness.mjs','experiments/browser_static/source_import_expected.py',
+    'experiments/browser_static/source-authority-observer.mjs',
     'experiments/browser_static/server.mjs','tests/native_scan_fixture.py',
     '.github/workflows/reflow-browser.yml','docs/src/project/planning/worker-scan-import.md',
   ])await add(relative);
@@ -233,12 +234,16 @@ async function modeRun(isolation,inputs,expected){
       const w=row.worker,ui=row.ui,ref=expected[input.name];assert.ok(w&&ui);
       assert.equal(w.isolated,isolation);assert.equal(w.source_sha256,input.sha256);
       assert.equal(w.immutable_original_sha256,input.sha256);assert.equal(w.immutable_original_bytes,input.source_bytes);
+      assert.equal(w.source_storage.authority_bytes,input.source_bytes);assert.equal(w.source_storage.owned_source_payload_bytes,0);
+      assert.equal(w.source_replay.bytes,input.source_bytes);assert.equal(w.source_replay.sha256,input.sha256);assert.equal(w.source_replay.eof_verified,true);
       assert.equal(w.vertices,input.vertices);assert.equal(w.faces,input.faces);
       const {filename:observedFilename,...observedDescriptor}=w.descriptor;
       const {filename:expectedFilename,...expectedDescriptor}=ref.descriptor;void observedFilename;void expectedFilename;
       assert.deepEqual(observedDescriptor,expectedDescriptor);assert.deepEqual(w.observations,ref.observations);
       assert.equal(w.owned_fs_bytes,0);assert.deepEqual(w.owned_fs_files,[]);assert.equal(w.transfer.staging_bytes,0);
-      assert.ok(w.transfer.max_staging_bytes<=ui.limits.max_source_bytes);assert.ok(w.transfer.largest_chunk_bytes<=ui.limits.chunk_bytes);
+      if(w.worker_protocol>=12){assert.equal(w.transfer.max_staging_bytes,0);assert.ok(w.transfer.replay_read_calls>0);assert.ok(w.transfer.replay_read_bytes>=input.source_bytes);}
+      else assert.ok(w.transfer.max_staging_bytes<=ui.limits.max_source_bytes);
+      assert.ok(w.transfer.largest_chunk_bytes<=ui.limits.chunk_bytes);
       assert.equal(ui.generation,w.project_generation);assert.equal(ui.source.source_sha256,input.sha256);
       assert.equal(ui.vertices,input.vertices);assert.equal(ui.triangles,input.faces);
       if(ui.display_hashes)for(const name of ['positions','indices'])assert.equal(ui.display_hashes[name],ref.display[name].sha256);

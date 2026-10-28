@@ -5,8 +5,9 @@ from __future__ import annotations
 import io
 import json
 import struct
+import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import Any, BinaryIO, ClassVar, cast, override
@@ -15,7 +16,23 @@ import pytest
 
 from experiments.native_scan_import import NativeImportContext, NativeScanImports
 from experiments.scan_project import AcceptedScan, PreparedScan, ScanProject
-from experiments.scan_workspace import ScanCancelled, ScanImportError, ScanLimits
+from experiments.scan_sources import PathInput
+from experiments.scan_workspace import (
+    ScanCancelled,
+    ScanImportError,
+    ScanLimits,
+    ScanWorkspace,
+)
+
+
+def original_bytes(workspace: ScanWorkspace) -> bytes:
+    assert workspace.source is not None
+    assert workspace.source.input.byte_length <= 4096
+    with workspace.source.open() as source:
+        result = bytearray()
+        while block := source.read(64):
+            result.extend(block)
+    return bytes(result)
 
 
 def mesh_bytes() -> bytes:
@@ -40,6 +57,7 @@ class World:
         self.lock: RLock = RLock()
         self.project: ScanProject = ScanProject()
         self.offset: int = 100
+        self.prepared_input: PathInput | None = None
 
     def context(self) -> NativeImportContext:
         accepted = self.project.accepted
@@ -140,7 +158,7 @@ def test_exact_bounded_upload_commits_source_only_and_releases_staging(
     assert result["status"] == "accepted" and result["acceptedGeneration"] == 101
     assert cast(int, result["revision"]) > cast(int, operation["revision"])
     assert stream.tell() == len(mesh_bytes())
-    assert world.project.accepted.workspace.original_bytes == mesh_bytes()
+    assert original_bytes(world.project.accepted.workspace) == mesh_bytes()
     assert world.project.accepted.workspace.name == "independent.ply"
     assert (
         len(
@@ -275,6 +293,7 @@ def gate_preparation(
 
     def gated(*args: Any, **kwargs: Any) -> PreparedScan:
         candidate = prepare(*args, **kwargs)
+        world.prepared_input = cast(PathInput, args[0])
         entered.set()
         assert release.wait(5)
         return candidate
@@ -296,11 +315,13 @@ def test_cancel_completed_preparation_cleans_before_terminal_without_commit(
         result = cancel(service, operation)
         assert result["status"] == "cancelling" and not result["terminal"]
         assert world.project.accepted is original
-        assert len(files(staging)) == 1
+        assert files(staging) == []
+        assert world.prepared_input is not None and world.prepared_input.path.is_file()
     finally:
         release.set()
     assert terminal(service, operation)["status"] == "cancelled"
     assert world.project.accepted is original and files(staging) == []
+    assert world.prepared_input is not None and not world.prepared_input.path.exists()
 
 
 @pytest.mark.parametrize("change", ["generation", "project-identity"])
@@ -386,7 +407,7 @@ def test_commit_wins_cancel_without_retroactive_rollback(
     assert cancelled.is_set() and not thread.is_alive()
     result = terminal(service, operation)
     assert result["status"] == "accepted" and records == [result]
-    assert world.project.accepted.workspace.original_bytes == mesh_bytes()
+    assert original_bytes(world.project.accepted.workspace) == mesh_bytes()
 
 
 def test_expired_reservations_and_terminal_history_are_bounded(tmp_path: Path) -> None:
@@ -534,6 +555,12 @@ def test_cleanup_failure_prevents_commit_and_fences_more_staging(
         original(path, missing_ok=missing_ok)
 
     monkeypatch.setattr(Path, "unlink", fail_owned)
+    if not cancelled:
+
+        def fail_move(*_args: object, **_kwargs: object) -> None:
+            raise OSError("injected source lease promotion failure")
+
+        monkeypatch.setattr("experiments.native_scan_import.shutil.move", fail_move)
     operation = world.reserve(service)
 
     class CancelledEOF(io.BytesIO):
@@ -561,6 +588,50 @@ def test_cleanup_failure_prevents_commit_and_fences_more_staging(
         service.status(str(operation["operationId"]))["error"]
     )
     monkeypatch.setattr(Path, "unlink", original)
+
+
+@pytest.mark.parametrize("fail_close_once", [False, True])
+def test_failed_source_lease_cleanup_is_retained_for_shutdown_retry(
+    owned: tuple[World, NativeScanImports, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    fail_close_once: bool,
+) -> None:
+    world, service, _ = owned
+    entered, release = gate_preparation(monkeypatch, world)
+    operation = world.reserve(service)
+    _ = upload(service, operation)
+    try:
+        assert entered.wait(5)
+        assert world.prepared_input is not None
+        owner = cast(tempfile.TemporaryDirectory[str], world.prepared_input.owner)
+        directory = Path(owner.name)
+        remove = cast(Callable[..., None], getattr(owner, "_rmtree"))
+        failures_left = 2 if fail_close_once else 1
+
+        def transient_failure(*args: Any, **kwargs: Any) -> None:
+            nonlocal failures_left
+            if failures_left:
+                failures_left -= 1
+                raise OSError("injected accepted source cleanup failure")
+            remove(*args, **kwargs)
+
+        monkeypatch.setattr(owner, "_rmtree", transient_failure)
+        _ = cancel(service, operation)
+    finally:
+        release.set()
+    record = terminal(service, operation)
+    assert record["status"] == "failed"
+    assert cast(dict[str, object], record["error"])["code"] == "cleanup_failed"
+    assert directory.is_dir()
+    assert world.project.accepted.workspace.descriptor is None
+    with pytest.raises(ScanImportError, match="closing"):
+        _ = world.reserve(service)
+    if fail_close_once:
+        with pytest.raises(OSError, match="accepted source cleanup failure"):
+            service.close()
+        assert directory.is_dir()
+    service.close()
+    assert not directory.exists()
 
 
 @pytest.mark.parametrize("stop", ["eof", "timeout"])

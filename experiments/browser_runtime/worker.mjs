@@ -21,13 +21,15 @@ let interruptBuffer;
 let minimumGeneration = 0;
 let boundary;
 let sourceBoundary;
+let projectExportBoundary;
 let activeSource;
 let sourcePoisoned = false;
 let initialMode = 'example';
 // Primitive-only accounting for safe-boundary capacity measurements. These are
 // overlapping logical categories, not a claim about instantaneous process RSS.
 const sourceTransferMetrics = { staging_bytes: 0, max_staging_bytes: 0,
-  largest_chunk_bytes: 0, display_copy_bytes: 0 };
+  largest_chunk_bytes: 0, display_copy_bytes: 0,
+  replay_read_bytes: 0, replay_read_calls: 0 };
 const lifecycle = (request, state, interruptible = false) => postMessage({
   kind: 'lifecycle', id: request.id, operation: request.operation,
   generation: request.generation, state, interruptible,
@@ -74,24 +76,34 @@ function ensureWorkspace() {
     python.globals.set('browser_source_limits', JSON.stringify(profile?.limits || null));
     python.globals.set('browser_initial_mode', initialMode);
     python.globals.set('browser_cad_available', manifest.cad === true);
+    python.globals.set('browser_project_limits', JSON.stringify(manifest.worker_protocol?.project_archive?.limits || null));
     try {
-      python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; from experiments.scan_workspace import ScanLimits; browser_workspace = BrowserWorkspace(None if browser_initial_mode == 'empty' else Path('/app/examples/nozzle-bayonette-simplified'), scan_limits=ScanLimits(**json.loads(browser_source_limits)) if json.loads(browser_source_limits) else None, cad_available=browser_cad_available)");
-    } finally { python.runPython("del browser_source_limits, browser_initial_mode, browser_cad_available"); }
+      python.runPython("from pathlib import Path; from experiments.browser_runtime.workspace import BrowserWorkspace; from experiments.scan_workspace import ScanLimits; from experiments.project_archive import ProjectArchiveLimits; browser_workspace = BrowserWorkspace(None if browser_initial_mode == 'empty' else Path('/app/examples/nozzle-bayonette-simplified'), scan_limits=ScanLimits(**json.loads(browser_source_limits)) if json.loads(browser_source_limits) else None, cad_available=browser_cad_available, project_limits=ProjectArchiveLimits(**json.loads(browser_project_limits)) if json.loads(browser_project_limits) else None)");
+    } finally { python.runPython("del browser_source_limits, browser_initial_mode, browser_cad_available, browser_project_limits"); }
     workspaceLoaded = true;
   }
 }
 
-function sourceCall(method, payload, { path = '', recovery, progress, cancelled } = {}) {
+function sourceCall(method, payload, { path = '', input, recovery, progress, cancelled } = {}) {
   python.globals.set('browser_source_payload', JSON.stringify(payload));
   python.globals.set('browser_source_path', path);
   python.globals.set('browser_source_recovery', JSON.stringify(recovery || null));
   python.globals.set('browser_source_progress', progress || (() => {}));
   python.globals.set('browser_source_cancelled', cancelled || (() => false));
+  python.globals.set('browser_source_read', input?.read || null);
+  // Pyodide preserves JavaScript null as JsNull, which is not Python None.
+  python.globals.set('browser_source_has_input', !!input);
+  python.globals.set('browser_source_length', input?.length || 0);
+  python.globals.set('browser_source_filename', input?.filename || 'scan.ply');
+  python.globals.set('browser_source_chunk_bytes', input?.chunkBytes || 65536);
   try {
+    python.runPython("from experiments.browser_runtime.source_streams import BlobInput; browser_source_input=BlobInput(browser_source_length,browser_source_filename,browser_source_read,browser_source_chunk_bytes) if browser_source_has_input else None");
     const expression = method === 'prepare_source_json'
-      ? "browser_workspace.prepare_source_json(browser_source_payload, browser_source_path, progress=lambda p: browser_source_progress(json.dumps({'phase':p.phase,'completed':p.completed,'total':p.total})), cancelled=browser_source_cancelled, **({'recovery_generation':json.loads(browser_source_recovery)['generation'],'recovery_identity':json.loads(browser_source_recovery)['identity'],'recovery_recipe':json.loads(browser_source_recovery)['recipe'],'recovery_import_warnings':json.loads(browser_source_recovery).get('import_warnings',[])} if json.loads(browser_source_recovery) else {}))"
+      ? "browser_workspace.prepare_source_json(browser_source_payload, browser_source_path, source_input=browser_source_input, progress=lambda p: browser_source_progress(json.dumps({'phase':p.phase,'completed':p.completed,'total':p.total})), cancelled=browser_source_cancelled, **({'recovery_generation':json.loads(browser_source_recovery)['generation'],'recovery_identity':json.loads(browser_source_recovery)['identity'],'recovery_recipe':json.loads(browser_source_recovery)['recipe'],'recovery_import_warnings':json.loads(browser_source_recovery).get('import_warnings',[]),'recovery_authority':json.loads(browser_source_recovery).get('source_authority')} if json.loads(browser_source_recovery) else {}))"
       : method === 'preflight_actions_json'
         ? 'browser_workspace.preflight_actions_json(browser_source_payload)'
+        : method === 'preflight_project_json'
+        ? 'browser_workspace.preflight_project_json(browser_source_payload,browser_source_input)'
         : method === 'discard_source_json'
         ? 'browser_workspace.discard_source_json(json.loads(browser_source_payload))'
         : 'browser_workspace.promote_source_json(browser_source_payload)';
@@ -99,7 +111,7 @@ function sourceCall(method, payload, { path = '', recovery, progress, cancelled 
     if (!envelope.ok) throw Object.assign(new Error(envelope.error.message), envelope.error);
     return envelope.result;
   } finally {
-    python.runPython('del browser_source_payload, browser_source_path, browser_source_recovery, browser_source_progress, browser_source_cancelled');
+    python.runPython('del browser_source_payload, browser_source_path, browser_source_recovery, browser_source_progress, browser_source_cancelled, browser_source_read, browser_source_has_input, browser_source_length, browser_source_filename, browser_source_chunk_bytes, browser_source_input');
   }
 }
 
@@ -113,7 +125,7 @@ async function prepareSource(request) {
   const check = () => { if (control.cancelled || generation < minimumGeneration) throw sourceCancelled(); };
   const progress = value => postMessage({ kind: 'source-progress', id, generation,
     operationId: payload.operationId, progress: value });
-  let path, stream, candidate = false;
+  let path, stream, input, candidate = false;
   const cleanupStaging = () => {
     let cause;
     const ownedStream = stream, ownedPath = path;
@@ -136,15 +148,19 @@ async function prepareSource(request) {
     check();
     const { file: ignoredFile, recovery, ...sourcePayload } = payload;
     void ignoredFile;
+    const projectFile = payload.purpose === 'open-project' || recovery?.source_authority?.kind === 'project-file';
+    const streaming = manifest.worker_protocol?.version === 12;
+    if (projectFile && (!streaming || manifest.worker_protocol?.project_archive?.supported !== true))
+      throw Object.assign(new Error('This runtime does not support project archives.'), { code: 'unsupported_capability' });
     const virtualChange = ['create-virtual-scan', 'activate-scan'].includes(payload.purpose);
-    let uploadRequired = payload.kind === 'scan' && !virtualChange;
-    if (virtualChange && (manifest.worker_protocol?.version !== 11
+    let uploadRequired = projectFile || payload.kind === 'scan' && !virtualChange;
+    if (virtualChange && (![11, 12].includes(manifest.worker_protocol?.version)
       || manifest.worker_protocol?.virtual_scans?.supported !== true))
       throw Object.assign(new Error('This runtime does not support virtual scans.'), { code: 'unsupported_capability' });
     if (virtualChange && (payload.file !== undefined || recovery !== undefined))
       throw Object.assign(new Error('Virtual scan changes do not accept file uploads.'), { code: 'unexpected_source' });
     if (payload.purpose === 'replace-scan' &&
-      (![9, 10, 11].includes(manifest.worker_protocol?.version) || manifest.worker_protocol?.replace_scan?.supported !== true))
+      (![9, 10, 11, 12].includes(manifest.worker_protocol?.version) || manifest.worker_protocol?.replace_scan?.supported !== true))
       throw Object.assign(new Error('This runtime does not support scan replacement.'), { code: 'unsupported_capability' });
     if (payload.purpose === 'open-actions') {
       if (manifest.worker_protocol?.source_actions?.supported !== true)
@@ -162,8 +178,26 @@ async function prepareSource(request) {
       const file = payload.file;
       if (!file || !Number.isSafeInteger(file.size) || file.size <= 0 || typeof file.slice !== 'function')
         throw Object.assign(new Error('Invalid scan file.'), { code: 'invalid_source', status: 422 });
-      if (file.size > limits.max_source_bytes)
+      if (file.size > (projectFile ? manifest.worker_protocol.project_archive.limits.max_archive_bytes : limits.max_source_bytes))
         throw Object.assign(new Error('Scan exceeds the source byte limit.'), { code: 'source_limit', status: 422 });
+      if (streaming) {
+        if (typeof FileReaderSync !== 'function')
+          throw Object.assign(new Error('Synchronous Blob streaming is unavailable in this worker.'), { code: 'unsupported_capability' });
+        const reader = new FileReaderSync();
+        input = { length: file.size, filename: file.name || payload.filename || 'scan.ply', chunkBytes: limits.chunk_bytes,
+          read(offset, count) {
+            if (activeSource === control) check();
+            if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(count) || count < 0
+              || count > limits.chunk_bytes || offset < 0 || offset + count > file.size)
+              throw new Error('Source replay requested an invalid range.');
+            const chunk = new Uint8Array(reader.readAsArrayBuffer(file.slice(offset, offset + count)));
+            if (chunk.byteLength !== count) throw new Error('Source changed during bounded replay.');
+            sourceTransferMetrics.replay_read_calls++;
+            sourceTransferMetrics.replay_read_bytes += count;
+            sourceTransferMetrics.largest_chunk_bytes = Math.max(sourceTransferMetrics.largest_chunk_bytes, count);
+            return chunk;
+          } };
+      } else {
       python.FS.mkdirTree('/scansor-source-staging');
       path = `/scansor-source-staging/${id}.ply`;
       stream = python.FS.open(path, 'w');
@@ -189,13 +223,19 @@ async function prepareSource(request) {
         throw Object.assign(new Error(`Source staging could not close. Use Force and restart: ${cause.message}`),
           { code: 'source_cleanup_failed', status: 500 });
       }
+      }
     }
     check();
+    if (projectFile && !recovery) {
+      const preflight = sourceCall('preflight_project_json', sourcePayload, { input });
+      if (preflight.requiresCad) await loadCad({ workspace: true });
+      check();
+    }
     if (payload.recovery?.recipe?.nodes?.some(node => cadActions.has(node.operation))) await loadCad({ workspace: true });
     check();
     let prepared;
     try {
-      prepared = sourceCall('prepare_source_json', sourcePayload, { path, recovery,
+      prepared = sourceCall('prepare_source_json', sourcePayload, { path, input, recovery,
         progress: json => {
           const update = JSON.parse(json);
           progress({ ...update, unit: update.phase === 'reading' ? 'bytes'
@@ -233,9 +273,68 @@ async function prepareSource(request) {
     try {
       if (stream || path) cleanupStaging();
     } finally {
-      try { if (candidate) sourceCall('discard_source_json', payload.operationId); }
+      try {
+        if (candidate) {
+          try { sourceCall('discard_source_json', payload.operationId); }
+          catch (cause) {
+            sourcePoisoned = true;
+            throw Object.assign(new Error(`Private source candidate could not be released. Use Force and restart: ${cause.message}`),
+              { code: 'source_cleanup_failed', status: 500 });
+          }
+        }
+      }
       finally { if (activeSource === control) activeSource = undefined; }
     }
+  }
+}
+
+async function exportProject(request) {
+  const { id, generation, payload } = request;
+  if (manifest.worker_protocol?.version !== 12 || manifest.worker_protocol?.project_archive?.supported !== true)
+    throw Object.assign(new Error('This runtime does not support project archives.'), { code: 'unsupported_capability' });
+  const check = () => {
+    if (generation < minimumGeneration)
+      throw Object.assign(new Error('Project saving was cancelled.'), { code: 'computation_cancelled', status: 409 });
+  };
+  const parse = expression => {
+    const envelope = JSON.parse(python.runPython(expression));
+    if (!envelope.ok) throw Object.assign(new Error(envelope.error.message), envelope.error);
+    return envelope.result;
+  };
+  python.globals.set('browser_project_export_payload', JSON.stringify(payload));
+  python.globals.set('browser_project_export_cancelled', () => generation < minimumGeneration);
+  if (request.managed) lifecycle(request, 'running', false);
+  try {
+    parse('browser_workspace.prepare_project_export_json(browser_project_export_payload,cancelled=browser_project_export_cancelled)');
+    let sequence = 0, bytes = 0;
+    while (true) {
+      await yieldMessages(); check();
+      const result = parse('browser_workspace.next_project_export_json()');
+      if (result.complete) {
+        if (result.receipt.bytes_written !== bytes) throw new Error('Project output receipt disagrees with transferred bytes.');
+        postMessage({ id, ok: true, result: { ...result.receipt, chunks: sequence } });
+        return;
+      }
+      if (!result.bytes) continue;
+      const chunk = ownedBuffer('project_export_chunk');
+      if (chunk.byteLength !== result.bytes || chunk.byteLength > manifest.worker_protocol.project_archive.limits.chunk_bytes)
+        throw new Error('Project output chunk exceeds its bound.');
+      bytes += chunk.byteLength;
+      if (bytes > manifest.worker_protocol.project_archive.limits.max_archive_bytes)
+        throw Object.assign(new Error('Saved project exceeds its compressed-byte budget.'), { code: 'source_limit' });
+      sequence++;
+      let timer;
+      const accepted = await new Promise(resolve => {
+        projectExportBoundary = { id, generation, sequence, resolve };
+        timer = setTimeout(() => resolve(false), 30000);
+        postMessage({ id, generation, kind: 'project-export-chunk', sequence, bytes: chunk }, [chunk]);
+      });
+      clearTimeout(timer); projectExportBoundary = undefined;
+      if (!accepted) throw Object.assign(new Error('Project output was cancelled or not accepted.'), { code: 'computation_cancelled', status: 409 });
+    }
+  } finally {
+    projectExportBoundary = undefined;
+    python.runPython('browser_workspace.clear_project_export(); del browser_project_export_payload,browser_project_export_cancelled');
   }
 }
 
@@ -363,7 +462,7 @@ async function dispatch(request) {
   }
   if (selectionVolumeOperations.has(operation)) {
     const profile = manifest.worker_protocol?.selection_volumes;
-    if (![10, 11].includes(manifest.worker_protocol?.version) || !profile || Object.keys(profile).length !== 2 ||
+    if (![10, 11, 12].includes(manifest.worker_protocol?.version) || !profile || Object.keys(profile).length !== 2 ||
       profile.version !== 1 || profile.max_preview_cells !== 2048)
       throw Object.assign(new Error('This runtime does not support selection volumes.'), { code: 'unsupported_capability' });
   }
@@ -372,6 +471,7 @@ async function dispatch(request) {
     && request.workspaceGeneration !== python.runPython('browser_workspace.workspace_generation'))
     throw Object.assign(new Error('The accepted workspace changed.'), { code: 'stale_source', status: 409 });
   if (operation === 'prepare-source') { await prepareSource(request); return; }
+  if (operation === 'exportProject') { await exportProject(request); return; }
   if (operation === 'inspect-actions') {
     if (manifest.worker_protocol?.source_actions?.supported !== true)
       throw Object.assign(new Error('This runtime does not support source actions.'), { code: 'unsupported_capability' });
@@ -428,6 +528,12 @@ async function dispatch(request) {
 // Queue all requests; an async message handler alone would allow overlapping setup.
 self.onmessage = event => {
   const request = event.data;
+  if (request.operation === 'accept-project-chunk') {
+    if (projectExportBoundary?.id === request.id && projectExportBoundary.generation === request.generation
+      && projectExportBoundary.sequence === request.sequence)
+      projectExportBoundary.resolve(request.accepted === true);
+    return;
+  }
   if (request.operation === 'accept-source-boundary') {
     if (sourceBoundary?.id === request.id && sourceBoundary.generation === request.generation
       && sourceBoundary.operationId === request.operationId
@@ -479,6 +585,7 @@ self.onmessage = event => {
     boundary = undefined;
     if (activeSource) activeSource.cancelled = true;
     sourceBoundary?.resolve(false);
+    projectExportBoundary?.resolve(false);
   } else if (request.managed && !['initialize', 'inspect-actions'].includes(request.operation)) lifecycle(request, 'queued');
   chain = chain.then(async () => {
     // Yield between serialized requests so Cancel can fence queued work before
@@ -492,7 +599,7 @@ self.onmessage = event => {
           { code: 'source_cleanup_failed', status: 500 }) : cancellationError(cause);
       postMessage({ id: request.id, ok: false,
         error: { code: error.code || 'worker_error', status: error.status, message: error.message } });
-      if (sourcePoisoned) postMessage({ fatal: 'Source staging cleanup failed. Use Force and restart.' });
+      if (sourcePoisoned) postMessage({ fatal: 'Source cleanup failed. Use Force and restart.' });
     }
     finally {
       if (activeSource?.id === request.id) activeSource = undefined;

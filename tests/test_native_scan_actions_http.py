@@ -7,7 +7,6 @@ import io
 import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from pathlib import Path
 from threading import Event, Thread
 from typing import Any, cast
 
@@ -20,6 +19,7 @@ from experiments.feature_recipe_import import import_recipe
 from experiments.nozzle_browser import ExampleRequest, ProjectResetRequest
 from experiments.scan_actions import inspect_actions
 from experiments.scan_project import ScanProject
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_native_scan_http import NativeHttp, triangle_bytes
 from tests.test_native_scan_http import native_http as native_http
 
@@ -187,7 +187,7 @@ def test_locate_after_reset_validates_exact_bytes_and_preserves_owner_on_wrong_f
     accepted = open_actions(http, recipe, triangle_bytes())
     assert accepted["status"] == "accepted"
     assert accepted["acceptedGeneration"] == cursor["generation"] + 1
-    assert http.server.workspace.original_bytes == triangle_bytes()
+    assert read_source_bytes(http.server.workspace) == triangle_bytes()
 
 
 @pytest.mark.parametrize(
@@ -466,14 +466,11 @@ def test_prepared_open_races_preserve_exact_old_owner(
                 http.server._generation_offset = cursor["generation"]
             assert http.cursor() == cursor
         else:
-            unlink = Path.unlink
 
-            def fail(path: Path, *args: Any, **kwargs: Any) -> None:
-                if path.suffix == ".upload":
-                    raise OSError("owned cleanup injection")
-                unlink(path, *args, **kwargs)
+            def fail(_operation: Any) -> None:
+                raise OSError("owned cleanup injection")
 
-            monkeypatch.setattr(Path, "unlink", fail)
+            monkeypatch.setattr(http.server.source_imports, "_cleanup", fail)
     finally:
         release.set()
     result = http.finish(operation)

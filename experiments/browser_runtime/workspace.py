@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
@@ -46,8 +46,14 @@ from experiments.feature_reuse_authoring import (
     apply_feature_reuse,
 )
 from experiments.nozzle_session import NozzleWorkspace
+from experiments.project_archive import (
+    ProjectArchiveLimits,
+    iter_project_archive,
+    read_project_archive,
+)
 from experiments.scan_actions import ActionsInspection, inspect_actions
 from experiments.scan_project import ScanProject, virtual_scan_metadata
+from experiments.scan_sources import ReplayableInput
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -113,6 +119,8 @@ class _BrowserSource:
     project: ScanProject | None
     legacy: _LegacySource | None
     import_warnings: tuple[ImportWarning, ...] = ()
+    legacy_reference: dict[str, Any] | None = None
+    legacy_original: ReplayableInput | None = None
 
     @property
     def workspace(self) -> ScanWorkspace | NozzleWorkspace:
@@ -174,6 +182,7 @@ class BrowserWorkspace:
         *,
         scan_limits: ScanLimits | None = None,
         cad_available: bool = False,
+        project_limits: ProjectArchiveLimits | None = None,
     ) -> None:
         self.cad_enabled = False
         self._cad_available = cad_available
@@ -182,6 +191,9 @@ class BrowserWorkspace:
             Path(__file__).resolve().parents[2] / "examples/nozzle-bayonette-simplified"
         )
         self._scan_limits = scan_limits
+        self._project_limits = project_limits
+        self._project_export: Generator[bytes, None, Any] | None = None
+        self._project_export_chunk = b""
         self._source = (
             _BrowserSource(ScanProject(), None)
             if example is None
@@ -340,8 +352,18 @@ class BrowserWorkspace:
             "graph": graph,
             "project_generation": generation,
             "source_mode": self._mode(source),
+            "legacy_project": source.legacy_reference is not None,
             "source_identity": self._identity(source),
             "actions_limits": actions_limits(),
+            "project_archive": {
+                "supported": self._project_limits is not None,
+                "version": 1,
+                **(
+                    {"limits": asdict(self._project_limits)}
+                    if self._project_limits
+                    else {}
+                ),
+            },
             "selection_entries": {"version": 1},
             "selection_volumes": {"version": 1, "max_preview_cells": 2048},
             "virtual_scans": virtual_scan_metadata(source.project.accepted)
@@ -484,19 +506,202 @@ class BrowserWorkspace:
 
         return self._json(preflight)
 
+    def _read_project_source(
+        self,
+        source_input: ReplayableInput,
+        *,
+        recipe_override: dict[str, Any] | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> tuple[_BrowserSource, str | None]:
+        from experiments.project_legacy import legacy_workspace, migrate_known_legacy
+
+        assert self._project_limits is not None and self._scan_limits is not None
+        archive = read_project_archive(
+            source_input,
+            limits=self._project_limits,
+            cancelled=cancelled,
+            legacy_resolver=migrate_known_legacy,
+        )
+        recipe = Recipe.model_validate(recipe_override or archive.actions)
+        self._check_capabilities(recipe)
+        if archive.legacy_reference is not None:
+            if archive.original is None:
+                raise ScanImportError(
+                    "Legacy project source is missing.", "source_required"
+                )
+            workspace = legacy_workspace(
+                archive.original,
+                archive.legacy_reference,
+                self._scan_limits,
+                progress=progress,
+                cancelled=cancelled,
+            )
+            graph = FeatureGraph(workspace, recipe)
+            positions = np.ascontiguousarray(workspace.local, dtype="<f4")
+            indices = np.ascontiguousarray(workspace.data.triangles, dtype="<u4")
+            positions.flags.writeable = indices.flags.writeable = False
+            identity = next(
+                node.model_dump(mode="json")
+                for node in recipe.nodes
+                if isinstance(node, Source)
+            )
+            source = _BrowserSource(
+                None,
+                _LegacySource(workspace, graph, positions, indices, recipe, identity),
+                legacy_reference=deepcopy(archive.legacy_reference),
+                legacy_original=archive.original,
+            )
+        else:
+            project = ScanProject()
+            empty = project.accepted
+            candidate = project.prepare_open(
+                recipe.model_dump(mode="json"),
+                generation=empty.generation,
+                token=str(empty.graph.snapshot()["token"]),
+                confirmed_discard=True,
+                stream=archive.original,
+                filename=archive.original.filename
+                if archive.original is not None
+                else None,
+                limits=self._scan_limits,
+                progress=progress,
+                cancelled=cancelled,
+                check_recipe=self._check_capabilities,
+            )
+            _ = project.commit_open(candidate, cancelled=cancelled)
+            source = _BrowserSource(project, None, project.accepted.import_warnings)
+        return source, archive.member_name
+
+    def preflight_project_json(
+        self, payload_json: str, source_input: ReplayableInput | None = None
+    ) -> str:
+        def preflight() -> dict[str, Any]:
+            from experiments.project_legacy import migrate_known_legacy
+
+            payload = self._payload(payload_json)
+            if self._project_limits is None or source_input is None:
+                raise ScanImportError(
+                    "Choose a supported project archive.", "unsupported_capability"
+                )
+            if (
+                type(payload.get("generation")) is not int
+                or payload["generation"] != self._workspace_generation
+                or payload.get("token") != self.graph.snapshot()["token"]
+            ):
+                raise ScanImportError(
+                    "Project changed before archive inspection.", "stale_source"
+                )
+            archive = read_project_archive(
+                source_input,
+                limits=self._project_limits,
+                legacy_resolver=migrate_known_legacy,
+            )
+            return {
+                "requiresCad": any(
+                    node.operation in CAD_ACTIONS
+                    for node in Recipe.model_validate(archive.actions).nodes
+                )
+            }
+
+        return self._json(preflight)
+
+    def prepare_project_export_json(
+        self,
+        payload_json: str,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> str:
+        def prepare() -> dict[str, Any]:
+            self._check_open()
+            payload = self._payload(payload_json)
+            self._keys(payload, {"generation", "token"})
+            if self._project_limits is None:
+                raise ScanImportError(
+                    "Project archives are unavailable.", "unsupported_capability"
+                )
+            if (
+                self._project_export is not None
+                or self._pending is not None
+                or self._candidate is not None
+                or self._preparing_source
+            ):
+                raise ScanImportError(
+                    "Wait for current source or export work.", "source_busy"
+                )
+            token = payload.get("token")
+            if (
+                type(payload.get("generation")) is not int
+                or payload["generation"] != self._workspace_generation
+                or not isinstance(token, str)
+                or not token
+            ):
+                raise ScanImportError("Project changed before saving.", "stale_source")
+            recipe = self.graph.export_recipe(token)
+            original: ReplayableInput | None = None
+            legacy_reference = None
+            if self._source.legacy is not None:
+                from experiments.project_legacy import export_legacy_project
+
+                original, legacy_reference = export_legacy_project(
+                    self.workspace,
+                    original=self._source.legacy_original,
+                )
+            elif self._source.project is not None:
+                accepted = self._source.project.accepted
+                originals = accepted.retained_sources or (accepted.workspace,)
+                original = originals[0].source
+            self._project_export = iter_project_archive(
+                recipe,
+                original,
+                limits=self._project_limits,
+                legacy_reference=legacy_reference,
+                cancelled=cancelled,
+            )
+            return {"generation": self._workspace_generation, "token": payload["token"]}
+
+        return self._json(prepare)
+
+    def next_project_export_json(self) -> str:
+        def advance() -> dict[str, Any]:
+            if self._project_export is None:
+                raise ScanImportError(
+                    "No project export is active.", "unknown_operation"
+                )
+            try:
+                self._project_export_chunk = next(self._project_export)
+            except StopIteration as completed:
+                self._project_export = None
+                self._project_export_chunk = b""
+                return {"complete": True, "receipt": asdict(completed.value)}
+            return {"complete": False, "bytes": len(self._project_export_chunk)}
+
+        return self._json(advance)
+
+    @property
+    def project_export_chunk(self) -> bytes:
+        return self._project_export_chunk
+
+    def clear_project_export(self) -> None:
+        export, self._project_export = self._project_export, None
+        self._project_export_chunk = b""
+        if export is not None:
+            export.close()
+
     def _prepare_actions_source(
         self,
         payload: dict[str, Any],
         source_path: str,
         progress: Callable[[ScanProgress], None] | None,
         cancelled: Callable[[], bool] | None,
+        source_input: ReplayableInput | None = None,
     ) -> tuple[_BrowserSource, dict[str, Any]]:
         inspection = self._preflight_actions(payload)
         self._check_capabilities(inspection.actions.recipe)
         upload = inspection.disposition == "locate"
-        if upload and not source_path:
+        if upload and not source_path and source_input is None:
             raise ScanImportError("Locate the saved source first.", "source_required")
-        if not upload and source_path:
+        if not upload and (source_path or source_input is not None):
             raise ScanImportError(
                 "This project does not require source bytes.", "unexpected_source"
             )
@@ -512,6 +717,8 @@ class BrowserWorkspace:
                     graph=FeatureGraph(legacy.workspace, inspection.actions.recipe),
                 ),
                 warnings,
+                self._source.legacy_reference,
+                self._source.legacy_original,
             )
         else:
             project = ScanProject()
@@ -524,9 +731,13 @@ class BrowserWorkspace:
             try:
                 with ExitStack() as stack:
                     stream = (
-                        stack.enter_context(Path(source_path).open("rb"))
-                        if upload
-                        else None
+                        source_input
+                        if source_input is not None
+                        else (
+                            stack.enter_context(Path(source_path).open("rb"))
+                            if upload
+                            else None
+                        )
                     )
                     filename = (
                         PurePosixPath(
@@ -598,6 +809,8 @@ class BrowserWorkspace:
         recovery_identity: dict[str, Any] | None = None,
         recovery_recipe: dict[str, Any] | None = None,
         recovery_import_warnings: list[ImportWarning] | None = None,
+        recovery_authority: dict[str, Any] | None = None,
+        source_input: ReplayableInput | None = None,
     ) -> str:
         """Prepare privately; the worker owns and deletes the staged input path.
 
@@ -621,6 +834,8 @@ class BrowserWorkspace:
                     recovery_identity,
                     recovery_recipe,
                     recovery_import_warnings,
+                    recovery_authority,
+                    source_input,
                 )
             finally:
                 self._preparing_source = False
@@ -637,6 +852,8 @@ class BrowserWorkspace:
         recovery_identity: dict[str, Any] | None,
         recovery_recipe: dict[str, Any] | None,
         recovery_import_warnings: list[ImportWarning] | None,
+        recovery_authority: dict[str, Any] | None,
+        source_input: ReplayableInput | None,
     ) -> dict[str, Any]:
         self._check_open()
         self._keys(
@@ -688,6 +905,7 @@ class BrowserWorkspace:
                 recovery_identity,
                 recovery_recipe,
                 recovery_import_warnings,
+                recovery_authority,
             )
         )
         if recovering and (
@@ -705,14 +923,61 @@ class BrowserWorkspace:
         kind = payload.get("kind")
         project: ScanProject | None = None
         facts: dict[str, Any] = {}
-        if payload.get("purpose") in {"create-virtual-scan", "activate-scan"}:
+        project_file = payload.get("purpose") == "open-project" or (
+            recovering
+            and recovery_authority is not None
+            and recovery_authority.get("kind") == "project-file"
+        )
+        if project_file:
+            self._keys(
+                payload,
+                {
+                    "operationId",
+                    "kind",
+                    "purpose",
+                    "generation",
+                    "token",
+                    "confirmedDiscard",
+                    "filename",
+                    "example",
+                },
+            )
+            if self._project_limits is None or self._scan_limits is None:
+                raise ScanImportError(
+                    "Project archives are unavailable in this runtime.",
+                    "unsupported_capability",
+                )
+            if source_input is None:
+                raise ScanImportError(
+                    "Choose a replayable project archive.", "source_required"
+                )
+            if not recovering and payload.get("confirmedDiscard") is not True:
+                raise ScanImportError(
+                    "Opening a project requires discard approval.", "discard_required"
+                )
+            source, member = self._read_project_source(
+                source_input,
+                recipe_override=recovery_recipe if recovering else None,
+                progress=progress,
+                cancelled=cancelled,
+            )
+            if recovering and (
+                recovery_authority is None or member != recovery_authority.get("member")
+            ):
+                raise ScanImportError(
+                    "The recovery archive member changed.", "invalid_recovery"
+                )
+            facts = {"source_authority": {"kind": "project-file", "member": member}}
+            if not recovering:
+                facts["purpose"] = "open-project"
+        elif payload.get("purpose") in {"create-virtual-scan", "activate-scan"}:
             purpose = payload["purpose"]
             self._keys(
                 payload,
                 {"operationId", "kind", "purpose", "generation", "token"}
                 | ({"settings"} if purpose == "create-virtual-scan" else {"binding"}),
             )
-            if recovering or kind != "scan" or source_path:
+            if recovering or kind != "scan" or source_path or source_input is not None:
                 raise ScanImportError(
                     "Virtual scan changes do not accept source uploads or recovery overrides.",
                     "invalid_source",
@@ -783,7 +1048,7 @@ class BrowserWorkspace:
             if (
                 not isinstance(filename, str)
                 or not 0 < len(filename) <= 512
-                or not source_path
+                or (not source_path and source_input is None)
             ):
                 raise ScanImportError(
                     "Expected a staged replacement scan and filename.", "invalid_source"
@@ -791,7 +1056,12 @@ class BrowserWorkspace:
             project = ScanProject()
             initial = project.accepted
             try:
-                with Path(source_path).open("rb") as stream:
+                with ExitStack() as stack:
+                    stream = (
+                        source_input
+                        if source_input is not None
+                        else stack.enter_context(Path(source_path).open("rb"))
+                    )
                     replacement = project.prepare_replace(
                         stream,
                         filename,
@@ -821,7 +1091,7 @@ class BrowserWorkspace:
                     "invalid_recovery",
                 )
             source, facts = self._prepare_actions_source(
-                payload, source_path, progress, cancelled
+                payload, source_path, progress, cancelled, source_input
             )
         elif any(
             key in payload
@@ -849,7 +1119,7 @@ class BrowserWorkspace:
             if (
                 not isinstance(filename, str)
                 or not 0 < len(filename) <= 512
-                or not source_path
+                or (not source_path and source_input is None)
             ):
                 raise ScanImportError(
                     "Expected a staged scan and filename hint.", "invalid_source"
@@ -857,7 +1127,12 @@ class BrowserWorkspace:
             project = ScanProject()
             empty = project.accepted
             try:
-                with Path(source_path).open("rb") as stream:
+                with ExitStack() as stack:
+                    stream = (
+                        source_input
+                        if source_input is not None
+                        else stack.enter_context(Path(source_path).open("rb"))
+                    )
                     candidate = project.prepare_add(
                         stream,
                         filename,
@@ -1297,6 +1572,7 @@ class BrowserWorkspace:
                 self._evaluation_lease.close()
                 self._evaluation_lease = None
             self.clear_export()
+            self.clear_project_export()
             return None
         self._check_open()
         if operation == "loadWorkspace":

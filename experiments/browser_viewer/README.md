@@ -76,6 +76,16 @@ integration and full both-backend workflow acceptance remain delivery gates.
 
 Actions downloads do not save original scan bytes or unfinished editor drafts.
 
+**Save project** downloads one `.scansor` archive containing the actions and
+their original scan. **Open project** restores both from that one file, including
+either active virtual-scan choice, without a second source picker. Project files
+also omit unfinished editor drafts. Sources replay through bounded readers;
+native uploads retain disk-backed source leases and browser workers retain the
+selected File rather than a full uncompressed Python snapshot. The bounded
+contract also supports explicit migration of the captured nozzle project with
+its reference frame preserved. See [project archives](../../docs/src/project/planning/project-archives.md)
+for supported ZIP profiles, resource bounds and compatibility limits.
+
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)
 from `nozzle-actions.json` and the saved

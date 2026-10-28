@@ -1,5 +1,6 @@
 // Separate actual-UI acceptance; the established release evidence envelope stays unchanged.
 import assert from 'node:assert/strict';
+import {sourceAuthorityPython} from './source-authority-observer.mjs';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
@@ -41,10 +42,11 @@ assert.equal(sha256(await readFile(rawPath)), '537880eb7e7e20d515cb838a0acfdc19d
 const harnessPath = path.join(repository, 'experiments/browser_viewer/tests/raw-source-workflow-harness.mjs');
 const oraclePath = path.join(repository, 'experiments/browser_static/raw_workflow_expected.py');
 for (const filename of [fileURLToPath(import.meta.url), harnessPath, oraclePath, rawPath,
-  fileURLToPath(new URL('./server.mjs', import.meta.url)), fileURLToPath(new URL('./source-import-harness.mjs', import.meta.url))]) {
+  fileURLToPath(new URL('./server.mjs', import.meta.url)), fileURLToPath(new URL('./source-import-harness.mjs', import.meta.url)),
+  fileURLToPath(new URL('./source-authority-observer.mjs',import.meta.url))]) {
   trustedFiles.set(filename, sha256(await readFile(filename)));
 }
-const sourcePython = "import json\nb=browser_workspace;w=b.workspace\njson.dumps({'descriptor':w.source_descriptor.model_dump(),'source_sha256':w.source_sha256,'project_generation':b.workspace_generation,'source_mode':b.source_mode,'original_bytes':len(w.original_bytes),'positions':w.local.tolist(),'normals':w.data.normals.tolist(),'original_normals':w.data.original_normals.tolist(),'triangles':w.data.triangles.tolist(),'weights':w.data.weights.tolist()},allow_nan=False)";
+const sourcePython = sourceAuthorityPython + "import json\nb=browser_workspace;w=b.workspace\njson.dumps({'descriptor':w.source_descriptor.model_dump(),'source_sha256':w.source_sha256,'project_generation':b.workspace_generation,'source_mode':b.source_mode,**_source_authority_observation(w),'positions':w.local.tolist(),'normals':w.data.normals.tolist(),'original_normals':w.data.original_normals.tolist(),'triangles':w.data.triangles.tolist(),'weights':w.data.weights.tolist()},allow_nan=False)";
 const sourceObserverSuffix = `
 globalThis.__sourceEvidence242 = () => {
  const record=JSON.parse(python.runPython(${JSON.stringify(sourcePython)}));

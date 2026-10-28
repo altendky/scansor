@@ -38,9 +38,10 @@ SOURCE_IMPORT_PROFILE = {
 
 def worker_protocol() -> dict[str, Any]:
     limits = runpy.run_path(str(ROOT / "experiments/actions_limits.py"))
+    projects = runpy.run_path(str(ROOT / "experiments/project_archive_limits.py"))
 
     return {
-        "version": 11,
+        "version": 12,
         "bootstrap": "initialize",
         "workspace": "single-scan-candidate-transactions",
         "cad": "lazy-approved-ocp",
@@ -49,6 +50,7 @@ def worker_protocol() -> dict[str, Any]:
         "selection_entries": {"version": 1},
         "selection_volumes": {"version": 1, "max_preview_cells": 2048},
         "virtual_scans": {"supported": True, "version": 1, "max_sources": 2},
+        "project_archive": projects["project_archive_profile"](),
         "replace_scan": {
             "supported": True,
             "version": 1,
@@ -69,6 +71,16 @@ def validate_worker_protocol(value: object) -> None:
     ):
         raise ValueError("unsupported worker workspace protocol; rebuild it")
     actions = value["source_actions"]
+    projects = value["project_archive"]
+    if (
+        not isinstance(projects, dict)
+        or projects != expected["project_archive"]
+        or projects["supported"] is not True
+        or type(projects["version"]) is not int
+        or not isinstance(projects["limits"], dict)
+        or any(type(number) is not int for number in projects["limits"].values())
+    ):
+        raise ValueError("unsupported worker project-archive capability")
     entries = value["selection_entries"]
     volumes = value["selection_volumes"]
     if (
