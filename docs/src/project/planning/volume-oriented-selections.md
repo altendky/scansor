@@ -75,7 +75,7 @@ scan's buffers remain loaded.
 
 The implementation displays one active scan's buffers. The bounded
 [virtual-scan workflow](virtual-scans.md) retains one original/reduced pair for
-transactional activation; its UI is a separate delivery gate. Switching among
+transactional activation through the common active-scan picker. Switching among
 arbitrary retained scans, simultaneous fitting, and registration remain future
 work. A simplified scan, full scan, or rescan may provide separate fit results
 using the shared definition.

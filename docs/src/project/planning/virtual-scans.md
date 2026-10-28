@@ -74,8 +74,39 @@ Worker protocol 11 advertises the bounded capability; earlier profiles reject
 these operations. Force recovery retains the original File outside the worker
 and reconstructs the accepted active endpoint before validating its identity.
 Failed, cancelled or stale creation/activation preserves the previous accepted
-project and recovery checkpoint. User-facing creation and active-choice controls
-remain the following delivery slice.
+project and recovery checkpoint. User-facing controls use the same transactions
+and unfinished-edit safeguards.
+
+## Preliminary authoring workflow
+
+The active-scan strip shows the current original or virtual mesh, achieved vertex
+and triangle counts, and its use for both display and fitting. It remains visible
+outside the feature editor. Imported originals offer **Create virtual scan**;
+the creation dialog accepts the bounded spatial-detail setting. Examples and
+older backends without the capability keep these controls hidden.
+With Auto enabled, successful creation or activation schedules fresh evaluation
+after the source transition unlocks. Entries still awaiting a volume choice
+remain needs-input states.
+
+1. Import an admitted original and create its reduced derivative.
+2. Paint selections, declare fits and relationships, and capture selection
+   volumes on the active reduced scan.
+3. Choose **Original**, configure each new entry's source volume explicitly,
+   and evaluate against the original observations.
+4. Return to **Virtual** to continue preliminary work. Shared definitions and
+   edits persist; source-bound memberships and evaluated results follow the
+   active scan.
+
+Save actions records the active choice and derivation. Reopening can locate
+renamed identical original bytes and reconstruct either detail level. Cancelling
+lookup or supplying wrong bytes preserves the accepted project. In-memory worker
+Force recovery also retains that original-file authority; a page reload still
+requires locating source bytes because actions do not embed them.
+
+The first version permits one reduced derivative per original. Changing its
+reduction settings after creation and managing arbitrary scan collections remain
+future work. Existing imported-scan limits and separate selection-transfer setup
+continue to apply.
 
 ## Resource and delivery gates
 
@@ -88,6 +119,25 @@ can also produce a virtual scan. The UI slice must measure the lifecycle.
 Reduced geometry alone is not
 evidence of whole-application speedup.
 
+The [compact UI measurement record](../../../../experiments/virtual-scan-ui-measurement.json)
+records one generated 289-vertex/512-triangle planar input reduced to 25 vertices
+and 32 triangles. Native UI authoring/reopen passed, and actual plain and isolated
+Chromium workers each completed ten repeated switches, two original-file reopens
+and two Force recoveries. These small synthetic cases establish workflow
+behavior, not physical accuracy or large-input performance.
+
+| Worker mode | Creation wall time | Median activation wall time |
+| --- | ---: | ---: |
+| Plain | 293 ms | 234 ms |
+| Isolated | 262 ms | 238 ms |
+
+The renderer reported three geometries and one texture throughout each repeated
+switch window, with the same worker retained. Main-heap observations varied with
+garbage collection; logical live WebGL buffers ranged from about 1.9 to 23.1 KiB.
+Those overlapping observations do not measure physical GPU or whole-browser
+memory. Raw report hashes and per-switch observations are retained in the compact
+record; the timings are single-host observations without a performance gate.
+
 1. [Reduction foundation #355](https://github.com/altendky/scansor/issues/355):
    deterministic connectivity-aware reduction, lineage, validation, cancellation,
    generated fixtures and shared native/worker numerical probe.
@@ -98,5 +148,5 @@ evidence of whole-application speedup.
    controls, active picker, source-aware actions reopen, Force recovery, complete
    workflow and repeated-switch resource evidence.
 
-The foundation alone does not expose the complete UI workflow. The broader
-multiple-scan and source-settings discussions remain separate.
+The three slices form one bounded UI workflow. The broader multiple-scan and
+source-settings discussions remain separate.
