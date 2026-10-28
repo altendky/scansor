@@ -26,6 +26,10 @@ from experiments.browser_runtime.semantic_parity import (
     compare_semantic,
 )
 from experiments.browser_runtime.symmetry_probe import symmetry_graph_probes
+from experiments.browser_runtime.virtual_scan_probe import (
+    virtual_scan_probe,
+    virtual_scan_transactions_probe,
+)
 from experiments.feature_graph import (
     AxisDefinition,
     FeatureGraph,
@@ -1153,6 +1157,8 @@ def numeric(
         "analytic_geometry": analytic_geometry_probe(),
         "selection_volumes": selection_volume_probe(),
         "selection_entries": selection_entries_probe(),
+        "virtual_scans": virtual_scan_probe(),
+        "virtual_scan_transactions": virtual_scan_transactions_probe(),
         "nozzle": nozzle,
         "graph": json.loads(
             json.dumps(
@@ -1479,6 +1485,46 @@ def compare_symmetry_graphs(
     return receipts
 
 
+def compare_virtual_scans(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Require exact derivation/source identities before numerical comparisons."""
+    assert len(actual) == len(expected), "virtual_scans count"
+    receipts: list[dict[str, Any]] = []
+    identity_keys = (
+        "scale",
+        "sheets",
+        "opposed",
+        "refinement_case",
+        "diagnostics",
+        "derivation",
+        "original_descriptor",
+        "derived_descriptor",
+        "original_binding",
+        "derived_binding",
+        "derived_bytes_sha256",
+        "component_sizes",
+        "triangles",
+    )
+    for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
+        path = f"virtual_scans[{index}]"
+        for key in identity_keys:
+            compare_intent(value[key], reference[key], f"{path}.{key}")
+        receipts.append(compare_values(value, reference, path))
+    return receipts
+
+
+def compare_virtual_scan_transactions(
+    actual: dict[str, Any], expected: dict[str, Any]
+) -> dict[str, Any]:
+    compare_intent(
+        actual["derivation"],
+        expected["derivation"],
+        "virtual_scan_transactions.derivation",
+    )
+    return compare_values(actual, expected, "virtual_scan_transactions")
+
+
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     for key in ("fixture_sha256", "counts", "source_sha256", "model_sha256"):
         assert actual[key] == expected[key], f"{key} mismatch"
@@ -1515,6 +1561,13 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     entry_receipt = compare_values(
         actual["selection_entries"], expected["selection_entries"], "selection_entries"
     )
+    virtual_scan_receipt = compare_virtual_scans(
+        actual["virtual_scans"], expected["virtual_scans"]
+    )
+    virtual_transaction_receipt = compare_virtual_scan_transactions(
+        actual["virtual_scan_transactions"],
+        expected["virtual_scan_transactions"],
+    )
     synthetic = compare_fit(actual["synthetic"]["fit"], expected["synthetic"]["fit"])
     np.testing.assert_allclose(
         actual["synthetic"]["residuals"],
@@ -1544,6 +1597,8 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
             "analytic_geometry": analytic_receipt,
             "selection_volumes": volume_receipt,
             "selection_entries": entry_receipt,
+            "virtual_scans": virtual_scan_receipt,
+            "virtual_scan_transactions": virtual_transaction_receipt,
             "graph": graph_receipt,
             "imported_planes": plane_receipts,
             "imported_spheres": sphere_receipts,

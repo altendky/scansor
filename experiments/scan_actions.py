@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
@@ -37,12 +38,21 @@ class ActionsInspection:
 
     def json(self) -> dict[str, object]:
         source = self.actions.source
+        descriptor = (
+            source.virtual_scan.original
+            if source is not None and source.virtual_scan is not None
+            else source.descriptor
+            if source is not None
+            else None
+        )
         return {
             "classification": self.disposition,
             "uploadRequired": self.disposition == "locate",
-            "descriptor": source.descriptor.model_dump(mode="json")
-            if source is not None and source.descriptor is not None
+            "descriptor": descriptor.model_dump(mode="json")
+            if descriptor is not None
             else None,
+            "reconstructionRequired": source is not None
+            and source.virtual_scan is not None,
             "recipe": self.actions.recipe.model_dump(mode="json"),
             "import_warnings": deepcopy(list(self.actions.warnings)),
         }
@@ -106,7 +116,12 @@ def preflight_actions(value: object) -> ScanActions:
     return ScanActions(recipe, tuple(warnings), "generic", source)
 
 
-def inspect_actions(value: object, workspace: Workspace) -> ActionsInspection:
+def inspect_actions(
+    value: object,
+    workspace: Workspace,
+    *,
+    retained_sources: Sequence[Workspace] = (),
+) -> ActionsInspection:
     """Classify against the actual accepted workspace, never a filename match."""
     actions = preflight_actions(value)
     if actions.kind == "empty":
@@ -127,9 +142,36 @@ def inspect_actions(value: object, workspace: Workspace) -> ActionsInspection:
             "incompatible_legacy",
         )
     assert source.descriptor is not None
+    if source.virtual_scan is not None:
+        # Recovery authority is the exact original, even while the derivative
+        # is displayed. Its bytes permit reconstructing either saved endpoint.
+        original = source.virtual_scan.original.semantic_record()
+        available = any(
+            candidate.source_descriptor is not None
+            and candidate.source_descriptor.semantic_record() == original
+            for candidate in (workspace, *retained_sources)
+        )
+        return ActionsInspection(actions, "matching" if available else "locate")
+    if len(retained_sources) == 2:
+        derived = retained_sources[1].source_descriptor
+        if derived is not None and (
+            derived.semantic_record() == source.descriptor.semantic_record()
+        ):
+            # The host retains the original File as authority for a virtual
+            # pair. Dropping its lineage requires an explicit derived upload
+            # so the new ordinary source and its recovery File agree.
+            return ActionsInspection(actions, "locate")
     matching = (
         descriptor is not None
         and content_matches
         and descriptor.semantic_record() == source.descriptor.semantic_record()
     )
+    if not matching:
+        for retained in retained_sources:
+            candidate = retained.source_descriptor
+            if candidate is not None and (
+                candidate.semantic_record() == source.descriptor.semantic_record()
+            ):
+                matching = True
+                break
     return ActionsInspection(actions, "matching" if matching else "locate")

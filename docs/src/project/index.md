@@ -45,6 +45,13 @@ outside the intended boundary.
     explicit conversion setup, and aligned scan replacement without repainting;
     implementation tracked separately from the existing v1 region envelopes
 
+- [Reduced virtual scans](planning/virtual-scans.md)
+  - **Agreed bounded direction and staged implementation:** one original and one
+    reproducible reduced derivative, active scan driving display and fitting,
+    source-bound selections and explicit volume transfer; shared/native/worker
+    transactional switching, common UI, original-file reopen and Force recovery;
+    bounded native/plain/isolated worker workflow and repeated-switch evidence
+
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit points and
     axes, cone/cylinder/plane/sphere fits, shared-point sphere centers,

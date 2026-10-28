@@ -40,7 +40,7 @@ def worker_protocol() -> dict[str, Any]:
     limits = runpy.run_path(str(ROOT / "experiments/actions_limits.py"))
 
     return {
-        "version": 10,
+        "version": 11,
         "bootstrap": "initialize",
         "workspace": "single-scan-candidate-transactions",
         "cad": "lazy-approved-ocp",
@@ -48,6 +48,7 @@ def worker_protocol() -> dict[str, Any]:
         "source_actions": limits["actions_profile"](),
         "selection_entries": {"version": 1},
         "selection_volumes": {"version": 1, "max_preview_cells": 2048},
+        "virtual_scans": {"supported": True, "version": 1, "max_sources": 2},
         "replace_scan": {
             "supported": True,
             "version": 1,
@@ -85,6 +86,15 @@ def validate_worker_protocol(value: object) -> None:
         or type(replacement["version"]) is not int
     ):
         raise ValueError("unsupported worker scan-replacement capability")
+    virtual = value["virtual_scans"]
+    if (
+        not isinstance(virtual, dict)
+        or virtual != expected["virtual_scans"]
+        or virtual["supported"] is not True
+        or type(virtual["version"]) is not int
+        or type(virtual["max_sources"]) is not int
+    ):
+        raise ValueError("unsupported worker virtual-scan capability")
     if (
         not isinstance(entries, dict)
         or entries != {"version": 1}

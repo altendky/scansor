@@ -15,7 +15,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
-from typing import Annotated, Any, ClassVar, Generic, Literal, cast, final
+from typing import Annotated, Any, ClassVar, Generic, Literal, Self, cast, final
 
 import numpy as np
 from pydantic import (
@@ -126,6 +126,7 @@ from experiments.support_intent import (
 )
 from experiments.surface_extents import surface_intersection, trimmed_face
 from experiments.surface_primitives import revolution_geometry, unit, vector
+from experiments.virtual_scan_reduction import VirtualScanDerivation
 from scansor.constrained_least_squares import ConstrainedLeastSquaresFailure
 
 MAX_RECIPE_ACTIONS = 10_000
@@ -163,6 +164,32 @@ class Source(Node):
     source_sha256: str
     reference_sha256: str
     descriptor: SourceDescriptor | None = None
+    virtual_scan: VirtualScanDerivation | None = None
+
+    @model_validator(mode="after")
+    def virtual_scan_binding(self) -> Self:
+        if self.virtual_scan is None:
+            return self
+        lineage = VirtualScanDerivation.model_validate(self.virtual_scan.model_dump())
+        descriptor = self.descriptor
+        if descriptor is None or (
+            self.source_sha256 != descriptor.source_sha256
+            or self.reference_sha256 != descriptor.binding_sha256
+            or descriptor.semantic_record()
+            not in (
+                lineage.original.semantic_record(),
+                lineage.derived.semantic_record(),
+            )
+        ):
+            raise ValueError("active Source must match a virtual scan lineage endpoint")
+        return self
+
+    @model_serializer(mode="wrap")
+    def source_record(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = cast(dict[str, Any], handler(self))
+        if self.virtual_scan is None:
+            _ = value.pop("virtual_scan", None)
+        return value
 
 
 class Selection(Node):
@@ -3407,6 +3434,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                             "approved boundary source must belong to a selected neighbor"
                         )
             if isinstance(node, Source):
+                if node.virtual_scan is not None:
+                    # Internal model_copy callers can bypass field validators.
+                    _ = Source.model_validate(node.model_dump(mode="json"))
                 if (
                     node.source_sha256 != self.workspace.source_sha256
                     or node.reference_sha256 != self.reference_sha256
@@ -4430,6 +4460,20 @@ class FeatureGraph(Generic[WorkspaceType]):
                     "graph changed; reload the current graph before editing"
                 )
             before = {n.id: n for n in self._recipe.nodes}
+            previous_lineage = [
+                n.virtual_scan
+                for n in self._recipe.nodes
+                if isinstance(n, Source) and n.virtual_scan is not None
+            ]
+            next_lineage = [
+                n.virtual_scan
+                for n in recipe.nodes
+                if isinstance(n, Source) and n.virtual_scan is not None
+            ]
+            if previous_lineage != next_lineage:
+                raise ValueError(
+                    "virtual scan lineage changes require a source transaction"
+                )
             # Labels are presentation metadata. Keep evaluated geometry (and
             # settled failures) while the recipe token still tracks the rename.
             affected = {

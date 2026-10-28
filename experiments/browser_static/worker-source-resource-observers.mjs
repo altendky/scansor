@@ -118,7 +118,6 @@ export const workerSuffix = `
 globalThis.__workerSourceResource295=()=>{
  const proxy=python.runPython('browser_workspace.workspace.frame');let view;
  try{
-  view=proxy.getBuffer('u8');
   const record=JSON.parse(python.runPython(${JSON.stringify(pythonInventory)}));
   const files=[];
   if(python.FS.analyzePath('/scansor-source-staging').exists)
@@ -126,6 +125,8 @@ globalThis.__workerSourceResource295=()=>{
     if(name==='.'||name==='..')continue;
     const info=python.FS.stat('/scansor-source-staging/'+name);files.push({name,bytes:info.size});
    }
+  // Inventory can grow Wasm memory and detach or stale an earlier buffer.
+  view=proxy.getBuffer('u8');
   return {...record,wasm_capacity_bytes:view.data.buffer.byteLength,
    transfer:{...sourceTransferMetrics},owned_fs_files:files,
    owned_fs_bytes:files.reduce((n,f)=>n+f.bytes,0),isolated:crossOriginIsolated};

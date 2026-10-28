@@ -73,10 +73,12 @@ volume** versus **Replace existing volume** choice. Retain the accepted geometry
 source identity, and authoring provenance independently of whether the authoring
 scan's buffers remain loaded.
 
-The initial implementation keeps one active scan's buffers. Switching among
-multiple retained loaded scans, simultaneous fitting, and registration remain
-future work. A simplified scan, full scan, or rescan may provide separate fit
-results using the shared definition.
+The implementation displays one active scan's buffers. The bounded
+[virtual-scan workflow](virtual-scans.md) retains one original/reduced pair for
+transactional activation through the common active-scan picker. Switching among
+arbitrary retained scans, simultaneous fitting, and registration remain future
+work. A simplified scan, full scan, or rescan may provide separate fit results
+using the shared definition.
 
 Partial target coverage produces a warning and permits fitting when existing
 validity and ambiguity checks pass. Coverage must describe supported source

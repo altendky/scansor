@@ -24,7 +24,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
+  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, virtualScanProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
@@ -54,11 +54,24 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     profile.source_kind === 'generic-scan';
   const validSelectionVolumeProfile = profile => profile && Object.keys(profile).length === 2 &&
     profile.version === 1 && profile.max_preview_cells === 2048;
+  const validVirtualScanProfile = profile => profile && Object.keys(profile).length === 3 &&
+    profile.supported === true && profile.version === 1 && profile.max_sources === 2;
+  const virtualPurpose = purpose => ['create-virtual-scan', 'activate-scan'].includes(purpose);
+  const originalDescriptor = recipe => {
+    const source = recipe?.nodes?.find(node => node.operation === 'source');
+    return source?.virtual_scan?.original || source?.descriptor;
+  };
   const identityJSON = value => JSON.stringify(value, function(key, item) {
     return item && typeof item === 'object' && !Array.isArray(item)
       ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item;
   });
   const sourceRecord = operation => structuredClone(operation.record);
+  const descriptorIdentity = descriptor => {
+    if (!descriptor) return undefined;
+    const { filename, ...identity } = descriptor;
+    void filename;
+    return identityJSON(identity);
+  };
   const recordSource = (operation, changes) => {
     Object.assign(operation.record, changes, { revision: operation.record.revision + 1 });
     sourceHistory.set(operation.record.operationId, sourceRecord(operation));
@@ -201,7 +214,14 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
           || identityJSON(bundle.metadata.import_warnings) !== identityJSON(operation.recoveryWarnings))))
         throw new Error('Source recovery metadata differs from the accepted checkpoint.');
       let acceptedFile = operation.file;
-      if (operation.purpose === 'open-actions') {
+      if (virtualPurpose(operation.purpose)) {
+        if (bundle.purpose !== operation.purpose || bundle.source_mode?.kind !== 'scan'
+          || !operation.retainedFile || !operation.baseOriginal || !originalDescriptor(bundle.graph.recipe)
+          || !bundle.graph.recipe.nodes.some(node => node.operation === 'source' && node.virtual_scan)
+          || descriptorIdentity(originalDescriptor(bundle.graph.recipe)) !== descriptorIdentity(operation.baseOriginal))
+          throw new Error('Virtual scan candidate lost its original source authority.');
+        acceptedFile = operation.retainedFile;
+      } else if (operation.purpose === 'open-actions') {
         const kind = { generic: 'scan', legacy: 'example', empty: 'empty' }[bundle.sourceKind];
         if (bundle.purpose !== 'open-actions' || !kind || bundle.source_mode?.kind !== kind
           || typeof bundle.uploadRequired !== 'boolean' || bundle.uploadRequired !== (operation.file !== undefined)
@@ -211,7 +231,12 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
           || bundle.import_warning_count !== bundle.metadata.import_warnings.length)
           throw new Error('Invalid actions candidate publication.');
         if (kind === 'scan' && !bundle.uploadRequired) {
-          if (!operation.retainedFile || identityJSON(bundle.source_identity) !== identityJSON(operation.baseIdentity))
+          const sameIdentity = identityJSON(bundle.source_identity) === identityJSON(operation.baseIdentity);
+          const sameOriginal = !!operation.baseOriginal && !!originalDescriptor(bundle.graph.recipe)
+            && descriptorIdentity(originalDescriptor(bundle.graph.recipe)) === descriptorIdentity(operation.baseOriginal);
+          const catalogTransition = operation.baseHasVirtual || bundle.graph.recipe.nodes.some(node => node.operation === 'source' && node.virtual_scan);
+          if (!operation.retainedFile || (operation.baseOriginal ? !sameOriginal : !sameIdentity)
+            || !sameIdentity && !catalogTransition)
             throw new Error('Matching actions lost their accepted source authority.');
           acceptedFile = operation.retainedFile;
         } else if (kind !== 'scan') {
@@ -281,14 +306,19 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     if (!sourceProfile?.supported) throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
     const opening = payload.purpose === 'open-actions';
     const replacing = payload.purpose === 'replace-scan';
+    const changingVirtual = virtualPurpose(payload.purpose);
     if (opening && !sourceActions) throw unsupportedActions();
     if (replacing && (!validReplacementProfile(replacementProfile) || checkpoint?.mode.kind !== 'scan'))
       throw new BackendError('This worker requires an imported aligned scan for replacement.', { code: 'unsupported_capability' });
+    if (changingVirtual && (!validVirtualScanProfile(virtualScanProfile) || checkpoint?.mode.kind !== 'scan' || !checkpoint.file))
+      throw new BackendError('This worker requires an imported original for virtual scans.', { code: 'unsupported_capability' });
     if (sourceOperation) throw sourceBusy();
     if (payload.generation !== acceptedGeneration || payload.token !== latestGraph?.token) throw superseded();
     if (latestGraph.evaluation_running || pending.size) throw sourceBusy();
     const file = payload.file;
-    if (kind === 'scan' || opening && file !== undefined) {
+    if (changingVirtual && file !== undefined)
+      throw new BackendError('Virtual scan changes do not accept source uploads.', { code: 'unexpected_source' });
+    if (kind === 'scan' && !changingVirtual || opening && file !== undefined) {
       if (!file || typeof file.slice !== 'function' || typeof file.arrayBuffer !== 'function'
         || !Number.isSafeInteger(file.size) || file.size <= 0)
         throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
@@ -296,14 +326,16 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
         throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
     }
     const operationId = `source_${lifetime}_${++sourceSequence}`;
-    const operation = { kind, purpose: opening ? 'open-actions' : replacing ? 'replace-scan' : 'source', file, onProgress,
-      retainedFile: opening ? checkpoint?.file : undefined, baseIdentity: structuredClone(sourceIdentity),
+    const operation = { kind, purpose: opening || replacing || changingVirtual ? payload.purpose : 'source', file, onProgress,
+      retainedFile: opening || changingVirtual ? checkpoint?.file : undefined, baseIdentity: structuredClone(sourceIdentity),
+      baseOriginal: structuredClone(originalDescriptor(latestGraph?.recipe)),
+      baseHasVirtual: !!latestGraph?.recipe.nodes.some(node => node.operation === 'source' && node.virtual_scan),
       baseMode: opening ? structuredClone(checkpoint?.mode) : undefined,
       baseGeneration: acceptedGeneration, baseToken: latestGraph.token,
       recoveryGeneration: restore?.generation, record: { operationId, generation: payload.generation,
         token: payload.token, revision: 0, status: 'reserved', phase: 'reserved', completed: 0,
-        total: file?.size || 0, unit: 'bytes', terminal: false,
-        ...(opening || replacing ? { purpose: opening ? 'open-actions' : 'replace-scan' } : {}) } };
+        total: changingVirtual ? 1 : file?.size || 0, unit: changingVirtual ? 'steps' : 'bytes', terminal: false,
+        ...(opening || replacing || changingVirtual ? { purpose: payload.purpose } : {}) } };
     if (restore) {
       operation.recoveryIdentity = structuredClone(restore.identity);
       operation.recoveryWarnings = structuredClone(restore.import_warnings || []);
@@ -316,8 +348,10 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       confirmedDiscard: payload.confirmedDiscard,
       ...(file === undefined ? {} : { file, source: { filename: file.name || 'scan.ply', size: file.size } }) } : { kind }),
       ...(replacing ? { purpose: 'replace-scan' } : {}),
+      ...(changingVirtual ? { purpose: payload.purpose,
+        ...(payload.purpose === 'create-virtual-scan' ? { settings: structuredClone(payload.settings) } : { binding: payload.binding }) } : {}),
       generation: payload.generation, token: payload.token,
-      ...(kind === 'scan' ? { file, filename: file.name || 'scan.ply' } : {}),
+      ...(kind === 'scan' && !changingVirtual ? { file, filename: file.name || 'scan.ply' } : {}),
       ...(kind === 'empty' ? { confirmedDiscard: payload.confirmedDiscard } : {}),
       ...(kind === 'example' ? { example: payload.example } : {}),
       ...(restore ? { recovery: { generation: restore.generation, identity: restore.identity, recipe: restore.recipe,
@@ -338,7 +372,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true, virtualScans: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -398,26 +432,29 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
                 replacementProfile = data.worker_protocol?.replace_scan;
-                if ([9, 10].includes(data.worker_protocol?.version) && !validReplacementProfile(replacementProfile))
+                if ([9, 10, 11].includes(data.worker_protocol?.version) && !validReplacementProfile(replacementProfile))
                   throw new Error('Invalid worker scan replacement profile.');
-                if (![9, 10].includes(data.worker_protocol?.version) && replacementProfile !== undefined)
+                if (![9, 10, 11].includes(data.worker_protocol?.version) && replacementProfile !== undefined)
                   throw new Error('Unexpected worker scan replacement profile.');
                 recipePolling = data.worker_protocol?.version >= 7;
                 selectionVolumeProfile = data.worker_protocol?.selection_volumes;
-                if (data.worker_protocol?.version === 10 && !validSelectionVolumeProfile(selectionVolumeProfile))
+                if ([10, 11].includes(data.worker_protocol?.version) && !validSelectionVolumeProfile(selectionVolumeProfile))
                   throw new Error('Invalid worker selection volumes profile.');
-                if (data.worker_protocol?.version !== 10 && selectionVolumeProfile !== undefined)
+                if (![10, 11].includes(data.worker_protocol?.version) && selectionVolumeProfile !== undefined)
                   throw new Error('Unexpected worker selection volumes profile.');
-                if ([8, 9, 10].includes(data.worker_protocol?.version) &&
+                virtualScanProfile = data.worker_protocol?.virtual_scans;
+                if (data.worker_protocol?.version === 11 ? !validVirtualScanProfile(virtualScanProfile) : virtualScanProfile !== undefined)
+                  throw new Error('Invalid worker virtual scans profile.');
+                if ([8, 9, 10, 11].includes(data.worker_protocol?.version) &&
                   (!data.worker_protocol.selection_entries ||
                     Object.keys(data.worker_protocol.selection_entries).length !== 1 ||
                     data.worker_protocol.selection_entries.version !== 1))
                   throw new Error('Invalid worker selection entries profile.');
-                if (sourceProfile?.supported && (![5, 6, 7, 8, 9, 10].includes(data.worker_protocol?.version)
+                if (sourceProfile?.supported && (![5, 6, 7, 8, 9, 10, 11].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (![7, 8, 9, 10].includes(data.worker_protocol?.version)
+                if (sourceActions && (![7, 8, 9, 10, 11].includes(data.worker_protocol?.version)
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
                   || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
@@ -696,6 +733,8 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   }
   backend.addScan = (payload, options) => startSource('scan', payload, options);
   backend.replaceScan = (payload, options) => startSource('scan', { ...payload, purpose: 'replace-scan' }, options);
+  backend.createVirtualScan = (payload, options) => startSource('scan', { ...payload, purpose: 'create-virtual-scan' }, options);
+  backend.activateScan = (payload, options) => startSource('scan', { ...payload, purpose: 'activate-scan' }, options);
   backend.inspectActions = async ({ recipe, generation: cursor, token }, { signal } = {}) => {
     if (!sourceActions) throw unsupportedActions();
     const raw = structuredClone(recipe), serial = cancellationSerial;

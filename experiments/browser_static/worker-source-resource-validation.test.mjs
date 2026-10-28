@@ -168,6 +168,23 @@ test('File observer records scalar identities without retaining File history',()
   assert.match(code,/finally\{delete globalThis\.__workerFileSerial295/);
 });
 
+for(const shared of [false,true])test('worker capacity observes current Wasm backing after inventory grows memory, shared='+shared,()=>{
+  const memory=new WebAssembly.Memory({initial:1,maximum:3,shared});
+  let released=false,destroyed=false;
+  const proxy={getBuffer:()=>({data:new Uint8Array(memory.buffer),release(){released=true;}}),
+    destroy(){destroyed=true;}};
+  const python={runPython(code){
+    if(code==='browser_workspace.workspace.frame')return proxy;
+    memory.grow(1);return JSON.stringify({views:[]});
+  },FS:{analyzePath:()=>({exists:false})}};
+  const scope={};
+  new Function('globalThis','python','sourceTransferMetrics','crossOriginIsolated',workerSuffix)(scope,python,{},shared);
+  const observed=scope.__workerSourceResource295();
+  assert.equal(observed.wasm_capacity_bytes,memory.buffer.byteLength);
+  assert.equal(observed.wasm_capacity_bytes,2*65536);
+  assert.equal(released,true);assert.equal(destroyed,true);
+});
+
 test('backend checkpoint observer preserves all producer bytes and requires exactly one closure marker',()=>{
   const source='export function createWorkerBackend(){\n  const backend={};\n'+backendObserverMarker;
   const observed=instrumentWorkerBackend(source);

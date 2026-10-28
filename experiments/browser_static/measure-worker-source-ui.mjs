@@ -145,6 +145,7 @@ async function collectResources(context,page){
     input:{...globalThis.__workerInput295},file_event:globalThis.__workerFile295??null,
     observed_ms:performance.now()})),...await ownership()});
   return {main,async settled(){
+    await page.waitForFunction(()=>globalThis.__workerResourceBackend295.getLifecycle().state==='complete');
     for(let i=0;i<100&&(targets.size!==1||page.workers().length!==1);i++)await new Promise(resolve=>setTimeout(resolve,50));
     assert.equal(targets.size,1,'Exactly one current CDP worker');assert.equal(page.workers().length,1);
     const [session_id,target]=[...targets][0];assert.equal(target.url,page.workers()[0].url());

@@ -61,7 +61,7 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
 )
 def test_selection_volume_profile_requires_exact_bounded_contract(fault: str) -> None:
     protocol = RUNTIME["worker_protocol"]()
-    assert protocol["version"] == 10
+    assert protocol["version"] == 11
     assert protocol["selection_volumes"] == {"version": 1, "max_preview_cells": 2048}
     if fault == "old":
         protocol["version"] = 9
@@ -75,6 +75,27 @@ def test_selection_volume_profile_requires_exact_bounded_contract(fault: str) ->
         protocol["selection_volumes"]["unexpected"] = True
     else:
         protocol["selection_volumes"]["max_preview_cells"] = 2049
+    with pytest.raises(ValueError):
+        RUNTIME["validate_worker_protocol"](protocol)
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "disabled", "bool", "float", "extra", "sources"]
+)
+def test_virtual_scan_profile_requires_the_bounded_pair_contract(fault: str) -> None:
+    protocol = RUNTIME["worker_protocol"]()
+    if fault == "missing":
+        del protocol["virtual_scans"]
+    elif fault == "disabled":
+        protocol["virtual_scans"]["supported"] = False
+    elif fault == "bool":
+        protocol["virtual_scans"]["version"] = True
+    elif fault == "float":
+        protocol["virtual_scans"]["max_sources"] = 2.0
+    elif fault == "extra":
+        protocol["virtual_scans"]["extra"] = True
+    else:
+        protocol["virtual_scans"]["max_sources"] = 3
     with pytest.raises(ValueError):
         RUNTIME["validate_worker_protocol"](protocol)
 

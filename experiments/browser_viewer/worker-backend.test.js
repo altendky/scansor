@@ -185,6 +185,131 @@ function volumeReady(extra = {}) {
   return response;
 }
 
+const virtualScanProfile = { supported: true, version: 1, max_sources: 2 };
+function virtualReady(extra = {}) {
+  const response = volumeReady(extra);
+  response.worker_protocol = { ...response.worker_protocol, version: 11, virtual_scans: virtualScanProfile };
+  return response;
+}
+
+test('virtual scans require the exact negotiated profile and old runtimes reject their operations', async () => {
+  for (const profile of [undefined, null, { ...virtualScanProfile, version: true },
+    { ...virtualScanProfile, max_sources: 3 }, { ...virtualScanProfile, extra: true }]) {
+    const value = fixture({ sourceActions: true }), loading = value.backend.initialize(), response = virtualReady();
+    response.worker_protocol.virtual_scans = profile;
+    value.worker.reply(response);
+    await assert.rejects(loading, /virtual scans profile/);
+    value.backend.close();
+  }
+  const value = fixture({ sourceActions: true }), loading = value.backend.initialize();
+  value.worker.reply(volumeReady()); await loading;
+  await assert.rejects(value.backend.createVirtualScan({ generation: 0, token: 'empty', settings: { divisions: 4 } }),
+    error => error.code === 'unsupported_capability');
+  value.backend.close();
+});
+
+test('virtual creation and activation preserve original File authority across Force on either side of acceptance', async () => {
+  for (const activating of [false, true]) for (const adopted of [false, true]) {
+    const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(virtualReady()); await loading;
+    const file = sourceFile(), originalDescriptor = { source_sha256: 'original', source_bytes: 30, filename: file.name },
+      derivedDescriptor = { source_sha256: 'reduced', source_bytes: 20, filename: 'virtual.ply' },
+      originalNodes = [{ id: 'source', operation: 'source', descriptor: originalDescriptor }],
+      lineage = { original: originalDescriptor, derived: derivedDescriptor, settings: { divisions: 4 } },
+      reducedNodes = [{ ...originalNodes[0], descriptor: derivedDescriptor, virtual_scan: lineage }],
+      activeOriginalNodes = [{ ...originalNodes[0], virtual_scan: lineage }];
+    const adding = value.backend.addScan({ file, generation: 0, token: 'empty' });
+    await settle(); let request = worker.calls.at(-1);
+    const original = candidate(request, { identity: { source_sha256: 'original' }, nodes: originalNodes });
+    sourceTransfer(worker, request, original); sourcePromotion(worker, request); await adding;
+    let previous = original;
+    const creating = value.backend.createVirtualScan({ generation: 1, token: 'source', settings: { divisions: 4 } });
+    await settle(); request = worker.calls.at(-1);
+    assert.equal(request.payload.file, undefined);
+    assert.equal(request.payload.filename, undefined);
+    assert.equal(request.payload.purpose, 'create-virtual-scan');
+    const reduced = candidate(request, { generation: 2, token: 'reduced', identity: { source_sha256: 'reduced' },
+      purpose: 'create-virtual-scan', nodes: reducedNodes });
+    let changing = creating, replacement = reduced;
+    if (activating) {
+      sourceTransfer(worker, request, reduced); sourcePromotion(worker, request, 2); await creating;
+      previous = reduced;
+      changing = value.backend.activateScan({ generation: 2, token: 'reduced', binding: 'original-binding' });
+      await settle(); request = worker.calls.at(-1);
+      assert.equal(request.payload.file, undefined);
+      assert.equal(request.payload.purpose, 'activate-scan');
+      replacement = candidate(request, { generation: 3, token: 'active-original', identity: { source_sha256: 'original' },
+        purpose: 'activate-scan', nodes: activeOriginalNodes });
+    }
+    sourceTransfer(worker, request, replacement, { confirm: adopted });
+    const interrupted = assert.rejects(changing, error => error.code === (adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled'));
+    const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(virtualReady({ id: worker.calls[0].id })); await settle();
+    const restore = worker.calls.at(-1), expected = adopted ? replacement : previous;
+    assert.equal(restore.payload.file, file);
+    assert.deepEqual(restore.payload.recovery.recipe, expected.graph.recipe);
+    assert.deepEqual(restore.payload.recovery.identity, expected.source_identity);
+    assert.equal(restore.payload.recovery.generation, expected.workspaceGeneration);
+    const recovered = candidate(restore, { generation: expected.workspaceGeneration, token: expected.graph.token,
+      identity: expected.source_identity, nodes: expected.graph.recipe.nodes });
+    sourceTransfer(worker, restore, recovered); sourcePromotion(worker, restore, expected.workspaceGeneration);
+    await restoring; await interrupted; value.backend.close();
+  }
+});
+
+test('production worker enters virtual-scan preparation without allocating or reading source staging', async () => {
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8'),
+    start = source.indexOf('async function prepareSource(request)'), end = source.indexOf('\nfunction workspaceCall(', start);
+  const context = vm.createContext({ activeSource: { id: 1, cancelled: false }, minimumGeneration: 0,
+    manifest: { worker_protocol: { version: 11, virtual_scans: virtualScanProfile, source_import: sourceProfile } },
+    sourceTransferMetrics: {}, cadActions: new Set(),
+    sourceCall: method => { assert.equal(method, 'prepare_source_json'); throw new Error('Reached virtual preparation'); },
+    python: { FS: new Proxy({}, { get: () => assert.fail('Virtual operation must not allocate staging') }) } });
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.prepare = prepareSource;', context);
+  await assert.rejects(context.prepare({ id: 1, generation: 0,
+    payload: { operationId: 'virtual', kind: 'scan', purpose: 'create-virtual-scan', settings: { divisions: 4 } } }),
+  /Reached virtual preparation/);
+});
+
+test('matching actions may return to the retained original but cannot silently drop an active derivative lineage', async () => {
+  for (const derivedOnly of [false, true]) {
+    const value = fleet({ initialMode: 'empty', sourceActions: true }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(virtualReady()); await loading;
+    const file = sourceFile(), originalDescriptor = { source_sha256: 'original', source_bytes: 30, filename: file.name },
+      derivedDescriptor = { source_sha256: 'reduced', source_bytes: 20, filename: 'virtual.ply' },
+      originalNodes = [{ id: 'source', operation: 'source', descriptor: originalDescriptor }],
+      lineage = { original: originalDescriptor, derived: derivedDescriptor, settings: { divisions: 4 } },
+      reducedNodes = [{ ...originalNodes[0], descriptor: derivedDescriptor, virtual_scan: lineage }];
+    const adding = value.backend.addScan({ file, generation: 0, token: 'empty' });
+    await settle(); let request = worker.calls.at(-1);
+    sourceTransfer(worker, request, candidate(request, { identity: { source_sha256: 'original' }, nodes: originalNodes }));
+    sourcePromotion(worker, request); await adding;
+    const creating = value.backend.createVirtualScan({ generation: 1, token: 'source', settings: { divisions: 4 } });
+    await settle(); request = worker.calls.at(-1);
+    const reduced = candidate(request, { generation: 2, token: 'reduced', identity: { source_sha256: 'reduced' },
+      purpose: 'create-virtual-scan', nodes: reducedNodes });
+    sourceTransfer(worker, request, reduced); sourcePromotion(worker, request, 2); await creating;
+    const nodes = derivedOnly ? [{ ...originalNodes[0], descriptor: derivedDescriptor }] : originalNodes;
+    const opening = value.backend.openActions({ recipe: { nodes }, generation: 2, token: 'reduced', confirmedDiscard: true });
+    await settle(); request = worker.calls.at(-1);
+    const opened = actionsCandidate(request, { generation: 3, token: 'opened', nodes,
+      identity: { source_sha256: derivedOnly ? 'reduced' : 'original' } });
+    sourceTransfer(worker, request, opened);
+    if (derivedOnly) await assert.rejects(opening, error => error.code === 'worker_failed');
+    else { sourcePromotion(worker, request, 3); await opening; }
+    const expected = derivedOnly ? reduced : opened;
+    const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(virtualReady({ id: worker.calls[0].id })); await settle(); request = worker.calls.at(-1);
+    assert.equal(request.payload.file, file);
+    assert.deepEqual(request.payload.recovery.recipe, expected.graph.recipe);
+    assert.deepEqual(request.payload.recovery.identity, expected.source_identity);
+    sourceTransfer(worker, request, candidate(request, { generation: expected.workspaceGeneration,
+      token: expected.graph.token, nodes: expected.graph.recipe.nodes, identity: expected.source_identity }));
+    sourcePromotion(worker, request, expected.workspaceGeneration); await restoring;
+    value.backend.close();
+  }
+});
+
 test('selection volume protocol is strict and old entry/replacement workers remain usable without volume methods', async () => {
   for (const profile of [undefined, null, { ...selectionVolumeProfile, version: true },
     { ...selectionVolumeProfile, max_preview_cells: 2049 }, { ...selectionVolumeProfile, extra: true }]) {
