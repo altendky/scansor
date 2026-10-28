@@ -54,9 +54,10 @@ globalThis.__sourceCleanupFault242 = (mode='candidate') => {
   }
   // A real bounded read fails before publication; subsequent Force replays the
   // previous accepted authority. No obsolete MEMFS cleanup path is exercised.
-  const read=FileReaderSync.prototype.readAsArrayBuffer;let armed=true;
+  const read=FileReaderSync.prototype.readAsArrayBuffer;
+  const fault=globalThis.__sourceReadFault242={armed:true,failures:0};
   FileReaderSync.prototype.readAsArrayBuffer=function(blob){
-   if(armed){armed=false;throw Error('Injected bounded source replay failure');}
+   if(fault.armed){fault.armed=false;fault.failures++;throw Error('Injected bounded source replay failure');}
    return read.call(this,blob);
   };return;
  }
