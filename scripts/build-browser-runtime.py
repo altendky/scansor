@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "experiments/browser_runtime"
 SOURCE_IMPORT_PROFILE = {
     "supported": True,
-    "formats": ["binary-triangle-ply-v1"],
+    "formats": ["binary-triangle-ply-v1", "triangle-stl-f32-v1"],
     "max_sources": 1,
     "limits": {
         "max_source_bytes": 8 * 1024**2,

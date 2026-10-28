@@ -54,9 +54,10 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     $('reset').disabled = locked() || !hasSource || !!source().descriptor;
     $('empty-project').hidden = hasSource;
     const limits = getCurrent().metadata.capabilities?.source_import?.limits;
+    const stlSupported = getCurrent().metadata.capabilities?.source_import?.formats?.includes('triangle-stl-f32-v1');
     const limitText = limits ? ` Up to ${(limits.max_source_bytes / 1048576).toLocaleString()} MiB, ${limits.max_vertices.toLocaleString()} vertices and ${limits.max_faces.toLocaleString()} triangles.` : '';
     $('empty-project-detail').textContent = supported
-      ? `Add one binary little-endian triangle PLY with float32 XYZ and complete normals. Units remain unknown; coordinates are preserved.${limitText}`
+      ? `Add one binary little-endian triangle PLY with float32 XYZ and complete normals${stlSupported ? ', or an ASCII/binary STL. STL uses float32 coordinates and geometry-derived smoothed normals' : ''}. Units remain unknown; coordinates are preserved.${limitText}`
       : 'Choose an example. Scan import is unavailable in this backend.';
     for (const button of document.querySelectorAll('[data-add-scan]')) button.disabled = !supported || hasSource || locked();
     for (const button of document.querySelectorAll('[data-choose-example]')) button.disabled = locked();

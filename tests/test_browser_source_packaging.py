@@ -52,8 +52,13 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
         "experiments/scan_project.py",
         "experiments/scan_workspace.py",
         "src/scansor/mesh_ply.py",
+        "src/scansor/mesh_stl.py",
     } <= set(numeric)
     assert "experiments/native_scan_import.py" not in numeric
+    assert protocol["source_import"]["formats"] == [
+        "binary-triangle-ply-v1",
+        "triangle-stl-f32-v1",
+    ]
 
 
 @pytest.mark.parametrize(

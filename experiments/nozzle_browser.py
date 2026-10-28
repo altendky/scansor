@@ -895,7 +895,10 @@ class Handler(BaseHTTPRequestHandler):
                         "source_actions": actions_profile(),
                         "source_import": {
                             "supported": True,
-                            "formats": ["binary-triangle-ply-v1"],
+                            "formats": [
+                                "binary-triangle-ply-v1",
+                                "triangle-stl-f32-v1",
+                            ],
                             "max_sources": 1,
                             "limits": asdict(self.app.source_imports.limits),
                             "cancel": True,
