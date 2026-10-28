@@ -16,7 +16,9 @@ bindings still establish identity. A filename or ZIP path cannot substitute for
 either binding.
 
 The writer stores the exact original member at
-`scans/<original-source-sha256>.ply`. A project with virtual-scan lineage stores
+`scans/<original-source-sha256>.ply` for PLY or
+`scans/<original-source-sha256>.stl` for STL, using the original source profile.
+A project with virtual-scan lineage stores
 that original once, together with the existing deterministic reduction recipe and
 active choice. Reopening reconstructs and validates the derivative through the
 shared project coordinator. It does not serialize an inactive graph or computed

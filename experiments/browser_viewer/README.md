@@ -1,5 +1,15 @@
 # Nozzle browser selection experiment
 
+The bounded scan importer accepts its existing triangle PLY profile and
+ASCII/binary STL through Add scan, Replace scan and the exact-source locator.
+STL uses float32 coordinates, exact-coordinate shared vertex IDs and
+geometry-derived area-weighted smoothed normals; stored facet normals do not
+control fitting. Source inspection labels this provenance. Sharp coordinates
+remain unchanged, but sharp normal discontinuities are not retained. See the
+[STL contract](../../docs/src/project/planning/stl-import.md) for rounding,
+identity, resource bounds and selection-growth limitations. Original STL sources
+use the shared actions, virtual-scan and self-contained project lifecycle.
+
 The [browser runtime probe](../browser_runtime/README.md) packages bounded
 numerical/CAD source and tests Pyodide worker parity. The
 [static application experiment](../browser_static/README.md) connects this docking

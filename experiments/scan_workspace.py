@@ -11,7 +11,7 @@ import io
 import json
 import struct
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import BinaryIO, ClassVar, Literal, Protocol, cast, override
@@ -509,6 +509,7 @@ def _decode_stl(
     filename: str,
     limits: ScanLimits,
     *,
+    inspection_stream: BinaryIO | None = None,
     progress: Callable[[ScanProgress], None] | None,
     cancelled: Callable[[], bool] | None,
 ) -> ScanWorkspace:
@@ -536,8 +537,16 @@ def _decode_stl(
     parser_limits = StlLimits(
         limits.max_source_bytes, limits.max_faces, chunk_bytes=limits.chunk_bytes
     )
+
+    def inspect_open() -> AbstractContextManager[BinaryIO]:
+        return (
+            source.open()
+            if inspection_stream is None
+            else nullcontext(inspection_stream)
+        )
+
     metadata = inspect_stl(
-        source.open,
+        inspect_open,
         source.byte_length,
         limits=parser_limits,
         progress=parser_progress,
@@ -784,13 +793,18 @@ def prepare_scan(
                         progress=progress,
                         cancelled=cancelled,
                     )
-        return _decode_stl(
-            source,
-            filename or source.filename,
-            limits,
-            progress=progress,
-            cancelled=cancelled,
-        )
+            # Inspection consumes this sniffed replay through its validated EOF.
+            # Archive members and VerifiedSource require complete successful reads;
+            # replaying the prefix avoids an extra full source pass or snapshot.
+            with _PrefixedStream(prefix, raw) as prefixed:
+                return _decode_stl(
+                    source,
+                    filename or source.filename,
+                    limits,
+                    inspection_stream=cast(BinaryIO, cast(object, prefixed)),
+                    progress=progress,
+                    cancelled=cancelled,
+                )
     except StlCancelled as error:
         raise ScanCancelled() from error
     except StlError as error:

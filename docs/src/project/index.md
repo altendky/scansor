@@ -24,6 +24,11 @@ outside the intended boundary.
     bounded native/worker evidence, extended by actual raw fitting/export/reopen
     and worker UI resource observations; final combined CI and current-main
     artifact preparation remain #245 gates
+- [Bounded STL import](planning/stl-import.md)
+  - **Implemented experimental profile:** ASCII/binary float32 coordinates,
+    exact-coordinate vertex observations, geometry-derived smoothed normals,
+    shared actions/virtual-scan and portable-project lifecycle; triangle-centroid
+    observations, tolerance welding and crease controls remain deferred
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected

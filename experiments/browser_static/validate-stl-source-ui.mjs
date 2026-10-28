@@ -26,7 +26,8 @@ assert.equal(runtime.worker_protocol.project_archive.supported, true);
 assert(runtime.source_files.some(record => record.path === 'src/scansor/mesh_stl.py'));
 const output = await prepareReports(options['--output'], [site.root, repository]);
 const report = {schema: 'scansor-stl-source-worker-ui-v1', complete: false,
-  source_revision: site.manifest.source_revision, manifest_sha256: site.manifest_sha256,
+  source_revision: site.manifest.source_revision, source_worktree_dirty: site.manifest.source_worktree_dirty,
+  manifest_sha256: site.manifest_sha256,
   runner_sha256: sha256(await readFile(new URL(import.meta.url))),
   harness_sha256: sha256(await readFile(new URL('./stl-source-ui.mjs', import.meta.url))),
   profiles: [], external_requests: [], api_requests: [], page_errors: [], cleanup_errors: []};

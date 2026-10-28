@@ -138,7 +138,8 @@ def test_exact_topology_first_occurrence_ids_weights_derived_normals_and_replay(
     assert workspace.source.input is authority and not hasattr(
         workspace, "original_bytes"
     )
-    assert authority.opens == authority.closes == 3  # bounded sniff, count, decode
+    assert authority.opens == authority.closes == 2  # sniff/count share a replay
+    assert authority.read_bytes == 2 * len(raw)
     assert max(authority.requests) <= LIMITS.chunk_bytes
     np.testing.assert_array_equal(
         workspace.local, [vertices[2], vertices[3], vertices[0], vertices[1]]
@@ -430,7 +431,7 @@ def test_changed_same_length_source_between_count_and_decode_is_not_accepted() -
         @contextmanager
         @override
         def open(self) -> Generator[BinaryIO]:
-            if self.opens == 2:
+            if self.opens == 1:
                 changed = bytearray(self.raw)
                 struct.pack_into("<f", changed, 84, 1.0)
                 self.raw = bytes(changed)
@@ -441,7 +442,7 @@ def test_changed_same_length_source_between_count_and_decode_is_not_accepted() -
     with pytest.raises(ScanImportError, match="hash changed") as error:
         _ = prepare_scan_input(authority, LIMITS)
     assert error.value.code == "invalid_source"
-    assert authority.opens == authority.closes == 3
+    assert authority.opens == authority.closes == 2
 
 
 def test_failed_stl_replacement_preserves_previous_project_and_source() -> None:
