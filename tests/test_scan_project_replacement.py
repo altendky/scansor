@@ -11,6 +11,7 @@ from experiments.scan_project import PreparedReplacement, ScanProject
 from experiments.scan_workspace import ScanCancelled, ScanImportError, ScanLimits
 from experiments.selection_volume_transactions import author_volume
 from tests.native_scan_fixture import native_grid_fixture
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_selection_volume_transactions import recipe
 
 LIMITS = ScanLimits(2_000_000, 1000, 2000, 8_000_000)
@@ -78,7 +79,7 @@ def test_replacement_stages_pending_entries_without_old_geometry_then_fits_choic
     assert (
         project.accepted is accepted and accepted.generation == previous.generation + 1
     )
-    assert accepted.workspace.original_bytes == native_grid_fixture(7, 7).raw
+    assert read_source_bytes(accepted.workspace) == native_grid_fixture(7, 7).raw
     payload = deepcopy(pending["recipe"])
     payload["nodes"][1]["entries"][1]["source_volume"] = {
         "selection": "patch",
@@ -200,7 +201,7 @@ def test_private_owner_can_stage_a_snapshot_and_returning_to_original_reuses_ent
     _ = private.commit_replace(candidate)
     assert original.accepted is previous
     returned = private.prepare_replace(
-        io.BytesIO(previous.workspace.original_bytes),
+        io.BytesIO(read_source_bytes(previous.workspace)),
         "renamed-original.ply",
         LIMITS,
         generation=private.accepted.generation,

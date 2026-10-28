@@ -161,6 +161,106 @@ class Reader:
                 del _rows
 
 
+class SequentialReader:
+    """Exact ordered ranges from an already-open sequential payload.
+
+    The header has already been consumed. No seek, mapping, unbounded read or
+    whole-payload cache is used. The caller supplies the declared source length;
+    finish() additionally probes EOF to reject truncation or trailing content.
+    """
+
+    def __init__(
+        self,
+        stream: Source,
+        layout: Layout,
+        *,
+        byte_length: int,
+        max_range_bytes: int,
+        io_block_bytes: int = 65_536,
+    ) -> None:
+        _limits(max_range_bytes, io_block_bytes)
+        if type(byte_length) is not int or byte_length < 0:
+            raise PlyError("source length must be nonnegative", category="resource")
+        if byte_length != layout.byte_count:
+            raise _error_at(
+                layout,
+                min(byte_length, layout.byte_count),
+                "declared source length differs from the PLY layout",
+                category="structure",
+            )
+        self.stream: Source = stream
+        self.layout: Layout = layout
+        self.max_range_bytes: int = max_range_bytes
+        self.io_block_bytes: int = io_block_bytes
+        self._element: int = 0
+        self._row: int = 0
+        self._finished: bool = False
+
+    def _advance(self) -> None:
+        while self._element < len(self.layout.elements):
+            if self._row != self.layout.elements[self._element].element.count:
+                break
+            self._element += 1
+            self._row = 0
+
+    def read_range(self, element: str, start: int, stop: int) -> np.ndarray:
+        self._advance()
+        if self._finished or self._element >= len(self.layout.elements):
+            raise PlyError("sequential reader has no remaining payload")
+        block = self.layout.elements[self._element]
+        if block.element.name != element or start != self._row:
+            raise PlyError(
+                "reads must follow declared element/row order",
+                element=element,
+                row=start,
+            )
+        size = _range(block, start, stop, self.max_range_bytes)
+        rows = np.empty(stop - start, dtype=block.dtype)
+        target = memoryview(rows).cast("B")
+        done = 0
+        while done < size:
+            requested = min(self.io_block_bytes, size - done)
+            try:
+                chunk = self.stream.read(requested)
+            except OSError as error:
+                raise _error_at(
+                    self.layout,
+                    block.offset + start * block.dtype.itemsize + done,
+                    "payload read failed",
+                ) from error
+            if not chunk or len(chunk) > requested:
+                raise _error_at(
+                    self.layout,
+                    block.offset + start * block.dtype.itemsize + done,
+                    "truncated payload or invalid stream read",
+                )
+            target[done : done + len(chunk)] = chunk
+            done += len(chunk)
+        _check_lists(block, rows, start)
+        rows.flags.writeable = False
+        self._row = stop
+        return rows
+
+    def finish(self) -> None:
+        self._advance()
+        if self._finished or self._element != len(self.layout.elements):
+            raise PlyError("sequential reader has incomplete or finished payload")
+        try:
+            trailing = self.stream.read(1)
+        except OSError as error:
+            raise _error_at(
+                self.layout, self.layout.byte_count, "EOF verification failed"
+            ) from error
+        if trailing:
+            raise _error_at(
+                self.layout,
+                self.layout.byte_count,
+                "trailing bytes",
+                category="structure",
+            )
+        self._finished = True
+
+
 class Writer:
     """Sequential exact-layout writer; caller owns stream flush/close/publication.
 

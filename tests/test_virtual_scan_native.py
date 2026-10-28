@@ -15,6 +15,7 @@ from experiments.feature_graph import Recipe
 from experiments.native_scan_import import NativeScanImports
 from experiments.scan_project import ScanProject
 from tests.native_scan_fixture import native_grid_fixture
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_native_scan_http import NativeHttp
 from tests.test_native_scan_http import native_http as native_http
 
@@ -45,7 +46,7 @@ def test_create_and_switch_pair_preserves_later_edits_and_source_entries(
 ) -> None:
     http = native_http
     original = imported(http)
-    original_bytes = http.server.workspace.original_bytes
+    original_bytes = read_source_bytes(http.server.workspace)
     recipe = deepcopy(original["graph"]["recipe"])
     recipe["nodes"].extend(
         [
@@ -87,7 +88,7 @@ def test_create_and_switch_pair_preserves_later_edits_and_source_entries(
     restored = change(
         http, "/api/sources/activate", binding=profile["original"]["binding"]
     )
-    assert http.server.workspace.original_bytes == original_bytes
+    assert read_source_bytes(http.server.workspace) == original_bytes
     assert restored["graph"]["recipe"]["nodes"][-1]["label"] == "Edited on reduced scan"
     assert restored["graph"]["memberships"]["patch"] == list(range(289))
     again = change(http, "/api/sources/activate", binding=profile["virtual"]["binding"])
@@ -209,7 +210,7 @@ def test_saved_derived_actions_reconstruct_from_original_upload(
 ) -> None:
     http = native_http
     _ = imported(http)
-    original_bytes = http.server.workspace.original_bytes
+    original_bytes = read_source_bytes(http.server.workspace)
     derived = change(http, "/api/sources/virtual", settings={"divisions": 4})
     recipe = derived["graph"]["recipe"]
     status, _, _ = http.request(
@@ -248,7 +249,7 @@ def test_saved_derived_actions_reconstruct_from_original_upload(
         "/api/sources/activate",
         binding=reopened["virtual_scans"]["original"]["binding"],
     )
-    assert http.server.workspace.original_bytes == original_bytes
+    assert read_source_bytes(http.server.workspace) == original_bytes
 
 
 def test_saved_original_actions_reuse_retained_original_without_upload(
@@ -256,7 +257,7 @@ def test_saved_original_actions_reuse_retained_original_without_upload(
 ) -> None:
     http = native_http
     original = imported(http)
-    original_bytes = http.server.workspace.original_bytes
+    original_bytes = read_source_bytes(http.server.workspace)
     _ = change(http, "/api/sources/virtual", settings={"divisions": 4})
     recipe = original["graph"]["recipe"]
     cursor = http.cursor()
@@ -271,5 +272,5 @@ def test_saved_original_actions_reuse_retained_original_without_upload(
     assert status == 202 and operation["uploadRequired"] is False
     result = http.finish(operation)
     assert result["status"] == "accepted", result
-    assert http.server.workspace.original_bytes == original_bytes
+    assert read_source_bytes(http.server.workspace) == original_bytes
     assert http.metadata()["virtual_scans"]["virtual"] is None

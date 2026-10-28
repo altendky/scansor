@@ -12,6 +12,7 @@ import pytest
 from experiments.feature_graph import Recipe
 from experiments.scan_workspace import ScanWorkspace
 from tests.native_scan_fixture import native_scene_fixture
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_native_scan_acceptance import evaluate, upload
 from tests.test_native_scan_acceptance import native_acceptance as native_acceptance
 from tests.test_native_scan_actions_http import open_actions
@@ -75,7 +76,7 @@ def test_raw_nozzle_saved_source_only_actions_reopen_renamed_exact_bytes(
     reopened = http.server.accepted()
     assert reopened.graph is not previous.graph and reopened.workspace is not workspace
     assert isinstance(reopened.workspace, ScanWorkspace)
-    assert reopened.workspace.original_bytes == raw
+    assert read_source_bytes(reopened.workspace) == raw
     assert reopened.workspace.source_sha256 == hashlib.sha256(raw).hexdigest()
     assert len(reopened.workspace.local) == 24_999
     assert len(reopened.workspace.data.triangles) == 49_994
@@ -158,7 +159,7 @@ def test_saved_independent_plane_cylinder_reopen_evaluate_and_step_readback(
     assert http.server.graph is not old.graph
     workspace = http.server.workspace
     assert isinstance(workspace, ScanWorkspace)
-    assert workspace.original_bytes == fixture.raw
+    assert read_source_bytes(workspace) == fixture.raw
     np.testing.assert_array_equal(workspace.local, fixture.positions)
     np.testing.assert_array_equal(workspace.data.triangles, fixture.triangles)
     np.testing.assert_allclose(workspace.data.normals, fixture.normals, atol=1e-15)

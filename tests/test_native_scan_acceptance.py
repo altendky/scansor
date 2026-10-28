@@ -14,6 +14,7 @@ from experiments.feature_graph import Recipe
 from experiments.nozzle_browser import NozzleServer
 from experiments.scan_workspace import ScanWorkspace
 from tests.native_scan_fixture import native_scene_fixture
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_native_scan_http import NativeHttp
 from tests.test_nozzle_cad import roundtrip, samples
 
@@ -79,7 +80,7 @@ def test_raw_nozzle_exceeds_json_limit_and_opens_source_only(
     meta = upload(native_acceptance, raw, "unrelated-name.ply")
     workspace = native_acceptance.server.workspace
     assert isinstance(workspace, ScanWorkspace)
-    assert workspace.original_bytes == raw
+    assert read_source_bytes(workspace) == raw
     assert workspace.source_sha256 == hashlib.sha256(raw).hexdigest()
     assert len(workspace.local) == 24_999
     assert len(workspace.data.triangles) == 49_994
@@ -103,7 +104,7 @@ def test_independent_source_rows_fits_and_step_roundtrip(
     generation = meta["project_generation"]
     workspace = native_acceptance.server.workspace
     assert isinstance(workspace, ScanWorkspace)
-    assert workspace.original_bytes == fixture.raw
+    assert read_source_bytes(workspace) == fixture.raw
     np.testing.assert_array_equal(workspace.local, fixture.positions)
     np.testing.assert_array_equal(workspace.data.triangles, fixture.triangles)
     np.testing.assert_allclose(workspace.data.normals, fixture.normals, atol=1e-15)

@@ -16,7 +16,7 @@ from .format import (
     make_header,
     read_header,
 )
-from .stream import Reader, Writer
+from .stream import Reader, SequentialReader, Writer
 
 __all__ = [
     "Element",
@@ -27,6 +27,7 @@ __all__ = [
     "PlyError",
     "Reader",
     "ScalarProperty",
+    "SequentialReader",
     "Writer",
     "build_layout",
     "make_header",

@@ -14,6 +14,7 @@ from scansor._plyio import (
     PlyError,
     Reader,
     ScalarProperty,
+    SequentialReader,
     build_layout,
     make_header,
     read_header,
@@ -112,5 +113,41 @@ class MeshPlyReader:
     def validate_all(self, *, chunk_rows: int) -> None:
         try:
             self.reader.validate_all(chunk_rows=chunk_rows)
+        except PlyError as error:
+            raise MeshPlyError(error) from error
+
+
+class SequentialMeshPlyReader:
+    """Triangle profile over ordered, bounded non-seeking payload reads."""
+
+    def __init__(
+        self,
+        stream: BinaryIO,
+        *,
+        byte_length: int,
+        max_range_bytes: int,
+        io_block_bytes: int = 65_536,
+    ) -> None:
+        try:
+            self.layout: Layout = mesh_layout(read_header(stream))
+            self.reader: SequentialReader = SequentialReader(
+                stream,
+                self.layout,
+                byte_length=byte_length,
+                max_range_bytes=max_range_bytes,
+                io_block_bytes=io_block_bytes,
+            )
+        except PlyError as error:
+            raise MeshPlyError(error) from error
+
+    def read_range(self, element: str, start: int, stop: int) -> np.ndarray:
+        try:
+            return self.reader.read_range(element, start, stop)
+        except PlyError as error:
+            raise MeshPlyError(error) from error
+
+    def finish(self) -> None:
+        try:
+            self.reader.finish()
         except PlyError as error:
             raise MeshPlyError(error) from error

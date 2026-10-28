@@ -17,6 +17,7 @@ from experiments.fit_solver import AttemptControl
 from experiments.mesh_cylinder_fit import CylinderFitFailure
 from experiments.nozzle_coaxial import FitSelection, ReferencePlaneGroup
 from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
+from tests.scan_source_fixture import read_source_bytes
 
 # Deliberately reuse the existing independent fixture without editing its owner.
 from tests.test_relationship_composition import (
@@ -137,7 +138,7 @@ def without_hint(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def fingerprint(group: Group, record: Any) -> str:
-    digest = hashlib.sha256(group.workspace.original_bytes)
+    digest = hashlib.sha256(read_source_bytes(group.workspace))
     for array in (
         group.workspace.local,
         group.workspace.data.normals,
