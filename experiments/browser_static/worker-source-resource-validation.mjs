@@ -23,6 +23,8 @@ const empty=row=>{
   assert.ok(row.ui&&row.worker,'Missing empty boundary evidence');
   for(const key of ['vertices','triangles','positions_length','indices_length','selected_index_count','recipe_nodes','input_files'])assert.equal(row.ui[key],0,key);
   assert.equal(row.worker.immutable_original_bytes,0);assert.equal(row.worker.source_sha256,null);
+  assert.equal(row.worker.source_storage.authority_bytes,0);assert.equal(row.worker.source_storage.kind,'none');
+  assert.equal(row.worker.source_storage.owned_source_payload_bytes,0);assert.equal(row.worker.source_replay.eof_verified,false);
   assert.equal(row.worker.descriptor,null);assert.equal(row.ui.source,null);assert.deepEqual(row.ui.recipe.nodes,[]);
   assert.deepEqual(row.checkpoint.current_checkpoint.mode,{kind:'empty'});
   assert.deepEqual(row.checkpoint.current_checkpoint.identity,{});
@@ -76,7 +78,8 @@ function resources(row,isolation,limits,sourceRevision){
   assert.deepEqual(ui.limits,limits,'Existing source admission settings changed');
   assert.equal(ui.inert,false);assert.equal(ui.source_progress_hidden,true);assert.equal(ui.arrays.views_truncated,false);
   count(ui.arrays.unique_backing_bytes,'display backing');
-  assert.ok(w.transfer.max_staging_bytes<=ui.limits.max_source_bytes,'Staging high water exceeds existing cap');
+  if(w.worker_protocol>=12)assert.equal(w.transfer.max_staging_bytes,0,'Streaming worker allocated source MEMFS staging');
+  else assert.ok(w.transfer.max_staging_bytes<=ui.limits.max_source_bytes,'Staging high water exceeds existing cap');
   assert.ok(w.transfer.largest_chunk_bytes<=ui.limits.chunk_bytes,'Chunk exceeds current cap');
 }
 function acceptedSource(row,input,reference){
@@ -95,11 +98,22 @@ function acceptedSource(row,input,reference){
   count(checkpoint.file.serial,'Current checkpoint File serial');assert.ok(checkpoint.file.serial>0);
   assert.equal(checkpoint.file.logical_bytes,input.source_bytes,'Current checkpoint File size differs');
   assert.equal(w.immutable_original_bytes,input.source_bytes);assert.equal(w.vertices,input.vertices);assert.equal(w.faces,input.faces);
+  assert.equal(w.source_storage.authority_bytes,input.source_bytes);
+  assert.equal(w.source_storage.backing_kind,w.source_storage.kind);
+  assert.equal(w.source_storage.kind,w.worker_protocol>=12?'BlobInput':'PathInput');
+  assert.equal(w.source_storage.owned_source_payload_bytes,0,'Source authority owns an uncompressed Python snapshot');
+  assert.equal(w.source_replay.bytes,input.source_bytes);assert.equal(w.source_replay.sha256,input.sha256);
+  assert.equal(w.source_replay.eof_verified,true);assert.ok(w.source_replay.read_calls>0);
+  for(const key of ['bytes','max_chunk_bytes','read_calls'])count(w.source_replay[key],'Source replay '+key);
+  assert.ok(w.source_replay.max_chunk_bytes>0&&w.source_replay.max_chunk_bytes<=65536);
   const{filename:observedFilename,...observedDescriptor}=w.descriptor;
   const{filename:referenceFilename,...referenceDescriptor}=reference.descriptor;void observedFilename;void referenceFilename;
   assert.deepEqual(observedDescriptor,referenceDescriptor,'Source/settings identity');
   assert.deepEqual(w.observations,reference.observations,'Original observations changed');
-  assert.ok(w.transfer.max_staging_bytes>=input.source_bytes,'Staging high-water does not include accepted File');
+  if(w.worker_protocol>=12){
+    assert.ok(w.transfer.replay_read_calls>0,'No actual File replay reads');
+    assert.ok(w.transfer.replay_read_bytes>=input.source_bytes,'File replay did not cover accepted source');
+  }else assert.ok(w.transfer.max_staging_bytes>=input.source_bytes,'Staging high-water does not include accepted File');
   assert.equal(ui.source.source_sha256,input.sha256);assert.equal(ui.vertices,input.vertices);assert.equal(ui.triangles,input.faces);
   assert.equal(ui.fit_nodes,0);assert.equal(ui.source_nodes,1);assert.equal(ui.input_files,0);
   assert.equal(ui.positions_length,input.vertices*3);assert.equal(ui.indices_length,input.faces*3);

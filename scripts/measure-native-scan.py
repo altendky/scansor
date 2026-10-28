@@ -30,7 +30,7 @@ print(json.dumps({"generated": str(directory)}))
 """
 
 MEASURE = r"""
-import hashlib, json, platform, resource, shutil, sys, tempfile, threading, time
+import hashlib, json, platform, resource, sys, threading, time
 from pathlib import Path
 from urllib.request import Request, urlopen
 sys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / "src")]
@@ -38,6 +38,7 @@ import numpy as np
 import psutil
 import pydantic
 from experiments.scan_project import ScanProject
+from experiments.scan_sources import PathInput
 from experiments.scan_workspace import ScanLimits
 
 source, directory, mode = Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
@@ -69,17 +70,11 @@ transport = []
 try:
     if mode == "core":
         project = ScanProject(); empty = project.accepted
-        with tempfile.TemporaryDirectory(prefix="native-stage-", dir=directory) as temporary:
-            staged = Path(temporary) / "source.ply"
-            with source.open("rb") as src, staged.open("wb") as dst:
-                shutil.copyfileobj(src, dst, length=limits.chunk_bytes)
-            staged_at = time.perf_counter()
-            def record(value):
-                progress.append({"phase": value.phase, "completed": value.completed, "total": value.total, "seconds": time.perf_counter() - started})
-            with staged.open("rb") as stream:
-                candidate = project.prepare_add(stream, source.name, limits, generation=empty.generation, token=str(empty.graph.snapshot()["token"]), progress=record)
-            staged.unlink()
-            accepted = project.commit(candidate)
+        staged_at = time.perf_counter()
+        def record(value):
+            progress.append({"phase": value.phase, "completed": value.completed, "total": value.total, "seconds": time.perf_counter() - started})
+        candidate = project.prepare_add(PathInput(source), source.name, limits, generation=empty.generation, token=str(empty.graph.snapshot()["token"]), progress=record)
+        accepted = project.commit(candidate)
         prepared_at = time.perf_counter()
         transport = [accepted.positions.tobytes(), accepted.indices.tobytes()]
     else:
@@ -116,7 +111,12 @@ try:
     arrays = {name: getattr(workspace.data, name).nbytes for name in ["xyz", "normals", "original_normals", "triangles", "weights", "face_status"]}
     with source.open("rb") as stream: digest = hashlib.file_digest(stream, "sha256").hexdigest()
     assert workspace.source_sha256 == digest
-    assert hashlib.sha256(workspace.original_bytes).hexdigest() == digest
+    verified=hashlib.sha256();verified_bytes=0
+    with workspace.source.open() as stream:
+        while chunk:=stream.read(limits.chunk_bytes):
+            verified.update(chunk);verified_bytes+=len(chunk)
+    assert verified.hexdigest() == digest and verified_bytes == workspace.source.byte_length
+    assert isinstance(workspace.source.input, PathInput), 'native measurement must retain a path authority, not a bytes fallback'
     assert len(accepted.graph.snapshot()["recipe"]["nodes"]) == 1
     samples.append(process.memory_info().rss)
     result = {
@@ -124,7 +124,9 @@ try:
         "admission_limits": {name: getattr(limits, name) for name in ["max_source_bytes", "max_vertices", "max_faces", "max_estimated_bytes", "chunk_bytes"]},
         "vertices": len(workspace.local), "faces": len(workspace.data.triangles), "units": workspace.descriptor.units,
         "seconds": {"staging_or_upload": staged_at-started, "prepare_and_commit_after_staging": prepared_at-staged_at, "display_encoding_or_http_readback": completed-prepared_at, "total": completed-started},
-        "memory_bytes": {"baseline_rss": baseline, "sampled_rss_peak": max(samples), "sampled_increment_peak": max(samples)-baseline, "process_high_water_before": baseline_high_water, "process_high_water_after": high_water(), "immutable_original": len(workspace.original_bytes), "authoritative_arrays": arrays, "display_arrays": accepted.positions.nbytes + accepted.indices.nbytes, "transport_or_client_buffers": sum(len(value) for value in transport), "core_incremental_estimate": workspace.diagnostics.estimated_bytes},
+        "source_storage": {"kind":type(workspace.source.input).__name__,"authority_bytes":workspace.source.byte_length,"owned_source_payload_bytes":0},
+        "source_replay": {"bytes":verified_bytes,"sha256":verified.hexdigest(),"eof_verified":True},
+        "memory_bytes": {"baseline_rss": baseline, "sampled_rss_peak": max(samples), "sampled_increment_peak": max(samples)-baseline, "process_high_water_before": baseline_high_water, "process_high_water_after": high_water(), "immutable_original": 0, "authoritative_arrays": arrays, "display_arrays": accepted.positions.nbytes + accepted.indices.nbytes, "transport_or_client_buffers": sum(len(value) for value in transport), "core_incremental_estimate": workspace.diagnostics.estimated_bytes},
         "progress": progress,
         "versions": {"python": sys.version, "numpy": np.__version__, "pydantic": pydantic.__version__, "platform": platform.platform()},
         "limitations": ["1ms RSS sampling can miss brief peaks", "process high-water may be dominated by imports", "HTTP mode includes same-process client buffering", "no browser, GPU or concurrent fit/CAD load", "large source tier does not expand selection/fitting limits"],

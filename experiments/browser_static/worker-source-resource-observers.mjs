@@ -1,6 +1,7 @@
 // Stage-only observations copied from the reviewed native resource observer.
 // Histories contain scalars; Files use WeakMap IDs and buffers are not retained.
 import assert from 'node:assert/strict';
+import {sourceAuthorityPython} from './source-authority-observer.mjs';
 
 export const backendObserverMarker='  return backend;\n}';
 export const backendObserverInsertion=`
@@ -83,7 +84,7 @@ globalThis.__workerSourceUi295=async(hashes=false)=>{
 
 export const backendSuffix = `globalThis.__workerResourceBackend295=backend;`;
 
-const pythonInventory = `
+export const pythonInventory = sourceAuthorityPython + `
 def _worker_source_inventory295():
  import json, hashlib, numpy as np, sys
  b=browser_workspace;w=b.workspace
@@ -101,11 +102,12 @@ def _worker_source_inventory295():
   address=str(owner.__array_interface__['data'][0]);roots[address]=int(owner.nbytes)
   views.append(dict(name=name,dtype=str(array.dtype),shape=list(array.shape),logical_bytes=int(array.nbytes),root_address=address,root_bytes=int(owner.nbytes),writeable=bool(array.flags.writeable)))
  observations={}
- for name,array in [('xyz',w.data.xyz),('original_normals',w.data.original_normals),('triangles',w.data.triangles),('normals',w.data.normals),('weights',w.data.weights),('local',w.local)]:
+ for name,array in [('xyz',w.data.xyz),('original_normals',getattr(w.data,'original_normals',None)),('triangles',w.data.triangles),('normals',w.data.normals),('weights',w.data.weights),('local',w.local)]:
+  if not isinstance(array,np.ndarray):continue
   observations[name]=dict(dtype=str(array.dtype),shape=list(array.shape),sha256=hashlib.sha256(array.tobytes()).hexdigest())
- raw=getattr(w,'original_bytes',b'')
+ authority=_source_authority_observation(w)
  return json.dumps(dict(views=views,unique_root_bytes=sum(roots.values()),
-  immutable_original_bytes=len(raw),immutable_original_sha256=hashlib.sha256(raw).hexdigest(),
+  **authority,immutable_original_bytes=authority['original_bytes'],immutable_original_sha256=authority['source_replay']['sha256'],
   export_bytes=len(b.export_buffer),cad_imported='OCP' in sys.modules,
   descriptor=w.source_descriptor.model_dump() if w.source_descriptor else None,
   source_sha256=w.source_sha256,project_generation=b.workspace_generation,source_mode=b.source_mode,
@@ -128,7 +130,7 @@ globalThis.__workerSourceResource295=()=>{
   // Inventory can grow Wasm memory and detach or stale an earlier buffer.
   view=proxy.getBuffer('u8');
   return {...record,wasm_capacity_bytes:view.data.buffer.byteLength,
-   transfer:{...sourceTransferMetrics},owned_fs_files:files,
+   worker_protocol:manifest.worker_protocol.version,transfer:{...sourceTransferMetrics},owned_fs_files:files,
    owned_fs_bytes:files.reduce((n,f)=>n+f.bytes,0),isolated:crossOriginIsolated};
  }finally{view?.release();proxy.destroy();}
 };

@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 import struct
 from copy import deepcopy
-from pathlib import Path
 from threading import Event
 from typing import Any
 
@@ -18,6 +17,7 @@ from experiments.feature_graph import Recipe
 from experiments.nozzle_browser import ExampleRequest
 from experiments.scan_project import ScanProject
 from experiments.selection_volume_transactions import author_volume
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_native_scan_http import NativeHttp, triangle_bytes
 from tests.test_native_scan_http import native_http as native_http
 
@@ -128,7 +128,7 @@ def test_native_replacement_retains_definitions_and_archives_with_pending_new_en
         == cursor["generation"] + 1
     )
     assert after["source"]["source_sha256"] != before["source"]["source_sha256"]
-    assert http.server.workspace.original_bytes == replacement_bytes()
+    assert read_source_bytes(http.server.workspace) == replacement_bytes()
     recipe = after["graph"]["recipe"]
     assert [node["id"] for node in recipe["nodes"]] == [
         node["id"] for node in old_recipe["nodes"]
@@ -345,14 +345,11 @@ def test_prepared_replacement_is_private_until_cleanup_and_final_owner_fence(
                 http.server._generation_offset = cursor["generation"] - fresh.generation
             assert http.cursor() == cursor
         else:
-            unlink = Path.unlink
 
-            def fail(path: Path, *args: Any, **kwargs: Any) -> None:
-                if path.suffix == ".upload":
-                    raise OSError("owned replacement cleanup injection")
-                unlink(path, *args, **kwargs)
+            def fail(_operation: Any) -> None:
+                raise OSError("owned replacement cleanup injection")
 
-            monkeypatch.setattr(Path, "unlink", fail)
+            monkeypatch.setattr(http.server.source_imports, "_cleanup", fail)
     finally:
         release.set()
     result = http.finish(operation)

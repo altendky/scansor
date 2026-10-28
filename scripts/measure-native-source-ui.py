@@ -76,6 +76,7 @@ def generate_inputs(directory: Path) -> None:
     from dataclasses import asdict
 
     from experiments.nozzle_browser import NATIVE_SCAN_LIMITS
+    from experiments.scan_sources import PathInput
     from experiments.scan_workspace import prepare_scan
     from tests.native_scan_fixture import native_grid_fixture, native_scene_fixture
 
@@ -102,8 +103,7 @@ def generate_inputs(directory: Path) -> None:
     for identifier, label, kind, raw in sources:
         path = directory / f"{identifier}.ply"
         _ = path.write_bytes(raw)
-        with path.open("rb") as stream:
-            workspace = prepare_scan(stream, path.name, NATIVE_SCAN_LIMITS)
+        workspace = prepare_scan(PathInput(path), path.name, NATIVE_SCAN_LIMITS)
         positions, indices = workspace.display_buffers()
         records.append(
             {
@@ -257,7 +257,7 @@ def server_snapshot(server: Any, staging: Path) -> dict[str, Any]:
             "vertices": len(workspace.local),
             "triangles": len(workspace.data.triangles),
             "recipe_nodes": recipe_nodes,
-            "original_bytes": len(workspace.original_bytes),
+            **source_authority_observation(workspace),
             "arrays": arrays,
             "unique_named_backing_bytes": sum(roots.values()),
             "arrays_caveat": "Named ndarray payloads only; overlaps process RSS; excludes objects, solver temporaries and allocator slack.",
@@ -268,6 +268,68 @@ def server_snapshot(server: Any, staging: Path) -> dict[str, Any]:
             **staging_inventory(staging),
             "process_high_water": process_high_water(),
         }
+
+
+def source_authority_observation(workspace: Any) -> dict[str, Any]:
+    """Logical replay authority and verified EOF, separate from Python allocation."""
+    source = getattr(workspace, "source", None)
+    storage = {
+        "kind": "none",
+        "backing_kind": "none",
+        "authority_bytes": 0,
+        "owned_source_payload_bytes": 0,
+    }
+    replay = {
+        "bytes": 0,
+        "sha256": None,
+        "max_chunk_bytes": 0,
+        "read_calls": 0,
+        "eof_verified": False,
+    }
+    if source is not None:
+        provider = source.input
+        backing = provider
+        owned = 0
+        while True:
+            data = getattr(backing, "data", None)
+            if isinstance(data, bytes):
+                owned += len(data)
+            nested = getattr(backing, "authority", None)
+            if nested is None:
+                break
+            backing = nested
+        storage = {
+            "kind": type(provider).__name__,
+            "backing_kind": type(backing).__name__,
+            "authority_bytes": source.byte_length,
+            "owned_source_payload_bytes": owned,
+        }
+        hasher = hashlib.sha256()
+        total = reads = maximum = 0
+        with source.open() as stream:
+            while True:
+                chunk = stream.read(65_536)
+                reads += 1
+                if not chunk:
+                    break
+                total += len(chunk)
+                maximum = max(maximum, len(chunk))
+                hasher.update(chunk)
+        if total != source.byte_length or hasher.hexdigest() != workspace.source_sha256:
+            raise AssertionError("Accepted source authority differs at verified EOF")
+        replay = {
+            "bytes": total,
+            "sha256": hasher.hexdigest(),
+            "max_chunk_bytes": maximum,
+            "read_calls": reads,
+            "eof_verified": True,
+        }
+    return {
+        "original_bytes": storage["authority_bytes"],
+        "source_storage": storage,
+        "source_replay": replay,
+        "source_bytes_caveat": "original_bytes is the logical replayable authority length, not a retained Python allocation; owned_source_payload_bytes counts explicit byte backing only.",
+    }
 
 
 def emit(value: object) -> None:
@@ -698,6 +760,23 @@ def validate_observations(
             errors.append(f"{label}: missing/backward project generation")
         source = sources[event["source"]]
         if event["stage"] in ("imported", "inspected", "selection-overlay"):
+            storage, replay = (
+                state.get("source_storage", {}),
+                state.get("source_replay", {}),
+            )
+            if (
+                storage.get("kind") != "PathInput"
+                or storage.get("owned_source_payload_bytes") != 0
+                or storage.get("authority_bytes") != state["original_bytes"]
+                or replay.get("bytes") != state["original_bytes"]
+                or replay.get("sha256") != source["source_sha256"]
+                or replay.get("eof_verified") is not True
+                or not 0 < replay.get("max_chunk_bytes", 0) <= 65_536
+                or replay.get("read_calls", 0) <= 0
+            ):
+                errors.append(
+                    f"{label}: streamed source authority evidence missing or differs"
+                )
             if (
                 state["source_sha256"] != source["source_sha256"]
                 or state["vertices"] != source["vertices"]

@@ -294,6 +294,19 @@ def source_authoring_fixture() -> dict[str, Any]:
             "project_generation": generation,
             "source_mode": {"kind": "scan"},
             "original_bytes": 100,
+            "source_storage": {
+                "kind": "BlobInput",
+                "backing_kind": "BlobInput",
+                "authority_bytes": 100,
+                "owned_source_payload_bytes": 0,
+            },
+            "source_replay": {
+                "bytes": 100,
+                "sha256": descriptor["source_sha256"],
+                "max_chunk_bytes": 100,
+                "read_calls": 2,
+                "eof_verified": True,
+            },
             "vertices": 3,
             "faces": 1,
             "positions": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
@@ -1086,6 +1099,7 @@ def selected(tmp_path: Path, request: pytest.FixtureRequest) -> dict[str, Any]:
                         "ui_legacy_startup": True,
                         "ui_source_authoring": True,
                         "ui_source_actions": True,
+                        "project_archives": True,
                     }
                     if name != "source-import-memory"
                     else {}
@@ -2406,6 +2420,7 @@ def test_source_import_evidence_requires_executed_complete_checks(
         "ui_legacy_startup",
         "ui_source_actions",
         "ui_source_authoring",
+        "project_archives",
     ],
 )
 def test_source_evidence_requires_executed_ui_recovery(
@@ -2580,7 +2595,11 @@ def test_historical_selected_locks_remain_valid_after_current_locks_change(
         "build-browser-redistribution.py",
     ):
         _ = shutil.copyfile(ROOT / "scripts" / name, today / "scripts" / name)
-    for name in (VALIDATOR.SEMANTIC_POLICY, "experiments/actions_limits.py"):
+    for name in (
+        VALIDATOR.SEMANTIC_POLICY,
+        "experiments/actions_limits.py",
+        "experiments/project_archive_limits.py",
+    ):
         helper = today / name
         helper.parent.mkdir(parents=True, exist_ok=True)
         _ = shutil.copyfile(ROOT / name, helper)

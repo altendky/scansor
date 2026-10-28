@@ -11,6 +11,8 @@ import { sha256 } from './server.mjs';
 function source(letter, generation) {
   return { source_sha256: letter.repeat(64), project_generation: generation, source_mode: { kind: 'scan' },
     original_bytes: 300, vertices: 3, faces: 1, owned_fs_bytes: 0, owned_fs_files: [],
+    source_storage:{kind:'BlobInput',backing_kind:'BlobInput',authority_bytes:300,owned_source_payload_bytes:0},
+    source_replay:{bytes:300,sha256:letter.repeat(64),max_chunk_bytes:300,read_calls:2,eof_verified:true},
     descriptor: { version: 'interactive-triangle-scan-v1', profile: 'binary-triangle-ply-v1', source_sha256: letter.repeat(64), source_bytes: 300,
       interpretation_sha256: 'c'.repeat(64), vertices: 3, triangles: 1, filename: letter + '.ply', units: 'unknown' },
     positions: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], normals: [[0, 0, 1], [0, 0, 1], [0, 0, 1]],
@@ -136,6 +138,9 @@ for (const [name, mutate] of [
   ['native descriptor', a => { a.native_graphs.raw.recipe.nodes[0].descriptor.source_bytes++; }],
   ['wrong evidence', a => { a.evidence.raw_source = a.evidence.scene_source; }],
   ['source count', a => { a.evidence.raw_source.vertices++; }], ['source bytes', a => { a.evidence.raw_source.original_bytes++; }],
+  ['source replay hash', a => { a.evidence.raw_source.source_replay.sha256='d'.repeat(64); }],
+  ['source replay EOF', a => { a.evidence.raw_source.source_replay.eof_verified=false; }],
+  ['source payload snapshot', a => { a.evidence.raw_source.source_storage.owned_source_payload_bytes=300; }],
   ['source feature ID', a => { a.graphs.raw.recipe.nodes[0].id = 'other-source'; }],
   ['staging bytes', a => { a.evidence.raw_source.owned_fs_bytes = 1; }], ['zero normals', a => { a.evidence.raw_source.normals[0] = [0, 0, 0]; }],
   ['nonfinite rows', a => { a.evidence.raw_source.positions[0][0] = Infinity; }],

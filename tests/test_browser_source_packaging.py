@@ -61,7 +61,7 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
 )
 def test_selection_volume_profile_requires_exact_bounded_contract(fault: str) -> None:
     protocol = RUNTIME["worker_protocol"]()
-    assert protocol["version"] == 11
+    assert protocol["version"] == 12
     assert protocol["selection_volumes"] == {"version": 1, "max_preview_cells": 2048}
     if fault == "old":
         protocol["version"] = 9

@@ -24,7 +24,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, virtualScanProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
+  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, virtualScanProfile, projectArchiveProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
@@ -56,6 +56,16 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     profile.version === 1 && profile.max_preview_cells === 2048;
   const validVirtualScanProfile = profile => profile && Object.keys(profile).length === 3 &&
     profile.supported === true && profile.version === 1 && profile.max_sources === 2;
+  const validProjectArchiveProfile = profile => profile && Object.keys(profile).length === 3
+    && profile.supported === true && profile.version === 1
+    && Object.keys(profile.limits || {}).length === 8
+    && ['max_archive_bytes', 'max_directory_bytes', 'max_entries', 'max_actions_bytes',
+      'max_metadata_bytes', 'max_member_bytes', 'max_expanded_bytes', 'chunk_bytes']
+      .every(key => Number.isSafeInteger(profile.limits[key]) && profile.limits[key] > 0);
+  const projectAuthority = value => value && Object.keys(value).length === 2
+    && value.kind === 'project-file' && (value.member === null || typeof value.member === 'string'
+      && value.member.length > 0 && value.member.length <= 512 && !value.member.startsWith('/')
+      && !value.member.includes('\\') && !value.member.split('/').some(part => !part || part === '.' || part === '..'));
   const virtualPurpose = purpose => ['create-virtual-scan', 'activate-scan'].includes(purpose);
   const originalDescriptor = recipe => {
     const source = recipe?.nodes?.find(node => node.operation === 'source');
@@ -152,6 +162,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
         resolve: result => { cleanup(); resolve(result); },
         reject: error => { cleanup(); reject(error); } };
       if (operation === 'inspect-actions') request.cursor = { generation: payload.generation, token: payload.token };
+      if (operation === 'exportProject') { request.projectChunks = []; request.projectBytes = 0; }
       pending.set(id, request);
       if (source) { source.request = request; source.requestId = id; }
       signal?.addEventListener('abort', abort, { once: true });
@@ -214,6 +225,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
           || identityJSON(bundle.metadata.import_warnings) !== identityJSON(operation.recoveryWarnings))))
         throw new Error('Source recovery metadata differs from the accepted checkpoint.');
       let acceptedFile = operation.file;
+      let acceptedAuthority = acceptedFile && validProjectArchiveProfile(projectArchiveProfile) ? { kind: 'raw-file' } : undefined;
       if (virtualPurpose(operation.purpose)) {
         if (bundle.purpose !== operation.purpose || bundle.source_mode?.kind !== 'scan'
           || !operation.retainedFile || !operation.baseOriginal || !originalDescriptor(bundle.graph.recipe)
@@ -221,6 +233,15 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
           || descriptorIdentity(originalDescriptor(bundle.graph.recipe)) !== descriptorIdentity(operation.baseOriginal))
           throw new Error('Virtual scan candidate lost its original source authority.');
         acceptedFile = operation.retainedFile;
+        acceptedAuthority = operation.retainedAuthority;
+      } else if (operation.purpose === 'open-project' || operation.recoveryAuthority?.kind === 'project-file') {
+        if (operation.purpose === 'open-project' && bundle.purpose !== 'open-project'
+          || !projectAuthority(bundle.source_authority)
+          || !['scan', 'example', 'empty'].includes(bundle.source_mode?.kind)
+          || operation.recoveryAuthority && identityJSON(bundle.source_authority) !== identityJSON(operation.recoveryAuthority))
+          throw new Error('Invalid project archive source authority.');
+        acceptedAuthority = bundle.source_mode.kind === 'empty' ? undefined : structuredClone(bundle.source_authority);
+        acceptedFile = acceptedAuthority ? operation.file : undefined;
       } else if (operation.purpose === 'open-actions') {
         const kind = { generic: 'scan', legacy: 'example', empty: 'empty' }[bundle.sourceKind];
         if (bundle.purpose !== 'open-actions' || !kind || bundle.source_mode?.kind !== kind
@@ -239,11 +260,13 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
             || !sameIdentity && !catalogTransition)
             throw new Error('Matching actions lost their accepted source authority.');
           acceptedFile = operation.retainedFile;
+          acceptedAuthority = operation.retainedAuthority;
         } else if (kind !== 'scan') {
           if (kind === 'example' && (operation.baseMode?.kind !== 'example'
             || identityJSON(bundle.source_identity) !== identityJSON(operation.baseIdentity)))
             throw new Error('Legacy actions do not match the explicitly accepted example.');
-          acceptedFile = undefined;
+          acceptedFile = kind === 'example' && operation.retainedAuthority?.kind === 'project-file' ? operation.retainedFile : undefined;
+          acceptedAuthority = acceptedFile ? operation.retainedAuthority : undefined;
         }
       } else if (bundle.source_mode?.kind !== operation.kind) throw new Error('Source candidate kind changed.');
       if (operation.purpose === 'replace-scan' && bundle.purpose !== 'replace-scan')
@@ -261,7 +284,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       committedRecipe = structuredClone(bundle.graph.recipe);
       checkpoint = { mode: structuredClone(bundle.source_mode), identity: sourceIdentity,
         generation: expected, file: acceptedFile, recipe: committedRecipe, revision: sourceRevision,
-        import_warnings: importWarnings };
+        import_warnings: importWarnings, sourceAuthority: acceptedAuthority };
       latestGraph = bundle.graph;
       recordSource(operation, { status: 'accepted', phase: 'complete', terminal: true, acceptedGeneration: expected,
         ...(operation.purpose === 'open-actions' ? { uploadRequired: bundle.uploadRequired,
@@ -305,9 +328,13 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     if (closed || terminalError) throw unavailable();
     if (!sourceProfile?.supported) throw new BackendError('This worker does not support scan import.', { code: 'unsupported_capability' });
     const opening = payload.purpose === 'open-actions';
+    const openingProject = payload.purpose === 'open-project';
+    const recoveringProject = restore?.sourceAuthority?.kind === 'project-file';
     const replacing = payload.purpose === 'replace-scan';
     const changingVirtual = virtualPurpose(payload.purpose);
     if (opening && !sourceActions) throw unsupportedActions();
+    if ((openingProject || recoveringProject) && !validProjectArchiveProfile(projectArchiveProfile))
+      throw new BackendError('This worker does not support project archives.', { code: 'unsupported_capability' });
     if (replacing && (!validReplacementProfile(replacementProfile) || checkpoint?.mode.kind !== 'scan'))
       throw new BackendError('This worker requires an imported aligned scan for replacement.', { code: 'unsupported_capability' });
     if (changingVirtual && (!validVirtualScanProfile(virtualScanProfile) || checkpoint?.mode.kind !== 'scan' || !checkpoint.file))
@@ -318,16 +345,18 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     const file = payload.file;
     if (changingVirtual && file !== undefined)
       throw new BackendError('Virtual scan changes do not accept source uploads.', { code: 'unexpected_source' });
-    if (kind === 'scan' && !changingVirtual || opening && file !== undefined) {
+    if (kind === 'scan' && !changingVirtual || opening && file !== undefined || openingProject || recoveringProject) {
       if (!file || typeof file.slice !== 'function' || typeof file.arrayBuffer !== 'function'
         || !Number.isSafeInteger(file.size) || file.size <= 0)
         throw new BackendError('Choose a nonempty scan file.', { code: 'invalid_source' });
-      if (file.size > sourceProfile.limits.max_source_bytes)
+      if (file.size > (openingProject || recoveringProject ? projectArchiveProfile.limits.max_archive_bytes : sourceProfile.limits.max_source_bytes))
         throw new BackendError('Scan exceeds the declared source byte limit.', { code: 'source_limit' });
     }
     const operationId = `source_${lifetime}_${++sourceSequence}`;
-    const operation = { kind, purpose: opening || replacing || changingVirtual ? payload.purpose : 'source', file, onProgress,
-      retainedFile: opening || changingVirtual ? checkpoint?.file : undefined, baseIdentity: structuredClone(sourceIdentity),
+    const operation = { kind, purpose: opening || openingProject || replacing || changingVirtual ? payload.purpose : 'source', file, onProgress,
+      retainedFile: opening || changingVirtual ? checkpoint?.file : undefined,
+      retainedAuthority: opening || changingVirtual ? structuredClone(checkpoint?.sourceAuthority) : undefined,
+      baseIdentity: structuredClone(sourceIdentity),
       baseOriginal: structuredClone(originalDescriptor(latestGraph?.recipe)),
       baseHasVirtual: !!latestGraph?.recipe.nodes.some(node => node.operation === 'source' && node.virtual_scan),
       baseMode: opening ? structuredClone(checkpoint?.mode) : undefined,
@@ -335,10 +364,11 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       recoveryGeneration: restore?.generation, record: { operationId, generation: payload.generation,
         token: payload.token, revision: 0, status: 'reserved', phase: 'reserved', completed: 0,
         total: changingVirtual ? 1 : file?.size || 0, unit: changingVirtual ? 'steps' : 'bytes', terminal: false,
-        ...(opening || replacing || changingVirtual ? { purpose: payload.purpose } : {}) } };
+        ...(opening || openingProject || replacing || changingVirtual ? { purpose: payload.purpose } : {}) } };
     if (restore) {
       operation.recoveryIdentity = structuredClone(restore.identity);
       operation.recoveryWarnings = structuredClone(restore.import_warnings || []);
+      operation.recoveryAuthority = structuredClone(restore.sourceAuthority);
     }
     operation.completion = new Promise(resolve => { operation.finish = resolve; });
     sourceOperation = operation;
@@ -348,14 +378,16 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       confirmedDiscard: payload.confirmedDiscard,
       ...(file === undefined ? {} : { file, source: { filename: file.name || 'scan.ply', size: file.size } }) } : { kind }),
       ...(replacing ? { purpose: 'replace-scan' } : {}),
+      ...(openingProject ? { purpose: 'open-project', confirmedDiscard: payload.confirmedDiscard } : {}),
       ...(changingVirtual ? { purpose: payload.purpose,
         ...(payload.purpose === 'create-virtual-scan' ? { settings: structuredClone(payload.settings) } : { binding: payload.binding }) } : {}),
       generation: payload.generation, token: payload.token,
-      ...(kind === 'scan' && !changingVirtual ? { file, filename: file.name || 'scan.ply' } : {}),
+      ...((kind === 'scan' && !changingVirtual) || openingProject || recoveringProject ? { file, filename: file.name || 'scan.ply' } : {}),
       ...(kind === 'empty' ? { confirmedDiscard: payload.confirmedDiscard } : {}),
       ...(kind === 'example' ? { example: payload.example } : {}),
       ...(restore ? { recovery: { generation: restore.generation, identity: restore.identity, recipe: restore.recipe,
-        import_warnings: structuredClone(restore.import_warnings || []) } } : {}) };
+        import_warnings: structuredClone(restore.import_warnings || []),
+        ...(restore.sourceAuthority ? { source_authority: structuredClone(restore.sourceAuthority) } : {}) } } : {}) };
     const promise = send('prepare-source', value, signal, operation);
     recordSource(operation, {});
     notifySource(operation);
@@ -372,7 +404,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true, virtualScans: true }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true, virtualScans: true, projectArchives: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -424,6 +456,24 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
               const request = pending.get(data?.id);
               if (!request) return;
               if (request.source) { finishSource(request, data, owner); return; }
+              if (data.kind === 'project-export-chunk') {
+                const permitted = request.operation === 'exportProject' && !request.aborted
+                  && request.generation === generation && data.generation === request.generation;
+                if (!permitted) {
+                  owner.postMessage({ operation: 'accept-project-chunk', id: data.id, generation: data.generation,
+                    sequence: data.sequence, accepted: false });
+                  return;
+                }
+                const chunks = request.projectChunks, limits = projectArchiveProfile?.limits;
+                if (!limits || !(data.bytes instanceof ArrayBuffer) || data.bytes.byteLength < 1
+                  || data.bytes.byteLength > limits.chunk_bytes || data.sequence !== chunks.length + 1
+                  || request.projectBytes + data.bytes.byteLength > limits.max_archive_bytes)
+                  throw new Error('Invalid or excessive compressed project chunk.');
+                chunks.push(data.bytes); request.projectBytes += data.bytes.byteLength;
+                owner.postMessage({ operation: 'accept-project-chunk', id: data.id, generation: data.generation,
+                  sequence: data.sequence, accepted: true });
+                return;
+              }
               if (request.aborted) { pending.delete(data.id); return; }
               if (request.operation === 'initialize') {
                 if (!data.ok || !data.ready || !data.versions || !data.source_revision) {
@@ -432,29 +482,32 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 clearTimeout(timer);
                 sourceProfile = data.source_import;
                 replacementProfile = data.worker_protocol?.replace_scan;
-                if ([9, 10, 11].includes(data.worker_protocol?.version) && !validReplacementProfile(replacementProfile))
+                if ([9, 10, 11, 12].includes(data.worker_protocol?.version) && !validReplacementProfile(replacementProfile))
                   throw new Error('Invalid worker scan replacement profile.');
-                if (![9, 10, 11].includes(data.worker_protocol?.version) && replacementProfile !== undefined)
+                if (![9, 10, 11, 12].includes(data.worker_protocol?.version) && replacementProfile !== undefined)
                   throw new Error('Unexpected worker scan replacement profile.');
                 recipePolling = data.worker_protocol?.version >= 7;
                 selectionVolumeProfile = data.worker_protocol?.selection_volumes;
-                if ([10, 11].includes(data.worker_protocol?.version) && !validSelectionVolumeProfile(selectionVolumeProfile))
+                if ([10, 11, 12].includes(data.worker_protocol?.version) && !validSelectionVolumeProfile(selectionVolumeProfile))
                   throw new Error('Invalid worker selection volumes profile.');
-                if (![10, 11].includes(data.worker_protocol?.version) && selectionVolumeProfile !== undefined)
+                if (![10, 11, 12].includes(data.worker_protocol?.version) && selectionVolumeProfile !== undefined)
                   throw new Error('Unexpected worker selection volumes profile.');
                 virtualScanProfile = data.worker_protocol?.virtual_scans;
-                if (data.worker_protocol?.version === 11 ? !validVirtualScanProfile(virtualScanProfile) : virtualScanProfile !== undefined)
+                if ([11, 12].includes(data.worker_protocol?.version) ? !validVirtualScanProfile(virtualScanProfile) : virtualScanProfile !== undefined)
                   throw new Error('Invalid worker virtual scans profile.');
-                if ([8, 9, 10, 11].includes(data.worker_protocol?.version) &&
+                projectArchiveProfile = data.worker_protocol?.project_archive;
+                if (data.worker_protocol?.version === 12 ? !validProjectArchiveProfile(projectArchiveProfile) : projectArchiveProfile !== undefined)
+                  throw new Error('Invalid worker project archive profile.');
+                if ([8, 9, 10, 11, 12].includes(data.worker_protocol?.version) &&
                   (!data.worker_protocol.selection_entries ||
                     Object.keys(data.worker_protocol.selection_entries).length !== 1 ||
                     data.worker_protocol.selection_entries.version !== 1))
                   throw new Error('Invalid worker selection entries profile.');
-                if (sourceProfile?.supported && (![5, 6, 7, 8, 9, 10, 11].includes(data.worker_protocol?.version)
+                if (sourceProfile?.supported && (![5, 6, 7, 8, 9, 10, 11, 12].includes(data.worker_protocol?.version)
                   || !['max_source_bytes', 'max_vertices', 'max_faces', 'max_estimated_bytes', 'chunk_bytes']
                     .every(key => Number.isSafeInteger(sourceProfile.limits?.[key]) && sourceProfile.limits[key] > 0)))
                   throw new Error('Invalid worker source profile.');
-                if (sourceActions && (![7, 8, 9, 10, 11].includes(data.worker_protocol?.version)
+                if (sourceActions && (![7, 8, 9, 10, 11, 12].includes(data.worker_protocol?.version)
                   || !actionsProfile(data.worker_protocol?.source_actions) || !actionsProfile(data.source_actions)
                   || identityJSON(data.worker_protocol.source_actions) !== identityJSON(data.source_actions)
                   || !sourceProfile?.supported || !Number.isSafeInteger(data.graph?.project_generation)
@@ -514,6 +567,15 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
               if (!data.ok) {
                 pending.delete(data.id);
                 request.reject(errorFor(data.error, data.id));
+                return;
+              }
+              if (request.operation === 'exportProject') {
+                if (data.result?.bytes_written !== request.projectBytes
+                  || data.result?.chunks !== request.projectChunks.length || !request.projectChunks.length)
+                  throw new Error('Project output completion differs from its transferred chunks.');
+                const blob = new Blob(request.projectChunks, { type: 'application/zip' });
+                request.projectChunks = undefined;
+                pending.delete(data.id); request.resolve(blob);
                 return;
               }
               if (request.operation === 'loadWorkspace' || request.operation === 'exportCad') {
@@ -698,7 +760,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   };
   for (const operation of ['loadWorkspace', 'getGraph', 'replaceRecipe', 'importRecipe',
     'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse',
-    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', ...volumeOperations]) {
+    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'exportProject', ...volumeOperations]) {
     backend[operation] = async (payload = {}, options = {}) => {
       const signal = options.signal || payload.signal, serial = cancellationSerial;
       signal?.throwIfAborted();
@@ -707,6 +769,12 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
       if (sourceOperation) throw sourceBusy();
+      if (operation === 'exportProject') {
+        if (!validProjectArchiveProfile(projectArchiveProfile))
+          throw new BackendError('This runtime does not support project archives.', { code: 'unsupported_capability' });
+        if (payload.generation !== acceptedGeneration || payload.token !== latestGraph?.token) throw superseded();
+        if (pending.size || latestGraph.evaluation_running) throw sourceBusy();
+      }
       if (volumeOperations.includes(operation)) {
         if (!validSelectionVolumeProfile(selectionVolumeProfile))
           throw new BackendError('This worker does not support selection volumes.', { code: 'unsupported_capability' });
@@ -732,6 +800,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     };
   }
   backend.addScan = (payload, options) => startSource('scan', payload, options);
+  backend.openProject = (payload, options) => startSource('scan', { ...payload, purpose: 'open-project' }, options);
   backend.replaceScan = (payload, options) => startSource('scan', { ...payload, purpose: 'replace-scan' }, options);
   backend.createVirtualScan = (payload, options) => startSource('scan', { ...payload, purpose: 'create-virtual-scan' }, options);
   backend.activateScan = (payload, options) => startSource('scan', { ...payload, purpose: 'activate-scan' }, options);
