@@ -48,6 +48,9 @@ probes do not implement ingestion or establish external-source fitting evidence.
     rectangles, one-pass connected growth, reusable regions, and multi-target
     feature reuse; standalone circle/polygon tools, boundary inset, iterative
     expansion, and compound semantics remain deferred
+- [Circular feature reuse](circular-feature-reuse.md)
+  - bounded circular placement in the existing reuse action, with explicit source
+    volume mappings, independent surface refits and common occurrence inspection
 
 - [Full-resolution mesh ingestion and visual audit](full-resolution-mesh-ingestion.md)
   - provisional design for the first external mesh profile, complete accounting,

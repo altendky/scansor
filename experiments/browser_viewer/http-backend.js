@@ -281,6 +281,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       acceptedMetadata = undefined;
       return result;
     },
+    previewFeatureReuse: (payload, options) => graphRequest('/api/graph/feature-reuse/preview', payload, options),
     applyFeatureReuse: (payload, options) => graphRequest('/api/graph/feature-reuse/apply', payload, options),
     faceCandidates: (payload, options) => graphRequest('/api/graph/build-faces/candidates', payload, options),
     previewFaces: (payload, options) => graphRequest('/api/graph/build-faces/preview', payload, options),

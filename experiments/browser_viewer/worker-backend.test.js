@@ -40,6 +40,18 @@ test('one worker initialization reports phases and declares the bounded numerica
   assert.equal(worker.terminated, 1);
 });
 
+test('reuse preview never replaces accepted actions or recovery authority with its proposed recipe', async () => {
+  const value=fixture(),starting=value.backend.initialize();value.worker.reply(ready);await starting;
+  const original={nodes:[{id:'accepted'}]},proposed={nodes:[{id:'proposed-child'}]};
+  const reading=value.backend.getGraph();await settle();let request=value.worker.calls.at(-1);
+  value.worker.reply({id:request.id,ok:true,result:{token:'accepted-token',revision:1,recipe:original,states:{}}});await reading;
+  const previewing=value.backend.previewFeatureReuse({token:'accepted-token',reuse_id:'reuse',allocation_seed:'stable',changes:{}});
+  await settle();request=value.worker.calls.at(-1);assert.equal(request.operation,'previewFeatureReuse');
+  value.worker.reply({id:request.id,ok:true,result:{token:'accepted-token',recipe:proposed,generated_ids:['proposed-child']}});
+  assert.deepEqual((await previewing).recipe,proposed);assert.deepEqual(await value.backend.exportRecipe(),original);
+  value.backend.close();
+});
+
 test('runtime startup failures stay failed without retry or HTTP fallback', async () => {
   const { worker, backend } = fixture();
   const pending = backend.initialize();

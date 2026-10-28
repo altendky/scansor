@@ -9,6 +9,7 @@ import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFil
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
 import {validateVirtualScanUi} from './virtual-scan-ui.mjs';
+import {validateCircularReuseUi} from './circular-reuse-ui.mjs';
 import {authoringSemanticCases} from './source-authoring-semantic.mjs';
 import {validateSourceUiActions} from './source-ui-actions.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
@@ -211,6 +212,7 @@ try{
   }
   await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
   await validateVirtualScanUi({browser,site,preview,prefix,isolation,report});
+  await validateCircularReuseUi({browser,site,preview,prefix,isolation,report,nativePython});
   const authoredRecipes=path.join(output,'ui-authored-recipes.json');
   await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
     Object.entries(report.ui_authoring.graphs).map(([name,graph])=>[name,graph.recipe]))));

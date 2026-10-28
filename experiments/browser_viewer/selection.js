@@ -249,7 +249,8 @@ export function featureVertexIds(nodes, memberships, featureId) {
           : node.operation === 'selection_region'
             ? [node.selection]
           : node.operation === 'feature_reuse'
-            ? [node.reference_selection, ...node.target_selections, ...node.fits]
+            ? node.circular ? [...node.fits,node.circular.axis,...node.circular.volumes.map(item=>item.volume.selection)]
+              : [node.reference_selection, ...node.target_selections, ...node.fits]
           : node.operation === 'reference_plane'
             ? [node.axis]
         : node.operation === 'joint_fit'

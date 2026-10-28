@@ -637,6 +637,27 @@ panel is open; closing it clears the helper highlights.
    token-bound preview/apply HTTP adapters validate against the current graph.
    A request's allocation seed makes preview and apply allocate the same new
    IDs. Loading or evaluating a recipe does not reconcile its managed children.
+
+   **Circular placement** uses the same Feature reuse action. Choose its axis
+   (an explicit axis or a cylinder/cone fit), total occurrence count from 2 to
+   32, and one accepted selection-owned volume for every source-fit input.
+   The total includes the unchanged original. Preview resolves the ordinary
+   upstream axis and shows actual accepted support and normal-offset guides,
+   using shared geometry across the placements. Inspect one source volume and
+   occurrence at a time. Its selected/source vertex counts and overlaps describe
+   observations, not physical area coverage. Edits invalidate the preview;
+   Apply requires the current preview and uses the same allocation seed.
+   Copied fits remain independent by default; Equal corresponding dimensions
+   adds visible ordinary cylinder-radius relationships. This creates fitted
+   surfaces, not exact circular pose constraints, Faces or Bodies.
+
+   Editing a source fit shows the affected circular owners' volume mappings.
+   New fit inputs require an explicit volume choice even when only one exists;
+   the fit and mappings are applied together. Existing roles keep their IDs,
+   and downstream users protect outputs that an edit would remove. Source-axis
+   and count edits invalidate dependent results for ordinary evaluation. See
+   the [circular reuse contract](../../docs/src/project/planning/circular-feature-reuse.md)
+   for scope and resource bounds.
 10. **Region** lifts an earlier selection and its cylinder, cone or plane fit into a
    reusable surface-following volume. Choose a perpendicular axial plane for
    the frame origin and an axis-parallel plane for clocking, plus footprint,

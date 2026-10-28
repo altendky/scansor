@@ -197,7 +197,7 @@ export function nodeReferences(node) {
     return [...new Set([
       ...(node.source_fit ? [node.source_fit] : (node.source_points || []).flatMap(outputReferenceIds)),
       ...(node.placement
-        ? [node.placement.reuse, node.placement.source, node.placement.target_selection] : []),
+        ? [node.placement.reuse, node.placement.source, ...(node.placement.occurrence != null ? [] : [node.placement.target_selection])] : []),
     ])];
   if (node.operation === 'point') return node.source_fit ? [node.source_fit] : [];
   if (node.operation === 'scale')
@@ -212,7 +212,7 @@ export function nodeReferences(node) {
   if (node.operation === 'reference_plane') return [...new Set([
     node.axis,
     ...(node.placement
-      ? [node.placement.reuse, node.placement.source, node.placement.target_selection] : []),
+      ? [node.placement.reuse, node.placement.source, ...(node.placement.occurrence != null ? [] : [node.placement.target_selection])] : []),
   ])];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];
@@ -224,11 +224,11 @@ export function nodeReferences(node) {
     return [...new Set([
       ...node.fits,
       ...node.lineage,
-      node.reference_selection,
-      ...node.target_selections,
+      ...(node.circular ? [node.circular.axis,...node.circular.volumes.map(item=>item.volume.selection)]
+        : [node.reference_selection,...node.target_selections]),
     ])];
   if (node.operation === 'reuse_selection')
-    return [node.reuse, node.fit, node.source_selection, node.target_selection];
+    return [node.reuse, node.fit, node.source_selection,...(node.occurrence != null ? [] : [node.target_selection])];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'coaxial_group') return [node.axis, ...node.surfaces];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
@@ -1333,6 +1333,8 @@ export function renderActionTree(
         targetLabel.className = 'tree-group-name';
         targetLabel.textContent = target === '__relationships__'
           ? `Relationships · ${children.length}`
+          : node.circular && /^occurrence_\d+$/.test(target)
+          ? `Occurrence ${Number(target.slice('occurrence_'.length))+1} · ${360*Number(target.slice('occurrence_'.length))/node.circular.count}° · ${children.filter(child=>child.operation==='fit').length} fits`
           : target
           ? `${byId.get(target)?.label || target} · ${children.filter((child) => child.operation === 'fit').length} fits`
           : `Other outputs · ${children.length}`;

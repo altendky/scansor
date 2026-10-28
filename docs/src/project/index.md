@@ -30,6 +30,10 @@ outside the intended boundary.
     growth, backend DAG and ordered frontend actions, reusable regions and
     multi-target feature reuse; standalone circle/polygon tools, boundary inset,
     iterative growth, compound semantics, and change history remain deferred
+- [Circular feature reuse](planning/circular-feature-reuse.md)
+  - bounded feature-reuse placement for independently refitted compound surface
+    occurrences, explicit accepted-volume mappings, common preview/apply and
+    occurrence inspection; exact pose constraints and Face/Body generation remain deferred
 - [Reference geometry and solve graph](planning/reference-geometry-and-solve-graph.md)
   - **Provisional direction and first internal contract:** compatibility-free
     axis/cylinder/perpendicular-plane declarations, exact dependencies,
