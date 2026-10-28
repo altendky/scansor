@@ -7,9 +7,9 @@ row identities, incident-area weights and separate display derivatives.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import BinaryIO, ClassVar, Literal, Protocol
@@ -18,7 +18,18 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from scansor.mesh_ply import PROFILE, MeshPlyError, MeshPlyReader
+from experiments.scan_sources import (
+    BytesInput,
+    CheckedReader,
+    ReplayableInput,
+    as_binary_stream,
+)
+from scansor.mesh_ply import (
+    PROFILE,
+    MeshPlyError,
+    MeshPlyReader,
+    SequentialMeshPlyReader,
+)
 
 Array = NDArray[np.float64]
 
@@ -109,6 +120,60 @@ class SourceDescriptor(BaseModel):
         return hashlib.sha256(_canonical(self.semantic_record())).hexdigest()
 
 
+@dataclass(frozen=True)
+class VerifiedSource:
+    """Replay the exact accepted source with bounded reads and EOF verification."""
+
+    input: ReplayableInput
+    descriptor: SourceDescriptor
+
+    @property
+    def byte_length(self) -> int:
+        return self.descriptor.source_bytes
+
+    @property
+    def filename(self) -> str:
+        return self.descriptor.filename
+
+    @contextmanager
+    def open(self) -> Generator[BinaryIO]:
+        if self.input.byte_length != self.byte_length:
+            raise ScanImportError(
+                "The source length changed after acceptance.", "source_mismatch"
+            )
+        try:
+            with (
+                self.input.open() as stream,
+                CheckedReader(
+                    stream,
+                    self.byte_length,
+                    expected_sha256=self.descriptor.source_sha256,
+                ) as checked,
+            ):
+                yield as_binary_stream(checked)
+        except OSError as error:
+            raise ScanImportError(str(error), "source_mismatch") from error
+
+    def verify(self, *, cancelled: Callable[[], bool] | None = None) -> None:
+        with self.open() as stream:
+            while True:
+                check_cancelled(cancelled)
+                if not stream.read(65_536):
+                    break
+
+    def read_all(self, max_bytes: int) -> bytes:
+        """Explicit small-fixture convenience; production consumers stream open()."""
+        if type(max_bytes) is not int or not 0 <= self.byte_length <= max_bytes:
+            raise ScanImportError(
+                "Explicit source materialization exceeds its byte cap.", "source_limit"
+            )
+        chunks: list[bytes] = []
+        with self.open() as stream:
+            while chunk := stream.read(65_536):
+                chunks.append(chunk)
+        return b"".join(chunks)
+
+
 class Geometry(Protocol):
     @property
     def xyz(self) -> Array: ...
@@ -169,7 +234,7 @@ class ScanWorkspace:
     name: str
     descriptor: SourceDescriptor | None
     data: ScanGeometry
-    original_bytes: bytes
+    source: VerifiedSource | None
     diagnostics: ScanDiagnostics
     origin: Array
     frame: Array
@@ -187,7 +252,7 @@ class ScanWorkspace:
                 _freeze(np.empty(0)),
                 _freeze(np.empty(0, dtype="u1")),
             ),
-            b"",
+            None,
             ScanDiagnostics(0, 0, 0, 0, 0, 0),
             _freeze(np.zeros(3)),
             _freeze(np.eye(3)),
@@ -248,7 +313,9 @@ class ScanWorkspace:
         }
 
 
-def _preflight(reader: MeshPlyReader, limits: ScanLimits) -> tuple[int, int, int]:
+def _preflight(
+    reader: MeshPlyReader | SequentialMeshPlyReader, limits: ScanLimits
+) -> tuple[int, int, int]:
     vertex, face = reader.layout.elements
     count, faces = vertex.element.count, face.element.count
     if (
@@ -271,17 +338,10 @@ def _preflight(reader: MeshPlyReader, limits: ScanLimits) -> tuple[int, int, int
             "This initial scan profile requires complete vertex normals.",
             "unsupported_source",
         )
-    # Conservative incremental storage categories: caller/staging/original bytes,
-    # authoritative arrays, dispositions, display arrays/copies, and bounded
-    # parsing/area temporaries. Interpreter, GPU and unrelated allocations are
-    # not covered; adapter capacity still needs measured whole-runtime evidence.
-    estimated = (
-        4 * reader.layout.byte_count
-        + 128 * count
-        + 64 * faces
-        + 32 * limits.chunk_bytes
-        + 1_048_576
-    )
+    # Geometry, dispositions, display copies, and bounded parsing/area work.
+    # Source bytes are replayed rather than retained as an uncompressed buffer.
+    # Runtime/ZIP/transport overhead still requires whole-process evidence.
+    estimated = 128 * count + 64 * faces + 32 * limits.chunk_bytes + 1_048_576
     if estimated > limits.max_estimated_bytes:
         raise ScanImportError(
             "Scan exceeds the declared incremental working-set estimate.",
@@ -290,19 +350,16 @@ def _preflight(reader: MeshPlyReader, limits: ScanLimits) -> tuple[int, int, int
     return count, faces, estimated
 
 
-def _prepare_scan(
-    stream: BinaryIO,
+def _decode_scan(
+    source: ReplayableInput,
+    stream: CheckedReader,
     filename: str,
     limits: ScanLimits,
     *,
     progress: Callable[[ScanProgress], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> ScanWorkspace:
-    """Own exact input bytes and geometry before publishing any project state.
-
-    The caller owns the seekable stream. Every payload range is visited; this
-    attests list counts without an additional full validation pass.
-    """
+    """Decode one sequential replay into preallocated authoritative arrays."""
 
     def report(phase: str, completed: int, total: int) -> None:
         check_cancelled(cancelled)
@@ -311,27 +368,10 @@ def _prepare_scan(
         check_cancelled(cancelled)
 
     report("preflight", 0, 1)
-    _ = stream.seek(0)
-    reader = MeshPlyReader(
-        stream, max_range_bytes=limits.chunk_bytes, io_block_bytes=limits.chunk_bytes
-    )
-    _ = _preflight(reader, limits)
-    size = reader.layout.byte_count
-    _ = stream.seek(0)
-    snapshot = io.BytesIO()
-    copied = 0
-    while copied < size:
-        report("reading", copied, size)
-        block = stream.read(min(limits.chunk_bytes, size - copied))
-        if not block:
-            raise ScanImportError("Source was truncated while taking its snapshot.")
-        _ = snapshot.write(block)
-        copied += len(block)
-    if stream.read(1):
-        raise ScanImportError("Source grew while taking its snapshot.")
-    original = snapshot.getvalue()
-    reader = MeshPlyReader(
-        io.BytesIO(original),
+    report("reading", 0, source.byte_length)
+    reader = SequentialMeshPlyReader(
+        as_binary_stream(stream),
+        byte_length=source.byte_length,
         max_range_bytes=limits.chunk_bytes,
         io_block_bytes=limits.chunk_bytes,
     )
@@ -393,10 +433,12 @@ def _prepare_scan(
         np.add.at(references, indices.ravel(), 1)
     if not np.isfinite(weights).all():
         raise ScanImportError("Nonfinite incident-area contribution.")
+    report("source-eof", count + faces, count + faces)
+    reader.finish()
     hint = PurePosixPath(filename.replace("\\", "/")).name
     descriptor = SourceDescriptor(
-        source_sha256=hashlib.sha256(original).hexdigest(),
-        source_bytes=len(original),
+        source_sha256=stream.sha256,
+        source_bytes=source.byte_length,
         interpretation_sha256=INTERPRETATION_SHA256,
         vertices=count,
         triangles=faces,
@@ -421,7 +463,7 @@ def _prepare_scan(
             _freeze(weights),
             _freeze(statuses),
         ),
-        original,
+        VerifiedSource(source, descriptor),
         diagnostics,
         _freeze(np.zeros(3)),
         _freeze(np.eye(3)),
@@ -430,9 +472,49 @@ def _prepare_scan(
     return result
 
 
+def _input(
+    stream: ReplayableInput | BinaryIO,
+    filename: str | None,
+    limits: ScanLimits,
+    cancelled: Callable[[], bool] | None,
+) -> ReplayableInput:
+    if isinstance(stream, ReplayableInput):
+        source = stream
+    else:
+        # Compatibility for bounded legacy BytesIO/test callers. Native, worker
+        # and archive adapters supply explicit replayable authorities instead.
+        _ = stream.seek(0, 2)
+        length = stream.tell()
+        if not 0 < length <= limits.max_source_bytes:
+            raise ScanImportError("Scan exceeds its source byte limit.", "source_limit")
+        _ = stream.seek(0)
+        chunks: list[bytes] = []
+        seen = 0
+        while seen < length:
+            check_cancelled(cancelled)
+            chunk = stream.read(min(limits.chunk_bytes, length - seen))
+            if not chunk or len(chunk) > min(limits.chunk_bytes, length - seen):
+                raise ScanImportError(
+                    "Legacy input was truncated or returned an invalid read."
+                )
+            chunks.append(chunk)
+            seen += len(chunk)
+        if stream.read(1):
+            raise ScanImportError(
+                "Legacy input grew while taking its bounded snapshot."
+            )
+        source = BytesInput(b"".join(chunks), filename or "scan.ply")
+    if (
+        type(source.byte_length) is not int
+        or not 0 < source.byte_length <= limits.max_source_bytes
+    ):
+        raise ScanImportError("Scan exceeds its source byte limit.", "source_limit")
+    return source
+
+
 def prepare_scan(
-    stream: BinaryIO,
-    filename: str,
+    stream: ReplayableInput | BinaryIO,
+    filename: str | None,
     limits: ScanLimits,
     *,
     progress: Callable[[ScanProgress], None] | None = None,
@@ -440,9 +522,22 @@ def prepare_scan(
 ) -> ScanWorkspace:
     """Prepare a caller-owned stream, retaining a stable import error boundary."""
     try:
-        return _prepare_scan(
-            stream, filename, limits, progress=progress, cancelled=cancelled
-        )
+        check_cancelled(cancelled)
+        source = _input(stream, filename, limits, cancelled)
+        with (
+            source.open() as raw,
+            CheckedReader(
+                raw, source.byte_length, chunk_bytes=limits.chunk_bytes
+            ) as checked,
+        ):
+            return _decode_scan(
+                source,
+                checked,
+                filename or source.filename,
+                limits,
+                progress=progress,
+                cancelled=cancelled,
+            )
     except MeshPlyError as error:
         code = (
             "unsupported_source"
@@ -452,3 +547,15 @@ def prepare_scan(
         raise ScanImportError(str(error), code) from error
     except (OSError, ValidationError) as error:
         raise ScanImportError(str(error)) from error
+
+
+def prepare_scan_input(
+    source: ReplayableInput,
+    limits: ScanLimits,
+    *,
+    progress: Callable[[ScanProgress], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> ScanWorkspace:
+    return prepare_scan(
+        source, source.filename, limits, progress=progress, cancelled=cancelled
+    )

@@ -34,6 +34,7 @@ from tests.native_scan_fixture import (
     native_grid_fixture,
     native_scene_fixture,
 )
+from tests.scan_source_fixture import read_source_bytes
 
 LIMITS = ScanLimits(2_000_000, 30_000, 60_000, 100_000_000, chunk_bytes=64)
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/nozzle-bayonette-simplified"
@@ -304,7 +305,7 @@ def test_different_source_plus_actions_remains_private_until_single_commit(
         progress=progress,
     )
     assert "prepared" in seen and public.accepted is previous
-    assert candidate.accepted.workspace.original_bytes == fixture.raw
+    assert read_source_bytes(candidate.accepted.workspace) == fixture.raw
     assert (
         candidate.accepted.graph.snapshot()["recipe"]
         == target.accepted.graph.validate(Recipe.model_validate(raw)).model_dump()

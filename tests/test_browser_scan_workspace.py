@@ -17,6 +17,7 @@ from experiments.feature_graph import Recipe
 from experiments.scan_project import AcceptedScan, ScanProject
 from experiments.scan_workspace import ScanImportError, ScanLimits, ScanProgress
 from tests.native_scan_fixture import NativeScanFixture, native_scene_fixture
+from tests.scan_source_fixture import read_source_bytes
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/nozzle-bayonette-simplified"
 LIMITS = ScanLimits(2_000_000, 30_000, 60_000, 100_000_000, chunk_bytes=64)
@@ -141,7 +142,7 @@ def test_private_candidate_does_not_publish_source_graph_or_display_before_promo
     np.testing.assert_allclose(
         workspace.workspace.data.weights, fixture.weights, rtol=2e-15
     )
-    assert workspace.workspace.original_bytes == fixture.raw
+    assert read_source_bytes(workspace.workspace) == fixture.raw
     assert (
         candidate["source_identity"]["descriptor"]["source_sha256"]
         == hashlib.sha256(fixture.raw).hexdigest()

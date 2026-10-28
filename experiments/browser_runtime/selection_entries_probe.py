@@ -129,12 +129,13 @@ def selection_entries_probe() -> dict[str, Any]:
     assert refreshed["memberships"]["patch"] == [0, 1, 3, 4]
 
     target = _scan(5)
+    assert target.source is not None
     project = ScanProject()
     positions, indices = original.display_buffers()
     original_accepted = AcceptedScan(1, original, graph, positions, indices)
     limits = ScanLimits(8192, 25, 32, 2_000_000, chunk_bytes=1024)
     candidate = project.prepare_replace(
-        io.BytesIO(target.original_bytes),
+        target.source,
         target.name,
         limits,
         generation=0,
@@ -176,7 +177,7 @@ def selection_entries_probe() -> dict[str, Any]:
         generation=0,
         token=str(replay_project.accepted.graph.snapshot()["token"]),
         confirmed_discard=True,
-        stream=io.BytesIO(target.original_bytes),
+        stream=target.source,
         filename="renamed-target.ply",
         limits=limits,
     )
