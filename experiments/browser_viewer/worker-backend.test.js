@@ -197,6 +197,29 @@ function volumeReady(extra = {}) {
   return response;
 }
 
+for (const operation of ['previewFeatureReuse', 'applyFeatureReuse']) test(operation+' permits a queued read-only volume inspection and fences its obsolete reply on Apply',async()=>{
+  const value=fixture({initialMode:'empty',sourceActions:true}),starting=value.backend.initialize();
+  value.worker.reply(volumeReady());await starting;
+  const reading=value.backend.getSelectionVolumePreview({token:'empty',reference:{selection:'selection',entry:'entry',volume:'volume'}});
+  await settle();const readRequest=value.worker.calls.at(-1);
+  const observedRead=operation==='applyFeatureReuse'?assert.rejects(reading,error=>error.code==='observation_superseded'):reading;
+  const reuse=value.backend[operation]({token:'empty',reuse_id:'reuse',allocation_seed:'reviewed',changes:{}});
+  await settle();const reuseRequest=value.worker.calls.at(-1);assert.equal(reuseRequest.operation,operation);
+  value.worker.reply({id:readRequest.id,ok:true,result:{token:'empty',positions:[],normals:[]}});
+  await observedRead;
+  const result=operation==='previewFeatureReuse'?{token:'empty',recipe:{nodes:[]},circular_preview:{ready:true}}:
+    {token:'applied',project_generation:0,revision:1,recipe:{nodes:[]},states:{}};
+  value.worker.reply({id:reuseRequest.id,ok:true,result});assert.deepEqual(await reuse,result);value.backend.close();
+});
+
+for (const active of ['replaceRecipe','evaluateGraph','ensureGraph']) test('reuse still rejects queued '+active+' work before it receives a running publication',async()=>{
+  const value=fixture({initialMode:'empty',sourceActions:true}),starting=value.backend.initialize();value.worker.reply(volumeReady());await starting;
+  const working=value.backend[active]({token:'empty',recipe:{nodes:[]}});await settle();const request=value.worker.calls.at(-1),count=value.worker.calls.length;
+  for(const operation of ['previewFeatureReuse','applyFeatureReuse'])await assert.rejects(value.backend[operation]({token:'empty'}),error=>error.code==='evaluation_busy');
+  assert.equal(value.worker.calls.length,count);
+  value.worker.reply({id:request.id,ok:true,result:{token:'empty',project_generation:0,revision:1,recipe:{nodes:[]},states:{}}});await working;value.backend.close();
+});
+
 const virtualScanProfile = { supported: true, version: 1, max_sources: 2 };
 function virtualReady(extra = {}) {
   const response = volumeReady(extra);

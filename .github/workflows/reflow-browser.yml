@@ -42,7 +42,7 @@ jobs:
   static:
     name: Static worker Chromium verification
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHON_VERSION: ${{ inputs.primary-python }}
     steps:
