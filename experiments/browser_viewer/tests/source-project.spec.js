@@ -349,6 +349,7 @@ test('owned mesh volume capture and preview drive explicit replacement membershi
   expect(regenerated.recipe.nodes.find(node => node.id === selection.id).entries[0]).toEqual(entry);
   expect(regenerated.errors).toEqual({});
 
+  await expect(page.getByRole('button', { name: 'Evaluate all', exact: true })).toBeEnabled();
   await page.locator(`[data-owned-selection-id="${selection.id}"][data-owned-entry-id="${entry.id}"][data-owned-volume-id="${volume.id}"]`).dispatchEvent('keydown', { key: 'F2' });
   await expect(editor).toContainText('support cells');
   const acceptDelete = dialog => { void dialog.accept(); };
