@@ -108,3 +108,13 @@ owned Chromium process tree's RSS and, where available, PSS throughout operation
 These overlapping counters must not be added. Sampling adds overhead and can
 miss short peaks; the evidence establishes component behavior and observed
 process use, not a memory-capacity or browser zero-copy guarantee.
+
+One local Chromium run used a 6,533,891-byte PLY in a 1,772,590-byte archive
+(131,072 vertices, 260,610 triangles). The owned browser tree had about 612–615
+MiB PSS at the empty-project observation and sampled peaks of 664–671 MiB across
+the workflow; summed RSS peaks were 940–945 MiB and include shared-page overlap.
+Worker Wasm capacity reached 89.9 MiB and named NumPy roots 16.2 MiB. Source
+payload ownership and MEMFS staging were zero; expanded replay reads were at
+most 64 KiB. The browser/runtime baseline, display buffers, geometry/work arrays,
+compressed File and final compressed Blob still occupy memory. These are local
+observations, not portable limits; CI retains fresh per-run JSON evidence.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import struct
 import tempfile
 import time
@@ -605,17 +606,17 @@ def test_failed_source_lease_cleanup_is_retained_for_shutdown_retry(
         assert world.prepared_input is not None
         owner = cast(tempfile.TemporaryDirectory[str], world.prepared_input.owner)
         directory = Path(owner.name)
-        remove = cast(Callable[..., None], getattr(owner, "_rmtree"))
+        remove = cast(Callable[..., None], shutil.rmtree)
         failures_left = 2 if fail_close_once else 1
 
-        def transient_failure(*args: Any, **kwargs: Any) -> None:
+        def transient_failure(path: str, *args: Any, **kwargs: Any) -> None:
             nonlocal failures_left
-            if failures_left:
+            if Path(path) == directory and failures_left:
                 failures_left -= 1
                 raise OSError("injected accepted source cleanup failure")
-            remove(*args, **kwargs)
+            remove(path, *args, **kwargs)
 
-        monkeypatch.setattr(owner, "_rmtree", transient_failure)
+        monkeypatch.setattr(shutil, "rmtree", transient_failure)
         _ = cancel(service, operation)
     finally:
         release.set()
