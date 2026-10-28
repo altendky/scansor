@@ -174,6 +174,9 @@ def _semantic_projection(
         for name in ("label", "group_id"):
             value.pop(name, None)
         if isinstance(node, Source):
+            # A retained derivative catalog does not change the authoring
+            # observations or their source-context numerical problem.
+            _ = value.pop("virtual_scan", None)
             value["source_sha256"] = binding.source_sha256
             value["reference_sha256"] = binding.reference_sha256
             value["descriptor"] = (

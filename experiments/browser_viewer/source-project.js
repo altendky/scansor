@@ -2,12 +2,13 @@
 // complete backend bundle and its display resources are ready to install.
 export function createSourceProjectController({ backend, getCurrent, canTransition,
   setTransitionBusy, prepareWorkspace, inspectSource, prepareTransition, status,
-  onActionsLoaded = () => {}, onWorkspaceReady = () => {} }) {
+  onActionsLoaded = () => {}, onWorkspaceReady = () => {}, onActiveScanChanged = () => {} }) {
   const $ = id => document.getElementById(id);
   let active = null, unavailable = null, releaseFence = null;
   let runtimeLocked = false, deferredRelease = null;
   let actionsIntent = 0, pendingActions = null;
   let pendingReplacement = null;
+  let pendingVirtual = null;
   const empty = document.createElement('section');
   empty.id = 'empty-project';
   empty.setAttribute('aria-label', 'Empty project');
@@ -21,8 +22,20 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   const locked = () => runtimeLocked || !!active || !!unavailable || !canTransition();
   const replacementSupported = () => !!backend.capabilities.sourceReplacement
     && getCurrent().metadata.source_replacement?.supported === true && !!source();
+  const virtualProfile = () => {
+    const profile = getCurrent().metadata.virtual_scans;
+    const validScan = scan => scan && typeof scan.binding === 'string'
+      && Number.isSafeInteger(scan.vertices) && scan.vertices > 0
+      && Number.isSafeInteger(scan.triangles) && scan.triangles >= 0;
+    return backend.capabilities.virtualScans && source()?.descriptor
+      && profile?.supported === true && profile.version === 1
+      && validScan(profile.original) && (!profile.virtual || validScan(profile.virtual))
+      && [profile.original.binding, profile.virtual?.binding].includes(profile.active_binding) ? profile : null;
+  };
+  const counts = scan => `${scan.vertices.toLocaleString()} vertices · ${scan.triangles.toLocaleString()} triangles`;
   function lockRuntime() {
     invalidateReplacement();
+    invalidateVirtual();
     runtimeLocked = true;
     setTransitionBusy(true);
     $('retry-source-workspace').disabled = true;
@@ -35,6 +48,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       ['new-project', supported], ['add-scan', supported && !hasSource],
       ['inspect-source', hasSource], ['remove-scan', supported && hasSource],
       ['replace-scan', replacementSupported()],
+      ['create-virtual-scan', virtualProfile()?.can_create === true],
     ]) $(id).disabled = !enabled || locked();
     // Restore belongs to a retained example, never a user-source substitution.
     $('reset').disabled = locked() || !hasSource || !!source().descriptor;
@@ -48,10 +62,33 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     for (const button of document.querySelectorAll('[data-choose-example]')) button.disabled = locked();
     for (const button of document.querySelectorAll('[data-remove-scan]')) button.disabled = !supported || !hasSource || locked();
     for (const button of document.querySelectorAll('[data-replace-scan]')) button.disabled = !replacementSupported() || locked();
+    const profile = virtualProfile();
+    $('create-virtual-scan').hidden = !profile?.can_create;
+    for (const button of document.querySelectorAll('[data-create-virtual-scan]')) {
+      button.hidden = !profile || !profile.can_create;
+      button.disabled = !profile?.can_create || locked();
+    }
+    $('active-scan-controls').hidden = !profile;
+    $('active-scan').disabled = !profile?.can_activate || locked();
+    if (profile) {
+      const scans = [['Original', profile.original], ['Virtual', profile.virtual]].filter(([, scan]) => scan);
+      $('active-scan').replaceChildren(...scans.map(([label, scan]) => {
+        const option = document.createElement('option');
+        option.value = scan.binding; option.textContent = `${label} — ${counts(scan)}`;
+        return option;
+      }));
+      $('active-scan').value = profile.active_binding;
+      const virtual = profile.virtual?.binding === profile.active_binding;
+      const scan = virtual ? profile.virtual : profile.original;
+      $('active-scan-summary').textContent = `${virtual ? 'Virtual scan · Preliminary work' : 'Original scan'} · ${counts(scan)}. Used for display and fitting.`;
+    } else {
+      $('active-scan').replaceChildren();
+      $('active-scan-summary').textContent = '';
+    }
   }
   function lockSurfaces() {
     const elements = [...new Set(document.querySelectorAll(
-      'main, #project-toolbar, .workspace-toolbar, #edit-popup, #edit-host, .workspace-edit-workflow, #example-dialog'))];
+      'main, #project-toolbar, #active-scan-controls, .workspace-toolbar, #edit-popup, #edit-host, .workspace-edit-workflow, #example-dialog'))];
     const previous = elements.map(element => element.inert);
     const hold = () => elements.forEach(element => { element.inert = true; });
     hold();
@@ -70,7 +107,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   }
   async function cancel() {
     const operation = active;
-    if (!operation || !['scan', 'replacement', 'actions'].includes(operation.kind) || operation.record?.terminal) return;
+    if (!operation || !['scan', 'replacement', 'actions', 'virtual', 'activation'].includes(operation.kind) || operation.record?.terminal) return;
     operation.cancelRequested = true;
     $('cancel-source-import').disabled = true;
     $('source-progress-detail').textContent = 'Cancel requested. Waiting for a safe boundary…';
@@ -89,9 +126,9 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     }
   }
   function confirmProject(kind, replacesSource) {
-    if (kind === 'scan' || kind === 'replacement' || !getCurrent().recipe.nodes.length) return true;
+    if (['scan', 'replacement', 'virtual', 'activation'].includes(kind) || !getCurrent().recipe.nodes.length) return true;
     if (kind === 'actions' && !replacesSource)
-      return window.confirm('Replace the current actions? The current scan is retained. Save actions first to keep your work; actions do not save unfinished edits.');
+      return window.confirm('Replace the current actions? The saved active scan will be restored using available source data. Save actions first to keep your work; actions do not save unfinished edits.');
     return window.confirm('Discard the current source and committed actions? Save actions first to keep your work. Actions do not include the scan file or unfinished edits.');
   }
   function fence(error, before, release, kind) {
@@ -138,12 +175,15 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       settled: new Promise(resolve => { settled = resolve; }) };
     const release = lockSurfaces();
     setTransitionBusy(true);
-    $('source-progress').hidden = !['scan', 'replacement', 'actions'].includes(kind) || kind === 'actions' && !backend.capabilities.sourceActions;
+    $('source-progress').hidden = !['scan', 'replacement', 'actions', 'virtual', 'activation'].includes(kind) || kind === 'actions' && !backend.capabilities.sourceActions;
     $('cancel-source-import').disabled = false;
+    $('cancel-source-import').textContent = ['virtual', 'activation'].includes(kind) ? 'Cancel' : 'Cancel import';
     $('source-progress-detail').textContent = kind === 'actions' ? 'Preparing actions…'
-      : kind === 'replacement' ? 'Preparing replacement scan…' : 'Preparing scan import…';
+      : kind === 'replacement' ? 'Preparing replacement scan…'
+        : kind === 'virtual' ? 'Creating virtual scan…'
+          : kind === 'activation' ? 'Switching active scan…' : 'Preparing scan import…';
     refresh();
-    let install, actionsWarnings;
+    let install, actionsWarnings, activeScanChanged = false;
     try {
       const bundle = await request(operation);
       operation.accepted = true;
@@ -151,9 +191,12 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       if (!proof.isCurrent()) throw new Error('The unfinished edit changed after acceptance. Review it before loading the accepted project.');
       proof.finish();
       install();
+      activeScanChanged = kind === 'virtual' || kind === 'activation';
       if (kind === 'actions') actionsWarnings = bundle.import_warnings ?? bundle.metadata.import_warnings ?? [];
       status(kind === 'scan' ? 'Scan added. Create a selection to start fitting.'
         : kind === 'replacement' ? 'Scan replaced. Review selection entries and choose a source volume where needed.'
+        : kind === 'virtual' ? 'Virtual scan active for preliminary work. Review selection entries and choose a source volume where needed, then evaluate.'
+        : kind === 'activation' ? 'Active scan changed. Evaluate to refresh results; review selection entries and choose a source volume where needed.'
         : kind === 'reset' ? 'Empty project. Add a scan or choose an example.'
           : kind === 'actions' ? 'Actions loaded. Evaluate to refresh dependent results.' : 'Example loaded.');
       return true;
@@ -177,6 +220,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
         }
         refresh();
         if (actionsWarnings && !unavailable) onActionsLoaded(actionsWarnings);
+        if (activeScanChanged && !unavailable && !runtimeLocked) onActiveScanChanged();
       } finally { settled(); }
     }
   }
@@ -234,6 +278,65 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     if (!pendingReplacement && !prepareReplacementChoice(false)) return false;
     return chooseReplacementFile(file);
   }
+  function invalidateVirtual() {
+    pendingVirtual = null;
+    if ($('virtual-scan-dialog').open) $('virtual-scan-dialog').close();
+  }
+  function beginVirtualScan() {
+    if (locked()) return false;
+    if (!virtualProfile()?.can_create) {
+      status('Creating a virtual scan is unavailable for this source.', true);
+      return false;
+    }
+    invalidateActions();
+    const expected = cursor(), proof = prepareTransition();
+    if (!proof) return false;
+    if (!current(expected) || !proof.isCurrent()) {
+      status('The project or unfinished edit changed. Review it and try again.', true);
+      return false;
+    }
+    pendingVirtual = { cursor: expected, proof };
+    $('virtual-scan-divisions').value = '32';
+    $('virtual-scan-error').textContent = '';
+    $('virtual-scan-dialog').showModal();
+    $('virtual-scan-divisions').focus();
+    return true;
+  }
+  async function createVirtualScan() {
+    const pending = pendingVirtual;
+    if (!pending || locked()) return false;
+    const value = $('virtual-scan-divisions').value.trim();
+    const divisions = Number(value);
+    if (!value || !Number.isInteger(divisions) || divisions < 2 || divisions > 4096) {
+      $('virtual-scan-error').textContent = 'Choose a whole number from 2 to 4096.';
+      return false;
+    }
+    if (!virtualProfile()?.can_create || !current(pending.cursor) || !pending.proof.isCurrent()) {
+      invalidateVirtual();
+      status('The project or unfinished edit changed. Create the virtual scan again.', true);
+      return false;
+    }
+    invalidateVirtual();
+    return run('virtual', operation => {
+      operation.mutationStarted = true;
+      return backend.createVirtualScan({ settings: { version: 'edge-cell-reduction-v1', divisions }, ...operation.cursor }, { onProgress: progress });
+    }, { expected: pending.cursor, proof: pending.proof });
+  }
+  async function activateScan(binding) {
+    const profile = virtualProfile();
+    if (locked() || !profile?.can_activate) { refresh(); return false; }
+    if (binding === profile.active_binding) { refresh(); return false; }
+    if (![profile.original?.binding, profile.virtual?.binding].includes(binding)) {
+      status('Choose the original or virtual scan in this project.', true);
+      refresh(); return false;
+    }
+    try {
+      return await run('activation', operation => {
+        operation.mutationStarted = true;
+        return backend.activateScan({ binding, ...operation.cursor }, { onProgress: progress });
+      });
+    } finally { refresh(); }
+  }
   async function resetProject() {
     if (!backend.capabilities.sourceImport) return false;
     return run('reset', operation => {
@@ -274,6 +377,7 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   }
   function invalidateActions() {
     invalidateReplacement();
+    invalidateVirtual();
     actionsIntent++;
     pendingActions = null;
     if ($('locate-source-dialog').open) $('locate-source-dialog').close();
@@ -285,7 +389,8 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
     if (!validIntent(pending.intent, pending.cursor)) return;
     pendingActions = pending;
     const descriptor = pending.inspection.descriptor;
-    $('locate-source-hint').textContent = `Locate the original scan${descriptor?.filename ? ` (${descriptor.filename})` : ''}. Its bytes and interpretation must match the saved actions; the filename may differ.`;
+    const virtual = pending.recipe?.nodes?.some(node => node.operation === 'source' && node.virtual_scan);
+    $('locate-source-hint').textContent = `Locate the ${virtual ? 'original' : 'source'} scan${descriptor?.filename ? ` (${descriptor.filename})` : ''}. Its bytes and interpretation must match the saved actions; the filename may differ.`;
     $('locate-source-error').textContent = error;
     if (!$('locate-source-dialog').open) $('locate-source-dialog').showModal();
   }
@@ -396,11 +501,17 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
   $('replacement-file').onchange = () => chooseReplacementFile($('replacement-file').files[0]);
   $('replacement-file').addEventListener('cancel', invalidateReplacement);
   $('inspect-source').onclick = inspectSource;
+  $('create-virtual-scan').onclick = beginVirtualScan;
+  $('confirm-create-virtual-scan').onclick = createVirtualScan;
+  $('cancel-create-virtual-scan').onclick = invalidateVirtual;
+  $('virtual-scan-dialog').addEventListener('cancel', event => { event.preventDefault(); invalidateVirtual(); });
+  $('active-scan').onchange = () => activateScan($('active-scan').value);
   $('cancel-source-import').onclick = cancel;
   for (const button of document.querySelectorAll('[data-add-scan]')) button.onclick = () => $('add-scan').click();
   for (const button of document.querySelectorAll('[data-choose-example]')) button.onclick = () => $('choose-example').click();
   for (const button of document.querySelectorAll('[data-remove-scan]')) button.onclick = () => $('remove-scan').click();
   for (const button of document.querySelectorAll('[data-replace-scan]')) button.onclick = () => $('replace-scan').click();
+  for (const button of document.querySelectorAll('[data-create-virtual-scan]')) button.onclick = () => $('create-virtual-scan').click();
   $('retry-source-workspace').onclick = async () => {
     if (!unavailable || runtimeLocked) return;
     const proof = prepareTransition();
@@ -435,5 +546,5 @@ export function createSourceProjectController({ backend, getCurrent, canTransiti
       status('Prior actions downloaded. This does not save the scan file or unfinished edits.');
     } catch (error) { status(error.message, true); }
   };
-  return { refresh, addScan, beginReplacementChooser, chooseReplacementFile, replaceScan, resetProject, selectExample, restoreExample, cancel, loadActions, loadActionsFile, lockRuntime, prepareRuntimeRestore };
+  return { refresh, addScan, beginReplacementChooser, chooseReplacementFile, replaceScan, beginVirtualScan, createVirtualScan, activateScan, resetProject, selectExample, restoreExample, cancel, loadActions, loadActionsFile, lockRuntime, prepareRuntimeRestore };
 }

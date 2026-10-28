@@ -1,0 +1,525 @@
+{
+  "schema": "scansor-virtual-scan-ui-measurement-v1",
+  "status": "bounded generated-fixture observations; no general speed or whole-browser memory claim",
+  "fixture": {
+    "kind": "dyadic-plane-grid",
+    "divisions": 4,
+    "original_vertices": 289,
+    "original_triangles": 512,
+    "reduced_vertices": 25,
+    "reduced_triangles": 32
+  },
+  "native_ui": {
+    "passed": true,
+    "wall_seconds": 26.8,
+    "command": "node node_modules/@playwright/test/cli.js test tests/virtual-scans.spec.js"
+  },
+  "worker_cases": [
+    {
+      "mode": "plain",
+      "browser": {
+        "name": "chromium",
+        "version": "156.0.8078.4"
+      },
+      "report_sha256": "56a94738fab802cbe4d2810a745bf8654c78f3fa49fde600e3e619c87498d048",
+      "site_manifest_sha256": "a47c533b86f8daee1eeb2d0eeff12fa2dbf30ca919f7aa7e04a9cb308e3042ea",
+      "complete": true,
+      "cases": [
+        {
+          "name": "coarse-authoring-to-original",
+          "complete": true,
+          "real_pointer_selection": true,
+          "explicit_volume_transfer": true,
+          "full_rows": 289,
+          "coarse_rows": 25,
+          "current_edit_preserved": true,
+          "auto_return_refitted": true
+        },
+        {
+          "name": "missing-and-wrong-original",
+          "complete": true,
+          "cancelled_locate_preserved_project": true,
+          "wrong_same_name_preserved_project": true
+        }
+      ],
+      "original": {
+        "binding": "8dec783c19f48e1f2562d7a059ce8aecc30f8a2bcb7fffc23509f8ea01fb7f5d",
+        "vertices": 289,
+        "triangles": 512,
+        "bytes_sha256": "23ba7477723da56e8f8f4822332bcd72c645fce8f089e07a03dbf4cc59d0b595"
+      },
+      "reduced": {
+        "binding": "589fa9eb4ceeeefda63f83b7138b047a851492a4ef324a4e8f9188a5ccec5000",
+        "vertices": 25,
+        "triangles": 32
+      },
+      "creation_wall_ms": [
+        293.10993600000074
+      ],
+      "activation_wall_ms": {
+        "samples": 14,
+        "min": 169.93013700000301,
+        "median": 233.60064899999998,
+        "max": 291.96761499999957
+      },
+      "repeated_switch_samples": [
+        {
+          "index": 0,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 14759232,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 5888624,
+            "backingStorageSize": 6093800
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23484
+          ],
+          "workers": 1
+        },
+        {
+          "index": 1,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 25318108,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 8162376,
+            "backingStorageSize": 3863126
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1934
+          ],
+          "workers": 1
+        },
+        {
+          "index": 2,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 35818544,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 10515224,
+            "backingStorageSize": 3886660
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23534
+          ],
+          "workers": 1
+        },
+        {
+          "index": 3,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 21642056,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 12738600,
+            "backingStorageSize": 3888594
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1984
+          ],
+          "workers": 1
+        },
+        {
+          "index": 4,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 33053384,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 14862816,
+            "backingStorageSize": 3912128
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23584
+          ],
+          "workers": 1
+        },
+        {
+          "index": 5,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 19894856,
+            "totalSize": 88481792,
+            "embedderHeapUsedSize": 17242648,
+            "backingStorageSize": 3914062
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            2034
+          ],
+          "workers": 1
+        },
+        {
+          "index": 6,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 32335248,
+            "totalSize": 88481792,
+            "embedderHeapUsedSize": 19505520,
+            "backingStorageSize": 3937596
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23634
+          ],
+          "workers": 1
+        },
+        {
+          "index": 7,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 14825952,
+            "totalSize": 84549632,
+            "embedderHeapUsedSize": 4840952,
+            "backingStorageSize": 3935113
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1934
+          ],
+          "workers": 1
+        },
+        {
+          "index": 8,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 24270212,
+            "totalSize": 84549632,
+            "embedderHeapUsedSize": 7028408,
+            "backingStorageSize": 3863112
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23534
+          ],
+          "workers": 1
+        },
+        {
+          "index": 9,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 33503300,
+            "totalSize": 84549632,
+            "embedderHeapUsedSize": 9402712,
+            "backingStorageSize": 3865110
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1984
+          ],
+          "workers": 1
+        }
+      ],
+      "reopens": 2,
+      "force_recoveries": 2,
+      "resource_scope": "Main CDP heap/backing and logical WebGL buffer observations overlap and must not be summed; no whole-browser or physical GPU memory claim."
+    },
+    {
+      "mode": "isolated",
+      "browser": {
+        "name": "chromium",
+        "version": "156.0.8078.4"
+      },
+      "report_sha256": "7768e3917538799e7b5785131f711494fbd82735ae52b93c6a430bcd0a71e9aa",
+      "site_manifest_sha256": "a47c533b86f8daee1eeb2d0eeff12fa2dbf30ca919f7aa7e04a9cb308e3042ea",
+      "complete": true,
+      "cases": [
+        {
+          "name": "coarse-authoring-to-original",
+          "complete": true,
+          "real_pointer_selection": true,
+          "explicit_volume_transfer": true,
+          "full_rows": 289,
+          "coarse_rows": 25,
+          "current_edit_preserved": true,
+          "auto_return_refitted": true
+        },
+        {
+          "name": "missing-and-wrong-original",
+          "complete": true,
+          "cancelled_locate_preserved_project": true,
+          "wrong_same_name_preserved_project": true
+        }
+      ],
+      "original": {
+        "binding": "8dec783c19f48e1f2562d7a059ce8aecc30f8a2bcb7fffc23509f8ea01fb7f5d",
+        "vertices": 289,
+        "triangles": 512,
+        "bytes_sha256": "23ba7477723da56e8f8f4822332bcd72c645fce8f089e07a03dbf4cc59d0b595"
+      },
+      "reduced": {
+        "binding": "589fa9eb4ceeeefda63f83b7138b047a851492a4ef324a4e8f9188a5ccec5000",
+        "vertices": 25,
+        "triangles": 32
+      },
+      "creation_wall_ms": [
+        262.31335399999807
+      ],
+      "activation_wall_ms": {
+        "samples": 14,
+        "min": 179.91488300000492,
+        "median": 238.34433950000312,
+        "max": 308.7363800000021
+      },
+      "repeated_switch_samples": [
+        {
+          "index": 0,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 15875116,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 5700384,
+            "backingStorageSize": 6093730
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23484
+          ],
+          "workers": 1
+        },
+        {
+          "index": 1,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 25343724,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 7698800,
+            "backingStorageSize": 3863156
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1934
+          ],
+          "workers": 1
+        },
+        {
+          "index": 2,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 36814848,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 10097312,
+            "backingStorageSize": 3886690
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23534
+          ],
+          "workers": 1
+        },
+        {
+          "index": 3,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 22906884,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 12351040,
+            "backingStorageSize": 3888624
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            1984
+          ],
+          "workers": 1
+        },
+        {
+          "index": 4,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 35318712,
+            "totalSize": 88219648,
+            "embedderHeapUsedSize": 14680512,
+            "backingStorageSize": 3912158
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23584
+          ],
+          "workers": 1
+        },
+        {
+          "index": 5,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 21694852,
+            "totalSize": 90054656,
+            "embedderHeapUsedSize": 16880168,
+            "backingStorageSize": 3914092
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            2034
+          ],
+          "workers": 1
+        },
+        {
+          "index": 6,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 33118260,
+            "totalSize": 90054656,
+            "embedderHeapUsedSize": 19120480,
+            "backingStorageSize": 3937626
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23634
+          ],
+          "workers": 1
+        },
+        {
+          "index": 7,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 43548120,
+            "totalSize": 90054656,
+            "embedderHeapUsedSize": 21429144,
+            "backingStorageSize": 3939560
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            2084
+          ],
+          "workers": 1
+        },
+        {
+          "index": 8,
+          "vertices": 289,
+          "main_heap": {
+            "usedSize": 29222660,
+            "totalSize": 90054656,
+            "embedderHeapUsedSize": 23828384,
+            "backingStorageSize": 3963094
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 512
+          },
+          "logical_live_buffer_bytes": [
+            23684
+          ],
+          "workers": 1
+        },
+        {
+          "index": 9,
+          "vertices": 25,
+          "main_heap": {
+            "usedSize": 39603696,
+            "totalSize": 90054656,
+            "embedderHeapUsedSize": 26110536,
+            "backingStorageSize": 3965028
+          },
+          "render": {
+            "geometries": 3,
+            "textures": 1,
+            "calls": 3,
+            "triangles": 32
+          },
+          "logical_live_buffer_bytes": [
+            2134
+          ],
+          "workers": 1
+        }
+      ],
+      "reopens": 2,
+      "force_recoveries": 2,
+      "resource_scope": "Main CDP heap/backing and logical WebGL buffer observations overlap and must not be summed; no whole-browser or physical GPU memory claim."
+    }
+  ]
+}

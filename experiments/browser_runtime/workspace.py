@@ -37,6 +37,7 @@ from experiments.feature_graph import (
     GraphRequest,
     Recipe,
     Record,
+    Source,
     StaleGraph,
 )
 from experiments.feature_recipe_import import ImportWarning, import_recipe, load_recipe
@@ -46,7 +47,7 @@ from experiments.feature_reuse_authoring import (
 )
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.scan_actions import ActionsInspection, inspect_actions
-from experiments.scan_project import ScanProject
+from experiments.scan_project import ScanProject, virtual_scan_metadata
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -54,6 +55,7 @@ from experiments.scan_workspace import (
     ScanWorkspace,
     check_cancelled,
 )
+from experiments.virtual_scan_reduction import ReductionSettings
 
 CAD_ACTIONS = frozenset(
     {"surface_intersection", "trimmed_face", "arranged_face", "build_faces", "body"}
@@ -341,6 +343,9 @@ class BrowserWorkspace:
             "actions_limits": actions_limits(),
             "selection_entries": {"version": 1},
             "selection_volumes": {"version": 1, "max_preview_cells": 2048},
+            "virtual_scans": virtual_scan_metadata(source.project.accepted)
+            if source.project is not None and self._scan_limits is not None
+            else {"supported": False, "version": 1},
             "source_replacement": {
                 "supported": self._scan_limits is not None
                 and source.project is not None
@@ -365,7 +370,13 @@ class BrowserWorkspace:
             raise ScanImportError(
                 "Project changed before inspecting actions.", "stale_source"
             )
-        inspection = inspect_actions(payload.get("recipe"), self.workspace)
+        inspection = inspect_actions(
+            payload.get("recipe"),
+            self.workspace,
+            retained_sources=self._source.project.accepted.retained_sources
+            if self._source.project is not None
+            else (),
+        )
         if not (self._cad_available or self.cad_enabled) and self._requires_cad(
             inspection
         ):
@@ -444,7 +455,10 @@ class BrowserWorkspace:
             raise ScanImportError("Scan exceeds the source byte limit.", "source_limit")
         saved = inspection.actions.source
         assert saved is not None and saved.descriptor is not None
-        if size != saved.descriptor.source_bytes:
+        expected = (
+            saved.virtual_scan.original if saved.virtual_scan else saved.descriptor
+        )
+        if size != expected.source_bytes:
             raise ScanImportError(
                 "Located file length differs from the saved source.", "source_mismatch"
             )
@@ -637,6 +651,8 @@ class BrowserWorkspace:
                 "purpose",
                 "recipe",
                 "source",
+                "settings",
+                "binding",
             },
         )
         if self._pending is not None or self._candidate is not None:
@@ -688,12 +704,65 @@ class BrowserWorkspace:
         kind = payload.get("kind")
         project: ScanProject | None = None
         facts: dict[str, Any] = {}
-        if payload.get("purpose") == "replace-scan":
+        if payload.get("purpose") in {"create-virtual-scan", "activate-scan"}:
+            purpose = payload["purpose"]
+            self._keys(
+                payload,
+                {"operationId", "kind", "purpose", "generation", "token"}
+                | ({"settings"} if purpose == "create-virtual-scan" else {"binding"}),
+            )
+            if recovering or kind != "scan" or source_path:
+                raise ScanImportError(
+                    "Virtual scan changes do not accept source uploads or recovery overrides.",
+                    "invalid_source",
+                )
+            if self._scan_limits is None or self._source.project is None:
+                raise ScanImportError(
+                    "Virtual scans require an imported original scan.",
+                    "unsupported_capability",
+                )
+            current = self._source.project.accepted
+            project = ScanProject()
+            initial = project.accepted
+            if purpose == "create-virtual-scan":
+                change = project.prepare_virtual_scan(
+                    ReductionSettings.model_validate(payload.get("settings")),
+                    self._scan_limits,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    matching=current,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+            else:
+                binding = payload.get("binding")
+                if not isinstance(binding, str) or len(binding) != 64:
+                    raise ScanImportError(
+                        "Choose a retained scan binding.", "invalid_source"
+                    )
+                change = project.prepare_activate_scan(
+                    binding,
+                    self._scan_limits,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    matching=current,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+            self._check_capabilities(
+                Recipe.model_validate(change.accepted.graph.snapshot()["recipe"])
+            )
+            _ = project.commit_replace(change, cancelled=cancelled)
+            source = _BrowserSource(project, None, self._source.import_warnings)
+            facts = {"purpose": purpose}
+        elif payload.get("purpose") == "replace-scan":
             if (
                 recovering
                 or kind != "scan"
                 or "recipe" in payload
                 or "source" in payload
+                or "settings" in payload
+                or "binding" in payload
             ):
                 raise ScanImportError(
                     "Invalid replacement source purpose.", "invalid_source"
@@ -753,7 +822,10 @@ class BrowserWorkspace:
             source, facts = self._prepare_actions_source(
                 payload, source_path, progress, cancelled
             )
-        elif "purpose" in payload or "recipe" in payload or "source" in payload:
+        elif any(
+            key in payload
+            for key in ("purpose", "recipe", "source", "settings", "binding")
+        ):
             raise ScanImportError(
                 "Unknown source preparation purpose.", "invalid_source"
             )
@@ -799,6 +871,23 @@ class BrowserWorkspace:
                     f"Staged source is unavailable: {error}", "source_unavailable"
                 ) from error
             _ = project.commit(candidate, cancelled=cancelled)
+            if recovering and any(
+                isinstance(node, Source) and node.virtual_scan is not None
+                for node in Recipe.model_validate(recovery_recipe).nodes
+            ):
+                accepted = project.accepted
+                reopened = project.prepare_open(
+                    recovery_recipe,
+                    generation=accepted.generation,
+                    token=str(accepted.graph.snapshot()["token"]),
+                    confirmed_discard=True,
+                    matching=accepted,
+                    limits=self._scan_limits,
+                    progress=progress,
+                    cancelled=cancelled,
+                    check_recipe=self._check_capabilities,
+                )
+                _ = project.commit_open(reopened, cancelled=cancelled)
             source = _BrowserSource(project, None)
         elif kind == "empty":
             if not recovering and payload.get("confirmedDiscard") is not True:

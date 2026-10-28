@@ -8,6 +8,7 @@ import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFil
   readSourceEvidence,compareSourceNumbers} from './source-import-harness.mjs';
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
+import {validateVirtualScanUi} from './virtual-scan-ui.mjs';
 import {authoringSemanticCases} from './source-authoring-semantic.mjs';
 import {validateSourceUiActions} from './source-ui-actions.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
@@ -209,6 +210,7 @@ try{
       recipe:report.source_graph_snapshots.native_scene.recipe,token:report.source_graph_snapshots.native_scene.token});
   }
   await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
+  await validateVirtualScanUi({browser,site,preview,prefix,isolation,report});
   const authoredRecipes=path.join(output,'ui-authored-recipes.json');
   await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
     Object.entries(report.ui_authoring.graphs).map(([name,graph])=>[name,graph.recipe]))));
@@ -219,7 +221,8 @@ try{
     cancel_before_adoption:true,force_after_adoption:true,cleanup_failure_recovery:true,isolation_matches:true,
     ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true,
     ui_source_actions:report.ui_actions.complete===true,
-    ui_source_authoring:report.ui_authoring.complete===true};
+    ui_source_authoring:report.ui_authoring.complete===true,
+    virtual_scans:report.virtual_scans.complete===true};
   // Compare only after the actual recovery/UI observations. The reviewed bridge
   // retains the full operands and failed receipt before a parity error escapes.
   try{

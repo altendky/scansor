@@ -107,6 +107,13 @@ header { min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; 
 #project-toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 #project-toolbar .row { display: contents; }
 #project-toolbar button { font-size: 12px; white-space: nowrap; flex: none; }
+#active-scan-controls { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 7px 20px; margin: 0; background: #17232e; font-size: 12px; }
+#active-scan-controls[hidden] { display: none; }
+#active-scan-controls label { display: flex; align-items: center; gap: 8px; margin: 0; }
+#active-scan-controls select { width: auto; max-width: min(370px, 65vw); margin: 0; padding: 5px 7px; }
+#active-scan-controls button { padding: 5px 8px; font-size: 12px; }
+#active-scan-summary { color: #a6b6c5; }
+#virtual-scan-dialog { max-width: min(520px, calc(100vw - 24px)); }
 #import-warning { flex: none; padding: 8px 20px; background: #3d3521; border-bottom: 1px solid #8a7447; font-size: 12px; }
 .import-warning-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #dismiss-import-warning { padding: 4px 8px; font-size: 12px; }

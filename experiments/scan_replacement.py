@@ -16,6 +16,7 @@ from experiments.selection_entries import (
     initial_entry_id,
     source_binding,
 )
+from experiments.virtual_scan_reduction import VirtualScanDerivation
 
 
 def replacement_recipe(
@@ -23,6 +24,7 @@ def replacement_recipe(
     previous: Workspace,
     replacement: ScanWorkspace,
     *,
+    virtual_scan: VirtualScanDerivation | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> Recipe:
     """Retain definitions and source-bound evidence without reusing old row IDs.
@@ -58,6 +60,9 @@ def replacement_recipe(
                 source_sha256=new_binding.source_sha256,
                 reference_sha256=new_binding.reference_sha256,
                 descriptor=replacement.descriptor.model_dump(mode="json"),
+                virtual_scan=virtual_scan.model_dump(mode="json")
+                if virtual_scan
+                else None,
             )
         elif isinstance(node, Selection):
             # This is the same canonical initial entry as convert_selection,

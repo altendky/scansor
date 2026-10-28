@@ -384,6 +384,74 @@ function meshResponse(path, generation) {
 
 function scanFile() { return Object.assign(new Blob(['ply']), { name: 'renamed.ply' }); }
 
+test('HTTP virtual scan operations reuse no-upload source publication and generation fences', async () => {
+  for (const [method, endpoint, purpose, controls] of [
+    ['createVirtualScan', '/api/sources/virtual', 'create-virtual-scan', { settings: { divisions: 4 } }],
+    ['activateScan', '/api/sources/activate', 'activate-scan', { binding: 'a'.repeat(64) }],
+  ]) {
+    const calls = [], records = [];
+    let accepted = false;
+    const backend = createHttpBackend({ wait: async () => {}, fetch: async (path, init) => {
+      calls.push({ path, init });
+      if (path === '/api/meta') return Response.json({ ...metadata(accepted ? 2 : 1, accepted ? 'changed' : 'original'),
+        virtual_scans: { supported: true, version: 1, can_create: true, can_activate: true } });
+      if (path.startsWith('/mesh/')) return meshResponse(path, accepted ? 2 : 1);
+      if (path === endpoint) return Response.json(sourceRecord({ generation: 1, token: 'original', purpose,
+        uploadRequired: false, status: 'preparing', unit: 'steps', total: 1 }));
+      assert.equal(path, '/api/sources/imports/scan-1');
+      accepted = true;
+      return Response.json(sourceRecord({ generation: 1, token: 'original', purpose, uploadRequired: false,
+        revision: 1, terminal: true, status: 'accepted', acceptedGeneration: 2 }));
+    } });
+    await backend.loadWorkspace();
+    const bundle = await backend[method]({ generation: 1, token: 'original', ...controls },
+      { onProgress: value => records.push(value) });
+    assert.equal(bundle.generation, 2);
+    assert.deepEqual(JSON.parse(calls.find(call => call.path === endpoint).init.body),
+      { generation: 1, token: 'original', ...controls });
+    assert(!calls.some(call => call.path.endsWith('/bytes')));
+    assert.equal(records.at(-1).purpose, purpose);
+    assert.equal(records.at(-1).uploadRequired, false);
+    assert.equal(backend.capabilities.virtualScans, true);
+    backend.close();
+  }
+});
+
+test('HTTP virtual scans reject unavailable profiles before reserving work', async () => {
+  for (const profile of [undefined, { supported: false }, { supported: true, version: 2 },
+    { supported: true, version: 1, can_create: false, can_activate: false }]) {
+    const paths = [], backend = createHttpBackend({ fetch: async path => {
+      paths.push(path);
+      return path === '/api/meta' ? Response.json({ ...metadata(), virtual_scans: profile }) : meshResponse(path, 0);
+    } });
+    await backend.loadWorkspace();
+    await assert.rejects(backend.createVirtualScan({ generation: 0, token: 'empty', settings: { divisions: 4 } }),
+      error => error.code === 'unsupported_capability');
+    await assert.rejects(backend.activateScan({ generation: 0, token: 'empty', binding: 'a'.repeat(64) }),
+      error => error.code === 'unsupported_capability');
+    assert(!paths.some(path => ['/api/sources/virtual', '/api/sources/activate'].includes(path)));
+    backend.close();
+  }
+});
+
+test('HTTP virtual scan acceptance rejects upload, purpose and generation mismatches', async () => {
+  for (const defect of ['upload', 'purpose', 'generation']) {
+    const backend = createHttpBackend({ fetch: async path => {
+      if (path === '/api/meta') return Response.json({ ...metadata(1, 'original'),
+        virtual_scans: { supported: true, version: 1, can_create: true } });
+      if (path.startsWith('/mesh/')) return meshResponse(path, 1);
+      return Response.json(sourceRecord({ generation: 1, token: 'original',
+        purpose: defect === 'purpose' ? 'activate-scan' : 'create-virtual-scan',
+        uploadRequired: defect === 'upload', terminal: true, status: 'accepted',
+        acceptedGeneration: defect === 'generation' ? 3 : 2 }));
+    } });
+    await backend.loadWorkspace();
+    await assert.rejects(backend.createVirtualScan({ generation: 1, token: 'original', settings: { divisions: 4 } }),
+      error => error.code === 'accepted_workspace_unavailable');
+    backend.close();
+  }
+});
+
 test('source operations are optional and capability-gated for old factories and old worker declarations', async () => {
   const unavailable = [createBackend({ type: 'old', factories: { old: () => ({
     ...createHttpBackend({ fetch: () => assert.fail('Unexpected fallback') }),

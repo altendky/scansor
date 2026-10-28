@@ -8,6 +8,7 @@ candidate before cleanup, and never owns a second accepted-state pointer.
 from __future__ import annotations
 
 import math
+import re
 import tempfile
 import time
 from collections import deque
@@ -30,6 +31,10 @@ from experiments.scan_workspace import (
     Workspace,
     check_cancelled,
 )
+from experiments.virtual_scan_reduction import ReductionSettings
+
+SourceChangePurpose = Literal["create-virtual-scan", "activate-scan"]
+SourceChange = ReductionSettings | str
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,18 @@ class NativeImportContext:
         ]
         | None
     ) = None
+    prepare_source_change: (
+        Callable[
+            [
+                SourceChangePurpose,
+                SourceChange,
+                Callable[[ScanProgress], None],
+                Callable[[], bool],
+            ],
+            NativeOpenCandidate,
+        ]
+        | None
+    ) = None
 
 
 @dataclass
@@ -81,6 +98,7 @@ class _Operation:
     upload_required: bool = True
     context: NativeImportContext | None = None
     recipe: object = None
+    source_change: SourceChange | None = None
     warning_count: int = 0
     cancelled: Event = field(default_factory=Event)
     revision: int = 0
@@ -182,6 +200,7 @@ class NativeScanImports:
         operation.project = None
         operation.context = None
         operation.recipe = None
+        operation.source_change = None
         operation.filename = ""
         # A cleanup failure fences this service; directory shutdown still owns
         # orphan cleanup without retaining its path in bounded terminal history.
@@ -303,6 +322,78 @@ class NativeScanImports:
             self._active = operation.id
             return operation.record()
 
+    def change_source(
+        self,
+        *,
+        generation: int,
+        token: str,
+        purpose: SourceChangePurpose,
+        change: SourceChange,
+    ) -> dict[str, object]:
+        """Reserve the existing lease for an operation that needs no byte upload."""
+        if cast(object, purpose) not in {"create-virtual-scan", "activate-scan"}:
+            raise ScanImportError("Unknown source change purpose.", "invalid_operation")
+        if purpose == "create-virtual-scan":
+            if not isinstance(change, ReductionSettings):
+                raise ScanImportError(
+                    "Expected bounded reduction settings.", "invalid_reduction"
+                )
+            change = ReductionSettings.model_validate(change.model_dump())
+        elif purpose == "activate-scan":
+            if (
+                not isinstance(change, str)
+                or re.fullmatch(r"[0-9a-f]{64}", change) is None
+            ):
+                raise ScanImportError(
+                    "Expected an exact retained scan binding.", "invalid_source_binding"
+                )
+        with self._lock:
+            self._expire()
+            if self._closing:
+                raise ScanImportError(
+                    "Source import service is closing.", "import_closed"
+                )
+            if self._active is not None:
+                raise ScanImportError("Another source import is active.", "source_busy")
+            context = self._context()
+            if (
+                type(generation) is not int
+                or generation != context.generation
+                or token != context.token
+            ):
+                raise ScanImportError(
+                    "Project changed before source preparation.", "stale_source"
+                )
+            if context.project is None or context.prepare_source_change is None:
+                raise ScanImportError(
+                    "Virtual scans require an imported original scan.",
+                    "unsupported_virtual_scan",
+                )
+            accepted = context.project.accepted
+            context.project.check_replace(generation=accepted.generation, token=token)
+            operation = _Operation(
+                uuid4().hex,
+                generation,
+                token,
+                "",
+                0,
+                self._clock(),
+                context.project,
+                accepted.generation,
+                purpose=purpose,
+                upload_required=False,
+                context=context,
+                source_change=change,
+                status="preparing",
+                phase="preflight",
+                total=1,
+                unit="steps",
+            )
+            self._operations[operation.id] = operation
+            self._active = operation.id
+            _ = self._executor.submit(self._prepare, operation.id)
+            return operation.record()
+
     def open_actions(
         self,
         *,
@@ -342,7 +433,18 @@ class NativeScanImports:
             # Inspection and later preparation must use the same owned raw intent.
             # Retain pre-normalization labels so native warnings survive replay.
             raw_recipe = deepcopy(recipe)
-            inspection = inspect_actions(raw_recipe, context.workspace)
+            retained_sources = (
+                context.project.accepted.retained_sources
+                if context.project is not None
+                else ()
+            )
+            inspection = (
+                inspect_actions(
+                    raw_recipe, context.workspace, retained_sources=retained_sources
+                )
+                if retained_sources
+                else inspect_actions(raw_recipe, context.workspace)
+            )
             upload = inspection.disposition == "locate"
             if upload:
                 if filename is None or size is None:
@@ -367,7 +469,12 @@ class NativeScanImports:
                     )
                 source = inspection.actions.source
                 assert source is not None and source.descriptor is not None
-                if size != source.descriptor.source_bytes:
+                located_descriptor = (
+                    source.virtual_scan.original
+                    if source.virtual_scan is not None
+                    else source.descriptor
+                )
+                if size != located_descriptor.source_bytes:
                     raise ScanImportError(
                         "Located file length differs from the saved source.",
                         "source_mismatch",
@@ -567,7 +674,17 @@ class NativeScanImports:
         try:
             opened: NativeOpenCandidate | None = None
             candidate: PreparedScan | None = None
-            if operation.purpose == "replace-scan":
+            if operation.purpose in {"create-virtual-scan", "activate-scan"}:
+                context = operation.context
+                assert context is not None and context.prepare_source_change is not None
+                assert operation.source_change is not None
+                opened = context.prepare_source_change(
+                    cast(SourceChangePurpose, operation.purpose),
+                    operation.source_change,
+                    progress,
+                    operation.cancelled.is_set,
+                )
+            elif operation.purpose == "replace-scan":
                 context = operation.context
                 assert context is not None and context.prepare_replace is not None
                 assert path is not None

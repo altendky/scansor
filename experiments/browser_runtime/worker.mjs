@@ -136,9 +136,15 @@ async function prepareSource(request) {
     check();
     const { file: ignoredFile, recovery, ...sourcePayload } = payload;
     void ignoredFile;
-    let uploadRequired = payload.kind === 'scan';
+    const virtualChange = ['create-virtual-scan', 'activate-scan'].includes(payload.purpose);
+    let uploadRequired = payload.kind === 'scan' && !virtualChange;
+    if (virtualChange && (manifest.worker_protocol?.version !== 11
+      || manifest.worker_protocol?.virtual_scans?.supported !== true))
+      throw Object.assign(new Error('This runtime does not support virtual scans.'), { code: 'unsupported_capability' });
+    if (virtualChange && (payload.file !== undefined || recovery !== undefined))
+      throw Object.assign(new Error('Virtual scan changes do not accept file uploads.'), { code: 'unexpected_source' });
     if (payload.purpose === 'replace-scan' &&
-      (![9, 10].includes(manifest.worker_protocol?.version) || manifest.worker_protocol?.replace_scan?.supported !== true))
+      (![9, 10, 11].includes(manifest.worker_protocol?.version) || manifest.worker_protocol?.replace_scan?.supported !== true))
       throw Object.assign(new Error('This runtime does not support scan replacement.'), { code: 'unsupported_capability' });
     if (payload.purpose === 'open-actions') {
       if (manifest.worker_protocol?.source_actions?.supported !== true)
@@ -357,7 +363,7 @@ async function dispatch(request) {
   }
   if (selectionVolumeOperations.has(operation)) {
     const profile = manifest.worker_protocol?.selection_volumes;
-    if (manifest.worker_protocol?.version !== 10 || !profile || Object.keys(profile).length !== 2 ||
+    if (![10, 11].includes(manifest.worker_protocol?.version) || !profile || Object.keys(profile).length !== 2 ||
       profile.version !== 1 || profile.max_preview_cells !== 2048)
       throw Object.assign(new Error('This runtime does not support selection volumes.'), { code: 'unsupported_capability' });
   }

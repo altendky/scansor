@@ -2655,6 +2655,16 @@ function showSourceProperties(node) {
     ['Vertices', metadata.vertices.toLocaleString()],
     ['Triangles', metadata.triangles.toLocaleString()],
   ];
+  const scans = metadata.virtual_scans;
+  if (scans?.supported && scans.version === 1) {
+    values.push(['Working scan', scans.virtual?.binding === scans.active_binding ? 'Virtual — preliminary work' : 'Original']);
+    if (scans.virtual) {
+      values.push(
+        ['Original detail', `${scans.original.vertices.toLocaleString()} vertices · ${scans.original.triangles.toLocaleString()} triangles`],
+        ['Virtual detail', `${scans.virtual.vertices.toLocaleString()} vertices · ${scans.virtual.triangles.toLocaleString()} triangles`],
+      );
+    }
+  }
   if (metadata.source?.filename && metadata.source.filename !== descriptor?.filename)
     values.push(['Loaded filename', metadata.source.filename]);
   if (descriptor) {
@@ -6926,6 +6936,9 @@ async function start(recoveredState) {
     },
     onActionsLoaded: warnings => {
       showImportWarnings(warnings);
+      if ($('auto-evaluate').checked) queueEnsureAll();
+    },
+    onActiveScanChanged: () => {
       if ($('auto-evaluate').checked) queueEnsureAll();
     },
   });

@@ -145,6 +145,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     try { path = operationPath(operationId); }
     catch (error) { throw invalidOperation(operation, error); }
     const upload = new AbortController();
+    const retainedSourceChange = ['create-virtual-scan', 'activate-scan'].includes(purpose);
     const publish = value => {
       checkPublication(publication);
       active.throwIfAborted();
@@ -154,6 +155,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
           || value.acceptedGeneration <= generation)
         || purpose && value.purpose !== purpose
         || purpose === 'replace-scan' && value.status === 'accepted' && value.acceptedGeneration !== generation + 1
+        || retainedSourceChange && (value.uploadRequired !== false
+          || value.status === 'accepted' && value.acceptedGeneration !== generation + 1)
         || purpose === 'open-actions' && (value.uploadRequired !== !!file
           || value.status === 'accepted' && (value.acceptedGeneration !== generation + 1
             || !Number.isSafeInteger(value.import_warning_count) || value.import_warning_count < 0)))
@@ -202,7 +205,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
-      sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true }),
+      sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -313,6 +316,24 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         { generation, token, filename: file.name || 'scan.ply', size: file.size, purpose: 'replace-scan' },
         { signal, publication, sourceMutation: true });
       return observeSourceOperation(operation, { generation, token, file, signal, onProgress, publication, purpose: 'replace-scan' });
+    },
+    async createVirtualScan({ generation, token, settings }, { signal, onProgress = () => {} } = {}) {
+      const profile = acceptedMetadata?.virtual_scans;
+      if (profile?.supported !== true || profile.version !== 1 || profile.can_create !== true)
+        throw new BackendError('This workspace cannot create a virtual scan.', { code: 'unsupported_capability' });
+      const publication = ++sourcePublication;
+      const operation = await request('/api/sources/virtual', { generation, token, settings },
+        { signal, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, signal, onProgress, publication, purpose: 'create-virtual-scan' });
+    },
+    async activateScan({ generation, token, binding }, { signal, onProgress = () => {} } = {}) {
+      const profile = acceptedMetadata?.virtual_scans;
+      if (profile?.supported !== true || profile.version !== 1 || profile.can_activate !== true)
+        throw new BackendError('This workspace cannot switch retained scans.', { code: 'unsupported_capability' });
+      const publication = ++sourcePublication;
+      const operation = await request('/api/sources/activate', { generation, token, binding },
+        { signal, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, signal, onProgress, publication, purpose: 'activate-scan' });
     },
     async *graphUpdates({ revision, signal, isCurrent = () => true } = {}) {
       const active = signalFor(signal), publication = sourcePublication;

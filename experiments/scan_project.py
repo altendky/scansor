@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -26,8 +27,16 @@ from experiments.scan_workspace import (
     ScanLimits,
     ScanProgress,
     ScanWorkspace,
+    SourceDescriptor,
     check_cancelled,
     prepare_scan,
+)
+from experiments.virtual_scan_reduction import (
+    ReductionSettings,
+    VirtualScanDerivation,
+)
+from experiments.virtual_scan_reduction import (
+    prepare_virtual_scan as reduce_scan,
 )
 
 
@@ -39,6 +48,7 @@ class AcceptedScan:
     positions: NDArray[np.float32]
     indices: NDArray[np.uint32]
     import_warnings: tuple[ImportWarning, ...] = ()
+    retained_sources: tuple[ScanWorkspace, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -98,6 +108,130 @@ def _accepted(workspace: ScanWorkspace, generation: int) -> AcceptedScan:
     return AcceptedScan(
         generation, workspace, FeatureGraph(workspace, recipe), positions, indices
     )
+
+
+def _source(accepted: AcceptedScan) -> Source | None:
+    recipe = Recipe.model_validate(accepted.graph.snapshot()["recipe"])
+    return next((node for node in recipe.nodes if isinstance(node, Source)), None)
+
+
+def _check_retained_limits(pair: tuple[ScanWorkspace, ...], limits: ScanLimits) -> None:
+    if (
+        sum(len(source.original_bytes) for source in pair) > limits.max_source_bytes
+        or sum(len(source.local) for source in pair) > limits.max_vertices
+        or sum(len(source.data.triangles) for source in pair) > limits.max_faces
+        or sum(source.diagnostics.estimated_bytes for source in pair)
+        > limits.max_estimated_bytes
+    ):
+        raise ScanImportError(
+            "Retained scans exceed the aggregate source limits.", "source_limit"
+        )
+
+
+def _matches(workspace: ScanWorkspace, descriptor: SourceDescriptor) -> bool:
+    return workspace.descriptor is not None and (
+        workspace.descriptor.semantic_record() == descriptor.semantic_record()
+        and len(workspace.original_bytes) == descriptor.source_bytes
+        and hashlib.sha256(workspace.original_bytes).hexdigest()
+        == descriptor.source_sha256
+    )
+
+
+def _retained_pair(
+    accepted: AcceptedScan, lineage: VirtualScanDerivation, limits: ScanLimits
+) -> tuple[ScanWorkspace, ScanWorkspace]:
+    pair = accepted.retained_sources
+    if (
+        len(pair) != 2
+        or not _matches(pair[0], lineage.original)
+        or not _matches(pair[1], lineage.derived)
+    ):
+        raise ScanImportError(
+            "Virtual scan switching requires its exact retained source pair.",
+            "source_required",
+        )
+    if not any(accepted.workspace is source for source in pair):
+        raise ScanImportError(
+            "The active workspace is outside its retained source pair.",
+            "invalid_source_binding",
+        )
+    _check_retained_limits(pair, limits)
+    return pair[0], pair[1]
+
+
+def _same_derivation(
+    first: VirtualScanDerivation, second: VirtualScanDerivation
+) -> bool:
+    return (
+        first.original.semantic_record() == second.original.semantic_record()
+        and first.derived.semantic_record() == second.derived.semantic_record()
+        and first.settings == second.settings
+    )
+
+
+def reconstruct_virtual_scan(
+    original: ScanWorkspace,
+    derivation: VirtualScanDerivation,
+    limits: ScanLimits,
+    *,
+    progress: Callable[[ScanProgress], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> tuple[ScanWorkspace, ScanWorkspace]:
+    """Recover both exact endpoints from original bytes and a saved derivation."""
+    check_cancelled(cancelled)
+    lineage = VirtualScanDerivation.model_validate(derivation.model_dump(mode="json"))
+    if not _matches(original, lineage.original):
+        raise ScanImportError(
+            "The original does not match the virtual scan derivation.",
+            "source_mismatch",
+        )
+    reduced = reduce_scan(
+        original, lineage.settings, limits, progress=progress, cancelled=cancelled
+    )
+    if (
+        reduced.derivation.derived.semantic_record()
+        != lineage.derived.semantic_record()
+    ):
+        raise ScanImportError(
+            "Virtual scan regeneration does not match its saved identity.",
+            "source_mismatch",
+        )
+    pair = (original, reduced.workspace)
+    _check_retained_limits(pair, limits)
+    check_cancelled(cancelled)
+    return pair
+
+
+def virtual_scan_metadata(accepted: AcceptedScan | None) -> dict[str, object]:
+    """Describe one active source and its optional retained virtual derivative."""
+    source = _source(accepted) if accepted is not None else None
+    descriptor = source.descriptor if source is not None else None
+    lineage = source.virtual_scan if source is not None else None
+
+    def record(value: SourceDescriptor | None) -> dict[str, object] | None:
+        return (
+            None
+            if value is None
+            else {
+                "binding": value.binding_sha256,
+                "vertices": value.vertices,
+                "triangles": value.triangles,
+                "descriptor": value.model_dump(mode="json"),
+            }
+        )
+
+    return {
+        "supported": descriptor is not None,
+        "version": 1,
+        "active_binding": descriptor.binding_sha256 if descriptor else None,
+        "original": record(lineage.original if lineage else descriptor),
+        "virtual": record(lineage.derived if lineage else None),
+        "settings": lineage.settings.model_dump(mode="json") if lineage else None,
+        "can_create": descriptor is not None and lineage is None,
+        "can_activate": lineage is not None
+        and accepted is not None
+        and len(accepted.retained_sources) == 2,
+    }
 
 
 class ScanProject:
@@ -262,6 +396,134 @@ class ScanProject:
             accepted,
         )
 
+    def _prepare_virtual_transition(
+        self,
+        previous: AcceptedScan,
+        recipe: Recipe,
+        workspace: ScanWorkspace,
+        pair: tuple[ScanWorkspace, ScanWorkspace],
+        lineage: VirtualScanDerivation,
+        limits: ScanLimits,
+        *,
+        generation: int,
+        token: str,
+        cancelled: Callable[[], bool] | None,
+    ) -> PreparedReplacement:
+        _check_retained_limits(pair, limits)
+        check_cancelled(cancelled)
+        retained = replacement_recipe(
+            recipe,
+            previous.workspace,
+            workspace,
+            virtual_scan=lineage,
+            cancelled=cancelled,
+        )
+        graph = FeatureGraph(workspace, retained)
+        positions, indices = workspace.display_buffers()
+        state = graph.snapshot()
+        accepted = AcceptedScan(
+            generation + 1,
+            workspace,
+            graph,
+            positions,
+            indices,
+            previous.import_warnings,
+            pair,
+        )
+        check_cancelled(cancelled)
+        return PreparedReplacement(
+            self._owner,
+            generation,
+            token,
+            str(state["token"]),
+            cast(int, state["revision"]),
+            accepted,
+        )
+
+    def prepare_virtual_scan(
+        self,
+        settings: ReductionSettings,
+        limits: ScanLimits,
+        *,
+        generation: int,
+        token: str,
+        matching: AcceptedScan | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> PreparedReplacement:
+        """Create and activate one detached derivative while retaining its original."""
+        with self._lock, self._accepted.graph.lock:
+            self.check_replace(generation=generation, token=token, matching=matching)
+            previous = matching or self._accepted
+            with previous.graph.lock:
+                recipe = Recipe.model_validate(previous.graph.snapshot()["recipe"])
+            source = next(node for node in recipe.nodes if isinstance(node, Source))
+            if source.virtual_scan is not None or previous.retained_sources:
+                raise ScanImportError(
+                    "This scan already has a virtual derivative.", "virtual_scan_exists"
+                )
+        reduced = reduce_scan(
+            previous.workspace, settings, limits, progress=progress, cancelled=cancelled
+        )
+        return self._prepare_virtual_transition(
+            previous,
+            recipe,
+            reduced.workspace,
+            (previous.workspace, reduced.workspace),
+            reduced.derivation,
+            limits,
+            generation=generation,
+            token=token,
+            cancelled=cancelled,
+        )
+
+    def prepare_activate_scan(
+        self,
+        binding: str,
+        limits: ScanLimits,
+        *,
+        generation: int,
+        token: str,
+        matching: AcceptedScan | None = None,
+        progress: Callable[[ScanProgress], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> PreparedReplacement:
+        """Switch observations using current shared definitions, never an old graph."""
+        with self._lock, self._accepted.graph.lock:
+            self.check_replace(generation=generation, token=token, matching=matching)
+            previous = matching or self._accepted
+            with previous.graph.lock:
+                recipe = Recipe.model_validate(previous.graph.snapshot()["recipe"])
+            source = next(node for node in recipe.nodes if isinstance(node, Source))
+            if source.virtual_scan is None:
+                raise ScanImportError(
+                    "Create a virtual scan before switching.", "source_required"
+                )
+            pair = _retained_pair(previous, source.virtual_scan, limits)
+            workspace = next(
+                (item for item in pair if item.reference_sha256 == binding), None
+            )
+            if workspace is None:
+                raise ScanImportError(
+                    "The requested scan is outside the retained pair.",
+                    "source_mismatch",
+                )
+            lineage = source.virtual_scan
+        check_cancelled(cancelled)
+        if progress is not None:
+            progress(ScanProgress("activate-scan", 0, 1))
+        return self._prepare_virtual_transition(
+            previous,
+            recipe,
+            workspace,
+            pair,
+            lineage,
+            limits,
+            generation=generation,
+            token=token,
+            cancelled=cancelled,
+        )
+
     def commit_replace(
         self,
         candidate: PreparedReplacement,
@@ -329,6 +591,7 @@ class ScanProject:
         if check_recipe is not None:
             check_recipe(actions.recipe)
         reusable = matching or previous
+        retained_sources: tuple[ScanWorkspace, ...] = ()
         if actions.kind == "empty":
             if stream is not None:
                 raise ScanImportError(
@@ -341,9 +604,61 @@ class ScanProject:
                 "Legacy actions require an explicitly compatible legacy workspace.",
                 "incompatible_legacy",
             )
+        elif actions.source is not None and actions.source.virtual_scan is not None:
+            lineage = actions.source.virtual_scan
+            if limits is None:
+                raise ScanImportError(
+                    "Virtual scan reopen requires declared source limits.",
+                    "source_required",
+                )
+            existing_source = _source(reusable)
+            if (
+                stream is None
+                and existing_source is not None
+                and existing_source.virtual_scan is not None
+                and len(reusable.retained_sources) == 2
+                and _same_derivation(existing_source.virtual_scan, lineage)
+            ):
+                pair = _retained_pair(reusable, lineage, limits)
+            else:
+                if stream is not None:
+                    if filename is None:
+                        raise ScanImportError(
+                            "The original source upload requires a filename.",
+                            "source_required",
+                        )
+                    original = prepare_scan(
+                        stream, filename, limits, progress=progress, cancelled=cancelled
+                    )
+                else:
+                    original = next(
+                        (
+                            item
+                            for item in (reusable.workspace, *reusable.retained_sources)
+                            if _matches(item, lineage.original)
+                        ),
+                        None,
+                    )
+                    if original is None:
+                        raise ScanImportError(
+                            "Locate the exact original scan to reconstruct this virtual scan.",
+                            "source_required",
+                        )
+                pair = reconstruct_virtual_scan(
+                    original, lineage, limits, progress=progress, cancelled=cancelled
+                )
+            workspace = next(
+                item
+                for item in pair
+                if item.reference_sha256 == actions.source.reference_sha256
+            )
+            retained_sources = pair
+            positions, indices = workspace.display_buffers()
         elif (
             inspect_actions(
-                actions.recipe.model_dump(mode="json"), reusable.workspace
+                actions.recipe.model_dump(mode="json"),
+                reusable.workspace,
+                retained_sources=reusable.retained_sources,
             ).disposition
             == "matching"
         ):
@@ -352,8 +667,18 @@ class ScanProject:
                     "Matching actions reuse the accepted source; no upload is expected.",
                     "unexpected_source",
                 )
-            workspace = reusable.workspace
-            positions, indices = reusable.positions, reusable.indices
+            workspace = next(
+                item
+                for item in (reusable.workspace, *reusable.retained_sources)
+                if inspect_actions(
+                    actions.recipe.model_dump(mode="json"), item
+                ).disposition
+                == "matching"
+            )
+            if workspace is reusable.workspace:
+                positions, indices = reusable.positions, reusable.indices
+            else:
+                positions, indices = workspace.display_buffers()
         else:
             if stream is None or limits is None or filename is None:
                 raise ScanImportError(
@@ -378,7 +703,13 @@ class ScanProject:
         graph = FeatureGraph(workspace, actions.recipe)
         state = graph.snapshot()
         accepted = AcceptedScan(
-            generation + 1, workspace, graph, positions, indices, actions.warnings
+            generation + 1,
+            workspace,
+            graph,
+            positions,
+            indices,
+            actions.warnings,
+            retained_sources,
         )
         check_cancelled(cancelled)
         return PreparedProject(
