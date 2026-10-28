@@ -10,7 +10,7 @@ import time
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from experiments.feature_graph import Recipe, Source
-from experiments.nozzle_browser import NATIVE_SCAN_LIMITS, NozzleServer
+from experiments.nozzle_browser import NATIVE_SCAN_LIMITS, Handler, NozzleServer
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.project_archive import (
     ArchiveMemberInput,
@@ -119,6 +119,46 @@ def open_project(server: NozzleServer, raw: bytes) -> dict[str, Any]:
     )
     assert status in {200, 202}, body
     return terminal(server, json.loads(body))
+
+
+def test_completed_archive_releases_busy_before_network_delivery(
+    server: NozzleServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive, original = generic_project()
+    assert open_project(server, archive)["status"] == "accepted"
+    before = cursor(server)
+    entered, release = Event(), Event()
+    end_headers = Handler.end_headers
+
+    def hold_delivery(handler: Handler) -> None:
+        if handler.path == "/api/project/export":
+            entered.set()
+            assert release.wait(5)
+        end_headers(handler)
+
+    monkeypatch.setattr(Handler, "end_headers", hold_delivery)
+    results: list[tuple[int, bytes]] = []
+    thread = Thread(
+        target=lambda: results.append(request(server, "/api/project/export", before))
+    )
+    thread.start()
+    try:
+        assert entered.wait(5)
+        assert not server.busy()
+        status, body = request(
+            server, "/api/project/reset", {**before, "confirmedDiscard": True}
+        )
+        assert status == 200, body
+    finally:
+        release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert len(results) == 1 and results[0][0] == 200
+    parsed = read_project_archive(BytesInput(results[0][1], "completed.scansor"))
+    assert parsed.original is not None
+    with parsed.original.open() as member:
+        assert member.read(len(original) + 1) == original
+        assert member.read(1) == b""
 
 
 def generic_project() -> tuple[bytes, bytes]:
