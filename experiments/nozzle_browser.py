@@ -692,7 +692,10 @@ class NozzleServer(ThreadingHTTPServer):
         original = next(
             (
                 item.source
-                for item in self._project.accepted.retained_sources
+                for item in (
+                    state.workspace,
+                    *self._project.accepted.retained_sources,
+                )
                 if item.descriptor is not None
                 and item.descriptor.semantic_record() == descriptor.semantic_record()
             ),
@@ -1292,36 +1295,39 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_reply(202, result)
             elif path == "/api/project/export":
                 request = SourceCursor.model_validate_json(body)
-                with self.app.computation() as state:
-                    if request.generation != state.generation:
-                        raise ScanImportError(
-                            "Project changed before saving.", "stale_source"
+                with tempfile.TemporaryFile(mode="w+b") as output:
+                    with self.app.computation() as state:
+                        if request.generation != state.generation:
+                            raise ScanImportError(
+                                "Project changed before saving.", "stale_source"
+                            )
+                        actions, original, reference = self.app.project_export_inputs(
+                            state, request.token
                         )
-                    actions, original, reference = self.app.project_export_inputs(
-                        state, request.token
-                    )
-                    with tempfile.TemporaryFile(mode="w+b") as output:
                         _ = write_project_archive(
                             actions, original, output, legacy_reference=reference
                         )
-                        length = output.tell()
-                        _ = output.seek(0)
-                        self.reply_generation = state.generation
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/zip")
-                        self.send_header("Content-Length", str(length))
-                        self.send_header(
-                            "Content-Disposition",
-                            'attachment; filename="project.scansor"',
-                        )
-                        self.send_header("Cache-Control", "no-store")
-                        self.send_header("X-Content-Type-Options", "nosniff")
-                        self.send_header("X-Scansor-Generation", str(state.generation))
-                        self.end_headers()
-                        while block := output.read(
-                            self.app.source_imports.limits.chunk_bytes
-                        ):
-                            _ = self.wfile.write(block)
+                        generation = state.generation
+                    # The immutable spool owns the complete archive. Release
+                    # computation before response bytes can complete at the client.
+                    length = output.tell()
+                    _ = output.seek(0)
+                    self.reply_generation = generation
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(length))
+                    self.send_header(
+                        "Content-Disposition",
+                        'attachment; filename="project.scansor"',
+                    )
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("X-Scansor-Generation", str(generation))
+                    self.end_headers()
+                    while block := output.read(
+                        self.app.source_imports.limits.chunk_bytes
+                    ):
+                        _ = self.wfile.write(block)
             elif path == "/api/project/reset":
                 state = self.app.reset_project(
                     ProjectResetRequest.model_validate_json(body)
