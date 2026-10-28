@@ -84,14 +84,16 @@ async function evaluate(page, fit, count) {
   return state;
 }
 
-export async function exerciseVirtualScanUi({page, force = false, sampleHeap = async () => null}) {
+export async function exerciseVirtualScanUi({page, force = false, sampleHeap = async () => null,
+  sourceFile, onOriginal = async () => {}}) {
   const result = {schema: 'scansor-virtual-scan-ui-v1', complete: false, phase: 'startup', timings: [],
     resources: [], reopens: [], force_recoveries: [], cases: [],
     instrumentation: {app_suffix_sha256: sha256(Buffer.from(virtualScanUiObserverSuffix)),
       main_observer_sha256: sha256(Buffer.from(installMainObservers.toString())),
       description: 'Read-only app state observer and existing forwarded Worker/WebGL accounting observers; every semantic change uses actual DOM controls.'},
     resource_scope: 'Main CDP heap/backing and logical WebGL buffer observations overlap and must not be summed; no whole-browser or physical GPU memory claim.'};
-  const raw = virtualScanFixture(), file = {name: 'virtual-scan-original.ply', mimeType: 'application/octet-stream', buffer: raw};
+  const raw = sourceFile?.buffer || virtualScanFixture();
+  const file = sourceFile || {name: 'virtual-scan-original.ply', mimeType: 'application/octet-stream', buffer: raw};
   try {
     const initial = await until(page, settled, 'initial UI ready');
     if (initial.graph.recipe.nodes.length) {
@@ -105,6 +107,7 @@ export async function exerciseVirtualScanUi({page, force = false, sampleHeap = a
     assert.deepEqual(original.positions, original.mesh_positions);
     const originalBinding = original.metadata.virtual_scans.active_binding;
     result.original = {binding: originalBinding, vertices: original.metadata.vertices, triangles: original.metadata.triangles, bytes_sha256: sha256(raw)};
+    await onOriginal(original);
     result.phase = 'reduced-scan-creation';
     await page.locator('#create-virtual-scan').click();
     await page.locator('#virtual-scan-dialog').waitFor({state: 'visible'});

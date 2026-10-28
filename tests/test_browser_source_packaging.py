@@ -52,8 +52,13 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
         "experiments/scan_project.py",
         "experiments/scan_workspace.py",
         "src/scansor/mesh_ply.py",
+        "src/scansor/mesh_stl.py",
     } <= set(numeric)
     assert "experiments/native_scan_import.py" not in numeric
+    assert protocol["source_import"]["formats"] == [
+        "binary-triangle-ply-v1",
+        "triangle-stl-f32-v1",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -61,7 +66,7 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
 )
 def test_selection_volume_profile_requires_exact_bounded_contract(fault: str) -> None:
     protocol = RUNTIME["worker_protocol"]()
-    assert protocol["version"] == 11
+    assert protocol["version"] == 12
     assert protocol["selection_volumes"] == {"version": 1, "max_preview_cells": 2048}
     if fault == "old":
         protocol["version"] = 9

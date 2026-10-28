@@ -9,6 +9,7 @@ import { prepareReports, sha256, startPreview, verifySite } from './server.mjs';
 import {
   chooseSourceFile, openSourceImportPage, prepareSourceInputs, readSourceEvidence,
 } from './source-import-harness.mjs';
+import {sourceAuthorityPython} from './source-authority-observer.mjs';
 
 const args = process.argv.slice(2);
 const argument = (name, fallback) => {
@@ -30,7 +31,7 @@ process.env.TMPDIR = output;
 const { chromium } = createRequire(path.join(playwrightDirectory, 'package.json'))('playwright');
 const isolation = args.includes('--isolation');
 
-const pythonInventory = `
+const pythonInventory = sourceAuthorityPython + `
 def _source_memory_inventory242():
     import json, numpy as np, sys
     b = browser_workspace
@@ -55,7 +56,7 @@ def _source_memory_inventory242():
                           root_bytes=int(owner.nbytes), non_ndarray_base=type(owner.base).__name__,
                           writeable=bool(array.flags.writeable)))
     return json.dumps(dict(views=views, unique_root_bytes=sum(roots.values()),
-        immutable_original_bytes=len(getattr(w, 'original_bytes', b'')),
+        **_source_authority_observation(w),immutable_original_bytes=getattr(w,'source',None).byte_length if getattr(w,'source',None) else 0,
         export_bytes=len(b.export_buffer), cad_imported='OCP' in sys.modules,
         caveat='Named current NumPy payload only; root addresses deduplicate ndarray aliases, not external buffers or allocator/object overhead. No synchronous-call peak measurement.'))
 _source_memory_inventory242()
@@ -67,9 +68,10 @@ globalThis.__sourceMemory242 = () => {
   const proxy = python.runPython('browser_workspace.workspace.frame');
   let view;
   try {
+    const named=JSON.parse(python.runPython(${JSON.stringify(pythonInventory)}));
     view = proxy.getBuffer('u8');
     return { wasm_capacity_bytes: view.data.buffer.byteLength,
-      named_numpy: JSON.parse(python.runPython(${JSON.stringify(pythonInventory)})),
+      named_numpy: named,
       at_ms: performance.now(),
       caveat: 'Wasm capacity at this boundary, not live bytes, RSS or a peak.' };
   } finally { view?.release(); proxy.destroy(); }
@@ -249,6 +251,13 @@ try {
         assert.equal(imported.metadata.triangles, input.faces);
         result.stages.push(await sample('accepted_staging_released'));
         assert.equal(result.stages.at(-1).worker_wasm.named_numpy.immutable_original_bytes, input.source_bytes);
+        const accepted=result.stages.at(-1);
+        assert.equal(accepted.source.source_storage.owned_source_payload_bytes,0);
+        assert.equal(accepted.source.source_replay.sha256,input.sha256);assert.equal(accepted.source.source_replay.eof_verified,true);
+        if(accepted.source.worker_protocol>=12){
+          assert.equal(accepted.source.max_staging_bytes,0);assert.ok(accepted.source.replay_read_calls>0);
+          assert.ok(accepted.source.replay_read_bytes>=input.source_bytes);
+        }
         result.gpu = await uploadGpu(page);
         result.stages.push(await sample('display_geometry_drawn'));
         if (input.name === 'raw-nozzle' || input.name === 'horizontal-scene') {
@@ -278,7 +287,7 @@ try {
         const capabilities = await page.evaluate(async () => (await window.__sourceImportBackend242.loadWorkspace()).metadata.capabilities.source_import);
         const limits = capabilities.limits;
         result.admission_limits = limits;
-        const estimate = 4 * input.source_bytes + 128 * input.vertices + 64 * input.faces + 32 * limits.chunk_bytes + 1048576;
+        const estimate = 128 * input.vertices + 64 * input.faces + 32 * limits.chunk_bytes + 1048576;
         assert.ok(input.source_bytes > limits.max_source_bytes || input.vertices > limits.max_vertices || input.faces > limits.max_faces || estimate > limits.max_estimated_bytes,
           'A measured tier within admission controls unexpectedly failed');
         assert.equal(imported.error.code, 'source_limit', 'Expected an explicit admission rejection');

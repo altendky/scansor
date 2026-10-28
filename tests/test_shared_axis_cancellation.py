@@ -21,6 +21,7 @@ from experiments.nozzle_coaxial import FitSelection, ReferencePlaneGroup
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.scan_workspace import ScanWorkspace
 from scansor.nonlinear_least_squares import LeastSquaresFailure
+from tests.scan_source_fixture import read_source_bytes
 from tests.test_relationship_composition import (
     _generic_mixed_group,  # pyright: ignore[reportPrivateUsage]
 )
@@ -103,7 +104,7 @@ def case(request: pytest.FixtureRequest) -> Case:
 
 def fingerprint(case: Case) -> str:
     workspace = case.workspace
-    digest = hashlib.sha256(workspace.original_bytes)
+    digest = hashlib.sha256(read_source_bytes(workspace))
     for array in (
         workspace.local,
         workspace.origin,

@@ -8,28 +8,30 @@ simplifier or an approximation certificate for the original fitting objective.
 
 from __future__ import annotations
 
-import hashlib
 import io
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import ClassVar, Literal, Self, cast
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+from typing import BinaryIO, ClassVar, Literal, Self, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from experiments.scan_workspace import (
-    INTERPRETATION_SHA256,
+    STL_PROFILE,
     ScanImportError,
     ScanLimits,
     ScanProgress,
     ScanWorkspace,
     SourceDescriptor,
+    VerifiedSource,
     check_cancelled,
     prepare_scan,
+    supported_source_interpretation,
 )
-from scansor._plyio import Writer
-from scansor.mesh_ply import mesh_header, mesh_layout
+from scansor._plyio import Layout
+from scansor.mesh_ply import PROFILE, mesh_header, mesh_layout
 
 _MAX_REFINEMENT_PASSES = 16
 
@@ -49,10 +51,14 @@ class VirtualScanDerivation(BaseModel):
     @model_validator(mode="after")
     def identities(self) -> Self:
         for descriptor in (self.original, self.derived):
-            if descriptor.interpretation_sha256 != INTERPRETATION_SHA256:
+            if not supported_source_interpretation(descriptor):
                 raise ValueError(
                     "Virtual scans require the supported scan interpretation."
                 )
+        if self.derived.profile != PROFILE:
+            raise ValueError(
+                "Virtual scans require the canonical PLY derivative profile."
+            )
         if self.original.binding_sha256 == self.derived.binding_sha256:
             raise ValueError("A virtual scan must have a different source binding.")
         return self
@@ -99,35 +105,38 @@ def _verified_original(
     ):
         raise _error("Virtual scan creation requires an imported original scan.")
     descriptor = SourceDescriptor.model_validate(original.descriptor.model_dump())
-    if descriptor.interpretation_sha256 != INTERPRETATION_SHA256:
+    if not supported_source_interpretation(descriptor):
         raise _error("The original scan interpretation is unsupported.")
     if (
-        len(original.original_bytes) != descriptor.source_bytes
-        or hashlib.sha256(original.original_bytes).hexdigest()
-        != descriptor.source_sha256
+        original.source is None
+        or original.source.descriptor.semantic_record() != descriptor.semantic_record()
     ):
         raise _error("The original scan bytes disagree with their source identity.")
     if not np.array_equal(original.origin, np.zeros(3)) or not np.array_equal(
         original.frame, np.eye(3)
     ):
         raise _error("Virtual scans require the imported source coordinate frame.")
-    # Original and verified import, clustering/sort copies, output bytes and its
-    # reimport, and bounded writer/parser temporaries can coexist. This estimate
+    # Original and verified geometry, clustering/sort copies, derived geometry,
+    # and bounded writer/parser temporaries can coexist. No source-byte copy is
+    # retained. This estimate
     # is deliberately conservative, not a whole-runtime memory guarantee.
     estimated = (
-        12 * descriptor.source_bytes
-        + 512 * descriptor.vertices
+        512 * descriptor.vertices
         + 384 * descriptor.triangles
         + 96 * limits.chunk_bytes
         + 2_097_152
     )
+    if descriptor.profile == STL_PROFILE:
+        # Reconstructing STL observations also performs exact-coordinate
+        # sorting/deduplication while the original geometry remains retained.
+        estimated += original.diagnostics.estimated_bytes
     if estimated > limits.max_estimated_bytes:
         raise _error(
             "Virtual scan exceeds the incremental working-set estimate.", "source_limit"
         )
     report("verify-original", 0, 1)
     verified = prepare_scan(
-        io.BytesIO(original.original_bytes),
+        original.source,
         descriptor.filename,
         limits,
         cancelled=cancelled,
@@ -207,14 +216,75 @@ def _clusters(
     return roots
 
 
-def _write_derivative(
+class _ArrayPlyStream(io.RawIOBase):
+    def __init__(self, chunks: Iterator[memoryview]) -> None:
+        super().__init__()
+        self._chunks: Iterator[memoryview] = chunks
+        self._pending: memoryview = memoryview(b"")
+
+    @override
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            raise ValueError("generated source requires bounded reads")
+        result = bytearray()
+        while len(result) < size:
+            if not self._pending:
+                self._pending = next(self._chunks, memoryview(b""))
+                if not self._pending:
+                    break
+            count = min(size - len(result), len(self._pending))
+            result.extend(self._pending[:count])
+            self._pending = self._pending[count:]
+        return bytes(result)
+
+
+@dataclass(frozen=True)
+class _ArrayPlyInput:
+    """Canonical source bytes replayed from the accepted geometry arrays."""
+
+    xyz: NDArray[np.float64]
+    normals: NDArray[np.float32]
+    triangles: NDArray[np.int32]
+    layout: Layout
+    filename: str = "Virtual scan.ply"
+
+    @property
+    def byte_length(self) -> int:
+        return self.layout.byte_count
+
+    def _chunks(self) -> Iterator[memoryview]:
+        yield memoryview(self.layout.header.raw)
+        block = self.layout.element("vertex")
+        for start in range(0, len(self.xyz), 2048):
+            stop = min(start + 2048, len(self.xyz))
+            rows = np.empty(stop - start, dtype=block.dtype)
+            for axis, name in enumerate(("x", "y", "z")):
+                rows[name] = self.xyz[start:stop, axis]
+            for axis, name in enumerate(("nx", "ny", "nz")):
+                rows[name] = self.normals[start:stop, axis]
+            yield memoryview(rows).cast("B")
+        block = self.layout.element("face")
+        for start in range(0, len(self.triangles), 4096):
+            stop = min(start + 4096, len(self.triangles))
+            rows = np.empty(stop - start, dtype=block.dtype)
+            rows["vertex_indices"]["count"] = 3
+            rows["vertex_indices"]["values"] = self.triangles[start:stop]
+            yield memoryview(rows).cast("B")
+
+    @contextmanager
+    def open(self) -> Generator[BinaryIO]:
+        with _ArrayPlyStream(self._chunks()) as stream:
+            yield cast(BinaryIO, cast(object, stream))
+
+
+def _derivative_source(
     original: ScanWorkspace,
     representatives: NDArray[np.int64],
     triangles: NDArray[np.int64],
     settings: ReductionSettings,
     limits: ScanLimits,
     report: Callable[[str, int, int], None],
-) -> bytes:
+) -> _ArrayPlyInput:
     descriptor = original.descriptor
     assert descriptor is not None
     header = mesh_header(
@@ -237,28 +307,13 @@ def _write_derivative(
         raise _error(
             "The derived scan exceeds the declared source limits.", "source_limit"
         )
-    stream = io.BytesIO()
-    writer = Writer(stream, layout, max_range_bytes=limits.chunk_bytes)
-    step = max(1, limits.chunk_bytes // 24)
-    for start in range(0, len(representatives), step):
-        report("write-vertices", start, len(representatives))
-        ids = representatives[start : start + step]
-        rows = np.empty(len(ids), dtype=layout.element("vertex").dtype)
-        for axis, name in enumerate(("x", "y", "z")):
-            rows[name] = original.data.xyz[ids, axis]
-        for axis, name in enumerate(("nx", "ny", "nz")):
-            rows[name] = original.data.original_normals[ids, axis]
-        writer.write_range("vertex", start, rows)
-    step = max(1, limits.chunk_bytes // 13)
-    for start in range(0, len(triangles), step):
-        report("write-faces", start, len(triangles))
-        ids = triangles[start : start + step]
-        rows = np.empty(len(ids), dtype=layout.element("face").dtype)
-        rows["vertex_indices"]["count"] = 3
-        rows["vertex_indices"]["values"] = ids
-        writer.write_range("face", start, rows)
-    writer.finish()
-    return stream.getvalue()
+    report("derive-source", 0, 1)
+    return _ArrayPlyInput(
+        original.data.xyz[representatives],
+        original.data.original_normals[representatives],
+        triangles.astype(np.int32),
+        layout,
+    )
 
 
 def _remap_faces(
@@ -373,14 +428,22 @@ def prepare_virtual_scan(
     representatives, inverse = np.unique(retained, return_inverse=True)
     final_faces = inverse.reshape((-1, 3))
     unreferenced = len(np.unique(roots)) - len(representatives)
-    raw = _write_derivative(
+    source = _derivative_source(
         original, representatives, final_faces, settings, limits, report
     )
     report("import-derivative", 0, 1)
-    derived = prepare_scan(
-        io.BytesIO(raw), "Virtual scan.ply", limits, cancelled=cancelled
-    )
+    derived = prepare_scan(source, source.filename, limits, cancelled=cancelled)
     assert original.descriptor is not None and derived.descriptor is not None
+    # The accepted source shares its final decoded arrays; release construction
+    # arrays and never retain an additional packed PLY/source-sized byte buffer.
+    source = _ArrayPlyInput(
+        derived.data.xyz,
+        derived.data.original_normals,
+        derived.data.triangles,
+        source.layout,
+    )
+    derived = replace(derived, source=VerifiedSource(source, derived.descriptor))
+    assert derived.descriptor is not None
     result = ReducedScan(
         derived,
         VirtualScanDerivation(

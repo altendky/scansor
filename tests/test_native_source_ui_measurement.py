@@ -36,6 +36,19 @@ def evidence() -> tuple[dict[str, Any], dict[str, Any]]:
         "vertices": 84,
         "triangles": 132,
         "original_bytes": 2048,
+        "source_storage": {
+            "kind": "PathInput",
+            "backing_kind": "PathInput",
+            "authority_bytes": 2048,
+            "owned_source_payload_bytes": 0,
+        },
+        "source_replay": {
+            "bytes": 2048,
+            "sha256": source["source_sha256"],
+            "max_chunk_bytes": 2048,
+            "read_calls": 2,
+            "eof_verified": True,
+        },
         "recipe_nodes": 1,
         "import_busy": False,
         "staging_file_count": 0,
@@ -58,6 +71,19 @@ def evidence() -> tuple[dict[str, Any], dict[str, Any]]:
         "vertices": 0,
         "triangles": 0,
         "original_bytes": 0,
+        "source_storage": {
+            "kind": "none",
+            "backing_kind": "none",
+            "authority_bytes": 0,
+            "owned_source_payload_bytes": 0,
+        },
+        "source_replay": {
+            "bytes": 0,
+            "sha256": None,
+            "max_chunk_bytes": 0,
+            "read_calls": 0,
+            "eof_verified": False,
+        },
         "recipe_nodes": 0,
         "operations": [],
     }
@@ -97,6 +123,51 @@ def test_frozen_complete_evidence_allows_fast_acceptance_and_no_memory_shrink() 
     report, manifest = evidence()
     report["rss"].update(baseline=10, after_reset=999999999999)
     assert measurement.validate_observations(report, manifest, 1) == []
+
+
+def test_source_observation_hashes_replayable_path_and_counts_explicit_byte_backing(
+    tmp_path: Path,
+) -> None:
+    from experiments.scan_sources import BytesInput, PathInput
+    from experiments.scan_workspace import ScanImportError, ScanLimits, prepare_scan
+    from tests.native_scan_fixture import native_grid_fixture
+
+    raw = native_grid_fixture(4, 4).raw
+    path = tmp_path / "source.ply"
+    _ = path.write_bytes(raw)
+    limits = ScanLimits(2_000_000, 10_000, 20_000, 20_000_000)
+    for provider, owned in (
+        (PathInput(path), 0),
+        (BytesInput(raw, path.name), len(raw)),
+    ):
+        workspace = prepare_scan(provider, path.name, limits)
+        observed = measurement.source_authority_observation(workspace)
+        assert observed["original_bytes"] == len(raw)
+        assert observed["source_storage"]["owned_source_payload_bytes"] == owned
+        assert observed["source_replay"]["sha256"] == workspace.source_sha256
+        assert observed["source_replay"]["bytes"] == len(raw)
+        assert observed["source_replay"]["eof_verified"] is True
+    workspace = prepare_scan(PathInput(path), path.name, limits)
+    _ = path.write_bytes(raw[:-1])
+    with pytest.raises(ScanImportError, match=r"truncated|length changed"):
+        _ = measurement.source_authority_observation(workspace)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("eof_verified", False),
+        ("sha256", "0" * 64),
+        ("max_chunk_bytes", 65537),
+        ("read_calls", 0),
+    ],
+)
+def test_native_source_report_rejects_unverified_replay(
+    field: str, value: object
+) -> None:
+    report, manifest = evidence()
+    report["stages"][2]["server"]["source_replay"][field] = value
+    assert measurement.validate_observations(report, manifest, 1)
 
 
 @pytest.mark.parametrize(

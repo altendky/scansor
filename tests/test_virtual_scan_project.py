@@ -24,6 +24,7 @@ from experiments.scan_workspace import ScanCancelled, ScanImportError, ScanLimit
 from experiments.selection_volume_transactions import author_volume
 from experiments.virtual_scan_reduction import ReductionSettings, VirtualScanDerivation
 from tests.native_scan_fixture import native_grid_fixture
+from tests.scan_source_fixture import read_source_bytes, source_of
 from tests.test_selection_volume_transactions import recipe
 
 LIMITS = ScanLimits(2_000_000, 10_000, 20_000, 100_000_000)
@@ -201,7 +202,7 @@ def test_aggregate_retained_admission_preserves_accepted_project(category: str) 
     pair = candidate.accepted.retained_sources
     settings = {
         "bytes": {
-            "max_source_bytes": sum(len(item.original_bytes) for item in pair) - 1
+            "max_source_bytes": sum(source_of(item).byte_length for item in pair) - 1
         },
         "vertices": {"max_vertices": sum(len(item.local) for item in pair) - 1},
         "faces": {"max_faces": sum(len(item.data.triangles) for item in pair) - 1},
@@ -305,7 +306,7 @@ def test_saved_actions_reconstruct_both_active_choices_from_renamed_original(
     candidate = fresh.prepare_open(
         saved,
         confirmed_discard=True,
-        stream=io.BytesIO(original.original_bytes),
+        stream=io.BytesIO(read_source_bytes(original)),
         filename="renamed-original.ply",
         limits=LIMITS,
         **cursor(fresh),
@@ -387,7 +388,7 @@ def test_wrong_original_tampered_derivation_and_derived_only_recovery_reject() -
         )
     assert mismatch.value.code == "source_mismatch"
     added = fresh.prepare_add(
-        io.BytesIO(project.accepted.workspace.original_bytes),
+        io.BytesIO(read_source_bytes(project.accepted.workspace)),
         "derived-only.ply",
         LIMITS,
         **cursor(fresh),
@@ -462,7 +463,7 @@ def test_dropping_virtual_lineage_requires_exact_derived_upload(active: str) -> 
         _ = project.prepare_open(
             ordinary_actions,
             confirmed_discard=True,
-            stream=io.BytesIO(original.original_bytes),
+            stream=io.BytesIO(read_source_bytes(original)),
             filename="original.ply",
             limits=LIMITS,
             **cursor(project),
@@ -472,13 +473,13 @@ def test_dropping_virtual_lineage_requires_exact_derived_upload(active: str) -> 
     candidate = project.prepare_open(
         ordinary_actions,
         confirmed_discard=True,
-        stream=io.BytesIO(derived.original_bytes),
+        stream=io.BytesIO(read_source_bytes(derived)),
         filename="explicit-derived.ply",
         limits=LIMITS,
         **cursor(project),
     )
     accepted = project.commit_open(candidate)
     assert accepted.retained_sources == ()
-    assert accepted.workspace.original_bytes == derived.original_bytes
+    assert read_source_bytes(accepted.workspace) == read_source_bytes(derived)
     assert state(project)["recipe"] == ordinary_actions
     assert virtual_scan_metadata(accepted)["virtual"] is None

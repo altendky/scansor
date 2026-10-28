@@ -817,6 +817,27 @@ def validate_source_authoring_evidence(
             "source authoring evidence identity/count/interpretation changed",
         )
         _ = epoch(source.get("project_generation"))
+        storage = object_value(source.get("source_storage"))
+        replay = object_value(source.get("source_replay"))
+        require(
+            storage.get("kind")
+            in {"BlobInput", "PathInput", "ArchiveMemberInput", "BytesInput"}
+            and storage.get("authority_bytes") == source["original_bytes"]
+            and type(storage.get("owned_source_payload_bytes")) is int
+            and (
+                storage["owned_source_payload_bytes"] > 0
+                if storage.get("backing_kind") == "BytesInput"
+                else storage["owned_source_payload_bytes"] == 0
+            )
+            and replay.get("bytes") == source["original_bytes"]
+            and replay.get("sha256") == source["source_sha256"]
+            and replay.get("eof_verified") is True
+            and type(replay.get("read_calls")) is int
+            and replay["read_calls"] > 0
+            and type(replay.get("max_chunk_bytes")) is int
+            and 0 < replay["max_chunk_bytes"] <= 65_536,
+            "source authoring replay authority/storage evidence differs",
+        )
         require(
             type(source.get("owned_fs_bytes")) is int
             and source["owned_fs_bytes"] == 0
@@ -1480,6 +1501,8 @@ def validate_evidence(
                     "ui_legacy_startup",
                     "ui_source_authoring",
                     "ui_source_actions",
+                    "project_archives",
+                    "circular_reuse",
                 }
                 if name != "source-import-memory"
                 else {

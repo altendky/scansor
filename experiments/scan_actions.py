@@ -14,9 +14,9 @@ from experiments.actions_limits import check_actions_json
 from experiments.feature_graph import Recipe, Source
 from experiments.feature_recipe_import import ImportWarning, import_recipe
 from experiments.scan_workspace import (
-    INTERPRETATION_SHA256,
     ScanImportError,
     Workspace,
+    supported_source_interpretation,
 )
 
 ActionsKind = Literal["empty", "generic", "legacy"]
@@ -101,7 +101,7 @@ def preflight_actions(value: object) -> ScanActions:
     descriptor = source.descriptor
     if descriptor is None:
         return ScanActions(recipe, tuple(warnings), "legacy", source)
-    if descriptor.interpretation_sha256 != INTERPRETATION_SHA256:
+    if not supported_source_interpretation(descriptor):
         raise ScanImportError(
             "The saved scan interpretation is not supported by this importer.",
             "unsupported_interpretation",

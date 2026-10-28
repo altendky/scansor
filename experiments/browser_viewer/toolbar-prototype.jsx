@@ -13,7 +13,8 @@ import { PANEL_NAMES } from './workspace-state.js';
 import './toolbar-prototype.css';
 
 const COMMANDS = {
-  project: [['save', 'Save actions', 'download'], ['load', 'Load actions', 'upload'],
+  project: [['save-project', 'Save project', 'download'], ['open-project', 'Open project', 'upload'],
+    ['save', 'Save actions', 'download'], ['load', 'Load actions', 'upload'],
     ['reset', 'Restore example', 'restore'], ['choose-example', 'Choose example…', 'source'],
     ['workspace-show', 'Show panel', 'show_panel'],
     ['workspace-reset', 'Reset layout', 'restore'], ['show-icon-legend', 'Icon legend', 'arranged_face']],

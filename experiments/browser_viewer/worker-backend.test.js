@@ -204,6 +204,101 @@ function virtualReady(extra = {}) {
   return response;
 }
 
+const projectArchiveProfile = { supported: true, version: 1, limits: {
+  max_archive_bytes: 4096, max_directory_bytes: 512, max_entries: 16,
+  max_actions_bytes: 2048, max_metadata_bytes: 512, max_member_bytes: 2048,
+  max_expanded_bytes: 4096, chunk_bytes: 64,
+} };
+function projectReady(extra = {}) {
+  const response = virtualReady(extra);
+  response.worker_protocol = { ...response.worker_protocol, version: 12, project_archive: projectArchiveProfile };
+  return response;
+}
+
+test('project archive capability is exact and older workers reject project methods', async () => {
+  for (const profile of [undefined, null, { ...projectArchiveProfile, version: true },
+    { ...projectArchiveProfile, extra: true }, { ...projectArchiveProfile, limits: {} }]) {
+    const value = fixture({ sourceActions: true }), loading = value.backend.initialize(), response = projectReady();
+    response.worker_protocol.project_archive = profile;
+    value.worker.reply(response);
+    await assert.rejects(loading, /project archive profile/);
+    value.backend.close();
+  }
+  const value = fixture({ sourceActions: true }), loading = value.backend.initialize();
+  value.worker.reply(virtualReady()); await loading;
+  await assert.rejects(value.backend.openProject({ file: sourceFile(), generation: 0, token: 'empty', confirmedDiscard: true }),
+    error => error.code === 'unsupported_capability');
+  await assert.rejects(value.backend.exportProject({ generation: 0, token: 'empty' }),
+    error => error.code === 'unsupported_capability');
+  value.backend.close();
+});
+
+test('archive File and original member authority survive lost promotion and Force for scan and legacy projects', async () => {
+  for (const kind of ['scan', 'example']) for (const adopted of [false, true]) {
+    const value = fleet({ sourceActions: true, initialMode: 'empty' }), loading = value.backend.initialize();
+    let worker = value.workers[0]; worker.reply(projectReady()); await loading;
+    const file = sourceFile(2048), authority = { kind: 'project-file', member: 'scans/original.ply' };
+    const opening = value.backend.openProject({ file, generation: 0, token: 'empty', confirmedDiscard: true });
+    await settle(); const request = worker.calls.at(-1);
+    assert.equal(request.payload.purpose, 'open-project');
+    assert.equal(request.payload.confirmedDiscard, true);
+    assert.equal(request.payload.file, file);
+    const archive = candidate(request, { kind, purpose: 'open-project', source_authority: authority });
+    sourceTransfer(worker, request, archive, { confirm: adopted });
+    const interrupted = assert.rejects(opening, error => error.code === (adopted ? 'accepted_workspace_unavailable' : 'computation_cancelled'));
+    const restoring = value.backend.forceRestart(); worker = value.workers.at(-1);
+    worker.reply(projectReady({ id: worker.calls[0].id })); await settle();
+    const restore = worker.calls.at(-1);
+    if (adopted) {
+      assert.equal(restore.payload.file, file);
+      assert.deepEqual(restore.payload.recovery.source_authority, authority);
+      assert.deepEqual(restore.payload.recovery.recipe, archive.graph.recipe);
+      assert.deepEqual(restore.payload.recovery.identity, archive.source_identity);
+      const restored = candidate(restore, { kind, generation: 1, source_authority: authority });
+      sourceTransfer(worker, restore, restored); sourcePromotion(worker, restore, 1);
+    } else {
+      assert.equal(restore.payload.kind, 'empty');
+      assert.equal(restore.payload.file, undefined);
+      sourceTransfer(worker, restore, candidate(restore, { kind: 'empty', generation: 0, identity: {}, token: 'empty' }));
+      sourcePromotion(worker, restore, 0);
+    }
+    await restoring; await interrupted; value.backend.close();
+  }
+});
+
+test('project save accepts bounded ordered chunks into a Blob and acknowledges each chunk', async () => {
+  const value = fixture({ sourceActions: true }), loading = value.backend.initialize();
+  value.worker.reply(projectReady()); await loading;
+  const saving = value.backend.exportProject({ generation: 0, token: 'empty' });
+  await settle(); const request = value.worker.calls.at(-1);
+  assert.equal(request.operation, 'exportProject');
+  for (const [index, bytes] of [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])].entries()) {
+    value.worker.reply({ id: request.id, generation: request.generation, kind: 'project-export-chunk', sequence: index + 1, bytes: bytes.buffer });
+    assert.deepEqual(value.worker.calls.at(-1), { operation: 'accept-project-chunk', id: request.id,
+      generation: request.generation, sequence: index + 1, accepted: true });
+  }
+  value.worker.reply({ id: request.id, ok: true, result: { bytes_written: 5, chunks: 2 } });
+  const blob = await saving;
+  assert(blob instanceof Blob); assert.equal(blob.type, 'application/zip');
+  assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], [1, 2, 3, 4, 5]);
+  value.backend.close();
+});
+
+test('project save rejects oversized or unordered compressed chunks and cancellation refuses late chunks', async () => {
+  for (const fault of ['size', 'order', 'abort']) {
+    const value = fixture({ sourceActions: true }), loading = value.backend.initialize(), controller = new AbortController();
+    value.worker.reply(projectReady()); await loading;
+    const saving = value.backend.exportProject({ generation: 0, token: 'empty' }, { signal: controller.signal });
+    await settle(); const request = value.worker.calls.at(-1);
+    if (fault === 'abort') controller.abort(Error('Stopped observing'));
+    const rejected = assert.rejects(saving, fault === 'abort' ? /Stopped observing/ : error => error.code === 'worker_failed');
+    value.worker.reply({ id: request.id, generation: request.generation, kind: 'project-export-chunk',
+      sequence: fault === 'order' ? 2 : 1, bytes: new ArrayBuffer(fault === 'size' ? 65 : 1) });
+    if (fault === 'abort') assert.equal(value.worker.calls.at(-1).accepted, false);
+    await rejected; value.backend.close();
+  }
+});
+
 test('virtual scans require the exact negotiated profile and old runtimes reject their operations', async () => {
   for (const profile of [undefined, null, { ...virtualScanProfile, version: true },
     { ...virtualScanProfile, max_sources: 3 }, { ...virtualScanProfile, extra: true }]) {
@@ -281,6 +376,70 @@ test('production worker enters virtual-scan preparation without allocating or re
   await assert.rejects(context.prepare({ id: 1, generation: 0,
     payload: { operationId: 'virtual', kind: 'scan', purpose: 'create-virtual-scan', settings: { divisions: 4 } } }),
   /Reached virtual preparation/);
+});
+
+test('production Python bridge explicitly distinguishes absent source input from JavaScript null', () => {
+  const source=readFileSync(new URL('../browser_runtime/worker.mjs',import.meta.url),'utf8'),
+    start=source.indexOf('function sourceCall('),end=source.indexOf('\nconst sourceCancelled',start);
+  for(const supplied of [false,true]){
+    const values=new Map(),expressions=[];
+    const python={globals:{set:(key,value)=>values.set(key,value)},runPython(expression){
+      expressions.push(expression);
+      if(expression.startsWith('browser_workspace.'))return JSON.stringify({ok:true,result:{}});
+    }};
+    const context=vm.createContext({python});vm.runInContext(source.slice(start,end)+'\nglobalThis.call=sourceCall;',context);
+    context.call('prepare_source_json',{purpose:'create-virtual-scan'},supplied?{input:{length:3,filename:'x.ply',chunkBytes:64,read:()=>new Uint8Array(3)}}:{});
+    assert.equal(values.get('browser_source_has_input'),supplied);
+    assert.match(expressions[0],/if browser_source_has_input else None/);
+    assert.match(expressions.at(-1),/del .*browser_source_has_input/);
+    if(!supplied)assert.equal(values.get('browser_source_read'),null);
+  }
+});
+
+test('production worker replays legacy project recovery from the archive File without source staging', async () => {
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8'),
+    start = source.indexOf('async function prepareSource(request)'), end = source.indexOf('\nfunction workspaceCall(', start);
+  const raw = Uint8Array.of(1, 2, 3, 4), reads = [], control = { id: 1, cancelled: false };
+  const context = vm.createContext({ activeSource: control, minimumGeneration: 0,
+    manifest: { worker_protocol: { version: 12, source_import: sourceProfile,
+      project_archive: projectArchiveProfile } }, sourceTransferMetrics: { replay_read_calls: 0, replay_read_bytes: 0, largest_chunk_bytes: 0 },
+    cadActions: new Set(), Uint8Array,
+    FileReaderSync: class { readAsArrayBuffer(slice) { reads.push(slice); return raw.slice(slice.start, slice.end).buffer; } },
+    sourceCall: (method, payload, options) => {
+      assert.equal(method, 'prepare_source_json');
+      assert.equal(payload.kind, 'example');
+      assert.equal(options.path, undefined);
+      assert.equal(options.input.filename, 'legacy.scansor');
+      assert.deepEqual([...options.input.read(1, 2)], [2, 3]);
+      throw new Error('Reached legacy project recovery');
+    }, python: { FS: new Proxy({}, { get: () => assert.fail('Project recovery must not allocate staging') }) } });
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.prepare = prepareSource;', context);
+  await assert.rejects(context.prepare({ id: 1, generation: 0,
+    payload: { operationId: 'restore', kind: 'example', example: 'nozzle',
+      file: { size: raw.byteLength, name: 'legacy.scansor', slice: (start, end) => ({ start, end }) },
+      recovery: { source_authority: { kind: 'project-file', member: 'scans/original.ply' }, recipe: { nodes: [] } } } }),
+  /Reached legacy project recovery/);
+  assert.deepEqual(reads, [{ start: 1, end: 3 }]);
+  assert.equal(context.sourceTransferMetrics.replay_read_bytes, 2);
+});
+
+test('production worker poisons failed private candidate disposal even when cancellation caused discard', async () => {
+  const source = readFileSync(new URL('../browser_runtime/worker.mjs', import.meta.url), 'utf8'),
+    start = source.indexOf('async function prepareSource(request)'), end = source.indexOf('\nfunction workspaceCall(', start),
+    control = { id: 1, cancelled: false };
+  const context = vm.createContext({ activeSource: control, minimumGeneration: 0, sourcePoisoned: false,
+    manifest: { worker_protocol: { version: 12, source_import: sourceProfile, virtual_scans: virtualScanProfile } },
+    sourceTransferMetrics: {}, cadActions: new Set(), sourceCancelled: () => Object.assign(Error('Cancelled'), { code: 'computation_cancelled' }),
+    yieldMessages: async () => { control.cancelled = true; },
+    sourceCall: method => {
+      if (method === 'prepare_source_json') return { metadata: { capabilities: {} } };
+      assert.equal(method, 'discard_source_json'); throw Error('Disposal failed');
+    } });
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.prepare = prepareSource;', context);
+  await assert.rejects(context.prepare({ id: 1, generation: 0,
+    payload: { operationId: 'virtual', kind: 'scan', purpose: 'create-virtual-scan' } }),
+  error => error.code === 'source_cleanup_failed' && /Disposal failed/.test(error.message));
+  assert.equal(context.sourcePoisoned, true); assert.equal(context.activeSource, undefined);
 });
 
 test('matching actions may return to the retained original but cannot silently drop an active derivative lineage', async () => {

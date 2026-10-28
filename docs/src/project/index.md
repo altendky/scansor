@@ -24,6 +24,11 @@ outside the intended boundary.
     bounded native/worker evidence, extended by actual raw fitting/export/reopen
     and worker UI resource observations; final combined CI and current-main
     artifact preparation remain #245 gates
+- [Bounded STL import](planning/stl-import.md)
+  - **Implemented experimental profile:** ASCII/binary float32 coordinates,
+    exact-coordinate vertex observations, geometry-derived smoothed normals,
+    shared actions/virtual-scan and portable-project lifecycle; triangle-centroid
+    observations, tolerance welding and crease controls remain deferred
 - [Selection tools and feature graph](planning/selection-feature-graph.md)
   - **Implemented bounded slice and future requirements:** circular painting and
     rectangles with independent depth modes, painted seeds and one-pass connected
@@ -55,6 +60,12 @@ outside the intended boundary.
     source-bound selections and explicit volume transfer; shared/native/worker
     transactional switching, common UI, original-file reopen and Force recovery;
     bounded native/plain/isolated worker workflow and repeated-switch evidence
+
+- [Self-contained project archives](planning/project-archives.md)
+  - **Bounded implementation:** one `.scansor` file containing actions and its
+    original scan, replayable source members, sequential decoding, explicit
+    virtual-scan lineage and portable captured-nozzle reference migration;
+    external references and general multiple-scan projects remain deferred
 
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit points and

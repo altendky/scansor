@@ -15,12 +15,14 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from experiments.scan_sources import BytesInput
 from experiments.scan_workspace import (
     ScanCancelled,
     ScanImportError,
     ScanLimits,
     ScanProgress,
     ScanWorkspace,
+    VerifiedSource,
     prepare_scan,
 )
 from experiments.virtual_scan_reduction import (
@@ -28,6 +30,7 @@ from experiments.virtual_scan_reduction import (
     VirtualScanDerivation,
     prepare_virtual_scan,
 )
+from tests.scan_source_fixture import read_source_bytes
 
 Point = tuple[float, float, float]
 Face = tuple[int, int, int]
@@ -133,7 +136,7 @@ def test_planar_reduction_preserves_frame_observations_and_derived_area(
     assert original.descriptor is not None and derived.descriptor is not None
     assert original.descriptor.binding_sha256 != derived.descriptor.binding_sha256
     assert (
-        hashlib.sha256(derived.original_bytes).hexdigest()
+        hashlib.sha256(read_source_bytes(derived)).hexdigest()
         == derived.descriptor.source_sha256
     )
     with pytest.raises(FrozenInstanceError):
@@ -147,13 +150,13 @@ def test_repeatability_chunk_size_independence_and_lineage_replay(
     settings = ReductionSettings(divisions=4)
     first = prepare_virtual_scan(original, settings, limits)
     second = prepare_virtual_scan(original, settings, replace(limits, chunk_bytes=240))
-    assert first.workspace.original_bytes == second.workspace.original_bytes
+    assert read_source_bytes(first.workspace) == read_source_bytes(second.workspace)
     assert first.derivation == VirtualScanDerivation.model_validate_json(
         first.derivation.model_dump_json()
     )
     assert first.derivation.derived == second.derivation.derived
     reopened = prepare_scan(
-        io.BytesIO(first.workspace.original_bytes), "renamed.ply", limits
+        io.BytesIO(read_source_bytes(first.workspace)), "renamed.ply", limits
     )
     assert reopened.descriptor is not None
     assert reopened.descriptor.binding_sha256 == first.derivation.derived.binding_sha256
@@ -265,7 +268,13 @@ def test_original_bytes_arrays_descriptor_and_frame_must_match(
     settings = ReductionSettings(divisions=4)
     assert original.descriptor is not None
     invalid = [
-        replace(original, original_bytes=original.original_bytes + b"x"),
+        replace(
+            original,
+            source=VerifiedSource(
+                BytesInput(read_source_bytes(original) + b"x", "changed.ply"),
+                original.descriptor,
+            ),
+        ),
         replace(
             original, descriptor=original.descriptor.model_copy(update={"vertices": 12})
         ),
@@ -284,7 +293,7 @@ def test_resources_and_cancellation_leave_original_unchanged(
     limits: ScanLimits,
 ) -> None:
     original = _source(limits)
-    before = original.original_bytes
+    before = read_source_bytes(original)
     settings = ReductionSettings(divisions=4)
     with pytest.raises(ScanImportError) as limited:
         _ = prepare_virtual_scan(
@@ -307,7 +316,7 @@ def test_resources_and_cancellation_leave_original_unchanged(
             original, settings, limits, progress=progress, cancelled=lambda: stopped
         )
     assert "remap-faces" in phases
-    assert original.original_bytes == before
+    assert read_source_bytes(original) == before
     np.testing.assert_array_equal(original.data.xyz, _source(limits).data.xyz)
 
 
@@ -458,4 +467,4 @@ def test_orientation_refinement_budget_fails_before_returning_candidate(
     with pytest.raises(ScanImportError) as exhausted:
         _ = prepare_virtual_scan(original, ReductionSettings(divisions=32), limits)
     assert exhausted.value.code == "inverted_reduction"
-    assert original.original_bytes == path.read_bytes()
+    assert read_source_bytes(original) == path.read_bytes()

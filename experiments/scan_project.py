@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -22,6 +21,7 @@ from experiments.feature_graph import (
 from experiments.feature_recipe_import import ImportWarning
 from experiments.scan_actions import inspect_actions, preflight_actions
 from experiments.scan_replacement import replacement_recipe
+from experiments.scan_sources import ReplayableInput
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -117,7 +117,11 @@ def _source(accepted: AcceptedScan) -> Source | None:
 
 def _check_retained_limits(pair: tuple[ScanWorkspace, ...], limits: ScanLimits) -> None:
     if (
-        sum(len(source.original_bytes) for source in pair) > limits.max_source_bytes
+        sum(
+            source.source.byte_length if source.source is not None else 0
+            for source in pair
+        )
+        > limits.max_source_bytes
         or sum(len(source.local) for source in pair) > limits.max_vertices
         or sum(len(source.data.triangles) for source in pair) > limits.max_faces
         or sum(source.diagnostics.estimated_bytes for source in pair)
@@ -131,9 +135,10 @@ def _check_retained_limits(pair: tuple[ScanWorkspace, ...], limits: ScanLimits) 
 def _matches(workspace: ScanWorkspace, descriptor: SourceDescriptor) -> bool:
     return workspace.descriptor is not None and (
         workspace.descriptor.semantic_record() == descriptor.semantic_record()
-        and len(workspace.original_bytes) == descriptor.source_bytes
-        and hashlib.sha256(workspace.original_bytes).hexdigest()
-        == descriptor.source_sha256
+        and workspace.source is not None
+        and workspace.source.descriptor.semantic_record()
+        == descriptor.semantic_record()
+        and workspace.source.input.byte_length == descriptor.source_bytes
     )
 
 
@@ -277,7 +282,7 @@ class ScanProject:
 
     def prepare_add(
         self,
-        stream: BinaryIO,
+        stream: ReplayableInput | BinaryIO,
         filename: str,
         limits: ScanLimits,
         *,
@@ -346,7 +351,7 @@ class ScanProject:
 
     def prepare_replace(
         self,
-        stream: BinaryIO,
+        stream: ReplayableInput | BinaryIO,
         filename: str,
         limits: ScanLimits,
         *,
@@ -510,6 +515,9 @@ class ScanProject:
                 )
             lineage = source.virtual_scan
         check_cancelled(cancelled)
+        for retained in pair:
+            assert retained.source is not None
+            retained.source.verify(cancelled=cancelled)
         if progress is not None:
             progress(ScanProgress("activate-scan", 0, 1))
         return self._prepare_virtual_transition(
@@ -566,7 +574,7 @@ class ScanProject:
         token: str,
         confirmed_discard: bool,
         matching: AcceptedScan | None = None,
-        stream: BinaryIO | None = None,
+        stream: ReplayableInput | BinaryIO | None = None,
         filename: str | None = None,
         limits: ScanLimits | None = None,
         progress: Callable[[ScanProgress], None] | None = None,
@@ -620,6 +628,9 @@ class ScanProject:
                 and _same_derivation(existing_source.virtual_scan, lineage)
             ):
                 pair = _retained_pair(reusable, lineage, limits)
+                for retained in pair:
+                    assert retained.source is not None
+                    retained.source.verify(cancelled=cancelled)
             else:
                 if stream is not None:
                     if filename is None:
@@ -679,6 +690,8 @@ class ScanProject:
                 positions, indices = reusable.positions, reusable.indices
             else:
                 positions, indices = workspace.display_buffers()
+            if workspace.source is not None:
+                workspace.source.verify(cancelled=cancelled)
         else:
             if stream is None or limits is None or filename is None:
                 raise ScanImportError(

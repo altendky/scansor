@@ -1,5 +1,15 @@
 # Nozzle browser selection experiment
 
+The bounded scan importer accepts its existing triangle PLY profile and
+ASCII/binary STL through Add scan, Replace scan and the exact-source locator.
+STL uses float32 coordinates, exact-coordinate shared vertex IDs and
+geometry-derived area-weighted smoothed normals; stored facet normals do not
+control fitting. Source inspection labels this provenance. Sharp coordinates
+remain unchanged, but sharp normal discontinuities are not retained. See the
+[STL contract](../../docs/src/project/planning/stl-import.md) for rounding,
+identity, resource bounds and selection-growth limitations. Original STL sources
+use the shared actions, virtual-scan and self-contained project lifecycle.
+
 The [browser runtime probe](../browser_runtime/README.md) packages bounded
 numerical/CAD source and tests Pyodide worker parity. The
 [static application experiment](../browser_static/README.md) connects this docking
@@ -75,6 +85,16 @@ protects published results and retains diagnostic differences. Broader numerical
 integration and full both-backend workflow acceptance remain delivery gates.
 
 Actions downloads do not save original scan bytes or unfinished editor drafts.
+
+**Save project** downloads one `.scansor` archive containing the actions and
+their original scan. **Open project** restores both from that one file, including
+either active virtual-scan choice, without a second source picker. Project files
+also omit unfinished editor drafts. Sources replay through bounded readers;
+native uploads retain disk-backed source leases and browser workers retain the
+selected File rather than a full uncompressed Python snapshot. The bounded
+contract also supports explicit migration of the captured nozzle project with
+its reference frame preserved. See [project archives](../../docs/src/project/planning/project-archives.md)
+for supported ZIP profiles, resource bounds and compatibility limits.
 
 The built-in defaults are the saved
 [nozzle recipe](../../examples/nozzle-bayonette-simplified/recipes/nozzle-selection-and-fitting-demo.json)

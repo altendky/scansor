@@ -553,6 +553,17 @@ def validate_observations(
                 and worker["owned_fs_bytes"] == 0,
                 "actual worker source epoch/staging differs",
             )
+            replay, storage = worker["source_replay"], worker["source_storage"]
+            require(
+                replay["sha256"] == sha(raw)
+                and replay["bytes"] == len(raw)
+                and replay["eof_verified"] is True
+                and 0 < replay["max_chunk_bytes"] <= 65_536
+                and replay["read_calls"] > 0
+                and storage["authority_bytes"] == len(raw)
+                and storage["owned_source_payload_bytes"] == 0,
+                "actual worker source replay authority differs",
+            )
             require(
                 {k: v for k, v in worker["descriptor"].items() if k != "filename"}
                 == {k: v for k, v in descriptor.items() if k != "filename"},
@@ -854,7 +865,19 @@ def native_replay(
             np.testing.assert_allclose(
                 getattr(accepted.workspace.data, field), expected, rtol=1e-12, atol=0
             )
-        require(accepted.workspace.original_bytes == raw, "native source bytes differ")
+        source = accepted.workspace.source
+        require(source is not None, "native replayable source missing")
+        assert source is not None
+        digest = hashlib.sha256()
+        source_bytes = 0
+        with source.open() as stream:
+            while chunk := stream.read(65_536):
+                source_bytes += len(chunk)
+                digest.update(chunk)
+        require(
+            source_bytes == len(raw) and digest.hexdigest() == sha(raw),
+            "native source bytes differ",
+        )
         result["native_source_checks"][name] = {
             "original_bytes": True,
             "positions": True,

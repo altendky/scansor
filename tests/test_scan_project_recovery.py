@@ -116,7 +116,7 @@ def test_graph_recovery_preserves_open_warnings_source_and_epoch_after_lease() -
     ):
         assert array is original and not array.flags.writeable
         np.testing.assert_array_equal(array, values)
-    assert recovered.workspace.original_bytes is accepted.workspace.original_bytes
+    assert recovered.workspace.source is accepted.workspace.source
     assert recovered.workspace.reference_sha256 == accepted.workspace.reference_sha256
     snapshot = recovered.graph.snapshot()
     assert snapshot["recipe"] == expected_recipe

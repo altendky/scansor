@@ -20,6 +20,7 @@ import pytest
 from experiments.nozzle_browser import NozzleServer
 from experiments.scan_project import ScanProject
 from experiments.scan_workspace import ScanLimits, ScanWorkspace
+from tests.scan_source_fixture import read_source_bytes
 
 
 def triangle_bytes() -> bytes:
@@ -177,7 +178,7 @@ def test_empty_import_has_one_authoritative_generation_and_owned_original(
     assert after["graph"]["recipe"]["nodes"][0]["operation"] == "source"
     workspace = native_http.server.workspace
     assert isinstance(workspace, ScanWorkspace)
-    assert workspace.original_bytes == triangle_bytes()
+    assert read_source_bytes(workspace) == triangle_bytes()
     assert native_http.server.graph is native_http.server.accepted().graph
     for name in ("positions", "indices"):
         status, body, headers = native_http.request(after[name]["url"])

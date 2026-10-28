@@ -34,7 +34,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   const superseded = () => new BackendError('The accepted workspace changed. Reload the current workspace.',
     { code: 'observation_superseded', status: 409 });
   const checkPublication = publication => { if (publication !== sourcePublication) throw superseded(); };
-  async function request(path, value, { signal, binary = false, message, raw = false,
+  async function request(path, value, { signal, binary = false, blob = false, message, raw = false,
     generation, publication = sourcePublication, expectedGeneration, sourceMutation = false } = {}) {
     const requestId = ++nextRequestId, active = signalFor(signal);
     active.throwIfAborted();
@@ -61,7 +61,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       }
       if (binary && expectedGeneration !== undefined
         && response.headers.get('X-Scansor-Generation') !== String(expectedGeneration)) throw superseded();
-      const body = binary ? await response.arrayBuffer() : await response.json();
+      const body = binary ? blob ? await response.blob() : await response.arrayBuffer() : await response.json();
       active.throwIfAborted();
       checkPublication(publication);
       if (!binary && !sourceMutation && acceptedGeneration !== undefined
@@ -157,7 +157,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         || purpose === 'replace-scan' && value.status === 'accepted' && value.acceptedGeneration !== generation + 1
         || retainedSourceChange && (value.uploadRequired !== false
           || value.status === 'accepted' && value.acceptedGeneration !== generation + 1)
-        || purpose === 'open-actions' && (value.uploadRequired !== !!file
+        || ['open-actions', 'open-project'].includes(purpose) && (value.uploadRequired !== !!file
           || value.status === 'accepted' && (value.acceptedGeneration !== generation + 1
             || !Number.isSafeInteger(value.import_warning_count) || value.import_warning_count < 0)))
         throw invalidOperation(value);
@@ -167,7 +167,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     };
     const deliver = async () => {
       const bundle = await deliverAccepted(operation, { signal: active }, publication);
-      if (purpose !== 'open-actions') return bundle;
+      if (!['open-actions', 'open-project'].includes(purpose)) return bundle;
       const warnings = bundle.metadata.import_warnings;
       if (!Array.isArray(warnings) || warnings.length !== operation.import_warning_count) {
         const cause = new BackendError('Accepted actions warnings do not match their workspace receipt.', { code: 'invalid_workspace' });
@@ -205,7 +205,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
-      sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true }),
+      sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true,
+      projectArchives: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -269,6 +270,28 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       lifetime.signal.throwIfAborted();
       if (!state?.recipe) throw new BackendError('Actions have not finished loading yet.');
       return structuredClone(state.recipe);
+    },
+    async openProject({ file, generation, token, confirmedDiscard }, { signal, onProgress } = {}) {
+      const profile = acceptedMetadata?.project_archive;
+      if (profile?.supported !== true || profile.version !== 1)
+        throw new BackendError('This backend does not support project files.', { code: 'unsupported_capability' });
+      if (!file || typeof file.slice !== 'function' || !Number.isSafeInteger(file.size) || file.size <= 0)
+        throw new BackendError('Choose a nonempty project file.', { code: 'invalid_source' });
+      if (!Number.isSafeInteger(profile.limits?.max_archive_bytes) || file.size > profile.limits.max_archive_bytes)
+        throw new BackendError('Project exceeds the archive byte limit.', { code: 'source_limit' });
+      const publication = ++sourcePublication;
+      const operation = await request('/api/project/open',
+        { generation, token, confirmedDiscard, filename: file.name || 'project.scansor', size: file.size },
+        { signal, generation: acceptedGeneration, publication, sourceMutation: true });
+      return observeSourceOperation(operation, { generation, token, file, signal, onProgress,
+        publication, purpose: 'open-project' });
+    },
+    async exportProject({ generation, token }, options = {}) {
+      const profile = acceptedMetadata?.project_archive;
+      if (profile?.supported !== true || profile.version !== 1)
+        throw new BackendError('This backend does not support project files.', { code: 'unsupported_capability' });
+      return request('/api/project/export', { generation, token }, { ...options, binary: true, blob: true,
+        generation: acceptedGeneration, expectedGeneration: generation });
     },
     evaluateGraph: (payload, options) => graphRequest('/api/graph/evaluate', payload, options),
     ensureGraph: (payload, options) => graphRequest('/api/graph/ensure', payload, options),

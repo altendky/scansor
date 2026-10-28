@@ -4425,6 +4425,13 @@ class FeatureGraph(Generic[WorkspaceType]):
         """Share the single bounded archive cache with read-only UI previews."""
         return self._volume_cache
 
+    def export_recipe(self, token: str | None = None) -> dict[str, Any]:
+        """Copy authored intent without constructing derived-result payloads."""
+        with self.lock:
+            if token is not None and token != self._token():
+                raise StaleGraph("the recipe changed before export")
+            return self._recipe.model_dump()
+
     def snapshot(
         self, if_revision: int | None = None, if_recipe_token: str | None = None
     ) -> dict[str, object]:

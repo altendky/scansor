@@ -2728,8 +2728,10 @@ function showSourceProperties(node) {
       ['Source bytes', descriptor.source_bytes.toLocaleString()],
       ['Interpretation SHA-256', descriptor.interpretation_sha256],
       ['Units', 'Unknown — original coordinates preserved'],
-      ['PLY profile', descriptor.profile],
-      ['Normals', 'Original normals retained; normalized directions used for fitting'],
+      ['Import profile', descriptor.profile],
+      ['Normals', metadata.normal_source === 'geometry-area-weighted-smoothed'
+        ? 'Derived from oriented triangle areas and smoothed at exact shared vertices; stored STL facet normals are ignored for fitting'
+        : 'Original normals retained; normalized directions used for fitting'],
       ['Weights', 'One third of each usable incident triangle area'],
       ['Settings', 'Read-only'],
     );
