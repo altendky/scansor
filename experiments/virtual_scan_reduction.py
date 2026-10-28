@@ -19,7 +19,7 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from experiments.scan_workspace import (
-    INTERPRETATION_SHA256,
+    STL_PROFILE,
     ScanImportError,
     ScanLimits,
     ScanProgress,
@@ -28,9 +28,10 @@ from experiments.scan_workspace import (
     VerifiedSource,
     check_cancelled,
     prepare_scan,
+    supported_source_interpretation,
 )
 from scansor._plyio import Layout
-from scansor.mesh_ply import mesh_header, mesh_layout
+from scansor.mesh_ply import PROFILE, mesh_header, mesh_layout
 
 _MAX_REFINEMENT_PASSES = 16
 
@@ -50,10 +51,14 @@ class VirtualScanDerivation(BaseModel):
     @model_validator(mode="after")
     def identities(self) -> Self:
         for descriptor in (self.original, self.derived):
-            if descriptor.interpretation_sha256 != INTERPRETATION_SHA256:
+            if not supported_source_interpretation(descriptor):
                 raise ValueError(
                     "Virtual scans require the supported scan interpretation."
                 )
+        if self.derived.profile != PROFILE:
+            raise ValueError(
+                "Virtual scans require the canonical PLY derivative profile."
+            )
         if self.original.binding_sha256 == self.derived.binding_sha256:
             raise ValueError("A virtual scan must have a different source binding.")
         return self
@@ -100,7 +105,7 @@ def _verified_original(
     ):
         raise _error("Virtual scan creation requires an imported original scan.")
     descriptor = SourceDescriptor.model_validate(original.descriptor.model_dump())
-    if descriptor.interpretation_sha256 != INTERPRETATION_SHA256:
+    if not supported_source_interpretation(descriptor):
         raise _error("The original scan interpretation is unsupported.")
     if (
         original.source is None
@@ -121,6 +126,10 @@ def _verified_original(
         + 96 * limits.chunk_bytes
         + 2_097_152
     )
+    if descriptor.profile == STL_PROFILE:
+        # Reconstructing STL observations also performs exact-coordinate
+        # sorting/deduplication while the original geometry remains retained.
+        estimated += original.diagnostics.estimated_bytes
     if estimated > limits.max_estimated_bytes:
         raise _error(
             "Virtual scan exceeds the incremental working-set estimate.", "source_limit"
