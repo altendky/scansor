@@ -595,6 +595,10 @@ surfaces; hover or keyboard focus inspects a participant in yellow. Sphere fits
 use analytic sphere guides, and reference planes use datum outlines. **Focus**
 frames one participant; **Focus selected** frames the set. These are display-only
 helpers, not a preview of newly constrained geometry, and do not trigger a solve.
+Compatible stale and unevaluated outputs remain selectable and are marked as
+needing evaluation. With **Auto** enabled, adding the relationship evaluates its
+dependencies; with Auto disabled, the relationship stays unevaluated until run.
+Pending outputs do not supply current preview geometry.
 Changing kind retains incompatible selected participants so they can be removed
 explicitly. **Options** contains the name. The model remains rotatable while the
 panel is open; closing it clears the helper highlights.

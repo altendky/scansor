@@ -149,6 +149,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Verify pending relationship authoring in plain and isolated workers
+        run: >-
+          node experiments/browser_static/validate-stale-relationship-ui.mjs
+          --directory "${{ runner.temp }}/agents/scansor-static/work/site"
+          --output "${{ runner.temp }}/agents/scansor-static/stale-relationship-ui"
+          --native-python .venv/bin/python
+
+      - name: Upload pending relationship UI acceptance
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: stale-relationship-ui-acceptance
+          path: ${{ runner.temp }}/agents/scansor-static/stale-relationship-ui/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Observe large project archives in the actual worker UI
         run: >-
           node experiments/browser_static/measure-project-archive-ui.mjs

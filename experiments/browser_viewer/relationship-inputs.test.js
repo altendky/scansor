@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inputReferenceKey } from './feature-inputs.js';
 import { relationshipParticipantChoices, relationshipSelectionForFeatures, relationshipValidity,
-  relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary } from './relationship-inputs.js';
+  relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary, relationshipInputOptions } from './relationship-inputs.js';
 import { axisFactorAxis, axisFactorMembers, axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
 import { directionAlignmentLabel, directionJointInputs, directionJointValidity, isDirectionJoint,
   relationshipDefinitions } from './relationship-inputs.js';
@@ -73,6 +73,57 @@ test('previews read the exact chosen context rather than the latest feature resu
   assert.deepEqual(relationshipOutputValue(graph, plane('fit', 'solved')).ids, [3, 4]);
   delete graph.derived.solved;
   assert.deepEqual(relationshipOutputValue(graph, plane('fit', 'solved')), plane('fit', 'solved').preview);
+});
+
+test('compatible pending publications can be authored with their exact named or automatic context', () => {
+  for (const context of ['solved', '@axis/datum']) for (const availability of ['stale', 'unevaluated']) {
+    const graph = state(), pending = {...plane('fit', context), availability,
+      dependencies: ['fit', 'datum'], reason: 'Reevaluate its changed provider'};
+    graph.input_requirements.planes = {choices: [plane('datum')], unavailable: [pending]};
+    const selected = new Set([plane('datum'), pending].map(output => inputReferenceKey(output.reference))),
+      offered = relationshipParticipantChoices(graph, 'parallel_planes');
+    assert.equal(offered.find(output => output.reference.context === context).compatible, true);
+    assert.equal(relationshipValidity(graph, 'parallel_planes', selected).valid, true);
+    assert.deepEqual(relationshipNodeInputs(graph, 'parallel_planes', selected).surfaces,
+      [plane('datum').reference, pending.reference]);
+    assert.equal(relationshipOutputValue(graph, pending), null);
+    assert.deepEqual(relationshipSelectionForFeatures(graph, 'parallel_planes', ['fit']),
+      new Set([inputReferenceKey(pending.reference)]));
+  }
+});
+
+test('pending availability cannot override structural rejection, failed providers, or later contexts', () => {
+  for (const override of [
+    {availability: 'stale', compatible: false, reason: 'Different coordinate frame'},
+    {availability: 'failed'}, {availability: 'blocked'}, {availability: 'ambiguous'},
+    {availability: 'stale', dependencies: ['fit', 'later']},
+  ]) {
+    const graph = state(), output = {...plane('fit', 'solved'), ...override};
+    graph.input_requirements.planes = {choices: [plane('datum')], unavailable: [output]};
+    const selected = new Set([plane('datum'), output].map(item => inputReferenceKey(item.reference)));
+    assert.equal(relationshipValidity(graph, 'parallel_planes', selected).valid, false);
+    assert.equal(relationshipParticipantChoices(graph, 'parallel_planes').some(item => item.reference.feature === 'fit'), false);
+  }
+});
+
+test('pending previews never read retained old geometry and preselection never guesses a publication', () => {
+  const graph = state(), pending = {...plane('fit', 'solved'), availability: 'stale', reason: 'Reevaluate'};
+  assert(pending.preview);
+  assert(graph.derived.solved.resolved.fit);
+  assert.equal(relationshipOutputValue(graph, pending), null);
+  graph.states = {fit: 'stale'};
+  assert.equal(relationshipOutputValue(graph, plane('fit')), null);
+  graph.input_requirements.planes = {choices: [], unavailable: [pending,
+    {...pending, reference: {...pending.reference, context: 'datum'}, dependencies: ['fit', 'datum']}]};
+  assert.deepEqual(relationshipSelectionForFeatures(graph, 'parallel_planes', ['fit']), new Set());
+});
+
+test('pending property-editor policy is derived from relationship signatures only', () => {
+  const graph = state();
+  assert.deepEqual(relationshipInputOptions(graph, 'planes'), {allowPending: true});
+  assert.deepEqual(relationshipInputOptions(graph, 'point'), {allowPending: false});
+  graph.relationship_contracts.future = {roles: {direction: 'future_direction'}};
+  assert.deepEqual(relationshipInputOptions(graph, 'future_direction'), {allowPending: true});
 });
 
 test('later contexts remain ineligible even when the physical feature appears earlier', () => {

@@ -17,7 +17,7 @@ import { relationshipDefinitions as relationshipDefinitionChoices, relationshipP
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
   axisSolveInputs, axisSolveValidity, relationshipPropertySummary, directionAlignmentLabel,
-  directionJointInputs, directionJointValidity, isDirectionJoint } from './relationship-inputs.js';
+  directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -2047,7 +2047,8 @@ function geometryInputChoices(id, requirement, nodes, selected) {
   if (nodes.length < graphState.recipe.nodes.length)
     control.dataset.inputConsumer = editingFeatureId || '';
   else delete control.dataset.inputConsumer;
-  renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected);
+  renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected,
+    relationshipInputOptions(graphState, requirement));
 }
 function frameGeometry(nodes) {
   return {
@@ -2129,7 +2130,8 @@ function renderRelationshipBuilder() {
               ? 'Feature geometry · keeps its existing freedom' : 'Published geometry · fixed in this relationship']
               .filter(Boolean).join(' · ') };
         return { ...presentation, id: output.key, compatible,
-          detail: compatible ? presentation.detail : `${presentation.detail} · ${output.reason || 'incompatible'}` };
+          detail: compatible ? `${presentation.detail}${output.availability === 'ready' ? '' : ' · Needs evaluation'}`
+            : `${presentation.detail} · ${output.reason || 'incompatible'}` };
       }),
     selected: relationshipParticipantIds,
     locked: () => featureTreeLocked() || relationshipApplying,
@@ -2166,7 +2168,7 @@ function updateRelationshipParticipantField() {
     busy: !!graphState && (featureTreeLocked() || relationshipApplying),
     emptyMessage: selectedRelationshipKind === 'coaxial'
       ? 'Choose one datum axis and at least two cone or cylinder fits. Create missing fits or an axis first; published solve outputs are fixed reads and cannot be rebound here.'
-      : 'Create or evaluate outputs compatible with the selected relationship. Reference planes and plane fits can participate in Parallel and Coincident.' });
+      : 'Choose compatible outputs, including those that need evaluation. Reference planes and plane fits can participate in Parallel and Coincident.' });
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
@@ -2177,6 +2179,10 @@ function updateRelationshipSelection() {
     ? validity.valid ? chosen.operation === 'direction_alignment'
       ? `${directionAlignmentLabel(validity.roles.participants)}. ${chosen.summary}` : chosen.summary
       : validity.reason : 'Choose a relationship, then its participants.';
+  if (validity.valid && Object.values(validity.roles).flat().some(output => output.availability !== 'ready'))
+    $('relationship-summary').textContent += $('auto-evaluate').checked
+      ? ' Pending inputs will be evaluated after adding the relationship.'
+      : ' This relationship will need evaluation.';
   $('relationship-count').textContent = `${participants.length} selected`;
   const locked = featureTreeLocked() || relationshipApplying;
   $('relationship-kind').disabled = relationshipApplying;
@@ -2214,7 +2220,9 @@ function paintRelationshipPreview() {
   draw();
 }
 function relationshipPlaneGuide(output, color, group = overlays) {
-  const values = output?.preview?.plane_equation ? output.preview : relationshipOutputValue(graphState, output);
+  const published = relationshipOutputValue(graphState, output);
+  if (!published) return false;
+  const values = output?.preview?.plane_equation ? output.preview : published;
   if (!values?.plane_equation) return false;
   const normal = new THREE.Vector3(...values.plane_equation.slice(0, 3)), length = normal.length();
   if (!Number.isFinite(length) || length <= 0) return false;
@@ -2471,7 +2479,8 @@ function acceptGraph(state) {
   showProperties();
   for (const control of document.querySelectorAll('select[data-input-requirement]')) {
     if (control.closest('#action-properties') || control.dataset.fitReferenceEditor) continue;
-    renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement), inputDrafts.get(control) ?? control.value);
+    renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement), inputDrafts.get(control) ?? control.value,
+      relationshipInputOptions(state, control.dataset.inputRequirement));
   }
   for (const { control, options } of authoringDraft) {
     for (const saved of options) {
@@ -2827,7 +2836,8 @@ function showProperties(force = false) {
       if (control.dataset.fitReferenceEditor) continue;
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
-        graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected);
+        graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected,
+        relationshipInputOptions(graphState, control.dataset.inputRequirement));
     }
     if (node.operation === 'direction_alignment') updateDirectionPropertiesHint();
     return;
