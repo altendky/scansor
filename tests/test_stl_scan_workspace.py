@@ -20,6 +20,7 @@ from experiments.scan_project import ScanProject
 from experiments.scan_sources import BytesInput
 from experiments.scan_workspace import (
     INTERPRETATION_SHA256,
+    STL_FALLBACK_INTERPRETATION_SHA256,
     STL_INTERPRETATION_SHA256,
     STL_PROFILE,
     ScanCancelled,
@@ -233,14 +234,12 @@ def test_face_order_duplicates_and_degenerate_accounting_are_retained() -> None:
     )
 
 
-@pytest.mark.parametrize("problem", ["zero-area", "cancelled", "zero-only-extra"])
+@pytest.mark.parametrize("problem", ["zero-area", "zero-only-extra"])
 def test_unusable_generated_normals_reject_without_hidden_repair(problem: str) -> None:
     vertices: list[Point] = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
     faces: list[Face] = [(0, 1, 2)]
     if problem == "zero-area":
         vertices[2] = (2, 0, 0)
-    if problem == "cancelled":
-        faces.append((0, 2, 1))
     if problem == "zero-only-extra":
         vertices.append((9, 9, 9))
         faces.append((3, 3, 3))
@@ -251,6 +250,71 @@ def test_unusable_generated_normals_reject_without_hidden_repair(problem: str) -
     assert error.value.code == "invalid_stl_normals"
     assert "first IDs" in str(error.value)
     assert "positive-area directions" in str(error.value)
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "binary"])
+@pytest.mark.parametrize("chunk_bytes", [240, 4096])
+def test_exact_cancellation_preserves_geometry_and_chooses_first_equal_area_facet(
+    encoding: str, chunk_bytes: int
+) -> None:
+    vertices: list[Point] = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    faces: list[Face] = [(0, 1, 2), (0, 2, 1)]
+    raw = stl_bytes(vertices, faces, encoding=encoding, normal=(0, 0, -1))
+    workspace = prepare_scan_input(
+        BytesInput(raw, "two-sided.stl"), replace(LIMITS, chunk_bytes=chunk_bytes)
+    )
+    np.testing.assert_array_equal(workspace.local, vertices)
+    np.testing.assert_array_equal(workspace.data.triangles, faces)
+    np.testing.assert_array_equal(workspace.data.face_status, [0, 0])
+    np.testing.assert_array_equal(workspace.data.normals, [(0, 0, 1)] * 3)
+    np.testing.assert_allclose(workspace.data.weights, [1 / 3] * 3)
+    assert workspace.descriptor is not None
+    assert workspace.descriptor.source_sha256 == hashlib.sha256(raw).hexdigest()
+    assert (
+        workspace.descriptor.interpretation_sha256 == STL_FALLBACK_INTERPRETATION_SHA256
+    )
+    assert supported_source_interpretation(workspace.descriptor)
+    assert workspace.diagnostics.fallback_normal_vertices == 3
+    assert workspace.diagnostics.fallback_normal_first_ids == (0, 1, 2)
+    warning = workspace.normal_warnings()[0]
+    assert warning["vertices"] == 3 and warning["first_ids"] == [0, 1, 2]
+    assert "ambiguous" in str(warning["message"])
+    assert workspace.metadata()["source_warnings"] == [warning]
+    assert workspace.source is not None
+    workspace.source.verify()
+
+
+def test_cancelled_vertex_uses_largest_incident_area_and_can_be_cancelled() -> None:
+    vertices: list[Point] = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (2, 0, 0), (0, 3, 0)]
+    raw = stl_bytes(vertices, [(0, 1, 2), (0, 3, 2), (0, 4, 1)])
+    workspace = prepare_scan_input(BytesInput(raw, "largest.stl"), LIMITS)
+    np.testing.assert_array_equal(workspace.data.normals[0], (0, 0, -1))
+    assert workspace.diagnostics.fallback_normal_first_ids == (0,)
+    fallback_started = False
+
+    def progress(update: ScanProgress) -> None:
+        nonlocal fallback_started
+        fallback_started |= update.phase == "stl-normal-fallback"
+
+    with pytest.raises(ScanCancelled):
+        _ = prepare_scan_input(
+            BytesInput(raw, "cancel.stl"),
+            LIMITS,
+            progress=progress,
+            cancelled=lambda: fallback_started,
+        )
+
+
+def test_near_cancellation_does_not_use_fallback_or_change_existing_binding() -> None:
+    vertices: list[Point] = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1 - 2**-23, 0, 0)]
+    workspace = prepare_scan_input(
+        BytesInput(stl_bytes(vertices, [(0, 1, 2), (0, 2, 3)]), "near.stl"), LIMITS
+    )
+    assert workspace.descriptor is not None
+    assert workspace.descriptor.interpretation_sha256 == STL_INTERPRETATION_SHA256
+    assert workspace.diagnostics.fallback_normal_vertices == 0
+    assert workspace.normal_warnings() == []
+    np.testing.assert_array_equal(workspace.data.normals[0], (0, 0, 1))
 
 
 @pytest.mark.parametrize("header", [b"ply\n", b"ply\r\n", b"solid", b"plain binary"])
@@ -457,7 +521,7 @@ def test_failed_stl_replacement_preserves_previous_project_and_source() -> None:
         )
     )
     before = original.graph.snapshot()
-    invalid = stl_bytes([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2), (0, 2, 1)])
+    invalid = stl_bytes([(0, 0, 0), (1, 0, 0), (2, 0, 0)], [(0, 1, 2)])
     with pytest.raises(ScanImportError) as error:
         _ = project.prepare_replace(
             BytesInput(invalid, "cancelled.stl"),

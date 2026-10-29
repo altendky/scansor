@@ -67,11 +67,20 @@ a patch whose boundary normals include adjacent faces. There is no crease-angle
 parameter or hidden normal fan in this initial slice. The source inspector
 labels this policy, and the import guidance identifies STL normals as smoothed.
 
-Each vertex weight is one third of each usable incident triangle's area. Zero
-or exactly cancelled generated normal directions reject the complete import
-with vertex diagnostics, including vertices supported only by zero-area
-triangles. The importer does not discard or repair those vertices to make the
-file fit.
+Each vertex weight is one third of each usable incident triangle's area. When
+positive incident areas produce an exactly zero summed direction, import uses
+the largest incident triangle's geometric area vector, with first source facet
+order breaking equal-area ties. A persistent import warning gives the count and
+first affected vertex IDs and explains that the chosen directions are ambiguous
+and can affect normal-based selection and fitting. This does not apply a
+near-zero threshold or change positions, connectivity, weights or original
+source bytes. Zero-area-only vertices and nonfinite directions still reject
+import because no usable geometric direction exists.
+
+Only sources that need this fallback receive its separate interpretation hash;
+previously admitted STL sources keep their existing interpretation and binding.
+Both hashes are supported on actions/project reopen. The warning is reconstructed
+from source bytes and remains visible when a reduced virtual scan is active.
 
 ## Source lifecycle and bounds
 

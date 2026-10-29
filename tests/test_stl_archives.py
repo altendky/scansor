@@ -26,6 +26,99 @@ from tests.test_stl_integration import (
 from tests.test_stl_virtual_scan import grid_bytes
 
 
+@pytest.mark.parametrize("encoding", ["ascii", "binary"])
+def test_fallback_normals_and_warnings_survive_virtual_archive_and_force_reopen(
+    native_http: NativeHttp, encoding: str
+) -> None:
+    raw = grid_bytes(encoding, cancelled_normals=True)
+    workspace = BrowserWorkspace(
+        None, scan_limits=LIMITS, project_limits=ProjectArchiveLimits(chunk_bytes=4096)
+    )
+    _ = promote(
+        workspace,
+        success(
+            workspace.prepare_source_json(
+                request(workspace, filename="two-sided.stl"),
+                source_input=BytesInput(raw, "two-sided.stl"),
+            )
+        ),
+    )
+    original = workspace.workspace
+    assert len(original.local) == 292 and len(original.data.triangles) == 514
+    warnings = original.normal_warnings()
+    assert warnings[0]["first_ids"] == [289, 290, 291]
+    _ = promote(
+        workspace,
+        success(
+            workspace.prepare_source_json(
+                request(workspace, "create-virtual-scan", settings={"divisions": 4})
+            )
+        ),
+    )
+    metadata = success(workspace.call_json("loadWorkspace"))
+    assert metadata["virtual_scans"]["source_warnings"] == warnings
+    saved = graph(workspace)["recipe"]
+    packed = export(workspace)
+    http = native_http
+    status, operation, _ = http.request(
+        "/api/project/open",
+        {
+            **http.cursor(),
+            "filename": "unchanged.scansor",
+            "size": len(packed),
+            "confirmedDiscard": True,
+        },
+    )
+    assert status == 202, operation
+    status, result, _ = http.request(
+        f"/api/sources/imports/{operation['operationId']}/bytes", packed
+    )
+    assert status in {200, 202}, result
+    assert http.finish(operation)["status"] == "accepted"
+    assert http.metadata()["graph"]["recipe"] == saved
+    assert http.metadata()["virtual_scans"]["source_warnings"] == warnings
+    fresh = BrowserWorkspace(
+        None, scan_limits=LIMITS, project_limits=ProjectArchiveLimits(chunk_bytes=4096)
+    )
+    opened = success(
+        fresh.prepare_source_json(
+            request(fresh, "open-project", confirmedDiscard=True),
+            source_input=BytesInput(packed, "unchanged.scansor"),
+        )
+    )
+    _ = promote(fresh, opened)
+    assert graph(fresh)["recipe"] == saved
+    assert (
+        success(fresh.call_json("loadWorkspace"))["virtual_scans"]["source_warnings"]
+        == warnings
+    )
+    recovered = BrowserWorkspace(
+        None, scan_limits=LIMITS, project_limits=ProjectArchiveLimits(chunk_bytes=4096)
+    )
+    _ = promote(
+        recovered,
+        success(
+            recovered.prepare_source_json(
+                request(recovered, filename="unchanged.scansor"),
+                source_input=BytesInput(packed, "unchanged.scansor"),
+                recovery_generation=fresh.workspace_generation,
+                recovery_identity=fresh.source_identity,
+                recovery_recipe=saved,
+                recovery_authority=opened["source_authority"],
+            )
+        ),
+    )
+    assert graph(recovered)["recipe"] == saved
+    assert (
+        success(recovered.call_json("loadWorkspace"))["virtual_scans"][
+            "source_warnings"
+        ]
+        == warnings
+    )
+    for owner in (workspace, fresh, recovered):
+        assert json.loads(owner.call_json("close"))["ok"]
+
+
 def request(
     workspace: BrowserWorkspace, purpose: str | None = None, **controls: Any
 ) -> str:

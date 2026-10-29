@@ -35,13 +35,16 @@ LIMITS = ScanLimits(4_000_000, 20_000, 40_000, 100_000_000, chunk_bytes=240)
 SETTINGS = ReductionSettings(divisions=4)
 
 
-def grid_bytes(encoding: str = "binary") -> bytes:
+def grid_bytes(encoding: str = "binary", *, cancelled_normals: bool = False) -> bytes:
     vertices: list[Point] = [(x / 16, y / 16, 0) for y in range(17) for x in range(17)]
     faces: list[Face] = []
     for y in range(16):
         for x in range(16):
             a = 17 * y + x
             faces.extend(((a, a + 1, a + 17), (a + 1, a + 18, a + 17)))
+    if cancelled_normals:
+        vertices.extend(((2, 2, 0), (2.125, 2, 0), (2, 2.125, 0)))
+        faces.extend(((289, 290, 291), (289, 291, 290)))
     return stl_bytes(vertices, faces, encoding=encoding, normal=(0, 0, 0))
 
 

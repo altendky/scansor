@@ -119,6 +119,15 @@ _STL_INTERPRETATION = {
     "units": "unknown",
 }
 STL_INTERPRETATION_SHA256 = hashlib.sha256(_canonical(_STL_INTERPRETATION)).hexdigest()
+STL_FALLBACK_INTERPRETATION_SHA256 = hashlib.sha256(
+    _canonical(
+        {
+            **_STL_INTERPRETATION,
+            "normals": "ignore-stored-facet-normals;face-corner-ordered-binary64-area-vector-sums;exact-zero-fallback;reject-zero-area-nonfinite;normalize-round-binary32-then-unit-binary64-v1",
+            "cancelled_normals": "largest-positive-area-incident-geometric-vector;first-source-facet-breaks-ties;exact-zero-only-v1",
+        }
+    )
+).hexdigest()
 
 
 class SourceDescriptor(BaseModel):
@@ -144,10 +153,10 @@ class SourceDescriptor(BaseModel):
 
 
 def supported_source_interpretation(descriptor: SourceDescriptor) -> bool:
-    return {
-        PROFILE: INTERPRETATION_SHA256,
-        STL_PROFILE: STL_INTERPRETATION_SHA256,
-    }.get(descriptor.profile) == descriptor.interpretation_sha256
+    return descriptor.interpretation_sha256 in {
+        PROFILE: {INTERPRETATION_SHA256},
+        STL_PROFILE: {STL_INTERPRETATION_SHA256, STL_FALLBACK_INTERPRETATION_SHA256},
+    }.get(descriptor.profile, set())
 
 
 @dataclass(frozen=True)
@@ -252,6 +261,8 @@ class ScanDiagnostics:
     no_usable_area_vertices: int
     positive_area_vertices: int
     estimated_bytes: int
+    fallback_normal_vertices: int = 0
+    fallback_normal_first_ids: tuple[int, ...] = ()
 
 
 def _freeze[T: np.generic](array: NDArray[T]) -> NDArray[T]:
@@ -315,6 +326,26 @@ class ScanWorkspace:
         )
         return _freeze(positions), _freeze(indices)
 
+    def normal_warnings(self) -> list[dict[str, object]]:
+        count = self.diagnostics.fallback_normal_vertices
+        if not count:
+            return []
+        ids = list(self.diagnostics.fallback_normal_first_ids)
+        return [
+            {
+                "code": "stl_normal_fallback",
+                "vertices": count,
+                "first_ids": ids,
+                "message": (
+                    f"STL normal averaging cancelled at {count:,} vertices "
+                    f"(first IDs {ids}). Used the largest incident triangle's geometric "
+                    "normal, with source order breaking ties. These directions are "
+                    "ambiguous and can affect normal-based selection and fitting. "
+                    "All vertices, triangles and original file bytes are preserved."
+                ),
+            }
+        ]
+
     def metadata(self) -> dict[str, object]:
         from dataclasses import asdict
 
@@ -327,6 +358,7 @@ class ScanWorkspace:
             "display_triangles": int(np.count_nonzero(self.data.face_status == 0)),
             "units": "unknown",
             "diagnostics": asdict(self.diagnostics),
+            "source_warnings": self.normal_warnings(),
             "bounds": [self.local.min(axis=0).tolist(), self.local.max(axis=0).tolist()]
             if len(self.local)
             else None,
@@ -632,23 +664,52 @@ def _decode_stl(
     cancelled_normals = np.flatnonzero(
         (weights > 0) & ((lengths <= 0) | ~np.isfinite(lengths))
     )
-    if len(zero_area) or len(cancelled_normals) or not np.isfinite(weights).all():
+    if len(zero_area) or not np.isfinite(sums).all() or not np.isfinite(weights).all():
         raise ScanImportError(
             f"STL derived normals are unusable: {len(zero_area)} zero-area-only vertices "
             + f"(first IDs {zero_area[:16].tolist()}); {len(cancelled_normals)} cancelled or nonfinite "
             + f"positive-area directions (first IDs {cancelled_normals[:16].tolist()}).",
             "invalid_stl_normals",
         )
+    if len(cancelled_normals):
+        # Preserve every observation and facet. Only exactly cancelled sums use
+        # a chosen incident direction; near cancellation is not thresholded.
+        affected = np.zeros(count, dtype=np.bool_)
+        affected[cancelled_normals] = True
+        largest = np.zeros(len(cancelled_normals), dtype=np.float64)
+        for start in range(0, faces, step):
+            report("stl-normal-fallback", start, faces)
+            rows = triangles[start : start + step]
+            rows = rows[np.any(affected[rows], axis=1)]
+            vertices = xyz[rows]
+            vectors = np.cross(
+                vertices[:, 1] - vertices[:, 0], vertices[:, 2] - vertices[:, 0]
+            )
+            magnitudes = np.linalg.norm(vectors, axis=1)
+            for indices, vector, magnitude in zip(
+                rows, vectors, magnitudes, strict=True
+            ):
+                for vertex in indices[affected[indices]]:
+                    slot = int(np.searchsorted(cancelled_normals, vertex))
+                    if magnitude > largest[slot]:
+                        largest[slot] = magnitude
+                        sums[vertex] = vector
+        lengths[cancelled_normals] = largest
+        del affected, largest
     original_normals = (sums / lengths[:, None]).astype("<f4")
     normals = original_normals.astype(np.float64)
     normals /= np.linalg.norm(normals, axis=1)[:, None]
-    del sums, lengths, zero_area, cancelled_normals
+    del sums, lengths, zero_area
     hint = PurePosixPath(filename.replace("\\", "/")).name
     descriptor = SourceDescriptor(
         profile=STL_PROFILE,
         source_sha256=metadata.source_sha256,
         source_bytes=source.byte_length,
-        interpretation_sha256=STL_INTERPRETATION_SHA256,
+        interpretation_sha256=(
+            STL_FALLBACK_INTERPRETATION_SHA256
+            if len(cancelled_normals)
+            else STL_INTERPRETATION_SHA256
+        ),
         vertices=count,
         triangles=faces,
         filename=hint,
@@ -660,6 +721,8 @@ def _decode_stl(
         int(np.count_nonzero((references > 0) & (weights == 0))),
         int(np.count_nonzero(weights > 0)),
         estimated,
+        len(cancelled_normals),
+        tuple(int(value) for value in cancelled_normals[:16]),
     )
     result = ScanWorkspace(
         hint,

@@ -114,12 +114,12 @@ header { min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; 
 #active-scan-controls button { padding: 5px 8px; font-size: 12px; }
 #active-scan-summary { color: #a6b6c5; }
 #virtual-scan-dialog { max-width: min(520px, calc(100vw - 24px)); }
-#import-warning { flex: none; padding: 8px 20px; background: #3d3521; border-bottom: 1px solid #8a7447; font-size: 12px; }
+#import-warning, #source-import-warning { flex: none; padding: 8px 20px; background: #3d3521; border-bottom: 1px solid #8a7447; font-size: 12px; }
 .import-warning-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #dismiss-import-warning { padding: 4px 8px; font-size: 12px; }
 #import-warning details { margin-top: 4px; }
 #import-warning summary { cursor: pointer; }
-#import-warning-list { max-height: 100px; overflow-y: auto; margin: 6px 0 0; padding-left: 20px; }
+#import-warning-list, #source-import-warning-list { max-height: 100px; overflow-y: auto; margin: 6px 0 0; padding-left: 20px; }
 header strong { font-size: 20px; letter-spacing: .04em; } header small { color: #9aacbe; margin-left: auto; letter-spacing: .12em; }
 main { display: flex; flex: 1; min-height: 0; } aside { width: 320px; flex-shrink: 0; padding: 20px; overflow: auto; border-right: 1px solid #344351; }
 h1 { font-size: 23px; margin: 0 0 8px; } h2 { font-size: 14px; margin: 0 0 14px; } section { border-top: 1px solid #344351; padding-top: 18px; margin-top: 20px; }
