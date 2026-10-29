@@ -336,6 +336,10 @@ shared-axis, shared-point, or shared-plane solve by its human-readable provider
 name. Reference results are fixed for the downstream relationship; provider
 changes can still recompute them. Names wrap to keep patterned occurrence
 identifiers readable, and distinct output/context references remain separate.
+The participant and neighbor dropdowns keep search visible above one scrolling
+choices list. Their available height and placement follow the viewport when
+resized, including short windows and docked editors; very constrained popups can
+overlap their input field to keep choices reachable.
 
 **Coaxial** selects one datum axis and two or more cone/cylinder axis-owner
 outputs. The same shared contracts govern its picker and backend validation.

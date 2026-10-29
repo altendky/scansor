@@ -47,6 +47,10 @@
 .selection-field-option:hover, .selection-field-option:focus-visible { background: #164b5a; }
 .selection-field-check { flex: none; width: 14px; color: #79d8ee; }
 .selection-field-options .hint { margin: 5px; }
+.selection-field-options-custom:popover-open { display: flex; overflow: hidden; }
+.selection-field-content { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.selection-field-content > :not([data-picker-scroll]) { flex: none; }
+.selection-field-content > [data-picker-scroll] { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; overscroll-behavior: contain; }
 dialog[data-model-pick-suspended="true"] { position: fixed; inset: 72px 12px auto auto; margin: 0; max-width: min(350px, calc(100vw - 24px)); max-height: calc(100vh - 110px); overflow: auto; z-index: 15; }
 #pick-face-target[aria-pressed="true"], #pick-face-neighbor[aria-pressed="true"], #pick-relationship-participant[aria-pressed="true"] { background: #164b5a; border-color: #79d8ee; }
 #model-pick-hint { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 16px); padding: 5px 8px; border: 1px solid #79d8ee; border-radius: 5px; background: #1c2a35; z-index: 3; font-size: 12px; }
@@ -92,7 +96,7 @@ dialog[data-model-pick-suspended="true"] { position: fixed; inset: 72px 12px aut
 .build-face-row label { margin: 5px 0; }
 .build-face-row .hint { margin: 8px 0; }
 .build-face-warning { color: #f2ce8b; }
-#build-faces-candidates { max-height: 240px; overflow: auto; }
+#build-faces-candidates { overflow: auto; }
 #build-faces-candidates .build-face-row { margin-top: 6px; }
 #build-faces-dialog input[type="checkbox"] { width: auto; }
 #build-faces-dialog .build-face-row { padding: 6px; margin-top: 6px; }

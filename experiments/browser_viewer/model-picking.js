@@ -132,6 +132,7 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   dropdown.setAttribute('aria-haspopup', popupContent ? 'dialog' : 'menu');
   dropdown.setAttribute('aria-expanded', 'false');
   popup.className = 'selection-field-options';
+  popup.classList.toggle('selection-field-options-custom', !!popupContent);
   popup.id = `selection-field-options-${++pickerSequence}`;
   feedback.id = `selection-field-feedback-${pickerSequence}`;
   feedback.className = 'selection-field-feedback hint';
@@ -142,7 +143,10 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   popup.setAttribute('role', popupContent ? 'dialog' : 'menu');
   popup.setAttribute('aria-label', `${label} choices`);
   dropdown.setAttribute('aria-controls', popup.id);
-  if (popupContent) popup.append(popupContent);
+  if (popupContent) {
+    popupContent.classList.add('selection-field-content');
+    popup.append(popupContent);
+  }
   element.append(selected, button, dropdown, popup, feedback);
   let records = [], disabled = false, signature = null;
   const close = (focus = false) => {
@@ -152,14 +156,34 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   };
   const position = () => {
     const bounds = element.getBoundingClientRect(), width = root.defaultView.innerWidth,
-      height = root.defaultView.innerHeight;
-    popup.style.width = `${Math.min(Math.max(bounds.width, 260), width - 16)}px`;
-    popup.style.maxHeight = `${Math.min(320, height - 16)}px`;
-    const box = popup.getBoundingClientRect(), below = height - bounds.bottom - 8,
-      above = bounds.top - 8, down = below >= Math.min(box.height, 180) || below >= above;
-    popup.style.maxHeight = `${Math.max(40, Math.min(320, down ? below : above))}px`;
-    popup.style.left = `${Math.max(8, Math.min(bounds.left, width - box.width - 8))}px`;
-    popup.style.top = `${Math.max(8, down ? bounds.bottom + 3 : bounds.top - Math.min(box.height, above) - 3)}px`;
+      height = root.defaultView.innerHeight, availableHeight = Math.max(0, height - 16);
+    popup.style.width = `${Math.min(Math.max(bounds.width, 260), Math.max(0, width - 16))}px`;
+    popup.style.maxHeight = `${Math.min(320, availableHeight)}px`;
+    const box = popup.getBoundingClientRect(), below = Math.max(0, height - Math.max(8, bounds.bottom) - 8),
+      above = Math.max(0, Math.min(height - 8, bounds.top) - 8),
+      down = below >= Math.min(box.height, 180) || below >= above;
+    // If neither side can show a usable slice, overlap the field while staying
+    // inside the viewport rather than clipping every choice beneath search.
+    const sideHeight = down ? below : above,
+      maxHeight = sideHeight >= Math.min(box.height, 180) ? sideHeight : availableHeight;
+    popup.style.maxHeight = `${Math.min(320, availableHeight, maxHeight)}px`;
+    const finalBox = popup.getBoundingClientRect();
+    popup.style.left = `${Math.max(8, Math.min(bounds.left, width - finalBox.width - 8))}px`;
+    popup.style.top = `${Math.max(8, Math.min(down ? bounds.bottom + 3 : bounds.top - finalBox.height - 3,
+      height - finalBox.height - 8))}px`;
+  };
+  const reposition = event => {
+    if (!element.isConnected) { stopTracking(); onInspect(null); return; }
+    if (popup.matches(':popover-open') && (event.type === 'resize' || !popup.contains(event.target))) position();
+  };
+  const resize = new root.defaultView.ResizeObserver(() => {
+    if (!element.isConnected) { stopTracking(); onInspect(null); }
+    else if (popup.matches(':popover-open')) position();
+  });
+  const stopTracking = () => {
+    root.defaultView.removeEventListener('resize', reposition);
+    root.removeEventListener('scroll', reposition, true);
+    resize.disconnect();
   };
   const open = () => {
     if (disabled) return;
@@ -206,8 +230,16 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     options[index].focus();
   });
   popup.addEventListener('toggle', () => {
-    dropdown.setAttribute('aria-expanded', String(popup.matches(':popover-open')));
-    if (!popup.matches(':popover-open')) onInspect(null);
+    const opened = popup.matches(':popover-open');
+    dropdown.setAttribute('aria-expanded', String(opened));
+    if (opened) {
+      root.defaultView.addEventListener('resize', reposition);
+      root.addEventListener('scroll', reposition, true);
+      resize.observe(element);
+    } else {
+      stopTracking();
+      onInspect(null);
+    }
   });
   const update = (choices, { disabled: locked = false, busy = false, emptyMessage = '' } = {}) => {
     records = choices;
@@ -254,7 +286,10 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
       row.append(name, remove);
       return row;
     }));
-    if (popupContent) return;
+    if (popupContent) {
+      if (popup.matches(':popover-open')) position();
+      return;
+    }
     // Keep dropdown options in place while multiselect updates their checks.
     const current = new Map([...popup.querySelectorAll('[data-selection-key]')]
       .map(option => [option.dataset.selectionKey, option]));
