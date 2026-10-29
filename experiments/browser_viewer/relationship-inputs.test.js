@@ -2,8 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inputReferenceKey } from './feature-inputs.js';
 import { relationshipParticipantChoices, relationshipSelectionForFeatures, relationshipValidity,
-  relationshipNodeInputs, relationshipOutputValue } from './relationship-inputs.js';
+  relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary } from './relationship-inputs.js';
 import { axisFactorAxis, axisFactorMembers, axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
+
+test('relationship property descriptions follow the same role contracts as eligibility', () => {
+  const state = {input_contracts: {orientation: {property: 'plane_orientation'}, plane: {property: 'plane'},
+    repeated: {property: 'plane_orientation'}}};
+  assert.equal(relationshipPropertySummary(state, {requirements: ['orientation', 'plane', 'repeated']}), 'plane orientation, plane');
+  assert.equal(relationshipPropertySummary(state, {requirements: ['unknown']}), '');
+});
 
 const plane = (feature, context = feature) => ({
   reference: { feature, output: 'plane', context }, label: `${feature} · ${context}`,

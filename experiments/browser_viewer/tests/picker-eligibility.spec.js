@@ -79,13 +79,14 @@ test('sphere Reference geometry explains its point-datum prerequisite rather tha
   await jointScene(page);
   await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
   await page.locator('#new-fit-kind').selectOption('sphere');
+  await page.locator('#new-fit-reference-mode').selectOption('fit_point_center');
   const reference = field(page, 'new-fit-reference');
   await expect(reference.locator('.selection-field-feedback')).toContainText('Create a point datum before this sphere fit');
   await expect(reference.locator('.selection-field-feedback')).not.toContainText('axis or plane datum');
   await expect(reference.locator('.model-field-pick')).toBeDisabled();
   await expect(reference.locator('.selection-field-dropdown')).toBeEnabled();
   await reference.locator('.selection-field-dropdown').click();
-  await expect(reference.getByRole('menuitemradio', { name: 'None (standalone)', exact: true })).toBeVisible();
+  await expect(page.locator('#new-fit-reference-mode option[value=""]')).toHaveText('None (standalone)');
 });
 
 test('failed Body stays selectable for export diagnostics when model picking is unavailable', async ({ page }) => {

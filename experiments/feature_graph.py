@@ -40,8 +40,8 @@ from experiments.feature_inputs import (
     reference_dependencies,
     reference_json,
     resolve_output,
+    validate_fit_reference,
     validate_output_reference,
-    validate_parameter_owner,
 )
 from experiments.feature_inputs import (
     reference_key as input_reference_key,
@@ -3603,28 +3603,17 @@ class FeatureGraph(Generic[WorkspaceType]):
                     lo, hi = node.axial_domain
                     if not np.isfinite([lo, hi]).all() or lo >= hi:
                         raise ValueError("invalid axial domain")
+                for field in ("axis", "point", "reference_plane"):
+                    if (reference := getattr(node, field)) is not None:
+                        _ = validate_fit_reference(node.kind, field, reference, nodes)
                 if node.axis is not None:
-                    axis = nodes[node.axis]
-                    if not isinstance(axis, AxisDefinition):
-                        raise ValueError("axis-bound fit requires an explicit axis")
+                    axis = cast(AxisDefinition, nodes[node.axis])
                     if axis.source_points is not None and not isinstance(
                         self.workspace, ScanWorkspace
                     ):
                         raise ValueError(
                             "point-pair axes are currently datum-only and cannot drive a surface fit"
                         )
-                if node.point is not None and not isinstance(
-                    nodes[node.point], PointDefinition
-                ):
-                    raise ValueError("point-bound fit requires an explicit point")
-                if node.point is not None:
-                    validate_parameter_owner(nodes[node.point], "constrainable_point")
-                if node.reference_plane is not None and not isinstance(
-                    nodes[node.reference_plane], PlaneDefinition
-                ):
-                    raise ValueError(
-                        "plane-bound fit requires an explicit reference plane"
-                    )
                 for selection_id in node.selections:
                     applied = nodes[selection_id]
                     if not isinstance(applied, RegionSelection):
