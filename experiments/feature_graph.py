@@ -94,6 +94,7 @@ from experiments.scan_workspace import (
     Workspace,
     check_cancelled,
 )
+from experiments.selected_direction_fit import DirectionFitFailure
 from experiments.selected_symmetry_fit import (
     SelectedSurface,
     SelectedSymmetryGroup,
@@ -590,6 +591,21 @@ class PlaneRelationship(Node):
     surfaces: list[FeatureInput] = Field(min_length=2, max_length=33)
 
 
+class DirectionAlignment(Node):
+    """Exact unsigned parallelism without sharing position or plane offset."""
+
+    operation: Literal["direction_alignment"]
+    directions: list[FeatureInput] = Field(min_length=2, max_length=2)
+    sense: Literal["unsigned"] = "unsigned"
+
+    @property
+    def surfaces(self) -> list[FeatureInput]:
+        return self.directions
+
+
+GeometryRelationship = PlaneRelationship | DirectionAlignment
+
+
 class AxisSolve(Node):
     """Explicit active factors that jointly refine one shared free axis."""
 
@@ -712,6 +728,7 @@ Feature = Annotated[
     | EqualQuantities
     | EqualRadii
     | PlaneRelationship
+    | DirectionAlignment
     | AxisSolve
     | SurfaceIntersection
     | TrimmedFace
@@ -1000,7 +1017,7 @@ def dependencies(node: Feature) -> list[str]:
         return list(dict.fromkeys(refs))
     if isinstance(node, EqualRadii):
         return node.surfaces
-    if isinstance(node, PlaneRelationship):
+    if isinstance(node, (PlaneRelationship, DirectionAlignment)):
         return list(
             dict.fromkeys(
                 dep for ref in node.surfaces for dep in reference_dependencies(ref)
@@ -1062,11 +1079,12 @@ def surface_reference_kind(
                 "coaxial group geometry is unavailable on an explicitly solved axis; choose a fitted member in the named solve context"
             )
         members = feature.surfaces
-    elif isinstance(feature, PlaneRelationship):
+    elif isinstance(feature, (PlaneRelationship, DirectionAlignment)):
         members = [
-            endpoint.owner
-            for endpoint in plane_relationship_endpoints(feature, nodes)
-            if endpoint.owner is not None
+            member
+            for provider in describe_geometry_influence(nodes).providers.values()
+            for member in provider.publications.get(feature.id, ())
+            if isinstance(nodes[member], (SurfaceFit, PlaneDefinition))
         ]
     else:
         raise ValueError(
@@ -1223,13 +1241,17 @@ def automatic_equal_radius_components(
 
 
 def plane_relationship_endpoints(
-    relationship: PlaneRelationship, nodes: dict[str, Feature]
+    relationship: GeometryRelationship, nodes: dict[str, Feature]
 ) -> list[RelationshipEndpoint]:
     """Keep parameter bindings distinct from exact publication reads."""
     requirement = (
-        "relationship_plane_orientation"
-        if relationship.relation == "parallel"
-        else "relationship_plane"
+        "relationship_direction"
+        if isinstance(relationship, DirectionAlignment)
+        else (
+            "relationship_plane_orientation"
+            if relationship.relation == "parallel"
+            else "relationship_plane"
+        )
     )
     return [
         normalize_endpoint(reference, nodes, requirement)
@@ -1241,10 +1263,12 @@ def automatic_plane_relationship_components(
     nodes: dict[str, Feature],
     *,
     include_radii: bool = True,
-) -> dict[str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]]:
+) -> dict[str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]]:
     """Relationships join through shared geometry, not just plane feature IDs."""
     relationships = [
-        node for node in nodes.values() if isinstance(node, PlaneRelationship)
+        node
+        for node in nodes.values()
+        if isinstance(node, (PlaneRelationship, DirectionAlignment))
     ]
     axis_bindings = coaxial_axis_bindings(nodes)
     pending = set(relationship.id for relationship in relationships)
@@ -1256,8 +1280,20 @@ def automatic_plane_relationship_components(
         key: {endpoint.owner for endpoint in values if endpoint.owner is not None}
         for key, values in endpoints.items()
     }
+    direction_owners = {
+        owner
+        for relation in relationships
+        if isinstance(relation, DirectionAlignment)
+        for owner in bindings[relation.id]
+    }
+    legacy_plane_owners = {
+        owner
+        for relation in relationships
+        if isinstance(relation, PlaneRelationship)
+        for owner in bindings[relation.id]
+    }
     components: dict[
-        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
+        str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]
     ] = {}
 
     def linked_datums(owner_ids: set[str]) -> tuple[set[str], set[str]]:
@@ -1274,7 +1310,9 @@ def automatic_plane_relationship_components(
             node.axis
             for key in owner_ids
             if isinstance(node := nodes[key], PlaneDefinition)
+            and key in legacy_plane_owners
         )
+        axes.update(key for key in owner_ids if isinstance(nodes[key], AxisDefinition))
         points = {
             point
             for surface in surfaces
@@ -1318,7 +1356,9 @@ def automatic_plane_relationship_components(
         return {
             key
             for key in owner_ids
-            if not isinstance(node := nodes[key], PlaneDefinition) or node.axis in axes
+            if not isinstance(node := nodes[key], PlaneDefinition)
+            or node.axis in axes
+            or key in direction_owners
         }
 
     while pending:
@@ -1408,6 +1448,17 @@ def automatic_plane_relationship_components(
                 and set(node.surfaces) <= owner_ids
             ),
         }
+        if any(
+            isinstance(relation, DirectionAlignment)
+            for relation in component_relationships
+        ):
+            members.update(
+                node.id
+                for node in nodes.values()
+                if isinstance(node, CoaxialGroup)
+                and node.axis in axes
+                and set(node.surfaces) <= owner_ids
+            )
         for relationship_id in relation_ids:
             components[relationship_id] = (
                 component_relationships,
@@ -1415,6 +1466,63 @@ def automatic_plane_relationship_components(
                 members,
             )
     return components
+
+
+def active_direction_datum_source(
+    key: str, surface_ids: set[str], nodes: dict[str, Feature]
+) -> str | None:
+    """A source-fit binding aliases its active source, never a second owner."""
+    node = nodes[key]
+    if not isinstance(node, (AxisDefinition, PointDefinition)):
+        return None
+    source = node.source_fit
+    if source not in surface_ids:
+        return None
+    assert source is not None
+    if (
+        isinstance(node, AxisDefinition)
+        and fit_axis(cast(SurfaceFit, nodes[source]), nodes) == key
+    ):
+        # A self-initialized Coaxial axis retains its upstream initializer role.
+        return None
+    return source
+
+
+def direction_component_inputs(
+    relations: list[GeometryRelationship],
+    surfaces: list[SurfaceFit],
+    nodes: dict[str, Feature],
+) -> tuple[set[str], set[str]]:
+    """Selected memberships precede a solve; fixed publications remain reads."""
+    prerequisites = {ref for surface in surfaces for ref in surface.selections}
+    surface_ids = {surface.id for surface in surfaces}
+
+    def require_binding(key: str) -> None:
+        node = nodes[key]
+        if active_direction_datum_source(key, surface_ids, nodes) is not None:
+            return
+        if (
+            isinstance(node, PlaneDefinition)
+            and active_direction_datum_source(node.axis, surface_ids, nodes) is not None
+        ):
+            if node.placement is not None:
+                prerequisites.add(node.placement.reuse)
+            return
+        prerequisites.add(key)
+
+    reads: set[str] = set()
+    for relation in relations:
+        for endpoint in plane_relationship_endpoints(relation, nodes):
+            if not endpoint.is_binding:
+                prerequisites.add(endpoint.context)
+                reads.add(endpoint.context)
+            elif not isinstance(nodes[endpoint.feature], SurfaceFit):
+                require_binding(endpoint.feature)
+    for surface in surfaces:
+        for ref in (fit_axis(surface, nodes), surface.point, surface.reference_plane):
+            if ref is not None:
+                require_binding(ref)
+    return prerequisites, reads
 
 
 @dataclass(frozen=True)
@@ -1437,7 +1545,7 @@ class GeometryInfluence:
     axis_components: dict[str, tuple[list[SurfaceFit], set[str]]]
     point_components: dict[str, tuple[list[SurfaceFit], set[str]]]
     plane_components: dict[
-        str, tuple[list[PlaneRelationship], list[SurfaceFit], set[str]]
+        str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]
     ]
     providers: dict[str, ProviderInfluence]
     axis_bindings: dict[str, str]
@@ -1538,11 +1646,15 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         if task in providers:
             continue
         relation_ids = frozenset(relation.id for relation in relations)
+        selected_direction = any(
+            isinstance(relation, DirectionAlignment) for relation in relations
+        )
         aliases = frozenset(
             key
             for key in members
             if not isinstance(node := nodes[key], PlaneDefinition)
             or node.axis in members
+            or selected_direction
         )
         exact_contexts = frozenset(
             endpoint.context
@@ -1550,16 +1662,44 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
             for endpoint in plane_relationship_endpoints(relation, nodes)
             if not endpoint.is_binding
         )
+        prerequisites, fixed_reads = direction_component_inputs(
+            relations, surfaces, nodes
+        )
+        publishers = relation_ids | frozenset(
+            key for key in members if isinstance(nodes[key], (EqualRadii, CoaxialGroup))
+        )
         providers[task] = ProviderInfluence(
             task,
             ("planes", first),
             frozenset(members),
             aliases,
-            (frozenset(members) - relation_ids) | exact_contexts,
-            frozenset(surface.id for surface in surfaces)
+            frozenset(prerequisites)
+            if selected_direction
+            else (frozenset(members) - relation_ids) | exact_contexts,
+            frozenset(fixed_reads)
+            if selected_direction
+            else frozenset(surface.id for surface in surfaces)
             | (frozenset(members) - aliases),
-            {key: aliases - relation_ids for key in relation_ids},
+            {
+                key: aliases - publishers
+                for key in (publishers if selected_direction else relation_ids)
+            },
         )
+    # A direction component owns every intersecting variable factor. Keeping
+    # an independent axis/radius publisher would overwrite its exact solution.
+    direction_members = set().union(
+        *(
+            entry[2]
+            for entry in planes.values()
+            if any(isinstance(relation, DirectionAlignment) for relation in entry[0])
+        )
+    )
+    providers = {
+        key: provider
+        for key, provider in providers.items()
+        if (provider.solve and provider.solve[0] == "planes")
+        or not provider.members.intersection(direction_members)
+    }
     return GeometryInfluence(
         axes, points, planes, providers, coaxial_axis_bindings(nodes)
     )
@@ -1567,11 +1707,13 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
 
 def coaxial_seed_component(
     axis: str,
-    component: tuple[list[PlaneRelationship], list[SurfaceFit], set[str]],
+    component: tuple[list[GeometryRelationship], list[SurfaceFit], set[str]],
     nodes: dict[str, Feature],
 ) -> bool:
     """The bounded single-line adapter cannot replace general component roles."""
     relations, surfaces, _ = component
+    if any(isinstance(relation, DirectionAlignment) for relation in relations):
+        return False
     if any(surface.kind not in {"cone", "cylinder", "plane"} for surface in surfaces):
         return False
     endpoints = [
@@ -1600,7 +1742,7 @@ class PriorGeometrySolve:
 
     reuse: str
     surfaces: list[SurfaceFit]
-    planes: list[PlaneRelationship]
+    planes: list[GeometryRelationship]
     radii: EqualRadii | None
     excluded: set[str]
     radius_groups: tuple[EqualRadii, ...] = ()
@@ -1688,6 +1830,10 @@ def compile_execution_plan(
         and (
             selected_named_solves
             or (
+                isinstance(node, JointFit)
+                and named_direction_component(node, nodes) is not None
+            )
+            or (
                 isinstance(node, AxisSolve)
                 and any(isinstance(nodes[key], CoaxialGroup) for key in node.factors)
             )
@@ -1708,7 +1854,7 @@ def compile_execution_plan(
             )
             if isinstance(node, ScaleDefinition)
             else tuple(node.surfaces)
-            if isinstance(node, PlaneRelationship)
+            if isinstance(node, (PlaneRelationship, DirectionAlignment))
             else None
         )
         if references is not None and any(
@@ -1763,6 +1909,17 @@ def compile_execution_plan(
                 task_dependencies[publisher].add(task)
             for output in outputs:
                 providers.setdefault(output, set()).add(publisher)
+        if (
+            provider.solve
+            and provider.solve[0] == "planes"
+            and any(
+                isinstance(relation, DirectionAlignment)
+                for relation in plane_components[provider.solve[1]][0]
+            )
+        ):
+            for key in provider.aliases:
+                if isinstance(nodes[key], SurfaceFit):
+                    task_dependencies[key] = {task}
 
     # Coaxial declarations initialize their owned fits from the complete
     # selected problem, rather than requiring successful standalone members.
@@ -1864,7 +2021,10 @@ def compile_execution_plan(
         prior_nodes: dict[str, Feature] = {}
         joint_prior_radii: set[str] = set()
         for key, value in nodes.items():
-            if isinstance(value, (PlaneRelationship, SurfaceFit)) and key in after:
+            if (
+                isinstance(value, (PlaneRelationship, DirectionAlignment, SurfaceFit))
+                and key in after
+            ):
                 continue
             if isinstance(value, EqualRadii):
                 prior_members = [ref for ref in value.surfaces if ref not in after]
@@ -1975,7 +2135,7 @@ def compile_execution_plan(
                 endpoint.owner if endpoint.is_binding else endpoint.reference
                 for endpoint in plane_relationship_endpoints(node, nodes)
             )
-            if isinstance(node, PlaneRelationship)
+            if isinstance(node, (PlaneRelationship, DirectionAlignment))
             else None
         )
         implicit_dependencies = (
@@ -2130,6 +2290,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
         EqualQuantities,
         EqualRadii,
         PlaneRelationship,
+        DirectionAlignment,
         AxisSolve,
     )
 
@@ -2171,7 +2332,10 @@ def has_selected_symmetry(node: Feature, nodes: dict[str, Feature]) -> bool:
     """The imported named paths with bounded observation-only initialization."""
     return (
         isinstance(node, JointFit)
-        and any(isinstance(nodes[key], RotationalSymmetry) for key in node.constraints)
+        and any(
+            isinstance(nodes[key], (RotationalSymmetry, DirectionAlignment))
+            for key in node.constraints
+        )
     ) or (
         isinstance(node, AxisSolve)
         and any(
@@ -2179,6 +2343,38 @@ def has_selected_symmetry(node: Feature, nodes: dict[str, Feature]) -> bool:
             for key in node.factors
         )
     )
+
+
+def named_direction_component(
+    node: JointFit, nodes: dict[str, Feature]
+) -> tuple[list[GeometryRelationship], list[SurfaceFit], set[str]] | None:
+    if not any(isinstance(nodes[key], DirectionAlignment) for key in node.constraints):
+        return None
+    if any(
+        not isinstance(
+            nodes[key], (DirectionAlignment, PlaneRelationship, EqualRadii, SurfaceFit)
+        )
+        for key in node.constraints
+    ):
+        raise ValueError(
+            "direction joints require direction, plane, or radius relationship factors"
+        )
+    selected = {
+        key: value
+        for key, value in nodes.items()
+        if not isinstance(value, (DirectionAlignment, PlaneRelationship, EqualRadii))
+        or key in node.constraints
+    }
+    components = automatic_plane_relationship_components(selected)
+    first = next(
+        key for key in node.constraints if isinstance(nodes[key], DirectionAlignment)
+    )
+    component = components[first]
+    if not set(node.constraints) <= component[2]:
+        raise ValueError(
+            "joint direction factors must form one connected variable component"
+        )
+    return component
 
 
 def selected_symmetry_inputs(
@@ -2193,6 +2389,13 @@ def selected_symmetry_inputs(
     axes: set[str] = set()
     planes: set[str] = set()
     if isinstance(node, JointFit):
+        component = named_direction_component(node, nodes)
+        if component is not None:
+            relations, surfaces, _ = component
+            prerequisites, reads = direction_component_inputs(
+                relations, surfaces, nodes
+            )
+            return surfaces, prerequisites, reads
         sides, others = joint_surfaces(node, nodes)
         surfaces = [*sides, *others]
     elif isinstance(node, AxisSolve):
@@ -2259,6 +2462,12 @@ def joint_surfaces(
     """Compile a connected constraint group; independently offset perpendicular planes."""
     if len(set(node.constraints)) != len(node.constraints):
         raise ValueError("duplicate joint constraint")
+    component = named_direction_component(node, nodes)
+    if component is not None:
+        return (
+            [surface for surface in component[1] if surface.kind != "plane"],
+            [surface for surface in component[1] if surface.kind == "plane"],
+        )
     sides: dict[str, SurfaceFit] = {}
     planes: dict[str, SurfaceFit] = {}
     rotational_planes: dict[str, SurfaceFit] = {}
@@ -2441,6 +2650,7 @@ def failure_diagnostic(error: Exception) -> dict[str, Any] | None:
             UnsupportedSupportTransfer,
             SupportIntentFailure,
             SymmetryFitFailure,
+            DirectionFitFailure,
             RelationshipFailure,
         ),
     ):
@@ -4213,9 +4423,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "a fit may belong to only one all-equal radius relationship"
                     )
                 _ = validate_relationship_inputs("equal_radii", node.surfaces, recipe)
-            elif isinstance(node, PlaneRelationship):
+            elif isinstance(node, (PlaneRelationship, DirectionAlignment)):
                 kind = (
-                    "parallel_planes"
+                    "direction_alignment"
+                    if isinstance(node, DirectionAlignment)
+                    else "parallel_planes"
                     if node.relation == "parallel"
                     else "coincident_planes"
                 )
@@ -4223,7 +4435,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     "participants"
                 ]
                 if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
-                    raise ValueError("plane relationship inputs must be unique")
+                    raise ValueError("relationship inputs must be unique")
             elif isinstance(node, AxisSolve):
                 axis = nodes[node.axis]
                 if not isinstance(axis, AxisDefinition):
@@ -4372,8 +4584,41 @@ class FeatureGraph(Generic[WorkspaceType]):
                     for surface in [*sides, *planes]
                     for ref in surface.selections
                 }
-                if len(sources) != 1:
+                if len(sources) > 1 or (
+                    not sources and named_direction_component(node, nodes) is None
+                ):
                     raise ValueError("joint fit needs selections on the same source")
+        direction_components = automatic_plane_relationship_components(nodes)
+        for relations, _, members in direction_components.values():
+            if not any(
+                isinstance(relation, DirectionAlignment) for relation in relations
+            ):
+                continue
+            for candidate in nodes.values():
+                if isinstance(
+                    candidate,
+                    (
+                        AxisSolve,
+                        MirrorSymmetry,
+                        ParallelToPlane,
+                        EqualQuantities,
+                        RotationalSymmetry,
+                    ),
+                ) and members.intersection(dependencies(candidate)):
+                    raise ValueError(
+                        "direction component overlaps an unsupported active factor; use an exact upstream solved context instead"
+                    )
+                if (
+                    isinstance(candidate, JointFit)
+                    and named_direction_component(candidate, nodes) is None
+                ):
+                    sides, planes = joint_surfaces(candidate, nodes)
+                    if members.intersection(
+                        surface.id for surface in [*sides, *planes]
+                    ):
+                        raise ValueError(
+                            "direction component overlaps an unsupported named solve; use its exact solved context instead"
+                        )
         if any(
             isinstance(ref, OutputReference)
             for node in recipe.nodes
@@ -4389,7 +4634,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 )
                 if isinstance(node, ScaleDefinition)
                 else tuple(node.surfaces)
-                if isinstance(node, PlaneRelationship)
+                if isinstance(node, (PlaneRelationship, DirectionAlignment))
                 else ()
             )
         ):
@@ -4635,7 +4880,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     resolved[fit_id] = deepcopy(surface)
             for node in self._recipe.nodes:
                 if (
-                    not isinstance(node, PlaneRelationship)
+                    not isinstance(node, (PlaneRelationship, DirectionAlignment))
                     or self._states.get(node.id) != "ready"
                 ):
                     continue
@@ -5701,6 +5946,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         EqualRadii,
                         CoaxialGroup,
                         PlaneRelationship,
+                        DirectionAlignment,
                         SurfaceIntersection,
                         TrimmedFace,
                         ArrangedFace,
@@ -5851,7 +6097,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 value = deepcopy(adjusted[node_id])
                 for relationship in recipe.nodes:
                     if (
-                        isinstance(relationship, PlaneRelationship)
+                        isinstance(
+                            relationship, (PlaneRelationship, DirectionAlignment)
+                        )
                         and relationship.id not in (excluded or set())
                         and self._states.get(relationship.id) == "ready"
                     ):
@@ -5951,6 +6199,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                 raise SelectionOverlap(conflicts)
 
         def solve_selected_symmetry(node: JointFit | AxisSolve) -> dict[str, Any]:
+            if isinstance(node, JointFit):
+                component = named_direction_component(node, nodes)
+                if component is not None:
+                    return solve_direction_component(
+                        component[0],
+                        component[1],
+                        set(node.constraints) | {node.id},
+                        radius_groups=tuple(
+                            cast(EqualRadii, nodes[key])
+                            for key in node.constraints
+                            if isinstance(nodes[key], EqualRadii)
+                        ),
+                    )
             """Lower saved factors directly from original memberships and roles."""
             surfaces, _, _ = selected_symmetry_inputs(node, nodes)
             reject_overlaps(surfaces)
@@ -6365,14 +6626,378 @@ class FeatureGraph(Generic[WorkspaceType]):
                 np.asarray(point_result["point_display"], dtype=float),
             )
 
-        def solve_plane_component(
-            relations: list[PlaneRelationship],
+        def solve_direction_component(
+            relations: list[GeometryRelationship],
             surfaces: list[SurfaceFit],
             excluded: set[str],
             *,
             include_radii: bool = True,
             radius_groups: tuple[EqualRadii, ...] | None = None,
         ) -> dict[str, Any]:
+            from experiments.fit_relationship_component import (
+                DirectionAlignmentInput,
+                DirectionOperand,
+                PointInput,
+            )
+            from experiments.selected_direction_fit import (
+                SelectedDirectionComponent,
+                SelectedDirectionSurface,
+                fit_selected_direction_component,
+                private_direction_axis,
+            )
+
+            reject_overlaps(surfaces)
+            endpoints = {
+                relation.id: plane_relationship_endpoints(relation, nodes)
+                for relation in relations
+            }
+            surface_ids = {surface.id for surface in surfaces}
+            member_axes = {
+                surface.id: axis_id
+                for surface in surfaces
+                if (axis_id := fit_axis(surface, nodes)) is not None
+            }
+            member_axes.update(
+                {
+                    surface.id: private_direction_axis(surface.id)
+                    for surface in surfaces
+                    if surface.kind in {"cylinder", "cone"}
+                    and surface.id not in member_axes
+                }
+            )
+            axis_ids = {
+                key
+                for surface in surfaces
+                if (key := fit_axis(surface, nodes)) is not None
+            }
+            datum_ids = {
+                endpoint.feature
+                for group in endpoints.values()
+                for endpoint in group
+                if endpoint.is_binding
+                and isinstance(nodes[endpoint.feature], PlaneDefinition)
+            }
+            datum_ids.update(
+                surface.reference_plane
+                for surface in surfaces
+                if surface.reference_plane is not None
+            )
+            axis_ids.update(cast(PlaneDefinition, nodes[key]).axis for key in datum_ids)
+            axis_ids.update(
+                endpoint.feature
+                for group in endpoints.values()
+                for endpoint in group
+                if endpoint.is_binding
+                and isinstance(nodes[endpoint.feature], AxisDefinition)
+            )
+            full_axes = {
+                key
+                for surface in surfaces
+                if (key := fit_axis(surface, nodes)) is not None
+            }
+            full_plane_ids = {
+                surface.reference_plane
+                for surface in surfaces
+                if surface.reference_plane is not None
+            }
+            full_plane_ids.update(
+                endpoint.feature
+                for relation in relations
+                if isinstance(relation, PlaneRelationship)
+                and relation.relation == "coincident"
+                for endpoint in endpoints[relation.id]
+                if endpoint.is_binding
+            )
+            legacy_datums = {
+                endpoint.feature
+                for relation in relations
+                if isinstance(relation, PlaneRelationship)
+                for endpoint in endpoints[relation.id]
+                if endpoint.is_binding
+                and isinstance(nodes[endpoint.feature], PlaneDefinition)
+            }
+            legacy_datums.update(
+                surface.reference_plane
+                for surface in surfaces
+                if surface.reference_plane is not None
+            )
+            free_axes = full_axes | {
+                endpoint.feature
+                for group in endpoints.values()
+                for endpoint in group
+                if endpoint.is_binding
+                and isinstance(nodes[endpoint.feature], AxisDefinition)
+            }
+            free_axes.update(
+                cast(PlaneDefinition, nodes[key]).axis for key in legacy_datums
+            )
+            axes = {
+                key: AxisInput({}, True)
+                for key in member_axes.values()
+                if key not in nodes
+            }
+            for key in axis_ids:
+                definition = cast(AxisDefinition, nodes[key])
+                source = active_direction_datum_source(key, surface_ids, nodes)
+                axes[key] = (
+                    AxisInput(
+                        {"direction_reversed": definition.direction_reversed},
+                        False,
+                        source=member_axes[source],
+                    )
+                    if source is not None
+                    else AxisInput(
+                        resolved_result(key, excluded),
+                        free=definition.initial_parameters is not None
+                        and key in free_axes,
+                        position_free=key in full_axes
+                        and definition.initial_parameters is not None,
+                    )
+                )
+
+            def free_axis(key: str) -> bool:
+                seen: set[str] = set()
+                while axes[key].source is not None:
+                    if key in seen:
+                        raise ValueError("direction axis aliases contain a cycle")
+                    seen.add(key)
+                    key = cast(str, axes[key].source)
+                return axes[key].free
+
+            planes: dict[str, PlaneInput] = {}
+            for key in datum_ids:
+                definition = cast(PlaneDefinition, nodes[key])
+                eligible = normalize_endpoint(
+                    OutputReference(feature=key, output="plane"),
+                    nodes,
+                    "relationship_direction",
+                ).is_binding
+                active_parent = (
+                    active_direction_datum_source(definition.axis, surface_ids, nodes)
+                    is not None
+                )
+                planes[key] = PlaneInput(
+                    deepcopy(self._derived.get(key, {}))
+                    if active_parent
+                    else resolved_result(key, excluded),
+                    free=eligible
+                    or (key in legacy_datums and free_axis(definition.axis)),
+                    axis=definition.axis,
+                    construction=definition.construction,
+                    offset_from_axis=definition.offset
+                    if key not in full_plane_ids
+                    else None,
+                    offset_free=eligible
+                    or (key in legacy_datums and free_axis(definition.axis)),
+                )
+            centers: dict[str, PointInput] = {}
+            for surface in surfaces:
+                key = surface.point
+                if key is None:
+                    continue
+                source = active_direction_datum_source(key, surface_ids, nodes)
+                centers[key] = (
+                    PointInput({}, False, source="@direction-point:" + source)
+                    if source is not None
+                    else PointInput(
+                        resolved_result(key, excluded), key in point_components
+                    )
+                )
+            selected_surfaces: list[SelectedDirectionSurface] = []
+            for surface in surfaces:
+                axis_id = member_axes.get(surface.id)
+                selected_surfaces.append(
+                    SelectedDirectionSurface(
+                        selection=selected(surface),
+                        axis=axis_id,
+                        datum=surface.reference_plane,
+                        point=surface.point,
+                        construction=cast(
+                            PlaneDefinition, nodes[surface.reference_plane]
+                        ).construction
+                        if surface.reference_plane
+                        else "perpendicular_to_axis",
+                    )
+                )
+
+            def operand(endpoint: RelationshipEndpoint) -> DirectionOperand:
+                key = endpoint.owner
+                if key is None:
+                    value = input_result(endpoint.reference)
+                    if "plane_equation" in value:
+                        planes[endpoint.key] = PlaneInput(value, False)
+                        return DirectionOperand("plane", endpoint.key)
+                    axes[endpoint.key] = AxisInput(value, False)
+                    return DirectionOperand("axis", endpoint.key)
+                node = nodes[key]
+                if isinstance(node, AxisDefinition):
+                    return DirectionOperand("axis", key)
+                if isinstance(node, SurfaceFit) and node.kind in {"cone", "cylinder"}:
+                    return DirectionOperand("axis", member_axes[key])
+                return DirectionOperand("plane", key)
+
+            directions = tuple(
+                DirectionAlignmentInput(
+                    operand(endpoints[relation.id][0]),
+                    operand(endpoints[relation.id][1]),
+                )
+                for relation in relations
+                if isinstance(relation, DirectionAlignment)
+            )
+            plane_relations = tuple(
+                (
+                    relation.relation,
+                    tuple(
+                        endpoint.owner or endpoint.key
+                        for endpoint in endpoints[relation.id]
+                    ),
+                )
+                for relation in relations
+                if isinstance(relation, PlaneRelationship)
+            )
+            for relation in relations:
+                if not isinstance(relation, PlaneRelationship):
+                    continue
+                for endpoint in endpoints[relation.id]:
+                    if not endpoint.is_binding:
+                        planes[endpoint.key] = PlaneInput(
+                            input_result(endpoint.reference), False
+                        )
+            applied_radii = (
+                radius_groups
+                if radius_groups is not None
+                else tuple(
+                    node
+                    for node in recipe.nodes
+                    if include_radii
+                    and isinstance(node, EqualRadii)
+                    and set(node.surfaces) <= surface_ids
+                )
+            )
+            radii = tuple(tuple(node.surfaces) for node in applied_radii)
+            component = SelectedDirectionComponent(
+                surfaces=tuple(selected_surfaces),
+                axes=axes,
+                planes=planes,
+                centers=centers,
+                directions=directions,
+                relationships=plane_relations,
+                radii=radii,
+                semantic_intent={
+                    "recipe": recovery_recipe(),
+                    "support_policy_version": SUPPORT_POLICY_VERSION,
+                },
+            )
+            fitted = fit_selected_direction_component(
+                self.workspace, component, cancelled=cancelled
+            )
+            resolved = {
+                **fitted["surfaces"],
+                **{
+                    key: value
+                    for key, value in fitted["axes"].items()
+                    if key in nodes and axes[key].free
+                },
+                **{
+                    key: value
+                    for key, value in fitted.get("planes", {}).items()
+                    if key in nodes and planes[key].free
+                },
+                **{
+                    key: value
+                    for key, value in fitted.get("points", {}).items()
+                    if key in nodes
+                },
+            }
+            # Source-fit datums are derived publications, never extra free
+            # direction variables. Publish them from this exact solved source.
+            for node in recipe.nodes:
+                if isinstance(node, AxisDefinition) and node.source_fit in surface_ids:
+                    source_surface = fitted["surfaces"][node.source_fit]
+                    resolved[node.id] = (
+                        directed_axis_result(node, geometry=source_surface)
+                        if "analytic" in source_surface
+                        else directed_axis_result(
+                            node, parameters=list(source_surface["parameters"])
+                        )
+                    )
+                elif (
+                    isinstance(node, PointDefinition) and node.source_fit in surface_ids
+                ):
+                    resolved[node.id] = {
+                        "point_display": list(
+                            fitted["surfaces"][node.source_fit]["parameters"][:3]
+                        ),
+                        "source_fit": node.source_fit,
+                    }
+            for node in recipe.nodes:
+                if (
+                    isinstance(node, PlaneDefinition)
+                    and node.axis in resolved
+                    and node.id not in resolved
+                ):
+                    if node.placement is not None and node.id not in self._derived:
+                        raise ValueError(
+                            "a placed plane datum requires its exact initialized placement before direction solving"
+                        )
+                    resolved[node.id] = reference_plane_result(
+                        resolved[node.axis],
+                        initialized_plane(node, self._derived.get(node.id, {})),
+                    )
+            applied_radius_ids = {node.id for node in applied_radii}
+            for node in recipe.nodes:
+                if isinstance(node, EqualRadii) and node.id in applied_radius_ids:
+                    first_surface = fitted["surfaces"][node.surfaces[0]]
+                    resolved[node.id] = {
+                        "format": "scansor-equal-radii-v2",
+                        "measurement": "radius",
+                        "value": first_surface["parameters"][3]
+                        if first_surface["kind"] == "sphere"
+                        else revolution_geometry(first_surface)["radius"],
+                        "surfaces": {
+                            key: fitted["surfaces"][key] for key in node.surfaces
+                        },
+                    }
+                elif (
+                    isinstance(node, CoaxialGroup)
+                    and node.axis in axes
+                    and set(node.surfaces) <= surface_ids
+                ):
+                    resolved[node.id] = {
+                        "format": "scansor-coaxial-group-v1",
+                        "axis": node.axis,
+                        "surfaces": {
+                            key: fitted["surfaces"][key] for key in node.surfaces
+                        },
+                        "resolved": {
+                            node.axis: fitted["axes"][node.axis],
+                            **{key: fitted["surfaces"][key] for key in node.surfaces},
+                        },
+                    }
+            return {
+                **fitted,
+                "format": "scansor-direction-component-v1",
+                "sense": "unsigned",
+                "relationships": [relation.id for relation in relations],
+                "resolved": resolved,
+            }
+
+        def solve_plane_component(
+            relations: list[GeometryRelationship],
+            surfaces: list[SurfaceFit],
+            excluded: set[str],
+            *,
+            include_radii: bool = True,
+            radius_groups: tuple[EqualRadii, ...] | None = None,
+        ) -> dict[str, Any]:
+            if any(isinstance(relation, DirectionAlignment) for relation in relations):
+                return solve_direction_component(
+                    relations,
+                    surfaces,
+                    excluded,
+                    include_radii=include_radii,
+                    radius_groups=radius_groups,
+                )
             endpoints = {
                 relation.id: plane_relationship_endpoints(relation, nodes)
                 for relation in relations
@@ -6396,7 +7021,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             ):
                 return fit_plane_relationships(
                     self.workspace,
-                    relations,
+                    cast(list[PlaneRelationship], relations),
                     surfaces,
                     [resolved_result(surface.id, excluded) for surface in surfaces],
                     [fitted_ids(surface) for surface in surfaces],
@@ -6450,7 +7075,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 } | {
                     endpoint.owner
                     for relation in relations
-                    if relation.relation == "coincident"
+                    if cast(PlaneRelationship, relation).relation == "coincident"
                     for endpoint in endpoints[relation.id]
                     if endpoint.owner is not None
                 }
@@ -6582,7 +7207,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 axes,
                 [
                     (
-                        relation.relation,
+                        cast(PlaneRelationship, relation).relation,
                         [
                             endpoint.owner or endpoint.key
                             for endpoint in endpoints[relation.id]
@@ -6758,7 +7383,7 @@ class FeatureGraph(Generic[WorkspaceType]):
         def resolve_component(task: str) -> None:
             kind, identifier = plan.solves[task]
             factors: list[SurfaceFit] = []
-            relations: list[PlaneRelationship] = []
+            relations: list[GeometryRelationship] = []
             planes: list[SurfaceFit] = []
             axis_result: dict[str, Any] | None = None
             resolved: dict[str, Any] = {}
@@ -6771,6 +7396,14 @@ class FeatureGraph(Generic[WorkspaceType]):
             else:
                 relations, planes, members = plane_relationship_components[identifier]
                 error_ids = {relation.id for relation in relations}
+                if any(
+                    isinstance(relation, DirectionAlignment) for relation in relations
+                ):
+                    error_ids.update(
+                        key
+                        for key in members
+                        if isinstance(nodes[key], (EqualRadii, CoaxialGroup))
+                    )
             with self.lock:
                 if epoch != self._epoch:
                     raise StaleGraph("graph changed during evaluation")
@@ -6826,7 +7459,25 @@ class FeatureGraph(Generic[WorkspaceType]):
                     self._connected_point_solves[identifier] = resolved
                 else:
                     for member in error_ids:
-                        self._derived[member] = deepcopy(resolved)
+                        self._derived[member] = deepcopy(
+                            resolved
+                            if isinstance(
+                                nodes[member], (PlaneRelationship, DirectionAlignment)
+                            )
+                            else resolved["resolved"][member]
+                        )
+                    if any(
+                        isinstance(relation, DirectionAlignment)
+                        for relation in relations
+                    ):
+                        for member, value in resolved["resolved"].items():
+                            if member in nodes and isinstance(
+                                nodes[member], SurfaceFit
+                            ):
+                                self._derived[member] = deepcopy(value)
+                                self._states[member] = "ready"
+                                _ = self._errors.pop(member, None)
+                                _ = self._diagnostics.pop(member, None)
                 for member in error_ids:
                     self._states[member] = "ready"
                     _ = self._errors.pop(member, None)
@@ -7707,7 +8358,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         ],
                         surface_ids,
                     )
-                elif isinstance(node, PlaneRelationship):
+                elif isinstance(node, (PlaneRelationship, DirectionAlignment)):
                     # Its virtual solve publishes every relationship alias
                     # together, before any alias/consumer task can execute.
                     raise AssertionError(
@@ -7716,6 +8367,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 elif (
                     (
                         isinstance(self.workspace, ScanWorkspace)
+                        or (
+                            isinstance(node, JointFit)
+                            and named_direction_component(node, nodes) is not None
+                        )
                         or (
                             isinstance(node, AxisSolve)
                             and any(

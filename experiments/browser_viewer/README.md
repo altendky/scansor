@@ -732,8 +732,9 @@ panel is open; closing it clears the helper highlights.
    Target-pose discovery and transfer to another scan remain outside this slice.
 11. **Relationship…** accepts either the features already selected in the tree or
    participants chosen entirely in its dialog. The currently implemented choices
-   are exact coincident planes, parallel plane fits, equal sphere/cylinder radii,
-   mirror symmetry, and cylinder-radius-equals-plane-distance. Coincident and parallel
+   are aligned directions, exact coincident planes, parallel plane fits, equal
+   sphere/cylinder radii, mirror symmetry, and
+   cylinder-radius-equals-plane-distance. Coincident and parallel
    plane-fit relationships resolve their connected planes directly without a
    joint. Equal radii preserves independent sphere centers and cylinder axes while
    fitting one exact shared radius. Mirror relates two distinct, same-type
@@ -744,8 +745,18 @@ panel is open; closing it clears the helper highlights.
    joint when they must refine the shared axis or reference-plane clocking. The
    current bounded adapter permits one mirrored pair per reference plane in a
    joint. No penalty weights or arch-specific relationship are introduced.
-12. Choose shared upstream geometry under **Reference geometry**. A sphere can
-   reference a point; a cone or
+   **Aligned directions** consumes the declared direction property of an axis,
+   cone, cylinder or plane. Axis directions become parallel; an axis aligned
+   with a plane normal becomes perpendicular to that plane. Either sign is
+   accepted. This exact constraint does not make offset centerlines coaxial or
+   equate plane offsets or radii. Exact saved publication contexts remain fixed
+   readers, while eligible direct surface owners can be adjusted. Connected
+   observed members contribute their own selections once. Direction components
+   can include plane and radius relationships and existing full axis bindings;
+   overlapping symmetry, radius-distance and explicit axis solves are diagnosed
+   rather than silently combined.
+12. Choose shared upstream geometry under **Reference mode** and **Reference
+   property**. A sphere can reference a point; a cone or
    cylinder can reference an axis; a plane can reference an axis (making the
    fitted plane perpendicular while fitting its offset) or a reference plane
    (fixing its orientation while fitting a new offset). In every case,
@@ -759,6 +770,12 @@ panel is open; closing it clears the helper highlights.
    while a perpendicular plane does not locate the axis transversely. Mirror
    member observations refine their symmetry plane and shared axis. Standalone
    fits, reference definitions, and the axis initializer remain unchanged.
+   Alternatively choose **Aligned directions** as the joint mode and select an
+   aligned-directions relationship plus its connected fits and supported
+   relationships. No common axis is required. The named joint publishes its own
+   solution and uses only its selected factors; direct standalone outputs and
+   the authored declarations remain separately addressable. Edit its **Earlier
+   constraints** list to change those factors.
 
 The older constraint/joint implementation remains readable as bounded experiment
 evidence, but its creation controls are no longer part of the default workflow.

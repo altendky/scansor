@@ -43,7 +43,7 @@ export const geometrySelectorIds = new Set(`
   equal-distance-surface new-equal-distance-surface equal-distance-reference new-equal-distance-reference
   rotation-axis rotation-input-0 rotation-input-1 rotation-input-2 rotation-joint
   rotation-plane-0 rotation-plane-1 rotation-plane-2 new-joint-side new-joint-plane new-joint-extra joint-add-fits
-  plane-relationship-surfaces equal-radii-surfaces joint-inputs reuse-selection-fit reuse-selection-source
+  plane-relationship-surfaces direction-alignment-inputs equal-radii-surfaces joint-inputs reuse-selection-fit reuse-selection-source
   intersection-first intersection-second new-intersection-first new-intersection-second
   face-surface new-face-surface build-faces-surfaces export-target export-origin-plane export-transform
 `.trim().split(/\s+/));

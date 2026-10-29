@@ -21,11 +21,21 @@ if TYPE_CHECKING:
 
 
 RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
+    "direction_alignment": {
+        "label": "Aligned directions",
+        "base_name": "Aligned directions",
+        "summary": "Parallel unsigned directions; independent positions and offsets.",
+        "operation": "direction_alignment",
+        "sense": "unsigned",
+        "joint_modes": ["direction"],
+        "roles": {"participants": "relationship_direction"},
+    },
     "coincident_planes": {
         "label": "Coincident planes",
         "base_name": "Coincident planes",
         "summary": "Same plane: normal and offset.",
         "operation": "plane_relationship",
+        "joint_modes": ["direction"],
         "relation": "coincident",
         "roles": {"participants": "relationship_plane"},
     },
@@ -34,6 +44,7 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "base_name": "Parallel planes",
         "summary": "Same normal; independent offsets.",
         "operation": "plane_relationship",
+        "joint_modes": ["direction"],
         "relation": "parallel",
         "roles": {"participants": "relationship_plane_orientation"},
     },
@@ -42,6 +53,7 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "base_name": "Equal radii",
         "summary": "Same radius; independent positions.",
         "operation": "equal_radii",
+        "joint_modes": ["direction"],
         "roles": {"participants": "relationship_radius"},
     },
     "mirror": {
@@ -145,6 +157,10 @@ def normalize_endpoint(
     if spec is None:
         raise ValueError("relationship input refers to an unavailable output")
     owner = spec["parameter_owner"] if ref.context == ref.feature else None
+    if requirement == "relationship_direction" and not spec["properties"].get(
+        "direction", {}
+    ).get("binding_eligible", False):
+        owner = None
     descriptor = {
         **spec,
         "reference": ref.model_dump(),
@@ -191,7 +207,11 @@ def validate_relationship_inputs(
         for index, reference in enumerate(references):
             try:
                 endpoint = relationship_reference(reference, recipe, requirement)
-            except ValueError:
+            except ValueError as error:
+                if kind == "direction_alignment":
+                    raise ValueError(
+                        f"Direction input is unavailable: {error}"
+                    ) from error
                 continue
             endpoints.append(endpoint)
             assigned.add(index)

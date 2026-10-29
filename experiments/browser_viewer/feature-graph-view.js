@@ -10,6 +10,7 @@ export const relationshipOperations = new Set([
   'equal',
   'equal_radii',
   'plane_relationship',
+  'direction_alignment',
 ]);
 
 export const solveOperations = new Set(['axis_solve', 'joint_fit']);
