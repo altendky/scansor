@@ -63,12 +63,11 @@ from the adapter's existing axis point at local Z=0, and clocking uses its
 deterministic display basis. Those are prototype coordinate conventions, not a
 claim that a geometric axis intrinsically owns an origin or clocking frame.
 
-Surface-fit actions in the bounded adapter expose these definitions through one
-**Reference geometry** choice. Sphere fits accept a point; cone and cylinder
-fits accept an axis. Plane fits
-accept either an axis, which fixes their normal parallel to that axis, or a
-reference plane, which fixes their normal parallel to the datum normal. In both
-cases the observations fit an independent offset. When the referenced axis is
+Surface-fit actions in the bounded adapter expose an explicit **Reference
+relationship** and **Reference property**. Sphere fits can share a point datum's
+center; cone and cylinder fits can share a complete axis line. Plane fits can
+follow an axis direction or a reference plane's normal. In both plane modes the
+observations fit an independent offset. When the referenced axis is
 manually initialized and therefore free, its connected cone/cylinder and plane
 fits jointly resolve the axis and its derived planes without requiring a joint
 action. Axial reference-plane factors fit their clocking angle as well as any
@@ -77,6 +76,22 @@ rotation. Axis parallelism (or containment) remains exact, and consumers use the
 resolved datum. An axis sourced from an earlier fit is fixed, so downstream observations
 do not move it. An explicit joint remains available to choose active factors or
 add relationships and takes precedence for its solve.
+
+**Implemented control migration, 2026-10-29:** creation, properties editing and
+backend validation use the shared property requirements, including their allowed
+fit families and direct datum outputs. Selecting a property preserves the chosen
+fit family. Unavailable saved or draft choices remain visible with a repair path;
+changing family does not silently erase an incompatible reference. Choosing
+None explicitly returns to a standalone fit.
+
+The current fit-reference fields represent direct datum bindings. Fixed datums
+initialized from upstream fits remain usable as references. Other solved
+publication contexts require an explicitly supported relationship; the editor
+does not flatten them into a direct feature identity. Existing saved fields keep
+their meaning: their canonical direct property is checked before submission.
+Relationship participant descriptions also identify the property consumed by the
+shared role contract. The generic direction-alignment relationship remains a
+separate implementation step.
 
 The bounded relationship builder also accepts fitted and reference-plane
 outputs through shared capability requirements. Parallel relates their normals;
@@ -145,9 +160,9 @@ Direction metadata also distinguishes a representative vector from authority
 over its sense. A fitted line's canonical sign does not establish an authored
 positive direction. The planned initial generic alignment uses unsigned directions;
 same-sense alignment requires a separately explicit authority and mode. The
-existing Coaxial relationship continues to bind the complete line. Consumer
-control migration and additional direction relationships remain separate steps
-beyond this property foundation.
+existing Coaxial relationship continues to bind the complete line. Fit-reference
+and relationship controls consume this metadata as described above. Additional
+direction relationships remain a separate solver step.
 
 Analytic elements reference this geometry rather than privately duplicating it.
 For example, a cylinder references an axis line and a radius. A plane used as a

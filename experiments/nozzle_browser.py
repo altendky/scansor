@@ -1140,6 +1140,7 @@ class Handler(BaseHTTPRequestHandler):
         "/feature-graph-view.js": ("feature-graph-view.js", "text/javascript"),
         "/feature-names.js": ("feature-names.js", "text/javascript"),
         "/feature-inputs.js": ("feature-inputs.js", "text/javascript"),
+        "/fit-reference.js": ("fit-reference.js", "text/javascript"),
         "/relationship-inputs.js": ("relationship-inputs.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),

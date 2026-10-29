@@ -12,10 +12,11 @@ import {
 import { uniqueFeatureLabel } from './feature-names.js';
 import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference,
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
+import {fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderFitReferenceEditor} from './fit-reference.js';
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
-  axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
+  axisSolveInputs, axisSolveValidity, relationshipPropertySummary } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -2109,7 +2110,9 @@ function renderRelationshipBuilder() {
       .map(output => {
         const node = graphNode(output.reference?.feature), compatible = output.compatible,
           presentation = { name: output.label, icon: node?.kind || node?.operation || 'reference_plane',
-            detail: output.parameter_owner ? 'Feature geometry · keeps its existing freedom' : 'Published geometry · fixed in this relationship' };
+            detail: [relationshipPropertySummary(graphState, output), output.parameter_owner
+              ? 'Feature geometry · keeps its existing freedom' : 'Published geometry · fixed in this relationship']
+              .filter(Boolean).join(' · ') };
         return { ...presentation, id: output.key, compatible,
           detail: compatible ? presentation.detail : `${presentation.detail} · ${output.reason || 'incompatible'}` };
       }),
@@ -2220,55 +2223,14 @@ function clockDatumPlanes(nodes, axis = null) {
       (!axis || node.axis === axis),
   );
 }
-function fitReferenceChoices(id, kind, nodes, selected = '') {
-  const references = nodes.filter((node) => ['axis', 'reference_plane'].includes(node.operation));
-  const validSelected = references.some((node) => node.id === selected) ? selected : '';
-  $(id).replaceChildren(
-    new Option('None (standalone)', '', false, !validSelected),
-    ...references.map(
-      (node) =>
-        new Option(
-          `${node.operation === 'axis' ? 'Axis' : node.operation === 'point' ? 'Point' : 'Plane'} — ${node.label}`,
-          node.id,
-          false,
-          node.id === validSelected,
-        ),
-    ),
-  );
-  if (kind === 'sphere') {
-    geometryInputChoices(id, 'constrainable_point', nodes, selected);
-    $(id).options[0].textContent = 'None (standalone)';
-  } else delete $(id).dataset.inputRequirement;
-  const hint = $(`${id}-hint`);
-  if (hint)
-    hint.textContent =
-      kind === 'sphere'
-        ? 'A point datum supplies the sphere center. A free point is refined by all connected sphere fits; a fit-initialized point remains fixed.'
-        : kind === 'plane'
-        ? 'An axis makes the fitted plane perpendicular to it. A plane datum fixes its orientation. In either case, observations fit the plane offset.'
-        : 'An axis is shared by the fitted surface. Connected fits refine a manually initialized free axis; a fit-initialized axis stays fixed. Choosing a plane datum switches the fit type to Plane.';
+function fitReferenceChoices(id, kind, nodes, selected) {
+  return renderFitReferenceEditor({id, state: graphState, kind, nodes, selected});
 }
-function updateFitKindForReference(kindId, referenceId, nodes = graphState.recipe.nodes) {
-  const operation = graphNode($(referenceId).value)?.operation;
-  if (operation === 'reference_plane')
-    $(kindId).value = 'plane';
-  if (operation === 'point') $(kindId).value = 'sphere';
-  if (kindId === 'surface-kind') {
-    $('axial-start-row').hidden = $(kindId).value === 'sphere';
-    $('axial-end-row').hidden = $(kindId).value === 'sphere';
-  }
-  fitReferenceChoices(
-    referenceId,
-    $(kindId).value,
-    nodes,
-    $(referenceId).value,
-  );
-}
-function setFitReference(node, referenceId) {
-  const reference = graphNode(referenceId);
-  node.axis = reference?.operation === 'axis' ? reference.id : null;
-  node.point = reference?.operation === 'point' ? reference.id : null;
-  node.reference_plane = reference?.operation === 'reference_plane' ? reference.id : null;
+function setFitReference(node, id, nodes = graphState.recipe.nodes) {
+  try {
+    Object.assign(node, fitReferenceInputs(graphState, node.kind, readFitReferenceEditor(id), nodes));
+    return true;
+  } catch (error) { status(error.message, true); return false; }
 }
 function showAxisInitializer(modeId, sourceFieldsId, manualFieldsId, pointFieldsId = null) {
   const mode = $(modeId).value,
@@ -2478,7 +2440,7 @@ function acceptGraph(state) {
   renderActions();
   showProperties();
   for (const control of document.querySelectorAll('select[data-input-requirement]')) {
-    if (control.closest('#action-properties')) continue;
+    if (control.closest('#action-properties') || control.dataset.fitReferenceEditor) continue;
     renderInputChoices(control, inputChoices(state, control.dataset.inputRequirement), inputDrafts.get(control) ?? control.value);
   }
   for (const { control, options } of authoringDraft) {
@@ -2827,7 +2789,10 @@ function showProperties(force = false) {
       }
       refreshJointFactors('', earlier);
     }
+    if (node.operation === 'fit') fitReferenceChoices('fit-reference', $('surface-kind').value,
+      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
+      if (control.dataset.fitReferenceEditor) continue;
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
         graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected);
@@ -2914,6 +2879,8 @@ function showProperties(force = false) {
     input.disabled = $('body-properties').hidden;
   for (const control of $('surface-selection-properties').querySelectorAll('input, select'))
     control.disabled = $('surface-selection-properties').hidden;
+  for (const id of ['fit-reference', 'fit-reference-mode'])
+    $(id).disabled = $('fit-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
@@ -2951,7 +2918,7 @@ function showProperties(force = false) {
       'fit-reference',
       node.kind,
       earlier,
-      node.axis || node.point || node.reference_plane || '',
+      fitReferenceForNode(graphState, node),
     );
     $('axial-start').value = node.axial_domain?.[0] ?? '';
     $('axial-end').value = node.axial_domain?.[1] ?? '';
@@ -5286,6 +5253,7 @@ async function start(recoveredState) {
     }
   };
   $('new-fit').onclick = () => {
+    if (featureTreeLocked() || !prepareEditSession()) return;
     choices(
       'new-fit-inputs',
       graphState.recipe.nodes.filter((node) => selectionOperations.includes(node.operation)),
@@ -5295,6 +5263,7 @@ async function start(recoveredState) {
       'new-fit-reference',
       $('new-fit-kind').value,
       graphState.recipe.nodes,
+      {mode: '', reference: null},
     );
     showCreateDialog('fit-dialog', 'new-fit-label', 'Surface fit');
   };
@@ -5649,50 +5618,23 @@ async function start(recoveredState) {
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
   $('new-fit-kind').onchange = () => {
-    const referenceOperation = graphNode($('new-fit-reference').value)?.operation;
-    if (
-      ($('new-fit-kind').value === 'sphere' && referenceOperation !== 'point') ||
-      ($('new-fit-kind').value !== 'sphere' && referenceOperation === 'point') ||
-      ($('new-fit-kind').value !== 'plane' &&
-        referenceOperation === 'reference_plane')
-    )
-      $('new-fit-reference').value = '';
-    fitReferenceChoices(
-      'new-fit-reference',
-      $('new-fit-kind').value,
-      graphState.recipe.nodes,
-      $('new-fit-reference').value,
-    );
+    fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
+    syncModelPickControls();
   };
-  $('new-fit-reference').onchange = () =>
-    updateFitKindForReference('new-fit-kind', 'new-fit-reference');
-  $('surface-kind').onchange = () => {
+  $('new-fit-reference').onchange = $('new-fit-reference-mode').onchange = () => {
+    fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
+    syncModelPickControls();
+  };
+  const refreshFitReferenceProperties = () => {
     const node = graphNode(editingFeatureId);
-    const referenceOperation = graphNode($('fit-reference').value)?.operation;
-    if (
-      ($('surface-kind').value === 'sphere' && referenceOperation !== 'point') ||
-      ($('surface-kind').value !== 'sphere' && referenceOperation === 'point') ||
-      ($('surface-kind').value !== 'plane' &&
-        referenceOperation === 'reference_plane')
-    )
-      $('fit-reference').value = '';
     $('axial-start-row').hidden = $('surface-kind').value === 'sphere';
     $('axial-end-row').hidden = $('surface-kind').value === 'sphere';
-    fitReferenceChoices(
-      'fit-reference',
-      $('surface-kind').value,
-      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
-      $('fit-reference').value,
-    );
+    fitReferenceChoices('fit-reference', $('surface-kind').value,
+      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
+    syncModelPickControls();
   };
-  $('fit-reference').onchange = () => {
-    const node = graphNode(editingFeatureId);
-    updateFitKindForReference(
-      'surface-kind',
-      'fit-reference',
-      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
-    );
-  };
+  $('surface-kind').onchange = refreshFitReferenceProperties;
+  $('fit-reference').onchange = $('fit-reference-mode').onchange = refreshFitReferenceProperties;
   $('new-axis-mode').onchange = () =>
     showAxisInitializer(
       'new-axis-mode',
@@ -6305,7 +6247,8 @@ async function start(recoveredState) {
         try {
           node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
         } catch (error) { status(error.message, true); return; }
-        setFitReference(node, $('fit-reference').value);
+        if (!setFitReference(node, 'fit-reference', graphState.recipe.nodes.slice(0,
+          graphState.recipe.nodes.indexOf(graphNode(editingFeatureId))))) return;
         try { circularSourceFitEditor.apply(recipe,node.id); }
         catch (error) { status(error.message,true); return; }
       }
@@ -6637,7 +6580,7 @@ async function start(recoveredState) {
       axial_domain: defaultFitDomain($('new-fit-kind').value,
         graphState.recipe.nodes.find(n => n.operation === 'source')?.descriptor),
     };
-    setFitReference(node, $('new-fit-reference').value);
+    if (!setFitReference(node, 'new-fit-reference')) return;
     const saved = await appendActions([node]);
     if (saved) $('fit-dialog').close();
   };

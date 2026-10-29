@@ -89,6 +89,7 @@ export function pickFieldFeedback(choices, { label, disabled = false, busy = fal
 }
 
 function emptyPickMessage(control) {
+  if (control.dataset.referenceHint) return control.dataset.referenceHint;
   if (control.dataset.pickerEmptyMessage) return control.dataset.pickerEmptyMessage;
   const id = control.id.replace(/^new-/, '');
   if (control.dataset.inputRequirement === 'constrainable_point') return 'Create a point datum before this sphere fit.';

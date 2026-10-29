@@ -68,6 +68,70 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "min_count": 1,
         "max_count": 1,
     },
+    "fit_axis_line": {
+        "capabilities": ["axis_line"],
+        "property": "axis_line",
+        "uses": ["geometry", "binding"],
+        "ownership": "datum",
+        "geometry_kinds": ["axis"],
+        "direct_context": True,
+        "min_count": 1,
+        "max_count": 1,
+        "fit_reference": {
+            "kinds": ["cylinder", "cone"],
+            "field": "axis",
+            "output": "axis",
+            "label": "Shared axis line",
+        },
+    },
+    "fit_axis_direction": {
+        "capabilities": ["direction"],
+        "property": "direction",
+        "uses": ["geometry", "binding"],
+        "ownership": "datum",
+        "geometry_kinds": ["axis"],
+        "direct_context": True,
+        "min_count": 1,
+        "max_count": 1,
+        "fit_reference": {
+            "kinds": ["plane"],
+            "field": "axis",
+            "output": "axis",
+            "label": "Normal follows axis direction",
+        },
+    },
+    "fit_plane_orientation": {
+        "capabilities": ["plane_orientation"],
+        "property": "plane_orientation",
+        "uses": ["geometry", "binding"],
+        "ownership": "datum",
+        "geometry_kinds": ["plane"],
+        "direct_context": True,
+        "min_count": 1,
+        "max_count": 1,
+        "fit_reference": {
+            "kinds": ["plane"],
+            "field": "reference_plane",
+            "output": "plane",
+            "label": "Parallel plane orientation",
+        },
+    },
+    "fit_point_center": {
+        "capabilities": ["point"],
+        "property": "point",
+        "uses": ["geometry", "binding"],
+        "ownership": "datum",
+        "geometry_kinds": ["point"],
+        "direct_context": True,
+        "min_count": 1,
+        "max_count": 1,
+        "fit_reference": {
+            "kinds": ["sphere"],
+            "field": "point",
+            "output": "point",
+            "label": "Shared sphere center",
+        },
+    },
     "constrainable_plane": {
         "capabilities": ["plane"],
         "ownership": "fit",
@@ -81,24 +145,28 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "relationship_plane": {
         "capabilities": ["plane"],
+        "property": "plane",
         "uses": ["binding", "geometry"],
         "min_count": 2,
         "max_count": 33,
     },
     "relationship_plane_orientation": {
         "capabilities": ["plane_orientation"],
+        "property": "plane_orientation",
         "uses": ["binding", "geometry"],
         "min_count": 2,
         "max_count": 33,
     },
     "relationship_axis": {
         "capabilities": ["axis_line"],
+        "property": "axis_line",
         "uses": ["binding", "geometry"],
         "min_count": 2,
         "max_count": 33,
     },
     "coaxial_axis": {
         "capabilities": ["axis_line"],
+        "property": "axis_line",
         "uses": ["binding"],
         "ownership": "datum",
         "min_count": 1,
@@ -106,6 +174,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "coaxial_members": {
         "capabilities": ["axis_line"],
+        "property": "axis_line",
         "uses": ["binding"],
         "ownership": "fit",
         "geometry_kinds": ["cone", "cylinder"],
@@ -114,6 +183,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "relationship_radius": {
         "capabilities": ["radius"],
+        "property": "radius",
         "uses": ["binding"],
         "geometry_kinds": ["cylinder", "sphere"],
         "min_count": 2,
@@ -129,6 +199,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "mirror_plane": {
         "capabilities": ["plane"],
+        "property": "plane",
         "uses": ["binding"],
         "ownership": "datum",
         "constructions": ["contains_axis"],
@@ -137,6 +208,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "distance_radius": {
         "capabilities": ["radius"],
+        "property": "radius",
         "uses": ["binding"],
         "geometry_kinds": ["cylinder"],
         "axis_bound": True,
@@ -145,6 +217,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "distance_plane": {
         "capabilities": ["plane"],
+        "property": "plane",
         "uses": ["binding"],
         "ownership": "fit",
         "standalone": True,
@@ -153,6 +226,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     },
     "distance_datum": {
         "capabilities": ["plane"],
+        "property": "plane",
         "uses": ["binding"],
         "ownership": "datum",
         "min_count": 1,
@@ -685,6 +759,12 @@ def compatibility_reason(
         contract["capabilities"]
     ):
         return "This output does not provide the required capability"
+    if contract.get("property") not in (None, *descriptor.get("properties", {})):
+        return "This output does not provide the required geometric property"
+    if contract.get("direct_context"):
+        reference = descriptor.get("reference", {})
+        if not reference or reference.get("context") != reference.get("feature"):
+            return "This input requires a direct datum context; solved publications cannot be stored as a fit reference"
     uses = contract.get("uses", ["geometry"])
     if not set(descriptor.get("uses", ["geometry"])).intersection(uses):
         return "This output does not provide the required input role"
@@ -692,6 +772,8 @@ def compatibility_reason(
         descriptor["ownership"] != contract["ownership"]
         or not descriptor["constrainable"]
     ):
+        if contract.get("fit_reference"):
+            return "This fit input requires an explicit datum of the required kind"
         return (
             "This input requires an adjustable parameter owner, not read-only geometry"
         )
@@ -714,6 +796,74 @@ def compatibility_reason(
     if frame is not None and descriptor["frame"] != frame:
         return "This output belongs to a different coordinate frame"
     return None
+
+
+def fit_reference_requirement(kind: str, field: str) -> str:
+    """Find a supported legacy fit field in the shared consumer contracts."""
+    matches = [
+        name
+        for name, contract in REQUIREMENTS.items()
+        if (reference := contract.get("fit_reference")) is not None
+        and kind in reference["kinds"]
+        and field == reference["field"]
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"fit reference {field!r} is unavailable for {kind!r}")
+    return matches[0]
+
+
+def validate_fit_reference(
+    kind: str,
+    field: str,
+    reference: FeatureInput | dict[str, Any],
+    nodes: dict[str, Feature],
+) -> OutputReference:
+    """Check one supported datum without converting an exact read into a binding.
+
+    Existing SurfaceFit fields store direct feature IDs. Their known output is
+    supplied by the contract, never inferred from a generic string candidate.
+    """
+    requirement = fit_reference_requirement(kind, field)
+    contract = REQUIREMENTS[requirement]
+    reference = (
+        OutputReference(feature=reference, output=contract["fit_reference"]["output"])
+        if isinstance(reference, str)
+        else reference
+        if isinstance(reference, OutputReference)
+        else OutputReference.model_validate(reference)
+    )
+    if reference.context != reference.feature:
+        raise ValueError(
+            "fit references require a direct datum context; solved publications cannot be stored in a legacy fit field"
+        )
+    node = nodes.get(reference.feature)
+    if node is None:
+        raise ValueError("fit reference refers to a removed datum")
+    spec = next(
+        (
+            spec
+            for spec in declared_output_specs(node)
+            if spec["output"] == reference.output
+        ),
+        None,
+    )
+    if spec is None:
+        raise ValueError(
+            f"fit reference requires an explicit {field.replace('_', ' ')} providing the required datum output"
+        )
+    descriptor = {
+        **spec,
+        "reference": reference.model_dump(),
+        "capability": spec["capabilities"][0],
+        "uses": ["geometry", "binding"] if spec["parameter_owner"] else ["geometry"],
+        "constrainable": spec["parameter_owner"] is not None,
+        "source": None,
+        "frame": "workspace",
+    }
+    reason = compatibility_reason(descriptor, requirement)
+    if reason is not None:
+        raise ValueError(reason)
+    return reference
 
 
 def input_choices(

@@ -119,6 +119,10 @@ def normalize_endpoint(
             spec
             for spec in declared_output_specs(nodes[reference])
             if set(spec["capabilities"]).intersection(contract["capabilities"])
+            and (
+                contract.get("property") is None
+                or contract["property"] in spec["properties"]
+            )
         ]
         if len(matches) != 1:
             raise ValueError(
@@ -143,6 +147,7 @@ def normalize_endpoint(
     owner = spec["parameter_owner"] if ref.context == ref.feature else None
     descriptor = {
         **spec,
+        "reference": ref.model_dump(),
         "capability": spec["capabilities"][0],
         "uses": ["binding"] if owner else ["geometry"],
         "constrainable": owner is not None,

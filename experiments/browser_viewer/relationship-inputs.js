@@ -1,5 +1,10 @@
 import { inputChoices, inputReferenceKey, readInputReference, referenceFeature } from './feature-inputs.js';
 
+export function relationshipPropertySummary(state, output) {
+  return [...new Set((output.requirements || []).map(requirement => state.input_contracts?.[requirement]?.property)
+    .filter(Boolean))].map(property => property.replaceAll('_', ' ')).join(', ');
+}
+
 export function relationshipDefinitions(state) {
   return Object.entries(state?.relationship_contracts || {}).map(([id, signature]) => ({
     id, ...signature, baseName: signature.base_name,
