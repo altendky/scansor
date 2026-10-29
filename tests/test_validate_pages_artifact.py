@@ -1335,7 +1335,7 @@ def test_green_local_ledger_cannot_substitute_payload_or_full_receipts(
     "name",
     [
         *VALIDATOR.SOURCE_GRAPH_DRIVERS,
-        "workspace",
+        *VALIDATOR.WORKSPACE_GRAPH_DRIVERS,
         "verification",
         "source-import-memory",
     ],
@@ -1361,7 +1361,7 @@ def test_local_named_json_stat_preflight_uses_exact_dispatch_before_read(
         )
 
 
-@pytest.mark.parametrize("name", ["workspace", "numerical-workspace", "verification"])
+@pytest.mark.parametrize("name", ["recovery", "source-import-memory", "verification"])
 def test_local_intake_rejects_valid_green_ordinary_json_above_real_32mib(
     selected: dict[str, Any], name: str
 ) -> None:
@@ -3052,10 +3052,16 @@ def test_source_graph_json_limit_is_exactly_scoped() -> None:
     assert VALIDATOR.MAX_MEMBER == 256 * 1024 * 1024
     assert VALIDATOR.MAX_TOTAL == 768 * 1024 * 1024
     assert VALIDATOR.MAX_ARCHIVE == 512 * 1024 * 1024
+    assert VALIDATOR.WORKSPACE_GRAPH_DRIVERS == (
+        "workspace",
+        "numerical-workspace",
+        "timing",
+    )
     for name in VALIDATOR.DRIVERS:
         assert VALIDATOR.driver_json_limit(name) == (
             VALIDATOR.MAX_SOURCE_GRAPH_JSON
-            if name in VALIDATOR.SOURCE_GRAPH_DRIVERS
+            if name
+            in (*VALIDATOR.SOURCE_GRAPH_DRIVERS, *VALIDATOR.WORKSPACE_GRAPH_DRIVERS)
             else VALIDATOR.MAX_JSON
         )
     for name in (
@@ -3064,11 +3070,17 @@ def test_source_graph_json_limit_is_exactly_scoped() -> None:
         "runtime-manifest",
         "source-import-memory",
         "source-import-extra",
+        "workspace-extra",
+        "numerical-workspace-extra",
+        "timing-extra",
+        "Workspace",
     ):
         assert VALIDATOR.driver_json_limit(name) == VALIDATOR.MAX_JSON
 
 
-@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "name", (*VALIDATOR.SOURCE_GRAPH_DRIVERS, *VALIDATOR.WORKSPACE_GRAPH_DRIVERS)
+)
 @pytest.mark.parametrize("extra", [0, 1])
 def test_source_graph_json_parser_and_archive_exact_boundary(
     name: str, extra: int, monkeypatch: pytest.MonkeyPatch
@@ -3101,7 +3113,9 @@ def test_source_graph_json_parser_and_archive_exact_boundary(
             assert VALIDATOR.read_member(archive, info, limit) == raw
 
 
-@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "name", (*VALIDATOR.SOURCE_GRAPH_DRIVERS, "workspace", "numerical-workspace")
+)
 @pytest.mark.parametrize("transport", ["archive", "local"])
 def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_32mib(
     selected: dict[str, Any], name: str, transport: str
@@ -3133,10 +3147,12 @@ def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_
     else:
         assert validate_local_payload(selected)["payload_verified"] is True
     assert json.loads(raw)["cases"] == json.loads(original)["cases"]
-    assert len(json.loads(raw)["cases"]) == 7
+    assert len(json.loads(raw)["cases"]) == len(VALIDATOR.SEMANTIC_DRIVERS[name][1])
 
 
-@pytest.mark.parametrize("name", VALIDATOR.SOURCE_GRAPH_DRIVERS)
+@pytest.mark.parametrize(
+    "name", (*VALIDATOR.SOURCE_GRAPH_DRIVERS, *VALIDATOR.WORKSPACE_GRAPH_DRIVERS)
+)
 def test_source_graph_full_archive_rejects_above_its_cap_before_output(
     selected: dict[str, Any], name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3146,6 +3162,28 @@ def test_source_graph_full_archive_rejects_above_its_cap_before_output(
     with pytest.raises(ValueError, match="archive JSON exceeds limit"):
         _ = validate(selected)
     assert not (selected["tmp"] / "public-site").exists()
+
+
+@pytest.mark.parametrize("transport", ["archive", "local"])
+def test_timing_full_source_report_above_32mib_keeps_semantic_validation(
+    selected: dict[str, Any], transport: str
+) -> None:
+    filename = "evidence/timing.json"
+    original = selected["members"][filename]
+    raw = original + b" " * (VALIDATOR.MAX_JSON + 1 - len(original))
+    assert VALIDATOR.MAX_JSON < len(raw) < VALIDATOR.MAX_SOURCE_GRAPH_JSON
+    selected["members"][filename] = raw
+    verification = json.loads(selected["members"]["evidence/verification.json"])
+    next(step for step in verification["steps"] if step["name"] == "timing")[
+        "evidence"
+    ] = {"path": "timing.json", **VALIDATOR.identity(raw)}
+    selected["members"]["evidence/verification.json"] = encoded(verification)
+    refresh(selected)
+    if transport == "archive":
+        assert validate(selected)["verified"] is True
+    else:
+        assert validate_local_payload(selected)["payload_verified"] is True
+    assert json.loads(raw) == json.loads(original)
 
 
 def test_metadata_json_parser_and_file_reader_keep_32mib_limit(tmp_path: Path) -> None:
