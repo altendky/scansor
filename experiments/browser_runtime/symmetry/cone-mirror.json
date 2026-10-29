@@ -1371,6 +1371,7 @@
         "operation": "reference_plane",
         "axis": "axis",
         "construction": "contains_axis",
+        "initial_normal": null,
         "initial_angle_degrees": 137.0,
         "offset": 0.0,
         "placement": null
