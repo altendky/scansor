@@ -172,6 +172,15 @@ function showImportWarnings(warnings) {
   $('import-warning-summary').textContent = `${warnings.length} renamed ${warnings.length === 1 ? 'name' : 'names'}`;
   $('import-warning').hidden = warnings.length === 0;
 }
+function showSourceWarnings(metadata) {
+  const warnings = metadata.virtual_scans?.source_warnings ?? metadata.source_warnings ?? [];
+  $('source-import-warning-list').replaceChildren(...warnings.map(warning => {
+    const item = document.createElement('li');
+    item.textContent = warning.message;
+    return item;
+  }));
+  $('source-import-warning').hidden = warnings.length === 0;
+}
 function fittedPickResult(reference) {
   if (!reference || graphState.states[reference.feature] !== 'ready') return null;
   const output = graphState.results[reference.feature];
@@ -2741,6 +2750,10 @@ function showSourceProperties(node) {
       ['isolated_vertices', 'Isolated vertices'], ['no_usable_area_vertices', 'Vertices without usable area'],
       ['positive_area_vertices', 'Vertices with usable area'],
     ]) if (Number.isSafeInteger(diagnostics[key])) values.push([label, diagnostics[key].toLocaleString()]);
+    if (diagnostics.fallback_normal_vertices) {
+      values.push(['Normals using an incident triangle', diagnostics.fallback_normal_vertices.toLocaleString()],
+        ['First affected vertex IDs', diagnostics.fallback_normal_first_ids.join(', ')]);
+    }
   } else {
     values.push(['Source kind', 'Packaged example'], ['Coordinates', 'Packaged example with its saved display frame']);
   }
@@ -4348,6 +4361,7 @@ function prepareWorkspace(bundle) {
     $('tool').value = 'orbit';
     $('mesh-info').textContent = `${metadata.vertices.toLocaleString()} vertices · ${metadata.triangles.toLocaleString()} triangles`;
     showImportWarnings(bundle.metadata.import_warnings || []);
+    showSourceWarnings(bundle.metadata);
     acceptGraph(nextGraph);
     oldGeometry.forEach(value => value.dispose());
     home('oblique');
@@ -4439,6 +4453,7 @@ async function start(recoveredState) {
   const workspace = await backend.loadWorkspace();
   const state = recoveredState || workspace.graph || await backend.getGraph();
   metadata = workspace.metadata;
+  showSourceWarnings(metadata);
   workspaceGeneration = workspace.generation;
   const { positions: pb, indices: ib } = workspace;
   positions = new Float32Array(pb);

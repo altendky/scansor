@@ -62,3 +62,40 @@ for (const encoding of ['ascii', 'binary']) test(`STL ${encoding} uses real fitt
     if (report) await testInfo.attach('stl-source-ui-evidence', {body: Buffer.from(JSON.stringify(report, null, 2)), contentType: 'application/json'});
   }
 });
+
+test('cancelled STL normals import with a persistent warning and retain both triangles', async ({page, sourceOrigin}) => {
+  const bytes = Buffer.alloc(184);
+  bytes.writeUInt32LE(2, 80);
+  let offset = 84;
+  for (const face of [ [[0,0,0], [1,0,0], [0,1,0]], [[0,0,0], [0,1,0], [1,0,0]] ]) {
+    for (const value of [0, 0, -1, ...face.flat()]) {bytes.writeFloatLE(value, offset); offset += 4;}
+    offset += 2;
+  }
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto(sourceOrigin);
+  const empty = async () => {
+    await page.getByRole('button', {name: 'Project toolbar options', exact: true}).click();
+    await page.getByRole('menuitem', {name: 'New project', exact: true}).click();
+    await expect(page.locator('#empty-project')).toBeVisible();
+  };
+  await empty();
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-add-scan]').click()]);
+  await chooser.setFiles({name: 'opposite.stl', mimeType: 'application/octet-stream', buffer: bytes});
+  const warning = page.locator('#source-import-warning');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('3 vertices');
+  await expect(warning).toContainText('ambiguous');
+  await expect(warning).toContainText('All vertices, triangles and original file bytes are preserved');
+  const meta = await (await page.request.get(new URL('/api/meta', sourceOrigin).href)).json();
+  expect(meta.vertices).toBe(3);
+  expect(meta.triangles).toBe(2);
+  expect(meta.diagnostics.fallback_normal_first_ids).toEqual([0,1,2]);
+  await page.reload();
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('first IDs [0, 1, 2]');
+  await empty();
+  await expect(warning).toBeHidden();
+  expect(errors).toEqual([]);
+});

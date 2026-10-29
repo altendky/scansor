@@ -156,6 +156,7 @@ class NativeScanImports:
         lock: RLock,
         context: Callable[[], NativeImportContext],
         limits: ScanLimits,
+        project_limits: ProjectArchiveLimits | None = None,
         staging_directory: Path | None = None,
         reservation_timeout_seconds: float = 60.0,
         max_terminal_history: int = 16,
@@ -171,6 +172,9 @@ class NativeScanImports:
                 "reservation lifetime and terminal history must be bounded"
             )
         self.limits: ScanLimits = limits
+        self.project_limits: ProjectArchiveLimits = (
+            project_limits if project_limits is not None else ProjectArchiveLimits()
+        )
         self._lock: RLock = lock
         self._condition: Condition = Condition(lock)
         self._close_lock: Lock = Lock()
@@ -424,7 +428,7 @@ class NativeScanImports:
         filename = PurePosixPath(filename.replace("\\", "/")).name
         if not filename or type(size) is not int or size <= 0:
             raise ScanImportError("Expected an exact project upload.", "invalid_upload")
-        if size > ProjectArchiveLimits().max_archive_bytes:
+        if size > self.project_limits.max_archive_bytes:
             raise ScanImportError(
                 "Project exceeds the archive byte limit.", "source_limit"
             )

@@ -159,6 +159,20 @@ relationships and optional equal-radius actions. Membership limits fail with an
 inspectable error before accumulating beyond their budget. These component caps
 do not establish a whole-process or browser-memory limit.
 
+The mesh-volume query uses bounded NumPy point/tree and point/triangle batches.
+One local comparison on a 1,107,516-vertex STL reduced the first generated
+selection query from 6.90 seconds to 0.65 seconds. All 29 generated queries in
+that 30-occurrence pattern completed in 16.03 seconds and reproduced the existing
+memberships exactly. This is one measured workload, not a general latency bound.
+
+Native evaluation retains one graph coordinator and can run up to four
+independent selected-data numerical Fits concurrently. The coordinator prepares
+immutable selected-array inputs, waits for dependencies, and publishes numerical
+results in submission order behind the normal graph-epoch fence. Selection
+membership and its aggregate budgets, coupled solves, and CAD remain coordinated.
+The browser worker retains serial numerical evaluation. This does not split one
+fit across workers or promise that small Fits benefit from threading.
+
 The focused core evidence includes five physical cylinder/chamfer occurrences
 around a translated, tilted axis, small radius/position departures, a coincident
 oppositely facing distractor, independently recovered target radii and transferred

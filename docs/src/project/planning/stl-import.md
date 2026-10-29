@@ -28,6 +28,22 @@ does not change its binding. The previous PLY interpretation hash and profile
 are unchanged.
 
 Content determines the format; the filename extension is only a picker hint.
+The native server admits up to 256 MiB of retained scan sources, eight million
+vertices and eight million triangles, with an 8 GiB incremental working-set
+estimate. These are admission caps, not measured total-process or GPU memory
+guarantees. They include room for a roughly 104 MiB binary STL and its reduced
+virtual scan. Native project archives admit 256 MiB per member and 384 MiB
+compressed or expanded in aggregate. The browser worker retains its smaller
+8 MiB source and 96 MiB working-set profile; a large native project can exceed
+that worker's import limits.
+
+The opt-in `tests/test_large_native_stl.py` native HTTP check exercised a
+109,202,584-byte connected binary STL with 1,094,116 vertices and 2,184,050
+triangles. It imported, reduced to 1,089 vertices and 2,048 triangles, saved an
+8,635,647-byte project containing the original STL, and reopened the same recipe
+and virtual scan. This generated planar case does not establish capacity for
+every mesh at the admission caps.
+
 An exact binary STL layout is recognized before text magic, including arbitrary
 binary headers beginning with `solid` or `ply`. Strict ASCII grammar, bounded
 lines/tokens and exact binary facet lengths reject unsupported input. Nonzero
@@ -51,11 +67,20 @@ a patch whose boundary normals include adjacent faces. There is no crease-angle
 parameter or hidden normal fan in this initial slice. The source inspector
 labels this policy, and the import guidance identifies STL normals as smoothed.
 
-Each vertex weight is one third of each usable incident triangle's area. Zero
-or exactly cancelled generated normal directions reject the complete import
-with vertex diagnostics, including vertices supported only by zero-area
-triangles. The importer does not discard or repair those vertices to make the
-file fit.
+Each vertex weight is one third of each usable incident triangle's area. When
+positive incident areas produce an exactly zero summed direction, import uses
+the largest incident triangle's geometric area vector, with first source facet
+order breaking equal-area ties. A persistent import warning gives the count and
+first affected vertex IDs and explains that the chosen directions are ambiguous
+and can affect normal-based selection and fitting. This does not apply a
+near-zero threshold or change positions, connectivity, weights or original
+source bytes. Zero-area-only vertices and nonfinite directions still reject
+import because no usable geometric direction exists.
+
+Only sources that need this fallback receive its separate interpretation hash;
+previously admitted STL sources keep their existing interpretation and binding.
+Both hashes are supported on actions/project reopen. The warning is reconstructed
+from source bytes and remains visible when a reduced virtual scan is active.
 
 ## Source lifecycle and bounds
 

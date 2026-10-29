@@ -23,9 +23,11 @@ class ProjectArchiveLimits:
             )
 
 
-def project_archive_profile() -> dict[str, object]:
+def project_archive_profile(
+    limits: ProjectArchiveLimits | None = None,
+) -> dict[str, object]:
     return {
         "supported": True,
         "version": 1,
-        "limits": asdict(ProjectArchiveLimits()),
+        "limits": asdict(limits if limits is not None else ProjectArchiveLimits()),
     }

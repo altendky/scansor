@@ -236,6 +236,15 @@ def virtual_scan_metadata(accepted: AcceptedScan | None) -> dict[str, object]:
         "can_activate": lineage is not None
         and accepted is not None
         and len(accepted.retained_sources) == 2,
+        "source_warnings": [
+            warning
+            for workspace in (
+                (accepted.retained_sources or (accepted.workspace,))
+                if accepted is not None
+                else ()
+            )
+            for warning in workspace.normal_warnings()
+        ],
     }
 
 

@@ -684,6 +684,77 @@ def _chunk_size(value: int) -> int:
     return value
 
 
+def _mesh_query(
+    query: Array,
+    directions: Array,
+    valid: NDArray[np.bool_],
+    cells: Array,
+    patch_normals: Array,
+    index: TriangleIndex,
+    inward: float,
+    outward: float,
+    padding: float,
+    tolerance: float,
+    cosine: float,
+    cancelled: Callable[[], bool] | None,
+) -> NDArray[np.int64]:
+    """Batch point/tree and point/triangle tests; at most 1024 x 16 pairs."""
+    accepted = np.zeros(len(query), dtype=np.bool_)
+    stack = [(0, np.flatnonzero(valid))]
+    while stack:
+        check_cancelled(cancelled)
+        node, ids = stack.pop()
+        lo, hi, left, right, triangles = index.nodes[node]
+        coordinates = query[ids]
+        ids = ids[
+            ~accepted[ids]
+            & np.all(coordinates >= lo, axis=1)
+            & np.all(coordinates <= hi, axis=1)
+        ]
+        if not len(ids):
+            continue
+        if left >= 0:
+            stack.extend(((right, ids), (left, ids)))
+            continue
+        point_ids = np.repeat(ids, len(triangles))
+        triangle_ids = np.tile(triangles, len(ids))
+        paired_cells = cells[triangle_ids]
+        closest, bary = _closest(query[point_ids], paired_cells)
+        expected = np.sum(patch_normals[triangle_ids] * bary[:, :, None], axis=1)
+        expected /= np.linalg.norm(expected, axis=1)[:, None]
+        normal = np.cross(
+            paired_cells[:, 1] - paired_cells[:, 0],
+            paired_cells[:, 2] - paired_cells[:, 0],
+        )
+        normal /= np.linalg.norm(normal, axis=1)[:, None]
+        normal *= np.where(np.sum(normal * expected, axis=1) < 0, -1, 1)[:, None]
+        displacement = query[point_ids] - closest
+        signed = np.sum(displacement * normal, axis=1)
+        tangent = np.linalg.norm(displacement - signed[:, None] * normal, axis=1)
+        alignment = np.sum(expected * directions[point_ids], axis=1)
+        # Match the original per-point matrix/vector dot at angular boundaries;
+        # the batched row reduction can differ by a few rounding bits.
+        threshold = cosine - 1e-14
+        near = np.any(
+            (np.abs(alignment - threshold) <= 32 * np.finfo(float).eps).reshape(
+                len(ids), len(triangles)
+            ),
+            axis=1,
+        )
+        for row in np.flatnonzero(near):
+            group = slice(row * len(triangles), (row + 1) * len(triangles))
+            alignment[group] = expected[group] @ directions[ids[row]]
+        matched = (
+            (signed >= -inward - tolerance)
+            & (signed <= outward + tolerance)
+            & (tangent <= padding + tolerance)
+            & (alignment >= threshold)
+        )
+        accepted[point_ids[matched]] = True
+    check_cancelled(cancelled)
+    return np.flatnonzero(accepted)
+
+
 def apply_selection_volume(
     points: object,
     normals: object,
@@ -701,7 +772,9 @@ def apply_selection_volume(
     saved = validate_selection_volume(volume)
     if max_selected is not None and (type(max_selected) is not int or max_selected < 1):
         raise ValueError("selection membership budget must be a positive integer")
-    size = _chunk_size(chunk_size)
+    # Even a caller requesting a larger chunk cannot expand a BVH leaf into
+    # more than 16,384 paired narrow-phase tests at once.
+    size = min(_chunk_size(chunk_size), 1024)
     xyz = np.asarray(points, dtype=float)
     directions = np.asarray(normals, dtype=float)
     area_weights = np.asarray(weights, dtype=float)
@@ -773,101 +846,83 @@ def apply_selection_volume(
             & np.isfinite(area_weights[start : start + size])
             & (area_weights[start : start + size] > 0)
         )
-        usable_ids = np.flatnonzero(valid)
         if surface is None:
-            chart, expected, residual = query, None, None
-        else:
-            with np.errstate(invalid="ignore", over="ignore"):
-                _, expected, residual, chart = _project(query, surface)
-            residual *= saved["normal_sign"]
+            unit = np.zeros_like(query_normals)
+            _ = np.divide(
+                query_normals, lengths[:, None], out=unit, where=valid[:, None]
+            )
+            ids = _mesh_query(
+                query,
+                unit,
+                valid,
+                cells,
+                patch_normals,
+                index,
+                inward,
+                outward,
+                padding,
+                tolerance,
+                cosine,
+                cancelled,
+            )
+            if max_selected is not None and len(accepted) + len(ids) > max_selected:
+                raise ValueError(
+                    "Placed volume exceeds its selection membership budget"
+                )
+            accepted.extend((ids + start).tolist())
+            continue
+        with np.errstate(invalid="ignore", over="ignore"):
+            _, expected, residual, chart = _project(query, surface)
+        residual *= saved["normal_sign"]
+        # These are the same necessary tests as the scalar narrow phase. Do
+        # them together so distant analytic observations never enter its loop.
+        valid &= (
+            np.isfinite(chart).all(axis=1)
+            & (residual >= -inward - tolerance)
+            & (residual <= outward + tolerance)
+        )
+        usable_ids = np.flatnonzero(valid)
         for local_id in usable_ids:
             check_cancelled(cancelled)
             direction = query_normals[local_id] / lengths[local_id]
-            if surface is not None:
-                if (
-                    not np.isfinite(chart[local_id]).all()
-                    or residual is None
-                    or expected is None
-                ):
-                    continue
-                if (
-                    not (
-                        -inward - tolerance <= residual[local_id] <= outward + tolerance
-                    )
-                    or direction @ expected[local_id] * saved["normal_sign"]
-                    < cosine - 1e-14
-                ):
-                    continue
-                alternatives = [chart[local_id].copy()]
-                if surface["kind"] != "plane":
-                    alternatives += [
-                        chart[local_id] + [shift, 0]
-                        for shift in (-2 * np.pi, 2 * np.pi)
-                    ]
-                found = False
-                for coordinates in alternatives:
-                    location = _develop(coordinates[None], surface)[0]
-                    for candidates in index.candidates(location):
-                        closest, _ = _closest(location, cells[candidates])
-                        same_sheet = np.ones(len(candidates), dtype=bool)
-                        if source_angles is not None and surface["slope"] != 0:
-                            factor = abs(surface["slope"]) / np.hypot(
-                                1, surface["slope"]
-                            )
-                            angle = np.arctan2(
-                                factor * closest[:, 0],
-                                factor * closest[:, 1] + surface["radius"],
-                            )
-                            center = source_angles[candidates].mean(axis=1)
-                            delta = angle - factor * center
-                            support_theta = (
-                                center
-                                + np.arctan2(np.sin(delta), np.cos(delta)) / factor
-                            )
-                            same_sheet = (
-                                np.abs(coordinates[0] - support_theta) <= np.pi + 1e-12
-                            )
-                        if np.any(
-                            same_sheet
-                            & (
-                                np.linalg.norm(closest - location, axis=1)
-                                <= padding + tolerance
-                            )
-                        ):
-                            found = True
-                            break
-                    if found:
-                        break
-            else:
-                found = False
-                location = query[local_id]
+            if direction @ expected[local_id] * saved["normal_sign"] < cosine - 1e-14:
+                continue
+            alternatives = [chart[local_id].copy()]
+            if surface["kind"] != "plane":
+                alternatives += [
+                    chart[local_id] + [shift, 0] for shift in (-2 * np.pi, 2 * np.pi)
+                ]
+            found = False
+            for coordinates in alternatives:
+                location = _develop(coordinates[None], surface)[0]
                 for candidates in index.candidates(location):
-                    closest, bary = _closest(location, cells[candidates])
-                    expected_normal = np.sum(
-                        patch_normals[candidates] * bary[:, :, None], axis=1
-                    )
-                    expected_normal /= np.linalg.norm(expected_normal, axis=1)[:, None]
-                    normal = np.cross(
-                        cells[candidates, 1] - cells[candidates, 0],
-                        cells[candidates, 2] - cells[candidates, 0],
-                    )
-                    normal /= np.linalg.norm(normal, axis=1)[:, None]
-                    normal *= np.where(
-                        np.sum(normal * expected_normal, axis=1) < 0, -1, 1
-                    )[:, None]
-                    displacement = location - closest
-                    signed = np.sum(displacement * normal, axis=1)
-                    tangent = np.linalg.norm(
-                        displacement - signed[:, None] * normal, axis=1
-                    )
+                    closest, _ = _closest(location, cells[candidates])
+                    same_sheet = np.ones(len(candidates), dtype=bool)
+                    if source_angles is not None and surface["slope"] != 0:
+                        factor = abs(surface["slope"]) / np.hypot(1, surface["slope"])
+                        angle = np.arctan2(
+                            factor * closest[:, 0],
+                            factor * closest[:, 1] + surface["radius"],
+                        )
+                        center = source_angles[candidates].mean(axis=1)
+                        delta = angle - factor * center
+                        support_theta = (
+                            center + np.arctan2(np.sin(delta), np.cos(delta)) / factor
+                        )
+                        same_sheet = (
+                            np.abs(coordinates[0] - support_theta) <= np.pi + 1e-12
+                        )
                     if np.any(
-                        (signed >= -inward - tolerance)
-                        & (signed <= outward + tolerance)
-                        & (tangent <= padding + tolerance)
-                        & (expected_normal @ direction >= cosine - 1e-14)
+                        same_sheet
+                        & (
+                            np.linalg.norm(closest - location, axis=1)
+                            <= padding + tolerance
+                        )
                     ):
                         found = True
                         break
+                if found:
+                    break
             if found:
                 if max_selected is not None and len(accepted) >= max_selected:
                     raise ValueError(

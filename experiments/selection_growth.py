@@ -1,6 +1,7 @@
 """Seed-only fits and one-pass connected mesh selection proposals."""
 
 from collections import deque
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -9,6 +10,7 @@ from numpy.typing import NDArray
 from experiments.fit_coordinates import AxisChart, CoordinateFrame, FitCoordinates
 from experiments.fit_initialization import InitializationBinding
 from experiments.fit_solver import (
+    FitCancelled,
     SolverDiagnostics,
     normalized_weights,
     solve_geometric_fit,
@@ -54,7 +56,10 @@ def fit_seed(
     hint: dict[str, Any] | None = None,
     hint_binding_sha256: str | None = None,
     support: SupportIntent | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    if cancelled is not None and cancelled():
+        raise FitCancelled("Fit cancelled before numerical evaluation")
     if kind in {"cylinder", "cone"} and binding is not None:
         fitter = fit_selected_cone if kind == "cone" else fit_selected_cylinder
         return fitter(
@@ -66,6 +71,7 @@ def fit_seed(
             hint_binding_sha256=hint_binding_sha256,
             domain=domain,
             support=support,
+            cancelled=cancelled,
         )
     if support is not None:
         raise SupportIntentFailure(
@@ -234,6 +240,8 @@ def fit_seed(
         if ambiguous_orientation or float(w @ np.sum(expected * normals, axis=1)) >= 0
         else -1.0
     )
+    if cancelled is not None and cancelled():
+        raise FitCancelled("Fit cancelled before publishing a result")
     return fitted
 
 
