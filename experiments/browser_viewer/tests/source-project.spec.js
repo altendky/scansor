@@ -631,7 +631,7 @@ test('malformed and over-limit Files preserve the empty graph and leave import a
     { name: 'oversized.ply', mimeType: 'application/octet-stream', buffer: Buffer.alloc(before.capabilities.source_import.limits.max_source_bytes + 1) },
   ]) {
     await choose(page, value);
-    await expect(page.locator('#status')).toContainText(/invalid|PLY|limit|large|exceed/i);
+    await expect(page.locator('#status')).toContainText(/invalid|PLY|STL|limit|large|exceed/i);
     await expect(page.locator('#source-progress')).toBeHidden();
     expect((await metadata(page)).project_generation).toBe(before.project_generation);
     expect((await graph(page)).recipe).toEqual(before.graph.recipe);

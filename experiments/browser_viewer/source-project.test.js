@@ -180,6 +180,20 @@ test('a superseded project export cannot download stale bytes or alter the proje
   } finally { f.restore(); }
 });
 
+test('empty import guidance advertises STL only when the source profile supports it', () => {
+  const f = fixture({ sourceImport: true, empty: true });
+  try {
+    f.controller.refresh();
+    assert.doesNotMatch(f.elements.get('empty-project-detail').textContent, /STL/);
+    f.getCurrent().metadata.capabilities = { source_import: {
+      formats: ['binary-triangle-ply-v1', 'triangle-stl-f32-v1'],
+    } };
+    f.controller.refresh();
+    assert.match(f.elements.get('empty-project-detail').textContent, /ASCII\/binary STL/);
+    assert.match(f.elements.get('empty-project-detail').textContent, /geometry-derived smoothed normals/);
+  } finally { f.restore(); }
+});
+
 test('actions file admission honors the workspace byte limit before reading', async () => {
   for (const declared of [undefined, 32 * 1024 * 1024]) {
     const f = fixture({ sourceActions: true });

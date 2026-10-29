@@ -755,7 +755,19 @@ def iter_project_archive(
             raise _error(
                 "Saving a legacy project requires portable reference metadata."
             )
-        source_entry = f"scans/{digest}.ply"
+        lineage = declaration.get("virtual_scan")
+        descriptor = (
+            cast(dict[str, Any], lineage).get("original")
+            if isinstance(lineage, dict)
+            else declaration.get("descriptor")
+        )
+        suffix = (
+            ".stl"
+            if isinstance(descriptor, dict)
+            and cast(dict[str, Any], descriptor).get("profile") == "triangle-stl-f32-v1"
+            else ".ply"
+        )
+        source_entry = f"scans/{digest}{suffix}"
         declaration["archive_entry"] = source_entry
         source_bytes = original.byte_length
     elif original is not None or legacy_reference is not None:

@@ -340,6 +340,7 @@ class BrowserWorkspace:
         capabilities = cast(dict[str, Any], metadata.get("capabilities", {}))
         source_import: dict[str, Any] = {
             "supported": self._scan_limits is not None,
+            "formats": ["binary-triangle-ply-v1", "triangle-stl-f32-v1"],
             "max_sources": 1,
             "cancel": True,
         }

@@ -159,6 +159,7 @@
       "src/scansor/constrained_least_squares.py",
       "src/scansor/errors.py",
       "src/scansor/mesh_ply.py",
+      "src/scansor/mesh_stl.py",
       "src/scansor/nonlinear_least_squares.py",
       "experiments/scan_replacement.py"
     ],
