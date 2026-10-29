@@ -19,6 +19,7 @@ import numpy as np
 import pydantic
 from numpy.typing import NDArray
 
+from experiments.browser_runtime.seed_surface_probe import seed_surface_probe
 from experiments.browser_runtime.selection_entries_probe import selection_entries_probe
 from experiments.browser_runtime.selection_volume_probe import selection_volume_probe
 from experiments.browser_runtime.semantic_parity import (
@@ -1157,6 +1158,7 @@ def numeric(
         "analytic_geometry": analytic_geometry_probe(),
         "selection_volumes": selection_volume_probe(),
         "selection_entries": selection_entries_probe(),
+        "surface_selections": seed_surface_probe(),
         "virtual_scans": virtual_scan_probe(),
         "virtual_scan_transactions": virtual_scan_transactions_probe(),
         "nozzle": nozzle,
@@ -1525,6 +1527,25 @@ def compare_virtual_scan_transactions(
     return compare_values(actual, expected, "virtual_scan_transactions")
 
 
+def compare_surface_selections(
+    actual: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    assert len(actual) == len(expected), "surface_selections count"
+    receipts: list[dict[str, Any]] = []
+    for index, (value, reference) in enumerate(zip(actual, expected, strict=True)):
+        path = f"surface_selections[{index}]"
+        for key in ("ids", "reopened_ids", "recipe"):
+            compare_intent(value[key], reference[key], f"{path}.{key}")
+        for key in ("policy", "counts", "samples"):
+            compare_intent(
+                value["preview"][key],
+                reference["preview"][key],
+                f"{path}.preview.{key}",
+            )
+        receipts.append(compare_values(value, reference, path))
+    return receipts
+
+
 def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     for key in ("fixture_sha256", "counts", "source_sha256", "model_sha256"):
         assert actual[key] == expected[key], f"{key} mismatch"
@@ -1560,6 +1581,9 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
     )
     entry_receipt = compare_values(
         actual["selection_entries"], expected["selection_entries"], "selection_entries"
+    )
+    surface_receipts = compare_surface_selections(
+        actual["surface_selections"], expected["surface_selections"]
     )
     virtual_scan_receipt = compare_virtual_scans(
         actual["virtual_scans"], expected["virtual_scans"]
@@ -1597,6 +1621,7 @@ def compare_numeric(actual: dict[str, Any], expected: dict[str, Any]) -> dict[st
             "analytic_geometry": analytic_receipt,
             "selection_volumes": volume_receipt,
             "selection_entries": entry_receipt,
+            "surface_selections": surface_receipts,
             "virtual_scans": virtual_scan_receipt,
             "virtual_scan_transactions": virtual_transaction_receipt,
             "graph": graph_receipt,

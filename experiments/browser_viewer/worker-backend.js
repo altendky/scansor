@@ -24,7 +24,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   let worker, initialization, timer, terminalError, closed = false, nextId = 0;
   let generation = 0, lifetime = 0, cancellationSerial = 0, latestGraph, committedRecipe;
   let sourceIdentity, sourceRevision, interruptBuffer, cancellation, recovery, recovering = false;
-  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, virtualScanProfile, projectArchiveProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
+  let acceptedGeneration, sourceProfile, replacementProfile, selectionVolumeProfile, virtualScanProfile, projectArchiveProfile, surfaceSelectionProfile, checkpoint, sourceOperation, sourceSequence = 0, recipePolling = false;
   let bootstrapMode = initialMode;
   const sourceHistory = new Map();
   let lifecycle = Object.freeze({ state: 'startup', lifetime, generation, interrupts: false });
@@ -404,7 +404,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad, examples: true,
       progress: 'phases-and-snapshots', cancelComputation: true, recovery: true,
-      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true, virtualScans: true, projectArchives: true }),
+      sources: 'single-scan-and-retained-examples', sourceImport: true, sourceActions, sourceReplacement: true, selectionVolumes: true, virtualScans: true, projectArchives: true, seedSurfaceSelection: true }),
     getLifecycle: () => lifecycle,
     initialize() {
       if (closed || terminalError) return Promise.reject(unavailable());
@@ -496,6 +496,11 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                 if ([11, 12].includes(data.worker_protocol?.version) ? !validVirtualScanProfile(virtualScanProfile) : virtualScanProfile !== undefined)
                   throw new Error('Invalid worker virtual scans profile.');
                 projectArchiveProfile = data.worker_protocol?.project_archive;
+                surfaceSelectionProfile = data.worker_protocol?.surface_selection;
+                if (surfaceSelectionProfile !== undefined && (surfaceSelectionProfile.supported !== true
+                  || surfaceSelectionProfile.version !== 1 || surfaceSelectionProfile.policy !== 'seed-normal-envelope-v1'
+                  || surfaceSelectionProfile.max_preview_ids !== 2048))
+                  throw new Error('Invalid worker surface selection profile.');
                 if (data.worker_protocol?.version === 12 ? !validProjectArchiveProfile(projectArchiveProfile) : projectArchiveProfile !== undefined)
                   throw new Error('Invalid worker project archive profile.');
                 if ([8, 9, 10, 11, 12].includes(data.worker_protocol?.version) &&
@@ -593,7 +598,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                   || !result.recipe || !Array.isArray(result.recipe.nodes) || !Array.isArray(result.import_warnings)
                   || result.classification === 'locate' && !result.descriptor)
                   throw new Error('Invalid actions inspection response.');
-              } else if (request.operation !== 'previewFeatureReuse') remember(data.result);
+              } else if (!['previewFeatureReuse', 'previewSurfaceSelection'].includes(request.operation)) remember(data.result);
               pending.delete(data.id);
               request.resolve(data.result);
             } catch (error) { failure(error); }
@@ -636,22 +641,25 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (!committedRecipe) return Promise.reject(new BackendError('Startup cannot be interrupted politely. Use Force and restart.',
         { code: 'startup_in_progress' }));
       const interrupt = lifecycle.interruptible && interruptBuffer;
+      const operation = [...pending.values()].some(request => request.operation === 'previewSurfaceSelection')
+        ? 'previewSurfaceSelection' : lifecycle.operation;
       generation++;
       cancellationSerial++;
       for (const request of pending.values()) request.reject(cancelled());
       pending.clear();
       latestGraph = undefined;
       wake();
-      publishLifecycle('cancel-requested', { message: 'Waiting for a safe boundary. Force and restart is available.' });
+      publishLifecycle('cancel-requested', { operation, message: 'Waiting for a safe boundary. Force and restart is available.' });
       if (interrupt) {
         Atomics.store(interruptBuffer, 1, 1);
         Atomics.store(interruptBuffer, 0, 2);
       }
       const serial = cancellationSerial;
-      cancellation = send('cancel', { recipe: structuredClone(committedRecipe) }).then(state => {
+      cancellation = send('cancel', { recipe: structuredClone(committedRecipe),
+        ...(operation === 'previewSurfaceSelection' ? { operation } : {}) }).then(state => {
         if (serial !== cancellationSerial) throw cancelled();
         remember(state);
-        publishLifecycle('cancelled');
+        publishLifecycle('cancelled', { operation });
         return state;
       }).catch(error => {
         if (serial === cancellationSerial && !closed) failure(error);
@@ -759,7 +767,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     close() { closed = true; cancellationSerial++; stop(unavailable()); publishLifecycle('closed'); },
   };
   for (const operation of ['loadWorkspace', 'getGraph', 'replaceRecipe', 'importRecipe',
-    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'previewFeatureReuse', 'applyFeatureReuse',
+    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'previewFeatureReuse', 'applyFeatureReuse', 'previewSurfaceSelection',
     'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'exportProject', ...volumeOperations]) {
     backend[operation] = async (payload = {}, options = {}) => {
       const signal = options.signal || payload.signal, serial = cancellationSerial;
@@ -769,6 +777,17 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
       if (sourceOperation) throw sourceBusy();
+      if ((mutations.has(operation) || ['evaluateGraph', 'ensureGraph'].includes(operation))
+        && [...pending.values()].some(request => request.operation === 'previewSurfaceSelection'))
+        throw new BackendError('Wait for the surface selection preview before editing or evaluating.',
+          { code: 'evaluation_busy', status: 409 });
+      if (operation === 'previewSurfaceSelection' && (latestGraph?.evaluation_running || pending.size))
+        throw new BackendError('Wait for the current evaluation or edit before previewing a surface selection.',
+          { code: 'evaluation_busy', status: 409 });
+      if (operation === 'previewSurfaceSelection' && (surfaceSelectionProfile?.supported !== true
+        || surfaceSelectionProfile.version !== 1 || surfaceSelectionProfile.policy !== 'seed-normal-envelope-v1'
+        || surfaceSelectionProfile.max_preview_ids !== 2048))
+        throw new BackendError('This runtime does not support surface selections.', { code: 'unsupported_capability' });
       if (['previewFeatureReuse', 'applyFeatureReuse'].includes(operation) && (latestGraph?.evaluation_running ||
         [...pending.values()].some(request => mutations.has(request.operation) || ['evaluateGraph', 'ensureGraph'].includes(request.operation))))
         throw new BackendError('Wait for the current evaluation or edit before authoring reuse.', { code: 'evaluation_busy', status: 409 });
@@ -793,7 +812,28 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (operation === 'loadWorkspace') { delete value.generation; delete value.token; }
       if (recipePolling && operation === 'getGraph' && Number.isSafeInteger(value.revision) && value.revision >= 0
         && latestGraph?.recipe) value.recipe_token = latestGraph.token;
-      const result = await send(operation, value, signal);
+      let result;
+      if (operation === 'previewSurfaceSelection') {
+        const ownerGeneration = generation, requestId = nextId + 1;
+        let stopping;
+        const stopOwned = () => {
+          const request = pending.get(requestId);
+          if (!stopping && request?.operation === operation && request.generation === ownerGeneration) {
+            stopping = backend.cancelComputation();
+            void stopping.catch(() => {});
+          }
+        };
+        signal?.addEventListener('abort', stopOwned);
+        try {
+          const preview = send(operation, value);
+          if (signal?.aborted) stopOwned();
+          result = await preview;
+          signal?.throwIfAborted();
+        } catch (error) {
+          if (signal?.aborted) { await stopping; throw signal.reason; }
+          throw error;
+        } finally { signal?.removeEventListener('abort', stopOwned); }
+      } else result = await send(operation, value, signal);
       if (result?.states && !result.recipe && !result.unchanged) {
         if (!latestGraph?.recipe || latestGraph.token !== result.token || latestGraph.revision !== result.revision)
           throw new BackendError('Invalid recipe-less graph response. Reload the current actions.');

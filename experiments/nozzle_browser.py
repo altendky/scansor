@@ -86,6 +86,11 @@ from experiments.scan_workspace import (
     ScanWorkspace,
     check_cancelled,
 )
+from experiments.seed_surface_authoring import (
+    SURFACE_SELECTION_PROFILE,
+    SurfaceSelectionPreviewRequest,
+    prepare_surface_selection_preview,
+)
 from experiments.selection_volume_operations import dispatch as volume_operation
 from experiments.virtual_scan_reduction import ReductionSettings
 from scansor.selection_bundle import SelectionBundle
@@ -177,7 +182,7 @@ class NativeEvaluation:
     id: str
     sequence: int
     generation: int
-    kind: Literal["evaluate", "ensure"]
+    kind: Literal["evaluate", "ensure", "preview"]
     roots: frozenset[str]
     graph: FeatureGraph[Any]
     checkpoint: GraphFailureCheckpoint
@@ -882,6 +887,8 @@ class NozzleServer(ThreadingHTTPServer):
         job = self.graph_job
         if job is None or not (job.done() if done is None else done) or job.cancelled():
             return None
+        if self.evaluation is not None and self.evaluation.kind == "preview":
+            return None
         if (
             self.evaluation is not None
             and self.evaluation.future is job
@@ -917,10 +924,36 @@ class NozzleServer(ThreadingHTTPServer):
         roots: frozenset[str],
     ) -> dict[str, Any]:
         with self.lock:
+            graph = self.graph
+
+            def evaluate(cancelled: Callable[[], bool]) -> dict[str, object]:
+                if kind == "ensure":
+                    return graph.ensure_current(
+                        request.token,
+                        request.targets,
+                        request.all_actions,
+                        cancelled=cancelled,
+                    )
+                return graph.evaluate(
+                    request.token,
+                    request.target,
+                    request.all_actions,
+                    cancelled=cancelled,
+                )
+
+            return self._start_operation(request.token, kind, roots, evaluate)
+
+    def _start_operation(
+        self,
+        token: str,
+        kind: Literal["evaluate", "ensure", "preview"],
+        roots: frozenset[str],
+        callback: Callable[[Callable[[], bool]], dict[str, object]],
+    ) -> dict[str, Any]:
+        with self.lock:
             accepted = self.accepted()
             graph = accepted.graph
-            if request.token != graph.snapshot()["token"]:
-                raise StaleGraph("graph changed before evaluation")
+            _ = graph.export_recipe(token)
             record = NativeEvaluation(
                 uuid.uuid4().hex,
                 self._evaluation_sequence + 1,
@@ -937,29 +970,63 @@ class NozzleServer(ThreadingHTTPServer):
                 with self.lock:
                     check_cancelled(record.cancel.is_set)
                     record.state = "running"
-                if kind == "ensure":
-                    return graph.ensure_current(
-                        request.token,
-                        request.targets,
-                        request.all_actions,
-                        cancelled=record.cancel.is_set,
-                    )
-                return graph.evaluate(
-                    request.token,
-                    request.target,
-                    request.all_actions,
-                    cancelled=record.cancel.is_set,
-                )
+                return callback(record.cancel.is_set)
 
             record.future = self.submit(run)
             self._evaluation_sequence = record.sequence
             self.evaluation = record
             self.graph_job = record.future
-            self.graph_job_token = request.token
+            self.graph_job_token = token
             self.graph_job_roots = roots
             if kind == "evaluate":
                 self.graph_job_errors.clear()
-            return self.evaluation_snapshot({"status": "running"})
+            return self.evaluation_snapshot({"status": "running", "token": token})
+
+    def start_surface_preview(
+        self, request: SurfaceSelectionPreviewRequest
+    ) -> dict[str, Any]:
+        with self.lock:
+            if self.busy() or self.source_imports.busy:
+                raise ScanImportError(
+                    "Wait for active work before previewing.", "source_busy"
+                )
+            prepared = prepare_surface_selection_preview(self.graph, request)
+            return self._start_operation(
+                request.token,
+                "preview",
+                frozenset([request.seed_selection, *request.barriers]),
+                prepared,
+            )
+
+    def surface_preview(self, evaluation_id: str) -> dict[str, Any]:
+        with self.lock:
+            accepted = self.accepted()
+            record = self.evaluation
+            if (
+                record is None
+                or record.kind != "preview"
+                or record.id != evaluation_id
+                or record.generation != accepted.generation
+                or record.graph is not accepted.graph
+            ):
+                raise ScanImportError(
+                    "The preview is no longer current.", "stale_evaluation"
+                )
+            _ = record.graph.export_recipe(record.checkpoint.token)
+            state = self.evaluation_snapshot(
+                {"token": record.checkpoint.token, "preview": None}
+            )
+            descriptor = cast(dict[str, object], state["evaluation"])
+            future = record.future
+            if descriptor["state"] == "complete" and future is not None:
+                state.update(future.result())
+            elif descriptor["state"] == "failed" and future is not None:
+                error = future.exception()
+                state["error"] = {
+                    "code": str(getattr(error, "code", "surface_selection_failed")),
+                    "message": str(error)[:1200],
+                }
+            return state
 
     def cancel_evaluation(self, request: EvaluationCancelRequest) -> dict[str, Any]:
         with self.lock:
@@ -982,13 +1049,14 @@ class NozzleServer(ThreadingHTTPServer):
                 if not record.cancel.is_set():
                     record.cancel.set()
                     record.state = "cancel-requested"
-                    _ = record.graph.discard_evaluation(record.checkpoint)
-                    current_token = record.graph.snapshot()["token"]
-                    self.graph_job_errors = {
-                        key: error
-                        for key, error in record.job_errors.items()
-                        if key[0] == current_token
-                    }
+                    if record.kind != "preview":
+                        _ = record.graph.discard_evaluation(record.checkpoint)
+                        current_token = record.graph.snapshot()["token"]
+                        self.graph_job_errors = {
+                            key: error
+                            for key, error in record.job_errors.items()
+                            if key[0] == current_token
+                        }
                 if record.future is not None:
                     _ = record.future.cancel()
             return self.evaluation_snapshot(record.graph.snapshot())
@@ -1090,6 +1158,10 @@ class Handler(BaseHTTPRequestHandler):
         "/selection.js": ("selection.js", "text/javascript"),
         "/selection-owned-editor.js": ("selection-owned-editor.js", "text/javascript"),
         "/circular-reuse-editor.js": ("circular-reuse-editor.js", "text/javascript"),
+        "/surface-selection-editor.js": (
+            "surface-selection-editor.js",
+            "text/javascript",
+        ),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
             "node_modules/three/build/three.module.js",
@@ -1261,6 +1333,7 @@ class Handler(BaseHTTPRequestHandler):
             metadata["actions_limits"] = actions_limits()
             metadata["selection_entries"] = {"version": 1}
             metadata["selection_volumes"] = {"version": 1, "max_preview_cells": 2048}
+            metadata["surface_selection"] = dict(SURFACE_SELECTION_PROFILE)
             metadata["source_replacement"] = {
                 "supported": isinstance(state.workspace, ScanWorkspace)
                 and state.workspace.descriptor is not None,
@@ -1272,6 +1345,20 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/graph/example":
             with self.app.lock:
                 self.json_reply(200, self.app.example_recipe.model_dump())
+        elif parsed.path.startswith("/api/graph/surface-selection/preview/"):
+            try:
+                with self.app.lock:
+                    _ = self.fence_source()
+                    state = self.app.surface_preview(
+                        parsed.path.removeprefix(
+                            "/api/graph/surface-selection/preview/"
+                        )
+                    )
+                self.json_reply(200, state)
+            except ScanImportError as error:
+                self.source_error(error)
+            except StaleGraph as error:
+                self.json_reply(409, {"error": str(error), "code": "stale_evaluation"})
         elif self.path == "/api/graph" or self.path.startswith("/api/graph?"):
             try:
                 query = parse_qs(
@@ -1576,6 +1663,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/evaluate",
             "/api/graph/ensure",
             "/api/graph/cancel",
+            "/api/graph/surface-selection/preview",
             "/api/graph/feature-reuse/preview",
             "/api/graph/feature-reuse/apply",
             "/api/graph/selection-volumes/author",
@@ -1624,6 +1712,13 @@ class Handler(BaseHTTPRequestHandler):
                     _ = self.fence_source()
                     state = self.app.cancel_evaluation(cancellation)
                 self.json_reply(202 if state["evaluation_running"] else 200, state)
+                return
+            if self.path == "/api/graph/surface-selection/preview":
+                preview = SurfaceSelectionPreviewRequest.model_validate_json(body)
+                with self.app.lock:
+                    _ = self.fence_source()
+                    state = self.app.start_surface_preview(preview)
+                self.json_reply(202, state)
                 return
             if self.path == "/api/graph/import":
                 imported = RecipeImportRequest.model_validate_json(body)
@@ -1781,6 +1876,16 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("expected a current recipe")
                     with self.app.lock:
                         _ = self.fence_source()
+                        if (
+                            self.app.evaluation is not None
+                            and self.app.evaluation.kind == "preview"
+                            and self.app.graph_job is not None
+                            and not self.app.graph_job.done()
+                        ):
+                            raise ScanImportError(
+                                "Wait for the preview before editing actions.",
+                                "source_busy",
+                            )
                         state = self.app.graph.replace_authored(
                             payload.recipe, payload.token
                         )

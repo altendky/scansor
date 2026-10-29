@@ -3,6 +3,7 @@ export const AUTHORING_DIALOGS = [
   'surface-intersection-dialog', 'body-dialog', 'trimmed-face-dialog', 'build-faces-dialog',
   'fit-dialog', 'feature-reuse-dialog', 'feature-group-dialog', 'selection-region-dialog',
   'region-selection-dialog', 'axis-dialog', 'point-dialog', 'reference-plane-dialog',
+  'surface-selection-dialog',
   'relationship-dialog', 'mirror-dialog', 'parallel-dialog', 'equal-dialog',
   'axis-solve-dialog', 'joint-dialog', 'rotation-dialog', 'frame-dialog', 'scale-dialog',
   'transform-dialog',

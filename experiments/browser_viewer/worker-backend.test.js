@@ -128,6 +128,100 @@ function sourceReady(extra = {}) {
   return { ...ready, worker_protocol: { version: 5 }, source_import: sourceProfile,
     source_mode: { kind: 'empty' }, source_identity: {}, graph: sourceGraph(), ...extra };
 }
+
+const surfaceSelectionProfile = { supported: true, version: 1,
+  policy: 'seed-normal-envelope-v1', max_preview_ids: 2048 };
+async function surfaceSelectionFixture() {
+  const value = fixture({ initialMode: 'empty' }), loading = value.backend.initialize();
+  const readiness = projectReady();
+  readiness.worker_protocol.surface_selection = surfaceSelectionProfile;
+  value.worker.reply(readiness); await loading;
+  return value;
+}
+
+test('surface preview profiles are negotiated before private worker work', async () => {
+  const old = await sourceFixture();
+  await assert.rejects(old.backend.previewSurfaceSelection({ token: 'empty' }),
+    error => error.code === 'unsupported_capability');
+  assert.equal(old.worker.calls.length, 1); old.backend.close();
+  for (const profile of [null, { ...surfaceSelectionProfile, supported: false },
+    { ...surfaceSelectionProfile, version: true }, { ...surfaceSelectionProfile, policy: 'other' },
+    { ...surfaceSelectionProfile, max_preview_ids: 2049 }]) {
+    const value = fixture({ initialMode: 'empty' }), loading = value.backend.initialize();
+    const readiness = projectReady(); readiness.worker_protocol.surface_selection = profile;
+    value.worker.reply(readiness);
+    await assert.rejects(loading, error => error.code === 'worker_startup_failed');
+    assert.equal(value.worker.calls.length, 1);
+    assert.equal(value.worker.terminated, 1); value.backend.close();
+  }
+});
+
+test('surface preview result cannot replace accepted worker actions or recovery graph', async () => {
+  const value = await surfaceSelectionFixture(), original = sourceGraph();
+  const pending = value.backend.previewSurfaceSelection({ token: 'empty', seed_selection: 'seed' });
+  await settle(); const request = value.worker.calls.at(-1);
+  assert.equal(request.operation, 'previewSurfaceSelection');
+  const privateResult = { token: 'empty', project_generation: 0, revision: 99,
+    recipe: { nodes: [{ id: 'private-only', operation: 'selection' }] }, states: {}, preview: { ids: [1, 2] } };
+  value.worker.reply({ id: request.id, generation: request.generation, ok: true, result: privateResult });
+  assert.deepEqual(await pending, privateResult);
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
+  value.backend.close();
+});
+
+for (const lifecycle of [false, true]) test(`surface preview Abort owns retirement ${lifecycle ? 'after' : 'before'} its running lifecycle`, async () => {
+  const value = await surfaceSelectionFixture(), original = sourceGraph();
+  const controller = new AbortController(), reason = new DOMException('Preview changed', 'AbortError');
+  const pending = value.backend.previewSurfaceSelection({ token: 'empty', seed_selection: 'seed' }, { signal: controller.signal });
+  let settled = false;
+  const rejected = assert.rejects(pending, error => error === reason).then(() => { settled = true; });
+  await settle(); const preview = value.worker.calls.at(-1);
+  assert.equal(preview.operation, 'previewSurfaceSelection');
+  if (lifecycle) value.worker.reply({ kind: 'lifecycle', generation: preview.generation,
+    state: 'running', operation: preview.operation, id: preview.id, interruptible: false });
+  controller.abort(reason); await settle();
+  const stopping = value.worker.calls.at(-1);
+  assert.equal(stopping.operation, 'cancel');
+  assert.equal(stopping.payload.operation, 'previewSurfaceSelection');
+  assert.deepEqual(stopping.payload.recipe, original.recipe);
+  assert.equal(settled, false, 'preview ownership persists until private retirement is acknowledged');
+  value.worker.reply({ id: preview.id, generation: preview.generation, ok: true,
+    result: { token: 'private-late', recipe: { nodes: [{ id: 'obsolete' }] } } });
+  await settle(); assert.equal(settled, false);
+  value.worker.reply({ id: stopping.id, generation: stopping.generation, ok: true, result: original });
+  await rejected;
+  assert.equal(value.backend.getLifecycle().state, 'cancelled');
+  assert.deepEqual(await value.backend.exportRecipe(), original.recipe);
+  value.backend.close();
+});
+
+test('surface preview busy fences block edits, evaluation and overlapping private previews', async () => {
+  const value = await surfaceSelectionFixture();
+  const pending = value.backend.previewSurfaceSelection({ token: 'empty', seed_selection: 'seed' });
+  await settle(); const request = value.worker.calls.at(-1), count = value.worker.calls.length;
+  for (const operation of ['replaceRecipe', 'evaluateGraph', 'ensureGraph', 'previewSurfaceSelection'])
+    await assert.rejects(value.backend[operation]({ token: 'empty', recipe: sourceGraph().recipe }),
+      error => error.code === 'evaluation_busy');
+  assert.equal(value.worker.calls.length, count);
+  value.worker.reply({ id: request.id, generation: request.generation, ok: true,
+    result: { token: 'empty', project_generation: 0, preview: {} } });
+  await pending;
+  value.backend.close();
+});
+
+test('pre-aborted surface preview neither queues private work nor cancels another accepted evaluation', async () => {
+  const value = await surfaceSelectionFixture();
+  const evaluating = value.backend.ensureGraph({ token: 'empty', targets: ['seed'] });
+  await settle(); const request = value.worker.calls.at(-1), count = value.worker.calls.length;
+  const controller = new AbortController(), reason = Error('Preview already obsolete');
+  controller.abort(reason);
+  await assert.rejects(value.backend.previewSurfaceSelection({ token: 'empty', seed_selection: 'seed' },
+    { signal: controller.signal }), error => error === reason);
+  assert.equal(value.worker.calls.length, count);
+  assert.equal(value.worker.calls.some(call => call.operation === 'cancel'), false);
+  value.worker.reply({ id: request.id, generation: request.generation, ok: true, result: sourceGraph() });
+  await evaluating; value.backend.close();
+});
 async function sourceFixture(options) {
   const value = fixture({ initialMode: 'empty', ...options }), loading = value.backend.initialize();
   value.worker.reply(sourceReady());

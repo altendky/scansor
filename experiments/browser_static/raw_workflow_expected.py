@@ -198,7 +198,7 @@ def project_graph(graph: dict[str, Any]) -> dict[str, Any]:
                 "complete",
                 "failed",
             }
-            and evaluation["kind"] in {"evaluate", "ensure"}
+            and evaluation["kind"] in {"evaluate", "ensure", "preview"}
             and isinstance(evaluation["roots"], list)
             and all(isinstance(root, str) for root in evaluation["roots"])
             and len(evaluation["roots"]) == len(set(evaluation["roots"]))

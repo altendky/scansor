@@ -30,7 +30,7 @@ export function projectSourceGraph(graph) {
     assert.ok(Number.isSafeInteger(value.generation) && value.generation >= 0);
     if (graph.project_generation !== undefined) assert.equal(value.generation, graph.project_generation);
     assert.ok(['queued', 'running', 'cancel-requested', 'cancelled', 'complete', 'failed'].includes(value.state));
-    assert.ok(['evaluate', 'ensure'].includes(value.kind));
+    assert.ok(['evaluate', 'ensure', 'preview'].includes(value.kind));
     assert.ok(Array.isArray(value.roots) && value.roots.every(root => typeof root === 'string'));
     assert.equal(new Set(value.roots).size, value.roots.length);
   }

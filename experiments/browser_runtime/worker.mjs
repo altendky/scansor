@@ -447,7 +447,8 @@ async function dispatch(request) {
     if (interruptBuffer) { Atomics.store(interruptBuffer, 0, 0); Atomics.store(interruptBuffer, 1, 0); }
     ensureWorkspace();
     python.globals.set('browser_committed_recipe', JSON.stringify(payload.recipe));
-    const envelope = JSON.parse(python.runPython('browser_workspace.restore_cancelled_json(browser_committed_recipe)'));
+    python.globals.set('browser_cancelled_operation', payload.operation || '');
+    const envelope = JSON.parse(python.runPython('browser_workspace.restore_cancelled_json(browser_committed_recipe, operation=browser_cancelled_operation or None)'));
     if (!envelope.ok) throw Object.assign(new Error(envelope.error.message), envelope.error);
     workspaceHasCad = envelope.result.recipe.nodes.some(node => cadActions.has(node.operation));
     python.runPython('browser_workspace.checkpoint_operation()');
@@ -466,6 +467,12 @@ async function dispatch(request) {
       profile.version !== 1 || profile.max_preview_cells !== 2048)
       throw Object.assign(new Error('This runtime does not support selection volumes.'), { code: 'unsupported_capability' });
   }
+  if (operation === 'previewSurfaceSelection') {
+    const profile = manifest.worker_protocol?.surface_selection;
+    if (!profile || profile.supported !== true || profile.version !== 1 ||
+      profile.policy !== 'seed-normal-envelope-v1' || profile.max_preview_ids !== 2048)
+      throw Object.assign(new Error('This runtime does not support seed surface selections.'), { code: 'unsupported_capability' });
+  }
   ensureWorkspace();
   if (request.workspaceGeneration !== undefined
     && request.workspaceGeneration !== python.runPython('browser_workspace.workspace_generation'))
@@ -478,12 +485,13 @@ async function dispatch(request) {
     postMessage({ id, ok: true, result: workspaceCall('call_json', 'inspectActions', payload) });
     return;
   }
-  python.runPython('browser_workspace.checkpoint_operation()');
+  python.globals.set('browser_checkpoint_operation', operation);
+  python.runPython('browser_workspace.checkpoint_operation(browser_checkpoint_operation)');
   if (cadOperations.has(operation) || (['replaceRecipe', 'importRecipe'].includes(operation) &&
     Array.isArray(payload?.recipe?.nodes) && payload.recipe.nodes.some(node => cadActions.has(node?.operation))))
     await loadCad({ workspace: true });
   if (generation < minimumGeneration) return;
-  const interruptible = (['evaluateGraph', 'ensureGraph'].includes(operation) || selectionVolumeOperations.has(operation)) && !workspaceHasCad;
+  const interruptible = (['evaluateGraph', 'ensureGraph', 'previewSurfaceSelection'].includes(operation) || selectionVolumeOperations.has(operation)) && !workspaceHasCad;
   // Main-thread lifecycle delivery can lag behind the worker. Eligibility must
   // be enforced here so a late numerical Cancel never injects SIGINT into CAD.
   python.setInterruptBuffer(interruptible ? interruptBuffer?.subarray(0, 1) : undefined);

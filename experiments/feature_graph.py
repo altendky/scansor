@@ -281,6 +281,17 @@ class Growth(Node):
     angle_degrees: float = Field(gt=0, le=90, allow_inf_nan=False)
 
 
+class SurfaceSelection(Node):
+    """Connected source observations derived directly from painted seeds."""
+
+    operation: Literal["surface_selection"]
+    seed_selection: str
+    barriers: list[str] = Field(default_factory=list, max_length=99)
+    angle_degrees: float = Field(default=20.0, gt=0, le=90, allow_inf_nan=False)
+    setback: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    policy: Literal["seed-normal-envelope-v1"] = "seed-normal-envelope-v1"
+
+
 class SelectionRegion(Node):
     """A fitted selection lifted into a reusable surface-following volume."""
 
@@ -680,6 +691,7 @@ Feature = Annotated[
     | Selection
     | SurfaceFit
     | Growth
+    | SurfaceSelection
     | SelectionRegion
     | RegionSelection
     | FeatureReuse
@@ -861,6 +873,8 @@ def dependencies(node: Feature) -> list[str]:
         return [*node.selections, *((reference,) if reference is not None else ())]
     if isinstance(node, Growth):
         return [node.seed_fit, *node.barriers]
+    if isinstance(node, SurfaceSelection):
+        return [node.seed_selection, *node.barriers]
     if isinstance(node, SelectionRegion):
         return [node.selection, node.fit, node.axial_plane, node.clock_plane]
     if isinstance(node, RegionSelection):
@@ -2061,6 +2075,8 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
         return node.source
     if isinstance(node, RegionSelection):
         return node.source
+    if isinstance(node, SurfaceSelection):
+        return selection_source(nodes[node.seed_selection], nodes)
     if isinstance(node, ReuseSelection):
         return selection_source(
             nodes[
@@ -3747,11 +3763,29 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for barrier in node.barriers:
                     if selection_source(nodes[barrier], nodes) != source:
                         raise ValueError("growth barrier belongs to another source")
+            elif isinstance(node, SurfaceSelection):
+                if len(set(node.barriers)) != len(node.barriers):
+                    raise ValueError("surface-selection barriers must be unique")
+                if node.seed_selection in node.barriers:
+                    raise ValueError("surface-selection seeds cannot also be a barrier")
+                source = selection_source(nodes[node.seed_selection], nodes)
+                for barrier in node.barriers:
+                    if selection_source(nodes[barrier], nodes) != source:
+                        raise ValueError(
+                            "surface-selection barrier belongs to another source"
+                        )
             elif isinstance(node, SelectionRegion):
                 selected = nodes[node.selection]
                 fitted = nodes[node.fit]
                 if not isinstance(
-                    selected, (Selection, Growth, RegionSelection, ReuseSelection)
+                    selected,
+                    (
+                        Selection,
+                        Growth,
+                        SurfaceSelection,
+                        RegionSelection,
+                        ReuseSelection,
+                    ),
                 ):
                     raise ValueError("a reusable region requires an earlier selection")
                 if (
@@ -3816,7 +3850,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                 ):
                     if not isinstance(
                         nodes[selection_id],
-                        (Selection, Growth, RegionSelection, ReuseSelection),
+                        (
+                            Selection,
+                            Growth,
+                            SurfaceSelection,
+                            RegionSelection,
+                            ReuseSelection,
+                        ),
                     ):
                         raise ValueError("reuse matching inputs must be selections")
                 sources = {
@@ -4472,6 +4512,42 @@ class FeatureGraph(Generic[WorkspaceType]):
                 raise StaleGraph("the recipe changed before export")
             return self._recipe.model_dump()
 
+    def ready_selection_inputs(
+        self, token: str, references: list[str]
+    ) -> tuple[str, dict[str, list[int]]]:
+        """Copy ready observation IDs for a private, non-publishing preview."""
+        with self.lock:
+            if token != self._token():
+                raise StaleGraph("graph changed before surface-selection preview")
+            nodes = {node.id: node for node in self._recipe.nodes}
+            if not references or any(
+                reference not in nodes for reference in references
+            ):
+                raise ValueError(
+                    "surface-selection inputs must name existing selections"
+                )
+            sources = {
+                selection_source(nodes[reference], nodes) for reference in references
+            }
+            if len(sources) != 1:
+                raise ValueError("surface-selection inputs must share one source")
+            values: dict[str, list[int]] = {}
+            for reference in references:
+                if self._states[reference] != "ready":
+                    raise ValueError(
+                        "Evaluate the seed and barrier selections before previewing"
+                    )
+                node = nodes[reference]
+                ids = (
+                    node.ids
+                    if isinstance(node, Selection) and node.entries is None
+                    else self._derived.get(reference, {}).get("ids")
+                )
+                if not isinstance(ids, list):
+                    raise ValueError("surface-selection observations are unavailable")
+                values[reference] = ids.copy()
+            return next(iter(sources)), values
+
     def snapshot(
         self, if_revision: int | None = None, if_recipe_token: str | None = None
     ) -> dict[str, object]:
@@ -4624,7 +4700,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                     else deepcopy(self._derived.get(n.id, {}).get("ids"))
                     for n in self._recipe.nodes
                     if isinstance(
-                        n, (Selection, Growth, RegionSelection, ReuseSelection)
+                        n,
+                        (
+                            Selection,
+                            Growth,
+                            SurfaceSelection,
+                            RegionSelection,
+                            ReuseSelection,
+                        ),
                     )
                 },
             }
@@ -5612,6 +5695,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         JointFit,
                         SurfaceFit,
                         Growth,
+                        SurfaceSelection,
                         SelectionRegion,
                         RegionSelection,
                         FeatureReuse,
@@ -7377,6 +7461,39 @@ class FeatureGraph(Generic[WorkspaceType]):
                         node.distance,
                         node.angle_degrees,
                     )
+                elif isinstance(node, SurfaceSelection):
+                    from experiments.seed_surface_authoring import (
+                        surface_selection_result,
+                    )
+
+                    def selection_cancelled() -> bool:
+                        if cancelled is not None and cancelled():
+                            return True
+                        with self.lock:
+                            return epoch != self._epoch
+
+                    surface_membership = surface_selection_result(
+                        self.workspace,
+                        membership(node.seed_selection),
+                        sorted(
+                            {
+                                vertex
+                                for ref in node.barriers
+                                for vertex in membership(ref)
+                            }
+                        ),
+                        angle_degrees=node.angle_degrees,
+                        setback=node.setback,
+                        cancelled=selection_cancelled,
+                    )
+                    summary = surface_membership.preview()
+                    derived = {
+                        "ids": surface_membership.ids.tolist(),
+                        "source": selection_source(node, nodes),
+                        "policy": node.policy,
+                        "counts": summary["counts"],
+                        "diagnostics": summary["diagnostics"],
+                    }
                 elif isinstance(node, SelectionRegion):
                     axis_id = selection_frame_axis(
                         node.axial_plane, node.clock_plane, nodes

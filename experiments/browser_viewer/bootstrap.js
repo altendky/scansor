@@ -61,7 +61,9 @@ async function restoreViewer(state, intent = runtimeControlIntent) {
 
 function stopAuto() {
   byId('auto-evaluate').checked = false;
-  window.dispatchEvent(new Event('scansor-computation-stop'));
+  window.dispatchEvent(new CustomEvent('scansor-computation-stop', {
+    detail: { operation: runtimeBackend.getLifecycle().operation },
+  }));
 }
 byId('cancel-computation').onclick = async () => {
   const intent = ++runtimeControlIntent;
@@ -101,14 +103,18 @@ function showLifecycle(state) {
     'cancel-requested': type === 'worker'
       ? 'Cancel requested. Waiting for a safe boundary; Force and restart stops the worker.'
       : 'Cancel requested. Waiting for native work and its numerical tasks to retire. Native calls cannot be forcibly stopped here.',
-    cancelled: 'Cancelled. Derived results discarded. Auto is off; evaluate when ready.',
+    cancelled: ['preview', 'previewSurfaceSelection'].includes(state.operation)
+      ? 'Preview cancelled. Accepted actions and results retained.'
+      : 'Cancelled. Derived results discarded. Auto is off; evaluate when ready.',
     recovering: 'Restarting runtime and restoring committed actions. This can take about 13–16 seconds on a warm local connection; first downloads take longer.',
     failed: type === 'worker' ? 'Runtime unavailable. Force and restart retries; recovery download remains available.'
       : 'Evaluation failed. Inspect the marked actions; the native server remains available.',
     closed: 'Runtime closed.',
   };
-  const context = state.roots?.length ? `${state.operation === 'ensure' ? 'Preparing' : 'Evaluating'} ${state.roots.length} requested action${state.roots.length === 1 ? '' : 's'}. ` : '';
+  const context = ['preview', 'previewSurfaceSelection'].includes(state.operation) ? 'Surface selection preview. '
+    : state.roots?.length ? `${state.operation === 'ensure' ? 'Preparing' : 'Evaluating'} ${state.roots.length} requested action${state.roots.length === 1 ? '' : 's'}. ` : '';
   byId('runtime-detail').textContent = context + (state.message || messages[state.state] || state.state);
+  window.dispatchEvent(new CustomEvent('scansor-computation-lifecycle', { detail: state }));
 }
 
 byId('recover-actions').onclick = async () => {

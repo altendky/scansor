@@ -19,7 +19,8 @@ const COMMANDS = {
     ['workspace-show', 'Show panel', 'show_panel'],
     ['workspace-reset', 'Reset layout', 'restore'], ['show-icon-legend', 'Icon legend', 'arranged_face']],
   create: [
-    ['add-selection', 'Selection', 'selection'], ['new-fit', 'Surface fit', 'plane'],
+    ['add-selection', 'Selection', 'selection'], ['new-surface-selection', 'Surface selection', 'surface_selection'],
+    ['new-fit', 'Surface fit', 'plane'],
     ['new-point', 'Point', 'point'], ['new-axis', 'Axis', 'axis'],
     ['new-reference-plane', 'Plane', 'reference_plane'], ['new-frame', 'Frame', 'frame'],
   ],

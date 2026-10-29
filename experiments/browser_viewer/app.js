@@ -31,6 +31,7 @@ import { bodyEdgePaths, bodyFaceChoices, bodyFaceSelection, bodyInputs, bodyProb
 import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
 import { createCircularReuseEditor, createCircularSourceFitEditor } from './circular-reuse-editor.js';
+import { bindSurfaceSelectionEditor, surfaceSelectionPhases } from './surface-selection-editor.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
 import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
@@ -78,9 +79,10 @@ import {
 const $ = (id) => document.getElementById(id);
 const backend = getBackend();
 let evaluationIntent = 0;
-window.addEventListener('scansor-computation-stop', () => {
+window.addEventListener('scansor-computation-stop', event => {
   evaluationIntent++;
-  if (viewerSetup && graphState) acceptGraph(stoppedEvaluationDisplay(graphState));
+  if (viewerSetup && graphState && !['preview', 'previewSurfaceSelection'].includes(event.detail?.operation))
+    acceptGraph(stoppedEvaluationDisplay(graphState));
 });
 function queueEnsureAll() {
   const intent = evaluationIntent;
@@ -92,6 +94,8 @@ const viewport = $('viewport');
 viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
 let circularReusePreview, circularCreateEditor, circularPropertiesEditor, circularSourceFitEditor;
+let surfaceSelectionPreview, surfaceSelectionCreateEditor, surfaceSelectionPropertiesEditor;
+const surfacePreviewOwners = new Set();
 let metadata,
   positions,
   session,
@@ -112,6 +116,7 @@ let activeGraphEvaluation = null, faceContinuationPending = false;
 let exampleCatalogue = null, exampleSwitchPending = false;
 let sourceProject, workspaceGeneration, sourceTransitionBusy = false;
 window.addEventListener('scansor-runtime-lock', () => sourceProject?.lockRuntime());
+window.addEventListener('scansor-computation-lifecycle', () => { if (viewerSetup) updateEvaluationControls(); });
 let resetSourcePicking = () => {};
 let constructedFaces, constructedFacesState = null;
 let bodyInspection;
@@ -1670,6 +1675,32 @@ function toggleFeatureSelection(id) {
   else selectedFeatureIds.add(id);
   selectedFeatureId = selectedFeatureIds.size === 1 ? [...selectedFeatureIds][0] : null;
 }
+function paintSurfaceSelectionPreview(value) {
+  if (!surfaceSelectionPreview) return;
+  for (const child of [...surfaceSelectionPreview.children]) {
+    surfaceSelectionPreview.remove(child); child.geometry.dispose(); child.material.dispose();
+  }
+  if (value) {
+    const order = { region: 1, inset: 2, boundaries: 3, barriers: 4, seeds: 5 };
+    for (const phase of value.visible) {
+      const ids = value.preview.samples[phase];
+      const coordinates = new Float32Array(ids.length * 3);
+      ids.forEach((id, index) => coordinates.set(positions.subarray(id * 3, id * 3 + 3), index * 3));
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(coordinates, 3));
+      const points = new THREE.Points(geometry, new THREE.PointsMaterial({ color: surfaceSelectionPhases[phase].color,
+        size: phase === 'seeds' ? 7 : 5, sizeAttenuation: false, depthTest: false, depthWrite: false,
+        transparent: true, opacity: .9 }));
+      points.renderOrder = 110 + order[phase]; surfaceSelectionPreview.add(points);
+    }
+  }
+  draw();
+}
+function surfacePreviewRunning() {
+  const lifecycle = backend.getLifecycle();
+  return surfacePreviewOwners.size > 0 || ['preview', 'previewSurfaceSelection'].includes(lifecycle.operation)
+    && ['queued', 'running', 'cancel-requested'].includes(lifecycle.state);
+}
 function updateDisplayTransform() {
   if (!modelRoot || !graphState) return false;
   const active = activeDisplayTransform(graphState, selectedFeatureIds),
@@ -1875,7 +1906,7 @@ function showBodyDiagnostics(diagnostic) {
   }
 }
 const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
-const selectionOperations = ['selection', 'growth', 'region_selection', 'reuse_selection'];
+const selectionOperations = ['selection', 'growth', 'surface_selection', 'region_selection', 'reuse_selection'];
 const solveInputs = (axis, nodes = graphState.recipe.nodes) => axisSolveInputs(axis, nodes);
 function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected = null) {
   const axis = $(`${prefix}axis-solve-axis`).value, control = $(`${prefix}axis-solve-factors`),
@@ -2386,6 +2417,7 @@ function acceptGraph(state) {
   }
   graphState = state;
   circularCreateEditor?.sync(); circularPropertiesEditor?.sync();
+  surfaceSelectionCreateEditor?.sync(); surfaceSelectionPropertiesEditor?.sync();
   buildFacesAcceptedContext = buildFacesAcceptedContext.filter((saved) => saved.token === state.token &&
     state.recipe.nodes.some((node) => node.id === saved.id) && !['ready', 'failed', 'blocked'].includes(state.states[saved.id]));
   const sourceHash = state.recipe.nodes.find((node) => node.operation === 'source')?.source_sha256,
@@ -2476,7 +2508,7 @@ function acceptGraph(state) {
   sourceProject?.refresh();
 }
 function featureTreeLocked() {
-  return busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running ||
+  return busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running || surfacePreviewRunning() ||
     featureDeletionPending || relationshipApplying || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
 }
 function focusContextFeature() {
@@ -2855,6 +2887,7 @@ function showProperties(force = false) {
     ['reference-plane-properties', node.operation === 'reference_plane'],
     ['axis-solve-properties', node.operation === 'axis_solve'],
     ['growth-properties', node.operation === 'growth'],
+    ['surface-selection-properties', node.operation === 'surface_selection'],
     ['selection-region-properties', node.operation === 'selection_region'],
     ['region-selection-properties', node.operation === 'region_selection'],
     ['feature-reuse-properties', node.operation === 'feature_reuse'],
@@ -2879,6 +2912,8 @@ function showProperties(force = false) {
     for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
   for (const input of $('body-properties').querySelectorAll('input'))
     input.disabled = $('body-properties').hidden;
+  for (const control of $('surface-selection-properties').querySelectorAll('input, select'))
+    control.disabled = $('surface-selection-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
@@ -3018,6 +3053,8 @@ function showProperties(force = false) {
     );
     $('growth-distance').value = node.distance;
     $('growth-angle').value = node.angle_degrees;
+  } else if (node.operation === 'surface_selection') {
+    surfaceSelectionPropertiesEditor?.show(node, earlier.filter(n => selectionOperations.includes(n.operation)));
   } else if (node.operation === 'selection_region') {
     choices(
       'selection-region-selection',
@@ -3926,6 +3963,14 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     values['Proposed additions'] = result.added_ids.length;
     values['Seed outliers'] = result.rejected_seed_ids.length;
     values['Total vertices'] = result.ids.length;
+  } else if (node.operation === 'surface_selection') {
+    values['Seed vertices'] = result.counts.seeds;
+    values['Before setback'] = result.counts.region;
+    values['Boundary vertices'] = result.counts.boundaries;
+    values['Selected vertices'] = result.counts.inset;
+    values['Protected seeds'] = result.counts.protected_seeds;
+    values['Boundary angle'] = `${node.angle_degrees}°`;
+    values['Setback'] = `${node.setback} scan units`;
   } else if (node.operation === 'selection_region') {
     values['Surface type'] = result.kind;
     values['Source vertices'] = result.selected_count;
@@ -4130,19 +4175,22 @@ function paint() {
 function updateEvaluationControls() {
   updateActionTreeLocks();
   const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
-  const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
+  const privatePreview = ['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation);
+  const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
   $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
   $('choose-example').disabled = featureTreeLocked();
-  for (const id of ['add-selection', 'new-fit', 'new-point', 'new-axis', 'new-reference-plane',
+  for (const id of ['add-selection', 'new-surface-selection', 'new-fit', 'new-point', 'new-axis', 'new-reference-plane',
     'new-frame', 'new-build-faces', 'new-surface-intersection', 'new-trimmed-face', 'new-feature-group',
     'new-feature-reuse', 'new-selection-region', 'new-region-selection', 'new-relationship',
     'new-axis-solve', 'new-body', 'new-scale', 'new-transform', 'export-cad']) {
     const control = $(id);
     control.disabled = control.inert || !hasSource || featureTreeLocked();
   }
-  $('evaluate-all').disabled = !hasSource || evaluationLocked || selectionDrawing || selectionPending;
+  $('evaluate-all').disabled = !hasSource || evaluationLocked || surfacePreviewRunning() || selectionDrawing || selectionPending;
+  $('new-surface-selection').disabled ||= metadata?.surface_selection?.supported !== true;
+  $('apply-properties').disabled = surfacePreviewRunning();
   sourceProject?.refresh();
 }
 async function evaluateAll() {
@@ -4154,7 +4202,7 @@ async function ensureAll() {
 async function evaluateGraph(allActions, target = null, retry = true) {
   const intent = evaluationIntent;
   while (activeGraphEvaluation) await activeGraphEvaluation;
-  if (busy || sourceTransitionBusy || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
+  if (busy || sourceTransitionBusy || surfacePreviewRunning() || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
   activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
   try { await activeGraphEvaluation; }
   finally { activeGraphEvaluation = null; sourceProject?.refresh(); }
@@ -4326,7 +4374,7 @@ function prepareWorkspace(bundle) {
       geometries.forEach(value => value.dispose()); materials.forEach(value => value.dispose());
     };
     circularCreateEditor?.clear(); circularPropertiesEditor?.clear();
-    for (const group of [overlays, reuseVolumes, circularReusePreview, constructedFaces, bodyInspection, modelPickGuides,
+    for (const group of [overlays, reuseVolumes, circularReusePreview, surfaceSelectionPreview, constructedFaces, bodyInspection, modelPickGuides,
       modelPickSourceFaces, buildFacesOverlays, relationshipOverlays, buildFacesContext]) clear(group);
     installed = true;
     mesh.geometry = geometry;
@@ -4601,6 +4649,7 @@ async function start(recoveredState) {
   reuseVolumes.userData.volumeCount = 0;
   modelRoot.add(reuseVolumes);
   circularReusePreview = new THREE.Group(); modelRoot.add(circularReusePreview);
+  surfaceSelectionPreview = new THREE.Group(); modelRoot.add(surfaceSelectionPreview);
   ownedVolumePreview = new THREE.Group();
   modelRoot.add(ownedVolumePreview);
   buildFacesOverlays = new THREE.Group();
@@ -4641,6 +4690,8 @@ async function start(recoveredState) {
     clearOwnedSelection();
     circularCreateEditor?.clear(); circularPropertiesEditor?.clear();
     paintCircularReusePreview(null);
+    surfaceSelectionCreateEditor?.clear(); surfaceSelectionPropertiesEditor?.clear();
+    paintSurfaceSelectionPreview(null);
     editingFeatureId = null;
     delete $('feature-properties-panel').dataset.editOwner;
     if (modelPickField) modelPickField.suspended = false;
@@ -4733,6 +4784,18 @@ async function start(recoveredState) {
     renderRelationshipBuilder();
   };
   $('focus-relationship').onclick = () => focusRelationshipParticipants(relationshipFeatureIds(relationshipParticipantIds));
+  const surfaceEditorOptions = (owner, isActive, onValidity = () => {}) => ({ backend,
+    current: () => ({ graph: graphState, generation: workspaceGeneration, vertices: metadata.vertices }),
+    prepare: definition => ensureCurrent([definition.seed_selection, ...definition.barriers]),
+    isActive, onPreview: paintSurfaceSelectionPreview, onStatus: status, onValidity,
+    onBusy: value => { if (value) surfacePreviewOwners.add(owner); else surfacePreviewOwners.delete(owner); updateEvaluationControls(); },
+  });
+  surfaceSelectionCreateEditor = bindSurfaceSelectionEditor({ root: $('surface-selection-dialog'), prefix: 'new-surface-selection-',
+    ...surfaceEditorOptions('create', () => activeEditWorkflow()?.id === 'surface-selection-dialog',
+      value => { $('create-surface-selection').disabled = !value; }) });
+  surfaceSelectionPropertiesEditor = bindSurfaceSelectionEditor({ root: $('surface-selection-properties'), prefix: 'surface-selection-',
+    ...surfaceEditorOptions('properties', () => activeEditWorkflow()?.id === 'feature-properties-panel'
+      && graphNode(editingFeatureId)?.operation === 'surface_selection') });
   initializeSpecializedPickFields();
   $('stop-model-picking').onclick = () => setModelPickMode(null);
   bindModelPickControls(document, startFieldPick, { modelPickable: fieldOptionModelPickable,
@@ -4754,6 +4817,7 @@ async function start(recoveredState) {
   });
   for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('close', () => {
     if (dialog.id === 'feature-reuse-dialog' && !dialog.open) circularCreateEditor?.clear();
+    if (dialog.id === 'surface-selection-dialog' && !dialog.open) surfaceSelectionCreateEditor?.clear();
     if (modelPickField?.dialog === dialog && !dialog.open) {
       modelPickField.suspended = false;
       delete dialog.dataset.modelPickSuspended;
@@ -6348,6 +6412,10 @@ async function start(recoveredState) {
       node.distance = Number($('growth-distance').value);
       node.angle_degrees = Number($('growth-angle').value);
     }
+    if (node.operation === 'surface_selection') {
+      try { Object.assign(node, surfaceSelectionPropertiesEditor.definition({ reviewed: true })); }
+      catch (error) { status(error.message, true); return; }
+    }
     if (node.operation === 'selection_region') {
       node.selection = $('selection-region-selection').value;
       node.fit = $('selection-region-fit').value;
@@ -6540,6 +6608,23 @@ async function start(recoveredState) {
       $('tool').onchange();
       status('Selection added. Paint observations, then add a standalone fit.');
     }
+  };
+  $('new-surface-selection').onclick = () => {
+    if (featureTreeLocked() || !prepareEditSession()) return;
+    const available = graphState.recipe.nodes.filter(node => selectionOperations.includes(node.operation));
+    if (!available.length) { status('Paint a seed selection before creating a surface selection.', true); return; }
+    const seed = available.find(node => node.id === selectedFeatureId) || available[0];
+    surfaceSelectionCreateEditor.show({ id: null, seed_selection: seed.id, barriers: [], angle_degrees: 20, setback: 0 }, available);
+    $('surface-selection-error').textContent = '';
+    showCreateDialog('surface-selection-dialog', 'new-surface-selection-label', 'Surface selection');
+  };
+  $('add-surface-selection-form').onsubmit = async event => {
+    event.preventDefault();
+    try {
+      const node = { id: uid('surface_selection'), label: submittedFeatureLabel('new-surface-selection-label'),
+        operation: 'surface_selection', ...surfaceSelectionCreateEditor.definition({ reviewed: true }) };
+      if (await appendActions([node])) $('surface-selection-dialog').close();
+    } catch (error) { $('surface-selection-error').textContent = error.message; }
   };
   $('add-fit-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -7059,7 +7144,9 @@ export function initializeViewer({ recoveredState, isCurrent = () => true } = {}
     }
     acceptGraph(recoveredState || await backend.getGraph());
     $('save').disabled = false;
-    status('Committed actions restored. Derived results were discarded; evaluate when ready.');
+    status(['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation)
+      ? 'Preview cancelled. Accepted actions and results retained.'
+      : 'Committed actions restored. Derived results were discarded; evaluate when ready.');
   });
   return viewerInitialization;
 }

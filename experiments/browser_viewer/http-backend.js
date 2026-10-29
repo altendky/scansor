@@ -51,7 +51,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       || !Number.isSafeInteger(next.generation) || next.generation < 0
       || next.sequence !== undefined && (!Number.isSafeInteger(next.sequence) || next.sequence < 0)
       || !['queued', 'running', 'cancel-requested', 'cancelled', 'complete', 'failed'].includes(next.state)
-      || !['evaluate', 'ensure'].includes(next.kind) || !Array.isArray(next.roots)
+      || !['evaluate', 'ensure', 'preview'].includes(next.kind) || !Array.isArray(next.roots)
       || next.roots.some(root => typeof root !== 'string')))
       throw new BackendError('Invalid evaluation lifecycle response.', { code: 'invalid_operation' });
     const rank = { queued: 0, running: 1, 'cancel-requested': 2, cancelled: 3, complete: 3, failed: 3 };
@@ -248,7 +248,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: true, forceRestart: false, sources: 'single-scan-and-retained-examples',
       sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true,
-      projectArchives: true }),
+      projectArchives: true, seedSurfaceSelection: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication, observation = evaluationObservation, version = evaluationVersion;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -370,6 +370,49 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     },
     evaluateGraph: (payload, options) => graphRequest('/api/graph/evaluate', payload, options),
     ensureGraph: (payload, options) => graphRequest('/api/graph/ensure', payload, options),
+    async previewSurfaceSelection(payload, { signal } = {}) {
+      const profile = acceptedMetadata?.surface_selection;
+      if (profile?.supported !== true || profile.version !== 1
+        || profile.policy !== 'seed-normal-envelope-v1' || profile.max_preview_ids !== 2048)
+        throw new BackendError('This backend does not support surface selections.', { code: 'unsupported_capability' });
+      signal?.throwIfAborted();
+      const observation = evaluationObservation;
+      let operation, stopping;
+      const stopOwned = () => {
+        if (!stopping && operation && evaluation?.id === operation.id
+          && ['queued', 'running', 'cancel-requested'].includes(evaluation.state)) {
+          stopping = backend.cancelComputation();
+          void stopping.catch(() => {});
+        }
+      };
+      signal?.addEventListener('abort', stopOwned);
+      try {
+        // Keep the start reply observable after caller Abort so its accepted
+        // operation can be explicitly stopped instead of becoming orphan work.
+        const started = await graphRequest('/api/graph/surface-selection/preview', payload, { observation });
+        operation = started.evaluation;
+        if (!operation || operation.kind !== 'preview' || started.token !== payload.token)
+          throw new BackendError('Invalid surface preview operation.', { code: 'invalid_operation' });
+        while (true) {
+          if (signal?.aborted) { stopOwned(); await stopping; signal.throwIfAborted(); }
+          const state = await graphRequest(`/api/graph/surface-selection/preview/${operation.id}`, undefined, { observation });
+          if (state.evaluation?.id !== operation.id || state.token !== payload.token) throw superseded();
+          if (signal?.aborted) { stopOwned(); await stopping; signal.throwIfAborted(); }
+          if (state.error) throw new BackendError(state.error.message || 'Surface preview failed.',
+            { code: state.error.code || 'preview_failed' });
+          if (state.preview) return state;
+          if (!['queued', 'running', 'cancel-requested'].includes(state.evaluation.state))
+            throw new BackendError('Surface preview stopped without a result.', { code: 'computation_cancelled' });
+          await wait(pollInterval, signalFor(signal));
+        }
+      } catch (error) {
+        // A lost start acknowledgement can leave accepted work running.
+        // Discover it for footer Cancel without inferring ownership.
+        if (!operation) await backend.getGraph().catch(() => {});
+        if (signal?.aborted) { stopOwned(); await stopping; throw signal.reason; }
+        throw error;
+      } finally { signal?.removeEventListener('abort', stopOwned); }
+    },
     getExampleRecipe: options => request('/api/graph/example', undefined, options),
     listExamples: options => request('/api/examples', undefined, options),
     async selectExample(payload, options) {
