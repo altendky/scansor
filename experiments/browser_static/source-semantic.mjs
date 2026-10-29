@@ -9,7 +9,7 @@ export const SOURCE_GRAPH_PROJECTION = Object.freeze([
   'input_contracts', 'relationship_contracts',
 ]);
 const transportFields = new Set([
-  'revision', 'project_generation', 'required_failures', 'evaluation_running', 'evaluation_error',
+  'revision', 'project_generation', 'required_failures', 'evaluation_running', 'evaluation_error', 'evaluation',
 ]);
 
 export function projectSourceGraph(graph) {
@@ -20,6 +20,19 @@ export function projectSourceGraph(graph) {
   for (const key of Object.keys(graph)) {
     assert.ok(SOURCE_GRAPH_PROJECTION.includes(key) || transportFields.has(key),
       'Source graph has an unknown field outside the reviewed projection schema: ' + key);
+  }
+  if (graph.evaluation !== undefined && graph.evaluation !== null) {
+    const value = graph.evaluation;
+    assert.ok(value && typeof value === 'object' && !Array.isArray(value), 'Invalid evaluation lifecycle');
+    assert.deepEqual(Object.keys(value).sort(), ['generation', 'id', 'kind', 'roots', 'sequence', 'state'], 'Invalid evaluation lifecycle fields');
+    assert.ok(typeof value.id === 'string' && value.id.length > 0 && value.id.length <= 128);
+    assert.ok(Number.isSafeInteger(value.sequence) && value.sequence > 0);
+    assert.ok(Number.isSafeInteger(value.generation) && value.generation >= 0);
+    if (graph.project_generation !== undefined) assert.equal(value.generation, graph.project_generation);
+    assert.ok(['queued', 'running', 'cancel-requested', 'cancelled', 'complete', 'failed'].includes(value.state));
+    assert.ok(['evaluate', 'ensure'].includes(value.kind));
+    assert.ok(Array.isArray(value.roots) && value.roots.every(root => typeof root === 'string'));
+    assert.equal(new Set(value.roots).size, value.roots.length);
   }
   return Object.fromEntries(SOURCE_GRAPH_PROJECTION.map(key => [key, graph[key]]));
 }

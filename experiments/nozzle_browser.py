@@ -186,9 +186,9 @@ class NativeEvaluation:
     state: EvaluationState = "queued"
     future: Future[dict[str, object]] | None = None
 
-    def descriptor(self) -> dict[str, object]:
+    def descriptor(self, *, done: bool | None = None) -> dict[str, object]:
         future = self.future
-        if future is not None and future.done():
+        if future is not None and (future.done() if done is None else done):
             if self.cancel.is_set() or future.cancelled():
                 self.state = "cancelled"
             else:
@@ -878,9 +878,9 @@ class NozzleServer(ThreadingHTTPServer):
             lease.close()
             raise
 
-    def graph_job_error(self) -> BaseException | None:
+    def graph_job_error(self, *, done: bool | None = None) -> BaseException | None:
         job = self.graph_job
-        if job is None or not job.done() or job.cancelled():
+        if job is None or not (job.done() if done is None else done) or job.cancelled():
             return None
         if (
             self.evaluation is not None
@@ -895,15 +895,19 @@ class NozzleServer(ThreadingHTTPServer):
             else error
         )
 
-    def evaluation_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+    def evaluation_snapshot(
+        self, state: dict[str, Any], *, running: bool | None = None
+    ) -> dict[str, Any]:
         """Lifecycle fields remain observable even without a graph revision."""
         with self.lock:
+            if running is None:
+                running = self.graph_job is not None and not self.graph_job.done()
             state["evaluation"] = (
-                self.evaluation.descriptor() if self.evaluation is not None else None
+                self.evaluation.descriptor(done=not running)
+                if self.evaluation is not None
+                else None
             )
-            state["evaluation_running"] = (
-                self.graph_job is not None and not self.graph_job.done()
-            )
+            state["evaluation_running"] = running
             return state
 
     def start_evaluation(
@@ -1317,9 +1321,9 @@ class Handler(BaseHTTPRequestHandler):
                 ):
                     token = str(state["token"])
                     self.app.graph_job_token = token
-                state = self.app.evaluation_snapshot(state)
+                state = self.app.evaluation_snapshot(state, running=running)
                 if job is not None and not running and token == state["token"]:
-                    error = self.app.graph_job_error()
+                    error = self.app.graph_job_error(done=True)
                     if error is not None:
                         state["evaluation_error"] = str(error)
             self.json_reply(200, state)
