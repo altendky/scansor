@@ -25,6 +25,7 @@ export function isModelClick(start, end, threshold = 5) {
 // are deliberately not pickers. The current native options own eligibility.
 export const geometrySelectorIds = new Set(`
   fit-inputs new-fit-inputs fit-reference new-fit-reference growth-fit growth-barriers
+  surface-selection-seed new-surface-selection-seed surface-selection-barriers new-surface-selection-barriers
   axis-source-fit new-axis-source axis-source-point-a axis-source-point-b new-axis-point-a new-axis-point-b
   point-source-fit new-point-source reference-plane-axis new-reference-plane-axis
   frame-origin new-frame-origin frame-primary-reference new-frame-primary-reference
@@ -92,6 +93,8 @@ function emptyPickMessage(control) {
   const id = control.id.replace(/^new-/, '');
   if (control.dataset.inputRequirement === 'constrainable_point') return 'Create a point datum before this sphere fit.';
   if (id === 'fit-inputs') return 'Create a selection before this surface fit.';
+  if (id === 'surface-selection-seed') return 'Create a selection on the surface before this feature. Evaluate a derived seed selection first.';
+  if (id === 'surface-selection-barriers') return 'Create an earlier selection where surface traversal must stop. Barriers are optional.';
   if (id === 'fit-reference') return 'Create an axis or plane datum before this fit. Move a later datum earlier, or create a new fit after it.';
   if (['reference-plane-axis', 'axis-solve-axis', 'rotation-axis'].includes(id))
     return 'Create an explicit axis before this feature.';

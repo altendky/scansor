@@ -3,6 +3,7 @@ import {
   actionDescription,
   actionMove,
   featureDeletionPlan,
+  featureIconLegend,
   managedOwnerId,
   managedSubtreeIds,
   nodeReferences,
@@ -23,6 +24,26 @@ const fit = {
 const nodes = [source, a, b, fit];
 assert.deepEqual(nodeReferences({ operation: 'body', faces: ['a', 'b', 'a'] }), ['a', 'b']);
 assert.equal(actionDescription({ operation: 'body' }, 'ready'), 'Solid body · Ready');
+const surfaceSelection = { id: 'surface', label: 'Seeded surface', operation: 'surface_selection',
+  seed_selection: 'a', barriers: ['b'], angle_degrees: 35, setback: 0.2, policy: 'seed-surface-v1' };
+const surfaceFit = { ...fit, id: 'surface-fit', label: 'Surface fit', selections: ['surface'] };
+const surfaceNodes = [source, a, b, surfaceSelection, surfaceFit];
+assert.deepEqual(nodeReferences(surfaceSelection), ['a', 'b']);
+assert.deepEqual(nodeReferences({ ...surfaceSelection, barriers: [] }), ['a']);
+assert.equal(actionDescription(surfaceSelection, 'ready'), 'Seeded surface selection · Ready');
+assert.match(actionMove(surfaceNodes, 'surface', 2).error, /Seeded surface needs End earlier/);
+assert.match(actionMove(surfaceNodes, 'a', surfaceNodes.length).error, /Seeded surface needs Side earlier/);
+assert.match(actionMove(surfaceNodes, 'surface-fit', 3).error, /Surface fit needs Seeded surface earlier/);
+const surfaceDeletion = featureDeletionPlan({ nodes: surfaceNodes, output: 'surface-fit' }, ['surface']);
+assert.deepEqual(surfaceDeletion.removed.map(node => node.id), ['surface', 'surface-fit']);
+assert.deepEqual(surfaceDeletion.recipe.nodes, [source, a, b]);
+assert.deepEqual(featureDeletionPlan({ nodes: surfaceNodes, output: 'surface-fit' }, ['b'])
+  .dependents.map(node => node.id), ['surface', 'surface-fit']);
+const surfaceLegend = featureIconLegend.flatMap(group => group.entries)
+  .filter(entry => entry.name === 'surface_selection');
+assert.equal(surfaceLegend.length, 1);
+assert.equal(surfaceLegend[0].label, 'Seeded surface selection');
+assert.match(surfaceLegend[0].detail, /seed and barrier selections/);
 const ids = (result) => result.nodes.map((node) => node.id);
 
 assert.deepEqual(ids(actionMove(nodes, 'b', 1)), ['source', 'b', 'a', 'fit']);

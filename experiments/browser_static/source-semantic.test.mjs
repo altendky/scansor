@@ -66,6 +66,18 @@ test('unknown published fields cannot be silently removed from either comparand'
   assert.throws(() => sourceSemanticCases(Object.fromEntries(snapshotKeys.map(key => [key, matching]))), /unknown field/);
 });
 
+test('reviewed native lifecycle remains raw transport evidence without hiding unknown classifications', () => {
+  const original = graph(), expected = projectSourceGraph(original);
+  const evaluation = { id: 'native-job', sequence: 1, generation: 3, kind: 'ensure', state: 'complete', roots: ['plane'] };
+  const value = { ...original, evaluation }, before = structuredClone(value);
+  assert.deepEqual(projectSourceGraph(value), expected);
+  assert.deepEqual(projectSourceGraph({ ...original, evaluation: null }), expected);
+  assert.deepEqual(value, before);
+  for (const defect of [{ sequence: true }, { generation: 4 }, { kind: 'unknown' }, { state: 'unknown' },
+    { roots: ['plane', 'plane'] }, { new_acceptance_classification: 'rejected' }])
+    assert.throws(() => projectSourceGraph({ ...original, evaluation: { ...evaluation, ...defect } }));
+});
+
 test('accepted graph independently checks its source transport epoch and preserves recipe/token', () => {
   const value = graph();
   assertAcceptedSourceGraph(value, accepted(value));

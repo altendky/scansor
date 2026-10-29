@@ -49,6 +49,12 @@ def worker_protocol() -> dict[str, Any]:
         "source_actions": limits["actions_profile"](),
         "selection_entries": {"version": 1},
         "selection_volumes": {"version": 1, "max_preview_cells": 2048},
+        "surface_selection": {
+            "supported": True,
+            "version": 1,
+            "policy": "seed-normal-envelope-v1",
+            "max_preview_ids": 2048,
+        },
         "virtual_scans": {"supported": True, "version": 1, "max_sources": 2},
         "project_archive": projects["project_archive_profile"](),
         "replace_scan": {
@@ -83,6 +89,15 @@ def validate_worker_protocol(value: object) -> None:
         raise ValueError("unsupported worker project-archive capability")
     entries = value["selection_entries"]
     volumes = value["selection_volumes"]
+    surface = value["surface_selection"]
+    if (
+        not isinstance(surface, dict)
+        or surface != expected["surface_selection"]
+        or surface["supported"] is not True
+        or type(surface["version"]) is not int
+        or type(surface["max_preview_ids"]) is not int
+    ):
+        raise ValueError("unsupported worker surface-selection capability")
     if (
         not isinstance(volumes, dict)
         or volumes != expected["selection_volumes"]

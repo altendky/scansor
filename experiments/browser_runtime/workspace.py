@@ -62,6 +62,11 @@ from experiments.scan_workspace import (
     ScanWorkspace,
     check_cancelled,
 )
+from experiments.seed_surface_authoring import (
+    SURFACE_SELECTION_PROFILE,
+    SurfaceSelectionPreviewRequest,
+    prepare_surface_selection_preview,
+)
 from experiments.virtual_scan_reduction import ReductionSettings
 
 CAD_ACTIONS = frozenset(
@@ -103,6 +108,7 @@ class _OperationCheckpoint:
     last_error: str | None
     source: _BrowserSource
     generation: int
+    operation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -367,6 +373,7 @@ class BrowserWorkspace:
             },
             "selection_entries": {"version": 1},
             "selection_volumes": {"version": 1, "max_preview_cells": 2048},
+            "surface_selection": dict(SURFACE_SELECTION_PROFILE),
             "virtual_scans": virtual_scan_metadata(source.project.accepted)
             if source.project is not None and self._scan_limits is not None
             else {"supported": False, "version": 1},
@@ -1286,7 +1293,7 @@ class BrowserWorkspace:
 
         return self._json(discard)
 
-    def checkpoint_operation(self) -> None:
+    def checkpoint_operation(self, operation: str | None = None) -> None:
         """Capture committed failure evidence before a cancellable operation.
 
         Scheduling and interrupt delivery belong to JavaScript. Call this before
@@ -1308,9 +1315,12 @@ class BrowserWorkspace:
             self._last_error,
             self._source,
             self._workspace_generation,
+            operation,
         )
 
-    def restore_cancelled_json(self, recipe_json: str) -> str:
+    def restore_cancelled_json(
+        self, recipe_json: str, *, operation: str | None = None
+    ) -> str:
         """Restore after computation stops and the host clears its interrupt flag.
 
         The recipe is the host's last accepted committed recipe, without import
@@ -1318,10 +1328,14 @@ class BrowserWorkspace:
         returned graph; source arrays and CAD enablement retain their identities.
         """
         self.clear_export()
-        return self._json(lambda: self._restore_cancelled(recipe_json))
+        return self._json(lambda: self._restore_cancelled(recipe_json, operation))
 
-    def _restore_cancelled(self, recipe_json: str) -> dict[str, Any]:
+    def _restore_cancelled(
+        self, recipe_json: str, operation: str | None = None
+    ) -> dict[str, Any]:
         self._check_open()
+        if operation not in {None, "previewSurfaceSelection"}:
+            raise WorkspaceError("Invalid cancellation operation.", "invalid_recovery")
         checkpoint = self._operation_checkpoint
         if checkpoint is None:
             raise WorkspaceError(
@@ -1339,7 +1353,14 @@ class BrowserWorkspace:
         if self._evaluation_lease is not None:
             self._evaluation_lease.close()
             self._evaluation_lease = None
-        if self._source.project is not None:
+        if (
+            checkpoint.operation == "previewSurfaceSelection"
+            or operation == "previewSurfaceSelection"
+        ) and self.graph.export_recipe() == recipe.model_dump():
+            # Preview owns no accepted graph publications. Retain earlier ready
+            # results while fencing only its private result and cancellation.
+            restored = self.graph.snapshot()
+        elif self._source.project is not None:
             current = self._source.project.accepted
             accepted = self._source.project.recover_graph(
                 generation=current.generation,
@@ -1692,6 +1713,23 @@ class BrowserWorkspace:
             return preview_feature_reuse(
                 self.graph, ReuseAuthoringRequest.model_validate(payload)
             )
+        if operation == "previewSurfaceSelection":
+            self._check_mutation()
+            if self._pending is not None:
+                raise WorkspaceError(
+                    "Wait for graph evaluation before previewing.",
+                    "evaluation_busy",
+                    409,
+                )
+            request = SurfaceSelectionPreviewRequest.model_validate(payload)
+            preview = prepare_surface_selection_preview(self.graph, request)
+            with ExitStack() as lease:
+                if self._source.project is not None:
+                    _ = lease.enter_context(self._source.project.evaluation())
+                return {
+                    **preview(None),
+                    "project_generation": self._workspace_generation,
+                }
         if operation == "applyFeatureReuse":
             self._check_mutation()
             request = ReuseAuthoringRequest.model_validate(payload)

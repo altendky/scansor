@@ -16,6 +16,7 @@ const paths = {
   reference_plane: 'm3 15 6-9 12 3-6 9ZM12 3v18',
   axis_solve: 'M3 12h18M7 7l-4 5 4 5m10-10 4 5-4 5M12 3v18',
   growth: 'M12 3v18M3 12h18m-12-6 3-3 3 3m-9 3-3 3 3 3m3 3 3 3 3-3m3-9 3 3-3 3',
+  surface_selection: 'M3 18 7 6l6-3 8 5-4 13-8-3Zm4-6 4-2 5 3-2 4-5-2Z',
   selection_region: 'M4 6c0-3 16-3 16 0v12c0 3-16 3-16 0Zm0 0c0 3 16 3 16 0m-8-3v18',
   region_selection: 'M4 7h10M9 3l5 4-5 4m11 2v7H4v-7',
   feature_reuse: 'M5 7h11M12 3l4 4-4 4m7 6H8m4-4-4 4 4 4',
@@ -62,6 +63,7 @@ const operations = {
   reference_plane: 'Reference plane',
   axis_solve: 'Joint',
   growth: 'Selection growth',
+  surface_selection: 'Seeded surface selection',
   selection_region: 'Reusable selection region',
   region_selection: 'Applied region selection',
   feature_reuse: 'Feature reuse',
@@ -97,7 +99,7 @@ export const featureIconLegend = [
     'plane', 'cylinder', 'cone', 'sphere', 'reference_plane', 'axis', 'point', 'frame', 'scale', 'transform',
   ] },
   { title: 'Scan, selections and reuse', icons: [
-    'source', 'selection', 'growth', 'selection_region', 'region_selection', 'reuse_selection', 'feature_reuse',
+    'source', 'selection', 'growth', 'surface_selection', 'selection_region', 'region_selection', 'reuse_selection', 'feature_reuse',
   ] },
   { title: 'Faces, body and groups', icons: [
     'build_faces', 'surface_intersection', 'trimmed_face', 'arranged_face', 'body', 'group',
@@ -119,6 +121,7 @@ export const featureIconLegend = [
   state: Object.hasOwn(states, name),
   detail: {
     plane_relationship: 'Coincident or parallel planes',
+    surface_selection: 'Surface membership derived from seed and barrier selections',
     joint_fit: 'Also used as the fallback for unknown feature types',
     blocked: 'A dependency or generated output prevents evaluation',
     needs_input: 'Choose a source volume or resolve pending selection setup',
@@ -216,6 +219,7 @@ export function nodeReferences(node) {
   ])];
   if (node.operation === 'axis_solve') return [node.axis, ...node.factors];
   if (node.operation === 'growth') return [node.seed_fit, ...node.barriers];
+  if (node.operation === 'surface_selection') return [node.seed_selection, ...node.barriers];
   if (node.operation === 'selection_region')
     return [node.selection, node.fit, node.axial_plane, node.clock_plane];
   if (node.operation === 'region_selection')

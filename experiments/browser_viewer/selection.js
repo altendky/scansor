@@ -231,6 +231,7 @@ export function featureVertexIds(nodes, memberships, featureId) {
     if (
       node.operation === 'selection' ||
       node.operation === 'growth' ||
+      node.operation === 'surface_selection' ||
       node.operation === 'region_selection' ||
       node.operation === 'reuse_selection'
     ) {

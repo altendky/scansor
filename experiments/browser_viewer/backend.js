@@ -36,6 +36,7 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
     ['replaceScan', backend.capabilities.sourceReplacement],
     ['createVirtualScan', backend.capabilities.virtualScans],
     ['activateScan', backend.capabilities.virtualScans],
+    ['previewSurfaceSelection', backend.capabilities.seedSurfaceSelection],
     ['getSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['cancelSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['inspectActions', backend.capabilities.sourceActions], ['openActions', backend.capabilities.sourceActions],

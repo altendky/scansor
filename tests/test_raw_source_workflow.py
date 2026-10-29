@@ -41,6 +41,35 @@ def ply_bytes(points: Any, triangles: Any, normals: Any | None = None) -> bytes:
     )
 
 
+def test_reviewed_evaluation_lifecycle_is_transport_not_published_geometry() -> None:
+    graph: dict[str, Any] = dict.fromkeys(oracle.PROJECTION)
+    graph["project_generation"] = 3
+    expected = oracle.project_graph(graph)
+    evaluation = {
+        "id": "native-job",
+        "sequence": 1,
+        "generation": 3,
+        "kind": "ensure",
+        "state": "complete",
+        "roots": ["plane"],
+    }
+    value = {**graph, "evaluation": evaluation}
+    before = copy.deepcopy(value)
+    assert oracle.project_graph(value) == expected
+    assert oracle.project_graph({**graph, "evaluation": None}) == expected
+    assert value == before
+    for defect in (
+        {"sequence": True},
+        {"generation": 4},
+        {"kind": "unknown"},
+        {"state": "unknown"},
+        {"roots": ["plane", "plane"]},
+        {"new_acceptance_classification": "rejected"},
+    ):
+        with pytest.raises(ValueError, match="evaluation lifecycle"):
+            _ = oracle.project_graph({**graph, "evaluation": {**evaluation, **defect}})
+
+
 @pytest.fixture
 def raw() -> bytes:
     # Two rings and full incident triangles; individual selected vertices must

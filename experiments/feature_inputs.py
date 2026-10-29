@@ -203,6 +203,8 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
             output("single_node", ["point"]),
             output("observations", ["observations"]),
         ]
+    if operation == "surface_selection":
+        return [output("observations", ["observations"])]
     if operation == "point":
         return [output("point", ["point"], bind=True)]
     if operation == "axis":
@@ -404,7 +406,7 @@ def output_catalogue(
                     "Select exactly one node for a point output",
                 )
             preview = None
-            if availability == "ready":
+            if availability == "ready" and capability != "observations":
                 try:
                     preview = resolve_output(
                         reference, nodes, values, coordinates=coordinates
@@ -707,7 +709,7 @@ def resolve_output(
     coordinates: Any = None,
 ) -> dict[str, Any]:
     """Read an exact publisher, never whichever overlay was most recently ready."""
-    from experiments.feature_graph import Selection
+    from experiments.feature_graph import Selection, SurfaceSelection, selection_source
 
     node = nodes[reference.feature]
     context = reference.context or reference.feature
@@ -726,6 +728,11 @@ def resolve_output(
         }
     if isinstance(node, Selection) and reference.output == "observations":
         return {"ids": list(selection_ids), "source": node.source}
+    if isinstance(node, SurfaceSelection) and reference.output == "observations":
+        return {
+            "ids": list(values[node.id]["ids"]),
+            "source": selection_source(node, nodes),
+        }
     raw = values[context]
     if context != reference.feature:
         raw = raw.get("resolved", raw.get("surfaces", {})).get(

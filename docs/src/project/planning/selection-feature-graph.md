@@ -10,8 +10,9 @@ standalone fits, constraints and joint solves. Fits consume one or more earlier
 selections; joints produce separate adjusted results. The browser and script use
 the same backend. Valid reordering, current-recipe save/load and dependent-result
 invalidation are implemented; change history is not. Painting, shared depth
-modes and connected growth are implemented. Additional shapes and inset remain
-future requirements.
+modes and connected growth are implemented. A separate seed-based surface
+selection now experiments with boundaries and setback as described below.
+Additional painting shapes remain future requirements.
 
 Browser-first remains an experiment sequence, not a browser-only product choice.
 Selection records, operation evaluation, model declarations and fit results must
@@ -54,7 +55,7 @@ implementation and numerical tolerance are described in the browser README.
 Each completed gesture replaces current membership and records its depth setting;
 in-progress preview can be cancelled. Resolved source IDs are persisted, but no
 stroke log or camera sequence is retained. Full gesture provenance/replay remains
-open. Standalone circle/polygon selection and inset remain **future tasks**. The
+open. Standalone circle/polygon selection remains a **future task**. The
 seed-fit and connected-growth proposal slice below is now implemented.
 
 ## Painted seeds and assisted surface identification
@@ -121,7 +122,64 @@ satisfied merely because it held before erosion.
 The first implementation tests demonstrate: growth on the intended surface;
 exclusion of a disconnected matching surface; no crossing of an ineligible strip
 or another selection; multiple seed patches; and invalidation after seed edits.
-Automatic iterative refitting, inset policy and mesh repair remain deferred.
+Automatic iterative refitting and mesh repair remain deferred. The separate
+selection-derived setback experiment below does not change this fit-driven
+Growth operation.
+
+### Seed-based surface selection experiment
+
+**Implemented bounded prototype, 2026-10-29:** Surface selection references an
+earlier seed Selection and optional barrier Selections. Its generated membership
+is a separate observation input to Fits and other selection consumers. It stores
+references, angle, setback and policy; it never rewrites painted seeds or saves
+generated IDs as the authored definition. Changes invalidate descendants.
+
+The initial `seed-normal-envelope-v1` policy defaults to a 20 degree boundary
+angle and zero setback. It traverses positive-area mesh faces through consistently
+wound manifold shared edges. Open borders, holes, nonmanifold edges, inconsistent
+winding and adjacent face-normal changes above the angle stop traversal. Faces
+touching only at a vertex do not connect. Barriers remove their incident faces
+before traversal and are excluded from output. Seed/barrier overlap is rejected.
+
+A frozen, area-weighted normal envelope is trained independently for each
+connected seed patch. Low normal variation produces a directed cone; sufficiently
+varied, approximately coplanar normals produce a great-circle band, allowing a
+cylindrical wall to wrap while limiting departure into a lip fillet. The band
+requires a middle normal-covariance eigenvalue of at least sin(3 degrees) squared
+and a smallest/middle ratio at most 0.1. Diagnostics expose the chosen mode,
+eigenvalues, direction and fallback reason. This is an angular heuristic, not
+semantic surface recognition: noisy or narrow seeds can restrict coverage, and
+smooth transitions within the envelope can still be included. Tessellation and
+the angle affect both boundaries and the amount of fillet retained.
+
+Setback uses multi-source shortest paths along reached mesh edges, weighted by
+source-space edge length, from stopping boundaries including barriers and open
+borders. These edge paths approximate surface distance and can overestimate true
+continuous geodesics. Whole-face retention adds a resolution-dependent band.
+Remaining faces are reflooded from naturally retained seeds to discard detached
+islands; protected seeds are then restored separately and cannot bridge removed
+faces. Seeds at ambiguous face fans start no expansion. Excessive setback can
+leave only seeds, with diagnostics. There are no nearest-neighbor bridges or
+automatic repairs.
+
+Both native and worker editors expose numeric angle and setback, optional
+barriers, Preview, Apply and Cancel, and independently visible seed, region,
+boundary, barrier and inset layers. Preview shows at most 2,048 deterministic
+sampled IDs per layer plus full counts. After the first explicit preview, edits
+debounce for 400 ms; only the newest pending preview runs after previous work
+retires. Changed inputs or project identity invalidate review before Apply.
+Private preview cancellation preserves accepted results; evaluation cancellation
+follows the shared recovery rules. Seed preparation is ordinary graph evaluation
+and can be stopped with footer Cancel.
+
+The native topology policy admits at most 1.5 million vertices, 2.5 million faces,
+32 seed patches and a 512 MiB estimated auxiliary-allocation budget. These are
+preflight bounds, not a total-process memory guarantee. The worker retains its
+smaller source-import limits. Topology is cached per workspace and released when
+that workspace is retired. Construction, traversal, shortest paths and reflooding
+check cancellation; individual native array operations can require waiting for
+their safe boundary. This bounded experiment does not establish physical accuracy
+or replace inspection of the proposed region.
 
 Each step should be inspectable and editable. Expansion should expose its criteria
 and preview the proposed membership; it must not silently replace the seed. A

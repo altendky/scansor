@@ -184,6 +184,20 @@ test('replace uses the union of a whole stroke and remove leaves other patches i
   });
 });
 
+test('seeded surface emphasis uses only its current published membership', () => {
+  const nodes = [{ id: 'seed', operation: 'selection' },
+    { id: 'barrier', operation: 'selection' },
+    { id: 'surface', operation: 'surface_selection', seed_selection: 'seed', barriers: ['barrier'] },
+    { id: 'fit', operation: 'fit', selections: ['surface'], kind: 'plane' }];
+  const membership = { seed: [0, 1, 2], barrier: [9, 10], surface: [1, 3, 4] };
+  assert.deepEqual(featureVertexIds(nodes, membership, 'surface'), [1, 3, 4]);
+  assert.deepEqual(featureVertexIds(nodes, membership, 'fit'), [1, 3, 4]);
+  assert.deepEqual(featureVertexIds(nodes, { ...membership, surface: null }, 'surface'), []);
+  assert.deepEqual(featureVertexIds(nodes, { seed: [0, 1, 2], barrier: [9, 10] }, 'fit'), []);
+  assert.deepEqual(featureVertexIds(nodes, { ...membership, surface: [2, 5] }, 'fit'), [2, 5]);
+  assert.deepEqual(membership, { seed: [0, 1, 2], barrier: [9, 10], surface: [1, 3, 4] });
+});
+
 test('feature emphasis follows fit inputs and relationships, excluding growth barriers', () => {
   const nodes = [
     { id: 'a', operation: 'selection' },

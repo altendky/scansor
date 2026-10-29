@@ -21,6 +21,7 @@ class ImportWarning(TypedDict):
 OPERATION_SUFFIXES = {
     "source": "source",
     "selection": "selection",
+    "surface_selection": "selection",
     "fit": "fit",
     "surface": "fit",
     "seed_fit": "fit",

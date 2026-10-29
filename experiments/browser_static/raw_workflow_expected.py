@@ -47,6 +47,7 @@ TRANSPORT = {
     "required_failures",
     "evaluation_running",
     "evaluation_error",
+    "evaluation",
 }
 FORBIDDEN = {
     "initial_parameters",
@@ -176,6 +177,35 @@ def project_graph(graph: dict[str, Any]) -> dict[str, Any]:
         set(PROJECTION) <= graph.keys() <= set(PROJECTION) | TRANSPORT,
         "graph semantic fields differ",
     )
+    evaluation = graph.get("evaluation")
+    if evaluation is not None:
+        require(
+            isinstance(evaluation, dict)
+            and set(evaluation)
+            == {"id", "sequence", "generation", "state", "kind", "roots"}
+            and isinstance(evaluation["id"], str)
+            and 0 < len(evaluation["id"]) <= 128
+            and type(evaluation["sequence"]) is int
+            and evaluation["sequence"] > 0
+            and type(evaluation["generation"]) is int
+            and evaluation["generation"] >= 0
+            and evaluation["state"]
+            in {
+                "queued",
+                "running",
+                "cancel-requested",
+                "cancelled",
+                "complete",
+                "failed",
+            }
+            and evaluation["kind"] in {"evaluate", "ensure", "preview"}
+            and isinstance(evaluation["roots"], list)
+            and all(isinstance(root, str) for root in evaluation["roots"])
+            and len(evaluation["roots"]) == len(set(evaluation["roots"]))
+            and evaluation["generation"]
+            == graph.get("project_generation", evaluation["generation"]),
+            "invalid evaluation lifecycle transport metadata",
+        )
     return {key: graph[key] for key in PROJECTION}
 
 

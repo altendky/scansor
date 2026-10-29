@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { geometrySelectorIds, isModelClick, pickFieldFeedback, scanFitCandidates, segmentDistance } from './model-picking.js';
+import { featureVertexIds } from './selection.js';
 
 test('picker guidance distinguishes empty inputs, optional blanks, temporary locks and list-only geometry', () => {
   const context = { label: 'Earlier selections', emptyMessage: 'Create a selection first.' };
@@ -61,4 +62,20 @@ test('model pick registry excludes enum, organizational and tree selection contr
     assert.equal(geometrySelectorIds.has(id), true);
   for (const id of ['new-fit-kind', 'organizational-group', 'action-list', 'export-mode', 'new-scale-output'])
     assert.equal(geometrySelectorIds.has(id), false);
+});
+
+test('seeded surface pickers use published memberships rather than its seed or barriers', () => {
+  for (const id of ['surface-selection-seed', 'new-surface-selection-seed',
+    'surface-selection-barriers', 'new-surface-selection-barriers'])
+    assert.equal(geometrySelectorIds.has(id), true);
+  for (const id of ['surface-selection-angle', 'surface-selection-setback', 'new-surface-selection-angle'])
+    assert.equal(geometrySelectorIds.has(id), false);
+  const nodes = [{ id: 'seed', operation: 'selection' }, { id: 'barrier', operation: 'selection' },
+    { id: 'surface', operation: 'surface_selection', seed_selection: 'seed', barriers: ['barrier'] }];
+  const membership = { seed: [1, 2], barrier: [8], surface: [2, 3, 4] };
+  const choice = { key: 'surface', ids: featureVertexIds(nodes, membership, 'surface') };
+  assert.deepEqual(scanFitCandidates([3], [choice]), [choice]);
+  assert.deepEqual(scanFitCandidates([1, 8], [choice]), []);
+  assert.deepEqual(scanFitCandidates([3], [{ ...choice, ids: featureVertexIds(nodes,
+    { seed: membership.seed, barrier: membership.barrier }, 'surface') }]), []);
 });
