@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 export const staleRelationshipObserver = `\nObject.defineProperty(globalThis, '__staleRelationshipUi', {value: {
   read: () => structuredClone({graph: graphState, generation: workspaceGeneration, vertices: metadata?.vertices,
     relationshipGuides: relationshipOverlays.children.length,
+    selection: [...selectedFeatureIds], participants: [...relationshipParticipantIds], pickMode: modelPickMode,
+    pickGuides: modelPickGuides.children.length,
+    modelChoices: modelPickMode === 'participant' ? modelPickChoices().map(({key, reference}) => ({key, reference})) : [],
+    treeChoices: modelPickMode === 'participant' ? modelPickChoices({tree: true}).map(({key, reference}) => ({key, reference})) : [],
     pendingGeometry: requirementOutputs(graphState, 'relationship_direction')
       .filter(output => output.reference.feature === 'axis-plane' && output.availability !== 'ready')
       .map(output => ({reference: output.reference, value: relationshipOutputValue(graphState, output)}))
@@ -33,20 +37,30 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     await page.keyboard.press('Escape');
     await page.locator('#close-edit').click();
   };
-  const chooseParticipant = async value => {
-    const inputs = page.locator('#relationship-participants input'), wanted = key(value),
-      index = await inputs.evaluateAll((items, wanted) => items.findIndex(item => item.dataset.participantId === wanted), wanted);
-    assert(index >= 0, `Missing exact pending participant ${wanted}`);
-    await expect(inputs.nth(index)).toBeEnabled();
-    await expect(inputs.nth(index).locator('xpath=ancestor::label[1]')).toContainText('Needs evaluation');
-    await inputs.nth(index).check();
-  };
-  const openBuilder = async () => {
+  const openBuilder = async ({list = true} = {}) => {
     await page.getByRole('button', {name: 'Relationship…', exact: true}).click();
     await page.locator('#relationship-kind').selectOption('direction_alignment');
     if (await page.locator('#clear-relationship-participants').isEnabled())
       await page.locator('#clear-relationship-participants').click();
-    await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+    if (list) await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+  };
+  const treeParticipant = async value => {
+    const before = await read(), choices = before.treeChoices.filter(choice => choice.reference.feature === value.feature),
+      index = choices.findIndex(choice => choice.key === key(value));
+    assert(index >= 0, `Missing exact tree participant ${key(value)}`);
+    await page.locator(`#action-list .action-select[data-action-id="${value.feature}"]`).click();
+    const chooser = page.locator('#model-pick-choices');
+    if (choices.length > 1) {
+      await expect(chooser).toBeVisible();
+      await expect(chooser.locator('button')).toHaveCount(choices.length);
+      assert.deepEqual((await read()).participants, before.participants, 'Ambiguous tree clicks must not guess an output/context');
+      await chooser.locator('button').nth(index).click();
+    }
+    await expect.poll(async () => (await read()).participants.includes(key(value)))
+      .toBe(!before.participants.includes(key(value)));
+    await expect(chooser).toBeHidden();
+    assert.deepEqual((await read()).selection, before.selection, 'Participant picking must preserve general feature selection');
+    return choices.length;
   };
   try {
     await expect(page.locator('#viewport canvas')).toBeVisible();
@@ -83,12 +97,34 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert(pending?.compatible && ['unevaluated', 'stale'].includes(pending.availability));
     report.phase = 'create-before-evaluation';
     const beforeCreate = evaluations.length;
-    await openBuilder();
-    await chooseParticipant(plane);
+    await openBuilder({list: false});
+    const beforeTree = await read();
+    await expect(page.locator('#pick-relationship-participant')).toBeEnabled();
+    await page.locator('#pick-relationship-participant').click();
+    await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'participant');
+    assert.equal((await read()).modelChoices.length, 0, 'All pending participants have no pickable 3D output');
+    assert.equal((await read()).pickGuides, 0);
+    const axisChoices = (await read()).treeChoices.filter(choice => choice.reference.feature === 'auto-axis');
+    assert(axisChoices.length > 1, 'The shared axis exposes distinct feature and published contexts');
+    const publishedAxis = axisChoices.find(choice => choice.reference.context !== choice.reference.feature);
+    assert(publishedAxis, 'An exact published axis context is available before evaluation');
+    assert(await treeParticipant(publishedAxis.reference) > 1);
+    assert.deepEqual((await read()).participants, [publishedAxis.key]);
+    await treeParticipant(publishedAxis.reference);
+    assert.deepEqual((await read()).participants, []);
+    await treeParticipant(plane);
+    await treeParticipant(plane);
+    await treeParticipant(plane);
     assert.equal((await read()).relationshipGuides, 0);
-    const memberInputs = page.locator('#relationship-participants input'), memberIndex = await memberInputs.evaluateAll(
-      (items, wanted) => items.findIndex(item => item.dataset.participantId === wanted), key(member));
-    assert(memberIndex >= 0); await memberInputs.nth(memberIndex).check();
+    await treeParticipant(member);
+    const afterTree = await read();
+    assert.deepEqual(afterTree.selection, beforeTree.selection);
+    assert.deepEqual(afterTree.graph.recipe, beforeTree.graph.recipe);
+    assert.deepEqual(afterTree.graph.states, beforeTree.graph.states);
+    assert.deepEqual(afterTree.graph.results, beforeTree.graph.results);
+    assert.equal(evaluations.length, beforeCreate);
+    assert.equal(afterTree.pickGuides, 0);
+    await page.locator('#stop-model-picking').click();
     await expect(page.locator('#relationship-summary')).toContainText('will need evaluation');
     await page.keyboard.press('Escape');
     const options = page.locator('#relationship-dialog details');
@@ -130,8 +166,23 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert(stalePlane?.compatible && stalePlane.availability === 'stale');
     assert.equal(stalePlane.preview, null, 'The formerly ready plane no longer supplies a stale preview');
     report.phase = 'stale-builder-preview';
-    await openBuilder();
-    await chooseParticipant(plane);
+    await openBuilder({list: false});
+    const beforeMixed = await read(), beforeMixedEvaluation = evaluations.length;
+    await page.locator('#pick-relationship-participant').click();
+    const mixed = await read();
+    assert(mixed.modelChoices.length > 0, 'Mixed state retains ready 3D choices');
+    assert(!mixed.modelChoices.some(choice => choice.key === key(plane)), 'Stale output cannot enter 3D picking');
+    await treeParticipant(plane);
+    const readyMember = mixed.modelChoices.find(choice => choice.reference.feature === 'joint-cylinder');
+    assert(readyMember, 'The independent ready cylinder remains selectable alongside the stale plane');
+    await treeParticipant(readyMember.reference);
+    await treeParticipant(readyMember.reference);
+    const afterMixed = await read();
+    assert.deepEqual(afterMixed.selection, beforeMixed.selection);
+    assert.deepEqual(afterMixed.graph.recipe, beforeMixed.graph.recipe);
+    assert.deepEqual(afterMixed.graph.states, beforeMixed.graph.states);
+    assert.equal(evaluations.length, beforeMixedEvaluation);
+    await page.locator('#stop-model-picking').click();
     await expect.poll(async () => (await read()).relationshipGuides).toBe(0);
     for (const pending of (await read()).pendingGeometry) assert.equal(pending.value, null);
     await close();
@@ -167,6 +218,10 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     report.stale_geometry_not_previewed = true;
     report.warm_to_stale_preview_cleared = true;
     report.property_context_preserved = true;
+    report.pending_tree_picking = true;
+    report.mixed_ready_pending_tree_picking = true;
+    report.exact_context_tree_chooser = true;
+    report.tree_toggles_preserve_general_selection = true;
     report.source_and_observations_preserved = true;
     return report;
   } catch (error) {

@@ -313,6 +313,14 @@ separate feature-kind eligibility lists. Parallel requires plane orientation;
 Coincident requires the complete plane. Provider kinds do not introduce separate
 relationship variants.
 
+The participant picker also accepts compatible stale or unevaluated outputs
+from the feature tree, using the same authoring eligibility as its dropdown.
+Tree clicks toggle participants while picking is active; multiple eligible
+outputs require an explicit output/context choice. Evaluated geometry controls
+3D hit testing and previews only. Picking pending inputs does not evaluate them
+or show retained stale geometry; with Auto off, the new relationship stays
+pending until evaluation is requested.
+
 Direct parameter-owner inputs bind the original observations or datum
 declarations. An explicitly selected output from another solve context is a fixed
 geometry read in the downstream solve; it does not reactivate the upstream

@@ -12,6 +12,7 @@ test('picker guidance distinguishes empty inputs, optional blanks, temporary loc
   assert.match(pickFieldFeedback([selectable], { ...context, disabled: true, busy: true }), /^Temporarily unavailable/);
   assert.match(pickFieldFeedback([selectable], { ...context, disabled: true }), /current configuration/);
   assert.equal(pickFieldFeedback([{ ...selectable, modelPickable: true }], context), '');
+  assert.match(pickFieldFeedback([{ ...selectable, treePickable: true }], context), /Pick compatible features in the tree.*exact outputs/);
 });
 
 test('saved unavailable inputs remain diagnosed when alternative choices are ready', () => {
