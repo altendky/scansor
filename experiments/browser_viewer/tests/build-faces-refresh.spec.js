@@ -31,8 +31,7 @@ test('open Build faces lists follow evaluation, rename and delete without losing
     await page.locator('#new-fit-label').fill('Additional plane');
     await page.locator('#new-fit-kind').selectOption('plane');
     await page.locator('#new-fit-inputs').selectOption('top_face');
-    await page.getByRole('button', { name: 'Show Reference geometry choices', exact: true }).click();
-    await page.getByRole('menuitemradio', { name: 'None (standalone)', exact: true }).click();
+    await page.locator('#new-fit-reference-mode').selectOption('');
     await page.locator('#add-fit-form').getByRole('button', { name: 'Add fit', exact: true }).click();
     await expect(page.locator('#fit-dialog')).toBeHidden();
     const additional = page.locator('#action-list .action-select').filter({ hasText: 'Additional plane' });
