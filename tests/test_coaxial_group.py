@@ -270,6 +270,81 @@ def mixed_recipe(
     return scan, {"schema_version": 2, "nodes": nodes, "output": "coaxial"}
 
 
+@pytest.mark.parametrize("fixed", [False, True])
+def test_one_target_coaxial_group_refines_only_its_declared_axis_freedom(
+    fixed: bool,
+) -> None:
+    scan, payload = mixed_recipe([1.0, 0.0, 0.0])
+    relation = next(node for node in payload["nodes"] if node["id"] == "coaxial")
+    member_id = relation["surfaces"][0]
+    relation["surfaces"] = [member_id]
+    member = next(node for node in payload["nodes"] if node["id"] == member_id)
+    kept = {"scan", "axis", "coaxial", member_id, *member["selections"]}
+    payload["nodes"] = [node for node in payload["nodes"] if node["id"] in kept]
+    if fixed:
+        payload["nodes"] = [node for node in payload["nodes"] if node["id"] != "axis"]
+        payload["nodes"].insert(
+            payload["nodes"].index(member) + 1,
+            {
+                "id": "axis",
+                "label": "Fixed source axis",
+                "operation": "axis",
+                "source_fit": member_id,
+            },
+        )
+    graph = FeatureGraph(scan, Recipe.model_validate(payload))
+    saved = graph.export_recipe()
+    state = evaluate(graph)
+    assert not state["errors"]
+    assert state["states"]["coaxial"] == "ready"
+    assert graph.export_recipe() == saved
+    solved = state["results"]["coaxial"]
+    assert set(solved["surfaces"]) == {member_id}
+    result = revolution_geometry(solved["surfaces"][member_id])
+    direction, point = (
+        np.asarray(solved["axis_display"]),
+        np.asarray(solved["point_display"]),
+    )
+    assert np.linalg.norm(np.cross(result["axis"], direction)) < 1e-8
+    assert (
+        np.linalg.norm(np.cross(np.asarray(result["origin"]) - point, direction)) < 1e-8
+    )
+    if fixed:
+        np.testing.assert_array_equal(
+            direction, state["results"]["axis"]["axis_display"]
+        )
+        np.testing.assert_array_equal(point, state["results"]["axis"]["point_display"])
+    else:
+        assert abs(direction[0]) == pytest.approx(1, abs=1e-8)
+        assert solved["fit"]["weighted_rms"] < 1e-7
+    reopened = FeatureGraph(scan, Recipe.model_validate(saved))
+    again = evaluate(reopened)
+    assert not again["errors"]
+    np.testing.assert_allclose(
+        again["results"]["coaxial"]["axis_display"], direction, atol=1e-8
+    )
+
+
+def test_named_axis_joint_retains_two_observation_minimum_for_single_target_group() -> (
+    None
+):
+    scan, payload = mixed_recipe([1.0, 0.0, 0.0])
+    relation = next(node for node in payload["nodes"] if node["id"] == "coaxial")
+    relation["surfaces"] = relation["surfaces"][:1]
+    payload["nodes"].append(
+        {
+            "id": "joint",
+            "label": "Joint",
+            "operation": "axis_solve",
+            "axis": "axis",
+            "factors": ["coaxial"],
+        }
+    )
+    payload["output"] = "joint"
+    with pytest.raises(ValueError, match="at least two distinct fit observations"):
+        _ = FeatureGraph(scan, Recipe.model_validate(payload))
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 def test_mixed_free_group_keeps_independent_shapes_and_directed_publication(
     reverse: bool,

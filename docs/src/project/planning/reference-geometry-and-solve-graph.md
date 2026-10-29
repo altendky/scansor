@@ -109,12 +109,16 @@ they can supply evidence for placement. Observation-free relationships add no
 synthetic observations: incompatible fixed inputs fail feasibility checks, and
 remaining unidentified free quantities fail rank checks.
 
-The bounded **Coaxial** relationship binds one explicit datum axis to two or more
+The bounded **Coaxial** relationship binds one explicit datum axis to one or more
 cone or cylinder fits, including mixed groups. Fits can begin unbound; the
 relationship does not rewrite their individual reference-geometry declarations.
 They share the complete axis line, while radii and cone tapers remain
 independent. Existing bindings to the same datum are compatible; conflicting
 datum bindings require an explicit repair.
+The builder distinguishes the reference axis from its target fits explicitly;
+this role does not change fixed/free ownership. Single-target automatic fitting
+is supported, while an explicit shared-axis Joint still requires two distinct
+observed fits.
 
 Coaxial and Parallel can express the common construction separately: relate the
 lateral fits to Center, construct Base perpendicular to Center, and relate the
@@ -158,11 +162,19 @@ determines fixed, free and derived roles.
 
 Direction metadata also distinguishes a representative vector from authority
 over its sense. A fitted line's canonical sign does not establish an authored
-positive direction. The planned initial generic alignment uses unsigned directions;
+positive direction. The bounded generic alignment uses unsigned directions;
 same-sense alignment requires a separately explicit authority and mode. The
 existing Coaxial relationship continues to bind the complete line. Fit-reference
 and relationship controls consume this metadata as described above. Additional
 direction relationships remain a separate solver step.
+
+Aligned directions is one peer relationship over 2–33 compatible outputs,
+including axis directions and plane normals. Compilation uses a deterministic
+spanning set of internal alignments; it does not create additional authored
+relationships or a privileged fixed participant. Shared role and cardinality
+metadata also describes peer plane/radius relationships and distinct
+reference/target or measurement roles. Explicit roles preserve exact output
+contexts and can be validated from declarations before numerical evaluation.
 
 Analytic elements reference this geometry rather than privately duplicating it.
 For example, a cylinder references an axis line and a radius. A plane used as a

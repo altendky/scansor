@@ -341,8 +341,25 @@ choices list. Their available height and placement follow the viewport when
 resized, including short windows and docked editors; very constrained popups can
 overlap their input field to keep choices reachable.
 
-**Coaxial** selects one datum axis and two or more cone/cylinder axis-owner
+Peer relationships keep all selected participants in one authored action:
+Aligned directions accepts 2–33 compatible direction outputs in this bounded
+profile, including mixed axis directions and plane normals. Equal radii and
+Coincident/Parallel planes likewise retain their multi-participant semantics.
+Internal alignment constraints do not make a selected participant a fixed
+reference, and changing selection order does not change their meaning.
+
+Relationships with distinct roles show separate controls from their declared
+role contracts. Reference and target choices do not depend on click order;
+ambiguous preselection remains unassigned until explicitly resolved. Mirror
+retains exactly two corresponding fits and a reference plane; radius/plane
+distance retains its three measurement roles. With Auto off, compatible pending
+inputs can be authored and saved before evaluation.
+
+**Coaxial** selects one datum axis and one or more cone/cylinder axis-owner
 outputs. The same shared contracts govern its picker and backend validation.
+Its explicit **Reference axis** and **Target fits** controls accept one reference
+and 1–32 targets. The reference role does not freeze a free axis. A named
+shared-axis Joint retains its separate minimum of two distinct observed fits.
 Members need not already reference the datum individually. The relationship
 shares their axis line and preserves independent radii and tapers. Its axis and
 members remain editable, and a Joint can select the group as a factor without

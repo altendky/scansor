@@ -16,6 +16,7 @@ import {fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderF
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
+  relationshipRoleChoices, relationshipRoleSelection,
   axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
@@ -243,8 +244,8 @@ function modelPickChoices({ tree = false } = {}) {
       ids: fittedPickResult(candidate.reference)?.ids,
     }] : [];
   });
-  const choices = relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds);
-  return [...$('relationship-participants').querySelectorAll('.relationship-participant')].flatMap(row => {
+  const role = activeRelationshipPicker(), choices = relationshipPickerChoices(role.name);
+  return [...role.list.querySelectorAll('.relationship-participant')].flatMap(row => {
     const checkbox = row.querySelector('input'), key = checkbox?.dataset.participantId,
       output = choices.find(choice => choice.key === key), node = graphNode(output?.reference?.feature),
       fitted = relationshipOutputValue(graphState, output);
@@ -339,7 +340,7 @@ function syncModelPickControls() {
     return;
   }
   for (const [mode, id] of Object.entries(modelPickButtons)) {
-    $(id).setAttribute('aria-pressed', String(modelPickMode === mode));
+    $(id).setAttribute('aria-pressed', String(modelPickMode === mode && (mode !== 'participant' || relationshipActiveRole === 'participants')));
     $(id).disabled = locked || (mode === 'participant' ?
       !relationshipOpen : !facesOpen || (mode === 'neighbor' && !buildFacesCandidates) ||
         (mode === 'target' && !buildFacesGeometry().choices.length));
@@ -358,7 +359,7 @@ function syncModelPickControls() {
     `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
     modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
-      'Click features in the tree or evaluated geometry to toggle participants.';
+      `Click features in the tree or evaluated geometry to choose ${activeRelationshipPicker().label.toLowerCase()}.`;
 }
 function initializeSpecializedPickFields() {
   const begin = mode => {
@@ -406,7 +407,10 @@ function initializeSpecializedPickFields() {
   faceNeighborField.button.id = 'pick-face-neighbor';
   $('build-faces-neighbor-field').append(faceNeighborField.element);
   relationshipParticipantField = createPickField(document, {
-    label: 'Participants', multiple: true, onPick: () => begin('participant'),
+    label: 'Participants', multiple: true, onPick: () => {
+      relationshipActiveRole = 'participants';
+      begin('participant');
+    },
     popupContent: $('relationship-participant-options'),
     onChange: key => {
       const checkbox = [...$('relationship-participants').querySelectorAll('input')]
@@ -608,9 +612,10 @@ function selectBuildFacesTarget(target) {
     node.target && sameSurfaceReference(node.target, target));
   return openBuildFaces(owner || null, target);
 }
-function commitModelPick(key, { tree = false } = {}) {
+function commitModelPick(key, { tree = false, role = relationshipActiveRole } = {}) {
   // Recheck current lists and locks; a chooser may outlive a candidate refresh.
-  const choice = modelPickChoices({ tree }).find(choice => choice.key === key);
+  const choice = (modelPickMode !== 'participant' || role === relationshipActiveRole) &&
+    modelPickChoices({ tree }).find(choice => choice.key === key);
   if (!choice) { $('model-pick-choices').hidePopover(); return; }
   if (modelPickMode === 'field') {
     const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
@@ -622,18 +627,21 @@ function commitModelPick(key, { tree = false } = {}) {
     if (selectBuildFacesTarget(choice.reference)) setModelPickMode(null);
   } else {
     choice.checkbox.click();
-    inspectModelPick(choice);
-    choice.checkbox.closest('.face-candidate, .relationship-participant').scrollIntoView({ block: 'nearest' });
+    const current = modelPickChoices({tree}).find(candidate => candidate.key === key);
+    if (current) {
+      inspectModelPick(current);
+      current.checkbox.closest('.face-candidate, .relationship-participant').scrollIntoView({ block: 'nearest' });
+    }
   }
   $('model-pick-choices').hidePopover();
 }
 function pickModelItem(event) {
   showModelPickChoices(modelPicksAt(event), event);
 }
-function showModelPickChoices(matches, event, { tree = false } = {}) {
+function showModelPickChoices(matches, event, { tree = false, role = relationshipActiveRole } = {}) {
   const chooser = $('model-pick-choices');
   chooser.hidePopover();
-  if (matches.length === 1) { commitModelPick(matches[0].key, { tree }); return; }
+  if (matches.length === 1) { commitModelPick(matches[0].key, { tree, role }); return; }
   if (!matches.length) {
     $('model-pick-message').textContent = tree ? 'This feature has no eligible output for this input.'
       : 'No eligible item here. Click a scan patch or visible guide.';
@@ -647,7 +655,7 @@ function showModelPickChoices(matches, event, { tree = false } = {}) {
     label.textContent = choice.label;
     button.append(featureIcon(choice.icon), label);
     button.onpointerenter = button.onfocus = () => inspectModelPick(choice);
-    button.onclick = () => commitModelPick(choice.key, { tree });
+    button.onclick = () => commitModelPick(choice.key, { tree, role });
     return button;
   }));
   chooser.showPopover();
@@ -2115,62 +2123,208 @@ function isStandaloneFit(node) {
   return !node.axis && !node.point && !node.reference_plane;
 }
 let relationshipParticipantIds = new Set(), selectedRelationshipKind = null;
+let relationshipDraft = {roles: {}, unassigned: new Set()}, relationshipActiveRole = 'participants', relationshipRoleKind = null;
+const relationshipRoleFields = new Map();
 function relationshipDefinitions() { return relationshipDefinitionChoices(graphState); }
 function relationshipValidity(kind, selected = relationshipParticipantIds) {
-  return relationshipInputValidity(graphState, kind, selected);
+  return relationshipInputValidity(graphState, kind,
+    selected === relationshipParticipantIds && kind === selectedRelationshipKind ? relationshipDraft : selected);
+}
+function relationshipUsesRoles() {
+  const signature = graphState?.relationship_contracts?.[selectedRelationshipKind];
+  return signature && signature.selection_pattern !== 'peers' && Object.keys(signature.roles).length > 1;
+}
+function relationshipPickers() {
+  return relationshipUsesRoles() ? [...relationshipRoleFields.values()] : [{name: 'participants', label: 'Participants',
+    list: $('relationship-participants'), filter: $('relationship-filter'), field: relationshipParticipantField, multiple: true}];
+}
+function activeRelationshipPicker() {
+  return relationshipPickers().find(picker => picker.name === relationshipActiveRole) || relationshipPickers()[0] ||
+    {name: 'participants', label: 'Participants', list: $('relationship-participants'), field: relationshipParticipantField};
+}
+function syncRelationshipDraft() {
+  relationshipParticipantIds = new Set([...Object.values(relationshipDraft.roles).flatMap(values => [...values]),
+    ...relationshipDraft.unassigned]);
+}
+function setRelationshipDraft(selected, previous = {}) {
+  relationshipDraft = relationshipRoleSelection(graphState, selectedRelationshipKind, selected, previous);
+  syncRelationshipDraft();
+}
+function relationshipPickerChoices(role) {
+  const selected = relationshipDraft.roles[role] || new Set(), explicit = relationshipUsesRoles(),
+    choices = explicit ? relationshipRoleChoices(graphState, selectedRelationshipKind, role, selected)
+      : relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds);
+  return choices.map(output => {
+    const other = explicit && Object.entries(relationshipDraft.roles).find(([name, keys]) => name !== role && keys.has(output.key));
+    return other ? {...output, compatible: false,
+      reason: `Already selected for ${graphState.relationship_contracts[selectedRelationshipKind].role_labels[other[0]] || other[0]}`} : output;
+  });
+}
+function changeRelationshipParticipant(role, key, included) {
+  if (featureTreeLocked() || relationshipApplying) return false;
+  if (!selectedRelationshipKind) {
+    if (included) relationshipDraft.unassigned.add(key);
+    else relationshipDraft.unassigned.delete(key);
+  } else {
+    const selected = relationshipDraft.roles[role];
+    if (!selected || included && !relationshipPickerChoices(role).some(output => output.key === key && output.compatible)) return false;
+    if (included) {
+      const requirement = graphState.relationship_contracts[selectedRelationshipKind].roles[role];
+      if (graphState.input_contracts[requirement].max_count === 1) selected.clear();
+      selected.add(key);
+      relationshipDraft.unassigned.delete(key);
+    } else {
+      selected.delete(key);
+      relationshipDraft.unassigned.delete(key);
+    }
+  }
+  syncRelationshipDraft();
+  $('relationship-error').textContent = '';
+  renderRelationshipBuilder();
+  return true;
+}
+function ensureRelationshipRoleFields() {
+  const explicit = relationshipUsesRoles();
+  $('relationship-role-fields').hidden = !explicit;
+  $('relationship-participant-field').hidden = !!explicit;
+  if (relationshipRoleKind === selectedRelationshipKind) return;
+  for (const picker of relationshipRoleFields.values()) if (picker.field.popup.matches(':popover-open')) picker.field.popup.hidePopover();
+  relationshipRoleFields.clear();
+  $('relationship-role-fields').replaceChildren();
+  relationshipRoleKind = selectedRelationshipKind;
+  if (!explicit) return;
+  const kind = selectedRelationshipKind, signature = graphState.relationship_contracts[kind];
+  for (const [role, requirement] of Object.entries(signature.roles)) {
+    const label = signature.role_labels?.[role] || role,
+      multiple = graphState.input_contracts[requirement].max_count !== 1,
+      wrapper = document.createElement('section'), heading = document.createElement('h3'),
+      clear = document.createElement('button'), options = document.createElement('div'),
+      filter = document.createElement('input'), list = document.createElement('div');
+    wrapper.dataset.relationshipRole = role;
+    wrapper.className = 'relationship-role-field';
+    heading.textContent = label;
+    clear.type = 'button';
+    clear.textContent = 'Clear';
+    clear.setAttribute('aria-label', `Clear ${label}`);
+    filter.type = 'search';
+    filter.placeholder = `Filter ${label.toLowerCase()}`;
+    filter.setAttribute('aria-label', `Filter ${label.toLowerCase()}`);
+    list.className = 'relationship-participants';
+    list.id = `relationship-role-${kind}-${role}-choices`;
+    list.dataset.pickerScroll = '';
+    list.tabIndex = 0;
+    list.setAttribute('aria-label', `${label} choices`);
+    options.append(filter, list);
+    const field = createPickField(document, {label, multiple, popupContent: options,
+      onPick: () => {
+        if (kind !== selectedRelationshipKind) return;
+        relationshipActiveRole = role;
+        setModelPickMode('participant');
+        revealWorkspacePanel('view');
+      },
+      onChange: key => {
+        if (kind !== selectedRelationshipKind) return;
+        [...list.querySelectorAll('input')].find(input => input.dataset.participantId === key)?.click();
+      },
+    });
+    field.element.classList.add('relationship-participant-field');
+    const picker = {name: role, label, multiple, wrapper, field, list, filter, clear};
+    relationshipRoleFields.set(role, picker);
+    filter.oninput = filterRelationshipParticipants;
+    clear.onclick = () => {
+      if (featureTreeLocked() || relationshipApplying || kind !== selectedRelationshipKind) return;
+      relationshipDraft.roles[role].clear();
+      syncRelationshipDraft();
+      renderRelationshipBuilder();
+    };
+    wrapper.append(heading, clear, field.element);
+    $('relationship-role-fields').append(wrapper);
+  }
+  relationshipActiveRole = relationshipRoleFields.keys().next().value || 'participants';
+}
+function renderUnassignedRelationshipParticipants() {
+  const container = $('relationship-unassigned');
+  container.hidden = !relationshipUsesRoles() || !relationshipDraft.unassigned.size;
+  if (container.hidden) { container.replaceChildren(); return; }
+  const heading = document.createElement('h3');
+  heading.textContent = 'Choose roles for remaining participants';
+  container.replaceChildren(heading, ...[...relationshipDraft.unassigned].map(key => {
+    const row = document.createElement('div'), name = document.createElement('span'),
+      role = document.createElement('select'), remove = document.createElement('button'),
+      output = relationshipParticipantChoices(graphState, selectedRelationshipKind, new Set([key])).find(output => output.key === key);
+    name.textContent = relationshipParticipantPresentation(graphState, output).choiceLabel;
+    role.setAttribute('aria-label', `Role for ${output.label}`);
+    role.append(new Option('Choose a role…', ''));
+    for (const picker of relationshipPickers()) if (relationshipPickerChoices(picker.name).some(choice => choice.key === key && choice.compatible))
+      role.append(new Option(picker.label, picker.name));
+    role.disabled = role.options.length === 1 || featureTreeLocked() || relationshipApplying;
+    role.onchange = () => {
+      changeRelationshipParticipant(role.value, key, true);
+    };
+    remove.type = 'button'; remove.textContent = 'Remove';
+    remove.disabled = featureTreeLocked() || relationshipApplying;
+    remove.onclick = () => {
+      relationshipDraft.unassigned.delete(key); syncRelationshipDraft(); renderRelationshipBuilder();
+    };
+    row.append(name, role, remove);
+    return row;
+  }));
 }
 function renderRelationshipBuilder() {
   $('relationship-kind').replaceChildren(new Option('Choose a relationship', ''),
     ...relationshipDefinitions().map((definition) => new Option(definition.label, definition.id)));
   $('relationship-kind').value = selectedRelationshipKind || '';
-  renderRelationshipParticipants($('relationship-participants'), {
-    choices: relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds)
+  ensureRelationshipRoleFields();
+  for (const picker of relationshipPickers()) renderRelationshipParticipants(picker.list, {
+    choices: relationshipPickerChoices(picker.name)
       .map(output => {
         const node = graphNode(output.reference?.feature);
         return { ...relationshipParticipantPresentation(graphState, output),
           icon: node?.kind || node?.operation || 'reference_plane', id: output.key, compatible: output.compatible };
       }).sort((first, second) => Number(first.group === 'reference') - Number(second.group === 'reference')),
-    selected: relationshipParticipantIds,
+    selected: relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds,
+    multiple: picker.multiple,
     locked: () => featureTreeLocked() || relationshipApplying,
-    change: (id, included) => {
-      if (included) relationshipParticipantIds.add(id);
-      else relationshipParticipantIds.delete(id);
-      $('relationship-error').textContent = '';
-      updateRelationshipSelection();
-    },
+    change: (id, included) => changeRelationshipParticipant(picker.name, id, included),
     inspect: (id) => { relationshipInspected = id; paintRelationshipPreview(); },
     focus: (id) => focusRelationshipParticipants(relationshipFeatureIds([id])),
   });
+  renderUnassignedRelationshipParticipants();
   filterRelationshipParticipants();
   updateRelationshipSelection();
 }
 function filterRelationshipParticipants() {
-  const filter = $('relationship-filter').value.trim().toLowerCase();
-  const rows = [...$('relationship-participants').querySelectorAll('.relationship-participant')];
-  for (const row of rows)
-    row.hidden = !row.querySelector('input').checked &&
-      (row.dataset.compatible === 'false' || !row.dataset.search.includes(filter));
-  for (const heading of $('relationship-participants').querySelectorAll('.relationship-participant-group'))
-    heading.hidden = !rows.some(row => !row.hidden && row.dataset.participantGroup === heading.dataset.participantGroup);
-  if (relationshipInspected && !rows.some((row) =>
+  const allRows = [];
+  for (const picker of relationshipPickers()) {
+    const filter = picker.filter.value.trim().toLowerCase(),
+      rows = [...picker.list.querySelectorAll('.relationship-participant')];
+    allRows.push(...rows);
+    for (const row of rows) row.hidden = !row.querySelector('input').checked &&
+        (row.dataset.compatible === 'false' || !row.dataset.search.includes(filter));
+    for (const heading of picker.list.querySelectorAll('.relationship-participant-group'))
+      heading.hidden = !rows.some(row => !row.hidden && row.dataset.participantGroup === heading.dataset.participantGroup);
+  }
+  if (relationshipInspected && !allRows.some((row) =>
     !row.hidden && row.querySelector('input').dataset.participantId === relationshipInspected))
     relationshipInspected = null;
   paintRelationshipPreview();
 }
 function updateRelationshipParticipantField() {
   if (!relationshipParticipantField) return;
-  relationshipParticipantField.update(relationshipParticipantChoices(graphState,
-    selectedRelationshipKind, relationshipParticipantIds).map(output => ({
+  for (const picker of relationshipPickers()) {
+    const selected = relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds;
+    picker.field.update(relationshipPickerChoices(picker.name).map(output => ({
     key: output.key, label: relationshipParticipantPresentation(graphState, output).name,
     detail: relationshipParticipantPresentation(graphState, output).detail,
-    selected: relationshipParticipantIds.has(output.key), disabled: !output.compatible,
+    selected: selected.has(output.key), disabled: !output.compatible,
     modelPickable: !!relationshipOutputValue(graphState, output),
     treePickable: output.compatible,
   })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
     busy: !!graphState && (featureTreeLocked() || relationshipApplying),
-    emptyMessage: selectedRelationshipKind === 'coaxial'
-      ? 'Choose one datum axis and at least two cone or cylinder fits. Create missing fits or an axis first; published solve outputs are fixed reads and cannot be rebound here.'
-      : 'Choose compatible outputs, including those that need evaluation. Reference planes and plane fits can participate in Parallel and Coincident.' });
+    emptyMessage: 'Choose compatible outputs, including those that need evaluation.' });
+    picker.field.button.setAttribute('aria-pressed', String(modelPickMode === 'participant' && relationshipActiveRole === picker.name));
+    if (picker.clear) picker.clear.disabled = !selected.size || featureTreeLocked() || relationshipApplying;
+  }
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
@@ -2192,8 +2346,11 @@ function updateRelationshipSelection() {
   $('clear-relationship-participants').disabled = !participants.length || locked;
   $('focus-relationship').disabled = !participants.length;
   $('add-relationship').disabled = !validity.valid || locked;
-  for (const checkbox of $('relationship-participants').querySelectorAll('input')) {
-    const row = checkbox.closest('.relationship-participant');
+  for (const picker of relationshipPickers()) for (const checkbox of picker.list.querySelectorAll('input')) {
+    const row = checkbox.closest('.relationship-participant'),
+      selected = relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds;
+    checkbox.checked = selected.has(checkbox.dataset.participantId);
+    row.classList.toggle('participant-selected', checkbox.checked);
     checkbox.disabled = locked || (row.dataset.compatible === 'false' && !checkbox.checked);
   }
   paintRelationshipPreview();
@@ -4487,6 +4644,8 @@ function prepareWorkspace(bundle) {
     buildFacesSurfaceHovered = false;
     buildFacesContinueInteraction = { pointer: null, focus: null };
     relationshipParticipantIds = new Set(); relationshipInspected = selectedRelationshipKind = null;
+    relationshipDraft = {roles: {}, unassigned: new Set()}; relationshipActiveRole = 'participants';
+    relationshipRoleKind = null; relationshipRoleFields.clear(); $('relationship-role-fields').replaceChildren();
     fitQualityCache = null;
     activeOverlap = null;
     featureDeletionReview = null;
@@ -4829,7 +4988,7 @@ async function start(recoveredState) {
     const valid = relationshipDefinitions().filter(definition => relationshipValidity(definition.id,
       relationshipSelectionForFeatures(graphState, definition.id, selectedFeatureIds)).valid);
     if (valid.length === 1) selectedRelationshipKind = valid[0].id;
-    relationshipParticipantIds = relationshipSelectionForFeatures(graphState, selectedRelationshipKind, selectedFeatureIds);
+    setRelationshipDraft(relationshipSelectionForFeatures(graphState, selectedRelationshipKind, selectedFeatureIds));
     relationshipInspected = null;
     $('relationship-filter').value = '';
     $('new-relationship-label').value = nextFeatureLabel(
@@ -4841,6 +5000,9 @@ async function start(recoveredState) {
     $('relationship-kind').focus();
   };
   $('relationship-kind').onchange = () => {
+    if (modelPickMode === 'participant') setModelPickMode(null);
+    if (relationshipParticipantField.popup.matches(':popover-open')) relationshipParticipantField.popup.hidePopover();
+    const previousRoles = relationshipDraft.roles;
     selectedRelationshipKind = $('relationship-kind').value || null;
     const previous = relationshipFeatureIds([...relationshipParticipantIds].filter(key => {
       const ref = readInputReference(key);
@@ -4853,7 +5015,7 @@ async function start(recoveredState) {
       const ref = readInputReference(key);
       if (typeof ref !== 'string' && ref?.context !== ref?.feature) remapped.add(key);
     }
-    relationshipParticipantIds = remapped;
+    setRelationshipDraft(remapped, previousRoles);
     const definition = relationshipDefinitions().find((entry) => entry.id === selectedRelationshipKind);
     if (definition) $('new-relationship-label').value = nextFeatureLabel(definition.baseName);
     relationshipInspected = null;
@@ -4863,7 +5025,7 @@ async function start(recoveredState) {
   $('relationship-filter').oninput = filterRelationshipParticipants;
   $('clear-relationship-participants').onclick = () => {
     if (featureTreeLocked() || relationshipApplying) return;
-    relationshipParticipantIds.clear();
+    setRelationshipDraft(new Set());
     relationshipInspected = null;
     renderRelationshipBuilder();
   };
@@ -6083,7 +6245,7 @@ async function start(recoveredState) {
     if (featureTreeLocked() || relationshipApplying) return;
     let node;
     try {
-      const inputs = relationshipNodeInputs(graphState, selectedRelationshipKind, relationshipParticipantIds);
+      const inputs = relationshipNodeInputs(graphState, selectedRelationshipKind, relationshipDraft);
       node = { id: uid(inputs.operation), label: submittedFeatureLabel('new-relationship-label'), ...inputs };
     } catch (error) {
       $('relationship-error').textContent = error.message;
@@ -6527,7 +6689,8 @@ async function start(recoveredState) {
       node.reference = $('constraint-b').value;
     }
     if (node.operation === 'coaxial_group') {
-      const selected = new Set([$('coaxial-group-axis').value, ...chosen('coaxial-group-members')].filter(Boolean)),
+      const selected = {roles: {axis: new Set([$('coaxial-group-axis').value].filter(Boolean)),
+          members: new Set(chosen('coaxial-group-members'))}, unassigned: new Set()},
         earlier = recipe.nodes.slice(0, recipe.nodes.indexOf(node)),
         validity = relationshipInputValidity(graphState, 'coaxial', selected, earlier);
       if (!validity.valid) { status(validity.reason, true); return; }

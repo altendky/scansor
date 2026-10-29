@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +29,16 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "sense": "unsigned",
         "joint_modes": ["direction"],
         "roles": {"participants": "relationship_direction"},
+        "selection_pattern": "peers",
+        "role_labels": {"participants": "Participants"},
+        "node_fields": {
+            "participants": {
+                "name": "directions",
+                "encoding": "reference",
+                "multiple": True,
+            }
+        },
+        "node_values": {"sense": "unsigned"},
     },
     "coincident_planes": {
         "label": "Coincident planes",
@@ -38,6 +48,16 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "joint_modes": ["direction"],
         "relation": "coincident",
         "roles": {"participants": "relationship_plane"},
+        "selection_pattern": "peers",
+        "role_labels": {"participants": "Participants"},
+        "node_fields": {
+            "participants": {
+                "name": "surfaces",
+                "encoding": "reference",
+                "multiple": True,
+            }
+        },
+        "node_values": {"relation": "coincident"},
     },
     "parallel_planes": {
         "label": "Parallel planes",
@@ -47,6 +67,16 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "joint_modes": ["direction"],
         "relation": "parallel",
         "roles": {"participants": "relationship_plane_orientation"},
+        "selection_pattern": "peers",
+        "role_labels": {"participants": "Participants"},
+        "node_fields": {
+            "participants": {
+                "name": "surfaces",
+                "encoding": "reference",
+                "multiple": True,
+            }
+        },
+        "node_values": {"relation": "parallel"},
     },
     "equal_radii": {
         "label": "Equal radii",
@@ -55,13 +85,31 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "operation": "equal_radii",
         "joint_modes": ["direction"],
         "roles": {"participants": "relationship_radius"},
+        "selection_pattern": "peers",
+        "role_labels": {"participants": "Participants"},
+        "node_fields": {
+            "participants": {
+                "name": "surfaces",
+                "encoding": "feature",
+                "multiple": True,
+            }
+        },
+        "node_values": {},
     },
     "mirror": {
         "label": "Mirror symmetry",
         "base_name": "Mirrored pair",
-        "summary": "Exact mirrored pair.",
+        "summary": "Exactly two corresponding fits reflected across a reference plane.",
         "operation": "mirror_symmetry",
         "roles": {"members": "mirror_members", "datum": "mirror_plane"},
+        "selection_pattern": "roles",
+        "role_labels": {"members": "Mirrored fits", "datum": "Reference plane"},
+        "reference_role": "datum",
+        "node_fields": {
+            "members": {"name": "surfaces", "encoding": "feature", "multiple": True},
+            "datum": {"name": "plane", "encoding": "feature", "multiple": False},
+        },
+        "node_values": {"symmetric_extents": True},
         "semantic_check": "same_geometry_kind",
     },
     "radius_plane_distance": {
@@ -74,6 +122,16 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
             "plane": "distance_plane",
             "datum": "distance_datum",
         },
+        "selection_pattern": "roles",
+        "role_labels": {
+            "radius": "Radius",
+            "plane": "Measured plane",
+            "datum": "Reference plane",
+        },
+        "reference_role": "datum",
+        # The nested measurement equation retains its specialized serializer.
+        "node_fields": {},
+        "node_values": {},
         "semantic_check": "same_axis",
     },
     "coaxial": {
@@ -82,6 +140,14 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "summary": "Same axis line; independent radii and taper.",
         "operation": "coaxial_group",
         "roles": {"axis": "coaxial_axis", "members": "coaxial_members"},
+        "selection_pattern": "reference_targets",
+        "role_labels": {"axis": "Reference axis", "members": "Target fits"},
+        "reference_role": "axis",
+        "node_fields": {
+            "axis": {"name": "axis", "encoding": "feature", "multiple": False},
+            "members": {"name": "surfaces", "encoding": "feature", "multiple": True},
+        },
+        "node_values": {},
         "semantic_check": "compatible_axis",
     },
 }
@@ -193,18 +259,28 @@ def relationship_reference(
 
 def validate_relationship_inputs(
     kind: str,
-    references: Sequence[FeatureInput | dict[str, Any]],
+    references: Sequence[FeatureInput | dict[str, Any]]
+    | Mapping[str, Sequence[FeatureInput | dict[str, Any]]],
     recipe: Recipe,
 ) -> dict[str, list[RelationshipEndpoint]]:
-    """Assign declared roles using the same capability contracts as the UI."""
+    """Validate explicit roles, preserving legacy unambiguous flat selections."""
     if kind not in RELATIONSHIP_SIGNATURES:
         raise ValueError("unknown relationship signature")
     signature = RELATIONSHIP_SIGNATURES[kind]
+    explicit_roles = isinstance(references, Mapping)
+    if explicit_roles and set(references) - set(signature["roles"]):
+        raise ValueError("relationship has an unknown input role")
     roles: dict[str, list[RelationshipEndpoint]] = {}
     assigned: set[int] = set()
+    seen: set[str] = set()
     for role, requirement in signature["roles"].items():
         endpoints: list[RelationshipEndpoint] = []
-        for index, reference in enumerate(references):
+        candidates = (
+            references.get(role, ()) if isinstance(references, Mapping) else references
+        )
+        if isinstance(candidates, (str, OutputReference, Mapping)):
+            raise ValueError("relationship role inputs must be a sequence")
+        for index, reference in enumerate(candidates):
             try:
                 endpoint = relationship_reference(reference, recipe, requirement)
             except ValueError as error:
@@ -212,7 +288,15 @@ def validate_relationship_inputs(
                     raise ValueError(
                         f"Direction input is unavailable: {error}"
                     ) from error
+                if explicit_roles:
+                    raise ValueError(
+                        f"relationship {role} input is unavailable: {error}"
+                    ) from error
                 continue
+            if not explicit_roles and index in assigned:
+                raise ValueError(
+                    "relationship input matches multiple roles; assign its role explicitly"
+                )
             endpoints.append(endpoint)
             assigned.add(index)
         contract = REQUIREMENTS[requirement]
@@ -221,12 +305,17 @@ def validate_relationship_inputs(
             or len(endpoints) > contract["max_count"]
         ):
             raise ValueError(
-                f"relationship {role} cardinality does not meet its requirement"
+                f"relationship {signature['role_labels'][role]} cardinality is {len(endpoints)}; choose {contract['min_count']} to {contract['max_count']} compatible outputs"
             )
         if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
             raise ValueError("relationship output references must be distinct")
+        if seen.intersection(endpoint.key for endpoint in endpoints):
+            raise ValueError(
+                "relationship output references must be distinct across roles"
+            )
+        seen.update(endpoint.key for endpoint in endpoints)
         roles[role] = endpoints
-    if len(assigned) != len(references):
+    if not explicit_roles and len(assigned) != len(references):
         raise ValueError("relationship has an unavailable or incompatible input")
     nodes = {node.id: node for node in recipe.nodes}
     if (

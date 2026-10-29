@@ -274,7 +274,15 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     await expect(selectedParticipant(publishedAxisRef).locator('.selection-field-detail')).toContainText('Fixed for this relationship');
     await expect(selectedParticipant(publishedAxisRef).locator('.selection-field-detail')).toContainText('Shared-axis solve · Observed shared axis');
     assert.deepEqual((await read()).participants.sort(), [key(rawAxis), key(publishedAxisRef)].sort());
-    await close();
+    const beforeInvalidRemoval = evaluations.length;
+    await page.locator('#relationship-kind').selectOption('equal_radii');
+    await expect(selectedParticipant(publishedAxisRef)).toBeVisible();
+    await expect(page.locator('#relationship-summary')).toContainText('Remove or replace');
+    await selectedParticipant(publishedAxisRef).locator('.selection-field-remove').click();
+    await expect(selectedParticipant(publishedAxisRef)).toHaveCount(0);
+    assert(!(await read()).participants.includes(key(publishedAxisRef)), 'Incompatible retained peer outputs remain removable after changing relationship type');
+    assert.equal(evaluations.length, beforeInvalidRemoval);
+    await page.locator('#close-edit').click();
     await page.setViewportSize(oldViewport);
     report.phase = 'create-before-evaluation';
     const beforeCreate = evaluations.length;
@@ -411,6 +419,7 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     report.published_context_aliases_retained = true;
     report.selected_participant_roles_and_contexts = true;
     report.narrow_names_readable = true;
+    report.incompatible_peer_publication_removable = true;
     report.source_and_observations_preserved = true;
     return report;
   } catch (error) {

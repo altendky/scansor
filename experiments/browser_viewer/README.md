@@ -766,6 +766,15 @@ panel is open; closing it clears the helper highlights.
    can include plane and radius relationships and existing full axis bindings;
    overlapping symmetry, radius-distance and explicit axis solves are diagnosed
    rather than silently combined.
+   One aligned-directions action accepts 2–33 participants in this bounded
+   profile; select the complete group instead of chaining pairs. Other peer
+   plane/radius relationships also accept groups. Relationships with distinct
+   roles show separate selectors: Coaxial chooses one **Reference axis** and
+   1–32 **Target fits**, while Mirror retains a reflected pair and reference
+   plane. Choosing a reference does not freeze an adjustable property.
+   Ambiguous preselection needs an explicit role choice. Compatible stale or
+   unevaluated outputs remain authorable with Auto off; the new action awaits
+   evaluation.
 12. Choose shared upstream geometry under **Reference mode** and **Reference
    property**. A sphere can reference a point; a cone or
    cylinder can reference an axis; a plane can reference an axis (making the

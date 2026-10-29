@@ -3,7 +3,7 @@ import test from 'node:test';
 import { inputReferenceKey } from './feature-inputs.js';
 import { relationshipParticipantChoices, relationshipSelectionForFeatures, relationshipValidity,
   relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary, relationshipInputOptions,
-  relationshipParticipantPresentation } from './relationship-inputs.js';
+  relationshipParticipantPresentation, relationshipRoleChoices, relationshipRoleSelection } from './relationship-inputs.js';
 import { axisFactorAxis, axisFactorMembers, axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
 import { directionAlignmentLabel, directionJointInputs, directionJointValidity, isDirectionJoint,
   relationshipDefinitions } from './relationship-inputs.js';
@@ -188,8 +188,11 @@ function coaxialState() {
     ...plane(feature), reference: { feature, output: 'axis', context: feature }, ownership, geometry_kind, ...extra,
   });
   return { recipe: { nodes: ['axis', 'outer', 'inner'].map(id => ({ id })) },
-    relationship_contracts: { coaxial: { operation: 'coaxial_group', roles: { axis: 'datum', members: 'members' }, semantic_check: 'compatible_axis' } },
-    input_contracts: { datum: { min_count: 1, max_count: 1 }, members: { min_count: 2, max_count: 32 } },
+    relationship_contracts: { coaxial: { operation: 'coaxial_group', roles: { axis: 'datum', members: 'members' },
+      selection_pattern: 'reference_targets', role_labels: {axis: 'Reference axis', members: 'Target fits'}, reference_role: 'axis',
+      node_fields: {axis: {name: 'axis', encoding: 'feature', multiple: false},
+        members: {name: 'surfaces', encoding: 'feature', multiple: true}}, node_values: {}, semantic_check: 'compatible_axis' } },
+    input_contracts: { datum: { min_count: 1, max_count: 1 }, members: { min_count: 1, max_count: 32 } },
     input_requirements: { datum: { choices: [axis('axis', 'datum', 'axis')], unavailable: [] },
       members: { choices: [axis('outer', 'fit', 'cone'), axis('inner', 'fit', 'cylinder')], unavailable: [] } } };
 }
@@ -200,6 +203,80 @@ test('Coaxial authors one axis and mixed cone/cylinder owners without changing d
   assert.deepEqual(graph.recipe, before);
   graph.input_requirements.members.choices[1].axis = 'other-axis';
   assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /another axis/);
+});
+
+test('explicit reference and target roles serialize from metadata regardless of click order or operation name', () => {
+  const graph = coaxialState(), choices = relationshipParticipantChoices(graph, 'coaxial'),
+    key = feature => choices.find(output => output.reference.feature === feature).key,
+    selected = {roles: {members: new Set([key('inner'), key('outer')]), axis: new Set([key('axis')])}, unassigned: new Set()};
+  assert.equal(relationshipValidity(graph, 'coaxial', selected).valid, true);
+  assert.deepEqual(relationshipNodeInputs(graph, 'coaxial', selected),
+    {operation: 'coaxial_group', axis: 'axis', surfaces: ['outer', 'inner']});
+  selected.roles.members.delete(key('inner'));
+  assert.deepEqual(relationshipNodeInputs(graph, 'coaxial', selected),
+    {operation: 'coaxial_group', axis: 'axis', surfaces: ['outer']});
+  graph.relationship_contracts.coaxial.operation = 'future_reference_relation';
+  graph.relationship_contracts.coaxial.node_values = {shared_parameter: 12};
+  assert.deepEqual(relationshipNodeInputs(graph, 'coaxial', selected),
+    {operation: 'future_reference_relation', shared_parameter: 12, axis: 'axis', surfaces: ['outer']});
+  assert.deepEqual(relationshipRoleChoices(graph, 'coaxial', 'axis').map(output => output.reference.feature), ['axis']);
+  assert.deepEqual(relationshipRoleChoices(graph, 'coaxial', 'members').map(output => output.reference.feature), ['outer', 'inner']);
+});
+
+test('explicit roles reject missing references, role swaps, duplicate identities, and unresolved assignments', () => {
+  const graph = coaxialState(), choices = relationshipParticipantChoices(graph, 'coaxial'),
+    key = feature => choices.find(output => output.reference.feature === feature).key,
+    selected = {roles: {axis: new Set(), members: new Set([key('outer')])}, unassigned: new Set()};
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /Reference axis: 0 selected; choose 1/);
+  selected.roles.axis.add(key('inner'));
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /Reference axis.*incompatible/);
+  selected.roles.axis = new Set([key('axis')]);
+  selected.roles.members.add(key('axis'));
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /distinct output references/);
+  selected.roles.members = [key('outer'), key('outer')];
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /distinct output references/);
+  selected.roles.members = new Set([key('outer')]);
+  selected.unassigned.add(key('inner'));
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /Assign the remaining participants/);
+  selected.unassigned.clear();
+  selected.roles.unknown = new Set();
+  assert.match(relationshipValidity(graph, 'coaxial', selected).reason, /unknown relationship roles/);
+});
+
+test('overlapping role eligibility waits for explicit assignment and preserves exact pending contexts', () => {
+  const graph = state();
+  graph.relationship_contracts.future = {roles: {reference: 'planes', targets: 'planes'}};
+  const exact = inputReferenceKey(plane('fit', 'solved').reference),
+    selected = new Set([exact]), before = structuredClone(graph);
+  const ambiguous = relationshipRoleSelection(graph, 'future', selected);
+  assert.deepEqual(ambiguous.unassigned, selected);
+  assert.deepEqual(ambiguous.roles, {reference: new Set(), targets: new Set()});
+  const retained = relationshipRoleSelection(graph, 'future', selected, {reference: selected});
+  assert.deepEqual(retained.roles.reference, selected);
+  assert.equal(retained.unassigned.size, 0);
+  graph.input_requirements.planes.choices.find(output => inputReferenceKey(output.reference) === exact).availability = 'stale';
+  assert.deepEqual(relationshipRoleSelection(graph, 'future', selected, {targets: selected}).roles.targets, selected);
+  assert.deepEqual(graph.recipe, before.recipe);
+});
+
+test('preselection of several possible references requires an explicit choice rather than selecting by order', () => {
+  const graph = coaxialState(), second = {...graph.input_requirements.datum.choices[0],
+    reference: {feature: 'second-axis', output: 'axis', context: 'second-axis'}};
+  graph.recipe.nodes.push({id: 'second-axis'});
+  graph.input_requirements.datum.choices.push(second);
+  const selected = relationshipSelectionForFeatures(graph, 'coaxial', ['second-axis', 'outer', 'axis']),
+    draft = relationshipRoleSelection(graph, 'coaxial', selected);
+  assert.equal(draft.roles.axis.size, 0);
+  assert.deepEqual([...draft.unassigned].sort(), graph.input_requirements.datum.choices.map(output => inputReferenceKey(output.reference)).sort());
+  assert.deepEqual([...draft.roles.members], [inputReferenceKey(graph.input_requirements.members.choices[0].reference)]);
+  assert.equal(relationshipValidity(graph, 'coaxial', draft).valid, false);
+});
+
+test('a retained incompatible peer publication is diagnosed as removable rather than needing another role', () => {
+  const graph = state(), exact = inputReferenceKey({feature: 'removed', output: 'plane', context: 'saved'}),
+    draft = relationshipRoleSelection(graph, 'parallel_planes', new Set([exact]));
+  assert.equal(draft.unassigned.has(exact), true);
+  assert.match(relationshipValidity(graph, 'parallel_planes', draft).reason, /Remove or replace unavailable/);
 });
 
 test('Coaxial retains unavailable exact saved outputs and rejects fixed named contexts', () => {
@@ -280,7 +357,7 @@ function directionState() {
       mirror: {operation: 'mirror_symmetry', roles: {members: 'arbitrary_orientation_requirement'}},
     },
     input_contracts: {
-      arbitrary_direction_requirement: {property: 'direction', min_count: 2, max_count: 2},
+      arbitrary_direction_requirement: {property: 'direction', min_count: 2, max_count: 33},
       arbitrary_orientation_requirement: {property: 'plane_orientation', min_count: 2, max_count: 32},
       arbitrary_radius_requirement: {property: 'radius', min_count: 2, max_count: 32},
     },
@@ -293,6 +370,23 @@ function directionState() {
     derived: {cap: {plane_equation: [0, 0, 1, 2]}, publication: {resolved: {cap: {plane_equation: [1, 0, 0, 7]}}}},
   };
 }
+
+test('peer groups retain every exact participant through metadata compilation and report actual count limits', () => {
+  const graph = directionState(), signature = graph.relationship_contracts.direction_alignment;
+  signature.node_fields = {participants: {name: 'directions', encoding: 'reference', multiple: true}};
+  signature.node_values = {sense: 'unsigned'};
+  signature.role_labels = {participants: 'Participants'};
+  const outputs = graph.input_requirements.arbitrary_direction_requirement.choices.slice(0, 4),
+    selected = new Set(outputs.map(output => inputReferenceKey(output.reference))),
+    draft = relationshipRoleSelection(graph, 'direction_alignment', selected);
+  assert.equal(relationshipValidity(graph, 'direction_alignment', draft).valid, true);
+  assert.deepEqual(relationshipNodeInputs(graph, 'direction_alignment', draft),
+    {operation: 'direction_alignment', sense: 'unsigned', directions: outputs.map(output => output.reference)});
+  graph.input_contracts.arbitrary_direction_requirement.max_count = 3;
+  assert.match(relationshipValidity(graph, 'direction_alignment', draft).reason, /4 selected; choose 2–3/);
+  draft.roles.participants = new Set([outputs[0].key || inputReferenceKey(outputs[0].reference)]);
+  assert.match(relationshipValidity(graph, 'direction_alignment', draft).reason, /1 selected; choose 2–3/);
+});
 
 test('direction labels distinguish normal and axis meanings using declared projections', () => {
   const axis = directionOutput('axis', 'axis_direction'), planeNormal = directionOutput('plane', 'plane_normal');
@@ -346,6 +440,7 @@ test('direction cardinality and availability follow backend contracts and cannot
   const graph = directionState(), choices = graph.input_requirements.arbitrary_direction_requirement.choices,
     direct = inputReferenceKey(choices[1].reference), saved = inputReferenceKey(choices[3].reference),
     datum = inputReferenceKey(choices[2].reference);
+  graph.input_contracts.arbitrary_direction_requirement.max_count = 2;
   assert.equal(relationshipValidity(graph, 'direction_alignment', new Set([direct])).valid, false);
   assert.equal(relationshipValidity(graph, 'direction_alignment', new Set([direct, datum, saved])).valid, false);
   graph.input_contracts.arbitrary_direction_requirement.max_count = 3;

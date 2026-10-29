@@ -85,7 +85,7 @@ def test_coaxial_roles_share_capabilities_and_accept_mixed_lateral_shapes(
 @pytest.mark.parametrize(
     "participants",
     [
-        ["axis", "outer"],
+        ["axis"],
         ["axis", "outer", "outer"],
         ["axis", "other_axis", "outer", "inner"],
         ["axis", "outer", "plane"],
@@ -97,6 +97,25 @@ def test_coaxial_rejects_missing_roles_duplicate_owners_and_wrong_shapes(
 ) -> None:
     with pytest.raises(ValueError):
         _ = validate_relationship_inputs("coaxial", participants, recipe)
+
+
+def test_coaxial_accepts_one_target_and_preserves_explicit_role_assignments(
+    recipe: Recipe,
+) -> None:
+    roles = validate_relationship_inputs(
+        "coaxial", {"members": ["outer"], "axis": ["axis"]}, recipe
+    )
+    assert [endpoint.feature for endpoint in roles["axis"]] == ["axis"]
+    assert [endpoint.feature for endpoint in roles["members"]] == ["outer"]
+    assert validate_relationship_inputs("coaxial", ["outer", "axis"], recipe) == roles
+    with pytest.raises(ValueError, match=r"unavailable|compatible"):
+        _ = validate_relationship_inputs(
+            "coaxial", {"axis": ["outer"], "members": ["axis"]}, recipe
+        )
+    with pytest.raises(ValueError, match="unknown input role"):
+        _ = validate_relationship_inputs(
+            "coaxial", {"axis": ["axis"], "targets": ["outer"]}, recipe
+        )
 
 
 def test_coaxial_does_not_rebind_named_geometry_contexts(recipe: Recipe) -> None:

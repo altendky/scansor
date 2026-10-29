@@ -372,7 +372,7 @@ class CoaxialGroup(Node):
 
     operation: Literal["coaxial_group"]
     axis: str
-    surfaces: list[str] = Field(min_length=2, max_length=32)
+    surfaces: list[str] = Field(min_length=1, max_length=32)
 
 
 class RotationalSymmetry(Node):
@@ -628,7 +628,7 @@ class DirectionAlignment(Node):
     """Exact unsigned parallelism without sharing position or plane offset."""
 
     operation: Literal["direction_alignment"]
-    directions: list[FeatureInput] = Field(min_length=2, max_length=2)
+    directions: list[FeatureInput] = Field(min_length=2, max_length=33)
     sense: Literal["unsigned"] = "unsigned"
 
     @property
@@ -4346,7 +4346,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
             elif isinstance(node, CoaxialGroup):
                 _ = validate_relationship_inputs(
-                    "coaxial", [node.axis, *node.surfaces], recipe
+                    "coaxial", {"axis": [node.axis], "members": node.surfaces}, recipe
                 )
                 sources = {
                     selection_source(nodes[key], nodes)
@@ -4475,7 +4475,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "mirror symmetry requires matching fit types; existing fits are not converted"
                     )
                 _ = validate_relationship_inputs(
-                    "mirror", [node.plane, *node.surfaces], recipe
+                    "mirror", {"datum": [node.plane], "members": node.surfaces}, recipe
                 )
             elif isinstance(node, ParallelToPlane):
                 surface = nodes[node.surface]
@@ -4523,7 +4523,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
                 _ = validate_relationship_inputs(
                     "radius_plane_distance",
-                    [radius.surface, distance.surface, distance.reference_plane],
+                    {
+                        "radius": [radius.surface],
+                        "plane": [distance.surface],
+                        "datum": [distance.reference_plane],
+                    },
                     recipe,
                 )
             elif isinstance(node, EqualRadii):
@@ -4547,7 +4551,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "a fit may belong to only one all-equal radius relationship"
                     )
-                _ = validate_relationship_inputs("equal_radii", node.surfaces, recipe)
+                _ = validate_relationship_inputs(
+                    "equal_radii", {"participants": node.surfaces}, recipe
+                )
             elif isinstance(node, (PlaneRelationship, DirectionAlignment)):
                 kind = (
                     "direction_alignment"
@@ -4556,9 +4562,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if node.relation == "parallel"
                     else "coincident_planes"
                 )
-                endpoints = validate_relationship_inputs(kind, node.surfaces, recipe)[
-                    "participants"
-                ]
+                endpoints = validate_relationship_inputs(
+                    kind, {"participants": node.surfaces}, recipe
+                )["participants"]
                 if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
                     raise ValueError("relationship inputs must be unique")
             elif isinstance(node, AxisSolve):
@@ -7013,13 +7019,18 @@ class FeatureGraph(Generic[WorkspaceType]):
                     return DirectionOperand("axis", member_axes[key])
                 return DirectionOperand("plane", key)
 
-            directions = tuple(
-                DirectionAlignmentInput(
-                    operand(endpoints[relation.id][0]),
-                    operand(endpoints[relation.id][1]),
-                )
+            alignment_endpoints = [
+                sorted(endpoints[relation.id], key=lambda endpoint: endpoint.key)
                 for relation in relations
                 if isinstance(relation, DirectionAlignment)
+            ]
+            directions = tuple(
+                DirectionAlignmentInput(
+                    operand(group[0]),
+                    operand(endpoint),
+                )
+                for group in alignment_endpoints
+                for endpoint in group[1:]
             )
             directions += tuple(
                 DirectionAlignmentInput(

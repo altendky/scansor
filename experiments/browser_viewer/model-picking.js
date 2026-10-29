@@ -253,9 +253,19 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     dropdown.disabled = locked;
     if (locked) close();
     button.textContent = multiple ? `Pick ${label}…` : chosen[0]?.label || `Pick ${label}…`;
+    button.setAttribute('aria-describedby', feedback.id);
+    if (!multiple && chosen[0]?.detail) {
+      const title = root.createElement('span'), detail = root.createElement('span');
+      title.className = 'selection-field-title'; title.textContent = chosen[0].label;
+      detail.className = 'selection-field-detail'; detail.textContent = chosen[0].detail;
+      title.id = `${popup.id}-selected-title`;
+      detail.id = `${popup.id}-selected-description`;
+      button.setAttribute('aria-describedby', `${feedback.id} ${title.id} ${detail.id}`);
+      button.replaceChildren(title, detail);
+    }
     const pickLabel = `Pick ${label} in ${treePickable ? 'the tree or model' : 'model'}`;
     button.setAttribute('aria-label', pickLabel);
-    button.title = multiple ? pickLabel : chosen[0]?.label || pickLabel;
+    button.title = multiple ? pickLabel : [chosen[0]?.label, chosen[0]?.detail].filter(Boolean).join(' — ') || pickLabel;
     feedback.textContent = pickFieldFeedback(records, { label, disabled: locked, busy, emptyMessage });
     feedback.hidden = !feedback.textContent;
     selected.hidden = !multiple;
