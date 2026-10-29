@@ -28,6 +28,22 @@ does not change its binding. The previous PLY interpretation hash and profile
 are unchanged.
 
 Content determines the format; the filename extension is only a picker hint.
+The native server admits up to 256 MiB of retained scan sources, eight million
+vertices and eight million triangles, with an 8 GiB incremental working-set
+estimate. These are admission caps, not measured total-process or GPU memory
+guarantees. They include room for a roughly 104 MiB binary STL and its reduced
+virtual scan. Native project archives admit 256 MiB per member and 384 MiB
+compressed or expanded in aggregate. The browser worker retains its smaller
+8 MiB source and 96 MiB working-set profile; a large native project can exceed
+that worker's import limits.
+
+The opt-in `tests/test_large_native_stl.py` native HTTP check exercised a
+109,202,584-byte connected binary STL with 1,094,116 vertices and 2,184,050
+triangles. It imported, reduced to 1,089 vertices and 2,048 triangles, saved an
+8,635,647-byte project containing the original STL, and reopened the same recipe
+and virtual scan. This generated planar case does not establish capacity for
+every mesh at the admission caps.
+
 An exact binary STL layout is recognized before text magic, including arbitrary
 binary headers beginning with `solid` or `ply`. Strict ASCII grammar, bounded
 lines/tokens and exact binary facet lengths reject unsupported input. Nonzero

@@ -63,6 +63,7 @@ from experiments.native_scan_import import (
 )
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
 from experiments.project_archive import (
+    ProjectArchiveLimits,
     project_archive_profile,
     read_project_archive,
     write_project_archive,
@@ -157,9 +158,16 @@ class NativeAccepted:
     legacy_reference: dict[str, Any] | None = None
 
 
-# Measured native admission tier; callers may supply stricter explicit caps.
+# Native admission tier; callers may supply stricter explicit caps.
 # This does not describe total-process, fitting, browser or GPU capacity.
-NATIVE_SCAN_LIMITS = ScanLimits(8 * 1024**2, 131_072, 262_144, 96 * 1024**2)
+# Leave room for a 104 MiB STL and its reduced derivative. STL connectivity
+# admission budgets 960 bytes per facet; reduction needs additional working space.
+NATIVE_SCAN_LIMITS = ScanLimits(256 * 1024**2, 8_000_000, 8_000_000, 8 * 1024**3)
+NATIVE_PROJECT_LIMITS = ProjectArchiveLimits(
+    max_archive_bytes=384 * 1024**2,
+    max_member_bytes=256 * 1024**2,
+    max_expanded_bytes=384 * 1024**2,
+)
 
 
 def selection_bundle_recipe(workspace: NozzleWorkspace, bundle_path: Path) -> Recipe:
@@ -229,6 +237,7 @@ class NozzleServer(ThreadingHTTPServer):
         *,
         example_path: Path | None = None,
         scan_limits: ScanLimits = NATIVE_SCAN_LIMITS,
+        project_limits: ProjectArchiveLimits = NATIVE_PROJECT_LIMITS,
         staging_directory: Path | None = None,
     ) -> None:
         self.lock: threading.RLock = threading.RLock()
@@ -270,6 +279,7 @@ class NozzleServer(ThreadingHTTPServer):
             lock=self.lock,
             context=self.import_context,
             limits=scan_limits,
+            project_limits=project_limits,
             staging_directory=staging_directory,
         )
         try:
@@ -504,6 +514,7 @@ class NozzleServer(ThreadingHTTPServer):
         ) -> NativeOpenCandidate:
             archive = read_project_archive(
                 source_input,
+                limits=self.source_imports.project_limits,
                 cancelled=cancelled,
                 legacy_resolver=migrate_known_legacy,
             )
@@ -1032,7 +1043,9 @@ class Handler(BaseHTTPRequestHandler):
                     **metadata,
                     "import_warnings": list(state.import_warnings),
                     "virtual_scans": self.app.virtual_scan_profile(),
-                    "project_archive": project_archive_profile(),
+                    "project_archive": project_archive_profile(
+                        self.app.source_imports.project_limits
+                    ),
                     "legacy_project": state.legacy_reference is not None,
                     "graph": graph,
                     "positions": {
@@ -1306,7 +1319,11 @@ class Handler(BaseHTTPRequestHandler):
                             state, request.token
                         )
                         _ = write_project_archive(
-                            actions, original, output, legacy_reference=reference
+                            actions,
+                            original,
+                            output,
+                            legacy_reference=reference,
+                            limits=self.app.source_imports.project_limits,
                         )
                         generation = state.generation
                     # The immutable spool owns the complete archive. Release
