@@ -1,6 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
+import { open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { paintedSelectionMembership } from '../../browser_static/source-authoring-semantic.mjs';
@@ -624,18 +625,29 @@ test('empty selection and synthetic picker cancel preserve accepted empty state 
   await expect(page.locator('[data-add-scan]')).toBeEnabled();
 });
 
-test('malformed and over-limit Files preserve the empty graph and leave import available', async ({ page }) => {
+test('malformed and over-limit Files preserve the empty graph and leave import available', async ({ page }, testInfo) => {
   const before = await metadata(page);
-  for (const value of [
-    { name: 'invalid.ply', mimeType: 'application/octet-stream', buffer: Buffer.from('not a PLY') },
-    { name: 'oversized.ply', mimeType: 'application/octet-stream', buffer: Buffer.alloc(before.capabilities.source_import.limits.max_source_bytes + 1) },
-  ]) {
-    await choose(page, value);
-    await expect(page.locator('#status')).toContainText(/invalid|PLY|STL|limit|large|exceed/i);
-    await expect(page.locator('#source-progress')).toBeHidden();
-    expect((await metadata(page)).project_generation).toBe(before.project_generation);
-    expect((await graph(page)).recipe).toEqual(before.graph.recipe);
-    await expect(page.locator('[data-add-scan]')).toBeEnabled();
+  const oversized = testInfo.outputPath('oversized.ply');
+  const file = await open(oversized, 'w');
+  try {
+    // Playwright's in-memory File payloads are capped at 50 MiB. A sparse
+    // on-disk fixture exercises the actual advertised limit without a huge Buffer.
+    await file.truncate(before.capabilities.source_import.limits.max_source_bytes + 1);
+  } finally { await file.close(); }
+  try {
+    for (const value of [
+      { name: 'invalid.ply', mimeType: 'application/octet-stream', buffer: Buffer.from('not a PLY') },
+      oversized,
+    ]) {
+      await choose(page, value);
+      await expect(page.locator('#status')).toContainText(/invalid|PLY|STL|limit|large|exceed/i);
+      await expect(page.locator('#source-progress')).toBeHidden();
+      expect((await metadata(page)).project_generation).toBe(before.project_generation);
+      expect((await graph(page)).recipe).toEqual(before.graph.recipe);
+      await expect(page.locator('[data-add-scan]')).toBeEnabled();
+    }
+  } finally {
+    await rm(oversized, { force: true });
   }
 });
 
