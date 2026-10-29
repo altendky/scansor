@@ -435,7 +435,7 @@ export { relationshipParticipantChoices } from './relationship-inputs.js';
 let participantDescriptionSequence = 0;
 
 export function renderRelationshipParticipants(container, {
-  choices, selected, change, inspect, focus, locked = () => false,
+  choices, selected, change, inspect, focus, locked = () => false, multiple = true,
 }) {
   const scroll = container.scrollTop;
   const active = container.contains(document.activeElement) ? document.activeElement : null;
@@ -473,14 +473,15 @@ export function renderRelationshipParticipants(container, {
     row.dataset.search = `${choice.name} ${choice.detail}`.toLowerCase();
     row.classList.toggle('participant-selected', selected.has(choice.id));
     label.title = `${choice.name} — ${choice.detail}`;
-    checkbox.type = 'checkbox';
+    checkbox.type = multiple ? 'checkbox' : 'radio';
+    if (!multiple) checkbox.name = `relationship-participants-${container.id}`;
     checkbox.checked = selected.has(choice.id);
     checkbox.disabled = locked() || (!choice.compatible && !checkbox.checked);
     checkbox.dataset.participantId = choice.id;
     checkbox.setAttribute('aria-label', choice.accessibleName || choice.name);
     checkbox.onchange = () => {
       if (locked()) { checkbox.checked = selected.has(choice.id); return; }
-      change(choice.id, checkbox.checked);
+      if (change(choice.id, checkbox.checked) === false) checkbox.checked = selected.has(choice.id);
       row.classList.toggle('participant-selected', checkbox.checked);
       // An incompatible retained participant can be removed, not added back.
       checkbox.disabled = !choice.compatible && !checkbox.checked;

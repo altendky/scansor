@@ -217,6 +217,19 @@ test('participant groups preserve exact choices and accessible names for identic
   assert.equal(rows[1].classList.contains('participant-selected'), true);
 });
 
+test('single-reference rows use one radio group and rejected stale changes restore their actual selection', () => {
+  fixture();
+  const container = new Element('div'); container.id = 'reference-axis';
+  renderRelationshipParticipants(container, {choices: ['first', 'second'].map(id => ({id, name: id, compatible: true})),
+    selected: new Set(['first']), multiple: false, inspect: () => {}, focus: () => {}, change: () => false});
+  const inputs = container.querySelectorAll('input');
+  assert.deepEqual(inputs.map(input => input.type), ['radio', 'radio']);
+  assert.equal(inputs[0].name, inputs[1].name);
+  inputs[1].checked = true;
+  inputs[1].onchange();
+  assert.equal(inputs[1].checked, false);
+});
+
 test('relationship inspection preserves focus and hover on different participants', () => {
   fixture();
   const container = new Element('div'), inspections = [];

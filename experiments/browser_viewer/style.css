@@ -339,6 +339,16 @@ dialog input { width: 100%; padding: 8px; }
 .relationship-participant-field .selection-field-name { white-space: normal; overflow-wrap: anywhere; }
 .selection-field-title, .selection-field-detail { display: block; }
 .selection-field-detail { margin-top: 3px; font-size: 11px; color: #a6b6c5; }
+.relationship-role-field { margin: 10px 0; }
+.relationship-role-field h3 { display: inline; margin: 0 8px 4px 0; font-size: 12px; }
+.relationship-role-field > button { float: right; }
+.relationship-role-field .selection-field { clear: both; margin-top: 5px; }
+.relationship-role-field .model-field-pick { white-space: normal; overflow-wrap: anywhere; }
+.relationship-role-field .model-field-pick[aria-pressed="true"] { background: #164b5a; border-color: #79d8ee; }
+#relationship-unassigned { margin-top: 10px; }
+#relationship-unassigned h3 { font-size: 12px; }
+#relationship-unassigned > div { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0; }
+#relationship-unassigned span { width: 100%; overflow-wrap: anywhere; }
 #relationship-dialog .relationship-participant label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; margin: 0; padding: 3px 0; }
 .relationship-participants input { width: auto; }
 .relationship-selection-tools { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; color: #a6b6c5; }

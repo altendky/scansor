@@ -217,6 +217,16 @@ def test_cylinder_axes_supply_line_and_direction_capabilities(
 
 def test_roles_and_counts_have_one_authoritative_contract() -> None:
     for signature in RELATIONSHIP_SIGNATURES.values():
+        assert signature["selection_pattern"] in {"peers", "reference_targets", "roles"}
+        assert set(signature["role_labels"]) == set(signature["roles"])
+        if signature["selection_pattern"] == "reference_targets":
+            assert signature["reference_role"] in signature["roles"]
+        if signature["operation"] != "equal":
+            assert set(signature["node_fields"]) == set(signature["roles"])
+            for field in signature["node_fields"].values():
+                assert field["name"]
+                assert field["encoding"] in {"reference", "feature"}
+                assert type(field["multiple"]) is bool
         for requirement in signature["roles"].values():
             assert requirement in REQUIREMENTS
             assert REQUIREMENTS[requirement]["min_count"] >= 1
@@ -224,6 +234,47 @@ def test_roles_and_counts_have_one_authoritative_contract() -> None:
                 REQUIREMENTS[requirement]["max_count"]
                 >= REQUIREMENTS[requirement]["min_count"]
             )
+
+
+def test_explicit_roles_do_not_infer_reference_from_compatible_peer_outputs(
+    recipe: Recipe, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for role, maximum in [("reference", 1), ("targets", 33)]:
+        monkeypatch.setitem(
+            REQUIREMENTS,
+            "test_" + role,
+            {
+                **REQUIREMENTS["relationship_plane"],
+                "min_count": 1,
+                "max_count": maximum,
+            },
+        )
+    monkeypatch.setitem(
+        RELATIONSHIP_SIGNATURES,
+        "test_explicit",
+        {
+            "roles": {"reference": "test_reference", "targets": "test_targets"},
+            "role_labels": {"reference": "Reference plane", "targets": "Target planes"},
+        },
+    )
+    refs = {"targets": ["first", "second"], "reference": ["datum"]}
+    roles = validate_relationship_inputs("test_explicit", refs, recipe)
+    assert [endpoint.feature for endpoint in roles["reference"]] == ["datum"]
+    assert [endpoint.feature for endpoint in roles["targets"]] == ["first", "second"]
+    with pytest.raises(ValueError, match=r"cardinality|matches multiple roles"):
+        _ = validate_relationship_inputs(
+            "test_explicit", ["datum", "first", "second"], recipe
+        )
+    with pytest.raises(ValueError, match="distinct across roles"):
+        _ = validate_relationship_inputs(
+            "test_explicit", {"reference": ["datum"], "targets": ["datum"]}, recipe
+        )
+    with pytest.raises(ValueError, match="cardinality"):
+        _ = validate_relationship_inputs(
+            "test_explicit",
+            {"reference": ["datum", "first"], "targets": ["second"]},
+            recipe,
+        )
 
 
 def test_parallel_and_coincident_request_distinct_geometric_information(

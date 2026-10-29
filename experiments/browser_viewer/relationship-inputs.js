@@ -77,8 +77,12 @@ export function directionJointValidity(state, ids, nodes = state?.recipe?.nodes 
 export function relationshipParticipantChoices(state, kind, selected = new Set(), nodes = state?.recipe?.nodes || []) {
   const signatures = kind ? [state?.relationship_contracts?.[kind]].filter(Boolean)
       : Object.values(state?.relationship_contracts || {}),
-    requirements = [...new Set(signatures.flatMap(signature => Object.values(signature.roles)))],
-    records = new Map();
+    requirements = [...new Set(signatures.flatMap(signature => Object.values(signature.roles)))];
+  return relationshipChoicesForRequirements(state, requirements, selected, nodes);
+}
+
+function relationshipChoicesForRequirements(state, requirements, selected, nodes) {
+  const records = new Map();
   for (const requirement of requirements) for (const output of inputChoices(state, requirement, nodes)) {
     const key = inputReferenceKey(output.reference), previous = records.get(key),
       compatible = inputCanBeReferenced(output, {allowPending: true});
@@ -94,6 +98,33 @@ export function relationshipParticipantChoices(state, kind, selected = new Set()
     label: 'Unavailable saved output', reason: 'Choose a compatible output or remove this participant',
   });
   return [...records.values()].filter(output => output.compatible || selected.has(output.key));
+}
+
+export function relationshipRoleChoices(state, kind, role, selected = new Set(), nodes = state?.recipe?.nodes || []) {
+  const requirement = state?.relationship_contracts?.[kind]?.roles?.[role];
+  return requirement ? relationshipChoicesForRequirements(state, [requirement], selected, nodes) : [];
+}
+
+export function relationshipRoleSelection(state, kind, selected, previous = {}) {
+  const roles = Object.fromEntries(Object.keys(state?.relationship_contracts?.[kind]?.roles || {})
+    .map(role => [role, new Set()])), unassigned = new Set();
+  const choices = Object.fromEntries(Object.keys(roles).map(role => [role,
+    new Set(relationshipRoleChoices(state, kind, role).map(output => output.key))]));
+  for (const key of selected) {
+    const compatible = Object.keys(roles).filter(role => choices[role].has(key)),
+      retained = compatible.filter(role => previous[role]?.has(key));
+    const role = retained.length === 1 ? retained[0] : compatible.length === 1 ? compatible[0] : null;
+    if (role) roles[role].add(key);
+    else unassigned.add(key);
+  }
+  for (const [role, values] of Object.entries(roles)) {
+    const requirement = state.relationship_contracts[kind].roles[role];
+    if (state.input_contracts[requirement].max_count === 1 && values.size > 1) {
+      for (const key of values) unassigned.add(key);
+      values.clear();
+    }
+  }
+  return {roles, unassigned};
 }
 
 export function relationshipSelectionForFeatures(state, kind, featureIds) {
@@ -112,18 +143,35 @@ export function relationshipSelectionForFeatures(state, kind, featureIds) {
 export function relationshipValidity(state, kind, selected, nodes = state?.recipe?.nodes || []) {
   const signature = state?.relationship_contracts?.[kind];
   if (!signature) return { valid: false, reason: 'Choose a relationship.' };
-  const outputs = relationshipParticipantChoices(state, kind, selected, nodes)
-      .filter(output => selected.has(output.key)), roles = {};
+  const explicit = !(selected instanceof Set), assigned = explicit ? selected.roles || selected : null,
+    keys = explicit ? Object.values(assigned).flatMap(values => [...values]) : [...selected],
+    union = new Set(keys), roles = {};
+  if (explicit && selected.unassigned?.size)
+    return {valid: false, reason: 'Assign the remaining participants to a compatible role, or remove them.', roles};
+  if (explicit && Object.keys(assigned).some(role => !(role in signature.roles)))
+    return {valid: false, reason: 'Remove participants from unknown relationship roles.', roles};
+  if (keys.length !== union.size)
+    return {valid: false, reason: 'Choose distinct output references; an output cannot fill more than one role.', roles};
+  const outputs = relationshipParticipantChoices(state, kind, union, nodes)
+      .filter(output => union.has(output.key));
   if (outputs.some(output => !output.compatible))
     return { valid: false, reason: 'Remove or replace unavailable or incompatible outputs.' };
   for (const [role, requirement] of Object.entries(signature.roles)) {
     const contract = state.input_contracts[requirement],
-      members = outputs.filter(output => output.requirements.includes(requirement));
+      selectedKeys = explicit ? new Set(assigned[role] || []) : union,
+      members = explicit ? relationshipRoleChoices(state, kind, role, selectedKeys, nodes)
+        .filter(output => selectedKeys.has(output.key) && output.compatible)
+        : outputs.filter(output => output.requirements.includes(requirement));
     roles[role] = members;
+    if (explicit && members.length !== selectedKeys.size)
+      return {valid: false, reason: `${signature.role_labels?.[role] || role}: remove or replace incompatible outputs.`, roles};
     if (members.length < contract.min_count || members.length > (contract.max_count ?? Infinity))
-      return { valid: false, reason: `Choose ${contract.max_count === contract.min_count ? contract.min_count : 'at least ' + contract.min_count} compatible ${role} outputs.`, roles };
+      return { valid: false, reason: explicit
+        ? `${signature.role_labels?.[role] || role}: ${members.length} selected; choose ${contract.max_count === contract.min_count
+          ? contract.min_count : contract.max_count ? `${contract.min_count}–${contract.max_count}` : `at least ${contract.min_count}`} compatible outputs.`
+        : `Choose ${contract.max_count === contract.min_count ? contract.min_count : 'at least ' + contract.min_count} compatible ${role} outputs.`, roles };
   }
-  if (new Set(Object.values(roles).flat().map(output => output.key)).size !== selected.size)
+  if (new Set(Object.values(roles).flat().map(output => output.key)).size !== union.size)
     return { valid: false, reason: 'Every participant must satisfy a relationship input role.', roles };
   if (signature.semantic_check === 'same_geometry_kind' &&
       new Set(roles.members.map(output => output.geometry_kind)).size !== 1)
@@ -143,6 +191,13 @@ export function relationshipNodeInputs(state, kind, selected, nodes = state?.rec
   const validity = relationshipValidity(state, kind, selected, nodes);
   if (!validity.valid) throw new Error(validity.reason);
   const signature = state.relationship_contracts[kind], feature = output => output.reference.feature;
+  if (Object.keys(signature.node_fields || {}).length) return {
+    operation: signature.operation, ...signature.node_values,
+    ...Object.fromEntries(Object.entries(signature.node_fields).map(([role, field]) => {
+      const values = validity.roles[role].map(output => field.encoding === 'reference' ? output.reference : feature(output));
+      return [field.name, field.multiple ? values : values[0]];
+    })),
+  };
   if (signature.operation === 'direction_alignment') return {
     operation: signature.operation, directions: validity.roles.participants.map(output => output.reference), sense: 'unsigned',
   };

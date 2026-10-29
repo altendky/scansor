@@ -66,7 +66,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "property": "direction",
         "uses": ["binding", "geometry"],
         "min_count": 2,
-        "max_count": 2,
+        "max_count": 33,
     },
     "point": {"capabilities": ["point"], "min_count": 1, "max_count": 1},
     "plane": {"capabilities": ["plane"], "min_count": 1, "max_count": 1},
@@ -185,7 +185,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "uses": ["binding"],
         "ownership": "fit",
         "geometry_kinds": ["cone", "cylinder"],
-        "min_count": 2,
+        "min_count": 1,
         "max_count": 32,
     },
     "relationship_radius": {

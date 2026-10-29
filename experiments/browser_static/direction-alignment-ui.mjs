@@ -23,6 +23,176 @@ const downloadBytes = async download => {
   return Buffer.concat(parts);
 };
 
+async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph, evaluateReady, edit, report}) {
+  assert(!['8765', '8766'].includes(new URL(page.url()).port), 'Group acceptance must use a private preview');
+  const evaluations = [], auto = page.getByRole('checkbox', {name: 'Auto', exact: true});
+  page.on('request', request => {
+    if (request.method() === 'POST' && /\/api\/graph\/(?:evaluate|ensure)(?:\?|$)/.test(request.url())) evaluations.push(request.url());
+  });
+  const loadActions = async (recipe, name) => {
+    const publication = (await read()).publication;
+    await page.locator('#file').setInputFiles({name, mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recipe))});
+    await expect(page.locator('#source-progress')).toBeHidden();
+    await expect.poll(async () => (await read()).publication).toBeGreaterThan(publication);
+    await expect.poll(async () => (await graph()).recipe.nodes.map(node => node.id)).toEqual(recipe.nodes.map(node => node.id));
+  };
+  const begin = async (kind, label) => {
+    await page.getByRole('button', {name: 'Relationship…', exact: true}).click();
+    await page.locator('#relationship-kind').selectOption(kind);
+    if (await page.locator('#clear-relationship-participants').isEnabled()) await page.locator('#clear-relationship-participants').click();
+    const options = page.locator('#relationship-dialog details');
+    if (!await options.evaluate(node => node.open)) await options.locator('summary').click();
+    await page.locator('#new-relationship-label').fill(label);
+  };
+  const add = async label => {
+    await expect(page.locator('#add-relationship')).toBeEnabled(); await page.locator('#add-relationship').click();
+    await expect(page.locator('#relationship-dialog')).toBeHidden();
+    await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.label === label)).toBe(true);
+    return (await graph()).recipe.nodes.find(node => node.label === label);
+  };
+  const input = (container, value) => container.locator(`input[data-participant-id=${JSON.stringify(value)}]`);
+  const roundTrip = async (id, prefix) => {
+    const recipe = structuredClone((await graph()).recipe);
+    let downloading = page.waitForEvent('download'); await page.getByRole('button', {name: 'Save actions', exact: true}).click();
+    const actions = await downloadBytes(await downloading); assert.deepEqual(JSON.parse(actions), recipe);
+    await loadActions(recipe, `${prefix}-actions.json`); await evaluateReady(id);
+    assert.deepEqual((await graph()).recipe, recipe);
+    downloading = page.waitForEvent('download'); await page.getByRole('button', {name: 'Save project', exact: true}).click();
+    const archive = await downloadBytes(await downloading), generation = (await read()).generation;
+    await page.locator('#project-file').setInputFiles({name: `${prefix}.scansor`, mimeType: 'application/zip', buffer: archive});
+    await expect.poll(async () => (await read()).generation).toBeGreaterThan(generation);
+    await expect(page.locator('#source-progress')).toBeHidden(); await evaluateReady(id);
+    assert.deepEqual((await graph()).recipe, recipe);
+  };
+  await page.locator('#close-edit').click();
+  await auto.uncheck();
+  report.phase = 'four-participant-pending-alignment';
+  await loadActions(fixture.recipe, 'four-directions-fixture.json');
+  const participants = [reference('axis-cylinder'), reference('plane-cylinder'), reference('joint-plane', 'plane'), reference('fixed-axis')],
+    label = 'Four mixed aligned directions', beforeGroup = evaluations.length;
+  await begin('direction_alignment', label);
+  await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+  for (const value of participants) await input(page.locator('#relationship-participants'), value).check();
+  await expect(page.locator('#relationship-count')).toHaveText('4 selected');
+  await page.keyboard.press('Escape');
+  const alignment = await add(label);
+  assert.deepEqual(new Set(alignment.directions.map(value => JSON.stringify(value))), new Set(participants));
+  assert.equal((await graph()).recipe.nodes.filter(node => node.operation === 'direction_alignment').length, 1);
+  assert.equal((await graph()).results[alignment.id], undefined);
+  assert.equal(evaluations.length, beforeGroup, 'Auto-off group authoring must not trigger evaluation');
+  const checkFour = state => {
+    const direction = state.results['fixed-axis'].axis_display;
+    for (const id of ['axis-cylinder', 'plane-cylinder']) {
+      const surface = state.results[id].analytic;
+      assert(norm(cross(surface.axis, direction)) < 1e-7, `${id} participates in the four-way constraint`);
+      assert(norm(cross(delta(surface.origin, state.results['fixed-axis'].point_display), direction)) > 7,
+        'Direction alignment must preserve independent transverse positions');
+      assert(Math.abs(surface.radius - fixture.truth[id].radius) < .04);
+    }
+    assert(norm(cross(state.results['joint-plane'].plane_equation.slice(0, 3), direction)) < 1e-7);
+    for (const [name, ids] of Object.entries(fixture.ids))
+      assert.deepEqual(state.recipe.nodes.find(node => node.id === name + '-selection').ids, ids);
+    return Object.fromEntries(['axis-cylinder', 'plane-cylinder'].map(id => [id, state.results[id].analytic]));
+  };
+  const first = checkFour(await evaluateReady(alignment.id));
+  report.phase = 'three-and-four-participant-edit';
+  await edit(alignment.id);
+  assert.deepEqual(new Set(await page.locator('#direction-alignment-inputs')
+    .evaluate(control => [...control.selectedOptions].map(option => option.value))), new Set(participants));
+  await page.locator('#direction-alignment-inputs').selectOption(participants.slice(0, 3));
+  await page.locator('#apply-properties').click();
+  await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === alignment.id).directions.length).toBe(3);
+  let state = await evaluateReady(alignment.id);
+  const three = [state.results['axis-cylinder'].analytic.axis, state.results['plane-cylinder'].analytic.axis,
+    state.results['joint-plane'].plane_equation.slice(0, 3)];
+  assert(three.every(direction => norm(cross(direction, three[0])) < 1e-7));
+  await page.locator('#direction-alignment-inputs').selectOption(participants);
+  await page.locator('#apply-properties').click();
+  await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === alignment.id).directions.length).toBe(4);
+  await page.locator('#close-edit').click();
+  report.phase = 'reordered-group-and-round-trips';
+  const reversed = structuredClone((await graph()).recipe);
+  reversed.nodes.find(node => node.id === alignment.id).directions.reverse();
+  await loadActions(reversed, 'reversed-four-directions.json');
+  state = await evaluateReady(alignment.id);
+  const reordered = checkFour(state);
+  assert.deepEqual(state.recipe.nodes.find(node => node.id === alignment.id).directions,
+    reversed.nodes.find(node => node.id === alignment.id).directions);
+  for (const id of ['axis-cylinder', 'plane-cylinder']) {
+    assert(norm(delta(first[id].origin, reordered[id].origin)) < 1e-6);
+    assert(Math.abs(first[id].radius - reordered[id].radius) < 1e-6);
+  }
+  await roundTrip(alignment.id, 'four-directions');
+  checkFour(await graph());
+
+  report.phase = 'explicit-reference-and-targets';
+  const roleRecipe = structuredClone(fixture.recipe), original = fixture.ids['axis-cylinder'],
+    firstIds = original.filter((_, index) => index % 2 === 0), secondIds = original.filter((_, index) => index % 2),
+    support = roleRecipe.nodes.find(node => node.id === 'axis-cylinder-selection'),
+    fit = roleRecipe.nodes.find(node => node.id === 'axis-cylinder'), firstFit = roleRecipe.nodes.findIndex(node => node.operation === 'fit');
+  support.ids = firstIds;
+  roleRecipe.nodes.splice(firstFit, 0,
+    {id: 'role-axis', label: 'Adjustable reference axis', operation: 'axis', initial_parameters: [8, -3, 0, 0]},
+    {id: 'role-other-axis', label: 'Other reference axis', operation: 'axis', initial_parameters: [8, -3, 0, 0]},
+    {...support, id: 'role-second-selection', label: 'Second coaxial observations', ids: secondIds});
+  roleRecipe.nodes.push({...fit, id: 'role-second-fit', label: 'Second coaxial target', selections: ['role-second-selection']});
+  await loadActions(roleRecipe, 'explicit-role-fixture.json');
+  const axisField = page.locator('[data-relationship-role="axis"]'), targets = page.locator('[data-relationship-role="members"]'),
+    axis = reference('role-axis'), otherAxis = reference('role-other-axis'), target = reference('axis-cylinder'), second = reference('role-second-fit'),
+    choose = async (field, button, value) => {
+      await page.getByRole('button', {name: button, exact: true}).click();
+      await input(field, value).click(); await page.keyboard.press('Escape');
+    };
+  const roleLabel = 'Explicit axis and multiple targets', beforeRole = evaluations.length;
+  await begin('coaxial', roleLabel);
+  await expect(axisField).toBeVisible(); await expect(targets).toBeVisible();
+  await expect(page.locator('#relationship-participant-field')).toBeHidden();
+  await choose(targets, 'Show Target fits choices', target);
+  await expect(page.locator('#add-relationship')).toBeDisabled();
+  await expect(axisField.locator('input:checked')).toHaveCount(0);
+  await choose(axisField, 'Show Reference axis choices', axis);
+  await expect(page.locator('#add-relationship')).toBeEnabled();
+  await choose(axisField, 'Show Reference axis choices', otherAxis);
+  await expect(input(axisField, axis)).not.toBeChecked(); await expect(input(axisField, otherAxis)).toBeChecked();
+  await expect(input(targets, target)).toBeChecked();
+  await choose(axisField, 'Show Reference axis choices', axis);
+  await choose(targets, 'Show Target fits choices', second);
+  await expect(targets.locator('input:checked')).toHaveCount(2);
+  await expect(input(axisField, axis)).toBeChecked();
+  await expect(page.locator('#add-relationship')).toBeEnabled();
+  await choose(targets, 'Show Target fits choices', second);
+  const coaxial = await add(roleLabel);
+  assert.equal(coaxial.axis, 'role-axis'); assert.deepEqual(coaxial.surfaces, ['axis-cylinder']);
+  assert.equal((await graph()).results[coaxial.id], undefined);
+  assert.equal(evaluations.length, beforeRole, 'Explicit role authoring must remain pending with Auto off');
+  report.phase = 'one-target-free-reference-solve';
+  state = await evaluateReady(coaxial.id);
+  assert(norm(cross(state.results['role-axis'].axis_display, [0, 0, 1])) > .02, 'The reference role does not freeze a free axis');
+  assert.deepEqual(state.recipe.nodes.find(node => node.id === 'role-axis').initial_parameters, [8, -3, 0, 0]);
+  await edit(coaxial.id);
+  await page.locator('#coaxial-group-members').selectOption([target, second]);
+  await page.locator('#apply-properties').click();
+  await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === coaxial.id).surfaces).toEqual(['axis-cylinder', 'role-second-fit']);
+  await page.locator('#close-edit').click();
+  report.phase = 'two-target-solve-and-round-trips';
+  state = await evaluateReady(coaxial.id);
+  const direction = state.results['role-axis'].axis_display;
+  for (const id of ['axis-cylinder', 'role-second-fit']) {
+    assert(norm(cross(state.results[id].analytic.axis, direction)) < 1e-7);
+    assert(Math.abs(state.results[id].analytic.radius - fixture.truth['axis-cylinder'].radius) < .01);
+  }
+  assert.deepEqual(state.recipe.nodes.find(node => node.id === 'axis-cylinder-selection').ids, firstIds);
+  assert.deepEqual(state.recipe.nodes.find(node => node.id === 'role-second-selection').ids, secondIds);
+  assert.equal(new Set([...firstIds, ...secondIds]).size, original.length);
+  assert.deepEqual([...firstIds, ...secondIds].sort((a, b) => a - b), original);
+  await roundTrip(coaxial.id, 'explicit-roles');
+  assert.equal((await graph()).recipe.nodes.find(node => node.id === coaxial.id).axis, 'role-axis');
+  return {mixed_four_participants: true, all_endpoints_constrained: true, three_member_edit: true,
+    order_invariant: true, group_actions_and_project_reopened: true, explicit_reference_and_targets: true,
+    reference_replacement_preserves_targets: true, one_and_two_targets: true, reference_remains_adjustable: true,
+    role_actions_and_project_reopened: true, disjoint_observations_preserved: true};
+}
+
 export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
   const report = {complete: false, phase: 'initialization'};
   const read = () => page.evaluate(() => globalThis.__directionAlignmentUi.read());
@@ -193,6 +363,7 @@ export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
     assert.deepEqual(new Set(await page.locator('#direction-alignment-inputs').evaluate(control => [...control.selectedOptions].map(option => option.value))),
       new Set([reference('axis-cylinder'),reference('fixed-plane','plane')]));
     assert(Math.abs(dot(cylinderDirection, planeNormal)) > 1-1e-8);
+    report.groups = await exerciseRelationshipGroupsUi({page, expect, fixture, read, graph, evaluateReady, edit, report});
     return {...report, complete:true, phase:'complete', vertices:fixture.vertices, triangles:fixture.triangles,
       fixed_axis:true, fixed_plane:true, independent_positions:true, selected_joint:true, both_members_influence:true,
       explicit_fit_factors_once:true, edited:true, actions_reopened:true, project_reopened:true,
