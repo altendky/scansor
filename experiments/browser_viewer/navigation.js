@@ -1,5 +1,5 @@
 import { MOUSE, Vector3 } from 'three';
-import { anchorRotation, anchorZoom, panByPixels } from './navigation-math.js';
+import { anchorRotation, anchorZoom, panByPixels, wheelZoomFactor } from './navigation-math.js';
 import { TrackballControls } from './vendor/TrackballControls.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 
@@ -17,7 +17,7 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   constrained.enabled = false;
   constrained.target = free.target;
   let active = free, dragging = false, rotationAnchor = null;
-  let gesture = null, transitioning = false, panDepth = 0;
+  let gesture = null, selectionPointer = null, transitioning = false, panDepth = 0;
   const mode = event => event.button === 1 || event.ctrlKey ? 'pan' : event.altKey ? 'upright' : 'rotate';
   const options = {zoomAtCursor: true, rotateAtCursor: true};
   const update = () => {
@@ -51,12 +51,15 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
     ctrlKey: event.ctrlKey, altKey: event.altKey, buttons: event.buttons});
   const begin = event => {
     if (transitioning) return;
-    if (event.button === 0) { free.enabled = false; constrained.enabled = false; return; }
+    if (event.button === 0) {
+      selectionPointer = event.pointerId;
+      free.enabled = false; constrained.enabled = false; return;
+    }
     gesture = snapshot(event); dragging = true; configure(gesture);
   };
   canvas.addEventListener('pointerdown', begin, {capture: true});
   const finish = () => {
-    update(); dragging = false; rotationAnchor = null; gesture = null;
+    update(); dragging = false; rotationAnchor = null; gesture = null; selectionPointer = null;
     free.enabled = true; constrained.enabled = false; active = free; redraw();
   };
   const rebase = modifiers => {
@@ -75,14 +78,22 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
     } finally { transitioning = false; }
     redraw();
   };
-  const end = () => {
-    if (transitioning) return;
+  const end = event => {
+    if (transitioning || !gesture && selectionPointer === null) return;
+    if (gesture && event.pointerId !== gesture.pointerId
+      || selectionPointer !== null && event.pointerId !== selectionPointer) return;
     // Both controls must receive the real release before changing enabled flags.
-    gesture = null; dragging = false;
-    setTimeout(() => { if (!gesture) finish(); }, 0);
+    gesture = null; dragging = false; selectionPointer = null;
+    setTimeout(() => { if (!gesture && selectionPointer === null) finish(); }, 0);
   };
-  canvas.addEventListener('pointerup', end);
-  canvas.addEventListener('pointercancel', end);
+  // Left-button orbit-mode presses are not captured by either control. Their
+  // release can be outside the canvas; it must still reenable navigation.
+  canvas.ownerDocument.addEventListener('pointerup', end);
+  canvas.ownerDocument.addEventListener('pointercancel', end);
+  canvas.ownerDocument.defaultView.addEventListener('blur', () => {
+    if (gesture) canvas.dispatchEvent(new PointerEvent('pointerup', {...gesture, buttons: 0, bubbles: true}));
+    else finish();
+  });
   canvas.ownerDocument.addEventListener('pointermove', event => {
     if (!gesture || transitioning || event.pointerId !== gesture.pointerId) return;
     rebase(event);
@@ -98,15 +109,38 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
   };
   canvas.ownerDocument.addEventListener('keydown', modifiersChanged);
   canvas.ownerDocument.addEventListener('keyup', modifiersChanged);
+  let restoreWheel = () => {};
+  canvas.addEventListener('wheel', () => {
+    // Suppress only the controls' wheel zoom. Other application listeners must
+    // still cancel selection strokes and clear model-pick state for this event.
+    restoreWheel();
+    const noZoom = free.noZoom, enableZoom = constrained.enableZoom;
+    free.noZoom = true; constrained.enableZoom = false;
+    const timer = setTimeout(() => restoreWheel(), 0);
+    restoreWheel = () => {
+      clearTimeout(timer);
+      free.noZoom = noZoom; constrained.enableZoom = enableZoom;
+      restoreWheel = () => {};
+    };
+  }, {capture: true, passive: true});
   canvas.addEventListener('wheel', event => {
-    // The controls have consumed this wheel event but have not updated the
-    // camera yet. Apply each event separately, including its current cursor.
-    const anchor = !dragging && options.zoomAtCursor ? cursorAnchor(event, true) : null;
-    const previousTarget = free.target.clone(), previousDistance = camera.position.distanceTo(free.target);
-    update();
-    if (anchor) anchorZoom(camera, free.target, anchor, previousDistance, previousTarget);
-    redraw();
-  }, {passive: true});
+    // Own wheel scaling while preserving the controls' touch/pinch behavior.
+    // Apply each tick at its own current cursor position.
+    event.preventDefault();
+    try {
+      if (selectionPointer !== null) return;
+      update();
+      const anchor = !dragging && options.zoomAtCursor ? cursorAnchor(event, true) : null;
+      const previousTarget = free.target.clone(), previousDistance = camera.position.distanceTo(free.target);
+      const factor = wheelZoomFactor(event.deltaY, event.deltaMode, canvas.getBoundingClientRect().height);
+      const distance = Math.max(free.minDistance, Math.min(free.maxDistance, previousDistance * factor));
+      if (!(previousDistance > 0) || !(distance > 0) || !Number.isFinite(distance)) return;
+      camera.position.sub(free.target).multiplyScalar(distance / previousDistance).add(free.target);
+      camera.updateMatrixWorld();
+      if (anchor) anchorZoom(camera, free.target, anchor, previousDistance, previousTarget);
+      redraw();
+    } finally { restoreWheel(); }
+  }, {passive: false});
   free.addEventListener('change', redraw);
   constrained.addEventListener('change', redraw);
   canvas.addEventListener('contextmenu', event => event.preventDefault());
