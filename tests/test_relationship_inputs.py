@@ -188,7 +188,7 @@ def test_exact_context_validation_and_legacy_serialization(recipe: Recipe) -> No
     assert before["nodes"][-1]["surfaces"] == ["first", "second"]
 
 
-def test_axis_lines_are_capabilities_without_changing_direction_reader_choices(
+def test_cylinder_axes_supply_line_and_direction_capabilities(
     recipe: Recipe,
 ) -> None:
     outputs = catalogue(recipe)
@@ -204,9 +204,15 @@ def test_axis_lines_are_capabilities_without_changing_direction_reader_choices(
         == "axis"
     )
     directions = input_choices(recipe, requirement="direction", catalogue=outputs)
-    assert "side" not in {
-        item["reference"]["feature"] for item in directions["choices"]
-    }
+    assert "side" in {item["reference"]["feature"] for item in directions["choices"]}
+    direction = next(
+        item for item in directions["choices"] if item["reference"]["feature"] == "side"
+    )
+    line = next(
+        item for item in lines["choices"] if item["reference"]["feature"] == "side"
+    )
+    assert direction["reference"] == line["reference"]
+    assert {"direction", "axis_line"} <= set(direction["capabilities"])
 
 
 def test_roles_and_counts_have_one_authoritative_contract() -> None:

@@ -118,6 +118,7 @@ SOURCE_GRAPH_DRIVERS = (
     "numerical-source-import",
     "numerical-source-import-isolated",
 )
+WORKSPACE_GRAPH_DRIVERS = ("workspace", "numerical-workspace", "timing")
 SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v3"
 WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v2"
 SOURCE_GRAPH_PROJECTION = (
@@ -313,8 +314,13 @@ def array_value(value: Any) -> list[Any]:
 
 
 def driver_json_limit(name: str) -> int:
-    # Source UI reports retain raw source arrays and all seven graph pairs.
-    return MAX_SOURCE_GRAPH_JSON if name in SOURCE_GRAPH_DRIVERS else MAX_JSON
+    # These exact drivers retain full source geometry and graph publications.
+    # Metadata and every unlisted report keep the ordinary JSON bound.
+    return (
+        MAX_SOURCE_GRAPH_JSON
+        if name in (*SOURCE_GRAPH_DRIVERS, *WORKSPACE_GRAPH_DRIVERS)
+        else MAX_JSON
+    )
 
 
 def object_json(data: bytes, *, limit: int = MAX_JSON) -> dict[str, Any]:

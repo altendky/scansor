@@ -118,6 +118,37 @@ Directly shared geometry must inhabit the same frame. Crossing frames requires a
 explicit typed transform with declared direction and provenance; current
 placement alone must not imply a transform or relationship.
 
+### Typed properties in the bounded adapter
+
+**Implemented foundation, 2026-10-29:** the selectable-output registry now
+describes geometric properties and their projections. An axis, cylinder axis,
+cone axis and plane normal can supply the same direction capability. Direction
+is distinct from a complete axis line, point, plane orientation, full plane or
+radius. Consuming a direction does not imply line coincidence or placement.
+
+Property identity retains the existing feature, output and publication-context
+reference. Resolving a property reads that exact publication and applies its
+declared projection; it does not choose the most recently solved overlay. The
+property carries its actual coordinate frame. A consumer requiring another
+frame must provide an explicit transformation, rather than relabeling the value.
+Existing output references and complete-output readers retain their meaning.
+
+The registry distinguishes a property's parameter owner and permitted binding
+from its availability as fixed geometry. Direct standalone geometry can expose
+eligible quantities such as two orientation degrees of freedom. A cylinder
+already bound to an axis does not independently own that direction, and an
+upstream solved publication is read-only. Eligibility to participate in a
+binding does not make a quantity free in every solve; the selected solve still
+determines fixed, free and derived roles.
+
+Direction metadata also distinguishes a representative vector from authority
+over its sense. A fitted line's canonical sign does not establish an authored
+positive direction. The planned initial generic alignment uses unsigned directions;
+same-sense alignment requires a separately explicit authority and mode. The
+existing Coaxial relationship continues to bind the complete line. Consumer
+control migration and additional direction relationships remain separate steps
+beyond this property foundation.
+
 Analytic elements reference this geometry rather than privately duplicating it.
 For example, a cylinder references an axis line and a radius. A plane used as a
 fitting target may itself be the reference plane, or a bounded element may wrap
