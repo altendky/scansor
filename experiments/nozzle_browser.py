@@ -900,6 +900,7 @@ class Handler(BaseHTTPRequestHandler):
         "/model-picking.js": ("model-picking.js", "text/javascript"),
         "/selection.js": ("selection.js", "text/javascript"),
         "/selection-owned-editor.js": ("selection-owned-editor.js", "text/javascript"),
+        "/circular-reuse-editor.js": ("circular-reuse-editor.js", "text/javascript"),
         "/style.css": ("style.css", "text/css"),
         "/vendor/three.module.js": (
             "node_modules/three/build/three.module.js",
@@ -1571,7 +1572,9 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("expected a current recipe")
                     with self.app.lock:
                         _ = self.fence_source()
-                        state = self.app.graph.replace(payload.recipe, payload.token)
+                        state = self.app.graph.replace_authored(
+                            payload.recipe, payload.token
+                        )
                     self.json_reply(200, state)
                 else:
                     with self.app.lock:

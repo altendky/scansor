@@ -10,6 +10,7 @@ import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
 import {validateVirtualScanUi} from './virtual-scan-ui.mjs';
 import {validateProjectArchiveUi} from './project-archive-ui.mjs';
+import {validateCircularReuseUi} from './circular-reuse-ui.mjs';
 import {authoringSemanticCases} from './source-authoring-semantic.mjs';
 import {validateSourceUiActions} from './source-ui-actions.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
@@ -248,6 +249,7 @@ try{
   await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
   await validateVirtualScanUi({browser,site,preview,prefix,isolation,report});
   await validateProjectArchiveUi({browser,site,preview,prefix,isolation,report,nativePython});
+  await validateCircularReuseUi({browser,site,preview,prefix,isolation,report,nativePython});
   const authoredRecipes=path.join(output,'ui-authored-recipes.json');
   await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
     Object.entries(report.ui_authoring.graphs).map(([name,graph])=>[name,graph.recipe]))));
@@ -260,7 +262,8 @@ try{
     ui_source_actions:report.ui_actions.complete===true,
     ui_source_authoring:report.ui_authoring.complete===true,
     virtual_scans:report.virtual_scans.complete===true,
-    project_archives:report.project_archives.complete===true};
+    project_archives:report.project_archives.complete===true,
+    circular_reuse:report.circular_reuse.complete===true};
   // Compare only after the actual recovery/UI observations. The reviewed bridge
   // retains the full operands and failed receipt before a parity error escapes.
   try{

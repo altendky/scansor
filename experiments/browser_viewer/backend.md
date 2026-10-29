@@ -58,6 +58,7 @@ Optional operation options can carry an `AbortSignal`.
 | `listExamples(options)` | Active example and catalogue |
 | `selectExample(payload, options)` | Example ID and token; select the workspace |
 | `applyFeatureReuse(payload, options)` | Existing reuse-authoring payload and result |
+| `previewFeatureReuse(payload, options)` | Same token, owner, changes and allocation seed; validated recipe/IDs and circular placements without saving children |
 | `faceCandidates(payload, options)` | Existing face-candidate payload and result |
 | `previewFaces(payload, options)` | Existing face-preview payload and result |
 | `applyFaces(payload, options)` | Reviewed face payload; updated graph |
@@ -71,8 +72,11 @@ Optional operation options can carry an `AbortSignal`.
 | `close()` | Stop this connection's requests/observations |
 
 Selections remain recipe edits; authoritative fitting remains graph evaluation.
-The native server's legacy session/fit endpoints and unused reuse-preview
-endpoint are not mirrored solely to reproduce every HTTP route.
+Explicit user `replaceRecipe` edits reconcile circular reuse source definitions
+atomically through `FeatureGraph.replace_authored`. Import, source recovery,
+and evaluation retain their ordinary definition-loading paths. Reuse preview
+returns proposed children without replacing accepted actions or Force authority.
+The native server's legacy session/fit endpoints remain outside this interface.
 
 The common source controller owns the picker, work-loss confirmation and source
 authoring. Explicit example selection replaces the source and optional saved

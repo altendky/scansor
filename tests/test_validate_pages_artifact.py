@@ -1100,6 +1100,7 @@ def selected(tmp_path: Path, request: pytest.FixtureRequest) -> dict[str, Any]:
                         "ui_source_authoring": True,
                         "ui_source_actions": True,
                         "project_archives": True,
+                        "circular_reuse": True,
                     }
                     if name != "source-import-memory"
                     else {}
@@ -2421,6 +2422,7 @@ def test_source_import_evidence_requires_executed_complete_checks(
         "ui_source_actions",
         "ui_source_authoring",
         "project_archives",
+        "circular_reuse",
     ],
 )
 def test_source_evidence_requires_executed_ui_recovery(

@@ -11,6 +11,8 @@ from numpy.typing import NDArray
 from experiments.surface_primitives import revolution_geometry, transform_revolution
 
 FloatArray = NDArray[np.float64]
+MAX_CIRCULAR_SELECTION_VERTICES = 25_000
+MAX_CIRCULAR_MEMBERSHIPS = 250_000
 
 
 def _normalized(values: FloatArray) -> FloatArray:
@@ -438,6 +440,31 @@ def _axis_values(axis: dict[str, Any]) -> tuple[FloatArray, FloatArray]:
     ):
         raise ValueError("reuse axis requires a finite point and nonzero direction")
     return point, np.asarray(direction / direction_length, dtype=np.float64)
+
+
+def circular_placements(axis: dict[str, Any], count: int) -> dict[str, dict[str, Any]]:
+    """Exact row-vector placements about a resolved spatial axis; no matching."""
+    if type(count) is not int or not 2 <= count <= 32:
+        raise ValueError("circular count must be an integer in [2,32]")
+    origin, direction = _axis_values(axis)
+    x, y, z = direction
+    cross = np.array([[0, -z, y], [z, 0, -x], [-y, x, 0]])
+    placements: dict[str, dict[str, Any]] = {}
+    for occurrence in range(1, count):
+        angle = 2 * np.pi * occurrence / count
+        rotation = (
+            np.eye(3) + np.sin(angle) * cross + (1 - np.cos(angle)) * (cross @ cross)
+        ).T
+        translation = origin - origin @ rotation
+        placements[f"occurrence_{occurrence}"] = {
+            "rotation": rotation.tolist(),
+            "translation": translation.tolist(),
+            "occurrence": occurrence,
+            "angle_degrees": 360 * occurrence / count,
+            "axis_origin": origin.tolist(),
+            "axis_direction": direction.tolist(),
+        }
+    return placements
 
 
 def transformed_axis_geometry(

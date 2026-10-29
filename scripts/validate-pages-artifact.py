@@ -1502,6 +1502,7 @@ def validate_evidence(
                     "ui_source_authoring",
                     "ui_source_actions",
                     "project_archives",
+                    "circular_reuse",
                 }
                 if name != "source-import-memory"
                 else {

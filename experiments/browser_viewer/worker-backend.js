@@ -593,7 +593,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                   || !result.recipe || !Array.isArray(result.recipe.nodes) || !Array.isArray(result.import_warnings)
                   || result.classification === 'locate' && !result.descriptor)
                   throw new Error('Invalid actions inspection response.');
-              } else remember(data.result);
+              } else if (request.operation !== 'previewFeatureReuse') remember(data.result);
               pending.delete(data.id);
               request.resolve(data.result);
             } catch (error) { failure(error); }
@@ -759,7 +759,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     close() { closed = true; cancellationSerial++; stop(unavailable()); publishLifecycle('closed'); },
   };
   for (const operation of ['loadWorkspace', 'getGraph', 'replaceRecipe', 'importRecipe',
-    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse',
+    'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'previewFeatureReuse', 'applyFeatureReuse',
     'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'exportProject', ...volumeOperations]) {
     backend[operation] = async (payload = {}, options = {}) => {
       const signal = options.signal || payload.signal, serial = cancellationSerial;
@@ -769,6 +769,9 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
       if (sourceOperation) throw sourceBusy();
+      if (['previewFeatureReuse', 'applyFeatureReuse'].includes(operation) && (latestGraph?.evaluation_running ||
+        [...pending.values()].some(request => mutations.has(request.operation) || ['evaluateGraph', 'ensureGraph'].includes(request.operation))))
+        throw new BackendError('Wait for the current evaluation or edit before authoring reuse.', { code: 'evaluation_busy', status: 409 });
       if (operation === 'exportProject') {
         if (!validProjectArchiveProfile(projectArchiveProfile))
           throw new BackendError('This runtime does not support project archives.', { code: 'unsupported_capability' });

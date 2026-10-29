@@ -44,6 +44,7 @@ from experiments.feature_recipe_import import ImportWarning, import_recipe, load
 from experiments.feature_reuse_authoring import (
     ReuseAuthoringRequest,
     apply_feature_reuse,
+    preview_feature_reuse,
 )
 from experiments.nozzle_session import NozzleWorkspace
 from experiments.project_archive import (
@@ -1521,6 +1522,7 @@ class BrowserWorkspace:
             "importRecipe",
             "inspectActions",
             "applyFeatureReuse",
+            "previewFeatureReuse",
             "faceCandidates",
             "previewFaces",
             "applyFaces",
@@ -1629,7 +1631,7 @@ class BrowserWorkspace:
             if request.recipe is None:
                 raise ValueError("expected a current recipe")
             self._check_capabilities(request.recipe)
-            _ = self.graph.replace(request.recipe, request.token)
+            _ = self.graph.replace_authored(request.recipe, request.token)
             return self._snapshot()
         if operation == "importRecipe":
             self._check_mutation()
@@ -1685,6 +1687,11 @@ class BrowserWorkspace:
             self._last_token, self._last_error = "", None
             self._job_errors.clear()
             return {"active": "nozzle"}
+        if operation == "previewFeatureReuse":
+            self._check_mutation()
+            return preview_feature_reuse(
+                self.graph, ReuseAuthoringRequest.model_validate(payload)
+            )
         if operation == "applyFeatureReuse":
             self._check_mutation()
             request = ReuseAuthoringRequest.model_validate(payload)

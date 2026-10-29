@@ -55,6 +55,7 @@ UI_FILES = (
     "model-picking.js",
     "selection.js",
     "selection-owned-editor.js",
+    "circular-reuse-editor.js",
     "navigation.js",
     "navigation-math.js",
     "style.css",

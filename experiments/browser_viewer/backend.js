@@ -2,7 +2,7 @@ import { BackendError, createHttpBackend } from './http-backend.js';
 
 const operations = ['loadWorkspace', 'getGraph', 'replaceRecipe',
   'importRecipe', 'exportRecipe', 'evaluateGraph', 'ensureGraph', 'graphUpdates',
-  'getExampleRecipe', 'listExamples', 'selectExample', 'applyFeatureReuse',
+  'getExampleRecipe', 'listExamples', 'selectExample', 'previewFeatureReuse', 'applyFeatureReuse',
   'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'close'];
 
 // Additional implementations supply the same operations; no transport fallback.

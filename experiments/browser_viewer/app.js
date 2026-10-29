@@ -30,6 +30,7 @@ import { exportInputIssues, exportScopePlan } from './cad-export.js';
 import { bodyEdgePaths, bodyFaceChoices, bodyFaceSelection, bodyInputs, bodyProblems, initialBodyTolerance } from './body-ui.js';
 import { fitQualities, parseRmsLimit, residualRange, resultResidualSurfaces } from './residual-display.js';
 import { selectionVolumePositions } from './reuse-volume.js';
+import { createCircularReuseEditor, createCircularSourceFitEditor } from './circular-reuse-editor.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
 import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
@@ -87,6 +88,7 @@ function queueEnsureAll() {
 const viewport = $('viewport');
 viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
+let circularReusePreview, circularCreateEditor, circularPropertiesEditor, circularSourceFitEditor;
 let metadata,
   positions,
   session,
@@ -1598,6 +1600,46 @@ function paintOwnedVolumePreview(preview) {
   }
   draw();
 }
+function paintCircularReusePreview(preview) {
+  if (!circularReusePreview) return;
+  for (const child of [...circularReusePreview.children]) {
+    circularReusePreview.remove(child); child.geometry.dispose(); child.material.dispose(); child.dispose?.();
+  }
+  circularReusePreview.userData.supportCells = 0;
+  circularReusePreview.userData.occurrences = 0;
+  if (preview) {
+    const support = preview.geometry, placements = preview.placements;
+    const bound = 3.402823466e38;
+    for(const placement of placements){
+      const r=placement.rotation,t=placement.translation;
+      if(r?.length!==3||r.some(row=>row?.length!==3||!row.every(Number.isFinite))||t?.length!==3||!t.every(value=>Number.isFinite(value)&&Math.abs(value)<=bound))
+        throw Error('Circular placement exceeds the display coordinate range. Review the axis before applying.');
+      for(const x of [support.bounds.min[0],support.bounds.max[0]])for(const y of [support.bounds.min[1],support.bounds.max[1]])for(const z of [support.bounds.min[2],support.bounds.max[2]])
+        if(!t.every((value,index)=>Number.isFinite(value+x*r[0][index]+y*r[1][index]+z*r[2][index])&&Math.abs(value+x*r[0][index]+y*r[1][index]+z*r[2][index])<=bound))
+          throw Error('Circular support exceeds the display coordinate range. Review the axis before applying.');
+    }
+    for (const [distance,color,opacity] of [[0,'#78d7ef',0.3],[-(support.resolved?.inward_thickness || 0),'#f2b544',0.13],
+      [support.resolved?.outward_thickness || 0,'#bd91f4',0.13]]) {
+      const positions = Float32Array.from(support.positions,(value,index)=>value+distance*support.normals[index]);
+      if(!positions.every(Number.isFinite)){
+        paintCircularReusePreview(null);
+        throw Error('Volume normal-offset guides exceed the display coordinate range. Review the source volume controls before applying.');
+      }
+      const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
+      const material = new THREE.MeshBasicMaterial({color,transparent:true,opacity,side:THREE.DoubleSide,depthWrite:false,depthTest:false});
+      const object = new THREE.InstancedMesh(geometry,material,placements.length);
+      for (const [index,placement] of placements.entries()) {
+        const r=placement.rotation,t=placement.translation;
+        object.setMatrixAt(index,new THREE.Matrix4().set(r[0][0],r[1][0],r[2][0],t[0],
+          r[0][1],r[1][1],r[2][1],t[1],r[0][2],r[1][2],r[2][2],t[2],0,0,0,1));
+      }
+      object.instanceMatrix.needsUpdate=true;object.renderOrder=8;circularReusePreview.add(object);
+    }
+    circularReusePreview.userData.supportCells = support.total_cells;
+    circularReusePreview.userData.occurrences = placements.length;
+  }
+  draw();
+}
 function graphNode(id) {
   return graphState?.recipe.nodes.find((n) => n.id === referenceFeature(readInputReference(id)));
 }
@@ -2261,9 +2303,9 @@ async function replaceRecipe(recipe, autoEvaluate = true, expectedToken = graphS
     return false;
   }
 }
-async function applyFeatureReuse(reuseId, changes, create = false) {
+async function applyFeatureReuse(reuseId, changes, create = false, authoring = null) {
   try {
-    const state = await backend.applyFeatureReuse({
+    const state = await backend.applyFeatureReuse(authoring || {
       token: graphState.token, reuse_id: reuseId, changes,
       allocation_seed: uid('reuse_ids'), create,
     });
@@ -2280,6 +2322,17 @@ async function applyFeatureReuse(reuseId, changes, create = false) {
     status(error.message, true);
     return false;
   }
+}
+function featureReuseChanges(prefix, editor, base = {}) {
+  const fits = chosen(prefix + 'fits');
+  if (!fits.length) throw Error('Choose at least one fitted feature.');
+  const values = {...base, fits, equal_corresponding_dimensions: $(prefix + 'equal-dimensions').checked};
+  if (editor.circular) return {...values, circular: editor.definition()};
+  const reference = $(prefix + 'reference').value, targets = chosen(prefix + 'target');
+  if (!reference || !targets.length || targets.includes(reference)) throw Error('Choose a painted reference and one or more different painted target selections.');
+  return {...values, circular: null, reference_selection: reference, target_selections: targets,
+    tangent_margin: Number($(prefix + 'tangent-margin').value), normal_margin: Number($(prefix + 'normal-margin').value),
+    normal_angle_degrees: Number($(prefix + 'normal-angle').value)};
 }
 async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput = false) {
   const recipe = structuredClone(graphState.recipe);
@@ -2320,6 +2373,7 @@ function acceptGraph(state) {
     $('build-faces-candidate-status').textContent = 'Actions changed. Find candidate neighbors again before previewing.';
   }
   graphState = state;
+  circularCreateEditor?.sync(); circularPropertiesEditor?.sync();
   buildFacesAcceptedContext = buildFacesAcceptedContext.filter((saved) => saved.token === state.token &&
     state.recipe.nodes.some((node) => node.id === saved.id) && !['ready', 'failed', 'blocked'].includes(state.states[saved.id]));
   const sourceHash = state.recipe.nodes.find((node) => node.operation === 'source')?.source_sha256,
@@ -2395,6 +2449,8 @@ function acceptGraph(state) {
   }
   if ($('axis-solve-dialog').open) refreshJointFactors('new-');
   showResult();
+  const reuseInspected = graphNode(editingFeatureId || selectedFeatureId);
+  circularPropertiesEditor?.updateResult(reuseInspected,state.results?.[reuseInspected?.id]);
   showReuseVolumes();
   paint();
   if ($('build-faces-dialog').open) {
@@ -2697,6 +2753,7 @@ function showSourceProperties(node) {
 function showProperties(force = false) {
   supportAuthorityControl();
   const ownedNode = graphNode(editingFeatureId || selectedFeatureId);
+  if (ownedNode?.operation !== 'fit') circularSourceFitEditor?.show(null);
   const showOwned = ownedNode?.operation === 'selection' && metadata?.selection_volumes?.version === 1 &&
     backend.capabilities.selectionVolumes;
   ownedSelectionEditor?.show(showOwned ? ownedSelectionContext || { selection: ownedNode.id } : null);
@@ -2710,6 +2767,7 @@ function showProperties(force = false) {
     $('feature-state').textContent = actionDescription(node,
       presentation.states[node.id], presentation.errors[node.id]);
     if (node.operation === 'source') showSourceProperties(node);
+    if (node.operation === 'feature_reuse') circularPropertiesEditor?.updateResult(node,graphState.results[node.id]);
     if (node.operation === 'axis_solve') {
       const earlier = graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
         axis = $('axis-solve-axis').value;
@@ -2837,6 +2895,7 @@ function showProperties(force = false) {
       earlier.filter((n) => selectionOperations.includes(n.operation)),
       node.selections,
     );
+    circularSourceFitEditor?.show(node,{fresh:force});
     fitReferenceChoices(
       'fit-reference',
       node.kind,
@@ -3028,6 +3087,8 @@ function showProperties(force = false) {
     $('feature-reuse-normal-angle').value = node.normal_angle_degrees;
     $('feature-reuse-equal-dimensions').checked =
       node.equal_corresponding_dimensions === true;
+    circularPropertiesEditor?.open(node,{fresh:force});
+    circularPropertiesEditor?.updateResult(node,graphState.results[node.id]);
   } else if (node.operation === 'reuse_selection') {
     choices(
       'reuse-selection-reuse',
@@ -3858,6 +3919,14 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     values['Resolved vertices'] = result.vertex_count;
   } else if (node.operation === 'feature_reuse') {
     const matches = Object.values(result.matches);
+    if (node.circular) {
+      values['Placement'] = 'Circular · independent occurrence fits';
+      values['Occurrences including original'] = node.circular.count;
+      values['Angular spacing'] = `${360/node.circular.count}°`;
+      values['Axis'] = graphNode(node.circular.axis)?.label || node.circular.axis;
+      values['Source volumes'] = node.circular.volumes.length;
+      values['Captured lineage actions'] = result.lineage.length;
+    } else {
     values['Targets'] = matches.length;
     values['Worst match RMS'] = Math.max(...matches.map((match) => match.rms)).toFixed(4);
     values['Lowest rotation ambiguity ratio'] = Math.min(
@@ -3865,6 +3934,7 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     ).toFixed(2);
     values['Reference vertices'] = matches[0].source_count;
     values['Captured lineage actions'] = result.lineage.length;
+    }
   } else if (node.operation === 'reuse_selection') {
     values['Resolved vertices'] = result.vertex_count;
     values['Source selection'] = graphNode(result.source_selection).label;
@@ -4236,7 +4306,8 @@ function prepareWorkspace(bundle) {
       group.clear();
       geometries.forEach(value => value.dispose()); materials.forEach(value => value.dispose());
     };
-    for (const group of [overlays, reuseVolumes, constructedFaces, bodyInspection, modelPickGuides,
+    circularCreateEditor?.clear(); circularPropertiesEditor?.clear();
+    for (const group of [overlays, reuseVolumes, circularReusePreview, constructedFaces, bodyInspection, modelPickGuides,
       modelPickSourceFaces, buildFacesOverlays, relationshipOverlays, buildFacesContext]) clear(group);
     installed = true;
     mesh.geometry = geometry;
@@ -4508,6 +4579,7 @@ async function start(recoveredState) {
   reuseVolumes = new THREE.Group();
   reuseVolumes.userData.volumeCount = 0;
   modelRoot.add(reuseVolumes);
+  circularReusePreview = new THREE.Group(); modelRoot.add(circularReusePreview);
   ownedVolumePreview = new THREE.Group();
   modelRoot.add(ownedVolumePreview);
   buildFacesOverlays = new THREE.Group();
@@ -4536,7 +4608,7 @@ async function start(recoveredState) {
   // another form. These buttons are reparented into toolbar hosts at runtime.
   document.addEventListener('click', event => {
     const button = event.target.closest('button');
-    if (!button || !(button.id.startsWith('new-') ||
+    if (!button || button.closest('.workspace-edit-workflow') || !(button.id.startsWith('new-') ||
       button.id === 'add-selection')) return;
     if (button.id === 'new-project') return;
     if (!prepareEditSession()) {
@@ -4546,6 +4618,8 @@ async function start(recoveredState) {
   }, true);
   document.addEventListener('edit-session-closed', () => {
     clearOwnedSelection();
+    circularCreateEditor?.clear(); circularPropertiesEditor?.clear();
+    paintCircularReusePreview(null);
     editingFeatureId = null;
     delete $('feature-properties-panel').dataset.editOwner;
     if (modelPickField) modelPickField.suspended = false;
@@ -4658,6 +4732,7 @@ async function start(recoveredState) {
       setModelPickMode(null);
   });
   for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('close', () => {
+    if (dialog.id === 'feature-reuse-dialog' && !dialog.open) circularCreateEditor?.clear();
     if (modelPickField?.dialog === dialog && !dialog.open) {
       modelPickField.suspended = false;
       delete dialog.dataset.modelPickSuspended;
@@ -5170,8 +5245,8 @@ async function start(recoveredState) {
       selections = graphState.recipe.nodes.filter(
         (node) => selectionOperations.includes(node.operation),
       );
-    if (!fits.length || selections.length < 2) {
-      status('Feature reuse needs at least one cylinder, cone or plane fit and two selections.', true);
+    if (!fits.length) {
+      status('Feature reuse needs at least one cylinder, cone or plane fit.', true);
       return;
     }
     const selected = graphNode(selectedFeatureId),
@@ -5186,11 +5261,12 @@ async function start(recoveredState) {
       fits,
       selected?.operation === 'fit' && fits.includes(selected) ? [selected.id] : [],
     );
-    choices('new-feature-reuse-reference', selections, [reference.id]);
-    choices('new-feature-reuse-target', selections, [target.id]);
+    choices('new-feature-reuse-reference', selections, reference ? [reference.id] : []);
+    choices('new-feature-reuse-target', selections, target ? [target.id] : []);
     $('new-feature-reuse-equal-dimensions').checked = false;
     $('feature-reuse-error').textContent = '';
     showCreateDialog('feature-reuse-dialog', 'new-feature-reuse-label', 'Feature reuse');
+    circularCreateEditor.open(null,{fresh:true});
   };
   const regionFits = (selectionId, nodes = graphState.recipe.nodes) =>
     nodes.filter(
@@ -5599,32 +5675,13 @@ async function start(recoveredState) {
     );
   $('add-feature-reuse-form').onsubmit = async (event) => {
     event.preventDefault();
-    const fitIds = chosen('new-feature-reuse-fits'),
-      referenceSelection = $('new-feature-reuse-reference').value,
-      targetSelections = chosen('new-feature-reuse-target');
-    if (!fitIds.length || !referenceSelection || !targetSelections.length) {
-      $('feature-reuse-error').textContent =
-        'Choose at least one fit, a painted reference, and one or more painted targets.';
-      return;
-    }
-    if (targetSelections.includes(referenceSelection)) {
-      $('feature-reuse-error').textContent =
-        'The reference selection cannot also be a target.';
-      return;
-    }
-    const saved = await applyFeatureReuse(uid('feature_reuse'), {
-      label: submittedFeatureLabel('new-feature-reuse-label'),
-      fits: fitIds,
-      reference_selection: referenceSelection,
-      target_selections: targetSelections,
-      tangent_margin: Number($('new-feature-reuse-tangent-margin').value),
-      normal_margin: Number($('new-feature-reuse-normal-margin').value),
-      normal_angle_degrees: Number($('new-feature-reuse-normal-angle').value),
-      equal_corresponding_dimensions:
-        $('new-feature-reuse-equal-dimensions').checked,
-    }, true);
-    if (saved) $('feature-reuse-dialog').close();
-    else $('feature-reuse-error').textContent = $('status').textContent;
+    try {
+      const changes = featureReuseChanges('new-feature-reuse-',circularCreateEditor,{label:submittedFeatureLabel('new-feature-reuse-label')}),
+        payload = circularCreateEditor.authoring(changes);
+      const saved = await applyFeatureReuse(payload.reuse_id,changes,true,payload);
+      if (saved) $('feature-reuse-dialog').close();
+      else $('feature-reuse-error').textContent = $('status').textContent;
+    } catch (error) { $('feature-reuse-error').textContent = error.message; status(error.message,true); }
   };
   $('add-selection-region-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -6164,6 +6221,8 @@ async function start(recoveredState) {
           node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
         } catch (error) { status(error.message, true); return; }
         setFitReference(node, $('fit-reference').value);
+        try { circularSourceFitEditor.apply(recipe,node.id); }
+        catch (error) { status(error.message,true); return; }
       }
     }
     if (node.operation === 'axis') {
@@ -6283,19 +6342,12 @@ async function start(recoveredState) {
       node.clock_plane = $('region-selection-clock').value;
     }
     if (node.operation === 'feature_reuse') {
-      const saved = await applyFeatureReuse(node.id, {
-        label: node.label,
-        group_id: node.group_id,
-        fits: chosen('feature-reuse-fits'),
-        reference_selection: $('feature-reuse-reference').value,
-        target_selections: chosen('feature-reuse-target'),
-        equal_corresponding_dimensions:
-          $('feature-reuse-equal-dimensions').checked,
-        tangent_margin: Number($('feature-reuse-tangent-margin').value),
-        normal_margin: Number($('feature-reuse-normal-margin').value),
-        normal_angle_degrees: Number($('feature-reuse-normal-angle').value),
-      });
-      if (saved) { showProperties(true); editWorkflowApplied(); }
+      try {
+        const changes = featureReuseChanges('feature-reuse-',circularPropertiesEditor,{label:node.label,group_id:node.group_id}),
+          payload = circularPropertiesEditor.authoring(changes);
+        const saved = await applyFeatureReuse(node.id,changes,false,payload);
+        if (saved) { showProperties(true); editWorkflowApplied(); }
+      } catch (error) { status(error.message,true); }
       return;
     }
     if (node.operation === 'coaxial') {
@@ -6900,6 +6952,15 @@ async function start(recoveredState) {
       }
     };
   }
+  const circularOptions = {backend,current:()=>({graph:graphState,generation:workspaceGeneration,locked:featureTreeLocked()}),onPreview:paintCircularReusePreview,onStatus:status,newId:uid};
+  circularSourceFitEditor = createCircularSourceFitEditor({root:$('fit-properties'),inputs:$('fit-inputs'),
+    current:()=>({graph:graphState,generation:workspaceGeneration})});
+  circularCreateEditor = createCircularReuseEditor({...circularOptions,root:$('add-feature-reuse-form'),prefix:'new-feature-reuse-',
+    isActive:()=>activeEditWorkflow()?.id==='feature-reuse-dialog',
+    changes:()=>featureReuseChanges('new-feature-reuse-',circularCreateEditor,{label:submittedFeatureLabel('new-feature-reuse-label')})});
+  circularPropertiesEditor = createCircularReuseEditor({...circularOptions,root:$('feature-reuse-properties'),prefix:'feature-reuse-',
+    isActive:()=>activeEditWorkflow()?.id==='feature-properties-panel'&&graphNode(editingFeatureId)?.operation==='feature_reuse',
+    changes:()=>{const node=graphNode(editingFeatureId||selectedFeatureId);return featureReuseChanges('feature-reuse-',circularPropertiesEditor,{label:node.label,group_id:node.group_id});}});
   ownedSelectionEditor = createSelectionOwnedEditor({ root: $('selection-owned-editor'), backend,
     getCurrent: () => ({ graph: graphState, metadata, generation: workspaceGeneration }),
     onGraph: graph => { acceptGraph(graph); if ($('auto-evaluate').checked) queueEnsureAll(); },

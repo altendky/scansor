@@ -46,6 +46,9 @@ from experiments.feature_inputs import (
     reference_key as input_reference_key,
 )
 from experiments.feature_reuse import (
+    MAX_CIRCULAR_MEMBERSHIPS,
+    MAX_CIRCULAR_SELECTION_VERTICES,
+    circular_placements,
     estimate_rigid_match,
     surface_region_frame,
     transformed_axis_geometry,
@@ -142,6 +145,14 @@ class ReusePlacement(Record):
     reuse: str
     source: str
     target_selection: str
+    occurrence: int | None = Field(default=None, ge=1, le=31, strict=True)
+
+    @model_serializer(mode="wrap")
+    def portable(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = handler(self)
+        if self.occurrence is None:
+            value.pop("occurrence", None)
+        return cast(dict[str, Any], value)
 
 
 class Node(Record):
@@ -292,6 +303,18 @@ class RegionSelection(Node):
     clock_plane: str
 
 
+class CircularVolume(Record):
+    fit: str
+    source_selection: str
+    volume: VolumeReference
+
+
+class CircularReuse(Record):
+    axis: str
+    count: int = Field(ge=2, le=32, strict=True)
+    volumes: list[CircularVolume] = Field(min_length=1, max_length=99)
+
+
 class FeatureReuse(Node):
     """Reusable fit lineage placed by corresponding painted selections."""
 
@@ -304,6 +327,7 @@ class FeatureReuse(Node):
     normal_margin: float = Field(default=0.5, ge=0, allow_inf_nan=False)
     normal_angle_degrees: float = Field(default=30.0, gt=0, le=90, allow_inf_nan=False)
     equal_corresponding_dimensions: bool = False
+    circular: CircularReuse | None = None
 
 
 class ReuseSelection(Node):
@@ -314,6 +338,7 @@ class ReuseSelection(Node):
     fit: str
     source_selection: str
     target_selection: str
+    occurrence: int | None = Field(default=None, ge=1, le=31, strict=True)
 
 
 class Perpendicular(Node):
@@ -846,12 +871,26 @@ def dependencies(node: Feature) -> list[str]:
                     *node.fits,
                     *node.lineage,
                     node.reference_selection,
-                    *node.target_selections,
+                    *(
+                        [node.circular.axis]
+                        if node.circular
+                        else node.target_selections
+                    ),
+                    *(
+                        [item.volume.selection for item in node.circular.volumes]
+                        if node.circular
+                        else []
+                    ),
                 ]
             )
         )
     if isinstance(node, ReuseSelection):
-        return [node.reuse, node.fit, node.source_selection, node.target_selection]
+        return [
+            node.reuse,
+            node.fit,
+            node.source_selection,
+            *([] if node.occurrence is not None else [node.target_selection]),
+        ]
     if isinstance(node, Perpendicular):
         return [node.lateral, node.plane]
     if isinstance(node, Coaxial):
@@ -867,7 +906,11 @@ def dependencies(node: Feature) -> list[str]:
             return [
                 node.placement.reuse,
                 node.placement.source,
-                node.placement.target_selection,
+                *(
+                    []
+                    if node.placement.occurrence is not None
+                    else [node.placement.target_selection]
+                ),
             ]
         if node.source_fit is not None:
             return [node.source_fit]
@@ -919,7 +962,11 @@ def dependencies(node: Feature) -> list[str]:
                 [
                     node.placement.reuse,
                     node.placement.source,
-                    node.placement.target_selection,
+                    *(
+                        []
+                        if node.placement.occurrence is not None
+                        else [node.placement.target_selection]
+                    ),
                 ]
                 if node.placement
                 else []
@@ -1764,6 +1811,8 @@ def compile_execution_plan(
             }
         elif isinstance(node, ReuseSelection):
             reads[node.id] = {node.fit}
+        elif isinstance(node, FeatureReuse) and node.circular is not None:
+            reads[node.id] = {node.circular.axis}
         elif isinstance(node, SurfaceIntersection):
             reads[node.id] = {node.first.feature, node.second.feature}
         elif isinstance(node, TrimmedFace):
@@ -2012,7 +2061,14 @@ def selection_source(node: Feature, nodes: dict[str, Feature]) -> str:
     if isinstance(node, RegionSelection):
         return node.source
     if isinstance(node, ReuseSelection):
-        return selection_source(nodes[node.target_selection], nodes)
+        return selection_source(
+            nodes[
+                node.source_selection
+                if node.occurrence is not None
+                else node.target_selection
+            ],
+            nodes,
+        )
     if isinstance(node, Growth):
         fitted = nodes[node.seed_fit]
         if isinstance(fitted, SurfaceFit):
@@ -3370,6 +3426,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                     or placement.target_selection not in reuse.target_selections
                 ):
                     raise ValueError("datum placement requires a declared reuse target")
+                if (reuse.circular is None) != (placement.occurrence is None) or (
+                    placement.occurrence is not None
+                    and placement.target_selection
+                    != f"occurrence_{placement.occurrence}"
+                ):
+                    raise ValueError(
+                        "placed circular datum requires exact occurrence provenance"
+                    )
                 if type(source) is not type(node) or source.id not in reuse.lineage:
                     raise ValueError(
                         "datum placement requires a same-kind source in the reuse lineage"
@@ -3690,7 +3754,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError("a reuse feature cannot contain duplicate fits")
                 if len(set(node.target_selections)) != len(node.target_selections):
                     raise ValueError("a reuse feature cannot contain duplicate targets")
-                if node.reference_selection in node.target_selections:
+                if (
+                    node.circular is None
+                    and node.reference_selection in node.target_selections
+                ):
                     raise ValueError(
                         "reuse reference and target selections must be different"
                     )
@@ -3705,7 +3772,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     )
                 for selection_id in (
                     node.reference_selection,
-                    *node.target_selections,
+                    *(node.target_selections if node.circular is None else []),
                 ):
                     if not isinstance(
                         nodes[selection_id],
@@ -3716,7 +3783,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     selection_source(nodes[node.reference_selection], nodes),
                     *(
                         selection_source(nodes[selection_id], nodes)
-                        for selection_id in node.target_selections
+                        for selection_id in (
+                            node.target_selections if node.circular is None else []
+                        )
                     ),
                     *(
                         selection_source(nodes[selection_id], nodes)
@@ -3729,6 +3798,60 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError(
                         "reuse currently requires one source mesh for fits and matching selections"
                     )
+                if node.circular is not None:
+                    circular = node.circular
+                    if node.target_selections != [
+                        f"occurrence_{index}" for index in range(1, circular.count)
+                    ]:
+                        raise ValueError(
+                            "circular occurrence keys must match the declared total count"
+                        )
+                    axis = nodes[circular.axis]
+                    if not isinstance(axis, AxisDefinition) and not (
+                        isinstance(axis, SurfaceFit)
+                        and axis.kind in {"cylinder", "cone"}
+                    ):
+                        raise ValueError(
+                            "circular placement requires an upstream axis or revolution Fit"
+                        )
+                    from experiments.selection_volume_authoring import resolve_volume
+
+                    expected_roles = {
+                        (fit.id, selection)
+                        for fit in fits
+                        if isinstance(fit, SurfaceFit)
+                        for selection in fit.selections
+                    }
+                    actual_roles = [
+                        (item.fit, item.source_selection) for item in circular.volumes
+                    ]
+                    if (
+                        len(set(actual_roles)) != len(actual_roles)
+                        or set(actual_roles) != expected_roles
+                    ):
+                        raise ValueError(
+                            "choose exactly one explicit volume for every source Fit input"
+                        )
+                    for item in circular.volumes:
+                        owner, _, _ = resolve_volume(recipe, item.volume)
+                        if owner.id != item.source_selection:
+                            raise ValueError(
+                                "circular volumes must belong to their declared source selection"
+                            )
+                    from experiments.feature_reuse_authoring import (
+                        circular_child_operations,
+                    )
+
+                    expected_children = circular_child_operations(node, nodes)
+                    actual_children = {
+                        str(child.managed_key): child.operation
+                        for child in recipe.nodes
+                        if child.managed_by == node.id
+                    }
+                    if actual_children != expected_children:
+                        raise ValueError(
+                            "Circular pattern children must match the saved managed occurrence/role inventory; use explicit authoring to update it"
+                        )
                 available = {
                     key: value
                     for key, value in nodes.items()
@@ -3749,6 +3872,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if node.target_selection not in reuse.target_selections:
                     raise ValueError(
                         "a reused selection must name one target of its reuse feature"
+                    )
+                if (reuse.circular is None) != (node.occurrence is None) or (
+                    node.occurrence is not None
+                    and node.target_selection != f"occurrence_{node.occurrence}"
+                ):
+                    raise ValueError(
+                        "generated circular selection requires exact occurrence provenance"
                     )
                 if node.source_selection not in fitted.selections:
                     raise ValueError(
@@ -4459,6 +4589,31 @@ class FeatureGraph(Generic[WorkspaceType]):
                 },
             }
 
+    def replace_authored(self, value: object, token: str) -> dict[str, object]:
+        """Reconcile managed circular definitions only at an explicit edit boundary.
+
+        Loading, restoring and evaluating use ordinary replace/validation and
+        never acquire new children. Reconciliation and protected-removal checks
+        complete under the same stale cursor before publishing any edited state.
+        """
+        from experiments.feature_reuse_authoring import (
+            ReuseChanges,
+            reconcile_feature_reuse,
+        )
+
+        with self.lock:
+            if token != self._token():
+                raise StaleGraph(
+                    "graph changed before authored circular reconciliation"
+                )
+            recipe = Recipe.model_validate(value)
+            for owner in tuple(recipe.nodes):
+                if isinstance(owner, FeatureReuse) and owner.circular is not None:
+                    recipe = reconcile_feature_reuse(
+                        recipe, owner.id, ReuseChanges(), "circular-authored-refresh-v1"
+                    ).recipe
+            return self.replace(recipe, token)
+
     def replace(self, recipe: Recipe, token: str) -> dict[str, object]:
         recipe = self.validate(recipe)
         with self.lock:
@@ -4494,6 +4649,26 @@ class FeatureGraph(Generic[WorkspaceType]):
                     else previous.model_copy(update={"label": node.label}) != node
                 )
             }
+            from experiments.selection_volume_authoring import resolve_volume
+
+            for node in recipe.nodes:
+                previous = before.get(node.id)
+                if (
+                    isinstance(node, FeatureReuse)
+                    and node.circular is not None
+                    and isinstance(previous, FeatureReuse)
+                    and previous.circular is not None
+                ):
+                    old_volumes = [
+                        resolve_volume(self._recipe, item.volume)[2]
+                        for item in previous.circular.volumes
+                    ]
+                    new_volumes = [
+                        resolve_volume(recipe, item.volume)[2]
+                        for item in node.circular.volumes
+                    ]
+                    if old_volumes != new_volumes:
+                        affected.add(node.id)
             after_nodes = {n.id: n for n in recipe.nodes}
             changed_outputs = affected | (before.keys() - after_nodes.keys())
             # The build action's cached inventory also depends on its children,
@@ -5036,6 +5211,94 @@ class FeatureGraph(Generic[WorkspaceType]):
             retry_failed=retry_failed,
             cancelled=cancelled,
         )
+
+    def _circular_selection(
+        self,
+        recipe: Recipe,
+        reuse: FeatureReuse,
+        node: ReuseSelection,
+        rotation: np.ndarray,
+        translation: np.ndarray,
+        source_ids: list[int],
+        cancelled: Callable[[], bool] | None,
+    ) -> tuple[list[int], dict[str, Any]]:
+        from experiments.selection_entry_runtime import volume_frame, volume_geometry
+        from experiments.selection_volume import apply_selection_volume
+        from experiments.selection_volume_authoring import (
+            authoring_fingerprint,
+            resolve_volume,
+        )
+
+        assert reuse.circular is not None
+        reference = next(
+            item.volume
+            for item in reuse.circular.volumes
+            if item.fit == node.fit and item.source_selection == node.source_selection
+        )
+        owner, entry, volume = resolve_volume(recipe, reference)
+        if (
+            authoring_fingerprint(recipe, owner, entry, volume)
+            != volume.authoring_fingerprint
+        ):
+            raise ValueError(
+                "Refresh the circular source volume before selecting target observations"
+            )
+        geometry = volume_geometry(self._volume_cache, volume, cancelled=cancelled)
+        volume_origin, volume_basis = volume_frame(geometry)
+        frame, origin = self.workspace.frame, self.workspace.origin
+        # World scan observations -> inverse placed workspace frame -> captured frame.
+        query_rotation = frame @ rotation.T @ frame.T @ volume_basis
+        query_translation = (
+            (-origin @ frame - translation) @ rotation.T @ frame.T
+            + origin
+            - volume_origin
+        ) @ volume_basis
+        with self.lock:
+            previous = {
+                other.id: self._derived.get(other.id, {}).get("ids", [])
+                for other in recipe.nodes
+                if isinstance(other, ReuseSelection)
+                and other.reuse == node.reuse
+                and other.id != node.id
+                and self._states.get(other.id) == "ready"
+            }
+        remaining = min(
+            MAX_CIRCULAR_SELECTION_VERTICES,
+            MAX_CIRCULAR_MEMBERSHIPS - sum(map(len, previous.values())),
+        )
+        if remaining < 1:
+            raise ValueError("Circular pattern exceeds its aggregate membership budget")
+        ids = apply_selection_volume(
+            self.workspace.data.xyz,
+            self.workspace.data.normals,
+            self.workspace.data.weights,
+            geometry,
+            query_rotation=query_rotation,
+            query_translation=query_translation,
+            cancelled=cancelled,
+            max_selected=remaining,
+        )
+        selected_ids = set(ids)
+        overlaps: list[dict[str, Any]] = []
+        for selection, previous_ids in previous.items():
+            count = len(selected_ids.intersection(previous_ids))
+            if count:
+                overlaps.append({"selection": selection, "vertices": count})
+        return ids, {
+            "occurrence": node.occurrence,
+            "volume_reference": reference.model_dump(),
+            "volume_archive_sha256": volume.archive.sha256,
+            "placement": {
+                "rotation": rotation.tolist(),
+                "translation": translation.tolist(),
+            },
+            "selection_diagnostics": {
+                "source_vertices": len(source_ids),
+                "selected_vertices": len(ids),
+                "overlap_occurrence_zero": len(selected_ids.intersection(source_ids)),
+                "overlaps": overlaps,
+            },
+        }
 
     def _evaluate(
         self,
@@ -6919,17 +7182,22 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "vertex_count": len(ids),
                     }
                 elif isinstance(node, FeatureReuse):
-                    reference_ids = membership(node.reference_selection)
-                    normals = self.workspace.data.normals @ self.workspace.frame
-                    matches = {}
-                    for target_selection in node.target_selections:
-                        target_ids = membership(target_selection)
-                        matches[target_selection] = estimate_rigid_match(
-                            self.workspace.local[reference_ids],
-                            normals[reference_ids],
-                            self.workspace.local[target_ids],
-                            normals[target_ids],
+                    if node.circular is not None:
+                        matches = circular_placements(
+                            resolved_result(node.circular.axis), node.circular.count
                         )
+                    else:
+                        reference_ids = membership(node.reference_selection)
+                        normals = self.workspace.data.normals @ self.workspace.frame
+                        matches = {}
+                        for target_selection in node.target_selections:
+                            target_ids = membership(target_selection)
+                            matches[target_selection] = estimate_rigid_match(
+                                self.workspace.local[reference_ids],
+                                normals[reference_ids],
+                                self.workspace.local[target_ids],
+                                normals[target_ids],
+                            )
                     derived = {
                         "format": "scansor-feature-reuse-v1",
                         "fits": node.fits,
@@ -6948,7 +7216,6 @@ class FeatureGraph(Generic[WorkspaceType]):
                     rotation = np.asarray(match["rotation"], dtype=float)
                     translation = np.asarray(match["translation"], dtype=float)
                     source_ids = membership(node.source_selection)
-                    source_points = self.workspace.local[source_ids]
                     fit_result = prior_surfaces.get(node.reuse, {}).get(node.fit)
                     if fit_result is None:
                         fit_result = resolved_result(
@@ -6971,29 +7238,48 @@ class FeatureGraph(Generic[WorkspaceType]):
                         fit_initial, target_domain = transformed_fit_seed(
                             fit_result, rotation, translation
                         )
-                    source_origin, source_frame = surface_region_frame(
-                        source_points, fit_result
-                    )
-                    region = build_selection_region(
-                        source_points,
-                        self.workspace.data.normals[source_ids] @ self.workspace.frame,
-                        fit_result,
-                        source_origin,
-                        source_frame,
-                        tangent_margin=reuse.tangent_margin,
-                        normal_margin=reuse.normal_margin,
-                        normal_angle_degrees=reuse.normal_angle_degrees,
-                    )
-                    target_origin = source_origin @ rotation + translation
-                    target_frame = rotation.T @ source_frame
-                    ids = apply_selection_region(
-                        self.workspace.local,
-                        self.workspace.data.normals @ self.workspace.frame,
-                        self.workspace.data.weights,
-                        region,
-                        target_origin,
-                        target_frame,
-                    )
+                    volume_output: dict[str, Any]
+                    if reuse.circular is not None:
+                        ids, volume_output = self._circular_selection(
+                            recipe,
+                            reuse,
+                            node,
+                            rotation,
+                            translation,
+                            source_ids,
+                            cancelled,
+                        )
+                    else:
+                        source_points = self.workspace.local[source_ids]
+                        source_origin, source_frame = surface_region_frame(
+                            source_points, fit_result
+                        )
+                        region = build_selection_region(
+                            source_points,
+                            self.workspace.data.normals[source_ids]
+                            @ self.workspace.frame,
+                            fit_result,
+                            source_origin,
+                            source_frame,
+                            tangent_margin=reuse.tangent_margin,
+                            normal_margin=reuse.normal_margin,
+                            normal_angle_degrees=reuse.normal_angle_degrees,
+                        )
+                        target_origin = source_origin @ rotation + translation
+                        target_frame = rotation.T @ source_frame
+                        ids = apply_selection_region(
+                            self.workspace.local,
+                            self.workspace.data.normals @ self.workspace.frame,
+                            self.workspace.data.weights,
+                            region,
+                            target_origin,
+                            target_frame,
+                        )
+                        volume_output = {
+                            "region": region,
+                            "target_origin": target_origin.tolist(),
+                            "target_rotation": target_frame.tolist(),
+                        }
                     derived = {
                         "ids": ids,
                         "reuse": node.reuse,
@@ -7001,9 +7287,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "source_selection": node.source_selection,
                         "target_selection": node.target_selection,
                         "vertex_count": len(ids),
-                        "region": region,
-                        "target_origin": target_origin.tolist(),
-                        "target_rotation": target_frame.tolist(),
+                        **volume_output,
                         "fit_initial": fit_initial,
                         "target_axial_domain": target_domain,
                     }
