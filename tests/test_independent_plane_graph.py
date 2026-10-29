@@ -151,6 +151,7 @@ def test_plane_relationship_to_observations_uses_own_offset(
     assert state["states"]["relation"] == "ready", state["errors"]
     result = state["results"]
     datum, cap = result["datum"]["plane_equation"], result["cap"]["plane_equation"]
+    assert result["datum"]["offset"] == pytest.approx(datum[3])
     assert np.linalg.norm(np.cross(datum[:3], cap[:3])) < 1e-7
     if relation == "parallel":
         assert datum[3] == pytest.approx(30)
@@ -229,6 +230,46 @@ def test_exact_automatic_context_is_fixed_without_feedback_and_invalidates(
     again = evaluated(graph, "alignment")
     assert again["results"]["datum"]["plane_equation"][3] == pytest.approx(-9)
     assert again["results"]["follower"]["plane_equation"][3] == pytest.approx(7)
+    assert graph.export_recipe() == saved
+
+
+def test_exact_fixed_plane_coincidence_publishes_solved_offset_metadata(
+    fixture: tuple[NozzleWorkspace, list[dict[str, Any]]],
+) -> None:
+    graph = normal_bound_graph(fixture)
+    first = evaluated(graph, "cap")
+    saved = graph.export_recipe()
+    saved["nodes"].extend(
+        [
+            independent("follower", initial_normal=[0, 1, 0], offset=30),
+            {
+                "id": "coincidence",
+                "label": "coincidence",
+                "operation": "plane_relationship",
+                "relation": "coincident",
+                "surfaces": [
+                    {"feature": "cap", "output": "plane", "context": "@plane/datum"},
+                    {"feature": "follower", "output": "plane", "context": "follower"},
+                ],
+            },
+        ]
+    )
+    _ = graph.replace(Recipe.model_validate(saved), str(first["token"]))
+    saved = graph.export_recipe()
+    nodes = {node.id: node for node in Recipe.model_validate(saved).nodes}
+    component = describe_geometry_influence(nodes).plane_components["coincidence"]
+    assert not component[1], (
+        "the exact published plane is a fixed read, not raw evidence"
+    )
+    state = evaluated(graph, "coincidence")
+    assert state["states"]["coincidence"] == "ready", state["errors"]
+    follower = state["results"]["follower"]
+    assert follower["offset"] == pytest.approx(follower["plane_equation"][3])
+    np.testing.assert_allclose(
+        follower["plane_equation"], first["results"]["cap"]["plane_equation"], atol=1e-8
+    )
+    assert abs(follower["offset"] - 30) > 20
+    assert state["derived"]["follower"]["offset"] == 30
     assert graph.export_recipe() == saved
 
 

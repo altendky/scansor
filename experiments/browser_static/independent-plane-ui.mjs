@@ -207,20 +207,48 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     assert(normalError(moved.slice(0, 3), fixture.truth['joint-plane'].direction) < 1e-6);
     closeNumber(state.recipe.nodes.find(node => node.id === offsetDatum.id).offset, 30);
     await assertObservations();
+    report.phase = 'exact-fixed-plane-coincident-offset';
+    await auto.uncheck();
+    const fixedPlane = reference(bound.id, 'plane', '@plane/'+datum.id);
+    const fixedEquation = structuredClone(state.results[bound.id].plane_equation);
+    const fixedFollower = await addIndependent('Exact published plane follower', [0, 1, 0], 30);
+    const fixedCoincident = await addRelationship('coincident_planes', 'Follower joins exact published plane',
+      [fixedPlane, reference(fixedFollower.id)]);
+    assert.deepEqual(fixedCoincident.surfaces.map(key).sort(), [fixedPlane, reference(fixedFollower.id)].map(key).sort());
+    assert.equal((await graph()).results[fixedCoincident.id], undefined);
+    await auto.check(); state = await waitReady(fixedCoincident.id);
+    const assertFixedFollower = current => {
+      const follower = current.results[fixedFollower.id];
+      assert(normalError(follower.plane_equation.slice(0, 3), fixedEquation.slice(0, 3)) < 1e-6);
+      closeNumber(follower.offset, follower.plane_equation[3]);
+      closeNumber(follower.offset, fixedEquation[3]);
+      assert(Math.abs(follower.offset-30) > 20);
+      closeNumber(current.recipe.nodes.find(node => node.id === fixedFollower.id).offset, 30);
+      assert.deepEqual(current.recipe.nodes.find(node => node.id === fixedFollower.id).initial_normal, [0, 1, 0]);
+      assert.deepEqual(current.recipe.nodes.find(node => node.id === fixedCoincident.id).surfaces, fixedCoincident.surfaces);
+      assert(current.derived[fixedCoincident.id].resolved[fixedFollower.id]);
+      assert.equal(current.derived[fixedCoincident.id].resolved[bound.id], undefined);
+      assert.deepEqual(current.results[bound.id].plane_equation, fixedEquation);
+    };
+    assertFixedFollower(state); await assertObservations();
     report.phase = 'actions-reopen';
     const downloading = page.waitForEvent('download');
     await page.getByRole('button', {name: 'Save actions', exact: true}).click();
     const savedActions = await downloadBytes(await downloading), before = structuredClone(state.recipe);
+    const previousGeneration = (await read()).generation;
     await page.locator('#file').setInputFiles({name: 'independent-plane-actions.json', mimeType: 'application/json', buffer: savedActions});
-    await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.id === coincident.id)).toBe(true);
-    state = await waitReady(coincident.id); assert.deepEqual(state.recipe, before);
+    await expect.poll(async () => (await read()).generation).toBeGreaterThan(previousGeneration);
+    await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.id === fixedCoincident.id)).toBe(true);
+    state = await waitReady(fixedCoincident.id); assert.deepEqual(state.recipe, before);
     assert.deepEqual(state.recipe.nodes.find(node => node.id === alignment.id).directions, alignment.directions);
+    assertFixedFollower(state);
     await assertObservations();
     report.complete = true; report.phase = 'complete';
     Object.assign(report, {no_axis_creation: true, independent_default: true, zero_normal_rejected: true,
       initial_normal_and_offset: true, properties_edit: true, legacy_switch_roundtrip: true,
       exact_pending_plane_context: true, fitted_orientation_with_unused_offset_preserved: true,
-      coincident_offset_adjustable: true, authored_initializers_preserved: true, actions_reopen: true,
+      coincident_offset_adjustable: true, exact_fixed_context_offset_metadata: true,
+      authored_initializers_preserved: true, actions_reopen: true,
       source_and_observation_ids_preserved: true});
     return report;
   } catch (error) {error.message = `${report.phase}: ${error.message}`; throw error;}

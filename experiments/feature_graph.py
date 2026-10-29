@@ -7115,6 +7115,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             ),
                         ),
                         **value,
+                        "offset": float(equation[3]),
                     }
             # Source-fit datums are derived publications, never extra free
             # direction variables. Publish them from this exact solved source.
