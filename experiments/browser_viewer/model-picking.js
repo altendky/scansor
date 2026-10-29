@@ -227,14 +227,23 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     feedback.textContent = pickFieldFeedback(records, { label, disabled: locked, busy, emptyMessage });
     feedback.hidden = !feedback.textContent;
     selected.hidden = !multiple;
-    if (multiple) selected.replaceChildren(...chosen.map(record => {
+    if (multiple) selected.replaceChildren(...chosen.map((record, index) => {
       const row = root.createElement('li'), name = root.createElement('button'), remove = root.createElement('button');
       row.className = 'selection-field-row';
       row.dataset.selectionKey = record.key;
       name.type = remove.type = 'button';
       name.className = 'selection-field-name';
-      name.textContent = record.label;
-      name.title = record.label;
+      if (record.detail) {
+        const title = root.createElement('span'), detail = root.createElement('span');
+        title.className = 'selection-field-title';
+        title.textContent = record.label;
+        detail.className = 'selection-field-detail';
+        detail.id = `${popup.id}-selected-detail-${index}`;
+        detail.textContent = record.detail;
+        remove.setAttribute('aria-describedby', detail.id);
+        name.append(title, detail);
+      } else name.textContent = record.label;
+      name.title = [record.label, record.detail].filter(Boolean).join(' — ');
       name.disabled = remove.disabled = locked;
       name.onclick = () => button.click();
       remove.className = 'selection-field-remove';

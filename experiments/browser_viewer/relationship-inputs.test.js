@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inputReferenceKey } from './feature-inputs.js';
 import { relationshipParticipantChoices, relationshipSelectionForFeatures, relationshipValidity,
-  relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary, relationshipInputOptions } from './relationship-inputs.js';
+  relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary, relationshipInputOptions,
+  relationshipParticipantPresentation } from './relationship-inputs.js';
 import { axisFactorAxis, axisFactorMembers, axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
 import { directionAlignmentLabel, directionJointInputs, directionJointValidity, isDirectionJoint,
   relationshipDefinitions } from './relationship-inputs.js';
@@ -12,6 +13,49 @@ test('relationship property descriptions follow the same role contracts as eligi
     repeated: {property: 'plane_orientation'}}};
   assert.equal(relationshipPropertySummary(state, {requirements: ['orientation', 'plane', 'repeated']}), 'plane orientation, plane');
   assert.equal(relationshipPropertySummary(state, {requirements: ['unknown']}), '');
+});
+
+test('participant roles describe the requested property rather than the output global owner', () => {
+  const state = {input_contracts: {
+    direction: {property: 'direction', uses: ['binding', 'geometry']},
+    plane: {property: 'plane', uses: ['binding', 'geometry']},
+    geometry: {property: 'plane', uses: ['geometry']},
+    defaultGeometry: {property: 'plane'},
+  }}, owner = {feature: 'datum', output: 'plane'},
+    output = {reference: {feature: 'datum', output: 'plane', context: 'datum'},
+      feature_label: 'Reference plane', label: 'Reference plane — plane', compatible: true,
+      availability: 'ready', parameter_owner: owner, requirements: ['direction'],
+      producing_context: {id: 'datum', label: 'Reference plane', kind: 'feature'},
+      properties: {direction: {binding_eligible: false, parameter_owner: null, uses: ['geometry']},
+        plane: {binding_eligible: true, parameter_owner: owner, uses: ['binding', 'geometry']}}};
+  const fixed = relationshipParticipantPresentation(state, output);
+  assert.equal(fixed.group, 'reference');
+  assert.match(fixed.detail, /direction.*Fixed for this relationship.*Provider updates still apply/);
+  const adjustable = relationshipParticipantPresentation(state, {...output, requirements: ['plane']});
+  assert.equal(adjustable.group, 'constrain');
+  assert.match(adjustable.detail, /plane.*Adjustable property/);
+  assert.equal(relationshipParticipantPresentation(state, {...output, requirements: ['geometry']}).group, 'reference');
+  assert.equal(relationshipParticipantPresentation(state, {...output, requirements: ['defaultGeometry']}).group, 'reference');
+});
+
+test('same-named publications retain distinct readable contexts and pending state in tokens and choices', () => {
+  const owner = {feature: 'axis', output: 'axis'},
+    state = {input_contracts: {direction: {property: 'direction', uses: ['binding', 'geometry']}},
+      states: {'@axis/axis': 'stale'}},
+    output = {reference: {feature: 'axis', output: 'axis', context: '@axis/axis'},
+      feature_label: 'interface A axis', label: 'interface A axis — axis', compatible: true,
+      availability: 'ready', requirements: ['direction'], parameter_owner: owner,
+      properties: {direction: {binding_eligible: true, parameter_owner: owner, uses: ['binding', 'geometry']}},
+      producing_context: {id: '@axis/axis', label: 'Shared-axis solve · interface A axis', kind: 'axis_solve'}};
+  const published = relationshipParticipantPresentation(state, output);
+  assert.equal(published.group, 'reference');
+  assert.equal(published.name, output.label);
+  assert.match(published.detail, /Fixed for this relationship.*Shared-axis solve.*Needs evaluation/);
+  assert.match(published.choiceLabel, /interface A axis.*Shared-axis solve/);
+  const other = relationshipParticipantPresentation(state, {...output,
+    producing_context: {id: 'joint', label: 'Refined interface', kind: 'solve'}});
+  assert.notEqual(published.detail, other.detail);
+  assert.deepEqual(output.reference, {feature: 'axis', output: 'axis', context: '@axis/axis'});
 });
 
 const plane = (feature, context = feature) => ({

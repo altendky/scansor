@@ -126,6 +126,196 @@ def test_point_and_plane_outputs_have_explicit_meaning_and_no_centroid() -> None
     }
 
 
+def test_direct_catalogue_outputs_identify_the_feature_without_changing_labels() -> (
+    None
+):
+    graph = recipe()
+    labels = {node.id: node.label for node in graph.nodes}
+    outputs = output_catalogue(graph)
+    for output in outputs:
+        reference = output["reference"]
+        assert reference["context"] == reference["feature"]
+        assert output["feature_label"] == labels[reference["feature"]]
+        assert output["producing_context"] == {
+            "id": reference["context"],
+            "label": labels[reference["feature"]],
+            "kind": "feature",
+        }
+    assert (
+        next(
+            output["label"]
+            for output in outputs
+            if output["reference"]
+            == {"feature": "plane", "output": "plane", "context": "plane"}
+        )
+        == "Plane — plane"
+    )
+
+
+@pytest.mark.parametrize("state", ["unevaluated", "stale"])
+def test_pending_automatic_publications_share_human_readable_producing_contexts(
+    state: str,
+) -> None:
+    payload = recipe().model_dump()
+    nodes = payload["nodes"]
+    next(node for node in nodes if node["id"] == "sphere")["point"] = "point"
+    nodes.extend(
+        [
+            {
+                "id": "lateral",
+                "label": "Long hole feature at Occurrence 30",
+                "operation": "fit",
+                "kind": "cylinder",
+                "axis": "axis",
+                "selections": ["many"],
+            },
+            {
+                "id": "free_plane",
+                "label": "Independent datum",
+                "operation": "reference_plane",
+                "construction": "independent",
+                "initial_normal": [0, 0, 1],
+                "initial_angle_degrees": None,
+            },
+            {
+                "id": "bound_plane",
+                "label": "Bound plane",
+                "operation": "fit",
+                "kind": "plane",
+                "reference_plane": "free_plane",
+                "selections": ["many"],
+            },
+        ]
+    )
+    graph = Recipe.model_validate(payload)
+    outputs = output_catalogue(
+        graph, dict.fromkeys((node.id for node in graph.nodes), state)
+    )
+    expected = {
+        "@axis/axis": ("Shared-axis solve · Axis", "axis_solve", {"axis", "lateral"}),
+        "@point/point": (
+            "Shared-point solve · Point",
+            "point_solve",
+            {"point", "sphere"},
+        ),
+        "@plane/free_plane": (
+            "Shared-plane solve · Independent datum",
+            "plane_solve",
+            {"free_plane", "bound_plane"},
+        ),
+    }
+    for context, (label, kind, aliases) in expected.items():
+        publications = [
+            output for output in outputs if output["reference"]["context"] == context
+        ]
+        assert aliases <= {output["reference"]["feature"] for output in publications}
+        assert all(
+            output["producing_context"] == {"id": context, "label": label, "kind": kind}
+            for output in publications
+        )
+        assert all(
+            output["availability"] == state and output["preview"] is None
+            for output in publications
+        )
+    lateral = [
+        output for output in outputs if output["reference"]["feature"] == "lateral"
+    ]
+    assert {output["reference"]["output"] for output in lateral} >= {
+        "surface",
+        "axis",
+        "radius",
+    }
+    assert all(
+        output["feature_label"] == "Long hole feature at Occurrence 30"
+        for output in lateral
+    )
+    assert all(
+        output["label"]
+        == f"Long hole feature at Occurrence 30 — {output['reference']['output']}"
+        for output in lateral
+    )
+    published_axis = next(
+        output
+        for output in outputs
+        if output["reference"]
+        == {"feature": "axis", "output": "axis", "context": "@axis/axis"}
+    )
+    direct_axis = next(
+        output
+        for output in outputs
+        if output["reference"]
+        == {"feature": "axis", "output": "axis", "context": "axis"}
+    )
+    assert published_axis["parameter_owner"] is None
+    assert direct_axis["parameter_owner"] is not None
+    assert direct_axis["producing_context"] == {
+        "id": "axis",
+        "label": "Axis",
+        "kind": "feature",
+    }
+
+
+def test_named_publications_retain_exact_context_and_solve_label() -> None:
+    payload = recipe().model_dump()
+    payload["nodes"].extend(
+        [
+            {
+                "id": "other_plane",
+                "label": "Other plane",
+                "operation": "fit",
+                "kind": "plane",
+                "selections": ["many"],
+            },
+            {
+                "id": "relation",
+                "label": "Parallel faces",
+                "operation": "plane_relationship",
+                "relation": "parallel",
+                "surfaces": ["plane", "other_plane"],
+            },
+            {
+                "id": "alignment",
+                "label": "Aligned faces",
+                "operation": "direction_alignment",
+                "directions": ["plane", "other_plane"],
+            },
+            {
+                "id": "joint",
+                "label": "Reviewed joint",
+                "operation": "joint_fit",
+                "constraints": ["relation", "alignment"],
+            },
+        ]
+    )
+    graph = Recipe.model_validate(payload)
+    outputs = output_catalogue(graph)
+    for context, label in [("relation", "Parallel faces"), ("joint", "Reviewed joint")]:
+        publications = [
+            output for output in outputs if output["reference"]["context"] == context
+        ]
+        assert {output["reference"]["feature"] for output in publications} >= {
+            "plane",
+            "other_plane",
+        }
+        assert all(
+            output["producing_context"]
+            == {"id": context, "label": label, "kind": "solve"}
+            for output in publications
+        )
+        plane = next(
+            output
+            for output in publications
+            if output["reference"]["feature"] == "plane"
+        )
+        assert plane["feature_label"] == "Plane"
+        assert plane["label"] == f"Plane — plane · {label}"
+        assert plane["reference"] == {
+            "feature": "plane",
+            "output": "plane",
+            "context": context,
+        }
+
+
 def test_availability_changes_do_not_change_reference_identity() -> None:
     graph = recipe()
     for state in ("unevaluated", "running", "stale", "failed", "blocked"):

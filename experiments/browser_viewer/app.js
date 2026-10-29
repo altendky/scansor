@@ -16,7 +16,7 @@ import {fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderF
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
-  axisSolveInputs, axisSolveValidity, relationshipPropertySummary, directionAlignmentLabel,
+  axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
@@ -244,12 +244,12 @@ function modelPickChoices({ tree = false } = {}) {
     }] : [];
   });
   const choices = relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds);
-  return [...$('relationship-participants').children].flatMap(row => {
+  return [...$('relationship-participants').querySelectorAll('.relationship-participant')].flatMap(row => {
     const checkbox = row.querySelector('input'), key = checkbox?.dataset.participantId,
       output = choices.find(choice => choice.key === key), node = graphNode(output?.reference?.feature),
       fitted = relationshipOutputValue(graphState, output);
     return output?.compatible && row.dataset.compatible !== 'false' && checkbox && !checkbox.disabled && (tree || fitted) ? [{
-      label: output.label, key, icon: node?.kind || node?.operation,
+      label: relationshipParticipantPresentation(graphState, output).choiceLabel, key, icon: node?.kind || node?.operation,
       reference: output.reference, checkbox, ids: fitted?.ids,
       relationshipOutput: output,
       ...(output.preview?.plane_equation ? { inputOutput: output } : {}),
@@ -414,6 +414,7 @@ function initializeSpecializedPickFields() {
       checkbox?.click();
     },
   });
+  relationshipParticipantField.element.classList.add('relationship-participant-field');
   relationshipParticipantField.button.id = 'pick-relationship-participant';
   $('relationship-participant-field').append(relationshipParticipantField.element);
 }
@@ -2125,15 +2126,10 @@ function renderRelationshipBuilder() {
   renderRelationshipParticipants($('relationship-participants'), {
     choices: relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds)
       .map(output => {
-        const node = graphNode(output.reference?.feature), compatible = output.compatible,
-          presentation = { name: output.label, icon: node?.kind || node?.operation || 'reference_plane',
-            detail: [relationshipPropertySummary(graphState, output), output.parameter_owner
-              ? 'Feature geometry · keeps its existing freedom' : 'Published geometry · fixed in this relationship']
-              .filter(Boolean).join(' · ') };
-        return { ...presentation, id: output.key, compatible,
-          detail: compatible ? `${presentation.detail}${output.availability === 'ready' ? '' : ' · Needs evaluation'}`
-            : `${presentation.detail} · ${output.reason || 'incompatible'}` };
-      }),
+        const node = graphNode(output.reference?.feature);
+        return { ...relationshipParticipantPresentation(graphState, output),
+          icon: node?.kind || node?.operation || 'reference_plane', id: output.key, compatible: output.compatible };
+      }).sort((first, second) => Number(first.group === 'reference') - Number(second.group === 'reference')),
     selected: relationshipParticipantIds,
     locked: () => featureTreeLocked() || relationshipApplying,
     change: (id, included) => {
@@ -2150,10 +2146,13 @@ function renderRelationshipBuilder() {
 }
 function filterRelationshipParticipants() {
   const filter = $('relationship-filter').value.trim().toLowerCase();
-  for (const row of $('relationship-participants').children)
+  const rows = [...$('relationship-participants').querySelectorAll('.relationship-participant')];
+  for (const row of rows)
     row.hidden = !row.querySelector('input').checked &&
       (row.dataset.compatible === 'false' || !row.dataset.search.includes(filter));
-  if (relationshipInspected && ![...$('relationship-participants').children].some((row) =>
+  for (const heading of $('relationship-participants').querySelectorAll('.relationship-participant-group'))
+    heading.hidden = !rows.some(row => !row.hidden && row.dataset.participantGroup === heading.dataset.participantGroup);
+  if (relationshipInspected && !rows.some((row) =>
     !row.hidden && row.querySelector('input').dataset.participantId === relationshipInspected))
     relationshipInspected = null;
   paintRelationshipPreview();
@@ -2162,7 +2161,8 @@ function updateRelationshipParticipantField() {
   if (!relationshipParticipantField) return;
   relationshipParticipantField.update(relationshipParticipantChoices(graphState,
     selectedRelationshipKind, relationshipParticipantIds).map(output => ({
-    key: output.key, label: output.label,
+    key: output.key, label: relationshipParticipantPresentation(graphState, output).name,
+    detail: relationshipParticipantPresentation(graphState, output).detail,
     selected: relationshipParticipantIds.has(output.key), disabled: !output.compatible,
     modelPickable: !!relationshipOutputValue(graphState, output),
     treePickable: output.compatible,
