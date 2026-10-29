@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,13 +35,19 @@ from scansor.constrained_least_squares import (
 )
 
 Array = NDArray[np.float64]
+DirectionKind = Literal["axis", "plane"]
+DirectionKey = tuple[DirectionKind, str]
 
 
 @dataclass(frozen=True)
 class AxisInput:
+    """Axis roles; optional property freedoms override the legacy free flag."""
+
     result: dict[str, Any]
     free: bool
     source: str | None = None
+    orientation_free: bool | None = None
+    position_free: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +56,8 @@ class PlaneInput:
 
     Omit offset_from_axis to retain a free plane's independent offset. Supplying
     it preserves a construction's placement while only orientation participates.
+    A false offset_free instead freezes the normalized signed WORLD offset.
+    Property freedoms omitted by old callers inherit the existing free flag.
     """
 
     result: dict[str, Any]
@@ -58,6 +66,22 @@ class PlaneInput:
     construction: str | None = None
     source: str | None = None
     offset_from_axis: float | None = None
+    orientation_free: bool | None = None
+    offset_free: bool | None = None
+
+
+@dataclass(frozen=True)
+class DirectionOperand:
+    kind: DirectionKind
+    key: str
+
+
+@dataclass(frozen=True)
+class DirectionAlignmentInput:
+    """Unsigned alignment, independent of axis position or plane offset."""
+
+    left: DirectionOperand
+    right: DirectionOperand
 
 
 @dataclass(frozen=True)
@@ -169,6 +193,7 @@ def fit_relationship_component(
     rotations: tuple[RotationInput, ...] = (),
     mirrors: tuple[MirrorInput, ...] = (),
     radius_distances: tuple[RadiusDistanceInput, ...] = (),
+    directions: tuple[DirectionAlignmentInput, ...] = (),
     gradient_tolerance: float | None = None,
     coordinate_frame: CoordinateFrame | None = None,
 ) -> dict[str, Any]:
@@ -186,7 +211,17 @@ def fit_relationship_component(
     if control is not None:
         control.checkpoint()
     planes = planes or {}
-    symmetry = bool(planes or rotations or mirrors or radius_distances)
+    symmetry = bool(
+        planes
+        or rotations
+        or mirrors
+        or radius_distances
+        or directions
+        or any(
+            axis.orientation_free is not None or axis.position_free is not None
+            for axis in axes.values()
+        )
+    )
     by_id = {surface.id: surface for surface in surfaces}
     if symmetry:
         if any(
@@ -209,6 +244,10 @@ def fit_relationship_component(
             or any(
                 not isinstance(cast(object, value), RadiusDistanceInput)
                 for value in radius_distances
+            )
+            or any(
+                not isinstance(cast(object, value), DirectionAlignmentInput)
+                for value in directions
             )
         ):
             raise RelationshipFailure(
@@ -262,6 +301,13 @@ def fit_relationship_component(
             elif not isinstance(cast(object, relation.plane), str):
                 raise RelationshipFailure("mirror datum ID must be a string")
         for datum in planes.values():
+            if any(
+                value is not None and type(value) is not bool
+                for value in (datum.orientation_free, datum.offset_free)
+            ):
+                raise RelationshipFailure(
+                    "plane property freedom must be boolean or absent"
+                )
             if datum.source is not None and not isinstance(
                 cast(object, datum.source), str
             ):
@@ -292,6 +338,13 @@ def fit_relationship_component(
         for key, axis in axes.items():
             if not isinstance(cast(object, axis), AxisInput):
                 raise RelationshipFailure("axis inputs have unsupported record types")
+            if any(
+                value is not None and type(value) is not bool
+                for value in (axis.orientation_free, axis.position_free)
+            ):
+                raise RelationshipFailure(
+                    "axis property freedom must be boolean or absent"
+                )
             if axis.source is not None and not isinstance(
                 cast(object, axis.source), str
             ):
@@ -311,6 +364,17 @@ def fit_relationship_component(
                 raise RelationshipFailure(
                     f"axis {key} needs finite point and direction"
                 )
+        for relation in directions:
+            for operand in (relation.left, relation.right):
+                if (
+                    not isinstance(cast(object, operand), DirectionOperand)
+                    or operand.kind not in {"axis", "plane"}
+                    or not isinstance(cast(object, operand.key), str)
+                    or not operand.key
+                ):
+                    raise RelationshipFailure(
+                        "direction operands need an axis or plane kind and a nonempty ID"
+                    )
     legacy = (
         not symmetry
         and not any(
@@ -361,7 +425,7 @@ def fit_relationship_component(
             np.concatenate([surface.points for surface in surfaces]), all_weights
         )
     else:
-        if not planes:
+        if not planes and not (axes and directions):
             raise RelationshipFailure("relationship needs observations or plane datums")
         all_weights = np.empty(0)
         frame = coordinate_frame or CoordinateFrame(np.zeros(3), 1.0)
@@ -389,24 +453,32 @@ def fit_relationship_component(
         else:
             fixed_points[key] = point
     axis_slots: dict[str, int] = {}
+    axis_position_slots: dict[str, int] = {}
+    axis_orientation_slots: dict[str, int] = {}
     axis_charts: dict[str, _AxisChart] = {}
     fixed_axes: dict[str, tuple[Array, Array]] = {}
     for key, axis in axes.items():
         if axis.source is not None:
             continue
         value = axis.result
+        position_free = axis.free if axis.position_free is None else axis.position_free
+        orientation_free = (
+            axis.free if axis.orientation_free is None else axis.orientation_free
+        )
         direction = np.array(value["axis_display"], dtype=float)
         direction_length = float(np.linalg.norm(direction))
         if not (
             symmetry
-            and not axis.free
+            and not orientation_free
             and abs(direction_length - 1) <= 8 * np.finfo(float).eps
         ):
             direction /= direction_length
         point = (np.asarray(value["point_display"], dtype=float) - origin) / length
-        if axis.free:
+        if position_free or orientation_free:
             axis_slots[key] = len(initial)
             if legacy:
+                axis_position_slots[key] = len(initial)
+                axis_orientation_slots[key] = len(initial) + 2
                 parameters = np.asarray(value["parameters"], dtype=float)
                 a, b = parameters[2:4]
                 axis_charts[key] = _AxisChart(np.zeros(3), np.eye(3))
@@ -423,7 +495,12 @@ def fit_relationship_component(
                 axis_charts[key] = _AxisChart(
                     point, np.column_stack((first, second, direction))
                 )
-                initial.extend([0.0, 0.0, 0.0, 0.0])
+                if position_free:
+                    axis_position_slots[key] = len(initial)
+                    initial.extend([0.0, 0.0])
+                if orientation_free:
+                    axis_orientation_slots[key] = len(initial)
+                    initial.extend([0.0, 0.0])
         else:
             if legacy:
                 if direction[2] < 0:
@@ -432,6 +509,10 @@ def fit_relationship_component(
                     point -= point[2] / direction[2] * direction
             fixed_axes[key] = (point, direction)
     plane_slots: dict[str, int] = {}
+    plane_normal_slots: dict[str, int] = {}
+    plane_offset_slots: dict[str, int] = {}
+    plane_fixed_normals: dict[str, Array] = {}
+    plane_world_offsets: dict[str, float] = {}
     fixed_planes: dict[str, tuple[Array, float]] = {}
     plane_alias_signs: dict[str, float] = {}
     plane_specs: dict[str, tuple[str | None, str | None]] = {}
@@ -479,9 +560,22 @@ def fit_relationship_component(
             continue
         offset = float((equation[3] - equation[:3] @ origin) / length)
         plane_specs[key] = (datum.axis, datum.construction)
-        if datum.free:
+        orientation_free = (
+            datum.free if datum.orientation_free is None else datum.orientation_free
+        )
+        offset_free = datum.free if datum.offset_free is None else datum.offset_free
+        if orientation_free or offset_free:
             plane_slots[key] = len(initial)
-            initial.extend([*equation[:3], offset])
+            if orientation_free:
+                plane_normal_slots[key] = len(initial)
+                initial.extend(equation[:3].tolist())
+            else:
+                plane_fixed_normals[key] = equation[:3].copy()
+            if offset_free:
+                plane_offset_slots[key] = len(initial)
+                initial.append(offset)
+            else:
+                plane_world_offsets[key] = float(equation[3])
         else:
             fixed_planes[key] = (equation[:3].copy(), offset)
     plane_keys: dict[str, str] = {key: key for key in planes}
@@ -517,6 +611,8 @@ def fit_relationship_component(
                 _ = _checked_norm(equation[:3], "surface plane")
             equation /= np.linalg.norm(equation[:3])
             plane_slots[key] = len(initial)
+            plane_normal_slots[key] = len(initial)
+            plane_offset_slots[key] = len(initial) + 3
             initial.extend(
                 [*equation[:3], (equation[3] - equation[:3] @ origin) / length]
             )
@@ -570,21 +666,26 @@ def fit_relationship_component(
         if key in fixed_axes:
             point, direction = fixed_axes[key]
             return point, direction, np.zeros((3, size)), np.zeros((3, size))
-        start = axis_slots[key]
         chart = axis_charts[key]
-        point = chart.origin + chart.basis[:, :2] @ p[start : start + 2]
-        raw = np.array([p[start + 2], p[start + 3], 1.0])
-        norm = float(np.linalg.norm(raw))
-        local_direction = raw / norm
-        direction = chart.basis @ local_direction
+        point = chart.origin.copy()
+        direction = chart.basis[:, 2].copy()
         point_j = np.zeros((3, size))
-        point_j[:, start : start + 2] = chart.basis[:, :2]
         direction_j = np.zeros((3, size))
-        direction_j[:, start + 2 : start + 4] = (
-            chart.basis
-            @ (np.eye(3) - np.outer(local_direction, local_direction))[:, :2]
-            / norm
-        )
+        if key in axis_position_slots:
+            start = axis_position_slots[key]
+            point += chart.basis[:, :2] @ p[start : start + 2]
+            point_j[:, start : start + 2] = chart.basis[:, :2]
+        if key in axis_orientation_slots:
+            start = axis_orientation_slots[key]
+            raw = np.array([p[start], p[start + 1], 1.0])
+            norm = float(np.linalg.norm(raw))
+            local_direction = raw / norm
+            direction = chart.basis @ local_direction
+            direction_j[:, start : start + 2] = (
+                chart.basis
+                @ (np.eye(3) - np.outer(local_direction, local_direction))[:, :2]
+                / norm
+            )
         return point, direction, point_j, direction_j
 
     def plane_geometry(key: str, p: Array) -> tuple[Array, float, Array, Array]:
@@ -593,12 +694,24 @@ def fit_relationship_component(
         if key in fixed_planes:
             normal, offset = fixed_planes[key]
             return sign * normal, sign * offset, np.zeros((3, size)), np.zeros(size)
-        start = plane_slots[key]
+        if key in plane_normal_slots:
+            start = plane_normal_slots[key]
+            normal, normal_j = p[start : start + 3], identity[start : start + 3]
+        else:
+            normal, normal_j = plane_fixed_normals[key], np.zeros((3, size))
+        if key in plane_offset_slots:
+            start = plane_offset_slots[key]
+            offset, offset_j = float(p[start]), identity[start]
+        else:
+            # Freeze the signed WORLD offset, not its normal-dependent local
+            # coordinate. Rotating a plane must not translate its world equation.
+            offset = float((plane_world_offsets[key] - normal @ origin) / length)
+            offset_j = -(origin @ normal_j) / length
         return (
-            sign * p[start : start + 3],
-            sign * float(p[start + 3]),
-            sign * identity[start : start + 3],
-            sign * identity[start + 3],
+            sign * normal,
+            sign * offset,
+            sign * normal_j,
+            sign * offset_j,
         )
 
     def point_geometry(key: str, p: Array) -> tuple[Array, Array]:
@@ -674,6 +787,25 @@ def fit_relationship_component(
             raise RelationshipFailure(
                 "plane relationship input is unavailable or not a plane"
             )
+    for relation in directions:
+        for operand in (relation.left, relation.right):
+            if operand.kind == "axis":
+                available = operand.key in axes
+            else:
+                available = plane_keys.get(operand.key, operand.key) in plane_roots
+            if not available:
+                raise RelationshipFailure(
+                    "direction operand is unavailable or has the wrong kind"
+                )
+
+    def direction_geometry(operand: DirectionOperand, p: Array) -> tuple[Array, Array]:
+        if operand.kind == "axis":
+            _, direction, _, jacobian = axis_geometry(operand.key, p)
+        else:
+            direction, _, jacobian, _ = plane_geometry(
+                plane_keys.get(operand.key, operand.key), p
+            )
+        return direction, jacobian
 
     # Choose signs per normal-equivalence class, not independently per edge:
     # pairwise initial dot products can create an impossible odd sign cycle.
@@ -712,6 +844,93 @@ def fit_relationship_component(
         ]
         for _, group in relationships
     ]
+
+    if directions:
+        # A positive-hemisphere axis chart cannot project an exactly orthogonal
+        # start onto its target. Seed only incoherent direction components;
+        # coherent recovery candidates retain their independent starting pose.
+        direction_parents: dict[DirectionKey, DirectionKey] = {}
+
+        def operand_key(operand: DirectionOperand) -> DirectionKey:
+            return (
+                ("axis", axis_roots[operand.key])
+                if operand.kind == "axis"
+                else ("plane", plane_roots[plane_keys.get(operand.key, operand.key)])
+            )
+
+        def direction_root(key: DirectionKey) -> DirectionKey:
+            _ = direction_parents.setdefault(key, key)
+            while direction_parents[key] != key:
+                direction_parents[key] = direction_parents[direction_parents[key]]
+                key = direction_parents[key]
+            return key
+
+        def join(a: DirectionKey, b: DirectionKey) -> None:
+            direction_parents[direction_root(b)] = direction_root(a)
+
+        touched = {
+            operand_key(operand)
+            for relation in directions
+            for operand in (relation.left, relation.right)
+        }
+        for relation in directions:
+            join(operand_key(relation.left), operand_key(relation.right))
+        for _, group in relationships:
+            first_plane_key: DirectionKey = ("plane", plane_roots[plane_keys[group[0]]])
+            for key in group[1:]:
+                join(first_plane_key, ("plane", plane_roots[plane_keys[key]]))
+        for plane_key, (axis_key, construction) in plane_specs.items():
+            if axis_key is not None and construction == "perpendicular_to_axis":
+                join(("plane", plane_roots[plane_key]), ("axis", axis_roots[axis_key]))
+        groups: dict[DirectionKey, list[DirectionKey]] = {}
+        for key in direction_parents:
+            groups.setdefault(direction_root(key), []).append(key)
+        for keys in groups.values():
+            if not touched.intersection(keys):
+                continue
+            vectors = [
+                direction_geometry(DirectionOperand(kind, key), p0)[0]
+                for kind, key in keys
+            ]
+            if all(
+                np.linalg.norm(np.cross(vectors[0], value)) <= 1e-8
+                for value in vectors[1:]
+            ):
+                continue
+            fixed = [
+                value
+                for (kind, key), value in zip(keys, vectors, strict=True)
+                if key
+                not in (
+                    axis_orientation_slots if kind == "axis" else plane_normal_slots
+                )
+            ]
+            seed = (
+                fixed[0].copy()
+                if fixed
+                else np.sum(
+                    [value if value @ vectors[0] >= 0 else -value for value in vectors],
+                    axis=0,
+                )
+            )
+            seed /= np.linalg.norm(seed)
+            for (kind, key), value in zip(keys, vectors, strict=True):
+                if kind == "axis" and key in axis_orientation_slots:
+                    direction = seed if value @ seed >= 0 else -seed
+                    first, second = basis(direction)
+                    chart = axis_charts[key]
+                    axis_charts[key] = _AxisChart(
+                        chart.origin, np.column_stack((first, second, direction))
+                    )
+                    start = axis_orientation_slots[key]
+                    p0[start : start + 2] = 0
+                elif kind == "plane" and key in plane_normal_slots:
+                    representative = plane_geometry(root(key), p0)[0]
+                    sign = orientations[key] * (
+                        1.0 if representative @ seed >= 0 else -1.0
+                    )
+                    start = plane_normal_slots[key]
+                    p0[start : start + 3] = sign * seed
 
     # Start each parallel-normal class coherently. This is initialization only;
     # the equality solver still checks feasibility and fits all observations.
@@ -974,6 +1193,12 @@ def fit_relationship_component(
             for key in group[1:]:
                 other = side_slots[key]
                 append(p[first] - p[other], identity[first] - identity[other])
+        for relation in directions:
+            a, a_j = direction_geometry(relation.left, p)
+            b, b_j = direction_geometry(relation.right, p)
+            # cross(a,b)=0 is unsigned and rank two at alignment. The existing
+            # equality SVD retains its independent rows without a penalty term.
+            append(np.cross(a, b), np.cross(a_j.T, b).T + np.cross(a, b_j.T).T)
         for relation, signs in zip((*rotations, *mirrors), symmetry_signs, strict=True):
             first = by_id[relation.members[0]]
             for slot, (key, sign) in enumerate(
@@ -1291,7 +1516,7 @@ def fit_relationship_component(
     for key, axis in axes.items():
         point, direction, _, _ = axis_geometry(key, parameters)
         world_point = origin + length * point
-        if symmetry and axis_roots[key] in fixed_axes:
+        if symmetry and axis_roots[key] not in axis_position_slots:
             world_point = np.asarray(
                 axes[axis_roots[key]].result["point_display"]
             ).copy()
@@ -1349,6 +1574,11 @@ def fit_relationship_component(
         if provider in fixed_planes:
             return (plane_alias_signs[key] * plane_equations[provider]).tolist()
         normal, offset, _, _ = plane_geometry(key, parameters)
+        if provider in plane_world_offsets:
+            return [
+                *map(float, normal),
+                plane_alias_signs[key] * plane_world_offsets[provider],
+            ]
         return [*map(float, normal), float(length * offset + normal @ origin)]
 
     for key, datum in planes.items():

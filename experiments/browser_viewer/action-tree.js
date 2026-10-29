@@ -31,6 +31,7 @@ const paths = {
   equal: 'M5 9h14M5 15h14',
   equal_radii: 'M5 7h14M5 12h14M5 17h14',
   plane_relationship: 'M4 8h16M4 16h16',
+  direction_alignment: 'M3 7h17m-4-4 4 4-4 4M4 17h17M8 13l-4 4 4 4',
   surface_intersection: 'M3 12h18M12 3v18M6 6l12 12',
   trimmed_face: 'M4 4h16v16H4Zm4 4h8v8H8Z',
   arranged_face: 'M4 4h16v16H4ZM4 12h16M12 4v16',
@@ -77,6 +78,7 @@ const operations = {
   equal: 'Numeric equality',
   equal_radii: 'All equal radii',
   plane_relationship: 'Plane relationship',
+  direction_alignment: 'Direction alignment',
   surface_intersection: 'Surface intersection',
   trimmed_face: 'Trimmed face',
   arranged_face: 'Arranged face',
@@ -105,7 +107,7 @@ export const featureIconLegend = [
     'build_faces', 'surface_intersection', 'trimmed_face', 'arranged_face', 'body', 'group',
   ] },
   { title: 'Relationships and solve', icons: [
-    'plane_relationship', 'parallel', 'perpendicular', 'coaxial', 'coaxial_group', 'equal', 'equal_radii',
+    'plane_relationship', 'direction_alignment', 'parallel', 'perpendicular', 'coaxial', 'coaxial_group', 'equal', 'equal_radii',
     'mirror_symmetry', 'rotational_symmetry', 'axis_solve', 'joint_fit',
   ] },
   { title: 'Evaluation status', icons: Object.keys(states) },
@@ -121,6 +123,7 @@ export const featureIconLegend = [
   state: Object.hasOwn(states, name),
   detail: {
     plane_relationship: 'Coincident or parallel planes',
+    direction_alignment: 'Unsigned direction alignment; axis/plane-normal alignment makes the axis perpendicular to the plane',
     surface_selection: 'Surface membership derived from seed and barrier selections',
     joint_fit: 'Also used as the fallback for unknown feature types',
     blocked: 'A dependency or generated output prevents evaluation',
@@ -247,6 +250,7 @@ export function nodeReferences(node) {
   }
   if (node.operation === 'equal_radii') return node.surfaces;
   if (node.operation === 'plane_relationship') return [...new Set(node.surfaces.flatMap(outputReferenceIds))];
+  if (node.operation === 'direction_alignment') return [...new Set(node.directions.flatMap(outputReferenceIds))];
   return node.constraints || [];
 }
 

@@ -61,6 +61,13 @@ def reference_json(reference: FeatureInput) -> str | dict[str, Any]:
 
 
 REQUIREMENTS: dict[str, dict[str, Any]] = {
+    "relationship_direction": {
+        "capabilities": ["direction"],
+        "property": "direction",
+        "uses": ["binding", "geometry"],
+        "min_count": 2,
+        "max_count": 2,
+    },
     "point": {"capabilities": ["point"], "min_count": 1, "max_count": 1},
     "plane": {"capabilities": ["plane"], "min_count": 1, "max_count": 1},
     "direction": {
@@ -481,6 +488,7 @@ def output_catalogue(
         dependencies,
         describe_geometry_influence,
         joint_surfaces,
+        named_direction_component,
         plane_relationship_endpoints,
     )
 
@@ -502,6 +510,13 @@ def output_catalogue(
         if isinstance(node, JointFit):
             sides, planes = joint_surfaces(node, nodes)
             members = [member.id for member in [*sides, *planes]]
+            direction_component = named_direction_component(node, nodes)
+            if direction_component is not None:
+                members.extend(
+                    key
+                    for key in direction_component[2]
+                    if declared_output_specs(nodes[key])
+                )
         elif isinstance(node, AxisSolve):
             members = [
                 ref for ref in node.factors if isinstance(nodes[ref], SurfaceFit)
@@ -766,6 +781,16 @@ def compatibility_reason(
         if not reference or reference.get("context") != reference.get("feature"):
             return "This input requires a direct datum context; solved publications cannot be stored as a fit reference"
     uses = contract.get("uses", ["geometry"])
+    if (
+        requirement == "relationship_direction"
+        and not descriptor.get("properties", {})
+        .get("direction", {})
+        .get("binding_eligible", False)
+        and "geometry" not in descriptor.get("uses", ["geometry"])
+    ):
+        return (
+            "This direction is read-only; choose its exact published geometry context"
+        )
     if not set(descriptor.get("uses", ["geometry"])).intersection(uses):
         return "This output does not provide the required input role"
     if contract.get("ownership") and (
@@ -913,8 +938,15 @@ def input_choices(
             # Outputs of another capability are noise, whereas ownership
             # restrictions explain why otherwise relevant geometry is rejected.
             continue
-        if "binding" in REQUIREMENTS[requirement].get("uses", []) and descriptor.get(
-            "parameter_owner"
+        if (
+            "binding" in REQUIREMENTS[requirement].get("uses", [])
+            and descriptor.get("parameter_owner")
+            and (
+                requirement != "relationship_direction"
+                or descriptor["properties"]
+                .get("direction", {})
+                .get("binding_eligible", False)
+            )
         ):
             # Binding original observations/parameters does not read a failed
             # coupled publication. A corrective relationship remains authorable.

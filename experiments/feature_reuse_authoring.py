@@ -139,6 +139,7 @@ def reconcile_feature_reuse(
         "equal",
         "equal_radii",
         "plane_relationship",
+        "direction_alignment",
         "axis_solve",
     }
     copied_sources = [
@@ -347,6 +348,16 @@ def reconcile_feature_reuse(
                 )
             return mapping[key]
 
+        def remap_input(value: Any) -> Any:
+            if not isinstance(value, dict):
+                return remap(value)
+            reference = cast(dict[str, Any], value)
+            return {
+                **reference,
+                "feature": remap(reference["feature"]),
+                "context": remap(reference.get("context") or reference["feature"]),
+            }
+
         for source in copied_sources:
             child = copied[source["id"]]
             copy: dict[str, Any] = {
@@ -411,9 +422,15 @@ def reconcile_feature_reuse(
                 ):
                     if source.get(field):
                         copy[field] = remap(source[field])
-                for field in ("surfaces", "planes", "constraints", "factors"):
+                for field in (
+                    "surfaces",
+                    "planes",
+                    "constraints",
+                    "factors",
+                    "directions",
+                ):
                     if source.get(field):
-                        copy[field] = [remap(key) for key in source[field]]
+                        copy[field] = [remap_input(key) for key in source[field]]
             child.clear()
             child.update(copy)
             outputs.append(child)

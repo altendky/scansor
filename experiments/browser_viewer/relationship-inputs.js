@@ -5,10 +5,44 @@ export function relationshipPropertySummary(state, output) {
     .filter(Boolean))].map(property => property.replaceAll('_', ' ')).join(', ');
 }
 
+export function directionAlignmentLabel(outputs) {
+  const projections = outputs.map(output => output?.properties?.direction?.projection);
+  if (projections.length !== 2) return 'Aligned directions';
+  if (projections.every(value => value === 'plane_normal')) return 'Parallel plane normals';
+  if (projections.every(value => value === 'axis_direction')) return 'Parallel axis directions';
+  if (projections.includes('plane_normal') && projections.includes('axis_direction')) return 'Axis perpendicular to plane';
+  return 'Aligned directions';
+}
+
 export function relationshipDefinitions(state) {
   return Object.entries(state?.relationship_contracts || {}).map(([id, signature]) => ({
     id, ...signature, baseName: signature.base_name,
-  }));
+  })).sort((a, b) => Number(a.operation === 'direction_alignment') - Number(b.operation === 'direction_alignment'));
+}
+
+export function isDirectionJoint(node, nodes) {
+  return node?.operation === 'joint_fit' && node.constraints.some(id =>
+    nodes.find(candidate => candidate.id === id)?.operation === 'direction_alignment');
+}
+
+export function directionJointInputs(state, nodes = state?.recipe?.nodes || []) {
+  const signatures = Object.values(state?.relationship_contracts || {}).filter(signature => signature.joint_modes?.includes('direction'));
+  const operations = new Set(signatures.map(signature => signature.operation));
+  const properties = new Set(signatures.flatMap(signature => Object.values(signature.roles))
+    .map(requirement => state.input_contracts?.[requirement]?.property).filter(Boolean));
+  const owners = new Set((state?.input_catalogue || []).filter(output =>
+    output.reference.context === output.reference.feature && [...properties].some(property =>
+      output.properties?.[property]?.binding_eligible)).map(output => output.reference.feature));
+  return nodes.filter(node => operations.has(node.operation) || node.operation === 'fit' && owners.has(node.id));
+}
+
+export function directionJointValidity(state, ids, nodes = state?.recipe?.nodes || []) {
+  const allowed = new Set(directionJointInputs(state, nodes).map(node => node.id));
+  if (!ids.length || ids.some(id => !allowed.has(id)))
+    return {valid: false, reason: 'Choose compatible earlier fits and relationships for this joint.'};
+  if (!ids.some(id => nodes.find(node => node.id === id)?.operation === 'direction_alignment'))
+    return {valid: false, reason: 'Include an aligned-directions relationship. Its observed surfaces contribute once.'};
+  return {valid: true};
 }
 
 export function relationshipParticipantChoices(state, kind, selected = new Set(), nodes = state?.recipe?.nodes || []) {
@@ -78,6 +112,9 @@ export function relationshipNodeInputs(state, kind, selected, nodes = state?.rec
   const validity = relationshipValidity(state, kind, selected, nodes);
   if (!validity.valid) throw new Error(validity.reason);
   const signature = state.relationship_contracts[kind], feature = output => output.reference.feature;
+  if (signature.operation === 'direction_alignment') return {
+    operation: signature.operation, directions: validity.roles.participants.map(output => output.reference), sense: 'unsigned',
+  };
   if (signature.operation === 'coaxial_group') return {
     operation: signature.operation, axis: feature(validity.roles.axis[0]),
     surfaces: validity.roles.members.map(feature),

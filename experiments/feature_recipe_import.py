@@ -46,6 +46,7 @@ OPERATION_SUFFIXES = {
     "equal": "relationship",
     "equal_radii": "relationship",
     "plane_relationship": "relationship",
+    "direction_alignment": "relationship",
     "axis_solve": "solve",
     "surface_intersection": "intersection",
     "trimmed_face": "face",

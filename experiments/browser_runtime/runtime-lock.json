@@ -150,6 +150,7 @@
       "experiments/selection_volume_authoring.py",
       "experiments/selection_volume_transactions.py",
       "experiments/selection_volume_operations.py",
+      "experiments/selected_direction_fit.py",
       "experiments/selected_symmetry_fit.py",
       "experiments/support_intent.py",
       "experiments/surface_extents.py",

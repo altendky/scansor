@@ -16,7 +16,8 @@ import {fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderF
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
-  axisSolveInputs, axisSolveValidity, relationshipPropertySummary } from './relationship-inputs.js';
+  axisSolveInputs, axisSolveValidity, relationshipPropertySummary, directionAlignmentLabel,
+  directionJointInputs, directionJointValidity, isDirectionJoint } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -1909,7 +1910,21 @@ function showBodyDiagnostics(diagnostic) {
 const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
 const selectionOperations = ['selection', 'growth', 'surface_selection', 'region_selection', 'reuse_selection'];
 const solveInputs = (axis, nodes = graphState.recipe.nodes) => axisSolveInputs(axis, nodes);
+function refreshDirectionJointFactors(id, nodes, selected = null) {
+  const control = $(id), saved = selected ?? chosen(id), inputs = directionJointInputs(graphState, nodes);
+  choices(id, inputs, saved);
+  for (const key of saved.filter(key => !inputs.some(node => node.id === key))) {
+    const missing = new Option(`Unavailable saved factor — ${graphNode(key)?.label || key}`, key, false, true);
+    missing.disabled = true;
+    control.add(missing);
+  }
+  control.dataset.pickerEmptyMessage = 'Create an aligned-directions relationship between compatible direction properties, then select it and any related observation factors.';
+}
 function refreshJointFactors(prefix, nodes = graphState.recipe.nodes, selected = null) {
+  if (prefix === 'new-' && $('new-joint-mode').value === 'directions') {
+    refreshDirectionJointFactors('new-axis-solve-factors', nodes, selected);
+    return;
+  }
   const axis = $(`${prefix}axis-solve-axis`).value, control = $(`${prefix}axis-solve-factors`),
     saved = [...control.selectedOptions].map(option => ({ value: option.value, label: option.textContent })),
     inputs = solveInputs(axis, nodes);
@@ -2159,7 +2174,9 @@ function updateRelationshipSelection() {
     chosen = relationshipDefinitions().find((definition) => definition.id === selectedRelationshipKind),
     validity = chosen ? relationshipValidity(chosen.id) : { valid: false };
   $('relationship-summary').textContent = chosen
-    ? validity.valid ? chosen.summary : validity.reason : 'Choose a relationship, then its participants.';
+    ? validity.valid ? chosen.operation === 'direction_alignment'
+      ? `${directionAlignmentLabel(validity.roles.participants)}. ${chosen.summary}` : chosen.summary
+      : validity.reason : 'Choose a relationship, then its participants.';
   $('relationship-count').textContent = `${participants.length} selected`;
   const locked = featureTreeLocked() || relationshipApplying;
   $('relationship-kind').disabled = relationshipApplying;
@@ -2188,9 +2205,9 @@ function paintRelationshipPreview() {
       const node = graphNode(output.reference?.feature), values = relationshipOutputValue(graphState, output),
         color = output.key === relationshipInspected ? '#ffe45c' : '#78e2ff';
       if (!node || !values) continue;
-      if (!relationshipPlaneGuide(output, color, relationshipOverlays) && node.operation === 'fit')
-        fitGuide(node, values, color, relationshipOverlays);
-      else if (node.operation === 'axis' && values.axis_display) axisGuide(values, color, relationshipOverlays);
+      if (relationshipAxisGuide(output, color, relationshipOverlays) ||
+          relationshipPlaneGuide(output, color, relationshipOverlays)) continue;
+      if (node.operation === 'fit') fitGuide(node, values, color, relationshipOverlays);
     }
   }
   updateFaceReviewDisplay();
@@ -2206,6 +2223,14 @@ function relationshipPlaneGuide(output, color, group = overlays) {
     v = normal.clone().cross(u).normalize(), point = values.point_display || normal.clone().multiplyScalar(values.plane_equation[3] / length).toArray();
   referencePlaneGuide({ ...values, normal_display: normal.toArray(), point_display: point,
     basis_u_display: u.toArray(), basis_v_display: v.toArray(), construction: 'perpendicular_to_axis' }, color, group);
+  return true;
+}
+function relationshipAxisGuide(output, color, group = overlays) {
+  if (output?.properties?.direction?.projection !== 'axis_direction') return false;
+  const value = relationshipOutputValue(graphState, output);
+  if (!value) return false;
+  const geometry = axisGeometry(value);
+  axisGuide({axis_display: geometry.axis, point_display: geometry.origin}, color, group);
   return true;
 }
 function axialDatumPlanes(nodes) {
@@ -2225,6 +2250,11 @@ function clockDatumPlanes(nodes, axis = null) {
 }
 function fitReferenceChoices(id, kind, nodes, selected) {
   return renderFitReferenceEditor({id, state: graphState, kind, nodes, selected});
+}
+function updateDirectionPropertiesHint() {
+  const outputs = requirementOutputs(graphState, 'relationship_direction'),
+    selected = chosen('direction-alignment-inputs').map(key => matchingInputOutput(readInputReference(key), outputs));
+  $('direction-alignment-hint').textContent = `${directionAlignmentLabel(selected)}. Either direction sign is accepted. Positions, centerlines, plane offsets and radii are independent.`;
 }
 function setFitReference(node, id, nodes = graphState.recipe.nodes) {
   try {
@@ -2791,12 +2821,15 @@ function showProperties(force = false) {
     }
     if (node.operation === 'fit') fitReferenceChoices('fit-reference', $('surface-kind').value,
       graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
+    if (isDirectionJoint(node, graphState.recipe.nodes)) refreshDirectionJointFactors('joint-inputs',
+      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
       if (control.dataset.fitReferenceEditor) continue;
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
         graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected);
     }
+    if (node.operation === 'direction_alignment') updateDirectionPropertiesHint();
     return;
   }
   const single = !!editingFeatureId || selectedFeatureIds.size === 1;
@@ -2859,6 +2892,7 @@ function showProperties(force = false) {
     ['reuse-selection-properties', node.operation === 'reuse_selection'],
     ['equal-radii-properties', node.operation === 'equal_radii'],
     ['plane-relationship-properties', node.operation === 'plane_relationship'],
+    ['direction-alignment-properties', node.operation === 'direction_alignment'],
     ['coaxial-group-properties', node.operation === 'coaxial_group'],
     ['constraint-properties', ['coaxial', 'perpendicular'].includes(node.operation)],
     ['joint-properties', node.operation === 'joint_fit'],
@@ -2881,6 +2915,7 @@ function showProperties(force = false) {
     control.disabled = $('surface-selection-properties').hidden;
   for (const id of ['fit-reference', 'fit-reference-mode'])
     $(id).disabled = $('fit-properties').hidden;
+  $('direction-alignment-inputs').disabled = $('direction-alignment-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
@@ -3131,6 +3166,9 @@ function showProperties(force = false) {
       earlier.filter((candidate) => node.surfaces.includes(candidate.id)),
       node.surfaces,
     );
+  } else if (node.operation === 'direction_alignment') {
+    geometryInputChoices('direction-alignment-inputs', 'relationship_direction', earlier, node.directions);
+    updateDirectionPropertiesHint();
   } else if (node.operation === 'plane_relationship') {
     $('plane-relationship-kind').value = node.relation;
     const outputs = inputChoices(graphState, 'relationship_plane', earlier);
@@ -3247,15 +3285,17 @@ function showProperties(force = false) {
       earlier.filter((n) => n.operation === 'reference_plane'),
       [distance.reference_plane],
     );
-  } else if (node.operation === 'joint_fit')
-    choices(
-      'joint-inputs',
-      earlier.filter((n) =>
-        ['coaxial', 'perpendicular', 'rotational_symmetry'].includes(n.operation),
-      ),
-      node.constraints,
-    );
+  } else if (node.operation === 'joint_fit') {
+    if (isDirectionJoint(node, graphState.recipe.nodes)) refreshDirectionJointFactors('joint-inputs', earlier, node.constraints);
+    else choices('joint-inputs', earlier.filter((n) => ['coaxial', 'perpendicular', 'rotational_symmetry'].includes(n.operation)), node.constraints);
+  }
   if (node.operation === 'joint_fit') {
+    const direction = isDirectionJoint(node, graphState.recipe.nodes);
+    $('joint-add-fits').closest('label').hidden = direction;
+    $('extend-joint').hidden = direction;
+    $('joint-properties-hint').textContent = direction
+      ? 'Select the connected fits and relationships to solve together. Direction alignment keeps centerlines, plane offsets and radii independent unless explicitly related.'
+      : 'Planes become perpendicular to the shared axis; cones/cylinders become coaxial. Moves this joint after the new inputs and constraints.';
     const used = new Set(node.constraints.flatMap((id) => refs(graphNode(id))));
     choices(
       'joint-add-fits',
@@ -3763,14 +3803,21 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     } else if (node.operation === 'reference_plane') {
       const preview = referencePlanePreview(node);
       if (preview) drawGuide(referencePlaneGuide, preview);
-    } else if (node.operation === 'plane_relationship') {
-      const requirement = graphState.relationship_contracts[node.relation === 'parallel' ? 'parallel_planes' : 'coincident_planes'].roles.participants,
+    } else if (['plane_relationship', 'direction_alignment'].includes(node.operation)) {
+      const kind = node.operation === 'direction_alignment' ? 'direction_alignment'
+        : node.relation === 'parallel' ? 'parallel_planes' : 'coincident_planes',
+        requirement = graphState.relationship_contracts[kind].roles.participants,
         outputs = requirementOutputs(graphState, requirement);
-      node.surfaces.forEach((reference, index) => {
+      (node.directions || node.surfaces).forEach((reference, index) => {
         const output = typeof reference === 'string'
           ? outputs.find(output => output.parameter_owner?.feature === reference)
           : matchingInputOutput(reference, outputs);
-        if (guides && output) relationshipPlaneGuide(output, palette[index % palette.length]);
+        if (!guides || !output) return;
+        const color = palette[index % palette.length], value = relationshipOutputValue(graphState, output),
+          provider = graphNode(output.reference.feature);
+        if (relationshipAxisGuide(output, color) || relationshipPlaneGuide(output, color)) return;
+        if (value && provider?.operation === 'axis') drawGuide(axisGuide, value, color);
+        else if (value && provider?.operation === 'fit') drawGuide(fitGuide, provider, value, color);
       });
     } else if (
       [
@@ -3916,12 +3963,14 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
       values['Offset'] = result.offset.toFixed(5);
     values['Normal'] = result.normal_display.map((v) => v.toFixed(5)).join(', ');
   } else if (['joint_fit', 'axis_solve', 'coaxial_group'].includes(node.operation)) {
-    drawGuide(axisGuide, result, '#ffd166');
+    if (result.axis_display) drawGuide(axisGuide, result, '#ffd166');
+    else for (const [id, axis] of Object.entries(result.axes || {}))
+      if (graphNode(id)?.operation === 'axis') drawGuide(axisGuide, axis, '#ffd166');
     for (const plane of Object.values(result.mirror_planes || {}))
       drawGuide(referencePlaneGuide, plane, '#ff8fe5');
     for (const plane of Object.values(result.reference_planes || {}))
       drawGuide(referencePlaneGuide, plane, '#ff8fe5');
-    values['Combined RMS'] = result.fit.weighted_rms.toFixed(5);
+    values['Combined RMS'] = (result.fit?.weighted_rms ?? result.weighted_rms).toFixed(5);
     Object.entries(result.surfaces).forEach(([id, s], i) => {
       drawGuide(fitGuide, graphNode(id), s, palette[i % palette.length]);
       values[graphNode(id).label + ' adjusted RMS'] = s.weighted_rms.toFixed(5);
@@ -3972,9 +4021,25 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
     Object.entries(result.surfaces).forEach(([id, surface], index) =>
       drawGuide(fitGuide, graphNode(id), surface, palette[index % palette.length]),
     );
-  } else if (node.operation === 'plane_relationship') {
-    values['Relationship'] = node.relation === 'coincident' ? 'Coincident' : 'Parallel';
-    values['Plane outputs'] = node.surfaces.length;
+  } else if (['plane_relationship', 'direction_alignment'].includes(node.operation)) {
+    if (node.operation === 'direction_alignment') {
+      const outputs = requirementOutputs(graphState, 'relationship_direction');
+      values['Relationship'] = directionAlignmentLabel(node.directions.map(reference => matchingInputOutput(reference, outputs)));
+      values['Direction sense'] = 'Unsigned';
+      for (const reference of node.directions) {
+        const output = matchingInputOutput(reference, outputs);
+        if (!guides || !output) continue;
+        const selected = output.reference;
+        if (selected.context === selected.feature && result.resolved?.[selected.feature]) continue;
+        const value = relationshipOutputValue(graphState, output), provider = graphNode(selected.feature), color = '#ff8fe5';
+        if (relationshipAxisGuide(output, color) || relationshipPlaneGuide(output, color)) continue;
+        if (value && provider?.operation === 'axis') drawGuide(axisGuide, value, color);
+        else if (value && provider?.operation === 'fit') drawGuide(fitGuide, provider, value, color);
+      }
+    } else {
+      values['Relationship'] = node.relation === 'coincident' ? 'Coincident' : 'Parallel';
+      values['Plane outputs'] = node.surfaces.length;
+    }
     if (Number.isFinite(result.weighted_rms))
       values['Combined RMS'] = result.weighted_rms.toFixed(5);
     Object.entries(result.resolved || result.surfaces || {}).forEach(([id, surface], index) => {
@@ -5398,6 +5463,23 @@ async function start(recoveredState) {
   };
   $('new-region-selection-axial').onchange = updateNewAppliedRegionClockChoices;
   const updateAxisSolveFactors = () => {
+    const direction = $('new-joint-mode').value === 'directions';
+    $('new-joint-axis-row').hidden = direction;
+    $('new-axis-solve-axis').disabled = direction;
+    $('new-axis-solve-axis').required = !direction;
+    $('new-joint-hint').textContent = direction
+      ? 'Select an aligned-directions relationship and its connected fits or plane/radius relationships. Each surface contributes its selected observations once; centerlines and offsets remain independent.'
+      : 'Choose a Coaxial relationship or axis-bound fits and compatible plane evidence. Each fitted surface contributes its observations once.';
+    if (direction) {
+      const inputs = directionJointInputs(graphState), saved = chosen('new-axis-solve-factors'),
+        selected = saved.length ? saved : inputs.filter(node => selectedFeatureIds.has(node.id)).map(node => node.id);
+      if (!selected.length) {
+        const first = inputs.find(node => node.operation === 'direction_alignment');
+        if (first) selected.push(first.id);
+      }
+      refreshJointFactors('new-', graphState.recipe.nodes, selected);
+      return;
+    }
     const axis = $('new-axis-solve-axis').value;
     const inputs = solveInputs(axis);
     refreshJointFactors('new-', graphState.recipe.nodes, inputs.map(node => node.id));
@@ -5602,11 +5684,16 @@ async function start(recoveredState) {
     );
   };
   $('new-axis-solve').onclick = () => {
+    if (featureTreeLocked() || !prepareEditSession()) return;
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
-    if (!axes.length) {
+    const hasDirections = graphState.recipe.nodes.some(node => node.operation === 'direction_alignment');
+    if (!axes.length && !hasDirections) {
       status('Create an explicit axis before creating a joint.', true);
       return;
     }
+    const direction = hasDirections && (!axes.length || graphNode(selectedFeatureId)?.operation === 'direction_alignment');
+    $('new-joint-mode').value = direction ? 'directions' : 'axis';
+    $('new-axis-solve-factors').replaceChildren();
     choices(
       'new-axis-solve-axis',
       axes,
@@ -5614,9 +5701,11 @@ async function start(recoveredState) {
     );
     updateAxisSolveFactors();
     $('axis-solve-error').textContent = '';
-    showCreateDialog('axis-solve-dialog', 'new-axis-solve-label', 'Shared-axis joint');
+    showCreateDialog('axis-solve-dialog', 'new-axis-solve-label', direction ? 'Direction joint' : 'Shared-axis joint');
   };
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
+  $('new-joint-mode').onchange = updateAxisSolveFactors;
+  $('direction-alignment-inputs').onchange = updateDirectionPropertiesHint;
   $('new-fit-kind').onchange = () => {
     fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
     syncModelPickControls();
@@ -6033,6 +6122,15 @@ async function start(recoveredState) {
   };
   $('add-axis-solve-form').onsubmit = async (event) => {
     event.preventDefault();
+    if ($('new-joint-mode').value === 'directions') {
+      const constraints = chosen('new-axis-solve-factors'), validity = directionJointValidity(graphState, constraints);
+      if (!validity.valid) { $('axis-solve-error').textContent = validity.reason; return; }
+      const saved = await appendActions([{id: uid('joint'), operation: 'joint_fit',
+        label: submittedFeatureLabel('new-axis-solve-label'), constraints}]);
+      if (saved) $('axis-solve-dialog').close();
+      else $('axis-solve-error').textContent = $('status').textContent;
+      return;
+    }
     const axis = $('new-axis-solve-axis').value,
       factors = chosen('new-axis-solve-factors'),
       validity = axisSolveValidity(axis, factors, graphState.recipe.nodes);
@@ -6124,6 +6222,10 @@ async function start(recoveredState) {
       else $(id).close();
     };
   $('extend-joint').onclick = async () => {
+    if (isDirectionJoint(graphNode(editingFeatureId), graphState.recipe.nodes)) {
+      status('Edit this direction joint’s selected fits and relationships using Earlier constraints.', true);
+      return;
+    }
     const selected = chosen('joint-add-fits');
     if (!selected.length) {
       status('Choose fitted surfaces to add.', true);
@@ -6399,7 +6501,19 @@ async function start(recoveredState) {
       node.lateral = $('constraint-a').value;
       node.plane = $('constraint-b').value;
     }
-    if (node.operation === 'joint_fit') node.constraints = chosen('joint-inputs');
+    if (node.operation === 'direction_alignment') {
+      try { Object.assign(node, relationshipNodeInputs(graphState, 'direction_alignment',
+        new Set(chosen('direction-alignment-inputs')), recipe.nodes.slice(0, recipe.nodes.indexOf(node)))); }
+      catch (error) { status(error.message, true); return; }
+    }
+    if (node.operation === 'joint_fit') {
+      const constraints = chosen('joint-inputs');
+      if (isDirectionJoint(node, recipe.nodes)) {
+        const validity = directionJointValidity(graphState, constraints, recipe.nodes.slice(0, recipe.nodes.indexOf(node)));
+        if (!validity.valid) { status(validity.reason, true); return; }
+      }
+      node.constraints = constraints;
+    }
     if (node.operation === 'rotational_symmetry') {
       node.axis = $('rotation-axis').value;
       node.symmetric_extents = $('rotation-extents').checked;
