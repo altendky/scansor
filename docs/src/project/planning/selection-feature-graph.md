@@ -328,6 +328,15 @@ observations or substitute a different publication. Existing geometry readers
 retain their output-context rules. Capability compatibility does not by itself
 make an input free or fixed.
 
+Participant choices group the requested properties into **Features to constrain**
+and **Results to reference**. The same role and producing context appear on
+selected participants. A property supplied by another datum is a reference even
+when the feature owns other parameters. Automatic publications identify their
+shared-axis, shared-point, or shared-plane solve by its human-readable provider
+name. Reference results are fixed for the downstream relationship; provider
+changes can still recompute them. Names wrap to keep patterned occurrence
+identifiers readable, and distinct output/context references remain separate.
+
 **Coaxial** selects one datum axis and two or more cone/cylinder axis-owner
 outputs. The same shared contracts govern its picker and backend validation.
 Members need not already reference the datum individually. The relationship

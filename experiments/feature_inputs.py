@@ -504,9 +504,29 @@ def output_catalogue(
     values = values or {}
     contexts: dict[str, list[str]] = {}
     context_members: dict[str, set[str]] = {}
+    producing_contexts: dict[str, dict[str, str]] = {}
+    solve_descriptions = {
+        "axis": ("Shared-axis solve", "axis_solve"),
+        "point": ("Shared-point solve", "point_solve"),
+        "planes": ("Shared-plane solve", "plane_solve"),
+    }
     for provider in influence.providers.values():
         for publisher, aliases in provider.publications.items():
             context_members[publisher] = set(provider.prerequisites)
+            if publisher in nodes:
+                producing_contexts[publisher] = {
+                    "id": publisher,
+                    "label": nodes[publisher].label,
+                    "kind": "solve",
+                }
+            elif provider.solve is not None:
+                family, anchor = provider.solve
+                description, kind = solve_descriptions[family]
+                producing_contexts[publisher] = {
+                    "id": publisher,
+                    "label": f"{description} · {nodes[anchor].label}",
+                    "kind": kind,
+                }
             for alias in aliases:
                 contexts.setdefault(alias, []).append(publisher)
     explicit_axes = {
@@ -546,6 +566,11 @@ def output_catalogue(
         else:
             continue
         context_members[node.id] = {node.id}
+        producing_contexts[node.id] = {
+            "id": node.id,
+            "label": node.label,
+            "kind": "solve",
+        }
         for member in members:
             contexts.setdefault(member, []).append(node.id)
 
@@ -678,6 +703,14 @@ def output_catalogue(
                         if context in nodes and context != node.id
                         else ""
                     ),
+                    "feature_label": node.label,
+                    "producing_context": {
+                        "id": context,
+                        "label": node.label,
+                        "kind": "feature",
+                    }
+                    if context == node.id
+                    else producing_contexts[context].copy(),
                     "availability": availability,
                     "reason": reason,
                     "source": provenance(node.id),

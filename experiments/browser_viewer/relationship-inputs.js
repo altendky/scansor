@@ -10,6 +10,30 @@ export function relationshipPropertySummary(state, output) {
     .filter(Boolean))].map(property => property.replaceAll('_', ' ')).join(', ');
 }
 
+export function relationshipParticipantPresentation(state, output) {
+  const reference = output.reference || {}, direct = reference.context === reference.feature,
+    requirements = (output.requirements || []).map(requirement => state.input_contracts?.[requirement] || {}),
+    bindings = requirements.filter(contract => {
+      const property = output.properties?.[contract.property];
+      return direct && (contract.uses || ['geometry']).includes('binding') &&
+        (property ? property.binding_eligible && property.parameter_owner && property.uses?.includes('binding')
+          : !contract.property && output.parameter_owner && output.uses?.includes('binding'));
+    }),
+    adjustable = bindings.length > 0, group = adjustable ? 'constrain' : 'reference',
+    groupLabel = adjustable ? 'Features to constrain' : 'Results to reference',
+    roleLabel = adjustable ? 'Adjustable property' : 'Fixed for this relationship',
+    producer = output.producing_context,
+    contextLabel = producer?.label || state.recipe?.nodes?.find(node => node.id === reference.context)?.label ||
+      (direct ? 'Feature output' : 'Published output'),
+    name = output.feature_label ? `${output.feature_label} — ${(reference.output || '').replaceAll('_', ' ')}` : output.label,
+    pending = output.availability !== 'ready' || state.states?.[reference.context] && state.states[reference.context] !== 'ready',
+    detail = [relationshipPropertySummary(state, output), roleLabel, contextLabel,
+      adjustable ? '' : 'Provider updates still apply',
+      pending ? 'Needs evaluation' : '', output.compatible ? '' : output.reason || 'Incompatible'].filter(Boolean).join(' · ');
+  return {name, accessibleName: output.label, group, groupLabel, roleLabel, contextLabel, detail,
+    choiceLabel: `${name} · ${roleLabel} · ${contextLabel}`};
+}
+
 export function directionAlignmentLabel(outputs) {
   const projections = outputs.map(output => output?.properties?.direction?.projection);
   if (projections.length !== 2) return 'Aligned directions';

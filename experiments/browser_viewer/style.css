@@ -329,6 +329,12 @@ dialog input { width: 100%; padding: 8px; }
 .relationship-participant:last-child { border-bottom: 0; }
 .relationship-participant:hover, .relationship-participant:focus-within { background: #253342; }
 .relationship-participant.participant-selected { background: #193c47; }
+.relationship-participant-group { padding: 7px 6px 4px; color: #a6b6c5; font-size: 11px; font-weight: 600; }
+.relationship-participant-group[hidden] { display: none; }
+.relationship-participant .face-candidate-name, .relationship-participant .face-candidate-kind { white-space: normal; overflow-wrap: anywhere; }
+.relationship-participant-field .selection-field-name { white-space: normal; overflow-wrap: anywhere; }
+.selection-field-title, .selection-field-detail { display: block; }
+.selection-field-detail { margin-top: 3px; font-size: 11px; color: #a6b6c5; }
 #relationship-dialog .relationship-participant label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; margin: 0; padding: 3px 0; }
 .relationship-participants input { width: auto; }
 .relationship-selection-tools { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; color: #a6b6c5; }

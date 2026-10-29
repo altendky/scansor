@@ -198,6 +198,25 @@ test('incompatible retained relationship participants can only be removed', () =
   assert.equal(checkbox.disabled, true);
 });
 
+test('participant groups preserve exact choices and accessible names for identically named outputs', () => {
+  fixture();
+  const container = new Element('div'), choices = [
+    {id: 'direct', name: 'Axis — axis', accessibleName: 'Axis — axis', detail: 'Adjustable property',
+      group: 'constrain', groupLabel: 'Features to constrain', compatible: true},
+    {id: 'published', name: 'Axis — axis', accessibleName: 'Axis — axis · Named joint',
+      detail: 'Fixed for this relationship · Named joint', group: 'reference', groupLabel: 'Results to reference', compatible: true},
+  ];
+  renderRelationshipParticipants(container, {choices, selected: new Set(['published']),
+    change: () => {}, inspect: () => {}, focus: () => {}});
+  assert.deepEqual(container.querySelectorAll('.relationship-participant-group').map(row => row.textContent),
+    ['Features to constrain', 'Results to reference']);
+  const rows = container.querySelectorAll('.relationship-participant');
+  assert.deepEqual(rows.map(row => row.dataset.participantGroup), ['constrain', 'reference']);
+  assert.deepEqual(rows.map(row => row.querySelectorAll('input')[0].dataset.participantId), ['direct', 'published']);
+  assert.equal(rows[1].querySelectorAll('input')[0].getAttribute('aria-label'), 'Axis — axis · Named joint');
+  assert.equal(rows[1].classList.contains('participant-selected'), true);
+});
+
 test('relationship inspection preserves focus and hover on different participants', () => {
   fixture();
   const container = new Element('div'), inspections = [];

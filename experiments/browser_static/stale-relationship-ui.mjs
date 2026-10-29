@@ -17,6 +17,7 @@ export const staleRelationshipObserver = `\nObject.defineProperty(globalThis, '_
 const reference = (feature, output, context = feature) => ({feature, output, context});
 const key = value => JSON.stringify(value);
 const sameReferences = values => values.map(key).sort();
+const longMemberLabel = 'bolt hole surface at Occurrence 123456789 — independently fitted patterned hole';
 
 export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
   assert(!['8765', '8766'].includes(new URL(page.url()).port), 'Evidence must use a private preview');
@@ -62,6 +63,28 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert.deepEqual((await read()).selection, before.selection, 'Participant picking must preserve general feature selection');
     return choices.length;
   };
+  const participantRow = value => page.locator('#relationship-participants .relationship-participant')
+    .filter({has: page.locator(`input[data-participant-id=${JSON.stringify(key(value))}]`)});
+  const selectedParticipant = value => page.locator(`#relationship-participant-field .selection-field-row[data-selection-key=${JSON.stringify(key(value))}]`);
+  const assertReadable = async (locator, text) => {
+    await expect(locator).toBeVisible();
+    await expect(locator).toContainText(text);
+    const layout = await locator.evaluate((element, text) => {
+      const style = getComputedStyle(element), bounds = element.getBoundingClientRect(), walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node, target;
+      while ((node = walker.nextNode())) if (node.textContent.includes(text)) {target = node; break;}
+      if (!target) return {found: false};
+      const range = document.createRange(), start = target.textContent.indexOf(text);
+      range.setStart(target, start); range.setEnd(target, start + text.length);
+      return {found: true, overflow: style.textOverflow, width: element.clientWidth, scrollWidth: element.scrollWidth,
+        height: element.clientHeight, scrollHeight: element.scrollHeight,
+        within: [...range.getClientRects()].every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1
+          && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1)};
+    }, text);
+    assert(layout.found && layout.within, `The occurrence identifier must remain visible within its name: ${JSON.stringify(layout)}`);
+    assert(layout.scrollWidth <= layout.width + 1 && layout.scrollHeight <= layout.height + 1,
+      `The participant name must wrap without clipped overflow: ${JSON.stringify(layout)}`);
+  };
   try {
     await expect(page.locator('#viewport canvas')).toBeVisible();
     await expect(page.locator('#load')).toBeEnabled();
@@ -79,6 +102,7 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
       {id: 'axis-plane', label: 'Pending reference plane', operation: 'reference_plane', axis: 'auto-axis',
         construction: 'perpendicular_to_axis', initial_angle_degrees: null, offset: -12});
     recipe.nodes.find(node => node.id === 'axis-cylinder').axis = 'auto-axis';
+    recipe.nodes.find(node => node.id === 'plane-cylinder').label = longMemberLabel;
     await page.locator('#file').setInputFiles({name: 'pending-direction-actions.json', mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify(recipe))});
     await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.id === 'axis-plane')).toBe(true);
@@ -95,6 +119,49 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     const pending = (await graph()).input_requirements.relationship_direction.unavailable
       .find(output => key(output.reference) === key(plane));
     assert(pending?.compatible && ['unevaluated', 'stale'].includes(pending.availability));
+    report.phase = 'participant-role-presentation';
+    const oldViewport = page.viewportSize();
+    await page.setViewportSize({width: 800, height: 720});
+    await openBuilder();
+    const rawAxis = reference('auto-axis', 'axis'), publishedAxisRef = reference('auto-axis', 'axis', '@axis/auto-axis'),
+      publishedAlias = reference('axis-cylinder', 'axis', '@axis/auto-axis'),
+      groups = page.locator('#relationship-participants .relationship-participant-group'),
+      dropdown = page.getByRole('button', {name: 'Show Participants choices', exact: true});
+    await expect(groups.filter({hasText: 'Features to constrain'})).toBeVisible();
+    await expect(groups.filter({hasText: 'Results to reference'})).toBeVisible();
+    await expect(participantRow(rawAxis)).toHaveAttribute('data-participant-group', 'constrain');
+    for (const value of [publishedAxisRef, publishedAlias, plane]) {
+      await expect(participantRow(value)).toHaveAttribute('data-participant-group', 'reference');
+      await expect(participantRow(value)).toContainText('Shared-axis solve · Observed shared axis');
+      await expect(participantRow(value)).toContainText('Needs evaluation');
+    }
+    await expect(participantRow(rawAxis).locator('.face-candidate-name')).toHaveText('Observed shared axis — axis');
+    await expect(participantRow(publishedAxisRef).locator('.face-candidate-name')).toHaveText('Observed shared axis — axis');
+    await page.locator('#relationship-filter').fill('Shared-axis solve');
+    await expect(participantRow(publishedAxisRef)).toBeVisible();
+    await expect(participantRow(publishedAlias)).toBeVisible();
+    await expect(participantRow(rawAxis)).toBeHidden();
+    await expect(groups.filter({hasText: 'Features to constrain'})).toBeHidden();
+    await page.locator('#relationship-filter').fill('123456789');
+    await expect(participantRow(publishedAxisRef)).toBeHidden();
+    await expect(participantRow(member)).toHaveAttribute('data-participant-group', 'constrain');
+    await assertReadable(participantRow(member).locator('.face-candidate-name'), '123456789');
+    await participantRow(member).locator('input').check();
+    await page.keyboard.press('Escape');
+    await assertReadable(selectedParticipant(member).locator('.selection-field-title'), '123456789');
+    await expect(selectedParticipant(member).locator('.selection-field-detail')).toContainText('Adjustable property');
+    await page.locator('#clear-relationship-participants').click();
+    await dropdown.click();
+    await page.locator('#relationship-filter').fill('');
+    await participantRow(rawAxis).locator('input').check();
+    await participantRow(publishedAxisRef).locator('input').check();
+    await page.keyboard.press('Escape');
+    await expect(selectedParticipant(rawAxis).locator('.selection-field-detail')).toContainText('Adjustable property');
+    await expect(selectedParticipant(publishedAxisRef).locator('.selection-field-detail')).toContainText('Fixed for this relationship');
+    await expect(selectedParticipant(publishedAxisRef).locator('.selection-field-detail')).toContainText('Shared-axis solve · Observed shared axis');
+    assert.deepEqual((await read()).participants.sort(), [key(rawAxis), key(publishedAxisRef)].sort());
+    await close();
+    await page.setViewportSize(oldViewport);
     report.phase = 'create-before-evaluation';
     const beforeCreate = evaluations.length;
     await openBuilder({list: false});
@@ -222,6 +289,10 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     report.mixed_ready_pending_tree_picking = true;
     report.exact_context_tree_chooser = true;
     report.tree_toggles_preserve_general_selection = true;
+    report.participant_role_groups = true;
+    report.published_context_aliases_retained = true;
+    report.selected_participant_roles_and_contexts = true;
+    report.narrow_names_readable = true;
     report.source_and_observations_preserved = true;
     return report;
   } catch (error) {

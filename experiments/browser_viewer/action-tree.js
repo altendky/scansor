@@ -432,6 +432,8 @@ export { icon as featureIcon };
 
 export { relationshipParticipantChoices } from './relationship-inputs.js';
 
+let participantDescriptionSequence = 0;
+
 export function renderRelationshipParticipants(container, {
   choices, selected, change, inspect, focus, locked = () => false,
 }) {
@@ -446,13 +448,28 @@ export function renderRelationshipParticipants(container, {
     inspectedId = id;
     inspect(id);
   };
-  container.replaceChildren(...choices.map((choice) => {
+  let lastGroup = null;
+  container.replaceChildren(...choices.flatMap((choice) => {
+    let heading = null;
+    if (choice.group && choice.group !== lastGroup) {
+      lastGroup = choice.group;
+      heading = document.createElement('div');
+      heading.className = 'relationship-participant-group';
+      heading.dataset.participantGroup = choice.group;
+      heading.setAttribute('role', 'heading');
+      heading.setAttribute('aria-level', '3');
+      heading.textContent = choice.groupLabel;
+      heading.title = choice.group === 'reference'
+        ? 'Fixed for this relationship; upstream changes can recompute these results.'
+        : 'The relationship can adjust the selected properties within their existing freedom.';
+    }
     const row = document.createElement('div'), label = document.createElement('label'),
       checkbox = document.createElement('input'), text = document.createElement('span'),
       name = document.createElement('span'), detail = document.createElement('span'),
       focusButton = document.createElement('button');
     row.className = 'relationship-participant';
     row.dataset.compatible = String(choice.compatible);
+    if (choice.group) row.dataset.participantGroup = choice.group;
     row.dataset.search = `${choice.name} ${choice.detail}`.toLowerCase();
     row.classList.toggle('participant-selected', selected.has(choice.id));
     label.title = `${choice.name} — ${choice.detail}`;
@@ -460,7 +477,7 @@ export function renderRelationshipParticipants(container, {
     checkbox.checked = selected.has(choice.id);
     checkbox.disabled = locked() || (!choice.compatible && !checkbox.checked);
     checkbox.dataset.participantId = choice.id;
-    checkbox.setAttribute('aria-label', choice.name);
+    checkbox.setAttribute('aria-label', choice.accessibleName || choice.name);
     checkbox.onchange = () => {
       if (locked()) { checkbox.checked = selected.has(choice.id); return; }
       change(choice.id, checkbox.checked);
@@ -471,6 +488,8 @@ export function renderRelationshipParticipants(container, {
     text.className = 'face-candidate-text';
     name.className = 'face-candidate-name';
     detail.className = 'face-candidate-kind';
+    detail.id = `relationship-participant-description-${++participantDescriptionSequence}`;
+    checkbox.setAttribute('aria-describedby', detail.id);
     name.textContent = choice.name;
     detail.textContent = choice.detail;
     text.append(name, detail);
@@ -480,6 +499,7 @@ export function renderRelationshipParticipants(container, {
     focusButton.dataset.participantId = choice.id;
     focusButton.dataset.participantFocus = 'true';
     focusButton.setAttribute('aria-label', `Focus ${choice.name}`);
+    focusButton.setAttribute('aria-describedby', detail.id);
     focusButton.onclick = () => focus(choice.id);
     row.onpointerenter = () => { hoveredId = choice.id; inspectActive(); };
     row.onpointerleave = () => {
@@ -492,7 +512,7 @@ export function renderRelationshipParticipants(container, {
       inspectActive();
     };
     row.append(label, focusButton);
-    return row;
+    return heading ? [heading, row] : [row];
   }));
   if (activeId) {
     const replacement = [...container.querySelectorAll('[data-participant-id]')].find((element) =>
