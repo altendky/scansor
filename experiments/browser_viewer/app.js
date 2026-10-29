@@ -4223,6 +4223,7 @@ async function runGraphEvaluation(allActions, target, retry, intent) {
   }
 }
 function home(direction = null) {
+  mesh.geometry.computeBoundingBox();
   mesh.geometry.computeBoundingSphere();
   mesh.updateMatrixWorld(true);
   const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld);

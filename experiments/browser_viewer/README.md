@@ -323,6 +323,14 @@ recentering the view. Zoom keeps the picked surface point under the cursor.
 Over empty space, rotation uses the current view target; zoom uses the cursor ray
 at the current target depth. Only the scan is picked, not guides or selection
 markers. Turning a toggle off uses the current view target for that operation.
+Wheel and trackpad deltas use a bounded positive exponential scale (with line
+and page deltas converted to pixels), so a large inward gesture still zooms.
+Each event changes distance by at most a factor of exp(0.5); repeated events
+continue zooming within the finite camera range. Releasing a selection press
+outside the canvas or cancelling that press restores navigation. Leaving the
+window ends a held rotation. A source bounding box rejects obvious background
+ray misses before triangle picking; misses inside that box can still require a
+mesh traversal.
 
 Fit view recenters and fits the mesh while preserving the viewing direction and
 roll. Side and Top explicitly change orientation. The Alt behavior follows

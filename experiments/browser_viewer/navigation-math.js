@@ -1,5 +1,13 @@
 import { Vector3, Plane } from 'three';
 
+// Wheel devices report pixels, lines or pages. A positive exponential never
+// discards a large inward gesture as a negative linear dolly factor.
+export function wheelZoomFactor(delta, mode, viewportHeight) {
+  if (!Number.isFinite(delta)) return 1;
+  const pixels = delta * (mode === 1 ? 16 : mode === 2 ? viewportHeight : 1);
+  return Math.exp(Math.max(-.5, Math.min(.5, pixels * .0003)));
+}
+
 // Move an already-rotated camera from a target-centered orbit to an orbit about
 // the picked anchor. Translate its look-at target equally, avoiding a view snap.
 export function anchorRotation(camera, target, anchor, previousQuaternion, previousTarget) {

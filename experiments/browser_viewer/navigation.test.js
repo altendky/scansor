@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PerspectiveCamera, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
-import { anchorRotation, anchorZoom, viewPlaneAnchor, panByPixels } from './navigation-math.js';
+import { anchorRotation, anchorZoom, viewPlaneAnchor, panByPixels, wheelZoomFactor } from './navigation-math.js';
+
+test('wheel scaling normalizes units and keeps extreme gestures positive', () => {
+  assert.equal(wheelZoomFactor(16, 0, 800), wheelZoomFactor(1, 1, 800));
+  assert.equal(wheelZoomFactor(800, 0, 800), wheelZoomFactor(1, 2, 800));
+  for (const delta of [-Number.MAX_VALUE, -4000, -.1, .1, 4000, Number.MAX_VALUE]) {
+    const factor = wheelZoomFactor(delta, 0, 800);
+    assert.ok(Number.isFinite(factor) && factor > 0);
+    assert.equal(factor < 1, delta < 0);
+  }
+  assert.equal(wheelZoomFactor(NaN, 0, 800), 1);
+});
 
 function setup() {
   const camera = new PerspectiveCamera(45, 1.5, .01, 1000);
