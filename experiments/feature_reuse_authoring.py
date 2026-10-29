@@ -352,10 +352,16 @@ def reconcile_feature_reuse(
             if not isinstance(value, dict):
                 return remap(value)
             reference = cast(dict[str, Any], value)
+            context = reference.get("context") or reference["feature"]
+            if context.startswith(("@axis/", "@point/", "@plane/")):
+                prefix, provider = context.split("/", 1)
+                context = prefix + "/" + remap(provider)
+            else:
+                context = remap(context)
             return {
                 **reference,
                 "feature": remap(reference["feature"]),
-                "context": remap(reference.get("context") or reference["feature"]),
+                "context": context,
             }
 
         for source in copied_sources:
@@ -394,7 +400,8 @@ def reconcile_feature_reuse(
                         ),
                     }
             elif operation == "reference_plane":
-                copy["axis"] = remap(source["axis"])
+                if source.get("axis"):
+                    copy["axis"] = remap(source["axis"])
                 copy["placement"] = {
                     "reuse": reuse_id,
                     "source": source["id"],

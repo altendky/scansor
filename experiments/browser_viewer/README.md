@@ -630,8 +630,15 @@ panel is open; closing it clears the helper highlights.
    and is drawn with an arrowhead. Point-pair axes support arbitrary directions,
    including horizontal ones. The imported-source fitting path can use them as
    fixed references; retained example fitting paths keep their chart limits.
-5. **Plane** creates an explicit reference plane from an earlier axis. Choose
-   **Contains axis**, **Parallel to axis**, or **Perpendicular to axis**. The
+5. **Plane** defaults to an **Independent** reference plane, which needs no
+   other feature. Enter a nonzero initial normal direction and a signed offset
+   from the world origin along its normalized normal. These are initial values:
+   connected fits and relationships may adjust them. A direction-only relation
+   retains an otherwise unused datum offset, and a plane fit bound to the
+   datum's direction still fits its own offset. An explicit coincident-plane
+   relationship can relate both orientation and position.
+   The optional axis constructions are **Contains axis**, **Parallel to axis**,
+   and **Perpendicular to axis**, each using an earlier axis. The
    first two use a clocking angle; a parallel plane also has a signed normal
    offset. On a manually initialized free axis, connected plane fits refine the
    clocking angle as well as any free offset, preserving the exact axis relation.

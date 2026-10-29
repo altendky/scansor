@@ -73,3 +73,15 @@ export function axisGeometry(value) {
     invalid('legacy axis parameters must contain four or seven finite values');
   return { origin: [p[0], p[1], 0], axis: unit([p[2], p[3], 1], 'legacy axis') };
 }
+
+export function independentPlaneGeometry(initialNormal, offset) {
+  const input = vector(initialNormal, 'plane normal'), scale = Math.max(...input.map(Math.abs));
+  if (!(scale > 0)) invalid('plane normal must be nonzero');
+  if (!Number.isFinite(offset)) invalid('plane offset must be finite');
+  const normal = unit(input.map(value => value / scale), 'plane normal'),
+    reference = [0, 0, 0];
+  reference[normal.map(Math.abs).indexOf(Math.min(...normal.map(Math.abs)))] = 1;
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+    basisU = unit(cross(normal, reference), 'plane tangent'), basisV = cross(normal, basisU);
+  return {normal, offset, point: normal.map(value => value * offset), basisU, basisV};
+}

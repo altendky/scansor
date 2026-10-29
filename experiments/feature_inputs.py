@@ -46,7 +46,7 @@ def reference_dependencies(reference: FeatureInput) -> list[str]:
             + (
                 [
                     reference.context.split("/", 1)[1]
-                    if reference.context.startswith(("@axis/", "@point/"))
+                    if reference.context.startswith(("@axis/", "@point/", "@plane/"))
                     else reference.context
                 ]
                 if reference.context
@@ -351,7 +351,9 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
         if "plane" in capabilities:
             construction = getattr(node, "construction", None)
             orientation = (
-                {"clocking": 1}
+                {"orientation": 2}
+                if construction == "independent"
+                else {"clocking": 1}
                 if operation == "reference_plane"
                 and construction != "perpendicular_to_axis"
                 else {}
@@ -369,7 +371,9 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
                     "plane_normal",
                     orientation,
                     sense="signed_normal",
-                    authority="construction"
+                    authority="chart_representative"
+                    if construction == "independent"
+                    else "construction"
                     if operation == "reference_plane"
                     else "fit_representative",
                     fixed_by=fixed,
@@ -383,7 +387,9 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
                 "plane",
                 quantities,
                 sense="signed_normal",
-                authority="construction"
+                authority="chart_representative"
+                if construction == "independent"
+                else "construction"
                 if operation == "reference_plane"
                 else "fit_representative",
             )

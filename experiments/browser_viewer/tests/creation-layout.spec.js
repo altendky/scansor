@@ -53,7 +53,7 @@ async function expectOrderedActions(dialog, hint, submit, cancel) {
 }
 
 for (const docked of [false, true]) {
-  for (const construction of ['contains_axis', 'parallel_to_axis', 'perpendicular_to_axis']) {
+  for (const construction of ['independent', 'contains_axis', 'parallel_to_axis', 'perpendicular_to_axis']) {
     test(`reference-plane ${construction} keeps help and actions reachable in constrained ${docked ? 'docked' : 'popup'} Edit`, async ({ page }) => {
       // Smaller CSS space also covers the reflow pressure of browser zoom.
       await page.setViewportSize(docked ? { width: 800, height: 448 } : { width: 1000, height: 560 });
@@ -64,7 +64,10 @@ for (const docked of [false, true]) {
         submit = dialog.getByRole('button', { name: 'Add plane', exact: true }),
         cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
       await page.locator('#new-reference-plane-construction').selectOption(construction);
-      await expect(page.locator('#new-reference-plane-axis')).toHaveValue('layout_axis');
+      if (construction === 'independent') {
+        await expect(page.locator('#new-reference-plane-axis')).toBeDisabled();
+        await expect(page.locator('#new-reference-plane-normal-z')).toHaveValue('1');
+      } else await expect(page.locator('#new-reference-plane-axis')).toHaveValue('layout_axis');
       await expect(hint).not.toHaveText('');
       expect(await hint.evaluate(element => element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight))).toBe(true);
       await expectOrderedActions(dialog, hint, submit, cancel);
@@ -73,7 +76,7 @@ for (const docked of [false, true]) {
           `plane-${construction}-${docked ? 'docked' : 'popup'}.png`) });
       }
       // A real Cancel click must reach the guard, not the submit behind it.
-      if (construction !== 'contains_axis') page.once('dialog', confirmation => confirmation.accept());
+      if (construction !== 'independent') page.once('dialog', confirmation => confirmation.accept());
       await cancel.click();
       await expect(dialog).toBeHidden();
       expect(submissions).toEqual([]);

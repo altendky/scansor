@@ -19,6 +19,7 @@ from threading import Event, RLock
 from typing import Annotated, Any, ClassVar, Generic, Literal, Self, cast, final
 
 import numpy as np
+from numpy.typing import NDArray
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -507,19 +508,51 @@ class TransformDefinition(Node):
 
 
 class PlaneDefinition(Node):
-    """A reference plane constructed parallel or perpendicular to an explicit axis."""
+    """An independently initialized plane or a construction on an explicit axis."""
 
     operation: Literal["reference_plane"]
-    axis: str
+    axis: str | None = None
     construction: Literal[
-        "contains_axis", "parallel_to_axis", "perpendicular_to_axis"
+        "independent", "contains_axis", "parallel_to_axis", "perpendicular_to_axis"
     ] = "contains_axis"
+    initial_normal: tuple[float, float, float] | None = None
     initial_angle_degrees: float | None = Field(default=0.0, allow_inf_nan=False)
     offset: float = Field(default=0.0, allow_inf_nan=False)
     placement: ReusePlacement | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def independent_defaults(cls, value: Any) -> Any:
+        if (
+            isinstance(value, dict)
+            and cast(dict[str, Any], value).get("construction") == "independent"
+            and "initial_angle_degrees" not in value
+        ):
+            return {**value, "initial_angle_degrees": None}
+        return value
+
     @model_validator(mode="after")
     def construction_parameters(self) -> PlaneDefinition:
+        if self.construction == "independent":
+            if self.axis is not None or self.initial_angle_degrees is not None:
+                raise ValueError("an independent plane has no axis or clocking angle")
+            if (
+                self.initial_normal is None
+                or not all(math.isfinite(value) for value in self.initial_normal)
+                or max(abs(value) for value in self.initial_normal) == 0
+            ):
+                raise ValueError(
+                    "an independent plane requires a finite nonzero initial normal"
+                )
+            return self
+        if self.axis is None:
+            raise ValueError(
+                "an axis-constructed reference plane requires an explicit axis"
+            )
+        if self.initial_normal is not None:
+            raise ValueError(
+                "an axis-constructed plane has no independent initial normal"
+            )
         if (
             self.construction in ("contains_axis", "parallel_to_axis")
             and self.initial_angle_degrees is None
@@ -989,7 +1022,7 @@ def dependencies(node: Feature) -> list[str]:
         return [node.frame, node.scale]
     if isinstance(node, PlaneDefinition):
         return [
-            node.axis,
+            *([node.axis] if node.axis is not None else []),
             *(
                 [
                     node.placement.reuse,
@@ -1271,7 +1304,18 @@ def automatic_plane_relationship_components(
         if isinstance(node, (PlaneRelationship, DirectionAlignment))
     ]
     axis_bindings = coaxial_axis_bindings(nodes)
-    pending = set(relationship.id for relationship in relationships)
+    seeds = [relationship.id for relationship in relationships]
+    seeds.extend(
+        node.id
+        for node in nodes.values()
+        if isinstance(node, PlaneDefinition)
+        and node.construction == "independent"
+        and any(
+            isinstance(surface, SurfaceFit) and surface.reference_plane == node.id
+            for surface in nodes.values()
+        )
+    )
+    pending = set(seeds)
     endpoints = {
         relationship.id: plane_relationship_endpoints(relationship, nodes)
         for relationship in relationships
@@ -1280,6 +1324,7 @@ def automatic_plane_relationship_components(
         key: {endpoint.owner for endpoint in values if endpoint.owner is not None}
         for key, values in endpoints.items()
     }
+    bindings.update({key: {key} for key in seeds if key not in bindings})
     direction_owners = {
         owner
         for relation in relationships
@@ -1311,6 +1356,7 @@ def automatic_plane_relationship_components(
             for key in owner_ids
             if isinstance(node := nodes[key], PlaneDefinition)
             and key in legacy_plane_owners
+            and node.axis is not None
         )
         axes.update(key for key in owner_ids if isinstance(nodes[key], AxisDefinition))
         points = {
@@ -1357,27 +1403,40 @@ def automatic_plane_relationship_components(
             key
             for key in owner_ids
             if not isinstance(node := nodes[key], PlaneDefinition)
+            or node.construction == "independent"
             or node.axis in axes
             or key in direction_owners
         }
 
     while pending:
-        first = next(
-            relationship.id
-            for relationship in relationships
-            if relationship.id in pending
-        )
+        first = next(key for key in seeds if key in pending)
         relation_ids = {first}
         owner_ids = bindings[first].copy()
 
         while True:
+            owner_ids.update(
+                node.reference_plane
+                for key in tuple(owner_ids)
+                if isinstance(node := nodes[key], SurfaceFit)
+                and node.reference_plane is not None
+                and cast(PlaneDefinition, nodes[node.reference_plane]).construction
+                == "independent"
+            )
             axes, points = linked_datums(owner_ids)
             owner_ids.update(
                 node.id
                 for node in nodes.values()
                 if isinstance(node, SurfaceFit)
                 and (
-                    fit_axis(node, nodes, axis_bindings) in axes or node.point in points
+                    fit_axis(node, nodes, axis_bindings) in axes
+                    or node.point in points
+                    or (
+                        node.reference_plane in owner_ids
+                        and cast(
+                            PlaneDefinition, nodes[node.reference_plane]
+                        ).construction
+                        == "independent"
+                    )
                 )
             )
             if include_radii:
@@ -1387,15 +1446,15 @@ def automatic_plane_relationship_components(
                     ):
                         owner_ids.update(node.surfaces)
             connected = {
-                relationship.id
-                for relationship in relationships
-                if relationship.id in pending
+                key
+                for key in seeds
+                if key in pending
                 and (
                     adjustable_owners(owner_ids).intersection(
-                        adjustable_owners(bindings[relationship.id])
+                        adjustable_owners(bindings[key])
                     )
-                    or axes.intersection(linked_datums(bindings[relationship.id])[0])
-                    or points.intersection(linked_datums(bindings[relationship.id])[1])
+                    or axes.intersection(linked_datums(bindings[key])[0])
+                    or points.intersection(linked_datums(bindings[key])[1])
                 )
             }
             expanded_owners = {
@@ -1410,6 +1469,13 @@ def automatic_plane_relationship_components(
                 or (
                     fit_axis(node, nodes, axis_bindings) not in expanded_axes
                     and node.point not in expanded_points
+                    and not (
+                        node.reference_plane in expanded_owners
+                        and cast(
+                            PlaneDefinition, nodes[node.reference_plane]
+                        ).construction
+                        == "independent"
+                    )
                 )
                 or node.id in expanded_owners
                 for node in nodes.values()
@@ -1468,6 +1534,33 @@ def automatic_plane_relationship_components(
     return components
 
 
+def selected_plane_component(
+    relations: list[GeometryRelationship],
+    surfaces: list[SurfaceFit],
+    nodes: dict[str, Feature],
+) -> bool:
+    """Independent plane owners consume raw evidence, like direction factors."""
+    return any(
+        isinstance(relation, DirectionAlignment) for relation in relations
+    ) or any(
+        isinstance(nodes[key], PlaneDefinition)
+        and cast(PlaneDefinition, nodes[key]).construction == "independent"
+        for key in {
+            *(
+                surface.reference_plane
+                for surface in surfaces
+                if surface.reference_plane
+            ),
+            *(
+                endpoint.feature
+                for relation in relations
+                for endpoint in plane_relationship_endpoints(relation, nodes)
+                if endpoint.is_binding
+            ),
+        }
+    )
+
+
 def active_direction_datum_source(
     key: str, surface_ids: set[str], nodes: dict[str, Feature]
 ) -> str | None:
@@ -1503,6 +1596,7 @@ def direction_component_inputs(
             return
         if (
             isinstance(node, PlaneDefinition)
+            and node.axis is not None
             and active_direction_datum_source(node.axis, surface_ids, nodes) is not None
         ):
             if node.placement is not None:
@@ -1640,15 +1734,13 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         providers[key] = ProviderInfluence(
             key, None, aliases, aliases, surfaces, surfaces, {key: aliases}
         )
-    for relations, surfaces, members in planes.values():
-        first = relations[0].id
-        task = "@planes/" + first
+    for key, (relations, surfaces, members) in planes.items():
+        first = relations[0].id if relations else key
+        task = ("@planes/" if relations else "@plane/") + first
         if task in providers:
             continue
         relation_ids = frozenset(relation.id for relation in relations)
-        selected_direction = any(
-            isinstance(relation, DirectionAlignment) for relation in relations
-        )
+        selected_direction = selected_plane_component(relations, surfaces, nodes)
         aliases = frozenset(
             key
             for key in members
@@ -1665,7 +1757,7 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         prerequisites, fixed_reads = direction_component_inputs(
             relations, surfaces, nodes
         )
-        publishers = relation_ids | frozenset(
+        publishers = (relation_ids or frozenset({task})) | frozenset(
             key for key in members if isinstance(nodes[key], (EqualRadii, CoaxialGroup))
         )
         providers[task] = ProviderInfluence(
@@ -1691,7 +1783,7 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         *(
             entry[2]
             for entry in planes.values()
-            if any(isinstance(relation, DirectionAlignment) for relation in entry[0])
+            if selected_plane_component(entry[0], entry[1], nodes)
         )
     )
     providers = {
@@ -1712,7 +1804,7 @@ def coaxial_seed_component(
 ) -> bool:
     """The bounded single-line adapter cannot replace general component roles."""
     relations, surfaces, _ = component
-    if any(isinstance(relation, DirectionAlignment) for relation in relations):
+    if selected_plane_component(relations, surfaces, nodes):
         return False
     if any(surface.kind not in {"cone", "cylinder", "plane"} for surface in surfaces):
         return False
@@ -1732,6 +1824,7 @@ def coaxial_seed_component(
         datum.axis
         for endpoint in endpoints
         if isinstance(datum := nodes[endpoint.feature], PlaneDefinition)
+        and datum.axis is not None
     )
     return axes == {axis}
 
@@ -1912,9 +2005,10 @@ def compile_execution_plan(
         if (
             provider.solve
             and provider.solve[0] == "planes"
-            and any(
-                isinstance(relation, DirectionAlignment)
-                for relation in plane_components[provider.solve[1]][0]
+            and selected_plane_component(
+                plane_components[provider.solve[1]][0],
+                plane_components[provider.solve[1]][1],
+                nodes,
             )
         ):
             for key in provider.aliases:
@@ -2227,6 +2321,7 @@ def selection_frame_axis(
         raise ValueError("a selection frame requires an axis-parallel clock plane")
     if axial_plane.axis != clock_plane.axis:
         raise ValueError("selection-frame planes must reference the same axis")
+    assert axial_plane.axis is not None
     return axial_plane.axis
 
 
@@ -2271,7 +2366,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
             if isinstance(node, ReuseSelection):
                 continue
             if isinstance(node, (AxisDefinition, PlaneDefinition)) and node.placement:
-                if isinstance(node, PlaneDefinition):
+                if isinstance(node, PlaneDefinition) and node.axis is not None:
                     closure.add(node.axis)
                 continue
             closure.update(dependencies(node))
@@ -2442,6 +2537,10 @@ def selected_symmetry_inputs(
             planes.add(surface.reference_plane)
     for key in planes:
         plane = cast(PlaneDefinition, nodes[key])
+        if plane.axis is None:
+            raise ValueError(
+                "independent reference planes require a direction joint, not a legacy shared-axis solve"
+            )
         axes.add(plane.axis)
     hard: set[str] = set()
     for key in axes:
@@ -2450,6 +2549,7 @@ def selected_symmetry_inputs(
             hard.add(key)
     for key in planes:
         plane = cast(PlaneDefinition, nodes[key])
+        assert plane.axis is not None
         axis = cast(AxisDefinition, nodes[plane.axis])
         if axis.initial_parameters is None or plane.placement is not None:
             hard.add(key)
@@ -2776,8 +2876,31 @@ def initialized_plane(node: PlaneDefinition, result: dict[str, Any]) -> PlaneDef
 
 
 def reference_plane_result(
-    axis_result: dict[str, Any], plane: PlaneDefinition
+    axis_result: dict[str, Any] | None, plane: PlaneDefinition
 ) -> dict[str, Any]:
+    if plane.construction == "independent":
+        assert plane.initial_normal is not None
+        normal: NDArray[np.float64] = np.asarray(plane.initial_normal, dtype=float)
+        normal /= np.max(np.abs(normal))
+        normal /= np.linalg.norm(normal)
+        coordinate = np.eye(3, dtype=float)[int(np.argmin(np.abs(normal)))]
+        basis_u: NDArray[np.float64] = np.asarray(
+            np.cross(normal, coordinate), dtype=float
+        )
+        basis_u /= np.linalg.norm(basis_u)
+        basis_v: NDArray[np.float64] = np.cross(normal, basis_u)
+        point: NDArray[np.float64] = plane.offset * normal
+        return {
+            "basis_u_display": basis_u.tolist(),
+            "basis_v_display": basis_v.tolist(),
+            "point_display": point.tolist(),
+            "normal_display": normal.tolist(),
+            "plane_equation": [*normal.tolist(), plane.offset],
+            "angle_degrees": None,
+            "offset": plane.offset,
+            "construction": plane.construction,
+        }
+    assert axis_result is not None
     axis = np.asarray(axis_result["axis_display"], dtype=float)
     axis /= np.linalg.norm(axis)
     basis = np.eye(3)[int(np.argmin(np.abs(axis)))]
@@ -4321,7 +4444,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if not isinstance(nodes[node.scale], ScaleDefinition):
                     raise ValueError("transform requires an earlier scale feature")
             elif isinstance(node, PlaneDefinition):
-                if not isinstance(nodes[node.axis], AxisDefinition):
+                if node.axis is not None and not isinstance(
+                    nodes[node.axis], AxisDefinition
+                ):
                     raise ValueError("reference plane requires an explicit axis")
             elif isinstance(node, MirrorSymmetry):
                 plane = nodes[node.plane]
@@ -4889,6 +5014,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     "resolved", relationship.get("surfaces", {})
                 ).items():
                     resolved[fit_id] = deepcopy(surface)
+            for context, value in self._derived.items():
+                if context.startswith("@plane/"):
+                    resolved.update(deepcopy(value.get("resolved", {})))
             catalogue = output_catalogue(
                 self._recipe,
                 self._states,
@@ -5090,7 +5218,14 @@ class FeatureGraph(Generic[WorkspaceType]):
             self._derived = {
                 key: value
                 for key, value in self._derived.items()
-                if key not in affected and any(n.id == key for n in recipe.nodes)
+                if (key not in affected and any(n.id == key for n in recipe.nodes))
+                or (
+                    key.startswith("@plane/")
+                    and key in after_influence.providers
+                    and not affected.intersection(
+                        after_influence.providers[key].members
+                    )
+                )
             }
             self._errors = {
                 key: value
@@ -5379,6 +5514,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if kind == "axis" and identifier not in self._connected_solves:
                     return True, None
                 if kind == "point" and identifier not in self._connected_point_solves:
+                    return True, None
+                if task.startswith("@plane/") and task not in self._derived:
                     return True, None
             if any(axis in self._connected_solves for axis in plan.explicit_axes):
                 return True, None
@@ -6062,6 +6199,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if solved_plane is not None:
                         value = deepcopy(solved_plane)
                     else:
+                        assert node.axis is not None
                         axis_value = deepcopy(self._derived[node.axis])
                         axis_value.update(
                             connected_axis_result(
@@ -6107,6 +6245,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                         adjusted = context.get("resolved", context.get("surfaces", {}))
                         if node_id in adjusted:
                             value = deepcopy(adjusted[node_id])
+                for context_id, context in self._derived.items():
+                    if (
+                        context_id.startswith("@plane/")
+                        and context_id not in (excluded or set())
+                        and node_id in context.get("resolved", {})
+                    ):
+                        value = deepcopy(context["resolved"][node_id])
                 return value
 
         def referenced_surface(reference: SurfaceReference) -> dict[str, Any]:
@@ -6242,6 +6387,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 if key in plane_records:
                     return
                 definition = cast(PlaneDefinition, nodes[key])
+                if definition.axis is None:
+                    raise ValueError(
+                        "independent reference planes require a direction joint, not a legacy shared-axis solve"
+                    )
                 add_axis(definition.axis)
                 free = axis_records[definition.axis].free
                 if not free or definition.placement is not None:
@@ -6460,6 +6609,10 @@ class FeatureGraph(Generic[WorkspaceType]):
             plane = initialized_plane(
                 cast(PlaneDefinition, nodes[reference_id]), derived_result(reference_id)
             )
+            if plane.axis is None:
+                raise ValueError(
+                    "independent reference planes do not have a shared-axis clocking phase"
+                )
             axis = derived_result(plane.axis)
             if isinstance(self.workspace, ScanWorkspace):
                 return plane.initial_angle_degrees
@@ -6682,7 +6835,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for surface in surfaces
                 if surface.reference_plane is not None
             )
-            axis_ids.update(cast(PlaneDefinition, nodes[key]).axis for key in datum_ids)
+            axis_ids.update(
+                axis
+                for key in datum_ids
+                if (axis := cast(PlaneDefinition, nodes[key]).axis) is not None
+            )
             axis_ids.update(
                 endpoint.feature
                 for group in endpoints.values()
@@ -6699,6 +6856,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                 surface.reference_plane
                 for surface in surfaces
                 if surface.reference_plane is not None
+                and cast(PlaneDefinition, nodes[surface.reference_plane]).construction
+                != "independent"
             }
             full_plane_ids.update(
                 endpoint.feature
@@ -6729,7 +6888,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                 and isinstance(nodes[endpoint.feature], AxisDefinition)
             }
             free_axes.update(
-                cast(PlaneDefinition, nodes[key]).axis for key in legacy_datums
+                axis
+                for key in legacy_datums
+                if (axis := cast(PlaneDefinition, nodes[key]).axis) is not None
             )
             axes = {
                 key: AxisInput({}, True)
@@ -6767,6 +6928,15 @@ class FeatureGraph(Generic[WorkspaceType]):
             planes: dict[str, PlaneInput] = {}
             for key in datum_ids:
                 definition = cast(PlaneDefinition, nodes[key])
+                if definition.construction == "independent":
+                    planes[key] = PlaneInput(
+                        resolved_result(key, excluded),
+                        free=True,
+                        orientation_free=True,
+                        offset_free=key in full_plane_ids,
+                    )
+                    continue
+                assert definition.axis is not None
                 eligible = normalize_endpoint(
                     OutputReference(feature=key, output="plane"),
                     nodes,
@@ -6806,11 +6976,18 @@ class FeatureGraph(Generic[WorkspaceType]):
             selected_surfaces: list[SelectedDirectionSurface] = []
             for surface in surfaces:
                 axis_id = member_axes.get(surface.id)
+                independent_normal = (
+                    surface.reference_plane is not None
+                    and cast(
+                        PlaneDefinition, nodes[surface.reference_plane]
+                    ).construction
+                    == "independent"
+                )
                 selected_surfaces.append(
                     SelectedDirectionSurface(
                         selection=selected(surface),
                         axis=axis_id,
-                        datum=surface.reference_plane,
+                        datum=None if independent_normal else surface.reference_plane,
                         point=surface.point,
                         construction=cast(
                             PlaneDefinition, nodes[surface.reference_plane]
@@ -6843,6 +7020,16 @@ class FeatureGraph(Generic[WorkspaceType]):
                 )
                 for relation in relations
                 if isinstance(relation, DirectionAlignment)
+            )
+            directions += tuple(
+                DirectionAlignmentInput(
+                    DirectionOperand("plane", surface.id),
+                    DirectionOperand("plane", surface.reference_plane),
+                )
+                for surface in surfaces
+                if surface.reference_plane is not None
+                and cast(PlaneDefinition, nodes[surface.reference_plane]).construction
+                == "independent"
             )
             plane_relations = tuple(
                 (
@@ -6909,6 +7096,27 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if key in nodes
                 },
             }
+            for key, value in list(resolved.items()):
+                definition = nodes[key]
+                if (
+                    isinstance(definition, PlaneDefinition)
+                    and definition.construction == "independent"
+                ):
+                    equation = value["plane_equation"]
+                    resolved[key] = {
+                        **deepcopy(self._derived.get(key, {})),
+                        **reference_plane_result(
+                            None,
+                            definition.model_copy(
+                                update={
+                                    "initial_normal": tuple(equation[:3]),
+                                    "offset": equation[3],
+                                }
+                            ),
+                        ),
+                        **value,
+                        "offset": float(equation[3]),
+                    }
             # Source-fit datums are derived publications, never extra free
             # direction variables. Publish them from this exact solved source.
             for node in recipe.nodes:
@@ -6990,7 +7198,7 @@ class FeatureGraph(Generic[WorkspaceType]):
             include_radii: bool = True,
             radius_groups: tuple[EqualRadii, ...] | None = None,
         ) -> dict[str, Any]:
-            if any(isinstance(relation, DirectionAlignment) for relation in relations):
+            if selected_plane_component(relations, surfaces, nodes):
                 return solve_direction_component(
                     relations,
                     surfaces,
@@ -7039,9 +7247,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for surface in surfaces
                 if (axis := fit_axis(surface, nodes)) is not None
             )
-            axis_ids.update(
-                (cast(PlaneDefinition, nodes[key]).axis, None) for key in datum_ids
-            )
+            for key in datum_ids:
+                datum_axis = cast(PlaneDefinition, nodes[key]).axis
+                if datum_axis is not None:
+                    axis_ids[datum_axis] = None
             datum_aware = bool(datum_ids or has_exact_contexts)
             axes = {
                 key: AxisInput(
@@ -7083,6 +7292,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     definition = initialized_plane(
                         cast(PlaneDefinition, nodes[key]), derived_result(key)
                     )
+                    assert definition.axis is not None
                     datum_records[key] = PlaneInput(
                         resolved_result(key, excluded),
                         axes[definition.axis].free,
@@ -7377,6 +7587,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                             _ = self._connected_solves.pop(identifier, None)
                         elif kind == "point":
                             _ = self._connected_point_solves.pop(identifier, None)
+                        elif kind == "planes":
+                            _ = self._derived.pop(task, None)
                 if affected:
                     self._revision += 1
 
@@ -7396,9 +7608,15 @@ class FeatureGraph(Generic[WorkspaceType]):
             else:
                 relations, planes, members = plane_relationship_components[identifier]
                 error_ids = {relation.id for relation in relations}
-                if any(
-                    isinstance(relation, DirectionAlignment) for relation in relations
-                ):
+                if not relations:
+                    error_ids.update(
+                        key
+                        for key in members
+                        if isinstance(nodes[key], PlaneDefinition)
+                        and cast(PlaneDefinition, nodes[key]).construction
+                        == "independent"
+                    )
+                if selected_plane_component(relations, planes, nodes):
                     error_ids.update(
                         key
                         for key in members
@@ -7411,8 +7629,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                     return
                 if kind == "point" and identifier in self._connected_point_solves:
                     return
-                if kind == "planes" and all(
-                    self._states[key] == "ready" for key in error_ids
+                if kind == "planes" and (
+                    task in self._derived
+                    if not relations
+                    else all(self._states[key] == "ready" for key in error_ids)
                 ):
                     return
             try:
@@ -7421,7 +7641,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                 elif kind == "point":
                     resolved = solve_connected_point(identifier, factors)
                 else:
-                    resolved = solve_plane_component(relations, planes, error_ids)
+                    resolved = solve_plane_component(
+                        relations, planes, error_ids | {task}
+                    )
             except Exception as error:
                 with self.lock:
                     if epoch == self._epoch:
@@ -7458,7 +7680,11 @@ class FeatureGraph(Generic[WorkspaceType]):
                 elif kind == "point":
                     self._connected_point_solves[identifier] = resolved
                 else:
+                    if not relations:
+                        self._derived[task] = deepcopy(resolved)
                     for member in error_ids:
+                        if isinstance(nodes[member], PlaneDefinition):
+                            continue
                         self._derived[member] = deepcopy(
                             resolved
                             if isinstance(
@@ -7466,10 +7692,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             )
                             else resolved["resolved"][member]
                         )
-                    if any(
-                        isinstance(relation, DirectionAlignment)
-                        for relation in relations
-                    ):
+                    if selected_plane_component(relations, planes, nodes):
                         for member, value in resolved["resolved"].items():
                             if member in nodes and isinstance(
                                 nodes[member], SurfaceFit
@@ -8057,7 +8280,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                         resolved_result(node.scale),
                     )
                 elif isinstance(node, PlaneDefinition):
-                    axis_result = derived_result(node.axis)
+                    axis_result = (
+                        derived_result(node.axis) if node.axis is not None else None
+                    )
                     initializer = {}
                     if node.placement is not None:
                         from experiments.feature_reuse import transformed_plane_initial
@@ -8076,7 +8301,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                             refine_axis=cast(
                                 AxisDefinition, nodes[node.axis]
                             ).source_fit
-                            is not None,
+                            is not None
+                            if node.axis is not None
+                            else False,
                         )
                     derived = reference_plane_result(
                         axis_result, node.model_copy(update=initializer)

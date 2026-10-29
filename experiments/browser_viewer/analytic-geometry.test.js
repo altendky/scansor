@@ -1,12 +1,39 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
+import { axisGeometry, revolutionGeometry, independentPlaneGeometry } from './analytic-geometry.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-12, `${a} != ${b}`);
 const canonical = () => ({ kind: 'cylinder', analytic: {
   kind: 'cylinder', origin: [3, -4, 5], axis: [1, 0, 0],
   radius: 2.5, slope: 0, axial_domain: [-2, 4],
 } });
+
+test('independent planes normalize initial direction while retaining signed world offset', () => {
+  const authored = [0, 3, 4], plane = independentPlaneGeometry(authored, -7),
+    dot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+  plane.normal.forEach((value, index) => near(value, [0, 0.6, 0.8][index]));
+  near(dot(plane.point, plane.normal), -7);
+  near(dot(plane.normal, plane.basisU), 0);
+  near(dot(plane.normal, plane.basisV), 0);
+  near(dot(plane.basisU, plane.basisV), 0);
+  near(Math.hypot(...plane.basisU), 1);
+  near(Math.hypot(...plane.basisV), 1);
+  assert.deepEqual(authored, [0, 3, 4]);
+  assert.equal(plane.offset, -7);
+  assert.deepEqual(independentPlaneGeometry([0, 0, -2], 5).point, [0, 0, -5]);
+});
+
+test('independent plane initialization accepts finite extreme directions and rejects invalid values', () => {
+  for (const magnitude of [1e-300, 1e308]) {
+    const plane = independentPlaneGeometry([magnitude, magnitude, magnitude], 2);
+    near(Math.hypot(...plane.normal), 1);
+    assert.ok(plane.point.every(Number.isFinite));
+  }
+  for (const normal of [[0, 0, 0], [0, 1], [0, NaN, 1], [Infinity, 0, 1], null])
+    assert.throws(() => independentPlaneGeometry(normal, 0), TypeError);
+  for (const offset of [NaN, Infinity, '2'])
+    assert.throws(() => independentPlaneGeometry([0, 0, 1], offset), TypeError);
+});
 
 test('horizontal canonical geometry owns anchor, direction and support without legacy parameters', () => {
   const fitted = canonical(), before = structuredClone(fitted), result = revolutionGeometry(fitted);

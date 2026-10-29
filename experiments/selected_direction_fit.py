@@ -262,10 +262,12 @@ def _fit_selected_direction_component(
         raise DirectionFitFailure(
             "invalid-input", "invalid direction component declaration records"
         )
-    if workspace.source_sha256 is None or not component.directions:
+    if workspace.source_sha256 is None or not (
+        component.directions or component.relationships
+    ):
         raise DirectionFitFailure(
             "invalid-input",
-            "accepted source and direction relationships are required",
+            "accepted source and direction or plane relationships are required",
         )
     if not component.surfaces:
         try:
