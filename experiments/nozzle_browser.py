@@ -40,6 +40,7 @@ from experiments.face_builder import (
 from experiments.face_building_limits import MAX_PAIRS, MAX_REGIONS
 from experiments.feature_graph import (
     FeatureGraph,
+    GraphFailureCheckpoint,
     GraphRequest,
     Recipe,
     Selection,
@@ -53,6 +54,7 @@ from experiments.feature_reuse_authoring import (
     apply_feature_reuse,
     preview_feature_reuse,
 )
+from experiments.fit_solver import FitCancelled
 from experiments.guided_face_candidates import FaceCandidatesRequest, candidate_faces
 from experiments.native_scan_import import (
     NativeImportContext,
@@ -77,6 +79,7 @@ from experiments.scan_actions import inspect_actions
 from experiments.scan_project import ScanProject, virtual_scan_metadata
 from experiments.scan_sources import ReplayableInput
 from experiments.scan_workspace import (
+    ScanCancelled,
     ScanImportError,
     ScanLimits,
     ScanProgress,
@@ -100,6 +103,12 @@ class RecipeImportRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
     token: str
     recipe: dict[str, Any]
+
+
+class EvaluationCancelRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    generation: int = Field(ge=0)
+    evaluationId: str = Field(min_length=1, max_length=128)
 
 
 class SourceCursor(BaseModel):
@@ -156,6 +165,49 @@ class NativeAccepted:
     import_warnings: tuple[ImportWarning, ...] = ()
     project_source: ReplayableInput | None = None
     legacy_reference: dict[str, Any] | None = None
+
+
+EvaluationState = Literal[
+    "queued", "running", "cancel-requested", "cancelled", "complete", "failed"
+]
+
+
+@dataclass
+class NativeEvaluation:
+    id: str
+    sequence: int
+    generation: int
+    kind: Literal["evaluate", "ensure"]
+    roots: frozenset[str]
+    graph: FeatureGraph[Any]
+    checkpoint: GraphFailureCheckpoint
+    job_errors: dict[tuple[str, frozenset[str]], str]
+    cancel: threading.Event
+    state: EvaluationState = "queued"
+    future: Future[dict[str, object]] | None = None
+
+    def descriptor(self, *, done: bool | None = None) -> dict[str, object]:
+        future = self.future
+        if future is not None and (future.done() if done is None else done):
+            if self.cancel.is_set() or future.cancelled():
+                self.state = "cancelled"
+            else:
+                error = future.exception()
+                self.state = (
+                    "cancelled"
+                    if isinstance(error, (StaleGraph, ScanCancelled, FitCancelled))
+                    else "failed"
+                    if error is not None
+                    else "complete"
+                )
+        return {
+            "id": self.id,
+            "sequence": self.sequence,
+            "generation": self.generation,
+            "state": self.state,
+            "kind": self.kind,
+            "roots": sorted(self.roots),
+        }
 
 
 # Native admission tier; callers may supply stricter explicit caps.
@@ -254,6 +306,8 @@ class NozzleServer(ThreadingHTTPServer):
         )
         self.job: Future[SessionFit] | None = None
         self.graph_job: Future[dict[str, object]] | None = None
+        self.evaluation: NativeEvaluation | None = None
+        self._evaluation_sequence: int = 0
         if workspace is not None:
             initial_recipe = recipe or (
                 default_example_recipe(workspace, example_path)
@@ -784,6 +838,7 @@ class NozzleServer(ThreadingHTTPServer):
         self.graph_job_token = ""
         self.graph_job_roots = frozenset()
         self.graph_job_errors.clear()
+        self.evaluation = None
 
     @contextmanager
     def computation(self) -> Generator[NativeAccepted]:
@@ -822,6 +877,121 @@ class NozzleServer(ThreadingHTTPServer):
         except BaseException:
             lease.close()
             raise
+
+    def graph_job_error(self, *, done: bool | None = None) -> BaseException | None:
+        job = self.graph_job
+        if job is None or not (job.done() if done is None else done) or job.cancelled():
+            return None
+        if (
+            self.evaluation is not None
+            and self.evaluation.future is job
+            and self.evaluation.cancel.is_set()
+        ):
+            return None
+        error = job.exception()
+        return (
+            None
+            if isinstance(error, (StaleGraph, ScanCancelled, FitCancelled))
+            else error
+        )
+
+    def evaluation_snapshot(
+        self, state: dict[str, Any], *, running: bool | None = None
+    ) -> dict[str, Any]:
+        """Lifecycle fields remain observable even without a graph revision."""
+        with self.lock:
+            if running is None:
+                running = self.graph_job is not None and not self.graph_job.done()
+            state["evaluation"] = (
+                self.evaluation.descriptor(done=not running)
+                if self.evaluation is not None
+                else None
+            )
+            state["evaluation_running"] = running
+            return state
+
+    def start_evaluation(
+        self,
+        request: GraphRequest,
+        kind: Literal["evaluate", "ensure"],
+        roots: frozenset[str],
+    ) -> dict[str, Any]:
+        with self.lock:
+            accepted = self.accepted()
+            graph = accepted.graph
+            if request.token != graph.snapshot()["token"]:
+                raise StaleGraph("graph changed before evaluation")
+            record = NativeEvaluation(
+                uuid.uuid4().hex,
+                self._evaluation_sequence + 1,
+                accepted.generation,
+                kind,
+                roots,
+                graph,
+                graph.failure_checkpoint(),
+                self.graph_job_errors.copy(),
+                threading.Event(),
+            )
+
+            def run() -> dict[str, object]:
+                with self.lock:
+                    check_cancelled(record.cancel.is_set)
+                    record.state = "running"
+                if kind == "ensure":
+                    return graph.ensure_current(
+                        request.token,
+                        request.targets,
+                        request.all_actions,
+                        cancelled=record.cancel.is_set,
+                    )
+                return graph.evaluate(
+                    request.token,
+                    request.target,
+                    request.all_actions,
+                    cancelled=record.cancel.is_set,
+                )
+
+            record.future = self.submit(run)
+            self._evaluation_sequence = record.sequence
+            self.evaluation = record
+            self.graph_job = record.future
+            self.graph_job_token = request.token
+            self.graph_job_roots = roots
+            if kind == "evaluate":
+                self.graph_job_errors.clear()
+            return self.evaluation_snapshot({"status": "running"})
+
+    def cancel_evaluation(self, request: EvaluationCancelRequest) -> dict[str, Any]:
+        with self.lock:
+            accepted = self.accepted()
+            if request.generation != accepted.generation:
+                raise ScanImportError(
+                    "Cancellation belongs to another source generation.", "stale_source"
+                )
+            record = self.evaluation
+            if (
+                record is None
+                or record.id != request.evaluationId
+                or record.graph is not accepted.graph
+            ):
+                raise ScanImportError(
+                    "The requested evaluation is no longer current.", "stale_evaluation"
+                )
+            descriptor = record.descriptor()
+            if descriptor["state"] in {"queued", "running", "cancel-requested"}:
+                if not record.cancel.is_set():
+                    record.cancel.set()
+                    record.state = "cancel-requested"
+                    _ = record.graph.discard_evaluation(record.checkpoint)
+                    current_token = record.graph.snapshot()["token"]
+                    self.graph_job_errors = {
+                        key: error
+                        for key, error in record.job_errors.items()
+                        if key[0] == current_token
+                    }
+                if record.future is not None:
+                    _ = record.future.cancel()
+            return self.evaluation_snapshot(record.graph.snapshot())
 
     def select_example(
         self, request: ExampleRequest, generation: int | None = None
@@ -1043,10 +1213,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply_generation = state.generation
                 metadata = state.workspace.metadata()
                 capabilities = cast(dict[str, object], metadata.get("capabilities", {}))
-                graph = {
-                    **state.graph.snapshot(),
-                    "project_generation": state.generation,
-                }
+                graph = self.app.evaluation_snapshot(
+                    {
+                        **state.graph.snapshot(),
+                        "project_generation": state.generation,
+                    }
+                )
                 metadata = {
                     **metadata,
                     "import_warnings": list(state.import_warnings),
@@ -1149,13 +1321,11 @@ class Handler(BaseHTTPRequestHandler):
                 ):
                     token = str(state["token"])
                     self.app.graph_job_token = token
-                state["evaluation_running"] = running
+                state = self.app.evaluation_snapshot(state, running=running)
                 if job is not None and not running and token == state["token"]:
-                    try:
-                        _ = job.result()
-                    except Exception as error:
-                        if not isinstance(error, StaleGraph):
-                            state["evaluation_error"] = str(error)
+                    error = self.app.graph_job_error(done=True)
+                    if error is not None:
+                        state["evaluation_error"] = str(error)
             self.json_reply(200, state)
         elif self.path.startswith("/api/fit/"):
             with self.app.lock:
@@ -1189,7 +1359,13 @@ class Handler(BaseHTTPRequestHandler):
             if error.code == "unknown_operation"
             else 409
             if error.code
-            in {"stale_source", "source_exists", "source_busy", "import_closed"}
+            in {
+                "stale_source",
+                "stale_evaluation",
+                "source_exists",
+                "source_busy",
+                "import_closed",
+            }
             else 422
         )
         # A disconnected upload still retains its terminal operation diagnostic;
@@ -1399,6 +1575,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/import",
             "/api/graph/evaluate",
             "/api/graph/ensure",
+            "/api/graph/cancel",
             "/api/graph/feature-reuse/preview",
             "/api/graph/feature-reuse/apply",
             "/api/graph/selection-volumes/author",
@@ -1441,6 +1618,13 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             if actions:
                 check_actions_envelope(json.loads(body))
+            if self.path == "/api/graph/cancel":
+                cancellation = EvaluationCancelRequest.model_validate_json(body)
+                with self.app.lock:
+                    _ = self.fence_source()
+                    state = self.app.cancel_evaluation(cancellation)
+                self.json_reply(202 if state["evaluation_running"] else 200, state)
+                return
             if self.path == "/api/graph/import":
                 imported = RecipeImportRequest.model_validate_json(body)
                 recipe, warnings = import_recipe(imported.recipe)
@@ -1635,12 +1819,10 @@ class Handler(BaseHTTPRequestHandler):
                                 and self.app.graph_job.done()
                                 and self.app.graph_job_token == payload.token
                             ):
-                                error = self.app.graph_job.exception()
+                                error = self.app.graph_job_error()
                                 # Superseded work is cancellation, not a retained
                                 # failure of the current requested outputs.
-                                if error is not None and not isinstance(
-                                    error, StaleGraph
-                                ):
+                                if error is not None:
                                     self.app.graph_job_errors[
                                         (payload.token, self.app.graph_job_roots)
                                     ] = str(error)
@@ -1663,41 +1845,35 @@ class Handler(BaseHTTPRequestHandler):
                             ):
                                 self.json_reply(
                                     202,
-                                    {"status": "running", "evaluation_running": True},
+                                    self.app.evaluation_snapshot({"status": "running"}),
                                 )
                             elif not needed or job_error is not None:
                                 self.json_reply(
                                     200,
-                                    {
-                                        **(
-                                            ready_state
-                                            if ready_state is not None
-                                            else self.app.graph.readiness_snapshot(
-                                                payload.token,
-                                                payload.targets,
-                                                payload.all_actions,
-                                            )
-                                        ),
-                                        "evaluation_running": False,
-                                        **(
-                                            {"evaluation_error": str(job_error)}
-                                            if job_error is not None
-                                            else {}
-                                        ),
-                                    },
+                                    self.app.evaluation_snapshot(
+                                        {
+                                            **(
+                                                ready_state
+                                                if ready_state is not None
+                                                else self.app.graph.readiness_snapshot(
+                                                    payload.token,
+                                                    payload.targets,
+                                                    payload.all_actions,
+                                                )
+                                            ),
+                                            "evaluation_running": False,
+                                            **(
+                                                {"evaluation_error": str(job_error)}
+                                                if job_error is not None
+                                                else {}
+                                            ),
+                                        }
+                                    ),
                                 )
                             else:
-                                self.app.graph_job_token = payload.token
-                                self.app.graph_job_roots = roots
-                                self.app.graph_job = self.app.submit(
-                                    self.app.graph.ensure_current,
-                                    payload.token,
-                                    payload.targets,
-                                    payload.all_actions,
-                                )
                                 self.json_reply(
                                     202,
-                                    {"status": "running", "evaluation_running": True},
+                                    self.app.start_evaluation(payload, "ensure", roots),
                                 )
                             return
                         if (
@@ -1710,20 +1886,13 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         if payload.token != self.app.graph.snapshot()["token"]:
                             raise StaleGraph("graph changed before evaluation")
-                        self.app.graph_job_token = payload.token
-                        self.app.graph_job_errors.clear()
-                        self.app.graph_job_roots = self.app.graph.evaluation_roots(
+                        roots = self.app.graph.evaluation_roots(
                             payload.token,
                             [payload.target] if payload.target is not None else None,
                             payload.all_actions,
                         )
-                        self.app.graph_job = self.app.submit(
-                            self.app.graph.evaluate,
-                            payload.token,
-                            payload.target,
-                            payload.all_actions,
-                        )
-                    self.json_reply(202, {"status": "running"})
+                        state = self.app.start_evaluation(payload, "evaluate", roots)
+                    self.json_reply(202, state)
                 return
             with self.app.lock:
                 accepted = self.fence_source()

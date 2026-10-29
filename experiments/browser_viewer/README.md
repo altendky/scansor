@@ -503,6 +503,40 @@ rechecking the requested outputs. Unchanged failures remain visible until an
 explicit retry or an input edit; unrelated failures do not block a targeted
 request.
 
+Use **Cancel computation** in the footer to stop a queued or running evaluation,
+including work requested by a targeted output consumer. This is separate from
+form Cancel and Cancel import. The control remains usable while editing toolbars
+are inert. Cancel turns Auto off, discards computed display, and immediately
+rejects late results. It retains the scan, authored actions, and compatible live
+drafts. After retirement, edit the project or choose Evaluate again.
+
+Native cancellation is cooperative. Numerical checkpoints stop fitting and the
+server waits for every owned numerical task before reporting completion. An
+active native/CAD call may take time: **Cancel requested** means it is still
+retiring, and evaluation remains locked. There is no native Force button or
+promise of safely terminating arbitrary OCCT calls. Native process-isolation
+work is tracked in [#141](https://github.com/altendky/scansor/issues/141).
+
+Workers retain the explicit **Force and restart** recovery path when Cancel
+cannot promptly finish. Force terminates the worker and reconstructs its
+retained source plus accepted actions, discarding derived geometry. It never
+runs automatically after a timeout. Isolated numerical-only workers can use
+shared-buffer interruption; plain workers and workspaces containing CAD actions
+wait for a safe boundary unless explicitly forced. A CAD-containing workspace
+conservatively disables shared interruption even for a numerical target.
+
+Controlled native UI checks exercised cooperative, queued, noncooperative and
+targeted/lazy evaluation. Request-to-control-return observations were 191–202 ms
+in the final UI run; noncooperative work stayed waiting until the test released
+its gate. These are bounded lifecycle observations, not universal timing limits.
+An additional local 127-action, 1,107,516-vertex STL replay stopped during actual
+CPU work in 1.12 seconds, discarded ten partial results, preserved source/actions,
+and successfully reevaluated every action. That local-only source is not a CI
+fixture; this is cancellation evidence rather than a fitting-speed benchmark.
+Actual packaged plain/isolated worker checks also cover numerical and targeted
+ensure cancellation, delayed replies, CAD Cancel/Force, retained actions/source,
+and successful subsequent evaluation/export.
+
 Evaluation polling uses a publication revision independent of the recipe's
 content token. A matching `/api/graph?revision=N` returns only the token,
 revision, unchanged flag, and current worker lifecycle/error metadata; it skips

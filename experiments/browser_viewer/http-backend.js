@@ -25,20 +25,58 @@ function pause(milliseconds, signal) {
 }
 
 export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
-  pollInterval = 150, wait = pause } = {}) {
+  pollInterval = 150, wait = pause, onLifecycle = () => {} } = {}) {
   const lifetime = new AbortController();
   let nextRequestId = 0;
   let sourcePublication = 0, acceptedGeneration, acceptedMetadata, latestGraph;
+  let evaluationObservation = 0, evaluationVersion = 0, evaluation, cancellation, runtimeLifetime = 0;
+  let lifecycle = Object.freeze({ state: 'complete', lifetime: runtimeLifetime,
+    canCancel: false, canForce: false, interrupts: false });
+  const cancelled = () => new BackendError('Computation was cancelled. Evaluate again when ready.',
+    { code: 'computation_cancelled' });
+  const checkObservation = observation => {
+    if (observation !== undefined && observation !== evaluationObservation) throw cancelled();
+  };
+  const publishLifecycle = (state, detail = {}) => {
+    lifecycle = Object.freeze({ state, ...detail, lifetime: runtimeLifetime,
+      canCancel: detail.canCancel ?? ['queued', 'running'].includes(state), canForce: false, interrupts: false });
+    onLifecycle(lifecycle);
+  };
+  function observeEvaluation(state, version = evaluationVersion) {
+    if (!Object.hasOwn(state || {}, 'evaluation')) return;
+    const next = state.evaluation;
+    if (next === null && version !== evaluationVersion)
+      throw new BackendError('A newer evaluation state is already current.', { code: 'observation_superseded' });
+    if (next !== null && (!next || typeof next.id !== 'string' || !next.id
+      || !Number.isSafeInteger(next.generation) || next.generation < 0
+      || next.sequence !== undefined && (!Number.isSafeInteger(next.sequence) || next.sequence < 0)
+      || !['queued', 'running', 'cancel-requested', 'cancelled', 'complete', 'failed'].includes(next.state)
+      || !['evaluate', 'ensure'].includes(next.kind) || !Array.isArray(next.roots)
+      || next.roots.some(root => typeof root !== 'string')))
+      throw new BackendError('Invalid evaluation lifecycle response.', { code: 'invalid_operation' });
+    const rank = { queued: 0, running: 1, 'cancel-requested': 2, cancelled: 3, complete: 3, failed: 3 };
+    if (next && evaluation && (Number.isSafeInteger(next.sequence) && Number.isSafeInteger(evaluation.sequence)
+      && next.sequence < evaluation.sequence || next.id === evaluation.id && rank[next.state] < rank[evaluation.state]))
+      throw new BackendError('A newer evaluation state is already current.', { code: 'observation_superseded' });
+    if (next?.id !== evaluation?.id || next?.state !== evaluation?.state || next?.sequence !== evaluation?.sequence)
+      evaluationVersion++;
+    evaluation = next;
+    const activeState = cancellation?.id === next?.id && ['queued', 'running'].includes(next?.state)
+      ? 'cancel-requested' : next?.state || 'complete';
+    publishLifecycle(activeState, next ? { operation: next.kind, roots: [...next.roots],
+      evaluationId: next.id, generation: next.generation } : {});
+  }
   const signalFor = signal => signal
     ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal;
   const superseded = () => new BackendError('The accepted workspace changed. Reload the current workspace.',
     { code: 'observation_superseded', status: 409 });
   const checkPublication = publication => { if (publication !== sourcePublication) throw superseded(); };
   async function request(path, value, { signal, binary = false, blob = false, message, raw = false,
-    generation, publication = sourcePublication, expectedGeneration, sourceMutation = false } = {}) {
+    generation, publication = sourcePublication, expectedGeneration, sourceMutation = false, observation } = {}) {
     const requestId = ++nextRequestId, active = signalFor(signal);
     active.throwIfAborted();
     checkPublication(publication);
+    checkObservation(observation);
     try {
       const response = await fetchResponse(path, {
         signal: active,
@@ -54,6 +92,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       });
       active.throwIfAborted();
       checkPublication(publication);
+      checkObservation(observation);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new BackendError(body.error?.message || body.error || message || `Request failed (${response.status})`,
@@ -64,6 +103,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       const body = binary ? blob ? await response.blob() : await response.arrayBuffer() : await response.json();
       active.throwIfAborted();
       checkPublication(publication);
+      checkObservation(observation);
       if (!binary && !sourceMutation && acceptedGeneration !== undefined
         && body.project_generation !== undefined && body.project_generation !== acceptedGeneration)
         throw superseded();
@@ -74,7 +114,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       throw new BackendError(error.message, { code: 'transport_error', requestId });
     }
   }
-  function rememberGraph(state, known = latestGraph) {
+  function rememberGraph(state, known = latestGraph, version = evaluationVersion) {
+    observeEvaluation(state, version);
     if (!state?.token || state.unchanged) return state;
     if (!state.recipe) {
       const matching = [latestGraph, known].find(value => value?.recipe && value.token === state.token);
@@ -90,12 +131,13 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     return state;
   }
   const graphRequest = async (path, payload, options = {}, binary = false) => {
-    const known = latestGraph;
+    const known = latestGraph, version = evaluationVersion;
     const result = await request(path, payload,
-      { ...options, binary, generation: acceptedGeneration,
+      { observation: evaluationObservation, ...options, binary, generation: acceptedGeneration,
         ...(binary && acceptedGeneration !== undefined ? { expectedGeneration: acceptedGeneration } : {}) });
-    if (result?.states && result.token) return rememberGraph(result, known);
-    if (result?.graph?.states) result.graph = rememberGraph(result.graph, known);
+    if (result?.states && result.token) return rememberGraph(result, known, version);
+    observeEvaluation(result, version);
+    if (result?.graph?.states) result.graph = rememberGraph(result.graph, known, version);
     return result;
   };
   const volumeRequest = (path, payload, options) => {
@@ -204,11 +246,11 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   }
   const backend = {
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
-      progress: 'snapshots', cancelComputation: false, sources: 'single-scan-and-retained-examples',
+      progress: 'snapshots', cancelComputation: true, forceRestart: false, sources: 'single-scan-and-retained-examples',
       sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true,
       projectArchives: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
-      const publication = sourcePublication;
+      const publication = sourcePublication, observation = evaluationObservation, version = evaluationVersion;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
       const cursor = metadata.project_generation;
       if (generation !== undefined && cursor !== generation
@@ -224,6 +266,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       ]);
       checkPublication(publication);
       signalFor(options.signal).throwIfAborted();
+      checkObservation(observation);
+      observeEvaluation(metadata.graph, version);
       acceptedGeneration = cursor;
       acceptedMetadata = metadata;
       latestGraph = metadata.graph;
@@ -231,13 +275,44 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
         generation: cursor, graph: metadata.graph };
     },
     async getGraph({ revision, ...options } = {}) {
-      const known = latestGraph;
+      const known = latestGraph, version = evaluationVersion;
       const query = new URLSearchParams();
       if (Number.isSafeInteger(revision) && revision >= 0) query.set('revision', revision);
       if (query.has('revision') && known?.recipe) query.set('recipe_token', known.token);
       const suffix = query.size ? `?${query}` : '';
       return rememberGraph(await request(`/api/graph${suffix}`,
-        undefined, { ...options, generation: acceptedGeneration }), known);
+        undefined, { observation: evaluationObservation, ...options, generation: acceptedGeneration }), known, version);
+    },
+    getLifecycle: () => lifecycle,
+    cancelComputation() {
+      if (lifetime.signal.aborted) return Promise.reject(lifetime.signal.reason);
+      if (cancellation) return cancellation.promise;
+      if (!evaluation || !['queued', 'running', 'cancel-requested'].includes(evaluation.state)) return Promise.resolve(null);
+      const operation = evaluation, observation = ++evaluationObservation;
+      const operationRecord = { id: operation.id, promise: null };
+      cancellation = operationRecord;
+      operationRecord.promise = (async () => {
+        try {
+          let state = await graphRequest('/api/graph/cancel',
+            { generation: operation.generation, evaluationId: operation.id }, { observation });
+          while (state.evaluation?.id === operation.id
+            && ['queued', 'running', 'cancel-requested'].includes(state.evaluation.state)) {
+            await wait(pollInterval, lifetime.signal);
+            checkObservation(observation);
+            state = await backend.getGraph({ observation });
+          }
+          return state;
+        } catch (error) {
+          if (observation === evaluationObservation && evaluation?.id === operation.id && !lifetime.signal.aborted)
+            publishLifecycle('cancel-requested', { operation: operation.kind, roots: [...operation.roots],
+              evaluationId: operation.id, generation: operation.generation, canCancel: true, retryCancel: true,
+              message: 'Cancellation could not be confirmed. Retry Cancel; native work may still be running.' });
+          throw error;
+        } finally { if (cancellation === operationRecord) cancellation = undefined; }
+      })();
+      publishLifecycle('cancel-requested', { operation: operation.kind, roots: [...operation.roots],
+        evaluationId: operation.id, generation: operation.generation });
+      return operationRecord.promise;
     },
     replaceRecipe: (payload, options) => graphRequest('/api/graph', payload, options),
     importRecipe: (payload, options) => graphRequest('/api/graph/import', payload, options),
@@ -360,13 +435,14 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       return observeSourceOperation(operation, { generation, token, signal, onProgress, publication, purpose: 'activate-scan' });
     },
     async *graphUpdates({ revision, signal, isCurrent = () => true } = {}) {
-      const active = signalFor(signal), publication = sourcePublication;
+      const active = signalFor(signal), publication = sourcePublication, observation = evaluationObservation;
       do {
         active.throwIfAborted();
         checkPublication(publication);
+        checkObservation(observation);
         if (!isCurrent()) throw new BackendError('The requested operation changed. Try again.',
           { code: 'observation_superseded' });
-        const state = await backend.getGraph({ revision, signal: active, publication });
+        const state = await backend.getGraph({ revision, signal: active, publication, observation });
         active.throwIfAborted();
         if (!isCurrent()) throw new BackendError('The requested operation changed. Try again.',
           { code: 'observation_superseded' });
@@ -381,6 +457,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     },
     close() {
       lifetime.abort(new BackendError('Backend connection closed.', { code: 'backend_closed' }));
+      runtimeLifetime++;
+      publishLifecycle('closed');
     },
   };
   return backend;

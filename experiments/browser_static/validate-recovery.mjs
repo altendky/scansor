@@ -116,6 +116,13 @@ try {
             !data?.phase && data?.id && this.harnessOperations.get(data.id) === 'getGraph') {
             harness.held.push(() => callback?.(event));
           } else callback?.(event);
+          if (harness.targetCancelArmed && this === harness.testWorker && data?.kind === 'lifecycle'
+            && data.state === 'running' && data.operation === 'ensureGraph') {
+            harness.targetCancelArmed = false;
+            harness.targetCancelAt = performance.now();
+            harness.targetCancelLifecycle = harness.backend.getLifecycle();
+            harness.targetCancelBarrier = harness.settle(harness.backend.cancelComputation());
+          }
           if (harness.uiCancelArmed && this === harness.workers[0] &&
             data?.kind === 'lifecycle' && data.state === 'running' && data.operation === 'evaluateGraph') {
             const button = document.querySelector('#cancel-computation');
@@ -232,6 +239,31 @@ try {
   assert.deepEqual(numeric.recovered.recipe.nodes.find(node => node.operation === 'source'), edited.source);
   assert.equal(Object.keys(numeric.subsequent.errors).length, 0);
   report.checks.actual_numeric_cancel_fence_restore_then_fit = true;
+
+  report.targeted_ensure_cancel = await boundedEvaluate(page, async () => {
+    const h = window.recoveryHarness, before = await h.backend.getGraph(), recipe = structuredClone(before.recipe);
+    const selection = recipe.nodes.filter(node => node.operation === 'selection')
+      .sort((a, b) => b.ids.length - a.ids.length)[0];
+    selection.ids.pop(); selection.label += ' targeted cancellation';
+    const target = recipe.nodes.find(node => node.operation === 'fit' && node.selections.includes(selection.id));
+    if (!target) throw new Error('No fit consumes the invalidated observations');
+    const saved = await h.backend.replaceRecipe({ token: before.token, recipe });
+    h.recipe = saved.recipe; h.token = saved.token;
+    h.targetCancelBarrier = null; h.targetCancelArmed = true;
+    const outcome = await h.settle(h.backend.ensureGraph({ token: saved.token, targets: [target.id] }));
+    if (!h.targetCancelBarrier) throw new Error('Targeted ensure did not reach its real running checkpoint');
+    const restored = await h.targetCancelBarrier;
+    const barrier_ms = performance.now() - h.targetCancelAt;
+    return { mechanism: 'Actual targeted ensure, cancelled at the worker running lifecycle; no solver delay',
+      target: target.id, at_cancel: h.targetCancelLifecycle, outcome, restored, barrier_ms,
+      subsequent: await h.evaluate() };
+  });
+  assert.equal(report.targeted_ensure_cancel.outcome.error?.code, 'computation_cancelled');
+  assert.equal(report.targeted_ensure_cancel.restored.ok, true);
+  assert.deepEqual(report.targeted_ensure_cancel.restored.value.recipe, report.targeted_ensure_cancel.subsequent.recipe);
+  assert.deepEqual(report.targeted_ensure_cancel.restored.value.recipe.nodes.find(node => node.operation === 'source'), edited.source);
+  assert.equal(Object.keys(report.targeted_ensure_cancel.subsequent.errors).length, 0);
+  report.checks.actual_targeted_ensure_cancel_then_fit = true;
 
   const delayed = await boundedEvaluate(page, async () => {
     const h = window.recoveryHarness;

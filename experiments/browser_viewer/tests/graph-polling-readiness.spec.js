@@ -53,8 +53,9 @@ test('Build faces readiness unlocks editing after compact completion and a faile
   await expect(row).toHaveAttribute('draggable', 'false');
   await expect(row.locator('.tree-row-content')).toHaveAttribute('draggable', 'false');
   await expect(row).not.toHaveClass(/row-draggable/);
-  // Preview readiness does not enter the explicit evaluator's busy/finally path.
-  await expect(page.locator('#evaluate-all')).toBeEnabled();
+  // Readiness owns running work too; keep a new evaluation locked until that
+  // work retires, independently of the explicit evaluator's busy/finally path.
+  await expect(page.locator('#evaluate-all')).toBeDisabled();
   await page.evaluate(() => {
     window.originalReadinessOption = document.querySelector('#build-faces-surfaces option');
     window.originalReadinessRow = document.querySelector('#action-list .tree-row[data-reorder-key="end"]');

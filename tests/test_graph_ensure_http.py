@@ -1,7 +1,7 @@
 """Ensure requests reuse current graph work through the real HTTP adapter."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -184,6 +184,7 @@ def test_conditional_graph_poll_omits_geometry_without_copying_it(
             "token": state["token"],
             "revision": state["revision"],
             "unchanged": True,
+            "evaluation": None,
             "evaluation_running": False,
         }
 
@@ -571,12 +572,17 @@ def test_unclassified_worker_failure_is_not_implicitly_resubmitted(
     attempts: list[list[str] | None] = []
 
     def unexpected_failure(
-        token: str, targets: list[str] | None = None, all_actions: bool = False
+        token: str,
+        targets: list[str] | None = None,
+        all_actions: bool = False,
+        *,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
+        assert cancelled is not None
         attempts.append(targets)
         if len(attempts) == 1:
             raise RuntimeError("unexpected worker failure")
-        return original(token, targets, all_actions)
+        return original(token, targets, all_actions, cancelled=cancelled)
 
     monkeypatch.setattr(http_graph.server.graph, "ensure_current", unexpected_failure)
     assert http_graph.ensure(["a", "b"])[0] == 202

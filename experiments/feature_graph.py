@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
-from concurrent.futures import Executor, Future
+from concurrent.futures import Executor, Future, wait
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -3388,6 +3388,41 @@ class FeatureGraph(Generic[WorkspaceType]):
             if checkpoint.states:
                 self._revision += 1
 
+    def discard_evaluation(
+        self, checkpoint: GraphFailureCheckpoint
+    ) -> dict[str, object]:
+        """Fence active work and discard partial results without reverting edits.
+
+        The source owner keeps its evaluation lease until the old task retires.
+        Only computation stores are replaced here; source, authored definitions,
+        graph identity and native ownership stay with the accepted project.
+        """
+        with self.lock:
+            current = self._recipe.model_copy(deep=True)
+            fresh = FeatureGraph(
+                self.workspace,
+                checkpoint.recipe,
+                refresh_volumes=self._refresh_volumes,
+                fit_intent=self._fit_intent,
+                fit_executor=self.fit_executor,
+            )
+            fresh.restore_failures(checkpoint)
+            _ = fresh.replace(current, checkpoint.token)
+            self._states = fresh._states
+            self._results = fresh._results
+            self._derived = fresh._derived
+            self._errors = fresh._errors
+            self._diagnostics = fresh._diagnostics
+            self._connected_solves = fresh._connected_solves
+            self._connected_point_solves = fresh._connected_point_solves
+            self._validation_reviews = fresh._validation_reviews
+            self._volume_refresh_errors = fresh._volume_refresh_errors
+            self._volume_cache = fresh._volume_cache
+            self._evaluation_origin_token = None
+            self._epoch += 1
+            self._revision += 1
+            return self.snapshot()
+
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
         _ = coaxial_axis_bindings(nodes)
@@ -5071,15 +5106,25 @@ class FeatureGraph(Generic[WorkspaceType]):
             return False, snapshot
 
     def ensure_current(
-        self, token: str, targets: list[str] | None = None, all_actions: bool = False
+        self,
+        token: str,
+        targets: list[str] | None = None,
+        all_actions: bool = False,
+        *,
+        cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         """Reuse current results; unchanged failures require an explicit retry."""
+        check_cancelled(cancelled)
         with self.lock:
             needed, snapshot = self._readiness(token, targets, all_actions)
             if not needed:
                 return snapshot if snapshot is not None else self.snapshot()
         return self.evaluate(
-            token, all_actions=all_actions, targets=targets, retry_failed=False
+            token,
+            all_actions=all_actions,
+            targets=targets,
+            retry_failed=False,
+            cancelled=cancelled,
         )
 
     @native_replay_scope()
@@ -5469,11 +5514,14 @@ class FeatureGraph(Generic[WorkspaceType]):
                 stop_fits=stop,
             )
         finally:
-            # Workers retain only private selected arrays. Stop running jobs at
-            # their next numerical checkpoint and discard queued work on exit.
+            # Do not release the source/evaluation lease while owned numerical
+            # children are still active. HTTP can report cancel-requested while
+            # a non-cooperative child finishes at its next safe boundary.
             stop.set()
             for future in pending.values():
                 _ = future.cancel()
+            if pending:
+                _ = wait(tuple(pending.values()))
 
     def _drain_numerical_fits(
         self,

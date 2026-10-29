@@ -26,8 +26,8 @@ test('HTTP mutations preserve payloads, headers, errors and request identities',
     assert.equal(error.requestId, 2);
     return true;
   });
-  assert.equal(backend.capabilities.cancelComputation, false);
-  await assert.rejects(backend.cancelComputation(), error => error.code === 'unsupported_capability');
+  assert.equal(backend.capabilities.cancelComputation, true);
+  assert.equal(await backend.cancelComputation(), null);
   await assert.rejects(backend.forceRestart(), error => error.code === 'unsupported_capability');
 });
 
@@ -565,7 +565,7 @@ test('explicit Cancel has its own original cursor and terminal cancellation pres
   await backend.cancelSourceOperation({ operationId: 'scan-1', generation: 0, token: 'empty' });
   assert.deepEqual(JSON.parse(calls.at(-1).init.body), { generation: 0, token: 'empty' });
   assert.equal(calls.at(-1).path, '/api/sources/imports/scan-1/cancel');
-  assert.equal(backend.capabilities.cancelComputation, false);
+  assert.equal(backend.capabilities.cancelComputation, true);
   assert.equal(progress.at(-1).status, 'cancelled');
   await assert.rejects(backend.getSourceOperation({ operationId: '../file' }), error => error.code === 'invalid_operation');
 });
