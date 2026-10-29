@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
+import { ensureGraphCurrent, waitForGraphEvaluation, stoppedEvaluationDisplay } from './graph-evaluation.js';
 import { createHttpBackend } from './http-backend.js';
 
 function snapshot(states = { face: 'ready', transform: 'ready' }, extra = {}) {
@@ -23,6 +23,29 @@ function fixture(responses, targets = ['face']) {
   });
   return { options, requests, accepted };
 }
+
+test('requesting stop immediately removes computed display without changing authored actions', () => {
+  const original = snapshot({ source: 'ready', face: 'ready', transform: 'running', failed: 'failed' }, {
+    revision: 19, project_generation: 7,
+    recipe: { nodes: [{ id: 'source', operation: 'source' }, { id: 'face', operation: 'fit' }] },
+    results: { face: { parameters: [1, 2, 3] } }, derived: { face: { ids: [3] } },
+    result: { ids: [3] }, memberships: { generated: [3] }, errors: { failed: 'Known failure' },
+    input_catalogue: [{ availability: 'ready', preview: { point: [1, 2, 3] } }],
+    input_requirements: { point: { choices: [{ availability: 'ready', preview: { point: [1, 2, 3] } }], unavailable: [] } },
+  });
+  const before = structuredClone(original), display = stoppedEvaluationDisplay(original);
+  assert.deepEqual(original, before);
+  assert.equal(display.recipe, original.recipe);
+  assert.equal(display.token, original.token); assert.equal(display.project_generation, 7);
+  assert.equal(display.revision, undefined); assert.equal(display.evaluation_running, true);
+  assert.deepEqual(display.states, { source: 'ready', face: 'stale', transform: 'stale', failed: 'failed' });
+  for (const name of ['results', 'derived', 'memberships']) assert.deepEqual(display[name], {});
+  assert.equal(display.result, null);
+  assert.equal(display.input_catalogue[0].preview, null);
+  assert.equal(display.input_requirements.point.choices.length, 0);
+  assert.equal(display.input_requirements.point.unavailable[0].availability, 'stale');
+  assert.deepEqual(display.errors, original.errors);
+});
 
 test('current outputs use one central check without polling or client evaluation', async () => {
   const f = fixture([snapshot()]);

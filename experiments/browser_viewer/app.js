@@ -20,7 +20,7 @@ import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, wo
   prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
-import { ensureGraphCurrent, waitForGraphEvaluation } from './graph-evaluation.js';
+import { ensureGraphCurrent, waitForGraphEvaluation, stoppedEvaluationDisplay } from './graph-evaluation.js';
 import { getBackend } from './backend.js';
 import { createSourceProjectController } from './source-project.js';
 import { createSelectionOwnedEditor, ownedKey } from './selection-owned-editor.js';
@@ -78,7 +78,10 @@ import {
 const $ = (id) => document.getElementById(id);
 const backend = getBackend();
 let evaluationIntent = 0;
-window.addEventListener('scansor-computation-stop', () => { evaluationIntent++; });
+window.addEventListener('scansor-computation-stop', () => {
+  evaluationIntent++;
+  if (viewerSetup && graphState) acceptGraph(stoppedEvaluationDisplay(graphState));
+});
 function queueEnsureAll() {
   const intent = evaluationIntent;
   setTimeout(() => {
@@ -4139,7 +4142,7 @@ function updateEvaluationControls() {
     const control = $(id);
     control.disabled = control.inert || !hasSource || featureTreeLocked();
   }
-  $('evaluate-all').disabled = !hasSource || sourceTransitionBusy || busy || selectionDrawing || selectionPending;
+  $('evaluate-all').disabled = !hasSource || evaluationLocked || selectionDrawing || selectionPending;
   sourceProject?.refresh();
 }
 async function evaluateAll() {
@@ -4157,8 +4160,10 @@ async function evaluateGraph(allActions, target = null, retry = true) {
   finally { activeGraphEvaluation = null; sourceProject?.refresh(); }
 }
 async function ensureCurrent(targets, { token = graphState.token, isCurrent } = {}) {
+  const intent = evaluationIntent, callerCurrent = isCurrent || (() => true);
   return ensureGraphCurrent({ targets, token, backend, acceptState: acceptGraph,
-    getState: () => graphState, acceptEvaluationStatus, isCurrent });
+    getState: () => graphState, acceptEvaluationStatus,
+    isCurrent: () => intent === evaluationIntent && callerCurrent() });
 }
 function acceptEvaluationStatus(state) {
   if (graphState.token !== state.token || graphState.revision !== state.revision) return;

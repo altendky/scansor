@@ -1,6 +1,6 @@
 const byId = id => document.getElementById(id);
 let type = new URL(location.href).searchParams.get('backend') || undefined;
-let workerBackend, configuration, readyWorkspace;
+let runtimeBackend, configuration, readyWorkspace, runtimeControlIntent = 0;
 const disabledBeforeFailure = new Map();
 function lockViewer() {
   window.dispatchEvent(new Event('scansor-runtime-lock'));
@@ -15,8 +15,9 @@ function lockViewer() {
   }
 }
 function checkRuntime() {
-  const state = workerBackend?.getLifecycle();
-  if (state && ['failed', 'closed'].includes(state.state)) throw new Error(state.message || 'Browser runtime unavailable.');
+  const state = runtimeBackend?.getLifecycle();
+  if (type === 'worker' && state && ['failed', 'closed'].includes(state.state))
+    throw new Error(state.message || 'Browser runtime unavailable.');
 }
 
 function showFailure(error) {
@@ -33,9 +34,9 @@ function showFailure(error) {
   }
 }
 
-async function restoreViewer(state) {
-  const lifetime = workerBackend.getLifecycle().lifetime;
-  const isCurrent = () => workerBackend.getLifecycle().lifetime === lifetime;
+async function restoreViewer(state, intent = runtimeControlIntent) {
+  const lifetime = runtimeBackend.getLifecycle().lifetime;
+  const isCurrent = () => intent === runtimeControlIntent && runtimeBackend.getLifecycle().lifetime === lifetime;
   const app = await import('./app.js');
   if (!isCurrent()) return;
   const graphSafe = await app.prepareRuntimeRestore({ recoveredState: state, isCurrent, restoreControls() {
@@ -63,22 +64,33 @@ function stopAuto() {
   window.dispatchEvent(new Event('scansor-computation-stop'));
 }
 byId('cancel-computation').onclick = async () => {
+  const intent = ++runtimeControlIntent;
   stopAuto();
   try {
-    const state = await workerBackend.cancelComputation();
-    if (state) await restoreViewer(state);
-  } catch (error) { if (error.code !== 'computation_cancelled') showFailure(error); }
+    const state = await runtimeBackend.cancelComputation();
+    if (state) await restoreViewer(state, intent);
+  } catch (error) {
+    if (error.code === 'computation_cancelled' || intent !== runtimeControlIntent) return;
+    if (type === 'worker') showFailure(error);
+    else {
+      byId('status').textContent = error.message;
+      byId('runtime-detail').textContent = 'Cancellation could not be confirmed. Retry Cancel or load the current project; native work may still be running.';
+    }
+  }
 };
 byId('force-restart').onclick = async () => {
+  if (type !== 'worker') return;
+  const intent = ++runtimeControlIntent;
   stopAuto();
-  try { await restoreViewer(await workerBackend.forceRestart()); }
-  catch (error) { if (error.code !== 'computation_cancelled') showFailure(error); }
+  try { await restoreViewer(await runtimeBackend.forceRestart(), intent); }
+  catch (error) { if (error.code !== 'computation_cancelled' && intent === runtimeControlIntent) showFailure(error); }
 };
 
 function showLifecycle(state) {
   if (state.state === 'recovering') lockViewer();
   byId('runtime-controls').hidden = false;
-  byId('cancel-computation').disabled = !state.canCancel || !['queued', 'running', 'loading'].includes(state.state);
+  byId('cancel-computation').disabled = !state.canCancel || !(['queued', 'running', 'loading'].includes(state.state) || state.retryCancel);
+  byId('force-restart').hidden = type !== 'worker';
   byId('force-restart').disabled = state.state === 'closed';
   const messages = {
     startup: 'Starting runtime. Force restarts from the beginning.',
@@ -86,13 +98,17 @@ function showLifecycle(state) {
     running: state.interruptible && state.interrupts ? 'Computing. Numerical interruption is available.'
       : 'Computing. Cancel waits for a safe boundary; CAD calls can take time.',
     complete: state.recovered ? 'Committed actions restored. Auto is off; evaluate when ready.' : 'Runtime ready.',
-    'cancel-requested': 'Cancel requested. Waiting for a safe boundary; Force and restart stops the worker.',
+    'cancel-requested': type === 'worker'
+      ? 'Cancel requested. Waiting for a safe boundary; Force and restart stops the worker.'
+      : 'Cancel requested. Waiting for native work and its numerical tasks to retire. Native calls cannot be forcibly stopped here.',
     cancelled: 'Cancelled. Derived results discarded. Auto is off; evaluate when ready.',
     recovering: 'Restarting runtime and restoring committed actions. This can take about 13–16 seconds on a warm local connection; first downloads take longer.',
-    failed: 'Runtime unavailable. Force and restart retries; recovery download remains available.',
+    failed: type === 'worker' ? 'Runtime unavailable. Force and restart retries; recovery download remains available.'
+      : 'Evaluation failed. Inspect the marked actions; the native server remains available.',
     closed: 'Runtime closed.',
   };
-  byId('runtime-detail').textContent = messages[state.state] || state.state;
+  const context = state.roots?.length ? `${state.operation === 'ensure' ? 'Preparing' : 'Evaluating'} ${state.roots.length} requested action${state.roots.length === 1 ? '' : 's'}. ` : '';
+  byId('runtime-detail').textContent = context + (state.message || messages[state.state] || state.state);
 }
 
 byId('recover-actions').onclick = async () => {
@@ -132,7 +148,7 @@ async function start() {
     status.closest('footer').append(scope);
     byId('status').textContent = 'Starting browser runtime…';
     const { createWorkerBackend } = await import('./worker-backend.js');
-    workerBackend = createWorkerBackend({ ...configuration,
+    runtimeBackend = createWorkerBackend({ ...configuration,
       onFailure: showFailure,
       onLifecycle: showLifecycle,
       onPhase: phase => {
@@ -145,9 +161,12 @@ async function start() {
           'CAD kernel': 'Starting CAD tools' };
         byId('status').textContent = `${labels[phase] || 'Starting browser runtime'}…`;
       } });
-    getBackend({ type, factories: { worker: () => workerBackend } });
-    await workerBackend.initialize();
-  } else getBackend({ type });
+    getBackend({ type, factories: { worker: () => runtimeBackend } });
+    await runtimeBackend.initialize();
+  } else {
+    runtimeBackend = getBackend({ type, onLifecycle: showLifecycle });
+    showLifecycle(runtimeBackend.getLifecycle());
+  }
   const app = await import('./app.js');
   await app.initializeViewer();
   checkRuntime();
@@ -156,5 +175,5 @@ async function start() {
   if (type === 'worker') byId('status').dataset.runtimeReady = 'true';
 }
 
-window.addEventListener('pagehide', () => workerBackend?.close());
+window.addEventListener('pagehide', () => { if (type === 'worker') runtimeBackend?.close(); });
 start().catch(showFailure);

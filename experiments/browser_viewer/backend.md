@@ -25,7 +25,8 @@ fails rather than falling back to native computation.
 
 Each backend declares `capabilities`. HTTP supports numerical graph operations,
 CAD, retained examples and the bounded native single-scan transport. It reports
-snapshot progress and no computation cancellation. `sourceImport` gates the
+snapshot progress and cooperative graph-evaluation cancellation. Native Force
+is unavailable. `sourceImport` gates the
 separate source transaction methods. Optional `sourceActions` independently gates
 descriptor inspection and atomic saved-project opening. Operation status and
 Cancel are available when either source capability is advertised. The
@@ -40,7 +41,8 @@ the broad CAD flag is not a complete graph-operation support matrix.
 
 ## Operations
 
-Methods return promises, except `graphUpdates` (an async iterator) and `close`.
+Methods return promises, except `graphUpdates` (an async iterator), `getLifecycle`
+and `close`.
 Control payloads and graph snapshots retain the existing experiment schemas.
 Optional operation options can carry an `AbortSignal`.
 
@@ -54,6 +56,9 @@ Optional operation options can carry an `AbortSignal`.
 | `evaluateGraph(payload, options)` | Explicit retry/evaluation request |
 | `ensureGraph(payload, options)` | Required targets; ready graph or running status |
 | `graphUpdates({ revision, signal, isCurrent })` | Graph/status updates through completion |
+| `getLifecycle()` | Current queued/running/waiting/terminal status and available controls |
+| `cancelComputation()` | Invalidate graph work and wait for real retirement; repeated requests share the pending promise |
+| `forceRestart()` | Worker-only explicit termination and accepted-project reconstruction |
 | `getExampleRecipe(options)` | Recipe for the active retained example |
 | `listExamples(options)` | Active example and catalogue |
 | `selectExample(payload, options)` | Example ID and token; select the workspace |
@@ -127,7 +132,7 @@ metadata and binary replies. This request/publication fence is separate from
 the accepted workspace generation, and from the worker's runtime generations.
 
 Explicit import Cancel requests a safe-boundary stop and publication fence;
-`cancelComputation:false` still describes native fitting/OCCT. AbortSignal and
+graph Cancel is a separate operation. AbortSignal and
 `close()` stop waiting and abort outstanding HTTP observations/uploads without
 claiming that preparation or computation was cancelled. They do not invoke the
 explicit Cancel operation. There is no timeout-to-Force escalation or transport
@@ -286,10 +291,38 @@ capabilities fail explicitly. Network/decode failures propagate. No backend
 substitutes cached geometry or another transport after failure.
 
 Abort signals, superseded observation predicates, and `close` stop waiting and
-prevent obsolete responses from being returned. They do not stop native Python
-or OCCT computation. HTTP declares `cancelComputation: false`; no successful
-computation-cancel operation is invented. The dedicated cancellation issues
-must decide and implement that behavior.
+prevent obsolete responses from being returned. They do not themselves stop
+native Python or OCCT computation.
+
+HTTP declares `cancelComputation:true` and `forceRestart:false`. Native graph
+evaluate and ensure share a server-owned operation identity, source generation,
+monotonic sequence, requested roots and lifecycle. Full and unchanged graph
+responses carry this descriptor. The private Cancel request names the operation
+ID and generation; a delayed request cannot cancel a newer same-token job.
+Sequence and state ordering reject delayed lifecycle replies as well as obsolete
+geometry. A separate observation fence immediately retires old graph readers,
+iterators and export deliveries when Cancel is requested.
+
+Native Cancel sets its cooperative flag, invalidates the graph epoch and
+discards computed results while retaining the current authored recipe, source,
+and unchanged failures from its starting checkpoint. Queued work is cancelled.
+Running numerical work checks the flag, and the coordinator joins its owned
+numerical tasks before releasing the source lease or reporting cancellation
+complete. The HTTP server remains responsive while a noncooperative call runs;
+the operation stays `cancel-requested`. A lost Cancel reply is explicitly
+unconfirmed and can be retried, without automatic Force or abandoned threads.
+Legacy session fitting and arbitrary synchronous CAD export are outside this
+graph-evaluation control. Native hard interruption remains architectural work
+in [#141](https://github.com/altendky/scansor/issues/141); cooperative OCCT research
+in [#213](https://github.com/altendky/scansor/issues/213) is separate.
+
+The shared UI stops Auto and queued evaluation intentions, clears computed
+display immediately, and fences targeted/lazy consumers even when they omit an
+explicit observer predicate. The footer controls remain outside inert editing
+toolbars. Final recovery reuses the accepted source and renderer and retains
+compatible live drafts. Worker Cancel/Force keeps its existing generation and
+source-recovery contract; a control serial also prevents an older restoration
+from overwriting a newer recovery action.
 
 ## Verification
 

@@ -1,5 +1,21 @@
 // The backend owns readiness, validation dependencies, and in-flight work.
 // Callers name their outputs; they do not decide whether cached work is current.
+export function stoppedEvaluationDisplay(state) {
+  if (!state?.recipe) return state;
+  const stale = output => ({ ...output, preview: null,
+    availability: output.availability === 'ready' ? 'stale' : output.availability,
+    reason: output.reason || 'Computation stopped. Evaluate again after it retires.' });
+  const sources = new Set(state.recipe.nodes.filter(node => node.operation === 'source').map(node => node.id));
+  return { ...state, revision: undefined, evaluation_running: true,
+    states: Object.fromEntries(Object.entries(state.states).map(([id, value]) => [id,
+      !sources.has(id) && ['ready', 'running'].includes(value) ? 'stale' : value])),
+    result: null, results: {}, derived: {}, memberships: {},
+    input_catalogue: (state.input_catalogue || []).map(stale),
+    input_requirements: Object.fromEntries(Object.entries(state.input_requirements || {}).map(([name, choices]) =>
+      [name, { choices: [], unavailable: [...choices.choices, ...choices.unavailable].map(stale) }])),
+  };
+}
+
 function checkCurrent(state, token, isCurrent) {
   if (!isCurrent()) throw new Error('The requested operation changed. Try again.');
   if (state.token !== token && state.evaluation_origin_token !== token)
