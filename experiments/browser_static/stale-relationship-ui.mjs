@@ -19,6 +19,117 @@ const key = value => JSON.stringify(value);
 const sameReferences = values => values.map(key).sort();
 const longMemberLabel = 'bolt hole surface at Occurrence 123456789 — independently fitted patterned hole';
 
+async function exerciseParticipantScrolling({page, expect, read, openBuilder, participantRow}) {
+  const originalViewport = page.viewportSize(), before = await read(), profiles = [],
+    seeds = Array.from({length: 4}, (_, index) => reference(`scroll-plane-${index + 1}`, 'plane')),
+    popup = page.locator('.selection-field-options').filter({has: page.locator('#relationship-filter')}),
+    list = page.locator('#relationship-participants'), search = page.locator('#relationship-filter'),
+    dropdown = page.getByRole('button', {name: 'Show Participants choices', exact: true});
+  const geometry = () => popup.evaluate(element => {
+    const box = element.getBoundingClientRect(), search = element.querySelector('#relationship-filter').getBoundingClientRect(),
+      list = element.querySelector('[data-picker-scroll]'), field = element.closest('.selection-field').getBoundingClientRect(),
+      scrollOwners = [element, ...element.querySelectorAll('*')].filter(child =>
+        ['auto', 'scroll'].includes(getComputedStyle(child).overflowY) && child.scrollHeight > child.clientHeight + 1);
+    return {bounds: {left: box.left, top: box.top, right: box.right, bottom: box.bottom},
+      search: {top: search.top, bottom: search.bottom}, viewport: {width: innerWidth, height: innerHeight},
+      placement: box.top >= field.bottom - 1 ? 'below' : box.bottom <= field.top + 1 ? 'above' : 'overlap',
+      scrollOwners: scrollOwners.map(owner => owner.id || owner.className), outerScroll: element.scrollTop,
+      list: {top: list.scrollTop, visible: list.clientHeight, content: list.scrollHeight}};
+  });
+  const expectBounds = async () => {
+    await expect.poll(async () => {
+      const {bounds, viewport, search} = await geometry();
+      return bounds.left >= 6 && bounds.top >= 6 && bounds.right <= viewport.width - 6 && bounds.bottom <= viewport.height - 6
+        && search.top >= bounds.top && search.bottom <= bounds.bottom;
+    }).toBe(true);
+  };
+  const exercise = async name => {
+    await search.fill('');
+    await expectBounds();
+    assert(await list.locator('.relationship-participant:not([hidden])').count() >= 35, 'Exercise a full long participant list');
+    await expect(list).toHaveAttribute('tabindex', '0');
+    await list.focus(); await page.keyboard.press('Home');
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0);
+    const initial = await geometry();
+    assert.deepEqual(initial.scrollOwners, ['relationship-participants'], 'Only the choices list should own vertical scrolling');
+    await list.hover(); await page.mouse.wheel(0, 100000);
+    await expect.poll(() => list.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2)).toBe(true);
+    const scrolled = await geometry();
+    assert(scrolled.list.top > 0);
+    assert.equal(scrolled.outerScroll, 0, 'The popover must not develop a second scroll position');
+    assert(Math.abs(scrolled.search.top - initial.search.top) <= 1, 'Search must stay still while browsing choices');
+    const last = list.locator('.relationship-participant:not([hidden])').last(), checkbox = last.locator('input'), focus = last.locator('button'),
+      finalKey = await checkbox.getAttribute('data-participant-id'), selected = (await read()).participants.slice().sort();
+    assert(await checkbox.evaluate(element => {
+      const box = element.getBoundingClientRect(), owner = element.closest('[data-picker-scroll]').getBoundingClientRect();
+      return box.top >= owner.top && box.bottom <= owner.bottom &&
+        element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+    }), 'Wheel scrolling must make the final checkbox reachable');
+    await checkbox.click(); await checkbox.click();
+    await focus.click();
+    assert.deepEqual((await read()).participants.slice().sort(), selected);
+    await search.focus(); await page.keyboard.press('Tab');
+    await expect(list).toBeFocused();
+    await page.keyboard.press('End');
+    await expect.poll(() => list.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2)).toBe(true);
+    const controls = await list.locator('input:not(:disabled), button:not(:disabled)').count();
+    let reached = false;
+    for (let index = 0; index <= controls; index++) {
+      await page.keyboard.press('Tab');
+      if (await checkbox.evaluate(element => element === document.activeElement)) {reached = true; break;}
+    }
+    assert(reached, `Keyboard traversal must reach the final checkbox ${finalKey}`);
+    await page.keyboard.press('Space'); await page.keyboard.press('Space');
+    await page.keyboard.press('Tab'); await expect(focus).toBeFocused(); await page.keyboard.press('Enter');
+    assert.deepEqual((await read()).participants.slice().sort(), selected);
+    const afterKeyboard = await geometry();
+    assert.equal(afterKeyboard.outerScroll, 0);
+    assert(Math.abs(afterKeyboard.search.top - initial.search.top) <= 1);
+    await search.fill('Scroll test reference plane 30');
+    await expect(list.locator('.relationship-participant:not([hidden])')).toHaveCount(5);
+    for (const value of seeds) await expect(participantRow(value).locator('input')).toBeChecked();
+    assert.deepEqual((await read()).participants.slice().sort(), selected);
+    await expectBounds();
+    profiles.push({name, ...initial, wheelFinalCheckbox: true, keyboardFinalCheckboxAndFocus: true, searchAndSelectionRetained: true});
+  };
+  await page.setViewportSize({width: 1440, height: 1000});
+  await openBuilder();
+  for (const value of seeds) await participantRow(value).locator('input').check();
+  await expect(page.locator('#relationship-count')).toHaveText('4 selected');
+  await exercise('popup-normal');
+  for (const [name, viewport] of [['popup-short', {width: 800, height: 560}], ['popup-reduced-css-space', {width: 640, height: 480}]]) {
+    await page.setViewportSize(viewport);
+    await expect(search).toHaveValue('Scroll test reference plane 30');
+    assert.deepEqual((await read()).participants.slice().sort(), sameReferences(seeds));
+    await expectBounds();
+    await exercise(name);
+  }
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({width: 1440, height: 1000});
+  await page.locator('#dock-edit').click();
+  await expect(page.locator('#edit-popup')).toBeHidden();
+  await expect(page.getByRole('tab', {name: 'Edit', exact: true})).toBeVisible();
+  await dropdown.click();
+  await exercise('docked-normal');
+  await page.setViewportSize({width: 800, height: 560});
+  await expect(search).toHaveValue('Scroll test reference plane 30');
+  await expectBounds();
+  await exercise('docked-short');
+  assert(profiles.some(profile => profile.placement === 'above'), 'Exercise popup placement above the field');
+  assert(profiles.some(profile => profile.placement === 'below'), 'Exercise popup placement below the field');
+  await page.keyboard.press('Escape');
+  await page.locator('#relationship-dialog').getByRole('button', {name: 'Cancel', exact: true}).click();
+  await expect(page.locator('#relationship-dialog')).toBeHidden();
+  const edit = page.getByRole('tab', {name: 'Edit', exact: true});
+  await edit.getByTitle('Close', {exact: true}).click();
+  await page.setViewportSize(originalViewport);
+  const after = await read();
+  assert.deepEqual(after.graph.recipe, before.graph.recipe);
+  assert.deepEqual(after.graph.states, before.graph.states);
+  assert.deepEqual(after.selection, before.selection);
+  return profiles;
+}
+
 export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
   assert(!['8765', '8766'].includes(new URL(page.url()).port), 'Evidence must use a private preview');
   const report = {complete: false, phase: 'import'};
@@ -100,7 +211,10 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     recipe.nodes.splice(firstFit, 0,
       {id: 'auto-axis', label: 'Observed shared axis', operation: 'axis', initial_parameters: [8, -3, 0.055, -0.015]},
       {id: 'axis-plane', label: 'Pending reference plane', operation: 'reference_plane', axis: 'auto-axis',
-        construction: 'perpendicular_to_axis', initial_angle_degrees: null, offset: -12});
+        construction: 'perpendicular_to_axis', initial_angle_degrees: null, offset: -12},
+      ...Array.from({length: 30}, (_, index) => ({id: `scroll-plane-${index + 1}`,
+        label: `Scroll test reference plane ${String(index + 1).padStart(2, '0')}`, operation: 'reference_plane',
+        construction: 'independent', initial_normal: [0, 0, 1], initial_angle_degrees: null, offset: index})));
     recipe.nodes.find(node => node.id === 'axis-cylinder').axis = 'auto-axis';
     recipe.nodes.find(node => node.id === 'plane-cylinder').label = longMemberLabel;
     await page.locator('#file').setInputFiles({name: 'pending-direction-actions.json', mimeType: 'application/json',
@@ -276,6 +390,10 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
       return current.states[relation.id];
     }, {timeout: 60000}).toBe('ready');
     await assertIntent();
+    report.phase = 'participant-scrolling';
+    const beforeScrollingEvaluations = evaluations.length;
+    report.scrolling = await exerciseParticipantScrolling({page, expect, read, openBuilder, participantRow});
+    assert.equal(evaluations.length, beforeScrollingEvaluations);
     report.complete = true;
     report.phase = 'complete';
     report.reference = plane;
