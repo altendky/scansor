@@ -64,7 +64,7 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     "point": {"capabilities": ["point"], "min_count": 1, "max_count": 1},
     "plane": {"capabilities": ["plane"], "min_count": 1, "max_count": 1},
     "direction": {
-        "capabilities": ["plane", "direction"],
+        "capabilities": ["direction"],
         "min_count": 1,
         "max_count": 1,
     },
@@ -189,6 +189,125 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
     def output(
         name: str, capabilities: list[str], *, bind: bool = False
     ) -> dict[str, Any]:
+        properties: dict[str, dict[str, Any]] = {}
+
+        def property_spec(
+            identity: str,
+            projection: str,
+            quantities: dict[str, int],
+            *,
+            sense: str | None = None,
+            authority: str | None = None,
+            fixed_by: str | None = None,
+        ) -> None:
+            adjustable = bind and bool(quantities) and fixed_by is None
+            properties[identity] = {
+                "property": identity,
+                "projection": projection,
+                "frame": "workspace",
+                "sense": sense,
+                "orientation_authority": authority,
+                "parameter_owner": {
+                    "feature": node.id,
+                    "output": name,
+                    "kind": owner,
+                    "quantities": quantities.copy(),
+                }
+                if adjustable
+                else None,
+                "binding_eligible": adjustable,
+                "binding_reason": None
+                if adjustable
+                else fixed_by or "This property is read-only geometry",
+                # Eligibility describes the owner, never freedom in a particular solve.
+                "uses": ["geometry", "binding"] if adjustable else ["geometry"],
+            }
+
+        if "point" in capabilities:
+            fixed = (
+                "This point is supplied by its upstream datum"
+                if name == "center" and getattr(node, "point", None)
+                else "This datum is initialized from an upstream fit"
+                if getattr(node, "source_fit", None)
+                else None
+            )
+            property_spec("point", "point", {"position": 3}, fixed_by=fixed)
+        if "axis_line" in capabilities:
+            fixed = (
+                "This axis is supplied by its upstream axis datum"
+                if operation == "fit" and getattr(node, "axis", None)
+                else "This datum is initialized from upstream geometry"
+                if getattr(node, "source_fit", None)
+                or getattr(node, "source_points", None)
+                else None
+            )
+            sense = "directed" if operation == "axis" else "unsigned"
+            authority = (
+                "explicit_reversal"
+                if operation == "axis" and getattr(node, "direction_reversed", False)
+                else "ordered_points"
+                if getattr(node, "source_points", None)
+                else "chart_representative"
+                if operation == "axis" and not getattr(node, "source_fit", None)
+                else "fit_representative"
+            )
+            property_spec(
+                "direction",
+                "axis_direction",
+                {"orientation": 2},
+                sense=sense,
+                authority=authority,
+                fixed_by=fixed,
+            )
+            property_spec(
+                "axis_line",
+                "axis_line",
+                {"orientation": 2, "transverse_position": 2},
+                sense=sense,
+                authority=authority,
+                fixed_by=fixed,
+            )
+        if "plane" in capabilities:
+            construction = getattr(node, "construction", None)
+            orientation = (
+                {"clocking": 1}
+                if operation == "reference_plane"
+                and construction != "perpendicular_to_axis"
+                else {}
+                if operation == "reference_plane"
+                or getattr(node, "axis", None)
+                or getattr(node, "reference_plane", None)
+                else {"orientation": 2}
+            )
+            fixed = (
+                None if orientation else "This normal is supplied by its upstream datum"
+            )
+            for identity in ("direction", "plane_orientation"):
+                property_spec(
+                    identity,
+                    "plane_normal",
+                    orientation,
+                    sense="signed_normal",
+                    authority="construction"
+                    if operation == "reference_plane"
+                    else "fit_representative",
+                    fixed_by=fixed,
+                )
+            quantities = {
+                **orientation,
+                **({"offset": 1} if construction != "contains_axis" else {}),
+            }
+            property_spec(
+                "plane",
+                "plane",
+                quantities,
+                sense="signed_normal",
+                authority="construction"
+                if operation == "reference_plane"
+                else "fit_representative",
+            )
+        if "radius" in capabilities:
+            property_spec("radius", "radius", {"radius": 1})
         return {
             **metadata,
             "output": name,
@@ -196,6 +315,7 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
             "parameter_owner": {"feature": node.id, "output": name, "kind": owner}
             if bind
             else None,
+            "properties": properties,
         }
 
     if operation == "selection":
@@ -210,7 +330,13 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
     if operation == "axis":
         return [output("axis", ["direction", "axis_line"], bind=True)]
     if operation == "reference_plane":
-        return [output("plane", ["plane", "plane_orientation", "surface"], bind=True)]
+        return [
+            output(
+                "plane",
+                ["plane", "plane_orientation", "surface", "direction"],
+                bind=True,
+            )
+        ]
     if operation != "fit":
         return []
     if kind == "sphere":
@@ -222,13 +348,17 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
         ]
     if kind == "plane":
         return [
-            output("plane", ["plane", "plane_orientation", "surface"], bind=True),
+            output(
+                "plane",
+                ["plane", "plane_orientation", "surface", "direction"],
+                bind=True,
+            ),
             output("observations", ["observations"]),
         ]
     if kind in {"cylinder", "cone"}:
         return [
             output("surface", ["surface"], bind=True),
-            output("axis", ["axis_line"], bind=True),
+            output("axis", ["axis_line", "direction"], bind=True),
             *(
                 [output("radius", ["scalar", "radius"], bind=True)]
                 if kind == "cylinder"
@@ -237,6 +367,22 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
             output("observations", ["observations"]),
         ]
     return []
+
+
+def _property_descriptors(
+    spec: dict[str, Any], reference: OutputReference, frame: str
+) -> dict[str, dict[str, Any]]:
+    properties = deepcopy(spec["properties"])
+    for descriptor in properties.values():
+        descriptor.update(reference=reference.model_dump(), frame=frame)
+        if reference.context != reference.feature:
+            descriptor.update(
+                parameter_owner=None,
+                binding_eligible=False,
+                binding_reason="A solved publication is read-only geometry",
+                uses=["geometry"],
+            )
+    return properties
 
 
 def output_catalogue(
@@ -424,7 +570,9 @@ def output_catalogue(
                     "failed": "Repair or retry its failed provider",
                     "blocked": "Repair its blocked provider",
                 }.get(availability, "Output unavailable")
-            constrainable = ownership in ("datum", "fit")
+            constrainable = (
+                context == node.id and primary["parameter_owner"] is not None
+            )
             descriptors.append(
                 {
                     "reference": reference.model_dump(),
@@ -444,6 +592,7 @@ def output_catalogue(
                     "dependencies": closure(prerequisites),
                     "preview": preview,
                     "capabilities": primary["capabilities"],
+                    "properties": _property_descriptors(primary, reference, frame),
                     "uses": (["geometry"] if context in geometry_contexts else [])
                     + (
                         ["binding"]
@@ -478,6 +627,15 @@ def output_catalogue(
                     label=f"{node.label} — {extra_output}",
                     preview=None,
                     capabilities=extra["capabilities"],
+                    properties=_property_descriptors(
+                        extra,
+                        OutputReference(
+                            feature=node.id, output=extra_output, context=context
+                        ),
+                        frame,
+                    ),
+                    constrainable=context == node.id
+                    and extra["parameter_owner"] is not None,
                     parameter_owner=extra["parameter_owner"]
                     if context == node.id
                     else None,
@@ -573,7 +731,7 @@ def input_choices(
     catalogue = (
         catalogue
         if catalogue is not None
-        else output_catalogue(recipe, states, results, frame=frame or "workspace")
+        else output_catalogue(recipe, states, results)
     )
     choices: list[dict[str, Any]] = []
     unavailable: list[dict[str, Any]] = []
@@ -682,7 +840,7 @@ def validate_output_reference(
     descriptor = next(
         (
             item
-            for item in output_catalogue(recipe, frame=frame)
+            for item in output_catalogue(recipe)
             if OutputReference.model_validate(item["reference"]) == canonical
         ),
         None,
@@ -691,7 +849,7 @@ def validate_output_reference(
         raise ValueError(
             "output reference is removed, incompatible, or has an ambiguous context"
         )
-    reason = compatibility_reason(descriptor, requirement)
+    reason = compatibility_reason(descriptor, requirement, frame=frame)
     if reason is not None:
         raise ValueError(reason)
     if descriptor["availability"] == "ambiguous" or (
@@ -831,3 +989,80 @@ def resolve_output(
             "point_display": list(raw["point_display"]),
         }
     raise ValueError("unknown selectable output")
+
+
+def resolve_property(
+    reference: OutputReference,
+    property_name: str,
+    nodes: dict[str, Feature],
+    values: dict[str, dict[str, Any]],
+    *,
+    coordinates: Any = None,
+    frame: str = "workspace",
+    required_frame: str | None = None,
+) -> dict[str, Any]:
+    """Project a typed property from one exact output publication.
+
+    References remain output references; property identity is a separate consumer
+    contract. An eligible owner need not be free in the solve using this value.
+    Like output_catalogue, frame declares the actual coordinate frame supplied
+    by the caller; required_frame only checks it. Graph publications use workspace.
+    """
+    node = nodes.get(reference.feature)
+    if node is None:
+        raise ValueError("property reference refers to a removed feature")
+    spec = next(
+        (
+            item
+            for item in declared_output_specs(node)
+            if item["output"] == reference.output
+        ),
+        None,
+    )
+    if spec is None or property_name not in spec["properties"]:
+        raise ValueError("this output does not provide the requested property")
+    descriptor = _property_descriptors(spec, reference, frame)[property_name]
+    if required_frame is not None and descriptor["frame"] != required_frame:
+        raise ValueError("this property belongs to a different coordinate frame")
+    raw = resolve_output(reference, nodes, values, coordinates=coordinates)
+
+    def vector(value: Any, *, normalize: bool = False) -> list[float]:
+        array = np.asarray(value, dtype=float)
+        if array.shape != (3,) or not np.isfinite(array).all():
+            raise ValueError("property vector must contain three finite values")
+        if normalize:
+            scale = float(np.max(np.abs(array)))
+            if scale == 0:
+                raise ValueError("property direction must be nonzero")
+            array = array / scale
+            array /= np.linalg.norm(array)
+        return array.tolist()
+
+    projection = descriptor["projection"]
+    if projection in {"axis_direction", "plane_normal"}:
+        value = vector(
+            raw["axis_display" if projection == "axis_direction" else "normal_display"],
+            normalize=True,
+        )
+    elif projection == "point":
+        value = vector(raw["point_display"])
+    elif projection == "axis_line":
+        value = {
+            "point": vector(raw["point_display"]),
+            "direction": vector(raw["axis_display"], normalize=True),
+        }
+    elif projection == "plane":
+        equation = np.asarray(raw["plane_equation"], dtype=float)
+        normal = vector(equation[:3], normalize=True)
+        scale = float(np.max(np.abs(equation[:3])))
+        offset = float((equation[3] / scale) / np.linalg.norm(equation[:3] / scale))
+        if not np.isfinite(offset):
+            raise ValueError("property plane offset must be finite")
+        value = {"normal": normal, "offset": offset}
+    elif projection == "radius":
+        value = float(raw["value"])
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError("property radius must be positive and finite")
+    else:
+        raise ValueError("unknown property projection")
+    return {**descriptor, "value": value}
