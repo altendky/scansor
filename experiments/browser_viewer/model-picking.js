@@ -84,7 +84,9 @@ export function pickFieldFeedback(choices, { label, disabled = false, busy = fal
     (unavailable.length ? ` ${saved[0]?.label || unavailable[0].label}.` : '');
   if (saved.length) return `Saved input unavailable: ${saved.map(choice => choice.label).join('; ')}. Choose a replacement or remove it.`;
   if (eligible.every(choice => choice.modelPickable === false))
-    return 'Eligible choices have no pickable 3D geometry. Use the arrow to choose from the list; evaluate their providers to show available geometry.';
+    return eligible.some(choice => choice.treePickable)
+      ? 'Pick compatible features in the tree or use the arrow to choose exact outputs. Evaluate their providers to show available 3D geometry.'
+      : 'Eligible choices have no pickable 3D geometry. Use the arrow to choose from the list; evaluate their providers to show available geometry.';
   return '';
 }
 
@@ -214,11 +216,14 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     if (signature === next) return;
     signature = next;
     const chosen = records.filter(record => record.selected), eligible = records.filter(record => !record.disabled);
-    button.disabled = locked || !eligible.some(record => record.key && record.modelPickable !== false);
+    const treePickable = eligible.some(record => record.key && record.treePickable);
+    button.disabled = locked || !eligible.some(record => record.key && (record.modelPickable !== false || record.treePickable));
     dropdown.disabled = locked;
     if (locked) close();
     button.textContent = multiple ? `Pick ${label}…` : chosen[0]?.label || `Pick ${label}…`;
-    button.title = multiple ? `Pick ${label} in the model` : chosen[0]?.label || `Pick ${label} in the model`;
+    const pickLabel = `Pick ${label} in ${treePickable ? 'the tree or model' : 'model'}`;
+    button.setAttribute('aria-label', pickLabel);
+    button.title = multiple ? pickLabel : chosen[0]?.label || pickLabel;
     feedback.textContent = pickFieldFeedback(records, { label, disabled: locked, busy, emptyMessage });
     feedback.hidden = !feedback.textContent;
     selected.hidden = !multiple;

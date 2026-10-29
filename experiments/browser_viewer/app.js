@@ -222,7 +222,7 @@ function fieldOptionModelPickable(control, key) {
     return !!fitted.ids?.length || ['axis', 'point', 'frame', 'transform', 'reference_plane'].includes(node.operation);
   });
 }
-function modelPickChoices() {
+function modelPickChoices({ tree = false } = {}) {
   if (!modelPickMode || !graphState || featureTreeLocked() ||
       buildFacesApplying || relationshipApplying) return [];
   const nodes = graphState.recipe.nodes;
@@ -248,9 +248,9 @@ function modelPickChoices() {
     const checkbox = row.querySelector('input'), key = checkbox?.dataset.participantId,
       output = choices.find(choice => choice.key === key), node = graphNode(output?.reference?.feature),
       fitted = relationshipOutputValue(graphState, output);
-    return row.dataset.compatible !== 'false' && checkbox && !checkbox.disabled && fitted ? [{
+    return output?.compatible && row.dataset.compatible !== 'false' && checkbox && !checkbox.disabled && (tree || fitted) ? [{
       label: output.label, key, icon: node?.kind || node?.operation,
-      reference: output.reference, checkbox, ids: fitted.ids,
+      reference: output.reference, checkbox, ids: fitted?.ids,
       relationshipOutput: output,
       ...(output.preview?.plane_equation ? { inputOutput: output } : {}),
     }] : [];
@@ -358,7 +358,7 @@ function syncModelPickControls() {
     `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
     modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
-      'Click fitted scan patches to toggle participants.';
+      'Click features in the tree or evaluated geometry to toggle participants.';
 }
 function initializeSpecializedPickFields() {
   const begin = mode => {
@@ -607,9 +607,9 @@ function selectBuildFacesTarget(target) {
     node.target && sameSurfaceReference(node.target, target));
   return openBuildFaces(owner || null, target);
 }
-function commitModelPick(key) {
+function commitModelPick(key, { tree = false } = {}) {
   // Recheck current lists and locks; a chooser may outlive a candidate refresh.
-  const choice = modelPickChoices().find(choice => choice.key === key);
+  const choice = modelPickChoices({ tree }).find(choice => choice.key === key);
   if (!choice) { $('model-pick-choices').hidePopover(); return; }
   if (modelPickMode === 'field') {
     const control = modelPickField.control, multiple = control.multiple || !control.matches('select');
@@ -629,12 +629,13 @@ function commitModelPick(key) {
 function pickModelItem(event) {
   showModelPickChoices(modelPicksAt(event), event);
 }
-function showModelPickChoices(matches, event) {
+function showModelPickChoices(matches, event, { tree = false } = {}) {
   const chooser = $('model-pick-choices');
   chooser.hidePopover();
-  if (matches.length === 1) { commitModelPick(matches[0].key); return; }
+  if (matches.length === 1) { commitModelPick(matches[0].key, { tree }); return; }
   if (!matches.length) {
-    $('model-pick-message').textContent = 'No eligible item here. Click a scan patch or visible guide.';
+    $('model-pick-message').textContent = tree ? 'This feature has no eligible output for this input.'
+      : 'No eligible item here. Click a scan patch or visible guide.';
     return;
   }
   const title = document.createElement('span');
@@ -645,7 +646,7 @@ function showModelPickChoices(matches, event) {
     label.textContent = choice.label;
     button.append(featureIcon(choice.icon), label);
     button.onpointerenter = button.onfocus = () => inspectModelPick(choice);
-    button.onclick = () => commitModelPick(choice.key);
+    button.onclick = () => commitModelPick(choice.key, { tree });
     return button;
   }));
   chooser.showPopover();
@@ -656,12 +657,12 @@ function showModelPickChoices(matches, event) {
 }
 function pickFeatureInput(id) {
   if (!modelPickMode) return false;
-  const matches = modelPickChoices().filter(choice =>
+  const matches = modelPickChoices({ tree: true }).filter(choice =>
     choice.reference?.surface === id || referenceFeature(choice.reference) === id || choice.key === id);
   const row = [...$('action-list').querySelectorAll('.action-select')]
     .find(button => button.dataset.actionId === id), bounds = row?.getBoundingClientRect();
   showModelPickChoices(matches, { clientX: bounds?.right || innerWidth / 2,
-    clientY: bounds?.top || innerHeight / 2 });
+    clientY: bounds?.top || innerHeight / 2 }, { tree: true });
   return true;
 }
 function draw() {
@@ -2164,6 +2165,7 @@ function updateRelationshipParticipantField() {
     key: output.key, label: output.label,
     selected: relationshipParticipantIds.has(output.key), disabled: !output.compatible,
     modelPickable: !!relationshipOutputValue(graphState, output),
+    treePickable: output.compatible,
   })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
     busy: !!graphState && (featureTreeLocked() || relationshipApplying),
     emptyMessage: selectedRelationshipKind === 'coaxial'
