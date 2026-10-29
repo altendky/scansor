@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inputChoices, inputOptionRecords, inputReferenceKey, matchingInputOutput,
+import { inputCanBeReferenced, inputChoices, inputOptionRecords, inputReferenceKey, matchingInputOutput,
   readInputReference, renderInputChoices } from './feature-inputs.js';
 
 const point = (feature, output = 'point', context = feature) => ({
@@ -71,6 +71,36 @@ test('unavailable or ambiguous legacy meanings remain strings until explicit rep
 test('ready geometry rejected by parameter ownership remains unavailable to the picker', () => {
   const readOnly = { ...center, reason: 'This input requires an adjustable parameter owner, not read-only geometry' };
   assert.equal(inputOptionRecords([readOnly])[0].disabled, true);
+});
+
+test('pending authoring is explicit and requires backend structural compatibility', () => {
+  for (const availability of ['stale', 'unevaluated']) {
+    const pending = {...center, availability, compatible: true, reason: 'Evaluate its provider first'};
+    assert.equal(inputCanBeReferenced(pending), false);
+    assert.equal(inputCanBeReferenced(pending, {allowPending: true}), true);
+    const option = inputOptionRecords([pending], pending.reference, {allowPending: true})[0];
+    assert.equal(option.disabled, false);
+    assert.equal(option.selected, true);
+    assert.match(option.label, /needs evaluation/);
+    assert.equal(inputOptionRecords([pending], pending.reference)[0].disabled, true);
+    assert.equal(inputCanBeReferenced({...pending, compatible: false}, {allowPending: true}), false);
+    assert.equal(inputCanBeReferenced({...pending, compatible: undefined}, {allowPending: true}), false);
+  }
+  for (const availability of ['failed', 'blocked', 'needs_input', 'ambiguous', 'running'])
+    assert.equal(inputCanBeReferenced({...center, availability, compatible: true}, {allowPending: true}), false);
+});
+
+test('relationship option refresh preserves pending exact contexts and still blocks later providers', () => {
+  const pending = {...point('sphere', 'center', 'solve'), availability: 'stale', compatible: true,
+    reason: 'Reevaluate its changed provider'}, saved = inputReferenceKey(pending.reference);
+  for (const availability of ['stale', 'unevaluated', 'ready']) {
+    const output = {...pending, availability, reason: availability === 'ready' ? null : pending.reason};
+    assert.equal(inputOptionRecords([output], saved, {allowPending: true})[0].selected, true);
+    assert.equal(inputOptionRecords([output], saved, {allowPending: true})[0].disabled, false);
+  }
+  const state = {input_requirements: {point: {choices: [], unavailable: [pending]}}},
+    later = inputChoices(state, 'point', [{id: 'sphere'}])[0];
+  assert.equal(inputOptionRecords([later], saved, {allowPending: true})[0].disabled, true);
 });
 
 test('multiple owner input controls retain all saved choices, including unavailable repairs', () => {

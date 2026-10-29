@@ -48,14 +48,23 @@ export function inputChoices(state, requirement, nodes = state?.recipe.nodes || 
     });
 }
 
-export function inputOptionRecords(outputs, selected = null) {
+export function inputCanBeReferenced(output, {allowPending = false} = {}) {
+  if (output.compatible === false) return false;
+  if (output.availability === 'ready') return !output.reason;
+  return allowPending && output.compatible === true &&
+    ['stale', 'unevaluated'].includes(output.availability);
+}
+
+export function inputOptionRecords(outputs, selected = null, policy = {}) {
   const parsed = readInputReference(selected), matched = matchingInputOutput(selected, outputs),
     ambiguousLegacy = typeof parsed === 'string' && outputs.filter(output => output.reference.feature === parsed).length > 1,
-    retainLegacy = typeof parsed === 'string' && (!matched || matched.availability !== 'ready' || !!matched.reason),
+    retainLegacy = typeof parsed === 'string' && (!matched || !inputCanBeReferenced(matched, policy)),
     selectedKey = matched && !retainLegacy ? inputReferenceKey(matched.reference) : inputReferenceKey(parsed);
   const options = outputs.map(output => ({ key: inputReferenceKey(output.reference),
-    label: output.reason ? `${output.label} — ${output.reason}` : output.label,
-    disabled: output.availability !== 'ready' || !!output.reason,
+    label: inputCanBeReferenced(output, policy) && output.availability !== 'ready'
+      ? `${output.label} — needs evaluation`
+      : output.reason ? `${output.label} — ${output.reason}` : output.label,
+    disabled: !inputCanBeReferenced(output, policy),
     selected: inputReferenceKey(output.reference) === selectedKey }));
   if (selectedKey && !options.some(option => option.key === selectedKey)) options.push({
     key: selectedKey, label: ambiguousLegacy ? 'Multiple output contexts — choose an explicit output'
@@ -65,10 +74,10 @@ export function inputOptionRecords(outputs, selected = null) {
   return options;
 }
 
-export function renderInputChoices(control, outputs, selected = control.value) {
+export function renderInputChoices(control, outputs, selected = control.value, options = {}) {
   if (control.multiple) {
     const values = Array.isArray(selected) ? selected : selected ? [selected] : [], records = new Map();
-    for (const value of values.length ? values : [null]) for (const option of inputOptionRecords(outputs, value)) {
+    for (const value of values.length ? values : [null]) for (const option of inputOptionRecords(outputs, value, options)) {
       const previous = records.get(option.key);
       records.set(option.key, { ...option, selected: option.selected || !!previous?.selected });
     }
@@ -79,9 +88,9 @@ export function renderInputChoices(control, outputs, selected = control.value) {
     }));
     return;
   }
-  const options = inputOptionRecords(outputs, selected);
-  control.replaceChildren(new Option('Choose an output…', '', false, !options.some(option => option.selected)),
-    ...options.map(record => {
+  const records = inputOptionRecords(outputs, selected, options);
+  control.replaceChildren(new Option('Choose an output…', '', false, !records.some(option => option.selected)),
+    ...records.map(record => {
       const option = new Option(record.label, record.key, false, record.selected);
       option.disabled = record.disabled;
       return option;

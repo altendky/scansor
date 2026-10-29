@@ -1,4 +1,9 @@
-import { inputChoices, inputReferenceKey, readInputReference, referenceFeature } from './feature-inputs.js';
+import { inputCanBeReferenced, inputChoices, inputReferenceKey, readInputReference, referenceFeature } from './feature-inputs.js';
+
+export function relationshipInputOptions(state, requirement) {
+  return {allowPending: Object.values(state?.relationship_contracts || {})
+    .some(signature => Object.values(signature.roles).includes(requirement))};
+}
 
 export function relationshipPropertySummary(state, output) {
   return [...new Set((output.requirements || []).map(requirement => state.input_contracts?.[requirement]?.property)
@@ -52,7 +57,7 @@ export function relationshipParticipantChoices(state, kind, selected = new Set()
     records = new Map();
   for (const requirement of requirements) for (const output of inputChoices(state, requirement, nodes)) {
     const key = inputReferenceKey(output.reference), previous = records.get(key),
-      compatible = output.compatible !== false && !output.reason && output.availability === 'ready';
+      compatible = inputCanBeReferenced(output, {allowPending: true});
     if (!previous || (!previous.compatible && compatible)) records.set(key, {
       ...output, key, id: key, compatible, requirements: previous?.requirements || [],
     });
@@ -71,8 +76,10 @@ export function relationshipSelectionForFeatures(state, kind, featureIds) {
   const choices = relationshipParticipantChoices(state, kind),
     fallback = kind ? relationshipParticipantChoices(state, null) : choices, selected = new Set();
   for (const id of featureIds) {
-    const output = choices.find(choice => choice.parameter_owner && choice.reference.feature === id) ||
-      fallback.find(choice => choice.parameter_owner && choice.reference.feature === id);
+    const matching = choices.filter(choice => choice.reference.feature === id),
+      output = matching.find(choice => choice.parameter_owner) ||
+        (matching.length === 1 ? matching[0] : null) ||
+        fallback.find(choice => choice.parameter_owner && choice.reference.feature === id);
     if (output) selected.add(output.key);
   }
   return selected;
@@ -140,9 +147,11 @@ export function relationshipFeatureIds(selected) {
 }
 
 export function relationshipOutputValue(state, output) {
+  if (!output || output.availability !== 'ready' || !inputCanBeReferenced(output)) return null;
   const reference = output?.reference;
   if (!reference || typeof reference === 'string') return null;
   const context = reference.context || reference.feature;
+  if (state.states?.[context] && state.states[context] !== 'ready') return null;
   let value = state.derived?.[context];
   if (context !== reference.feature) value = (value?.resolved || value?.surfaces || value?.outputs)?.[reference.feature];
   return value || output.preview || null;
