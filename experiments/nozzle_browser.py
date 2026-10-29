@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 import threading
 import uuid
 from collections.abc import Callable, Generator
@@ -61,8 +62,19 @@ from experiments.native_scan_import import (
     SourceChangePurpose,
 )
 from experiments.nozzle_session import NozzleSession, NozzleWorkspace, SessionFit
+from experiments.project_archive import (
+    project_archive_profile,
+    read_project_archive,
+    write_project_archive,
+)
+from experiments.project_legacy import (
+    export_legacy_project,
+    legacy_workspace,
+    migrate_known_legacy,
+)
 from experiments.scan_actions import inspect_actions
 from experiments.scan_project import ScanProject, virtual_scan_metadata
+from experiments.scan_sources import ReplayableInput
 from experiments.scan_workspace import (
     ScanImportError,
     ScanLimits,
@@ -113,6 +125,12 @@ class ProjectResetRequest(SourceCursor):
     confirmedDiscard: bool
 
 
+class ProjectOpenRequest(SourceCursor):
+    filename: str
+    size: int
+    confirmedDiscard: bool
+
+
 class ActionsInspectRequest(SourceCursor):
     recipe: dict[str, Any]
 
@@ -135,6 +153,8 @@ class NativeAccepted:
     graph: FeatureGraph[Any]
     buffers: dict[str, bytes]
     import_warnings: tuple[ImportWarning, ...] = ()
+    project_source: ReplayableInput | None = None
+    legacy_reference: dict[str, Any] | None = None
 
 
 # Measured native admission tier; callers may supply stricter explicit caps.
@@ -341,7 +361,7 @@ class NozzleServer(ThreadingHTTPServer):
 
         def prepare_open(
             value: object,
-            path: Path | None,
+            source_input: ReplayableInput | None,
             filename: str,
             progress: Callable[[ScanProgress], None],
             cancelled: Callable[[], bool],
@@ -366,6 +386,8 @@ class NozzleServer(ThreadingHTTPServer):
                     graph,
                     owner.buffers,
                     inspection.actions.warnings,
+                    owner.project_source,
+                    owner.legacy_reference,
                 )
                 warning_count = len(legacy.import_warnings)
                 next_example = original_example
@@ -373,24 +395,18 @@ class NozzleServer(ThreadingHTTPServer):
             else:
                 project = ScanProject()
                 initial = project.accepted
-                with ExitStack() as stack:
-                    stream = (
-                        stack.enter_context(path.open("rb"))
-                        if path is not None
-                        else None
-                    )
-                    candidate = project.prepare_open(
-                        value,
-                        generation=initial.generation,
-                        token=str(initial.graph.snapshot()["token"]),
-                        confirmed_discard=True,
-                        matching=matching,
-                        stream=stream,
-                        filename=filename or None,
-                        limits=self.source_imports.limits,
-                        progress=progress,
-                        cancelled=cancelled,
-                    )
+                candidate = project.prepare_open(
+                    value,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    confirmed_discard=True,
+                    matching=matching,
+                    stream=source_input,
+                    filename=filename or None,
+                    limits=self.source_imports.limits,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
                 prepared = project.commit_open(candidate, cancelled=cancelled)
                 warning_count = len(prepared.import_warnings)
                 next_example = None
@@ -429,7 +445,7 @@ class NozzleServer(ThreadingHTTPServer):
             return NativeOpenCandidate(install, warning_count)
 
         def prepare_replace(
-            path: Path,
+            source_input: ReplayableInput,
             filename: str,
             progress: Callable[[ScanProgress], None],
             cancelled: Callable[[], bool],
@@ -441,17 +457,16 @@ class NozzleServer(ThreadingHTTPServer):
                 )
             project = ScanProject()
             initial = project.accepted
-            with path.open("rb") as stream:
-                candidate = project.prepare_replace(
-                    stream,
-                    filename,
-                    self.source_imports.limits,
-                    generation=initial.generation,
-                    token=str(initial.graph.snapshot()["token"]),
-                    matching=matching,
-                    progress=progress,
-                    cancelled=cancelled,
-                )
+            candidate = project.prepare_replace(
+                source_input,
+                filename,
+                self.source_imports.limits,
+                generation=initial.generation,
+                token=str(initial.graph.snapshot()["token"]),
+                matching=matching,
+                progress=progress,
+                cancelled=cancelled,
+            )
             prepared = project.commit_replace(candidate, cancelled=cancelled)
             check_cancelled(cancelled)
 
@@ -481,6 +496,94 @@ class NozzleServer(ThreadingHTTPServer):
                 return state.generation + 1
 
             return NativeOpenCandidate(install, len(prepared.import_warnings))
+
+        def prepare_project(
+            source_input: ReplayableInput,
+            progress: Callable[[ScanProgress], None],
+            cancelled: Callable[[], bool],
+        ) -> NativeOpenCandidate:
+            archive = read_project_archive(
+                source_input,
+                cancelled=cancelled,
+                legacy_resolver=migrate_known_legacy,
+            )
+            check_cancelled(cancelled)
+            project: ScanProject | None = None
+            legacy: NativeAccepted | None = None
+            if archive.legacy_reference is not None:
+                if archive.original is None:
+                    raise ScanImportError("Legacy project has no source member.")
+                workspace = legacy_workspace(
+                    archive.original,
+                    archive.legacy_reference,
+                    self.source_imports.limits,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+                inspected = inspect_actions(archive.actions, workspace)
+                legacy = NativeAccepted(
+                    state.generation + 1,
+                    workspace,
+                    FeatureGraph(workspace, inspected.actions.recipe),
+                    {
+                        "/mesh/positions": workspace.local.astype("<f4").tobytes(),
+                        "/mesh/indices": workspace.data.triangles.astype(
+                            "<u4"
+                        ).tobytes(),
+                    },
+                    inspected.actions.warnings,
+                    archive.original,
+                    archive.legacy_reference,
+                )
+                warning_count = len(legacy.import_warnings)
+            else:
+                project = ScanProject()
+                initial = project.accepted
+                candidate = project.prepare_open(
+                    archive.actions,
+                    generation=initial.generation,
+                    token=str(initial.graph.snapshot()["token"]),
+                    confirmed_discard=True,
+                    stream=archive.original,
+                    filename=archive.original.filename if archive.original else None,
+                    limits=self.source_imports.limits,
+                    progress=progress,
+                    cancelled=cancelled,
+                )
+                prepared = project.commit_open(candidate, cancelled=cancelled)
+                warning_count = len(prepared.import_warnings)
+            check_cancelled(cancelled)
+
+            def install() -> int:
+                current = self.accepted()
+                current_owner = (
+                    self._project if self._project is not None else self._legacy
+                )
+                if (
+                    current_owner is not owner
+                    or current.generation != state.generation
+                    or current.graph.snapshot()["token"] != original_token
+                ):
+                    raise ScanImportError(
+                        "Project changed before opening the archive.", "stale_source"
+                    )
+                if self.busy():
+                    raise ScanImportError("Wait for active computation.", "source_busy")
+                check_cancelled(cancelled)
+                self.clear_jobs()
+                self.active_example = None
+                self.example_recipe = Recipe(schema_version=2, nodes=[], output=None)
+                if project is not None:
+                    self._generation_offset = (
+                        state.generation + 1 - project.accepted.generation
+                    )
+                    self._project, self._legacy = project, None
+                else:
+                    assert legacy is not None
+                    self._project, self._legacy = None, legacy
+                return state.generation + 1
+
+            return NativeOpenCandidate(install, warning_count)
 
         def prepare_source_change(
             purpose: SourceChangePurpose,
@@ -556,7 +659,53 @@ class NozzleServer(ThreadingHTTPServer):
             prepare_open,
             prepare_replace,
             prepare_source_change,
+            prepare_project,
         )
+
+    def project_export_inputs(
+        self,
+        state: NativeAccepted,
+        token: str,
+    ) -> tuple[dict[str, Any], ReplayableInput | None, dict[str, Any] | None]:
+        try:
+            actions = state.graph.export_recipe(token)
+        except StaleGraph as error:
+            raise ScanImportError(str(error), "stale_source") from error
+        source_record = next(
+            (node for node in actions["nodes"] if node["operation"] == "source"), None
+        )
+        source = (
+            Source.model_validate(source_record) if source_record is not None else None
+        )
+        if source is None:
+            return actions, None, None
+        if isinstance(state.workspace, NozzleWorkspace):
+            original, reference = export_legacy_project(
+                state.workspace, state.project_source
+            )
+            return actions, original, state.legacy_reference or reference
+        descriptor = (
+            source.virtual_scan.original if source.virtual_scan else source.descriptor
+        )
+        if descriptor is None or self._project is None:
+            raise ScanImportError("The project has no replayable original scan.")
+        original = next(
+            (
+                item.source
+                for item in (
+                    state.workspace,
+                    *self._project.accepted.retained_sources,
+                )
+                if item.descriptor is not None
+                and item.descriptor.semantic_record() == descriptor.semantic_record()
+            ),
+            None,
+        )
+        if original is None:
+            raise ScanImportError(
+                "The exact original scan is unavailable.", "source_required"
+            )
+        return actions, original.input, None
 
     def inspect_actions(self, request: ActionsInspectRequest) -> dict[str, object]:
         with self.lock:
@@ -701,6 +850,9 @@ class NozzleServer(ThreadingHTTPServer):
         super().server_close()
         self.worker.shutdown(wait=True, cancel_futures=True)
         self.source_imports.close()
+        with self.lock:
+            self.clear_jobs()
+            self._project, self._legacy = None, None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -879,6 +1031,8 @@ class Handler(BaseHTTPRequestHandler):
                     **metadata,
                     "import_warnings": list(state.import_warnings),
                     "virtual_scans": self.app.virtual_scan_profile(),
+                    "project_archive": project_archive_profile(),
+                    "legacy_project": state.legacy_reference is not None,
                     "graph": graph,
                     "positions": {
                         "dtype": "<f4",
@@ -1031,6 +1185,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/sources/virtual",
             "/api/sources/activate",
             "/api/project/reset",
+            "/api/project/open",
+            "/api/project/export",
             "/api/actions/inspect",
             "/api/actions/open",
         } and not path.startswith("/api/sources/imports/"):
@@ -1124,6 +1280,51 @@ class Handler(BaseHTTPRequestHandler):
                     size=request.source.size if request.source is not None else None,
                 )
                 self.json_reply(200 if result["terminal"] else 202, result)
+            elif path == "/api/project/open":
+                request = ProjectOpenRequest.model_validate_json(body)
+                result = self.app.source_imports.open_project(
+                    generation=request.generation,
+                    token=request.token,
+                    filename=request.filename,
+                    size=request.size,
+                    confirmed_discard=request.confirmedDiscard,
+                )
+                self.json_reply(202, result)
+            elif path == "/api/project/export":
+                request = SourceCursor.model_validate_json(body)
+                with tempfile.TemporaryFile(mode="w+b") as output:
+                    with self.app.computation() as state:
+                        if request.generation != state.generation:
+                            raise ScanImportError(
+                                "Project changed before saving.", "stale_source"
+                            )
+                        actions, original, reference = self.app.project_export_inputs(
+                            state, request.token
+                        )
+                        _ = write_project_archive(
+                            actions, original, output, legacy_reference=reference
+                        )
+                        generation = state.generation
+                    # The immutable spool owns the complete archive. Release
+                    # computation before response bytes can complete at the client.
+                    length = output.tell()
+                    _ = output.seek(0)
+                    self.reply_generation = generation
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(length))
+                    self.send_header(
+                        "Content-Disposition",
+                        'attachment; filename="project.scansor"',
+                    )
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("X-Scansor-Generation", str(generation))
+                    self.end_headers()
+                    while block := output.read(
+                        self.app.source_imports.limits.chunk_bytes
+                    ):
+                        _ = self.wfile.write(block)
             elif path == "/api/project/reset":
                 state = self.app.reset_project(
                     ProjectResetRequest.model_validate_json(body)

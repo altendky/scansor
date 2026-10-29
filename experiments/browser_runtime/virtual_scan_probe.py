@@ -14,11 +14,32 @@ from numpy.typing import NDArray
 
 from experiments.feature_graph import Recipe
 from experiments.scan_project import ScanProject
-from experiments.scan_workspace import ScanLimits, prepare_scan
+from experiments.scan_workspace import ScanLimits, ScanWorkspace, prepare_scan
 from experiments.selection_volume_transactions import author_volume
 from experiments.virtual_scan_reduction import ReductionSettings, prepare_virtual_scan
 
 LIMITS = ScanLimits(2_000_000, 10_000, 20_000, 16_000_000, chunk_bytes=4096)
+
+
+def _source_hash(workspace: ScanWorkspace) -> str:
+    assert workspace.source is not None
+    digest = hashlib.sha256()
+    with workspace.source.open() as stream:
+        while chunk := stream.read(4096):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _assert_source(workspace: ScanWorkspace, expected: bytes) -> None:
+    assert workspace.source is not None and workspace.source.byte_length == len(
+        expected
+    )
+    offset = 0
+    with workspace.source.open() as stream:
+        while chunk := stream.read(4096):
+            assert chunk == expected[offset : offset + len(chunk)]
+            offset += len(chunk)
+    assert offset == len(expected)
 
 
 def _sheet_bytes(
@@ -118,7 +139,7 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
     ):
         raw = _sheet_bytes(scale, sheets, opposed, refinement_case)
         original = prepare_scan(io.BytesIO(raw), "virtual-probe.ply", LIMITS)
-        original_hash = hashlib.sha256(original.original_bytes).hexdigest()
+        original_hash = _source_hash(original)
         settings = ReductionSettings(divisions=2 if refinement_case else 4)
         reduced = prepare_virtual_scan(original, settings, LIMITS)
         workspace = reduced.workspace
@@ -127,7 +148,7 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
             ReductionSettings.model_validate_json(settings.model_dump_json()),
             LIMITS,
         )
-        assert workspace.original_bytes == replay.workspace.original_bytes
+        assert _source_hash(workspace) == _source_hash(replay.workspace)
         assert reduced.derivation == replay.derivation
         assert reduced.diagnostics == replay.diagnostics
         if refinement_case:
@@ -138,8 +159,8 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
                 np.array_equal(workspace.local[face], expected_face)
                 for face in workspace.data.triangles
             )
-        assert hashlib.sha256(original.original_bytes).hexdigest() == original_hash
-        assert original.original_bytes == raw
+        assert _source_hash(original) == original_hash
+        _assert_source(original, raw)
         assert workspace.descriptor is not None and original.descriptor is not None
         assert workspace.reference_sha256 == replay.workspace.reference_sha256
         assert len(workspace.local) < len(original.local) // 2
@@ -183,9 +204,8 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
         # Every retained normal must still identify its own disconnected sheet.
         expected_sign = np.where((workspace.local[:, 2] == 0) | (not opposed), 1, -1)
         np.testing.assert_array_equal(workspace.data.normals[:, 2], expected_sign)
-        reopened = prepare_scan(
-            io.BytesIO(workspace.original_bytes), "renamed.ply", LIMITS
-        )
+        assert workspace.source is not None
+        reopened = prepare_scan(workspace.source, "renamed.ply", LIMITS)
         assert reopened.reference_sha256 == workspace.reference_sha256
         np.testing.assert_array_equal(reopened.data.weights, workspace.data.weights)
         reports.append(
@@ -200,9 +220,7 @@ def virtual_scan_probe() -> list[dict[str, Any]]:
                 "derived_descriptor": workspace.descriptor.semantic_record(),
                 "original_binding": original.reference_sha256,
                 "derived_binding": workspace.reference_sha256,
-                "derived_bytes_sha256": hashlib.sha256(
-                    workspace.original_bytes
-                ).hexdigest(),
+                "derived_bytes_sha256": _source_hash(workspace),
                 "component_sizes": components,
                 "positions": workspace.local.tolist(),
                 "normals": workspace.data.normals.tolist(),
@@ -371,8 +389,8 @@ def virtual_scan_transactions_probe() -> dict[str, Any]:
         accepted = reopened.commit_open(prepared)
         assert accepted.workspace.reference_sha256 == active.reference_sha256
         assert len(accepted.retained_sources) == 2
-        assert accepted.retained_sources[0].original_bytes == raw
-        assert accepted.retained_sources[1].original_bytes == reduced.original_bytes
+        _assert_source(accepted.retained_sources[0], raw)
+        assert _source_hash(accepted.retained_sources[1]) == _source_hash(reduced)
         evaluated = cast(
             dict[str, Any],
             accepted.graph.ensure_current(

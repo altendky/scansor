@@ -429,6 +429,19 @@ def test_actual_worker_vectors_cannot_be_replaced_with_claims(
             "project_generation": epoch,
             "source_sha256": oracle.sha(raw),
             "original_bytes": len(raw),
+            "source_storage": {
+                "kind": "BlobInput",
+                "backing_kind": "BlobInput",
+                "authority_bytes": len(raw),
+                "owned_source_payload_bytes": 0,
+            },
+            "source_replay": {
+                "bytes": len(raw),
+                "sha256": oracle.sha(raw),
+                "max_chunk_bytes": min(len(raw), 65_536),
+                "read_calls": 2,
+                "eof_verified": True,
+            },
             "owned_fs_files": [],
             "owned_fs_bytes": 0,
             "descriptor": copy.deepcopy(

@@ -52,6 +52,12 @@ outside the intended boundary.
     transactional switching, common UI, original-file reopen and Force recovery;
     bounded native/plain/isolated worker workflow and repeated-switch evidence
 
+- [Self-contained project archives](planning/project-archives.md)
+  - **Bounded implementation:** one `.scansor` file containing actions and its
+    original scan, replayable source members, sequential decoding, explicit
+    virtual-scan lineage and portable captured-nozzle reference migration;
+    external references and general multiple-scan projects remain deferred
+
 - [Nozzle browser selection experiment](../../../experiments/browser_viewer/README.md)
   - **Provisional experiment:** retained selection editing, explicit points and
     axes, cone/cylinder/plane/sphere fits, shared-point sphere centers,

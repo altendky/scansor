@@ -4,9 +4,61 @@ import {createHash,webcrypto} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {ORDINARY_STAGES,RESOURCE_SOURCES,validateWorkerResourceReport,assertTrustedInputsUnchanged,semanticJson,assertWorkerInventoryQuiescent} from './worker-source-resource-validation.mjs';
-import {installMainObservers,workerSuffix,backendObserverMarker,backendObserverInsertion,instrumentWorkerBackend} from './worker-source-resource-observers.mjs';
+import {installMainObservers,workerSuffix,pythonInventory,backendObserverMarker,backendObserverInsertion,instrumentWorkerBackend} from './worker-source-resource-observers.mjs';
+import {sourceAuthorityPython} from './source-authority-observer.mjs';
+
+test('authority observation streams verified EOF and distinguishes retained byte payloads from file/archive backing',()=>{
+  const root=fileURLToPath(new URL('../..',import.meta.url));
+  const script=sourceAuthorityPython+String.raw`
+import hashlib,io,pathlib,tempfile,types,zipfile
+from experiments.scan_sources import BytesInput,PathInput
+from experiments.scan_workspace import VerifiedSource
+from experiments.browser_runtime.source_streams import BlobInput
+from experiments.project_archive import ArchiveMemberInput,ProjectArchiveLimits
+raw=bytes(range(251))*1000; digest=hashlib.sha256(raw).hexdigest()
+descriptor=types.SimpleNamespace(source_bytes=len(raw),source_sha256=digest,filename='source.ply')
+def observe(provider):
+ return _source_authority_observation(types.SimpleNamespace(source=VerifiedSource(provider,descriptor),source_sha256=digest))
+memory=observe(BytesInput(raw,'source.ply'))
+assert memory['source_storage']['owned_source_payload_bytes']==len(raw)
+assert memory['source_replay']['sha256']==digest and memory['source_replay']['eof_verified']
+assert memory['source_replay']['max_chunk_bytes']<=65536 and memory['source_replay']['read_calls']>2
+with tempfile.TemporaryDirectory() as directory:
+ path=pathlib.Path(directory)/'source.ply';path.write_bytes(raw)
+ disk=observe(PathInput(path));assert disk['source_storage']['owned_source_payload_bytes']==0
+ assert disk['source_storage']['kind']=='PathInput'
+ path.write_bytes(b'bad')
+ try:observe(PathInput(path))
+ except Exception:pass
+ else:raise AssertionError('truncated replay passed')
+calls=[]
+def read(offset,count):
+ calls.append(count);return raw[offset:offset+count]
+blob=observe(BlobInput(len(raw),'source.ply',read,4096))
+assert blob['source_storage']['kind']=='BlobInput' and blob['source_storage']['owned_source_payload_bytes']==0
+assert max(calls)<=4096
+archive=io.BytesIO()
+with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as sink:sink.writestr('source.ply',raw)
+compressed=archive.getvalue()
+member=ArchiveMemberInput(BytesInput(compressed,'project.scansor'),'source.ply',len(raw),'source.ply',digest,ProjectArchiveLimits(chunk_bytes=4096))
+record=observe(member)
+assert record['source_storage']['kind']=='ArchiveMemberInput' and record['source_storage']['backing_kind']=='BytesInput'
+assert record['source_storage']['owned_source_payload_bytes']==len(compressed)
+assert record['source_replay']['sha256']==digest
+`;
+  const result=spawnSync(root+'/.venv/bin/python',['-c',script],{cwd:root,env:{...process.env,PYTHONPATH:root+':'+root+'/src'},encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+});
 
 const sha='a'.repeat(64);
+
+test('resource inventory handles the shipped initial example without inventing original normals',()=>{
+  const root=fileURLToPath(new URL('../..',import.meta.url));
+  const script=`import json\nfrom pathlib import Path\nfrom experiments.browser_runtime.workspace import BrowserWorkspace\nbrowser_workspace=BrowserWorkspace(Path('examples/nozzle-bayonette-simplified'))\n`+
+    pythonInventory+`\nrecord=json.loads(_worker_source_inventory295())\nassert record['source_mode']['kind']=='example'\nassert record['source_storage']['kind']=='none'\nassert 'original_normals' not in record['observations']\nassert record['vertices']>0 and record['observations']['xyz']['sha256']\n`;
+  const result=spawnSync(root+'/.venv/bin/python',['-c',script],{cwd:root,env:{...process.env,PYTHONPATH:root+':'+root+'/src'},encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+});
 function fixture(){
   const inputs=RESOURCE_SOURCES.map((name,index)=>({name,sha256:sha,source_bytes:100+index,vertices:20,faces:30}));
   const reference=Object.fromEntries(inputs.map(input=>[input.name,{source_sha256:sha,descriptor:{filename:input.name+'.ply',source_sha256:sha,settings:{scale:1}},
@@ -18,12 +70,14 @@ function fixture(){
     main_heap:{usedSize:100,totalSize:1000,backingStorageSize:0},heartbeat:{ticks:10,max_gap_ms:19,sum_gap_ms:160},
     raf:{count:10,max_gap_ms:20,sum_gap_ms:160,over_16_ms:2,over_50_ms:0},gpu:{contexts:[{logical_live_buffer_bytes:20,logical_high_water_bytes:50,context_lost:false}]},
     worker_heap:{session_id:'session-'+index,url:'http://127.0.0.1/worker.mjs',usedSize:20,totalSize:50,backingStorageSize:100},
-    worker:{isolated:false,wasm_capacity_bytes:10000,unique_root_bytes:500,immutable_original_bytes:input.source_bytes,
+    worker:{isolated:false,worker_protocol:12,wasm_capacity_bytes:10000,unique_root_bytes:500,immutable_original_bytes:input.source_bytes,
+      source_storage:{kind:'BlobInput',backing_kind:'BlobInput',authority_bytes:input.source_bytes,owned_source_payload_bytes:0},
+      source_replay:{bytes:input.source_bytes,sha256:sha,max_chunk_bytes:64,read_calls:3,eof_verified:true},
       source_mode:{kind:'scan'},
       immutable_original_sha256:sha,export_bytes:0,owned_fs_bytes:0,owned_fs_files:[],project_generation:epoch,
       source_sha256:sha,vertices:input.vertices,faces:input.faces,descriptor:reference[input.name].descriptor,
       views:[{name:'source.xyz',logical_bytes:480},{name:'frame.columns',logical_bytes:72}],
-      observations:reference[input.name].observations,transfer:{staging_bytes:0,max_staging_bytes:102,largest_chunk_bytes:64,display_copy_bytes:100}},
+      observations:reference[input.name].observations,transfer:{staging_bytes:0,max_staging_bytes:0,largest_chunk_bytes:64,replay_read_calls:3,replay_read_bytes:102,display_copy_bytes:100}},
     ui:{singleton:true,generation:epoch,graph_generation:epoch,source:{source_sha256:sha},vertices:20,triangles:30,
       positions_length:60,indices_length:90,selected_index_count:0,recipe_nodes:1,source_nodes:1,fit_nodes:0,input_files:0,
       inert:false,source_progress_hidden:true,arrays:{views_truncated:false,unique_backing_bytes:300,views:[{name:'mesh.normal',logical_bytes:10},{name:'mesh.color',logical_bytes:10}]},
@@ -32,6 +86,8 @@ function fixture(){
     import_window:{active:false,started_ms:10,end_ms:20,duration_ms:10,heartbeat_ticks:0,heartbeat_max_gap_ms:10,heartbeat_sum_gap_ms:0,raf_ticks:0,raf_max_gap_ms:10,raf_sum_gap_ms:0}});
   const makeEmpty=value=>{for(const key of ['vertices','triangles','positions_length','indices_length','selected_index_count','recipe_nodes','input_files'])value.ui[key]=0;
     value.worker.immutable_original_bytes=0;value.worker.source_sha256=null;value.worker.vertices=0;value.worker.faces=0;
+    value.worker.source_storage={kind:'none',backing_kind:'none',authority_bytes:0,owned_source_payload_bytes:0};
+    value.worker.source_replay={bytes:0,sha256:null,max_chunk_bytes:0,read_calls:0,eof_verified:false};
     value.worker.descriptor=null;value.ui.source=null;value.ui.recipe={nodes:[]};
     value.worker.source_mode={kind:'empty'};
     for(const view of value.worker.views)if(view.name.startsWith('source.'))view.logical_bytes=0;
@@ -103,6 +159,17 @@ test('valid repeated actual-UI boundary report permits retained capacity and ove
   assert.equal(result.ordinary_cycles,12);assert.equal(JSON.stringify(report),before);
 });
 
+test('legacy protocol resource evidence retains its bounded staging high-water requirement',()=>{
+  const report=fixture();
+  for(const mode of report.modes)for(const row of mode.stages)if(row.worker){
+    row.worker.worker_protocol=11;row.worker.transfer.max_staging_bytes=102;
+    if(row.worker.source_storage.kind!=='none')row.worker.source_storage.kind=row.worker.source_storage.backing_kind='PathInput';
+  }
+  assert.doesNotThrow(()=>validateWorkerResourceReport(report));
+  report.modes[0].stages[2].worker.transfer.max_staging_bytes=0;
+  assert.throws(()=>validateWorkerResourceReport(report),/Staging high-water/);
+});
+
 for(const [name,mutate]of Object.entries({
   'ordinary worker replacement':r=>{r.modes[0].stages[8].worker_index=2;},
   'ordinary CDP replacement':r=>{r.modes[0].stages[8].worker_heap.session_id='replacement';},
@@ -134,7 +201,11 @@ for(const [name,mutate]of Object.entries({
   'original observations changed':r=>{r.modes[0].stages[2].worker.observations={xyz:{sha256:'b'.repeat(64)}};},
   'original normal evidence omitted':r=>{delete r.native_reference['raw-nozzle'].observations.original_normals;
     r.reference_value_sha256=createHash('sha256').update(JSON.stringify(r.native_reference)).digest('hex');},
-  'staging high-water erased':r=>{r.modes[0].stages[2].worker.transfer.max_staging_bytes=0;},
+  'streaming worker staged source':r=>{r.modes[0].stages[2].worker.transfer.max_staging_bytes=100;},
+  'streaming worker did not replay':r=>{r.modes[0].stages[2].worker.transfer.replay_read_calls=0;},
+  'streaming worker replay incomplete':r=>{r.modes[0].stages[2].worker.transfer.replay_read_bytes=0;},
+  'source payload snapshot':r=>{r.modes[0].stages[2].worker.source_storage.owned_source_payload_bytes=100;},
+  'source EOF unverified':r=>{r.modes[0].stages[2].worker.source_replay.eof_verified=false;},
   'display identity changed':r=>{r.modes[0].stages[2].ui.display_hashes.positions='b'.repeat(64);},
   'selection exceeds independent fitting cap':r=>{r.modes[0].stages[4].ui.selection[0].count=25001;},
   'reset leaves live display':r=>{r.modes[0].stages[5].ui.positions_length=3;},
@@ -178,7 +249,7 @@ for(const shared of [false,true])test('worker capacity observes current Wasm bac
     memory.grow(1);return JSON.stringify({views:[]});
   },FS:{analyzePath:()=>({exists:false})}};
   const scope={};
-  new Function('globalThis','python','sourceTransferMetrics','crossOriginIsolated',workerSuffix)(scope,python,{},shared);
+  new Function('globalThis','python','sourceTransferMetrics','crossOriginIsolated','manifest',workerSuffix)(scope,python,{},shared,{worker_protocol:{version:12}});
   const observed=scope.__workerSourceResource295();
   assert.equal(observed.wasm_capacity_bytes,memory.buffer.byteLength);
   assert.equal(observed.wasm_capacity_bytes,2*65536);

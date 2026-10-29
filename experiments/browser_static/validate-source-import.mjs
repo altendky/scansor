@@ -9,6 +9,7 @@ import {prepareSourceInputs,runSourcePython,openSourceImportPage,chooseSourceFil
 import {validateSourceUiRecovery} from './source-ui-recovery.mjs';
 import {validateSourceUiAuthoring} from './source-ui-authoring.mjs';
 import {validateVirtualScanUi} from './virtual-scan-ui.mjs';
+import {validateProjectArchiveUi} from './project-archive-ui.mjs';
 import {authoringSemanticCases} from './source-authoring-semantic.mjs';
 import {validateSourceUiActions} from './source-ui-actions.mjs';
 import {compareSemanticBatch} from './semantic-parity.mjs';
@@ -182,15 +183,50 @@ try{
   await page.evaluate(async()=>{const b=window.__sourceImportBackend242,m=await b.loadWorkspace();
     await b.addScan({file:window.__sourceImportFile242,generation:m.generation,token:m.graph.token});});
   const checkpoint=await readEvidence();
+  if(checkpoint.worker_protocol>=12){
+    await page.workers()[0].evaluate(()=>globalThis.__sourceCleanupFault242('read'));
+    await chooseSourceFile(page,path.join(sources,'raw-nozzle.ply'));
+    const failedRead=await page.evaluate(async()=>{const b=window.__sourceImportBackend242,m=await b.loadWorkspace();let operationId;
+      const result=await b.replaceScan({file:window.__sourceImportFile242,generation:m.generation,token:m.graph.token},
+        {onProgress:r=>{operationId=r.operationId;}}).then(()=>({accepted:true}),error=>({code:error.code}));
+      return{result,status:await b.getSourceOperation({operationId})};});
+    assert.equal(failedRead.result.accepted,undefined);assert.equal(failedRead.status.status,'failed');
+    assert.deepEqual(await page.workers()[0].evaluate(()=>globalThis.__sourceReadFault242),{armed:false,failures:1});
+    const afterRead=await readEvidence();assert.deepEqual(afterRead.descriptor,checkpoint.descriptor);
+    assert.equal(afterRead.project_generation,checkpoint.project_generation);
+    assert.equal(afterRead.source_replay.sha256,checkpoint.source_replay.sha256);
+    for(const key of ['positions','normals','triangles','weights'])compareSourceNumbers(afterRead[key],checkpoint[key],'read-failure.'+key);
+    await page.evaluate(()=>window.__sourceImportBackend242.forceRestart());
+    const readRecovery=await readEvidence();assert.deepEqual(readRecovery.descriptor,checkpoint.descriptor);
+    assert.equal(readRecovery.project_generation,checkpoint.project_generation);
+    report.boundary_races.push({position:'bounded-source-read',failure_preserved_prior_source:true,accepted_checkpoint_survived_force:true});
+  }
   await page.workers()[0].evaluate(()=>globalThis.__sourceCleanupFault242());
   await chooseSourceFile(page,path.join(sources,'raw-nozzle.ply'));
-  const cleanupFailure=await page.evaluate(async()=>{const b=window.__sourceImportBackend242,m=await b.loadWorkspace();let cancellation,operationId;
-    const result=await b.addScan({file:window.__sourceImportFile242,generation:m.generation,token:m.graph.token},{onProgress:record=>{
+  const cleanupFailure=await page.evaluate(async(streaming)=>{const b=window.__sourceImportBackend242,m=await b.loadWorkspace();let cancellation,operationId;
+    if(streaming)window.__sourceImportTransport242.holdIncoming='source-candidate';
+    // Streaming candidates must pass source admission before their disposal
+    // boundary; Add scan intentionally rejects a nonempty project before reads.
+    const importSource=streaming?b.replaceScan.bind(b):b.addScan.bind(b);
+    const pending=importSource({file:window.__sourceImportFile242,generation:m.generation,token:m.graph.token},{onProgress:record=>{
       operationId=record.operationId;
-      if(record.phase==='reading'&&record.completed>0&&!cancellation)cancellation=b.cancelSourceOperation({operationId,generation:m.generation,token:m.graph.token});
+      if(!streaming&&record.phase==='reading'&&record.completed>0&&!cancellation)cancellation=b.cancelSourceOperation({operationId,generation:m.generation,token:m.graph.token});
     }}).then(()=>({accepted:true}),error=>({code:error.code}));
+    if(streaming){
+      const deadline=performance.now()+30000;
+      while(!window.__sourceImportTransport242.held.some(item=>item.kind==='source-candidate')){
+        if(performance.now()>deadline)throw Error('Private candidate never reached disposal boundary');
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      // Cancellation first crosses the host's async operation lookup. Hold the
+      // candidate until that fence is set, then deliver the queued messages.
+      cancellation=await b.cancelSourceOperation({operationId,generation:m.generation,token:m.graph.token});
+      if(cancellation.status!=='cancelling')throw Error('Candidate cancellation was not fenced before delivery');
+      window.__sourceImportTransport242.holdIncoming=null;window.__sourceImportTransport242.release();
+    }
+    const result=await pending;
     if(!cancellation)throw Error('Cleanup fault never observed reading Cancel');
-    const cancelled=await cancellation;return{result,cancelled,status:await b.getSourceOperation({operationId})};});
+    const cancelled=await cancellation;return{result,cancelled,status:await b.getSourceOperation({operationId})};},checkpoint.worker_protocol>=12);
   assert.equal(cleanupFailure.result.code,'source_cleanup_failed');
   assert.equal(cleanupFailure.cancelled.status,'cancelling');assert.equal(cleanupFailure.status.status,'failed');
   assert.equal(cleanupFailure.status.error.code,'source_cleanup_failed');
@@ -199,7 +235,7 @@ try{
   const cleanRecovery=await readEvidence();assert.deepEqual(cleanRecovery.descriptor,checkpoint.descriptor);
   assert.equal(cleanRecovery.project_generation,checkpoint.project_generation);assert.equal(cleanRecovery.owned_fs_bytes,0);
   for(const key of ['positions','normals','triangles','weights'])compareSourceNumbers(cleanRecovery[key],checkpoint[key],'cleanup.force.'+key);
-  report.boundary_races.push({position:'staging-cleanup',failure_preserved_through_cancel:true,accepted_checkpoint_survived_force:true});
+  report.boundary_races.push({position:checkpoint.worker_protocol>=12?'candidate-disposal':'staging-cleanup',failure_preserved_through_cancel:true,accepted_checkpoint_survived_force:true});
   await page.evaluate(()=>window.__sourceImportBackend242.close());await context.close();
   await validateSourceUiRecovery({browser,site,preview,prefix,sources,isolation,report});
   await validateSourceUiActions({browser,site,preview,prefix,sources,isolation,report,expected,output,nativePython});
@@ -211,6 +247,7 @@ try{
   }
   await validateSourceUiAuthoring({browser,site,preview,prefix,sources,isolation,report,expected,output});
   await validateVirtualScanUi({browser,site,preview,prefix,isolation,report});
+  await validateProjectArchiveUi({browser,site,preview,prefix,isolation,report,nativePython});
   const authoredRecipes=path.join(output,'ui-authored-recipes.json');
   await writeFile(authoredRecipes,JSON.stringify(Object.fromEntries(
     Object.entries(report.ui_authoring.graphs).map(([name,graph])=>[name,graph.recipe]))));
@@ -222,7 +259,8 @@ try{
     ui_source_recovery:report.ui_recovery.complete===true,ui_legacy_startup:report.ui_legacy_startup.complete===true,
     ui_source_actions:report.ui_actions.complete===true,
     ui_source_authoring:report.ui_authoring.complete===true,
-    virtual_scans:report.virtual_scans.complete===true};
+    virtual_scans:report.virtual_scans.complete===true,
+    project_archives:report.project_archives.complete===true};
   // Compare only after the actual recovery/UI observations. The reviewed bridge
   // retains the full operands and failed receipt before a parity error escapes.
   try{

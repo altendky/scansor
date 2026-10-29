@@ -370,7 +370,9 @@ test('all strips are enabled by default, forward native commands and share Auto 
     await expect(page.getByRole('tab', { name, exact: true })).toHaveCount(0);
   }
   const commands = await page.locator('[data-command-id]').evaluateAll(elements => elements.map(element => element.dataset.commandId));
-  expect(commands).toHaveLength(28);
+  expect(commands).toHaveLength(30);
+  expect(commands).toContain('save-project');
+  expect(commands).toContain('open-project');
   expect(commands).toContain('choose-example');
   expect(commands).toContain('show-icon-legend');
   expect(commands).not.toContain('new-mirror');

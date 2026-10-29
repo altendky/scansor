@@ -4,7 +4,7 @@ import { createSourceProjectController } from './source-project.js';
 
 // Small DOM port for controller lifecycle tests; actual markup, File input,
 // rendering, focus, and native requests are covered by source-project.spec.js.
-function fixture({ sourceImport = false, sourceActions = false, sourceReplacement = false, virtualScans = false, pair = false, empty = false } = {}) {
+function fixture({ sourceImport = false, sourceActions = false, sourceReplacement = false, virtualScans = false, projectArchives = false, pair = false, empty = false } = {}) {
   const previous = { document: globalThis.document, window: globalThis.window };
   const elements = new Map();
   const element = id => {
@@ -20,16 +20,17 @@ function fixture({ sourceImport = false, sourceActions = false, sourceReplacemen
   element('main');
   const source = { id: 'scan', operation: 'source', source_sha256: 'source', reference_sha256: 'reference' };
   if (virtualScans) source.descriptor = { filename: 'original.ply' };
-  let state = { generation: sourceImport || sourceActions || sourceReplacement || virtualScans ? 1 : undefined, token: 'before',
+  let state = { generation: sourceImport || sourceActions || sourceReplacement || virtualScans || projectArchives ? 1 : undefined, token: 'before',
     recipe: { nodes: empty ? [] : [source] }, metadata: {
       ...(sourceReplacement ? { source_replacement: { supported: true } } : {}),
       ...(virtualScans ? { virtual_scans: virtualMetadata({ pair }) } : {}),
+      ...(projectArchives ? { project_archive: { supported: true, version: 1, limits: { max_archive_bytes: 4096 } } } : {}),
     } };
   const calls = [], busy = [], installed = [], messages = [], warnings = [], scanChanges = [];
   let proofCurrent = true, proofAllowed = true, proofRequests = 0;
   const graph = { token: 'after', recipe: { nodes: [source] } };
   const bundle = { metadata: {}, positions: new ArrayBuffer(0), indices: new ArrayBuffer(0) };
-  const backend = { capabilities: { sourceImport, sourceActions, sourceReplacement, virtualScans },
+  const backend = { capabilities: { sourceImport, sourceActions, sourceReplacement, virtualScans, projectArchives },
     async getExampleRecipe() { calls.push('recipe'); return graph.recipe; },
     async replaceRecipe(payload) { calls.push(['replace', payload]); return graph; },
     async selectExample(payload) { calls.push(['example', payload]); },
@@ -44,6 +45,8 @@ function fixture({ sourceImport = false, sourceActions = false, sourceReplacemen
     async createVirtualScan() { throw Error('Unsupported virtual creation must not be invoked'); },
     async activateScan() { throw Error('Unsupported activation must not be invoked'); },
     async resetProject() { throw Error('Unsupported reset must not be invoked'); },
+    async openProject() { throw Error('Unsupported project open must not be invoked'); },
+    async exportProject() { throw Error('Unsupported project export must not be invoked'); },
   };
   const controller = createSourceProjectController({ backend, getCurrent: () => state,
     canTransition: () => !busy.at(-1), setTransitionBusy: value => busy.push(value),
@@ -99,6 +102,83 @@ test('Restore retains the delivered fixed-source worker graph without requiring 
 
 const deferred = () => { let resolve; const promise = new Promise(value => { resolve = value; }); return { resolve, promise }; };
 const locatedInspection = { classification: 'locate', uploadRequired: true, descriptor: { filename: 'original.ply' } };
+
+test('project files require both capability and advertised archive profile', async () => {
+  const f = fixture();
+  try {
+    f.controller.refresh();
+    assert.equal(f.elements.get('open-project').disabled, true);
+    assert.equal(f.controller.beginProjectChooser(), false);
+    assert.equal(await f.controller.saveProject(), false);
+    assert.equal(f.installed.length, 0);
+  } finally { f.restore(); }
+});
+
+test('a portable legacy project cannot restore unrelated packaged-example actions', async () => {
+  const f = fixture({ sourceImport: true, projectArchives: true });
+  try {
+    f.getCurrent().metadata.legacy_project = true;
+    f.controller.refresh();
+    assert.equal(f.elements.get('reset').disabled, true);
+    assert.equal(await f.controller.restoreExample(), false);
+    assert.ok(!f.calls.includes('recipe'));
+  } finally { f.restore(); }
+});
+
+test('project picker retains its cursor and draft proof without reading archive bytes in the controller', async () => {
+  const f = fixture({ projectArchives: true });
+  try {
+    let opens = 0;
+    f.backend.openProject = async () => { opens++; assert.fail('Stale picker reached backend'); };
+    assert.equal(f.controller.beginProjectChooser(), true);
+    f.advance();
+    assert.equal(await f.controller.openProjectFile({ text: () => assert.fail('Archive was read as JSON') }), false);
+    assert.equal(opens, 0); assert.equal(f.installed.length, 0);
+    assert.ok(!f.calls.includes('finish'));
+  } finally { f.restore(); }
+});
+
+test('one-file project acceptance installs its complete bundle before finishing the transition callbacks', async () => {
+  const f = fixture({ projectArchives: true });
+  try {
+    const file = { name: 'saved.scansor', text: () => assert.fail('Archive was read as JSON') };
+    f.backend.openProject = async payload => {
+      assert.equal(payload.file, file); assert.equal(payload.generation, 1);
+      assert.equal(payload.token, 'before'); assert.equal(payload.confirmedDiscard, true);
+      return { generation: 2, metadata: f.getCurrent().metadata,
+        graph: { token: 'opened-project', recipe: structuredClone(f.getCurrent().recipe) }, import_warnings: [] };
+    };
+    assert.equal(await f.controller.openProjectFile(file), true);
+    assert.equal(f.getCurrent().generation, 2); assert.equal(f.installed.length, 1);
+    assert.deepEqual(f.busy, [true, false]); assert.deepEqual(f.warnings, [[]]);
+    assert.ok(f.calls.indexOf('finish') < f.calls.indexOf('install'));
+  } finally { f.restore(); }
+});
+
+test('corrupt project rejection preserves the current source, actions and unfinished edit', async () => {
+  const f = fixture({ projectArchives: true });
+  try {
+    f.backend.openProject = async () => { throw Object.assign(Error('Invalid archive'), { code: 'invalid_project' }); };
+    assert.equal(await f.controller.openProjectFile({ name: 'broken.scansor' }), false);
+    assert.equal(f.getCurrent().token, 'before'); assert.equal(f.installed.length, 0);
+    assert.ok(!f.calls.includes('finish')); assert.equal(f.elements.get('main').inert, false);
+    assert.equal(f.busy.at(-1), false);
+  } finally { f.restore(); }
+});
+
+test('a superseded project export cannot download stale bytes or alter the project', async () => {
+  const f = fixture({ projectArchives: true });
+  try {
+    const pending = deferred();
+    f.backend.exportProject = () => pending.promise;
+    const saving = f.controller.saveProject();
+    assert.equal(f.elements.get('main').inert, true);
+    f.advance(); pending.resolve(new Blob(['old compressed bytes']));
+    assert.equal(await saving, false); assert.equal(f.installed.length, 0);
+    assert.equal(f.getCurrent().token, 'changed'); assert.equal(f.elements.get('main').inert, false);
+    assert.match(f.messages.at(-1)[0], /changed while saving/);
+  } finally { f.restore(); }
+});
 
 test('actions file admission honors the workspace byte limit before reading', async () => {
   for (const declared of [undefined, 32 * 1024 * 1024]) {

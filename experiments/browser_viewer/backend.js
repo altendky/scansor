@@ -39,6 +39,7 @@ export function createBackend({ type = 'http', factories = {}, ...options } = {}
     ['getSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['cancelSourceOperation', backend.capabilities.sourceImport || backend.capabilities.sourceActions],
     ['inspectActions', backend.capabilities.sourceActions], ['openActions', backend.capabilities.sourceActions],
+    ['openProject', backend.capabilities.projectArchives], ['exportProject', backend.capabilities.projectArchives],
     ...['authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume',
       'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume']
       .map(method => [method, backend.capabilities.selectionVolumes]),

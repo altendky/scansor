@@ -5,6 +5,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {sha256} from './server.mjs';
+import {sourceAuthorityPython} from './source-authority-observer.mjs';
 
 const helper = fileURLToPath(new URL('./source_import_expected.py', import.meta.url));
 export async function runSourcePython(nativePython, args, output) {
@@ -29,7 +30,7 @@ export async function prepareSourceInputs({repository, output, nativePython}) {
 export const sourceEvidenceSuffix = `
 // Test-only safe-boundary inventory, without mutating accepted source state.
 globalThis.__sourceEvidence242 = (arrays = true) => {
- const code = "import json\\nb=browser_workspace;w=b.workspace\\nrecord={'descriptor':w.source_descriptor.model_dump() if w.source_descriptor else None,'source_sha256':w.source_sha256,'project_generation':b.workspace_generation,'source_mode':b.source_mode,'original_bytes':len(getattr(w,'original_bytes',b'')),'vertices':len(w.local),'faces':len(w.data.triangles)}\\n" +
+ const code = ${JSON.stringify(sourceAuthorityPython)} + "import json\\nb=browser_workspace;w=b.workspace\\nrecord={'descriptor':w.source_descriptor.model_dump() if w.source_descriptor else None,'source_sha256':w.source_sha256,'project_generation':b.workspace_generation,'source_mode':b.source_mode,**_source_authority_observation(w),'vertices':len(w.local),'faces':len(w.data.triangles)}\\n" +
  (arrays ? "record.update(positions=w.local.tolist(),normals=w.data.normals.tolist(),triangles=w.data.triangles.tolist(),weights=w.data.weights.tolist())\\n" : '') + "json.dumps(record,allow_nan=False)";
  const record = JSON.parse(python.runPython(code));
  const files=[];
@@ -37,11 +38,29 @@ globalThis.__sourceEvidence242 = (arrays = true) => {
    if(name==='.'||name==='..')continue;const file='/scansor-source-staging/'+name,info=python.FS.stat(file);files.push({path:file,bytes:info.size});
  }
  record.owned_fs_files=files;record.owned_fs_bytes=files.reduce((sum,item)=>sum+item.bytes,0);
+ record.worker_protocol=manifest.worker_protocol.version;
  if(typeof sourceTransferMetrics!=='undefined')Object.assign(record,sourceTransferMetrics,
    {staging_high_water_bytes:sourceTransferMetrics.max_staging_bytes,max_chunk_bytes:sourceTransferMetrics.largest_chunk_bytes});
  return record;
 };
-globalThis.__sourceCleanupFault242 = () => {
+globalThis.__sourceCleanupFault242 = (mode='candidate') => {
+ if(manifest.worker_protocol.version>=12){
+  if(mode==='candidate'){
+   const call=sourceCall;let armed=true;
+   sourceCall=function(method,...args){
+    if(armed&&method==='discard_source_json'){armed=false;throw Error('Injected private source candidate disposal failure');}
+    return call(method,...args);
+   };return;
+  }
+  // A real bounded read fails before publication; subsequent Force replays the
+  // previous accepted authority. No obsolete MEMFS cleanup path is exercised.
+  const read=FileReaderSync.prototype.readAsArrayBuffer;
+  const fault=globalThis.__sourceReadFault242={armed:true,failures:0};
+  FileReaderSync.prototype.readAsArrayBuffer=function(blob){
+   if(fault.armed){fault.armed=false;fault.failures++;throw Error('Injected bounded source replay failure');}
+   return read.call(this,blob);
+  };return;
+ }
  const unlink=python.FS.unlink;let armed=true;
  python.FS.unlink=function(path){
   if(armed&&path.startsWith('/scansor-source-staging/')){armed=false;throw Error('Injected owned staging unlink failure');}

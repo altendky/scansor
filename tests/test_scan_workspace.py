@@ -21,6 +21,7 @@ from experiments.scan_workspace import (
     ScanWorkspace,
     prepare_scan,
 )
+from tests.scan_source_fixture import read_source_bytes
 
 EXAMPLE = Path("examples/nozzle-bayonette-simplified")
 
@@ -122,7 +123,7 @@ def test_generated_scan_preserves_source_coordinates_and_byte_identity(
     assert descriptor.source_bytes == len(original)
     assert descriptor.vertices == 3
     assert descriptor.triangles == 1
-    assert workspace.original_bytes == original
+    assert read_source_bytes(workspace) == original
     np.testing.assert_array_equal(
         workspace.data.xyz, [[10, -3, 7], [12, -3, 7], [10, 0, 7]]
     )
@@ -187,7 +188,7 @@ def test_short_reads_preserve_exact_source_with_bounded_requests(
     stream = ShortReadStream(original)
     workspace = prepare_scan(stream, "short-reads.ply", limits)
     assert stream.largest_request > 7
-    assert workspace.original_bytes == original
+    assert read_source_bytes(workspace) == original
     assert workspace.source_sha256 == hashlib.sha256(original).hexdigest()
     np.testing.assert_array_equal(workspace.data.weights, [1, 1, 1])
 
@@ -294,10 +295,10 @@ def test_degenerate_faces_keep_rows_and_contribute_no_area(limits: ScanLimits) -
 def test_authoritative_arrays_are_readonly_and_owned(limits: ScanLimits) -> None:
     stream = io.BytesIO(mesh_bytes())
     workspace = prepare_scan(stream, "generated.ply", limits)
-    before = workspace.original_bytes
+    before = read_source_bytes(workspace)
     _ = stream.seek(0)
     _ = stream.write(b"corrupted input")
-    assert workspace.original_bytes == before
+    assert read_source_bytes(workspace) == before
     for array in (
         workspace.data.xyz,
         workspace.data.normals,

@@ -80,6 +80,14 @@ function sourceEvidence(evidence) {
   assert.ok(Number.isSafeInteger(d.triangles) && d.triangles >= 0);
   assert.equal(evidence.source_sha256, d.source_sha256);
   assert.equal(evidence.original_bytes, d.source_bytes);
+  assert.equal(evidence.source_storage.authority_bytes,d.source_bytes);
+  assert.ok(['BlobInput','PathInput','ArchiveMemberInput','BytesInput'].includes(evidence.source_storage.kind));
+  if(evidence.source_storage.backing_kind==='BytesInput')assert.ok(evidence.source_storage.owned_source_payload_bytes>0);
+  else assert.equal(evidence.source_storage.owned_source_payload_bytes,0);
+  assert.equal(evidence.source_replay.bytes,d.source_bytes);assert.equal(evidence.source_replay.sha256,d.source_sha256);
+  assert.equal(evidence.source_replay.eof_verified,true);assert.ok(evidence.source_replay.read_calls>0);
+  for(const key of ['bytes','max_chunk_bytes','read_calls'])assert.ok(Number.isSafeInteger(evidence.source_replay[key]));
+  assert.ok(evidence.source_replay.max_chunk_bytes>0&&evidence.source_replay.max_chunk_bytes<=65536);
   assert.equal(evidence.vertices, d.vertices); assert.equal(evidence.faces, d.triangles);
   assert.ok(epoch(evidence.project_generation)); assert.deepEqual(evidence.source_mode, { kind: 'scan' });
   assert.equal(evidence.owned_fs_bytes, 0); assert.deepEqual(evidence.owned_fs_files, []);

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+import shutil
 import tempfile
 import time
 from collections import deque
@@ -21,8 +22,10 @@ from threading import Condition, Event, Lock, RLock
 from typing import BinaryIO, Literal, cast
 from uuid import uuid4
 
+from experiments.project_archive import ProjectArchiveLimits
 from experiments.scan_actions import inspect_actions
 from experiments.scan_project import PreparedScan, ScanProject
+from experiments.scan_sources import PathInput, ReplayableInput
 from experiments.scan_workspace import (
     ScanCancelled,
     ScanImportError,
@@ -54,7 +57,7 @@ class NativeImportContext:
         Callable[
             [
                 object,
-                Path | None,
+                ReplayableInput | None,
                 str,
                 Callable[[ScanProgress], None],
                 Callable[[], bool],
@@ -65,7 +68,7 @@ class NativeImportContext:
     ) = None
     prepare_replace: (
         Callable[
-            [Path, str, Callable[[ScanProgress], None], Callable[[], bool]],
+            [ReplayableInput, str, Callable[[ScanProgress], None], Callable[[], bool]],
             NativeOpenCandidate,
         ]
         | None
@@ -78,6 +81,13 @@ class NativeImportContext:
                 Callable[[ScanProgress], None],
                 Callable[[], bool],
             ],
+            NativeOpenCandidate,
+        ]
+        | None
+    ) = None
+    prepare_project: (
+        Callable[
+            [ReplayableInput, Callable[[ScanProgress], None], Callable[[], bool]],
             NativeOpenCandidate,
         ]
         | None
@@ -111,6 +121,8 @@ class _Operation:
     error: dict[str, str] | None = None
     accepted_generation: int | None = None
     path: Path | None = None
+    source_input: ReplayableInput | None = None
+    source_owner: tempfile.TemporaryDirectory[str] | None = None
 
     def record(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -178,6 +190,7 @@ class NativeScanImports:
         self._receivers: int = 0
         self._closing: bool = False
         self._closed: bool = False
+        self._failed_source_owner: tempfile.TemporaryDirectory[str] | None = None
 
     def _operation(self, operation_id: str) -> _Operation:
         try:
@@ -201,6 +214,8 @@ class NativeScanImports:
         operation.context = None
         operation.recipe = None
         operation.source_change = None
+        operation.source_input = None
+        operation.source_owner = None
         operation.filename = ""
         # A cleanup failure fences this service; directory shutdown still owns
         # orphan cleanup without retaining its path in bounded terminal history.
@@ -394,6 +409,67 @@ class NativeScanImports:
             _ = self._executor.submit(self._prepare, operation.id)
             return operation.record()
 
+    def open_project(
+        self,
+        *,
+        generation: int,
+        token: str,
+        filename: str,
+        size: int,
+        confirmed_discard: bool,
+    ) -> dict[str, object]:
+        """Reserve one compressed project upload under the source lease."""
+        if not isinstance(cast(object, filename), str) or not 0 < len(filename) <= 512:
+            raise ScanImportError("Expected a project filename hint.", "invalid_source")
+        filename = PurePosixPath(filename.replace("\\", "/")).name
+        if not filename or type(size) is not int or size <= 0:
+            raise ScanImportError("Expected an exact project upload.", "invalid_upload")
+        if size > ProjectArchiveLimits().max_archive_bytes:
+            raise ScanImportError(
+                "Project exceeds the archive byte limit.", "source_limit"
+            )
+        with self._lock:
+            self._expire()
+            if self._closing:
+                raise ScanImportError(
+                    "Source import service is closing.", "import_closed"
+                )
+            if self._active is not None:
+                raise ScanImportError("Another source import is active.", "source_busy")
+            context = self._context()
+            if (
+                type(generation) is not int
+                or generation != context.generation
+                or token != context.token
+            ):
+                raise ScanImportError(
+                    "Project changed before opening the archive.", "stale_source"
+                )
+            if confirmed_discard is not True:
+                raise ScanImportError(
+                    "Opening a project requires discard approval.", "discard_required"
+                )
+            if context.prepare_project is None:
+                raise ScanImportError(
+                    "Project archives are unavailable.", "unsupported_project"
+                )
+            operation = _Operation(
+                uuid4().hex,
+                generation,
+                token,
+                filename,
+                size,
+                self._clock(),
+                None,
+                0,
+                purpose="open-project",
+                context=context,
+                total=size,
+            )
+            self._operations[operation.id] = operation
+            self._active = operation.id
+            return operation.record()
+
     def open_actions(
         self,
         *,
@@ -559,13 +635,24 @@ class NativeScanImports:
                 operation.path = None
 
     def _failure(self, operation: _Operation, error: Exception) -> None:
+        cleanup_failure: OSError | None = None
         try:
             self._cleanup(operation)
         except OSError as cleanup_error:
+            cleanup_failure = cleanup_error
+        try:
+            if operation.source_owner is not None:
+                operation.source_owner.cleanup()
+        except OSError as cleanup_error:
+            cleanup_failure = cleanup_failure or cleanup_error
+            # TemporaryDirectory.cleanup detaches its finalizer before removal.
+            # Fencing permits only this one orphan; retain it for close() retry.
+            self._failed_source_owner = operation.source_owner
+        if cleanup_failure is not None:
             with self._lock:
                 self._closing = True
             error = ScanImportError(
-                f"Owned source staging cleanup failed: {cleanup_error}",
+                f"Owned source staging cleanup failed: {cleanup_failure}",
                 "cleanup_failed",
             )
         if not isinstance(error, ScanImportError):
@@ -674,6 +761,19 @@ class NativeScanImports:
         try:
             opened: NativeOpenCandidate | None = None
             candidate: PreparedScan | None = None
+            source_input: ReplayableInput | None = None
+            if path is not None:
+                # The accepted source pins disk-backed original/archive bytes.
+                # Keep them outside the receiver's disposable staging directory.
+                owner = tempfile.TemporaryDirectory(prefix="scansor-accepted-source-")
+                with self._lock:
+                    operation.source_owner = owner
+                target = Path(owner.name) / "source"
+                _ = shutil.move(str(path), target)
+                source_input = PathInput(target, operation.filename, owner=owner)
+                with self._lock:
+                    operation.path = None
+                    operation.source_input = source_input
             if operation.purpose in {"create-virtual-scan", "activate-scan"}:
                 context = operation.context
                 assert context is not None and context.prepare_source_change is not None
@@ -687,10 +787,19 @@ class NativeScanImports:
             elif operation.purpose == "replace-scan":
                 context = operation.context
                 assert context is not None and context.prepare_replace is not None
-                assert path is not None
+                assert source_input is not None
                 opened = context.prepare_replace(
-                    path,
+                    source_input,
                     operation.filename,
+                    progress,
+                    operation.cancelled.is_set,
+                )
+            elif operation.purpose == "open-project":
+                context = operation.context
+                assert context is not None and context.prepare_project is not None
+                assert source_input is not None
+                opened = context.prepare_project(
+                    source_input,
                     progress,
                     operation.cancelled.is_set,
                 )
@@ -699,25 +808,24 @@ class NativeScanImports:
                 assert context is not None and context.prepare_open is not None
                 opened = context.prepare_open(
                     operation.recipe,
-                    path,
+                    source_input,
                     operation.filename,
                     progress,
                     operation.cancelled.is_set,
                 )
             else:
-                assert project is not None and path is not None
-                with path.open("rb") as stream:
-                    candidate = project.prepare_add(
-                        stream,
-                        operation.filename,
-                        self.limits,
-                        generation=operation.internal_generation,
-                        token=operation.token,
-                        progress=progress,
-                        cancelled=operation.cancelled.is_set,
-                    )
-            # Duplicate staging is disposable once preparation owns exact bytes.
-            # Complete fallible cleanup before the authoritative state commit.
+                assert project is not None and source_input is not None
+                candidate = project.prepare_add(
+                    source_input,
+                    operation.filename,
+                    self.limits,
+                    generation=operation.internal_generation,
+                    token=operation.token,
+                    progress=progress,
+                    cancelled=operation.cancelled.is_set,
+                )
+            # Complete receiver cleanup before the authoritative state commit.
+            # The accepted input retains its separate replayable source lease.
             self._cleanup(operation)
             with self._lock:
                 _ = self._current(operation)
@@ -764,5 +872,8 @@ class NativeScanImports:
             with self._condition:
                 _ = self._condition.wait_for(lambda: self._receivers == 0)
             self._executor.shutdown(wait=True)
+            if self._failed_source_owner is not None:
+                self._failed_source_owner.cleanup()
+                self._failed_source_owner = None
             self._directory.cleanup()
             self._closed = True
