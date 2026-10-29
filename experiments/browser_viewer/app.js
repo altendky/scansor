@@ -36,7 +36,7 @@ import { createCircularReuseEditor, createCircularSourceFitEditor } from './circ
 import { bindSurfaceSelectionEditor, surfaceSelectionPhases } from './surface-selection-editor.js';
 import { faceEdgeLines } from './edge-highlight.js';
 import { buildFootprintTopology, fittedSelectionFootprint } from './fit-footprint.js';
-import { axisGeometry, revolutionGeometry } from './analytic-geometry.js';
+import { axisGeometry, revolutionGeometry, independentPlaneGeometry } from './analytic-geometry.js';
 import { copyFitDomain, parseFitDomain, defaultFitDomain, editableManagedSupport,
   fitSupportChanges } from './fit-intent.js';
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
@@ -2292,6 +2292,7 @@ function axisContainingPlanes(nodes) {
 }
 function planeConstructionLabel(construction) {
   return {
+    independent: 'Independent',
     contains_axis: 'Contains axis',
     parallel_to_axis: 'Parallel to axis',
     perpendicular_to_axis: 'Perpendicular to axis',
@@ -2305,19 +2306,45 @@ function showReferencePlaneFields(prefix = '') {
     offsetLabel = $(`${prefix}reference-plane-offset-label`),
     hint = $(`${prefix}reference-plane-hint`),
     perpendicular = construction === 'perpendicular_to_axis',
-    contains = construction === 'contains_axis';
-  angleRow.hidden = perpendicular;
-  angle.disabled = perpendicular;
+    contains = construction === 'contains_axis', independent = construction === 'independent',
+    axis = $(`${prefix}reference-plane-axis`);
+  axis.closest('label').hidden = independent;
+  axis.disabled = independent;
+  axis.required = !independent;
+  $(`${prefix}reference-plane-normal-fields`).hidden = !independent;
+  for (const component of ['x', 'y', 'z']) {
+    const field = $(`${prefix}reference-plane-normal-${component}`);
+    field.disabled = !independent;
+    field.required = independent;
+  }
+  angleRow.hidden = perpendicular || independent;
+  angle.disabled = perpendicular || independent;
+  angle.required = !angle.disabled;
   offsetRow.hidden = contains;
   $(`${prefix}reference-plane-offset`).disabled = contains;
-  offsetLabel.textContent = perpendicular
+  offsetLabel.textContent = independent ? 'Initial signed offset from origin' : perpendicular
     ? 'Axial offset from axis origin'
     : 'Signed normal offset from axis';
-  hint.textContent = contains
+  hint.textContent = independent
+    ? 'Normal and offset initialize a standalone plane. Fitting and relationships can adjust them; direction-only relationships keep an otherwise unused offset.'
+    : contains
     ? 'Contains the axis. Connected fits on a free axis refine its clocking; a mirror joint can also refine it.'
     : perpendicular
       ? 'Normal to the axis. Offset moves it along the axis from the axis point at local Z=0.'
       : 'Parallel to the axis. Connected fits on a free axis refine clocking and offset.';
+}
+function readReferencePlaneInputs(prefix = '') {
+  const construction = $(`${prefix}reference-plane-construction`).value,
+    offset = construction === 'contains_axis' ? 0 : Number($(`${prefix}reference-plane-offset`).value);
+  if (construction === 'independent') {
+    const initial_normal = ['x', 'y', 'z'].map(component => Number($(`${prefix}reference-plane-normal-${component}`).value));
+    independentPlaneGeometry(initial_normal, offset);
+    return {construction, axis: null, initial_normal, initial_angle_degrees: null, offset};
+  }
+  const axis = $(`${prefix}reference-plane-axis`).value;
+  if (!axis) throw new Error('Choose an axis for this construction.');
+  return {construction, axis, initial_normal: null, offset,
+    initial_angle_degrees: construction === 'perpendicular_to_axis' ? null : Number($(`${prefix}reference-plane-angle`).value)};
 }
 const chosen = (id) => [...$(id).selectedOptions].map((o) => o.value);
 const uid = (prefix) => prefix + '_' + crypto.randomUUID().replaceAll('-', '');
@@ -2921,6 +2948,8 @@ function showProperties(force = false) {
     for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
   for (const input of $('body-properties').querySelectorAll('input'))
     input.disabled = $('body-properties').hidden;
+  for (const control of $('reference-plane-properties').querySelectorAll('input, select'))
+    control.disabled = $('reference-plane-properties').hidden;
   for (const control of $('surface-selection-properties').querySelectorAll('input, select'))
     control.disabled = $('surface-selection-properties').hidden;
   for (const id of ['fit-reference', 'fit-reference-mode'])
@@ -3044,6 +3073,9 @@ function showProperties(force = false) {
     $('reference-plane-construction').value = node.construction || 'contains_axis';
     $('reference-plane-angle').value = node.initial_angle_degrees ?? 0;
     $('reference-plane-offset').value = node.offset ?? 0;
+    ['x', 'y', 'z'].forEach((component, index) => {
+      $(`reference-plane-normal-${component}`).value = node.initial_normal?.[index] ?? (index === 2 ? 1 : 0);
+    });
     showReferencePlaneFields();
   } else if (node.operation === 'axis_solve') {
     choices(
@@ -3450,6 +3482,14 @@ function transformGuide(values, group = overlays) {
   pointGuide({ point_display: values.origin_display }, '#ffffff', group);
 }
 function referencePlanePreview(node) {
+  if (node.construction === 'independent') {
+    try {
+      const {normal, point, basisU, basisV, offset} = independentPlaneGeometry(node.initial_normal, node.offset ?? 0);
+      return {normal_display: normal, point_display: point, basis_u_display: basisU,
+        basis_v_display: basisV, plane_equation: [...normal, offset], offset,
+        construction: 'independent', angle_degrees: null};
+    } catch { return null; }
+  }
   const axisNode = graphNode(node.axis);
   const values = graphState.results[node.axis] || axisPreview(axisNode);
   if (!values) return null;
@@ -3497,7 +3537,7 @@ function referencePlaneGuide(values, color = '#ff8fe5', group = overlays) {
     domain = metadata?.axial_domain || [-2, 5],
     halfWidth = Math.max(1, (domain[1] - domain[0]) * 0.35);
   let corners;
-  if (values.construction === 'perpendicular_to_axis')
+  if (['perpendicular_to_axis', 'independent'].includes(values.construction))
     corners = [
       point.clone().addScaledVector(basisU, -halfWidth).addScaledVector(basisV, -halfWidth),
       point.clone().addScaledVector(basisU, -halfWidth).addScaledVector(basisV, halfWidth),
@@ -5591,15 +5631,15 @@ async function start(recoveredState) {
     showCreateDialog('transform-dialog', 'new-transform-label', 'Output transform');
   };
   $('new-reference-plane').onclick = () => {
+    if (featureTreeLocked() || !prepareEditSession()) return;
     const axes = graphState.recipe.nodes.filter((node) => node.operation === 'axis');
-    if (!axes.length) {
-      status('Create an explicit axis before creating a reference plane.', true);
-      return;
-    }
     choices('new-reference-plane-axis', axes, [graphNode(selectedFeatureId)?.axis || selectedFeatureId]);
-    $('new-reference-plane-construction').value = 'contains_axis';
+    $('new-reference-plane-construction').value = 'independent';
     $('new-reference-plane-angle').value = 0;
     $('new-reference-plane-offset').value = 0;
+    for (const component of ['x', 'y', 'z'])
+      $(`new-reference-plane-normal-${component}`).value = component === 'z' ? 1 : 0;
+    $('new-reference-plane-error').textContent = '';
     showReferencePlaneFields('new-');
     showCreateDialog(
       'reference-plane-dialog',
@@ -6022,25 +6062,19 @@ async function start(recoveredState) {
   };
   $('add-reference-plane-form').onsubmit = async (event) => {
     event.preventDefault();
-    const construction = $('new-reference-plane-construction').value;
+    let inputs;
+    try { inputs = readReferencePlaneInputs('new-'); }
+    catch (error) { $('new-reference-plane-error').textContent = error.message; return; }
     const saved = await appendActions([
       {
         id: uid('reference_plane'),
         label: submittedFeatureLabel('new-reference-plane-label'),
         operation: 'reference_plane',
-        axis: $('new-reference-plane-axis').value,
-        construction,
-        initial_angle_degrees:
-          construction === 'perpendicular_to_axis'
-            ? null
-            : Number($('new-reference-plane-angle').value),
-        offset:
-          construction === 'contains_axis'
-            ? 0
-            : Number($('new-reference-plane-offset').value),
+        ...inputs,
       },
     ]);
     if (saved) $('reference-plane-dialog').close();
+    else $('new-reference-plane-error').textContent = $('status').textContent;
   };
   $('add-relationship-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -6446,16 +6480,8 @@ async function start(recoveredState) {
       node.scale = $('transform-scale').value;
     }
     if (node.operation === 'reference_plane') {
-      node.axis = $('reference-plane-axis').value;
-      node.construction = $('reference-plane-construction').value;
-      node.initial_angle_degrees =
-        node.construction === 'perpendicular_to_axis'
-          ? null
-          : Number($('reference-plane-angle').value);
-      node.offset =
-        node.construction === 'contains_axis'
-          ? 0
-          : Number($('reference-plane-offset').value);
+      try { Object.assign(node, readReferencePlaneInputs()); }
+      catch (error) { status(error.message, true); return; }
     }
     if (node.operation === 'axis_solve') {
       node.axis = $('axis-solve-axis').value;

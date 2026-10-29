@@ -516,11 +516,11 @@ def transformed_plane_initial(
     source_plane: dict[str, Any],
     rotation: FloatArray,
     translation: FloatArray,
-    target_axis: dict[str, Any],
+    target_axis: dict[str, Any] | None = None,
     *,
     refine_axis: bool = False,
-) -> dict[str, float | None]:
-    """Express a placed reference plane in its target directed-axis frame.
+) -> dict[str, Any]:
+    """Place an independent plane or express it in its target axis frame.
 
     A source-fit initialized occurrence can refine the placed axis before this
     datum is initialized. In that case transport the plane's clock orientation
@@ -528,7 +528,6 @@ def transformed_plane_initial(
     the noisy independently fitted axis an additional rigid-placement demand.
     """
     rotation, translation = _placement_values(rotation, translation)
-    anchor, axis = _axis_values(target_axis)
     equation = np.asarray(source_plane.get("plane_equation"), dtype=np.float64)
     if (
         equation.shape != (4,)
@@ -540,6 +539,15 @@ def transformed_plane_initial(
     normal = equation[:3] @ rotation
     offset = float(equation[3] + normal @ translation)
     construction = source_plane.get("construction")
+    if construction == "independent":
+        return {
+            "initial_normal": normal.tolist(),
+            "initial_angle_degrees": None,
+            "offset": offset,
+        }
+    if target_axis is None:
+        raise ValueError("reused axis-derived reference plane requires a target axis")
+    anchor, axis = _axis_values(target_axis)
     alignment = float(normal @ axis)
     moved_plane_point = None
     if refine_axis:

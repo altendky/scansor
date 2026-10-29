@@ -22,6 +22,10 @@ const fit = {
   axial_domain: [-2, 5],
 };
 const nodes = [source, a, b, fit];
+assert.deepEqual(nodeReferences({ operation: 'reference_plane', construction: 'independent', axis: null }), []);
+assert.deepEqual(nodeReferences({ operation: 'direction_alignment', directions: [
+  { feature: 'datum', context: '@plane/datum' }, { feature: 'fit' },
+] }), ['datum', 'fit']);
 assert.deepEqual(nodeReferences({ operation: 'body', faces: ['a', 'b', 'a'] }), ['a', 'b']);
 assert.equal(actionDescription({ operation: 'body' }, 'ready'), 'Solid body · Ready');
 const surfaceSelection = { id: 'surface', label: 'Seeded surface', operation: 'surface_selection',

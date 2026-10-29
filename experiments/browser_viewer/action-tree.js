@@ -173,7 +173,7 @@ export function featureTreePresentation(nodes, featureStates, featureErrors = {}
 function outputReferenceIds(reference) {
   if (typeof reference === 'string') return [reference];
   if (!reference?.feature) return [];
-  const context = reference.context?.replace(/^@(axis|point)\//, '');
+  const context = reference.context?.replace(/^@(axis|point|plane)\//, '');
   return [...new Set([reference.feature, ...(context ? [context] : [])])];
 }
 export function nodeReferences(node) {
@@ -216,7 +216,7 @@ export function nodeReferences(node) {
       .flatMap(outputReferenceIds))];
   if (node.operation === 'transform') return [node.frame, node.scale];
   if (node.operation === 'reference_plane') return [...new Set([
-    node.axis,
+    ...(node.axis ? [node.axis] : []),
     ...(node.placement
       ? [node.placement.reuse, node.placement.source, ...(node.placement.occurrence != null ? [] : [node.placement.target_selection])] : []),
   ])];
