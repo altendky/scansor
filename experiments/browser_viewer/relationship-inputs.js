@@ -147,7 +147,9 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
     keys = explicit ? Object.values(assigned).flatMap(values => [...values]) : [...selected],
     union = new Set(keys), roles = {};
   if (explicit && selected.unassigned?.size)
-    return {valid: false, reason: 'Assign the remaining participants to a compatible role, or remove them.', roles};
+    return {valid: false, reason: Object.keys(signature.roles).length === 1
+      ? 'Remove or replace unavailable or incompatible outputs.'
+      : 'Assign the remaining participants to a compatible role, or remove them.', roles};
   if (explicit && Object.keys(assigned).some(role => !(role in signature.roles)))
     return {valid: false, reason: 'Remove participants from unknown relationship roles.', roles};
   if (keys.length !== union.size)

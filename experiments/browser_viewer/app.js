@@ -2173,7 +2173,10 @@ function changeRelationshipParticipant(role, key, included) {
       if (graphState.input_contracts[requirement].max_count === 1) selected.clear();
       selected.add(key);
       relationshipDraft.unassigned.delete(key);
-    } else selected.delete(key);
+    } else {
+      selected.delete(key);
+      relationshipDraft.unassigned.delete(key);
+    }
   }
   syncRelationshipDraft();
   $('relationship-error').textContent = '';

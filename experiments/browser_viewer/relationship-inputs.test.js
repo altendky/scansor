@@ -272,6 +272,13 @@ test('preselection of several possible references requires an explicit choice ra
   assert.equal(relationshipValidity(graph, 'coaxial', draft).valid, false);
 });
 
+test('a retained incompatible peer publication is diagnosed as removable rather than needing another role', () => {
+  const graph = state(), exact = inputReferenceKey({feature: 'removed', output: 'plane', context: 'saved'}),
+    draft = relationshipRoleSelection(graph, 'parallel_planes', new Set([exact]));
+  assert.equal(draft.unassigned.has(exact), true);
+  assert.match(relationshipValidity(graph, 'parallel_planes', draft).reason, /Remove or replace unavailable/);
+});
+
 test('Coaxial retains unavailable exact saved outputs and rejects fixed named contexts', () => {
   const graph = coaxialState(), selected = relationshipSelectionForFeatures(graph, 'coaxial', ['axis', 'outer', 'inner']),
     published = inputReferenceKey({ feature: 'outer', output: 'axis', context: 'old-solve' });
