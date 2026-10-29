@@ -247,6 +247,11 @@ class NozzleServer(ThreadingHTTPServer):
         self._active_computations: int = 0
         self.active_example: str | None = example_identity(example_path)
         self.worker: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
+        # One graph coordinator owns publication; independent selected-data
+        # numerical fits may overlap in this separate, bounded native pool.
+        self.fit_worker: ThreadPoolExecutor = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="scansor-fit"
+        )
         self.job: Future[SessionFit] | None = None
         self.graph_job: Future[dict[str, object]] | None = None
         if workspace is not None:
@@ -287,6 +292,7 @@ class NozzleServer(ThreadingHTTPServer):
         except BaseException:
             self.source_imports.close()
             self.worker.shutdown(wait=True, cancel_futures=True)
+            self.fit_worker.shutdown(wait=True, cancel_futures=True)
             raise
 
     def accepted(self, *, buffers: bool = False) -> NativeAccepted:
@@ -800,7 +806,8 @@ class NozzleServer(ThreadingHTTPServer):
 
     def submit[T](self, callback: Callable[..., T], *args: Any) -> Future[T]:
         lease = ExitStack()
-        _ = lease.enter_context(self.computation())
+        state = lease.enter_context(self.computation())
+        state.graph.fit_executor = self.fit_worker
 
         def run() -> T:
             with lease:
@@ -860,6 +867,7 @@ class NozzleServer(ThreadingHTTPServer):
         self.source_imports.begin_close()
         super().server_close()
         self.worker.shutdown(wait=True, cancel_futures=True)
+        self.fit_worker.shutdown(wait=True, cancel_futures=True)
         self.source_imports.close()
         with self.lock:
             self.clear_jobs()

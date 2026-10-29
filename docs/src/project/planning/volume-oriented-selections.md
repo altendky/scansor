@@ -142,7 +142,17 @@ unloading the authoring scan. These defaults are provisional
 engineering choices with generated-fixture evidence, not physical tolerances.
 
 Membership queries use a bounding-box hierarchy with bounded leaves and chunked
-target observations. Construction rejects more than 25,000 selected vertices or
+target observations. Mesh queries test point batches against each tree node,
+then evaluate paired point/triangle geometry with NumPy at the leaves. Each
+batch contains at most 1,024 observations and each leaf at most 16 triangles,
+so there are no more than 16,384 paired narrow-phase tests in one working set.
+Points outside a node never enter its detailed geometry calculations. Sorted
+source membership, directional thresholds, padding and thickness are unchanged;
+near angular boundaries retain the original matrix/vector dot calculation.
+Analytic queries also batch their finite-chart and depth rejection before the
+existing periodic-footprint tests.
+
+Construction rejects more than 25,000 selected vertices or
 600,000 saved support triangles. These caps bound admitted representation size;
 they are not a measured whole-browser memory guarantee.
 

@@ -11,10 +11,11 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
+from concurrent.futures import Executor, Future
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 from typing import Annotated, Any, ClassVar, Generic, Literal, Self, cast, final
 
 import numpy as np
@@ -64,7 +65,7 @@ from experiments.fit_relationship_component import (
     RelationshipFailure,
     RotationInput,
 )
-from experiments.fit_solver import normalized_weights
+from experiments.fit_solver import FitCancelled, normalized_weights
 from experiments.mesh_cone_fit import CONE_POLICY_VERSION, ConeFitFailure
 from experiments.mesh_cylinder_fit import CYLINDER_POLICY_VERSION, CylinderFitFailure
 from experiments.mesh_sphere_fit import SphereFitFailure, fit_shared_sphere_center
@@ -3192,10 +3193,14 @@ class FeatureGraph(Generic[WorkspaceType]):
         *,
         refresh_volumes: bool = True,
         fit_intent: dict[str, Any] | None = None,
+        fit_executor: Executor | None = None,
     ) -> None:
         self._workspace = workspace
         self._refresh_volumes = refresh_volumes
         self._fit_intent = deepcopy(fit_intent)
+        # The native coordinator may inject a bounded numerical worker pool.
+        # Browser graphs and direct callers retain serial evaluation by default.
+        self.fit_executor: Executor | None = fit_executor
         self._evaluation_origin_token: str | None = None
         self._volume_refresh_errors: dict[str, tuple[str, str]] = {}
         # Generic sources bind content/interpretation; retained example adapters
@@ -3205,7 +3210,7 @@ class FeatureGraph(Generic[WorkspaceType]):
         self._volume_cache: VolumeCache = VolumeCache()
         self._recipe = self.validate(recipe)
         self._content_token = recipe_content_token(self._recipe)
-        self._revision = 0  # Observable publications, independent of recipe edits.
+        self._revision: int = 0  # Observable publications, independent of recipe edits.
         self._states: dict[str, str] = dict.fromkeys(
             (n.id for n in recipe.nodes), "unevaluated"
         )
@@ -5131,7 +5136,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 )
             if updated != original:
                 candidate = FeatureGraph(
-                    self.workspace, original, refresh_volumes=False
+                    self.workspace,
+                    original,
+                    refresh_volumes=False,
+                    fit_executor=self.fit_executor,
                 )
                 with self.lock:
                     if token != self._token() or epoch != self._epoch:
@@ -5300,12 +5308,227 @@ class FeatureGraph(Generic[WorkspaceType]):
             },
         }
 
+    def _prepare_numerical_fit(
+        self,
+        node: SurfaceFit,
+        ids: list[int],
+        *,
+        intent: Callable[[], dict[str, Any]],
+        reuse_inputs: list[dict[str, Any]],
+        support: Callable[[], SupportIntent],
+        epoch: int,
+        stop_fits: Event,
+        cancelled: Callable[[], bool] | None,
+    ) -> Callable[[], dict[str, Any]]:
+        """Snapshot numerical inputs on the coordinator, never in workers."""
+        assert isinstance(self.workspace, ScanWorkspace)
+        parameters: dict[str, Any] = {}
+        domain = None if node.support_authority == "prototype" else node.axial_domain
+        if reuse_inputs and len(reuse_inputs) != len(node.selections):
+            raise ValueError("a fit cannot mix reused and ordinary selections")
+        if node.kind in {"cylinder", "cone"}:
+            descriptor = self.workspace.source_descriptor
+            if descriptor is None:
+                raise ValueError(f"{node.kind} fitting requires an accepted source")
+            binding = initialization_binding(
+                descriptor.source_sha256,
+                descriptor.interpretation_sha256,
+                ids,
+                {
+                    "family": node.kind,
+                    "recipe": intent(),
+                    "support_policy_version": SUPPORT_POLICY_VERSION,
+                },
+                policy_version=CONE_POLICY_VERSION
+                if node.kind == "cone"
+                else CYLINDER_POLICY_VERSION,
+            )
+            hint = None
+            if reuse_inputs:
+                hints = [value.get("fit_geometry") for value in reuse_inputs]
+                if any(value != hints[0] for value in hints[1:]):
+                    raise ValueError(
+                        "reused fit selections must share one transformed source fit"
+                    )
+                hint = deepcopy(hints[0])
+            parameters = {
+                "binding": binding,
+                "hint": hint,
+                "hint_binding_sha256": binding.sha256 if hint is not None else None,
+                "support": support(),
+            }
+        elif reuse_inputs:
+            initials = [value.get("fit_initial") for value in reuse_inputs]
+            domains = [value["target_axial_domain"] for value in reuse_inputs]
+            if any(value != initials[0] for value in initials[1:]) or any(
+                value != domains[0] for value in domains[1:]
+            ):
+                raise ValueError(
+                    "reused fit selections must share one transformed source fit"
+                )
+            domain = tuple(domains[0]) if domains[0] is not None else None
+        points = self.workspace.local[ids]
+        weights = self.workspace.data.weights[ids]
+        normals = self.workspace.data.normals[ids] @ self.workspace.frame
+        for array in (points, weights, normals):
+            array.flags.writeable = False
+
+        def fit_cancelled() -> bool:
+            if stop_fits.is_set() or (cancelled is not None and cancelled()):
+                return True
+            with self.lock:
+                return epoch != self._epoch
+
+        def run() -> dict[str, Any]:
+            if fit_cancelled():
+                raise FitCancelled("Fit cancelled before numerical evaluation")
+            result = fit_seed(
+                points,
+                weights,
+                normals,
+                node.kind,
+                None,
+                domain,
+                cancelled=fit_cancelled,
+                **parameters,
+            )
+            if fit_cancelled():
+                raise FitCancelled("Fit cancelled before publishing a result")
+            result["ids"] = ids
+            return result
+
+        return run
+
+    def _finish_numerical_fit(
+        self,
+        pending: dict[str, Future[dict[str, Any]]],
+        epoch: int,
+        cancelled: Callable[[], bool] | None,
+        failures: dict[str, set[str]],
+        note_failure: Callable[[str, Exception, set[str]], None],
+    ) -> None:
+        """Publish in submission order; worker completion never mutates stores."""
+        key = next(iter(pending))
+        future = pending.pop(key)
+        try:
+            value = future.result()
+        except FitCancelled as error:
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during numerical fit") from error
+            raise ScanCancelled() from error
+        except Exception as error:
+            if isinstance(error, (StaleGraph, ScanCancelled)):
+                raise
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during numerical fit") from error
+                self._states[key] = "failed"
+                self._errors[key] = str(error)
+                diagnostic = failure_diagnostic(error)
+                if diagnostic is not None:
+                    self._diagnostics[key] = diagnostic
+                else:
+                    _ = self._diagnostics.pop(key, None)
+                self._revision += 1
+            note_failure(key, error, {key})
+            return
+        check_cancelled(cancelled)
+        with self.lock:
+            if epoch != self._epoch:
+                raise StaleGraph("graph changed during numerical fit; result discarded")
+            if key in failures:
+                return
+            self._states[key] = "ready"
+            self._derived[key] = value
+            _ = self._errors.pop(key, None)
+            _ = self._diagnostics.pop(key, None)
+            self._revision += 1
+
     def _evaluate(
         self,
         token: str,
         target: str | None = None,
         all_actions: bool = False,
         *,
+        targets: list[str] | None = None,
+        retry_failed: bool = True,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        pending: dict[str, Future[dict[str, Any]]] = {}
+        stop = Event()
+        try:
+            return self._evaluate_impl(
+                token,
+                target,
+                all_actions,
+                targets=targets,
+                retry_failed=retry_failed,
+                cancelled=cancelled,
+                pending_fits=pending,
+                stop_fits=stop,
+            )
+        finally:
+            # Workers retain only private selected arrays. Stop running jobs at
+            # their next numerical checkpoint and discard queued work on exit.
+            stop.set()
+            for future in pending.values():
+                _ = future.cancel()
+
+    def _drain_numerical_fits(
+        self,
+        pending: dict[str, Future[dict[str, Any]]],
+        epoch: int,
+        cancelled: Callable[[], bool] | None,
+        failures: dict[str, set[str]],
+        note_failure: Callable[[str, Exception, set[str]], None],
+        prerequisites: set[str] | None = None,
+    ) -> None:
+        # Bound selected-array copies to four jobs, irrespective of the supplied
+        # executor's worker count, and preserve order when joining dependencies.
+        while pending and (
+            prerequisites is None
+            or len(pending) >= 4
+            or prerequisites.intersection(pending)
+        ):
+            self._finish_numerical_fit(
+                pending, epoch, cancelled, failures, note_failure
+            )
+
+    def _record_evaluation_failure(
+        self,
+        key: str,
+        error: Exception,
+        epoch: int,
+        note_failure: Callable[[str, Exception, set[str]], None],
+    ) -> None:
+        if isinstance(error, FitCancelled):
+            with self.lock:
+                if epoch != self._epoch:
+                    raise StaleGraph("graph changed during numerical fit") from error
+            raise ScanCancelled() from error
+        if isinstance(error, (ScanCancelled, StaleGraph)):
+            raise error
+        with self.lock:
+            if epoch == self._epoch:
+                self._states[key] = "failed"
+                self._errors[key] = str(error)
+                diagnostic = failure_diagnostic(error)
+                if diagnostic is not None:
+                    self._diagnostics[key] = diagnostic
+                else:
+                    _ = self._diagnostics.pop(key, None)
+                self._revision += 1
+        note_failure(key, error, {key})
+
+    def _evaluate_impl(
+        self,
+        token: str,
+        target: str | None = None,
+        all_actions: bool = False,
+        *,
+        pending_fits: dict[str, Future[dict[str, Any]]],
+        stop_fits: Event,
         targets: list[str] | None = None,
         retry_failed: bool = True,
         cancelled: Callable[[], bool] | None = None,
@@ -6571,6 +6794,140 @@ class FeatureGraph(Generic[WorkspaceType]):
                             _ = self._connected_point_solves.pop(affected_id, None)
                 self._revision += 1
 
+        def evaluate_surface_fit(node: SurfaceFit) -> dict[str, Any] | None:
+            ids = fitted_ids(node)
+            if node.reference_plane is not None:
+                derived = fit_plane_to_reference(
+                    self.workspace,
+                    node,
+                    ids,
+                    derived_result(node.reference_plane),
+                )
+            elif node.point is not None:
+                derived = fit_sphere_at_point(
+                    self.workspace,
+                    node,
+                    ids,
+                    derived_result(node.point),
+                )
+            elif node.axis is None and isinstance(self.workspace, ScanWorkspace):
+                run_fit = self._prepare_numerical_fit(
+                    node,
+                    ids,
+                    intent=recovery_recipe,
+                    reuse_inputs=[
+                        derived_result(ref)
+                        for ref in node.selections
+                        if isinstance(nodes[ref], ReuseSelection)
+                    ],
+                    support=lambda fit=node: effective_support(
+                        fit, plan.read_exclusions.get(fit.id)
+                    ),
+                    epoch=epoch,
+                    stop_fits=stop_fits,
+                    cancelled=cancelled,
+                )
+                if self.fit_executor is not None:
+                    pending_fits[node.id] = self.fit_executor.submit(run_fit)
+                    return None
+                derived = run_fit()
+            elif node.axis is None:
+                fit_points = self.workspace.local[ids]
+                reuse_inputs = [
+                    derived_result(ref)
+                    for ref in node.selections
+                    if isinstance(nodes[ref], ReuseSelection)
+                ]
+                initial = (
+                    None
+                    if node.kind in ("plane", "sphere")
+                    else np.array(
+                        example_workspace(self.workspace).data.selection[
+                            "initial_parameters"
+                        ]
+                    )
+                )
+                domain = node.axial_domain
+                if domain is None and node.kind in ("cylinder", "cone"):
+                    domain = example_workspace(self.workspace).support
+                if reuse_inputs:
+                    if len(reuse_inputs) != len(node.selections):
+                        raise ValueError(
+                            "a fit cannot mix reused and ordinary selections"
+                        )
+                    initials = [value.get("fit_initial") for value in reuse_inputs]
+                    domains = [
+                        tuple(value["target_axial_domain"])
+                        if value["target_axial_domain"] is not None
+                        else None
+                        for value in reuse_inputs
+                    ]
+                    if any(value != initials[0] for value in initials[1:]) or any(
+                        value != domains[0] for value in domains[1:]
+                    ):
+                        raise ValueError(
+                            "reused fit selections must share one transformed source fit"
+                        )
+                    if initials[0] is not None and node.kind != "plane":
+                        initial = np.asarray(initials[0], dtype=float)
+                    domain = domains[0]
+                    if (
+                        initials[0] is not None
+                        and initial is not None
+                        and domain is not None
+                    ):
+                        point = np.asarray([initial[0], initial[1], 0.0])
+                        direction = np.asarray([initial[2], initial[3], 1.0])
+                        # The residual evaluator's support is distance
+                        # along a unit axis, not the local-Z chart.
+                        direction /= np.linalg.norm(direction)
+                        axial = (fit_points - point) @ direction
+                        padding = max(
+                            float(np.ptp(axial)) * 0.05,
+                            1e-3,
+                        )
+                        domain = (
+                            min(domain[0], float(np.min(axial)) - padding),
+                            max(domain[1], float(np.max(axial)) + padding),
+                        )
+                derived = fit_seed(
+                    fit_points,
+                    self.workspace.data.weights[ids],
+                    self.workspace.data.normals[ids] @ self.workspace.frame,
+                    node.kind,
+                    initial,
+                    domain,
+                )
+                derived["ids"] = ids
+            else:
+                axis_result = derived_result(node.axis)
+                fixed = fit_fixed_axis_group(
+                    self.workspace,
+                    [selected(node)] if node.kind != "plane" else [],
+                    [selected(node)] if node.kind == "plane" else [],
+                    axis_result
+                    if isinstance(self.workspace, ScanWorkspace)
+                    else np.asarray(axis_result["parameters"], dtype=float),
+                    semantic_intent={
+                        "recipe": recovery_recipe(),
+                        "support_policy_version": SUPPORT_POLICY_VERSION,
+                    }
+                    if isinstance(self.workspace, ScanWorkspace)
+                    else None,
+                )
+                fixed_surfaces = fixed.get("surfaces")
+                if fixed_surfaces is None:
+                    raise AssertionError("fixed-axis fit omitted its surface")
+                derived = dict(fixed_surfaces[node.id])
+                derived["condition"] = fixed["fit"]["normal_matrix_condition"]
+                if node.kind == "plane" and "plane_equation" not in derived:
+                    parameters = cast(list[float], derived["parameters"])
+                    derived["plane_equation"] = [
+                        *fixed["axis_display"],
+                        parameters[5],
+                    ]
+            return derived
+
         if not retry_failed:
             # Preserve failed/blocked results until an explicit retry or edit;
             # still execute independent stale branches in the requested plan.
@@ -6608,6 +6965,18 @@ class FeatureGraph(Generic[WorkspaceType]):
 
         for key in order:
             check_cancelled(cancelled)
+            # Keep selection queries and graph mutations on the coordinator.
+            # A fit can run while later independent memberships are resolved.
+            # Four pending jobs bound retained selected-array copies regardless
+            # of the externally owned executor's worker/queue configuration.
+            self._drain_numerical_fits(
+                pending_fits,
+                epoch,
+                cancelled,
+                failures,
+                note_failure,
+                plan.dependencies[key],
+            )
             if key in failures:
                 continue
             if isinstance(nodes.get(key), Body):
@@ -6819,179 +7188,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                         ],
                     }
                 elif isinstance(node, SurfaceFit):
-                    ids = fitted_ids(node)
-                    if node.reference_plane is not None:
-                        derived = fit_plane_to_reference(
-                            self.workspace,
-                            node,
-                            ids,
-                            derived_result(node.reference_plane),
-                        )
-                    elif node.point is not None:
-                        derived = fit_sphere_at_point(
-                            self.workspace,
-                            node,
-                            ids,
-                            derived_result(node.point),
-                        )
-                    elif (
-                        node.axis is None
-                        and node.kind in {"cylinder", "cone"}
-                        and isinstance(self.workspace, ScanWorkspace)
-                    ):
-                        descriptor = self.workspace.source_descriptor
-                        if descriptor is None:
-                            raise ValueError(
-                                f"{node.kind} fitting requires an accepted source"
-                            )
-                        binding = initialization_binding(
-                            descriptor.source_sha256,
-                            descriptor.interpretation_sha256,
-                            ids,
-                            {
-                                "family": node.kind,
-                                "recipe": recovery_recipe(),
-                                "support_policy_version": SUPPORT_POLICY_VERSION,
-                            },
-                            policy_version=CONE_POLICY_VERSION
-                            if node.kind == "cone"
-                            else CYLINDER_POLICY_VERSION,
-                        )
-                        reuse_inputs = [
-                            derived_result(ref)
-                            for ref in node.selections
-                            if isinstance(nodes[ref], ReuseSelection)
-                        ]
-                        hint = None
-                        if reuse_inputs:
-                            if len(reuse_inputs) != len(node.selections):
-                                raise ValueError(
-                                    "a fit cannot mix reused and ordinary selections"
-                                )
-                            hints = [
-                                value.get("fit_geometry") for value in reuse_inputs
-                            ]
-                            if any(value != hints[0] for value in hints[1:]):
-                                raise ValueError(
-                                    "reused fit selections must share one transformed source fit"
-                                )
-                            hint = hints[0]
-                        derived = fit_seed(
-                            self.workspace.local[ids],
-                            self.workspace.data.weights[ids],
-                            self.workspace.data.normals[ids] @ self.workspace.frame,
-                            node.kind,
-                            None,
-                            None
-                            if node.support_authority == "prototype"
-                            else node.axial_domain,
-                            binding=binding,
-                            hint=hint,
-                            hint_binding_sha256=binding.sha256
-                            if hint is not None
-                            else None,
-                            support=effective_support(
-                                node, plan.read_exclusions.get(node.id)
-                            ),
-                        )
-                        derived["ids"] = ids
-                    elif node.axis is None:
-                        fit_points = self.workspace.local[ids]
-                        reuse_inputs = [
-                            derived_result(ref)
-                            for ref in node.selections
-                            if isinstance(nodes[ref], ReuseSelection)
-                        ]
-                        initial = (
-                            None
-                            if node.kind in ("plane", "sphere")
-                            else np.array(
-                                example_workspace(self.workspace).data.selection[
-                                    "initial_parameters"
-                                ]
-                            )
-                        )
-                        domain = node.axial_domain
-                        if domain is None and node.kind in ("cylinder", "cone"):
-                            domain = example_workspace(self.workspace).support
-                        if reuse_inputs:
-                            if len(reuse_inputs) != len(node.selections):
-                                raise ValueError(
-                                    "a fit cannot mix reused and ordinary selections"
-                                )
-                            initials = [
-                                value.get("fit_initial") for value in reuse_inputs
-                            ]
-                            domains = [
-                                tuple(value["target_axial_domain"])
-                                if value["target_axial_domain"] is not None
-                                else None
-                                for value in reuse_inputs
-                            ]
-                            if any(
-                                value != initials[0] for value in initials[1:]
-                            ) or any(value != domains[0] for value in domains[1:]):
-                                raise ValueError(
-                                    "reused fit selections must share one transformed source fit"
-                                )
-                            if initials[0] is not None and node.kind != "plane":
-                                initial = np.asarray(initials[0], dtype=float)
-                            domain = domains[0]
-                            if (
-                                initials[0] is not None
-                                and initial is not None
-                                and domain is not None
-                            ):
-                                point = np.asarray([initial[0], initial[1], 0.0])
-                                direction = np.asarray([initial[2], initial[3], 1.0])
-                                # The residual evaluator's support is distance
-                                # along a unit axis, not the local-Z chart.
-                                direction /= np.linalg.norm(direction)
-                                axial = (fit_points - point) @ direction
-                                padding = max(
-                                    float(np.ptp(axial)) * 0.05,
-                                    1e-3,
-                                )
-                                domain = (
-                                    min(domain[0], float(np.min(axial)) - padding),
-                                    max(domain[1], float(np.max(axial)) + padding),
-                                )
-                        derived = fit_seed(
-                            fit_points,
-                            self.workspace.data.weights[ids],
-                            self.workspace.data.normals[ids] @ self.workspace.frame,
-                            node.kind,
-                            initial,
-                            domain,
-                        )
-                        derived["ids"] = ids
-                    else:
-                        axis_result = derived_result(node.axis)
-                        fixed = fit_fixed_axis_group(
-                            self.workspace,
-                            [selected(node)] if node.kind != "plane" else [],
-                            [selected(node)] if node.kind == "plane" else [],
-                            axis_result
-                            if isinstance(self.workspace, ScanWorkspace)
-                            else np.asarray(axis_result["parameters"], dtype=float),
-                            semantic_intent={
-                                "recipe": recovery_recipe(),
-                                "support_policy_version": SUPPORT_POLICY_VERSION,
-                            }
-                            if isinstance(self.workspace, ScanWorkspace)
-                            else None,
-                        )
-                        fixed_surfaces = fixed.get("surfaces")
-                        if fixed_surfaces is None:
-                            raise AssertionError("fixed-axis fit omitted its surface")
-                        derived = dict(fixed_surfaces[node.id])
-                        derived["condition"] = fixed["fit"]["normal_matrix_condition"]
-                        if node.kind == "plane" and "plane_equation" not in derived:
-                            parameters = cast(list[float], derived["parameters"])
-                            derived["plane_equation"] = [
-                                *fixed["axis_display"],
-                                parameters[5],
-                            ]
+                    derived = evaluate_surface_fit(node)
+                    if derived is None:
+                        continue
                 elif isinstance(node, AxisDefinition):
                     if node.placement is not None:
                         placement = node.placement
@@ -7571,17 +7770,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             )
                         )
             except Exception as error:
-                with self.lock:
-                    if epoch == self._epoch:
-                        self._states[key] = "failed"
-                        self._errors[key] = str(error)
-                        diagnostic = failure_diagnostic(error)
-                        if diagnostic is not None:
-                            self._diagnostics[key] = diagnostic
-                        else:
-                            _ = self._diagnostics.pop(key, None)
-                        self._revision += 1
-                note_failure(key, error, {key})
+                self._record_evaluation_failure(key, error, epoch, note_failure)
                 continue
             with self.lock:
                 if epoch != self._epoch:
@@ -7600,6 +7789,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                         )
                     self._derived[key] = derived
                 self._revision += 1
+        self._drain_numerical_fits(
+            pending_fits, epoch, cancelled, failures, note_failure
+        )
         # Owners precede their generated children in the DAG. Check their
         # aggregate coverage only after evaluation, without adding a cycle.
         for owner in recipe.nodes:
