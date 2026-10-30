@@ -165,6 +165,22 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "node_values": {},
         "semantic_check": "compatible_axis",
     },
+    "shared_center": {
+        "label": "Shared center",
+        "base_name": "Shared center",
+        "summary": "Same point; independent sphere radii.",
+        "operation": "shared_center_group",
+        "roles": {"point": "shared_center_point", "members": "shared_center_members"},
+        "selection_pattern": "reference_targets",
+        "role_labels": {"point": "Reference point", "members": "Target fits"},
+        "reference_role": "point",
+        "node_fields": {
+            "point": {"name": "point", "encoding": "feature", "multiple": False},
+            "members": {"name": "surfaces", "encoding": "feature", "multiple": True},
+        },
+        "node_values": {},
+        "semantic_check": "compatible_point",
+    },
 }
 
 
@@ -431,5 +447,24 @@ def validate_relationship_inputs(
         ):
             raise ValueError(
                 "coaxial members already belong to a relationship using another axis"
+            )
+    if signature.get("semantic_check") == "compatible_point":
+        point = roles["point"][0].feature
+        if any(
+            getattr(nodes[endpoint.feature], "point", None) not in (None, point)
+            for endpoint in roles["members"]
+        ):
+            raise ValueError(
+                "shared-center members already bound to another point must be unbound or use the selected point"
+            )
+        members = {endpoint.feature for endpoint in roles["members"]}
+        if any(
+            candidate.operation == "shared_center_group"
+            and getattr(candidate, "point", None) != point
+            and members.intersection(getattr(candidate, "surfaces", []))
+            for candidate in recipe.nodes
+        ):
+            raise ValueError(
+                "shared-center members already belong to a relationship using another point"
             )
     return roles

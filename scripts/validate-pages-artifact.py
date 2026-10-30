@@ -32,6 +32,7 @@ MAX_TOTAL = 768 * 1024 * 1024
 MAX_MEMBER = 256 * 1024 * 1024
 MAX_JSON = 32 * 1024 * 1024
 MAX_SOURCE_GRAPH_JSON = 64 * 1024 * 1024
+MAX_WORKSPACE_GRAPH_JSON = 96 * 1024 * 1024
 MAX_FILES = 4096
 LOCK_NAMES = (
     "runtime-lock.json",
@@ -119,8 +120,8 @@ SOURCE_GRAPH_DRIVERS = (
     "numerical-source-import-isolated",
 )
 WORKSPACE_GRAPH_DRIVERS = ("workspace", "numerical-workspace", "timing")
-SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v3"
-WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v2"
+SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v4"
+WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v3"
 SOURCE_GRAPH_PROJECTION = (
     "recipe",
     "token",
@@ -135,6 +136,7 @@ SOURCE_GRAPH_PROJECTION = (
     "input_requirements",
     "input_contracts",
     "relationship_contracts",
+    "fit_input_templates",
 )
 SOURCE_GRAPH_TRANSPORT = {
     "revision",
@@ -315,12 +317,12 @@ def array_value(value: Any) -> list[Any]:
 
 def driver_json_limit(name: str) -> int:
     # These exact drivers retain full source geometry and graph publications.
+    # Workspace evidence repeats complete declarations in independently captured
+    # snapshots and semantic operands; retain every field within its own bound.
     # Metadata and every unlisted report keep the ordinary JSON bound.
-    return (
-        MAX_SOURCE_GRAPH_JSON
-        if name in (*SOURCE_GRAPH_DRIVERS, *WORKSPACE_GRAPH_DRIVERS)
-        else MAX_JSON
-    )
+    if name in WORKSPACE_GRAPH_DRIVERS:
+        return MAX_WORKSPACE_GRAPH_JSON
+    return MAX_SOURCE_GRAPH_JSON if name in SOURCE_GRAPH_DRIVERS else MAX_JSON
 
 
 def object_json(data: bytes, *, limit: int = MAX_JSON) -> dict[str, Any]:

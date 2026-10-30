@@ -275,11 +275,11 @@ def _fit_selected_direction_component(
             "invalid-input", "invalid direction component declaration records"
         )
     if workspace.source_sha256 is None or not (
-        component.directions or component.relationships
+        component.directions or component.relationships or component.radii
     ):
         raise DirectionFitFailure(
             "invalid-input",
-            "accepted source and direction or plane relationships are required",
+            "accepted source and geometric relationships are required",
         )
     if not component.surfaces:
         try:
@@ -620,11 +620,49 @@ def _fit_selected_direction_component(
     )
     fresh: list[FitCandidate] = []
     signatures: set[tuple[float, ...]] = set()
+    center_keys = list(dict.fromkeys(cr.values())) if not classes else []
+    center_proposals: dict[str, list[Array]] = {}
+    for key in center_keys:
+        record = centers[key]
+        observed = [
+            name for name, provider in surface_points.items() if cr[provider] == key
+        ]
+        starts: list[Array] = []
+        if record.free:
+            starts.extend(_sphere_start(q[name], weights[name]) for name in observed)
+            if len(observed) > 1:
+                starts.append(
+                    _sphere_start(
+                        np.concatenate([q[name] for name in observed]),
+                        np.concatenate([weights[name] for name in observed]),
+                    )
+                )
+        hint = record.result.get("point_display")
+        if hint is not None:
+            value = np.asarray(hint, dtype=float)
+            if value.shape == (3,) and np.isfinite(value).all():
+                starts.append((value - frame.origin) / frame.length)
+        if not starts:
+            raise DirectionFitFailure(
+                "invalid-input",
+                "a shared center has no selected evidence or finite initializer",
+            )
+        center_proposals[key] = starts
+    chart = _CHART if classes else "normalized-shared-center-placement-v1"
+    chart_size = 3 * (len(classes) if classes else len(center_keys))
     for index in range(min(16, policy.max_proposals)):
-        values = tuple(
-            float(v)
-            for cluster in classes
-            for v in proposals[cluster][index % len(proposals[cluster])]
+        values = (
+            tuple(
+                float(v)
+                for cluster in classes
+                for v in proposals[cluster][index % len(proposals[cluster])]
+            )
+            if classes
+            else tuple(
+                float(v)
+                for key in center_keys
+                for v in center_proposals[key][index % len(center_proposals[key])]
+            )
         )
         if values in signatures:
             continue
@@ -633,8 +671,10 @@ def _fit_selected_direction_component(
             FitCandidate(
                 f"selected-direction-{index}",
                 values,
-                "bounded selected-normal/covariance directions with independent member placement",
-                _CHART,
+                "bounded selected-normal/covariance directions with independent member placement"
+                if classes
+                else "bounded algebraic and declared shared-center placements",
+                chart,
                 binding.sha256,
             )
         )
@@ -650,6 +690,11 @@ def _fit_selected_direction_component(
             axis_records: dict[str, AxisInput] = {}
             plane_records: dict[str, PlaneInput] = {}
             point_records: dict[str, PointInput] = {}
+            center_starts = {
+                key: frame.origin
+                + frame.length * np.asarray(candidate.parameters[3 * i : 3 * i + 3])
+                for i, key in enumerate(center_keys)
+            }
             for key in dict.fromkeys(ar.values()):
                 original = axes[key]
                 old = _axis_value(original)
@@ -776,8 +821,11 @@ def _fit_selected_direction_component(
                     None,
                 )
                 if original.free and observed is not None:
-                    point = frame.origin + frame.length * _sphere_start(
-                        q[observed], weights[observed]
+                    point = (
+                        center_starts[key]
+                        if key in center_starts
+                        else frame.origin
+                        + frame.length * _sphere_start(q[observed], weights[observed])
                     )
                     point_records[key] = replace(
                         original, result={"point_display": point.tolist()}
@@ -998,9 +1046,7 @@ def _fit_selected_direction_component(
 
     try:
         recovered = recover_fit(
-            RecoveryProblem(
-                binding, {_CHART: 3 * len(classes)}, solve, assess, equivalent
-            ),
+            RecoveryProblem(binding, {chart: chart_size}, solve, assess, equivalent),
             fresh,
             cancelled=cancelled,
         )
@@ -1026,7 +1072,7 @@ def _fit_selected_direction_component(
         "algorithm": DIRECTION_POLICY_VERSION,
         "geometric_equivalence_ppm": component.geometric_equivalence_ppm,
         "equivalence_tolerance": tolerance,
-        "chart": _CHART,
+        "chart": chart,
         "binding_sha256": binding.sha256,
         "recovery": recovered.diagnostics.json(),
         "attempt_failures": failures,

@@ -9,7 +9,7 @@ function graph(generation, edited = false) {
     token: edited ? 'edited-token' : 'default-token', states: { scan: 'ready', fit: 'ready' }, errors: {}, diagnostics: {},
     memberships: {}, results: { fit: { radius: 2 } }, result: { radius: 2 }, derived: {},
     input_catalogue: [], input_requirements: {}, project_generation: generation, revision: 3,
-    input_contracts: {}, relationship_contracts: {},
+    input_contracts: {}, relationship_contracts: {}, fit_input_templates: {},
     evaluation_running: false };
 }
 function proof(value) {
@@ -30,7 +30,7 @@ function evidence() {
 }
 
 test('real independent epochs permit only transport projection, preserving all raw records', () => {
-  assert.equal(WORKSPACE_GRAPH_SCHEMA, 'scansor-workspace-graph-semantic-v2');
+  assert.equal(WORKSPACE_GRAPH_SCHEMA, 'scansor-workspace-graph-semantic-v3');
   const report = evidence(), before = structuredClone(report);
   const cases = workspaceSemanticCases(report);
   assert.deepEqual(cases.map(value => [value.id, value.profile]), [

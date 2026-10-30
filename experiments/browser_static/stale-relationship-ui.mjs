@@ -177,9 +177,9 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
   };
   const participantRow = value => page.locator(`#${participantChoicesId} .relationship-participant`)
     .filter({has: page.locator(`input[data-participant-id=${JSON.stringify(key(value))}]`)});
-  const selectedParticipant = value => page.locator('[data-relationship-role="participants"]:visible, #relationship-participant-field:visible')
+  const selectedParticipant = value => page.locator('#relationship-dialog [data-relationship-role="participants"]:visible, #relationship-participant-field:visible')
     .locator(`.selection-field-row[data-selection-key=${JSON.stringify(key(value))}]`);
-  const participantField = page.locator('[data-relationship-role="participants"]'),
+  const participantField = page.locator('#relationship-dialog [data-relationship-role="participants"]'),
     participantFilter = participantField.locator('input[type="search"]'),
     participantPick = participantField.locator('.model-field-pick');
   const assertReadable = async (locator, text) => {

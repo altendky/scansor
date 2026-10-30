@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const bindingCheckbox = (page, feature, output) => page.locator(`[data-relationship-role="members"] input[data-participant-id=${
+const bindingCheckbox = (page, feature, output) => page.locator(`#relationship-dialog [data-relationship-role="members"] input[data-participant-id=${
   JSON.stringify(JSON.stringify({ feature, output, context: feature }))}]`);
 
 async function ready(page) {
@@ -83,7 +83,7 @@ test('relationship model picks preserve exact owner output references and list e
   await ready(page);
   await page.getByRole('button', { name: 'Relationship…', exact: true }).click();
   await page.locator('#relationship-kind').selectOption('mirror');
-  await page.locator('[data-relationship-role="members"] .model-field-pick').click();
+  await page.locator('#relationship-dialog [data-relationship-role="members"] .model-field-pick').click();
   const side = await patch(page, 'Outer surface');
   const checkbox = bindingCheckbox(page, 'side', 'surface');
   await page.mouse.click(side.x, side.y);
@@ -184,21 +184,21 @@ test('overlapping fit patches open an explicit chooser instead of guessing', asy
   await expect(page.locator('#evaluate-all')).toBeEnabled();
   await page.getByRole('button', { name: 'Relationship…', exact: true }).click();
   await page.locator('#relationship-kind').selectOption('mirror');
-  await page.locator('[data-relationship-role="members"] .model-field-pick').click();
+  await page.locator('#relationship-dialog [data-relationship-role="members"] .model-field-pick').click();
   const point = await patch(page, '2 items here');
   await page.mouse.click(point.x, point.y);
   const chooser = page.locator('#model-pick-choices');
   await expect(chooser).toBeVisible();
   await expect(chooser.getByRole('button')).toHaveCount(2);
-  await expect(page.locator('[data-relationship-role="members"] input:checked')).toHaveCount(0);
+  await expect(page.locator('#relationship-dialog [data-relationship-role="members"] input:checked')).toHaveCount(0);
   // Dropdown search does not restrict eligible model picks.
-  await page.locator('[data-relationship-role="members"] input[type="search"]').evaluate(input => {
+  await page.locator('#relationship-dialog [data-relationship-role="members"] input[type="search"]').evaluate(input => {
     input.value = 'Outer surface';
     input.dispatchEvent(new Event('input'));
   });
   await chooser.getByRole('button', { name: /End surface/ }).click();
   await expect(bindingCheckbox(page, 'end', 'plane')).toBeChecked();
-  await page.locator('[data-relationship-role="members"] input[type="search"]').evaluate(input => { input.value = ''; input.dispatchEvent(new Event('input')); });
+  await page.locator('#relationship-dialog [data-relationship-role="members"] input[type="search"]').evaluate(input => { input.value = ''; input.dispatchEvent(new Event('input')); });
   await page.mouse.click(point.x, point.y);
   await expect(chooser).toBeVisible();
   await chooser.getByRole('button', { name: /End surface/ }).click();

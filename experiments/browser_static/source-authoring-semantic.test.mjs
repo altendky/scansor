@@ -29,6 +29,7 @@ function graph(evidence, edited = false) {
   ] }, token: edited ? 'edited' : 'original', states: { scan: 'ready', selected: 'ready', fit: 'ready' }, errors: {}, diagnostics: {},
     memberships: { selected: [0, 1, 2] }, results: { fit: { kind: 'plane', parameters: [0, 0, 1, 0], residuals: [0, 0, 0], weighted_rms: 0 } },
     result: null, derived: {}, input_catalogue: [], input_requirements: {}, revision: 3,
+    fit_input_templates: {plane: {feature: '@fit-draft', input_catalogue: []}},
     input_contracts: { relationship_plane_orientation: { capabilities: ['plane_orientation'], min_count: 2 } },
     relationship_contracts: { parallel_planes: { operation: 'plane_relationship', relation: 'parallel', roles: { participants: 'relationship_plane_orientation' } } },
     project_generation: evidence.project_generation, evaluation_running: false, required_failures: [] };
@@ -173,7 +174,7 @@ test('actual shared policy protects geometry and native graph operands after pro
   }
 });
 
-for (const field of ['input_contracts', 'relationship_contracts'])
+for (const field of ['input_contracts', 'relationship_contracts', 'fit_input_templates'])
   test('actual shared policy protects published contracts on both sides: ' + field, async () => {
     for (const target of ['graphs', 'native_graphs']) {
       const changed = report(); changed.ui_authoring[target].raw[field] = {};

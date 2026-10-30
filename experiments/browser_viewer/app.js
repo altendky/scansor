@@ -12,7 +12,9 @@ import {
 import { uniqueFeatureLabel } from './feature-names.js';
 import { inputChoices, requirementOutputs, inputReferenceKey, readInputReference,
   referenceFeature, matchingInputOutput, renderInputChoices } from './feature-inputs.js';
-import {fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderFitReferenceEditor} from './fit-reference.js';
+import {fitReferenceContracts, fitReferenceForNode, fitReferenceInputs, readFitReferenceEditor, renderFitReferenceEditor} from './fit-reference.js';
+import {createRelationshipEditor} from './relationship-editor.js';
+import {createFitRelationships, relationshipNodeFromEditor} from './fit-relationships.js';
 import { relationshipDefinitions as relationshipDefinitionChoices, relationshipParticipantChoices,
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
@@ -20,6 +22,7 @@ import { relationshipDefinitions as relationshipDefinitionChoices, relationshipP
   relationshipCollectionMembers, relationshipExpandedOutputs, relationshipSelectionCounts,
   axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
+import {relationshipDefinitionForNode, relationshipDraftForNode} from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow as presentEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -405,7 +408,7 @@ function startFieldPick(control, button) {
 function syncModelPickControls() {
   const locked = !graphState || featureTreeLocked() || buildFacesApplying || relationshipApplying,
     facesOpen = $('build-faces-dialog').open && buildFacesMode === 'guided',
-    relationshipOpen = $('relationship-dialog').open;
+    relationshipOpen = relationshipEditorVisible();
   const fieldValid = modelPickField && nativePickOptions(modelPickField.control).length &&
     (modelPickField.ownerId === undefined || modelPickField.ownerId === editingFeatureId) &&
     (!modelPickField.dialog || modelPickField.dialog.open || modelPickField.suspended);
@@ -437,7 +440,7 @@ function syncModelPickControls() {
     modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
       `Click features in the tree or evaluated geometry to choose ${activeRelationshipPicker().label.toLowerCase()}.`;
 }
-function initializeSpecializedPickFields() {
+function initializeSpecializedPickFields(initialState) {
   const begin = mode => {
     setModelPickMode(mode);
     if (modelPickMode) revealWorkspacePanel('view');
@@ -482,21 +485,7 @@ function initializeSpecializedPickFields() {
   });
   faceNeighborField.button.id = 'pick-face-neighbor';
   $('build-faces-neighbor-field').append(faceNeighborField.element);
-  relationshipParticipantField = createPickField(document, {
-    label: 'Participants', multiple: true, onPick: () => {
-      relationshipActiveRole = 'participants';
-      begin('participant');
-    },
-    popupContent: $('relationship-participant-options'),
-    onChange: key => {
-      const checkbox = [...$('relationship-participants').querySelectorAll('input')]
-        .find(input => input.dataset.participantId === key);
-      checkbox?.click();
-    },
-  });
-  relationshipParticipantField.element.classList.add('relationship-participant-field');
-  relationshipParticipantField.button.id = 'pick-relationship-participant';
-  $('relationship-participant-field').append(relationshipParticipantField.element);
+  initializeRelationshipEditors(initialState);
 }
 function modelPickParts(choice) {
   if (choice.relationshipOutput?.collection) return relationshipExpandedOutputs(graphState, [choice.relationshipOutput])
@@ -2019,7 +2008,8 @@ function showBodyDiagnostics(diagnostic) {
     container.append(button);
   }
 }
-const relationshipOperations = ['mirror_symmetry', 'parallel', 'equal'];
+const relationshipOperations = () => [...new Set(['mirror_symmetry', 'parallel', 'equal',
+  ...Object.values(graphState?.relationship_contracts || {}).map(definition => definition.operation)])];
 const selectionOperations = ['selection', 'growth', 'surface_selection', 'region_selection', 'reuse_selection'];
 const solveInputs = (axis, nodes = graphState.recipe.nodes) => axisSolveInputs(axis, nodes);
 function refreshDirectionJointFactors(id, nodes, selected = null) {
@@ -2225,258 +2215,127 @@ function readScaleDistances(containerId) {
 function isStandaloneFit(node) {
   return !node.axis && !node.point && !node.reference_plane;
 }
+let relationshipEditor, propertyRelationshipEditor, activeRelationshipEditor, newFitRelationships, fitRelationships, newFitId;
+let relationshipControlsLocked;
 let relationshipParticipantIds = new Set(), selectedRelationshipKind = null;
-let relationshipDraft = {roles: {}, unassigned: new Set()}, relationshipActiveRole = 'participants', relationshipRoleKind = null;
-const relationshipRoleFields = new Map();
-function relationshipDefinitions() { return relationshipDefinitionChoices(graphState); }
+let relationshipDraft = {roles: {}, unassigned: new Set()}, relationshipActiveRole = 'participants';
+function currentRelationshipEditor() {
+  const editor = activeRelationshipEditor || relationshipEditor;
+  return editor !== relationshipEditor && (editor?.root.closest('[hidden]') ||
+    !['fit-dialog', 'feature-properties-panel'].includes(activeEditWorkflow()?.id)) ? relationshipEditor : editor;
+}
+function relationshipState() {
+  try { return currentRelationshipEditor()?.state || graphState; }
+  catch { return graphState; }
+}
+function relationshipEditorVisible() {
+  const editor = currentRelationshipEditor();
+  return !!editor?.root.isConnected && !editor.root.closest('[hidden]') &&
+    (editor === relationshipEditor ? $('relationship-dialog').open :
+      ['fit-dialog', 'feature-properties-panel'].includes(activeEditWorkflow()?.id));
+}
+function syncRelationshipDraft(editor = currentRelationshipEditor()) {
+  if (!editor) return;
+  let value;
+  try { value = editor.snapshot(); }
+  catch { return; }
+  relationshipParticipantIds = value.selected; selectedRelationshipKind = value.kind;
+  relationshipDraft = value.draft; relationshipActiveRole = value.activeRole;
+}
+function activateRelationshipEditor(editor) {
+  if (activeRelationshipEditor !== editor && modelPickMode === 'participant') setModelPickMode(null);
+  activeRelationshipEditor = editor; syncRelationshipDraft(editor);
+}
+function relationshipDefinitions() { return relationshipDefinitionChoices(relationshipState()); }
 function relationshipValidity(kind, selected = relationshipParticipantIds) {
-  return relationshipInputValidity(graphState, kind,
+  return relationshipInputValidity(relationshipState(), kind,
     selected === relationshipParticipantIds && kind === selectedRelationshipKind ? relationshipDraft : selected);
 }
-function relationshipUsesRoles() {
-  const signature = graphState?.relationship_contracts?.[selectedRelationshipKind];
-  return signature && signature.selection_pattern !== 'peers' && Object.keys(signature.roles).length > 1;
-}
-function relationshipPickers() {
-  return relationshipUsesRoles() ? [...relationshipRoleFields.values()] : [{name: 'participants', label: 'Participants',
-    list: $('relationship-participants'), filter: $('relationship-filter'), field: relationshipParticipantField, multiple: true}];
-}
+function relationshipPickers() { return currentRelationshipEditor()?.pickers() || []; }
 function activeRelationshipPicker() {
-  return relationshipPickers().find(picker => picker.name === relationshipActiveRole) || relationshipPickers()[0] ||
-    {name: 'participants', label: 'Participants', list: $('relationship-participants'), field: relationshipParticipantField};
+  return relationshipPickers().find(picker => picker.name === relationshipActiveRole) || relationshipPickers()[0];
 }
-function syncRelationshipDraft() {
-  relationshipParticipantIds = new Set([...Object.values(relationshipDraft.roles).flatMap(values => [...values]),
-    ...relationshipDraft.unassigned]);
-}
-function setRelationshipDraft(selected, previous = {}) {
-  relationshipDraft = relationshipRoleSelection(graphState, selectedRelationshipKind, selected, previous);
-  syncRelationshipDraft();
-}
-function relationshipPickerChoices(role) {
-  const selected = relationshipDraft.roles[role] || new Set(), explicit = relationshipUsesRoles(),
-    choices = explicit ? relationshipRoleChoices(graphState, selectedRelationshipKind, role, selected)
-      : relationshipParticipantChoices(graphState, selectedRelationshipKind, relationshipParticipantIds);
-  return choices.map(output => {
-    const other = explicit && Object.entries(relationshipDraft.roles).find(([name, keys]) => name !== role && keys.has(output.key));
-    return other ? {...output, compatible: false,
-      reason: `Already selected for ${graphState.relationship_contracts[selectedRelationshipKind].role_labels[other[0]] || other[0]}`} : output;
-  });
-}
+function relationshipPickerChoices(role) { return currentRelationshipEditor()?.choices(role) || []; }
 function changeRelationshipParticipant(role, key, included) {
-  if (featureTreeLocked() || relationshipApplying) return false;
-  if (!selectedRelationshipKind) {
-    if (included) relationshipDraft.unassigned.add(key);
-    else relationshipDraft.unassigned.delete(key);
-  } else {
-    const selected = relationshipDraft.roles[role];
-    if (!selected || included && !relationshipPickerChoices(role).some(output => output.key === key && output.compatible)) return false;
-    if (included) {
-      const requirement = graphState.relationship_contracts[selectedRelationshipKind].roles[role];
-      if (graphState.input_contracts[requirement].max_count === 1) selected.clear();
-      selected.add(key);
-      relationshipDraft.unassigned.delete(key);
-    } else {
-      selected.delete(key);
-      relationshipDraft.unassigned.delete(key);
-    }
-  }
-  syncRelationshipDraft();
-  $('relationship-error').textContent = '';
-  renderRelationshipBuilder();
-  return true;
-}
-function ensureRelationshipRoleFields() {
-  const explicit = relationshipUsesRoles();
-  $('relationship-role-fields').hidden = !explicit;
-  $('relationship-participant-field').hidden = !!explicit;
-  if (relationshipRoleKind === selectedRelationshipKind) return;
-  for (const picker of relationshipRoleFields.values()) if (picker.field.popup.matches(':popover-open')) picker.field.popup.hidePopover();
-  relationshipRoleFields.clear();
-  $('relationship-role-fields').replaceChildren();
-  relationshipRoleKind = selectedRelationshipKind;
-  if (!explicit) return;
-  const kind = selectedRelationshipKind, signature = graphState.relationship_contracts[kind];
-  for (const [role, requirement] of Object.entries(signature.roles)) {
-    const label = signature.role_labels?.[role] || role,
-      multiple = graphState.input_contracts[requirement].max_count !== 1,
-      wrapper = document.createElement('section'), heading = document.createElement('h3'),
-      clear = document.createElement('button'), options = document.createElement('div'),
-      filter = document.createElement('input'), list = document.createElement('div');
-    wrapper.dataset.relationshipRole = role;
-    wrapper.className = 'relationship-role-field';
-    heading.textContent = label;
-    clear.type = 'button';
-    clear.textContent = 'Clear';
-    clear.setAttribute('aria-label', `Clear ${label}`);
-    filter.type = 'search';
-    filter.placeholder = `Filter ${label.toLowerCase()}`;
-    filter.setAttribute('aria-label', `Filter ${label.toLowerCase()}`);
-    list.className = 'relationship-participants';
-    list.id = `relationship-role-${kind}-${role}-choices`;
-    list.dataset.pickerScroll = '';
-    list.tabIndex = 0;
-    list.setAttribute('aria-label', `${label} choices`);
-    options.append(filter, list);
-    const field = createPickField(document, {label, multiple, popupContent: options,
-      onPick: () => {
-        if (kind !== selectedRelationshipKind) return;
-        relationshipActiveRole = role;
-        setModelPickMode('participant');
-        revealWorkspacePanel('view');
-      },
-      onChange: key => {
-        if (kind !== selectedRelationshipKind) return;
-        [...list.querySelectorAll('input')].find(input => input.dataset.participantId === key)?.click();
-      },
-    });
-    field.element.classList.add('relationship-participant-field');
-    const picker = {name: role, label, multiple, wrapper, field, list, filter, clear};
-    relationshipRoleFields.set(role, picker);
-    filter.oninput = filterRelationshipParticipants;
-    clear.onclick = () => {
-      if (featureTreeLocked() || relationshipApplying || kind !== selectedRelationshipKind) return;
-      relationshipDraft.roles[role].clear();
-      syncRelationshipDraft();
-      renderRelationshipBuilder();
-    };
-    wrapper.append(heading, clear, field.element);
-    $('relationship-role-fields').append(wrapper);
-  }
-  relationshipActiveRole = relationshipRoleFields.has('participants') ? 'participants'
-    : relationshipRoleFields.keys().next().value || 'participants';
-}
-function renderUnassignedRelationshipParticipants() {
-  const container = $('relationship-unassigned');
-  container.hidden = !relationshipUsesRoles() || !relationshipDraft.unassigned.size;
-  if (container.hidden) { container.replaceChildren(); return; }
-  const heading = document.createElement('h3');
-  heading.textContent = 'Choose roles for remaining participants';
-  container.replaceChildren(heading, ...[...relationshipDraft.unassigned].map(key => {
-    const row = document.createElement('div'), name = document.createElement('span'),
-      role = document.createElement('select'), remove = document.createElement('button'),
-      output = relationshipParticipantChoices(graphState, selectedRelationshipKind, new Set([key])).find(output => output.key === key);
-    name.textContent = relationshipParticipantPresentation(graphState, output).choiceLabel;
-    role.setAttribute('aria-label', `Role for ${output.label}`);
-    role.append(new Option('Choose a role…', ''));
-    for (const picker of relationshipPickers()) if (relationshipPickerChoices(picker.name).some(choice => choice.key === key && choice.compatible))
-      role.append(new Option(picker.label, picker.name));
-    role.disabled = role.options.length === 1 || featureTreeLocked() || relationshipApplying;
-    role.onchange = () => {
-      changeRelationshipParticipant(role.value, key, true);
-    };
-    remove.type = 'button'; remove.textContent = 'Remove';
-    remove.disabled = featureTreeLocked() || relationshipApplying;
-    remove.onclick = () => {
-      relationshipDraft.unassigned.delete(key); syncRelationshipDraft(); renderRelationshipBuilder();
-    };
-    row.append(name, role, remove);
-    return row;
-  }));
+  return currentRelationshipEditor()?.change(role, key, included);
 }
 function renderRelationshipBuilder() {
-  $('relationship-kind').replaceChildren(new Option('Choose a relationship', ''),
-    ...relationshipDefinitions().map((definition) => new Option(definition.label, definition.id)));
-  $('relationship-kind').value = selectedRelationshipKind || '';
-  ensureRelationshipRoleFields();
-  for (const picker of relationshipPickers()) renderRelationshipParticipants(picker.list, {
-    choices: relationshipPickerChoices(picker.name)
-      .map(output => {
-        const node = graphNode(output.reference?.feature);
-        return { ...relationshipParticipantPresentation(graphState, output),
-          icon: node?.kind || node?.operation || 'reference_plane', id: output.key, compatible: output.compatible };
-      }).sort((first, second) => Number(first.group === 'reference') - Number(second.group === 'reference')),
-    selected: relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds,
-    multiple: picker.multiple,
-    locked: () => featureTreeLocked() || relationshipApplying,
-    change: (id, included) => changeRelationshipParticipant(picker.name, id, included),
-    inspect: (id) => { relationshipInspected = id; paintRelationshipPreview(); },
-    focus: (id) => focusRelationshipParticipants(relationshipFocusIds(new Set([id]))),
-  });
-  renderUnassignedRelationshipParticipants();
-  filterRelationshipParticipants();
-  updateRelationshipSelection();
+  currentRelationshipEditor()?.refresh(); syncRelationshipDraft(); updateRelationshipSelection();
 }
-function relationshipFocusIds(selected = relationshipParticipantIds) {
-  const outputs = relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)
-    .filter(output => selected.has(output.key));
-  return [...new Set(relationshipExpandedOutputs(graphState, outputs).map(output => output.reference.feature))];
-}
-function filterRelationshipParticipants() {
-  const allRows = [];
-  for (const picker of relationshipPickers()) {
-    const filter = picker.filter.value.trim().toLowerCase(),
-      rows = [...picker.list.querySelectorAll('.relationship-participant')];
-    allRows.push(...rows);
-    for (const row of rows) row.hidden = !row.querySelector('input').checked &&
-        (row.dataset.compatible === 'false' || !row.dataset.search.includes(filter));
-    for (const heading of picker.list.querySelectorAll('.relationship-participant-group'))
-      heading.hidden = !rows.some(row => !row.hidden && row.dataset.participantGroup === heading.dataset.participantGroup);
-  }
-  if (relationshipInspected && !allRows.some((row) =>
-    !row.hidden && row.querySelector('input').dataset.participantId === relationshipInspected))
-    relationshipInspected = null;
-  paintRelationshipPreview();
-}
+function relationshipFocusIds(selected = relationshipParticipantIds) { return currentRelationshipEditor()?.focusIds(selected) || []; }
 function updateRelationshipParticipantField() {
-  if (!relationshipParticipantField) return;
-  for (const picker of relationshipPickers()) {
-    const selected = relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds;
-    picker.field.update(relationshipPickerChoices(picker.name).map(output => ({
-    key: output.key, label: relationshipParticipantPresentation(graphState, output).name,
-    detail: relationshipParticipantPresentation(graphState, output).detail,
-    members: output.collection ? relationshipCollectionMembers(graphState, output).map(member => {
-      const presentation = relationshipParticipantPresentation(graphState, member);
-      return [presentation.name, presentation.detail].filter(Boolean).join(' — ');
-    }) : undefined,
-    selected: selected.has(output.key), disabled: !output.compatible,
-    modelPickable: relationshipExpandedOutputs(graphState, [output])
-      .some(member => !!relationshipOutputValue(graphState, member)),
-    treePickable: output.compatible,
-  })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
-    busy: !!graphState && (featureTreeLocked() || relationshipApplying),
-    emptyMessage: 'Choose compatible outputs, including those that need evaluation.' });
+  for (const picker of relationshipPickers())
     picker.field.button.setAttribute('aria-pressed', String(modelPickMode === 'participant' && relationshipActiveRole === picker.name));
-    if (picker.clear) picker.clear.disabled = !selected.size || featureTreeLocked() || relationshipApplying;
-  }
 }
 function updateRelationshipSelection() {
   syncModelPickControls();
-  const participants = [...relationshipParticipantIds],
-    chosen = relationshipDefinitions().find((definition) => definition.id === selectedRelationshipKind),
-    validity = chosen ? relationshipValidity(chosen.id) : { valid: false };
-  $('relationship-summary').textContent = chosen
-    ? validity.valid ? chosen.operation === 'direction_alignment'
-      ? `${directionAlignmentLabel(validity.roles.participants)}. ${chosen.summary}` : chosen.summary
-      : validity.reason : 'Choose a relationship, then its participants.';
-  if (validity.valid && Object.values(validity.roles).flat().some(output => output.availability !== 'ready'))
-    $('relationship-summary').textContent += $('auto-evaluate').checked
-      ? ' Pending inputs will be evaluated after adding the relationship.'
-      : ' This relationship will need evaluation.';
-  const selectedOutputs = relationshipParticipantChoices(graphState, selectedRelationshipKind, new Set(participants))
-    .filter(output => relationshipParticipantIds.has(output.key)),
-    counts = relationshipSelectionCounts(graphState, selectedOutputs);
-  $('relationship-count').textContent = counts.collections
-    ? `${participants.length} ${participants.length === 1 ? 'selection' : 'selections'} · ${counts.unique} outputs`
-    : `${participants.length} selected`;
-  const locked = featureTreeLocked() || relationshipApplying;
-  $('relationship-kind').disabled = relationshipApplying;
-  $('new-relationship-label').readOnly = relationshipApplying;
-  $('clear-relationship-participants').disabled = !participants.length || locked;
-  $('focus-relationship').disabled = !participants.length;
-  $('add-relationship').disabled = !validity.valid || locked;
-  for (const picker of relationshipPickers()) for (const checkbox of picker.list.querySelectorAll('input')) {
-    const row = checkbox.closest('.relationship-participant'),
-      selected = relationshipUsesRoles() ? relationshipDraft.roles[picker.name] : relationshipParticipantIds;
-    checkbox.checked = selected.has(checkbox.dataset.participantId);
-    row.classList.toggle('participant-selected', checkbox.checked);
-    checkbox.disabled = locked || (row.dataset.compatible === 'false' && !checkbox.checked);
-  }
+  $('add-relationship').disabled = !relationshipEditor?.validity().valid || featureTreeLocked() || relationshipApplying;
   paintRelationshipPreview();
+}
+function readFitDraft(creating) {
+  if (creating) return {id: newFitId, label: $('new-fit-label').value.trim() || 'Surface fit', operation: 'fit',
+    kind: $('new-fit-kind').value, selections: chosen('new-fit-inputs'),
+    axial_domain: defaultFitDomain($('new-fit-kind').value,
+      graphState.recipe.nodes.find(node => node.operation === 'source')?.descriptor)};
+  const current = graphNode(editingFeatureId || selectedFeatureId);
+  if (current?.operation !== 'fit') throw Error('Choose a fit to edit its relationships.');
+  const node = {...current};
+  if (!canEditManagedSupport(current)) {
+    node.kind = $('surface-kind').value; node.selections = chosen('fit-inputs');
+    if (!$('fit-legacy-binding').hidden) {
+      const draft = readFitReferenceEditor('fit-reference');
+      Object.assign(node, {axis: null, point: null, reference_plane: null});
+      if (draft.mode) {
+        const contract = fitReferenceContracts(graphState).find(item => item.id === draft.mode),
+          reference = readInputReference(draft.reference);
+        if (!contract || !contract.fit_reference.kinds.includes(node.kind) || !reference?.feature)
+          throw Error('Remove or repair the existing datum binding before changing the fit type.');
+        node[contract.fit_reference.field] = reference.feature;
+      }
+    }
+  }
+  return node;
+}
+function initializeRelationshipEditors(initialState) {
+  const locked = () => !graphState || featureTreeLocked() || relationshipApplying,
+    before = editor => { if (modelPickMode === 'participant' && currentRelationshipEditor() === editor) setModelPickMode(null); },
+    changed = (_snapshot, editor) => {
+      if (!viewerSetup) return;
+      if (editor) activateRelationshipEditor(editor);
+      else syncRelationshipDraft();
+      $('relationship-error').textContent = '';
+      updateRelationshipSelection();
+    },
+    pick = (role, editor) => {
+      activateRelationshipEditor(editor); editor.setActiveRole(role); syncRelationshipDraft(editor);
+      setModelPickMode('participant'); revealWorkspacePanel('view');
+    },
+    inspect = (key, editor) => {
+      activateRelationshipEditor(editor); relationshipInspected = key; paintRelationshipPreview();
+    },
+    focus = ids => focusRelationshipParticipants(ids),
+    isPicking = (role, editor) => modelPickMode === 'participant' && currentRelationshipEditor() === editor && relationshipActiveRole === role;
+  relationshipEditor = createRelationshipEditor({root: $('relationship-editor'), nameId: 'new-relationship-label',
+    getState: () => graphState || initialState, locked, makeLabel: definition => nextFeatureLabel(definition?.baseName || 'Relationship'),
+    onChange: changed, onBeforeKindChange: before, onPick: pick, onInspect: inspect, onFocus: focus,
+    isPicking: role => isPicking(role, relationshipEditor)});
+  relationshipParticipantField = relationshipEditor.picker('participants').field;
+  activeRelationshipEditor = relationshipEditor;
+  propertyRelationshipEditor = createRelationshipEditor({root: $('relationship-properties'), prefix: 'relationship-properties',
+    getState: () => graphState || initialState,
+    getNodes: () => {
+      const nodes = (graphState || initialState).recipe.nodes, index = nodes.findIndex(node => node.id === editingFeatureId);
+      return index < 0 ? nodes : nodes.slice(0, index);
+    }, locked, onChange: changed, onBeforeKindChange: before, onPick: pick, onInspect: inspect, onFocus: focus,
+    isPicking: role => isPicking(role, propertyRelationshipEditor)});
+  const options = {getState: () => graphState, locked, onChange: changed, onPick: pick,
+    onInspect: inspect, onFocus: focus, isPicking, onRemove: before};
+  newFitRelationships = createFitRelationships({...options, root: $('new-fit-relationships'), prefix: 'new-fit-relationship', getFit: () => readFitDraft(true)});
+  fitRelationships = createFitRelationships({...options, root: $('fit-relationships'), prefix: 'fit-relationship', getFit: () => readFitDraft(false)});
 }
 function paintRelationshipPreview() {
   if (!relationshipOverlays) return;
-  const key = JSON.stringify([$('relationship-dialog').open, selectedRelationshipKind, relationshipActiveRole,
+  const key = JSON.stringify([relationshipEditorVisible(), selectedRelationshipKind, relationshipActiveRole,
     [...relationshipParticipantIds], relationshipInspected, relationshipOverlapKeys, $('faces-only').checked]);
   if (relationshipPreviewState === graphState && relationshipPreviewKey === key && relationshipPreviewPositions === positions) return;
   relationshipPreviewState = graphState; relationshipPreviewKey = key; relationshipPreviewPositions = positions;
@@ -2487,11 +2346,11 @@ function paintRelationshipPreview() {
     child.material.dispose();
   }
   geometries.forEach(geometry => geometry.dispose());
-  if ($('relationship-dialog').open) {
+  if (relationshipEditorVisible()) {
     const selected = new Set(relationshipParticipantIds);
     if (relationshipInspected) selected.add(relationshipInspected);
     relationshipOverlapKeys.forEach(key => selected.add(key));
-    const chosen = relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)
+    const chosen = relationshipParticipantChoices(relationshipState(), selectedRelationshipKind, selected)
       .filter(output => selected.has(output.key)),
       kinds = new Map(relationshipOverlapKeys.map(key => [key, 'overlap']));
     if (relationshipInspected) kinds.set(relationshipInspected, 'hover');
@@ -2596,7 +2455,12 @@ function updateDirectionPropertiesHint() {
 }
 function setFitReference(node, id, nodes = graphState.recipe.nodes) {
   try {
-    Object.assign(node, fitReferenceInputs(graphState, node.kind, readFitReferenceEditor(id), nodes));
+    const draft = readFitReferenceEditor(id), previous = graphNode(node.id),
+      saved = previous && fitReferenceForNode(graphState, previous);
+    if (previous?.kind === node.kind && saved?.mode === draft.mode &&
+      inputReferenceKey(saved.reference) === inputReferenceKey(draft.reference)) {
+      for (const field of ['axis', 'point', 'reference_plane']) node[field] = previous[field] || null;
+    } else Object.assign(node, fitReferenceInputs(graphState, node.kind, draft, nodes));
     return true;
   } catch (error) { status(error.message, true); return false; }
 }
@@ -2811,7 +2675,7 @@ function acceptGraph(state) {
   );
   const fits = state.recipe.nodes.filter((n) => n.operation === 'fit');
   const axes = state.recipe.nodes.filter((n) => n.operation === 'axis');
-  fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, state.recipe.nodes);
+  if (newFitId) newFitRelationships?.refresh();
   choices('new-reference-plane-axis', axes);
   choices(
     'new-mirror-plane',
@@ -2883,7 +2747,7 @@ function focusContextFeature() {
 }
 function canEvaluateFeature(node) {
   return node && graphState.states[node.id] !== 'needs_input' && !['source', 'selection', 'coaxial', 'perpendicular',
-    'rotational_symmetry', ...relationshipOperations].includes(node.operation);
+    'rotational_symmetry', ...relationshipOperations()].includes(node.operation);
 }
 function evaluateFeature(id) {
   if (!featureTreeLocked() && !modelPickMode && canEvaluateFeature(graphNode(id)))
@@ -3192,8 +3056,12 @@ function showProperties(force = false) {
       }
       refreshJointFactors('', earlier);
     }
-    if (node.operation === 'fit') fitReferenceChoices('fit-reference', $('surface-kind').value,
-      graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
+    if (node.operation === 'fit') {
+      if (!$('fit-legacy-binding').hidden) fitReferenceChoices('fit-reference', $('surface-kind').value,
+        graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
+      fitRelationships?.refresh();
+    }
+    if (!$('relationship-properties').hidden) propertyRelationshipEditor.refresh();
     if (isDirectionJoint(node, graphState.recipe.nodes)) refreshDirectionJointFactors('joint-inputs',
       graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
@@ -3229,7 +3097,7 @@ function showProperties(force = false) {
     !!ownedSelectionContext?.entry && !activeSelection();
   $('feature-inspection').hidden = [
     'selection',
-    ...relationshipOperations,
+    'mirror_symmetry', 'parallel', 'equal',
   ].includes(node.operation);
   const selectionState = selectionEditState(node, selectionSource(node), metadata);
   $('selection-edit-fields').hidden = node.operation === 'selection' && !selectionState.editable;
@@ -3249,7 +3117,7 @@ function showProperties(force = false) {
       : 'No earlier action inputs.';
   if (node.operation === 'selection' && selectionState.message)
     $('feature-description').textContent += ' ' + selectionState.message;
-  for (const [id, enabled] of [
+  const propertyPanels = [
     ['fit-properties', node.operation === 'fit'],
     ['axis-properties', node.operation === 'axis'],
     ['point-properties', node.operation === 'point'],
@@ -3279,8 +3147,15 @@ function showProperties(force = false) {
     ['arranged-face-properties', node.operation === 'arranged_face'],
     ['build-faces-properties', node.operation === 'build_faces'],
     ['body-properties', node.operation === 'body'],
-  ])
+  ];
+  for (const [id, enabled] of propertyPanels)
     $(id).hidden = !enabled;
+  const commonRelationship = relationshipDefinitionForNode(graphState, node),
+    genericRelationship = !!commonRelationship && !propertyPanels.some(([, enabled]) => enabled);
+  $('relationship-properties').hidden = !genericRelationship;
+  for (const control of $('relationship-properties').querySelectorAll('input, select, button')) control.disabled = !genericRelationship;
+  if (genericRelationship) propertyRelationshipEditor.reset({kind: commonRelationship.id,
+    draft: relationshipDraftForNode(graphState, node), label: node.label});
   for (const id of ['surface-intersection-properties', 'trimmed-face-properties', 'coaxial-group-properties'])
     for (const select of $(id).querySelectorAll('select')) select.disabled = $(id).hidden;
   for (const input of $('body-properties').querySelectorAll('input'))
@@ -3290,7 +3165,7 @@ function showProperties(force = false) {
   for (const control of $('surface-selection-properties').querySelectorAll('input, select'))
     control.disabled = $('surface-selection-properties').hidden;
   for (const id of ['fit-reference', 'fit-reference-mode'])
-    $(id).disabled = $('fit-properties').hidden;
+    $(id).disabled = $('fit-properties').hidden || $('fit-legacy-binding').hidden;
   $('direction-alignment-inputs').disabled = $('direction-alignment-properties').hidden;
   $('direction-alignment-reference').disabled = $('direction-alignment-properties').hidden;
   if (node.operation === 'surface_intersection') {
@@ -3319,6 +3194,7 @@ function showProperties(force = false) {
     $('review-build-faces').onclick = () => openBuildFaces(node);
   }
   if (node.operation === 'fit') {
+    $('fit-legacy-binding').hidden = ![node.axis, node.point, node.reference_plane].some(Boolean);
     $('surface-kind').value = node.kind;
     choices(
       'fit-inputs',
@@ -3340,6 +3216,8 @@ function showProperties(force = false) {
     $('axial-end').disabled = false;
     $('axial-start-row').hidden = node.kind === 'sphere';
     $('axial-end-row').hidden = node.kind === 'sphere';
+    for (const id of ['fit-reference', 'fit-reference-mode']) $(id).disabled = $('fit-legacy-binding').hidden;
+    fitRelationships?.reset({includeExisting: true});
   } else if (node.operation === 'axis') {
     $('axis-init-mode').value = node.source_points ? 'points' : node.source_fit ? 'fit' : 'free';
     choices(
@@ -4243,7 +4121,7 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
         'perpendicular',
         'rotational_symmetry',
         'equal_radii',
-        ...relationshipOperations,
+        ...relationshipOperations(),
       ].includes(
         node.operation,
       )
@@ -4645,6 +4523,16 @@ function updateEvaluationControls() {
   $('new-surface-selection').disabled ||= metadata?.surface_selection?.supported !== true;
   $('apply-properties').disabled = surfacePreviewRunning();
   sourceProject?.refresh();
+  const relationshipLocked = !graphState || featureTreeLocked() || relationshipApplying;
+  if (viewerSetup && relationshipLocked !== relationshipControlsLocked) {
+    relationshipControlsLocked = relationshipLocked;
+    if ($('fit-dialog').open) newFitRelationships?.refresh();
+    if (activeEditWorkflow()?.id === 'feature-properties-panel') {
+      if (graphNode(editingFeatureId)?.operation === 'fit') fitRelationships?.refresh();
+      if (!$('relationship-properties').hidden) propertyRelationshipEditor?.refresh();
+    }
+    if ($('relationship-dialog').open) relationshipEditor?.refresh();
+  }
 }
 async function evaluateAll() {
   return evaluateGraph(true);
@@ -4862,7 +4750,8 @@ function prepareWorkspace(bundle) {
     buildFacesContinueInteraction = { pointer: null, focus: null };
     relationshipParticipantIds = new Set(); relationshipInspected = selectedRelationshipKind = null;
     relationshipDraft = {roles: {}, unassigned: new Set()}; relationshipActiveRole = 'participants';
-    relationshipRoleKind = null; relationshipRoleFields.clear(); $('relationship-role-fields').replaceChildren();
+    activeRelationshipEditor = relationshipEditor; relationshipEditor?.reset();
+    newFitRelationships?.reset();
     fitQualityCache = null;
     activeOverlap = null;
     featureDeletionReview = null;
@@ -5245,57 +5134,22 @@ async function start(recoveredState) {
     clearFeatureSelection();
   });
   $('new-relationship').onclick = () => {
-    if (relationshipApplying) return;
+    if (relationshipApplying || !prepareEditSession()) return;
     if ($('build-faces-dialog').open) {
       if (!canDiscardFaceReview()) return;
       $('build-faces-dialog').close();
     }
-    selectedRelationshipKind = null;
-    const valid = relationshipDefinitions().filter(definition => relationshipValidity(definition.id,
+    activateRelationshipEditor(relationshipEditor);
+    const valid = relationshipDefinitionChoices(graphState).filter(definition => relationshipInputValidity(graphState, definition.id,
       relationshipSelectionForFeatures(graphState, definition.id, selectedFeatureIds)).valid);
-    if (valid.length === 1) selectedRelationshipKind = valid[0].id;
-    setRelationshipDraft(relationshipSelectionForFeatures(graphState, selectedRelationshipKind, selectedFeatureIds));
+    relationshipEditor.reset({kind: valid.length === 1 ? valid[0].id : null, selectedFeatures: [...selectedFeatureIds]});
     relationshipInspected = null;
-    $('relationship-filter').value = '';
-    $('new-relationship-label').value = nextFeatureLabel(
-      relationshipDefinitions().find((definition) => definition.id === selectedRelationshipKind)?.baseName || 'Relationship');
     $('relationship-error').textContent = '';
     showEditWorkflow('relationship-dialog');
     renderRelationshipBuilder();
     editWorkflowApplied();
     $('relationship-kind').focus();
   };
-  $('relationship-kind').onchange = () => {
-    if (modelPickMode === 'participant') setModelPickMode(null);
-    if (relationshipParticipantField.popup.matches(':popover-open')) relationshipParticipantField.popup.hidePopover();
-    const previousRoles = relationshipDraft.roles;
-    selectedRelationshipKind = $('relationship-kind').value || null;
-    const previous = relationshipFeatureIds([...relationshipParticipantIds].filter(key => {
-      const ref = readInputReference(key);
-      return typeof ref === 'string' || ref.context === ref.feature;
-    })), remapped = relationshipSelectionForFeatures(graphState,
-      selectedRelationshipKind, previous);
-    // Changing the relation may change a direct owner's offered output (for
-    // example surface versus radius), never a selected named publication.
-    for (const key of relationshipParticipantIds) {
-      const ref = readInputReference(key);
-      if (typeof ref !== 'string' && ref?.context !== ref?.feature) remapped.add(key);
-    }
-    setRelationshipDraft(remapped, previousRoles);
-    const definition = relationshipDefinitions().find((entry) => entry.id === selectedRelationshipKind);
-    if (definition) $('new-relationship-label').value = nextFeatureLabel(definition.baseName);
-    relationshipInspected = null;
-    $('relationship-error').textContent = '';
-    renderRelationshipBuilder();
-  };
-  $('relationship-filter').oninput = filterRelationshipParticipants;
-  $('clear-relationship-participants').onclick = () => {
-    if (featureTreeLocked() || relationshipApplying) return;
-    setRelationshipDraft(new Set());
-    relationshipInspected = null;
-    renderRelationshipBuilder();
-  };
-  $('focus-relationship').onclick = () => focusRelationshipParticipants(relationshipFocusIds());
   const surfaceEditorOptions = (owner, isActive, onValidity = () => {}) => ({ backend,
     current: () => ({ graph: graphState, generation: workspaceGeneration, vertices: metadata.vertices }),
     prepare: definition => ensureCurrent([definition.seed_selection, ...definition.barriers]),
@@ -5308,7 +5162,7 @@ async function start(recoveredState) {
   surfaceSelectionPropertiesEditor = bindSurfaceSelectionEditor({ root: $('surface-selection-properties'), prefix: 'surface-selection-',
     ...surfaceEditorOptions('properties', () => activeEditWorkflow()?.id === 'feature-properties-panel'
       && graphNode(editingFeatureId)?.operation === 'surface_selection') });
-  initializeSpecializedPickFields();
+  initializeSpecializedPickFields(state);
   $('stop-model-picking').onclick = () => setModelPickMode(null);
   bindModelPickControls(document, startFieldPick, { modelPickable: fieldOptionModelPickable,
     busy: () => !!graphState && (featureTreeLocked() || buildFacesApplying || relationshipApplying) });
@@ -5804,12 +5658,8 @@ async function start(recoveredState) {
       graphState.recipe.nodes.filter((node) => selectionOperations.includes(node.operation)),
       [selectedFeatureId],
     );
-    fitReferenceChoices(
-      'new-fit-reference',
-      $('new-fit-kind').value,
-      graphState.recipe.nodes,
-      {mode: '', reference: null},
-    );
+    newFitId = uid('fit'); newFitRelationships.reset();
+    $('new-fit-error').textContent = '';
     showCreateDialog('fit-dialog', 'new-fit-label', 'Surface fit');
   };
   $('new-feature-group').onclick = () => openFeatureGroup();
@@ -6188,11 +6038,11 @@ async function start(recoveredState) {
   $('direction-alignment-inputs').onchange = updateDirectionPropertiesHint;
   $('direction-alignment-reference').onchange = updateDirectionPropertiesHint;
   $('new-fit-kind').onchange = () => {
-    fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
+    newFitRelationships.refresh();
     syncModelPickControls();
   };
-  $('new-fit-reference').onchange = $('new-fit-reference-mode').onchange = () => {
-    fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
+  $('new-fit-label').oninput = $('new-fit-inputs').onchange = () => {
+    newFitRelationships.refresh();
     syncModelPickControls();
   };
   const refreshFitReferenceProperties = () => {
@@ -6201,6 +6051,7 @@ async function start(recoveredState) {
     $('axial-end-row').hidden = $('surface-kind').value === 'sphere';
     fitReferenceChoices('fit-reference', $('surface-kind').value,
       graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)));
+    fitRelationships.refresh();
     syncModelPickControls();
   };
   $('surface-kind').onchange = refreshFitReferenceProperties;
@@ -6815,6 +6666,12 @@ async function start(recoveredState) {
       status(`Edit ${graphNode(ownerId)?.label || 'the generating feature'} instead.`, true);
       return;
     }
+    if (!$('relationship-properties').hidden && relationshipDefinitionForNode(graphState, node)) {
+      try { recipe.nodes[recipe.nodes.indexOf(node)] = relationshipNodeFromEditor(graphState, node, propertyRelationshipEditor); }
+      catch (error) { status(error.message, true); return; }
+      if (await replaceRecipe(recipe)) { showProperties(true); editWorkflowApplied(); }
+      return;
+    }
     if (node.operation === 'body') {
       try {
         Object.assign(node, bodyInputs(bodyCheckedFaces('body-face-choices'), $('body-tolerance').value));
@@ -6839,7 +6696,7 @@ async function start(recoveredState) {
         try {
           node.axial_domain = parseFitDomain($('axial-start').value, $('axial-end').value);
         } catch (error) { status(error.message, true); return; }
-        if (!setFitReference(node, 'fit-reference', graphState.recipe.nodes.slice(0,
+        if (!$('fit-legacy-binding').hidden && !setFitReference(node, 'fit-reference', graphState.recipe.nodes.slice(0,
           graphState.recipe.nodes.indexOf(graphNode(editingFeatureId))))) return;
         try { circularSourceFitEditor.apply(recipe,node.id); }
         catch (error) { status(error.message,true); return; }
@@ -7032,6 +6889,10 @@ async function start(recoveredState) {
         reference_plane: $('equal-distance-reference').value,
       };
     }
+    if (node.operation === 'fit') {
+      try { fitRelationships.apply(recipe); }
+      catch (error) { status(error.message, true); return; }
+    }
     if (await replaceRecipe(recipe)) { showProperties(true); editWorkflowApplied(); }
   };
   $('action-properties').onsubmit = async event => {
@@ -7170,18 +7031,14 @@ async function start(recoveredState) {
   };
   $('add-fit-form').onsubmit = async (event) => {
     event.preventDefault();
-    const node = {
-      id: uid('fit'),
-      label: submittedFeatureLabel('new-fit-label'),
-      operation: 'fit',
-      selections: chosen('new-fit-inputs'),
-      kind: $('new-fit-kind').value,
-      axial_domain: defaultFitDomain($('new-fit-kind').value,
-        graphState.recipe.nodes.find(n => n.operation === 'source')?.descriptor),
-    };
-    if (!setFitReference(node, 'new-fit-reference')) return;
-    const saved = await appendActions([node]);
-    if (saved) $('fit-dialog').close();
+    try {
+      const node = readFitDraft(true), recipe = structuredClone(graphState.recipe);
+      recipe.nodes.push(node); recipe.output = node.id;
+      newFitRelationships.apply(recipe);
+      if (await replaceRecipe(recipe)) {
+        selectOnly(node.id); renderActions(); $('fit-dialog').close();
+      } else $('new-fit-error').textContent = $('status').textContent;
+    } catch (error) { $('new-fit-error').textContent = error.message; }
   };
   $('add-joint-form').onsubmit = async (event) => {
     event.preventDefault();

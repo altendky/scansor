@@ -53,11 +53,11 @@ async function startCoaxial(page) {
 async function pickList(page, names) {
   const [axis, ...members] = names;
   await page.getByRole('button', { name: 'Show Reference axis choices', exact: true }).click();
-  await page.locator('[data-relationship-role="axis"]').getByRole('radio', { name: axis, exact: true }).check();
+  await page.locator('#relationship-dialog [data-relationship-role="axis"]').getByRole('radio', { name: axis, exact: true }).check();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Show Target fits choices', exact: true }).click();
   for (const name of members)
-    await page.locator('[data-relationship-role="members"]').getByRole('checkbox', { name, exact: true }).check();
+    await page.locator('#relationship-dialog [data-relationship-role="members"]').getByRole('checkbox', { name, exact: true }).check();
   await page.keyboard.press('Escape');
 }
 
@@ -95,13 +95,13 @@ test('Coaxial combines model and list picks, edits its axis, and survives save/l
   const before = await read(page);
   await startCoaxial(page);
   await pickList(page, ['Reference axis — axis', 'Inner cylinder — axis']);
-  await page.locator('[data-relationship-role="members"] .model-field-pick').click();
+  await page.locator('#relationship-dialog [data-relationship-role="members"] .model-field-pick').click();
   const point = await visiblePatch(page);
   await page.mouse.click(point.x, point.y);
   const chooser = page.locator('#model-pick-choices');
   if (await chooser.isVisible()) await chooser.getByRole('button', { name: /Outer surface/ }).click();
-  await expect(page.locator('[data-relationship-role="axis"] input:checked')).toHaveCount(1);
-  await expect(page.locator('[data-relationship-role="members"] input:checked')).toHaveCount(2);
+  await expect(page.locator('#relationship-dialog [data-relationship-role="axis"] input:checked')).toHaveCount(1);
+  await expect(page.locator('#relationship-dialog [data-relationship-role="members"] input:checked')).toHaveCount(2);
   await page.keyboard.press('Escape');
   await expect(page.locator('#relationship-summary')).toHaveText('Same axis line; independent radii and taper.');
   const group = await createdGroup(page);

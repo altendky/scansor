@@ -72,7 +72,7 @@ async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph,
     label = 'Four mixed aligned directions', beforeGroup = evaluations.length;
   await begin('direction_alignment', label);
   await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
-  for (const value of participants) await input(page.locator('[data-relationship-role="participants"]'), value).check();
+  for (const value of participants) await input(page.locator('#relationship-dialog [data-relationship-role="participants"]'), value).check();
   await expect(page.locator('#relationship-count')).toHaveText('4 selected');
   await page.keyboard.press('Escape');
   const alignment = await add(label);
@@ -137,7 +137,7 @@ async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph,
     {...support, id: 'role-second-selection', label: 'Second coaxial observations', ids: secondIds});
   roleRecipe.nodes.push({...fit, id: 'role-second-fit', label: 'Second coaxial target', selections: ['role-second-selection']});
   await loadActions(roleRecipe, 'explicit-role-fixture.json');
-  const axisField = page.locator('[data-relationship-role="axis"]'), targets = page.locator('[data-relationship-role="members"]'),
+  const axisField = page.locator('#relationship-dialog [data-relationship-role="axis"]'), targets = page.locator('#relationship-dialog [data-relationship-role="members"]'),
     axis = reference('role-axis'), otherAxis = reference('role-other-axis'), target = reference('axis-cylinder'), second = reference('role-second-fit'),
     choose = async (field, button, value) => {
       await page.getByRole('button', {name: button, exact: true}).click();
@@ -251,7 +251,7 @@ export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
       await page.locator('#new-relationship-label').fill(label);
       await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
       for (const key of [first, second]) {
-        const inputs = page.locator('[data-relationship-role="participants"] input');
+        const inputs = page.locator('#relationship-dialog [data-relationship-role="participants"] input');
         const index = await inputs.evaluateAll((elements, key) => elements.findIndex(element => element.dataset.participantId === key), key);
         assert(index >= 0, `Missing exact direction choice ${key}`);
         await inputs.nth(index).check();

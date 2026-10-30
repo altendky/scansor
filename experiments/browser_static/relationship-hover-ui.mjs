@@ -106,7 +106,7 @@ export async function exerciseRelationshipHoverUi({page, expect, fixture}) {
       await page.locator('#relationship-kind').selectOption(kind);
       if (await page.locator('#clear-relationship-participants').isEnabled()) await page.locator('#clear-relationship-participants').click();
       const role = kind === 'coaxial' ? 'members' : 'participants';
-      await page.locator(`[data-relationship-role="${role}"] .model-field-pick`).click();
+      await page.locator(`#relationship-dialog [data-relationship-role="${role}"] .model-field-pick`).click();
     },
     hover = async (ids, accept) => {
       const candidates = await page.evaluate(ids => globalThis.__relationshipHoverUi.candidates(ids), ids);
@@ -174,7 +174,7 @@ export async function exerciseRelationshipHoverUi({page, expect, fixture}) {
       const ordinary = baseline.colors.slice(fixture.ids['axis-cylinder'][0] * 3, fixture.ids['axis-cylinder'][0] * 3 + 3);
       assert(norm(delta(hovered.color, ordinary)) > .05 && norm(delta(selected.color, ordinary)) > .05);
       if (kind === 'coaxial') {
-        const referencePick = page.locator('[data-relationship-role="axis"] .model-field-pick');
+        const referencePick = page.locator('#relationship-dialog [data-relationship-role="axis"] .model-field-pick');
         await referencePick.focus(); await page.keyboard.press('Enter');
         assert.equal(supports(await read()).filter(overlay => overlay.support.kind !== 'selected').length, 0, 'Changing the active role clears hover');
       } else {

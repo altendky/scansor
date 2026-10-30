@@ -40,6 +40,7 @@ PROJECTION = (
     "input_requirements",
     "input_contracts",
     "relationship_contracts",
+    "fit_input_templates",
 )
 TRANSPORT = {
     "revision",

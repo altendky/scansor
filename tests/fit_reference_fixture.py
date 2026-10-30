@@ -66,6 +66,31 @@ def fit_reference_fixture() -> dict[str, Any]:
         directions[..., 2] = 1
         patch(name, positions, directions, False)
 
+    # Every fit owns different observations, including when its exact geometry
+    # matches another fit. Shared solves deliberately reject overlapping IDs.
+    for name, original in [
+        ("legacy-cylinder", "cylinder"),
+        ("legacy-cone", "cone"),
+        ("legacy-plane-axis", "plane"),
+        ("legacy-plane-datum", "plane"),
+        ("legacy-sphere", "sphere"),
+        ("cylinder-direction", "cylinder"),
+        ("cylinder-normal", "cylinder"),
+        ("cylinder-coaxial", "cylinder"),
+        ("cone-ui", "cone"),
+        ("plane-axis-ui", "plane"),
+        ("plane-publication-ui", "plane"),
+        ("sphere-center-ui", "sphere"),
+        ("sphere-radius-ui", "sphere"),
+    ]:
+        source_ids = ids[original]
+        remap = {old: len(points) + index for index, old in enumerate(source_ids)}
+        source_faces = [face for face in faces if all(index in remap for index in face)]
+        points.extend([points[index].copy() for index in source_ids])
+        normals.extend([normals[index].copy() for index in source_ids])
+        faces.extend((remap[a], remap[b], remap[c]) for a, b, c in source_faces)
+        ids[name] = list(remap.values())
+
     header = (
         "ply\nformat binary_little_endian 1.0\n"
         f"element vertex {len(points)}\nproperty float x\nproperty float y\nproperty float z\n"
@@ -130,6 +155,27 @@ def fit_reference_fixture() -> dict[str, Any]:
                 "source_fit": "sphere",
             },
             {
+                "id": "center-other",
+                "label": "Alternative fixed sphere center",
+                "operation": "point",
+                "source_fit": "sphere",
+            },
+            {
+                "id": "direction-axis",
+                "label": "Independent direction axis",
+                "operation": "axis",
+                "initial_parameters": [0, 0, 0, 0],
+            },
+            {
+                "id": "direction-plane",
+                "label": "Independent direction plane",
+                "operation": "reference_plane",
+                "construction": "independent",
+                "initial_normal": [0, 0, 1],
+                "initial_angle_degrees": None,
+                "offset": 0,
+            },
+            {
                 "id": "plane-datum",
                 "label": "Perpendicular datum",
                 "operation": "reference_plane",
@@ -137,6 +183,28 @@ def fit_reference_fixture() -> dict[str, Any]:
                 "construction": "perpendicular_to_axis",
                 "initial_angle_degrees": None,
             },
+            *[
+                {
+                    "id": identifier,
+                    "label": identifier,
+                    "operation": "fit",
+                    "kind": kind,
+                    "selections": [identifier + "-selection"],
+                    field: datum,
+                }
+                for identifier, kind, field, datum in [
+                    ("legacy-cylinder", "cylinder", "axis", "axis"),
+                    ("legacy-cone", "cone", "axis", "axis"),
+                    ("legacy-plane-axis", "plane", "axis", "axis"),
+                    (
+                        "legacy-plane-datum",
+                        "plane",
+                        "reference_plane",
+                        "plane-datum",
+                    ),
+                    ("legacy-sphere", "sphere", "point", "center"),
+                ]
+            ],
             {
                 "id": "parallel-planes",
                 "label": "Solved parallel planes",

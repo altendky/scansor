@@ -75,18 +75,25 @@ test('empty joint explains binding and ordering, then snapshots refresh factors 
   await expect(page.locator('#new-axis-solve-label')).toHaveValue('My uncommitted joint');
 });
 
-test('sphere Reference geometry explains its point-datum prerequisite rather than suggesting an axis', async ({ page }) => {
+test('sphere Shared center reference requires a point datum and excludes fit centers and axes', async ({ page }) => {
   await jointScene(page);
   await page.getByRole('button', { name: 'Surface fit', exact: true }).click();
   await page.locator('#new-fit-kind').selectOption('sphere');
-  await page.locator('#new-fit-reference-mode').selectOption('fit_point_center');
-  const reference = field(page, 'new-fit-reference');
-  await expect(reference.locator('.selection-field-feedback')).toContainText('Create a point datum before this sphere fit');
+  await page.locator('#new-fit-relationships').getByRole('button', { name: 'Add relationship', exact: true }).click();
+  const relationship = page.locator('#new-fit-relationships [data-fit-relationship]');
+  await relationship.locator('select[id$="-kind"]').selectOption('shared_center');
+  const pointRole = relationship.locator('[data-relationship-role="point"]'),
+    reference = pointRole.locator('.selection-field');
+  await expect(reference.locator('.selection-field-feedback')).toContainText('No eligible reference point');
   await expect(reference.locator('.selection-field-feedback')).not.toContainText('axis or plane datum');
   await expect(reference.locator('.model-field-pick')).toBeDisabled();
   await expect(reference.locator('.selection-field-dropdown')).toBeEnabled();
   await reference.locator('.selection-field-dropdown').click();
-  await expect(page.locator('#new-fit-reference-mode option[value=""]')).toHaveText('None (standalone)');
+  await expect(pointRole.locator('.relationship-participants input')).toHaveCount(0);
+  // The prospective sphere does declare a center, but it can only be a target:
+  // a surface-fit center cannot silently replace the required point datum.
+  await expect(relationship.locator('[data-relationship-role="members"] .relationship-participants input')).toHaveCount(1);
+  await expect(relationship.locator('[data-relationship-role="members"] .selection-field-selected')).toContainText('center');
 });
 
 test('failed Body stays selectable for export diagnostics when model picking is unavailable', async ({ page }) => {

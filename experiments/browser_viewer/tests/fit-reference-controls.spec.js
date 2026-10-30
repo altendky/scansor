@@ -36,8 +36,8 @@ const test = base.extend({
   }, {scope: 'worker'}],
 });
 
-test('typed Fit reference controls preserve families, diagnose unsupported publications and reopen', async ({page, fitFixture}, testInfo) => {
-  test.setTimeout(240000);
+test('Fit editors share ordinary relationship authoring, preserve pending drafts and legacy bindings, and reopen', async ({page, fitFixture}, testInfo) => {
+  test.setTimeout(360000);
   page.setDefaultTimeout(30000);
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
@@ -47,7 +47,20 @@ test('typed Fit reference controls preserve families, diagnose unsupported publi
     await route.fulfill({response, body: await response.text() + fitReferenceObserver});
   });
   await page.goto(fitFixture.origin);
-  const report = await exerciseFitReferenceUi({page, expect, fixture: fitFixture.fixture});
+  let report;
+  try { report = await exerciseFitReferenceUi({page, expect, fixture: fitFixture.fixture}); }
+  catch (error) {
+    error.message += '\nFit workflow diagnostics: ' + JSON.stringify({pageErrors: errors,
+      controls: await page.evaluate(() => ({status: document.getElementById('status')?.textContent,
+        createError: document.getElementById('new-fit-error')?.textContent,
+        startup: document.getElementById('startup-error')?.textContent,
+        graph: (() => {const value = globalThis.__fitReferenceUi?.read(); return value && {
+          states: value.graph.states, errors: value.graph.errors, evaluationRunning: value.graph.evaluation_running,
+          evaluations: value.evaluations, writes: value.writes.length,
+          lastAction: value.graph.recipe.nodes.at(-1)?.label};})(),
+        activeDialog: [...document.querySelectorAll('dialog[open]')].map(element => element.id)}))});
+    throw error;
+  }
   expect(report.complete).toBe(true);
   expect(errors).toEqual([]);
   const reportPath = testInfo.outputPath('fit-reference-ui.json');

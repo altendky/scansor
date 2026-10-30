@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -204,6 +205,23 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "uses": ["binding"],
         "ownership": "fit",
         "geometry_kinds": ["cone", "cylinder"],
+        "min_count": 1,
+        "max_count": 32,
+    },
+    "shared_center_point": {
+        "capabilities": ["point"],
+        "property": "point",
+        "uses": ["binding"],
+        "ownership": "datum",
+        "min_count": 1,
+        "max_count": 1,
+    },
+    "shared_center_members": {
+        "capabilities": ["point"],
+        "property": "point",
+        "uses": ["binding"],
+        "ownership": "fit",
+        "geometry_kinds": ["sphere"],
         "min_count": 1,
         "max_count": 32,
     },
@@ -510,6 +528,7 @@ def output_catalogue(
         PlaneDefinition,
         PlaneRelationship,
         Selection,
+        SharedCenterGroup,
         SurfaceFit,
         dependencies,
         describe_geometry_influence,
@@ -542,6 +561,8 @@ def output_catalogue(
             elif provider.solve is not None:
                 family, anchor = provider.solve
                 description, kind = solve_descriptions[family]
+                if isinstance(nodes[anchor], SharedCenterGroup):
+                    description, kind = "Shared-center solve", "point_solve"
                 producing_contexts[publisher] = {
                     "id": publisher,
                     "label": f"{description} · {nodes[anchor].label}",
@@ -555,6 +576,8 @@ def output_catalogue(
     for node in nodes.values():
         if isinstance(node, FeatureReuse):
             members = node.fits
+        elif isinstance(node, SharedCenterGroup):
+            members = [node.point, *node.surfaces]
         elif isinstance(node, JointFit):
             sides, planes = joint_surfaces(node, nodes)
             members = [member.id for member in [*sides, *planes]]
@@ -962,6 +985,43 @@ def fit_reference_requirement(kind: str, field: str) -> str:
     if len(matches) != 1:
         raise ValueError(f"fit reference {field!r} is unavailable for {kind!r}")
     return matches[0]
+
+
+def fit_input_templates(
+    *, frame: str = "workspace", reserved_ids: set[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Declare provisional fit ports through the actual shared catalogue rules.
+
+    These private structural nodes have no observations and are never submitted
+    as actions. A client substitutes the marker identity into its real draft;
+    ordinary recipe validation still requires selections at publication time.
+    """
+    marker = "@fit-draft"
+    while marker in (reserved_ids or set()):
+        marker += "-"
+    return deepcopy(_fit_input_templates(frame, marker))
+
+
+@lru_cache(maxsize=32)
+def _fit_input_templates(frame: str, marker: str) -> dict[str, dict[str, Any]]:
+    from experiments.feature_graph import Recipe, SurfaceFit
+
+    templates: dict[str, dict[str, Any]] = {}
+    for kind in get_args(SurfaceFit.model_fields["kind"].annotation):
+        node = SurfaceFit.model_construct(
+            id=marker, label="New fit", operation="fit", kind=kind, selections=[]
+        )
+        recipe = Recipe.model_construct(nodes=[node], output=marker)
+        catalogue = output_catalogue(recipe, frame=frame)
+        templates[kind] = {
+            "feature": marker,
+            "input_catalogue": catalogue,
+            "input_requirements": {
+                name: input_choices(recipe, requirement=name, catalogue=catalogue)
+                for name in REQUIREMENTS
+            },
+        }
+    return templates
 
 
 def validate_fit_reference(

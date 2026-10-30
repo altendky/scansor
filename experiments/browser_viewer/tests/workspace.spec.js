@@ -62,7 +62,8 @@ test('icon legend uses current drawings, docks and floats without changing actio
   const legend = page.locator('#icon-legend-dialog');
   await expect(legend).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Icon legend', exact: true })).toBeVisible();
-  await expect(legend.locator('li[data-icon]')).toHaveCount(49);
+  await expect(legend.locator('li[data-icon]')).toHaveCount(50);
+  await expect(legend.locator('li[data-icon="shared_center_group"]')).toContainText('Shared center');
   await expect(legend.locator('li[data-icon="direction_alignment"]')).toContainText('Direction alignment');
   await expect(legend.locator('li[data-icon="surface_selection"]')).toContainText('Seeded surface selection');
   await expect(legend.locator('li[data-icon="needs_input"]')).toContainText('source volume');

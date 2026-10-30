@@ -66,6 +66,7 @@ def semantic_report(
         "input_requirements": {},
         "input_contracts": {},
         "relationship_contracts": {},
+        "fit_input_templates": {},
         "revision": 1,
     }
     profile, ids = VALIDATOR.SEMANTIC_DRIVERS[name]
@@ -280,6 +281,7 @@ def source_authoring_fixture() -> dict[str, Any]:
             "input_requirements": {},
             "input_contracts": {},
             "relationship_contracts": {},
+            "fit_input_templates": {},
             "required_failures": [],
         }
         native[key] = copy.deepcopy(graph)
@@ -1346,6 +1348,7 @@ def test_local_named_json_stat_preflight_uses_exact_dispatch_before_read(
 ) -> None:
     monkeypatch.setattr(VALIDATOR, "MAX_JSON", 64)
     monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", 128)
+    monkeypatch.setattr(VALIDATOR, "MAX_WORKSPACE_GRAPH_JSON", 192)
     payload = tmp_path / "payload"
     path = payload / "evidence" / (name + ".json")
     path.parent.mkdir(parents=True)
@@ -3049,6 +3052,7 @@ def test_actions_capability_types_remain_bound_after_all_envelope_hashes_are_ref
 def test_source_graph_json_limit_is_exactly_scoped() -> None:
     assert VALIDATOR.MAX_JSON == 32 * 1024 * 1024
     assert VALIDATOR.MAX_SOURCE_GRAPH_JSON == 64 * 1024 * 1024
+    assert VALIDATOR.MAX_WORKSPACE_GRAPH_JSON == 96 * 1024 * 1024
     assert VALIDATOR.MAX_MEMBER == 256 * 1024 * 1024
     assert VALIDATOR.MAX_TOTAL == 768 * 1024 * 1024
     assert VALIDATOR.MAX_ARCHIVE == 512 * 1024 * 1024
@@ -3059,9 +3063,10 @@ def test_source_graph_json_limit_is_exactly_scoped() -> None:
     )
     for name in VALIDATOR.DRIVERS:
         assert VALIDATOR.driver_json_limit(name) == (
-            VALIDATOR.MAX_SOURCE_GRAPH_JSON
-            if name
-            in (*VALIDATOR.SOURCE_GRAPH_DRIVERS, *VALIDATOR.WORKSPACE_GRAPH_DRIVERS)
+            VALIDATOR.MAX_WORKSPACE_GRAPH_JSON
+            if name in VALIDATOR.WORKSPACE_GRAPH_DRIVERS
+            else VALIDATOR.MAX_SOURCE_GRAPH_JSON
+            if name in VALIDATOR.SOURCE_GRAPH_DRIVERS
             else VALIDATOR.MAX_JSON
         )
     for name in (
@@ -3088,8 +3093,9 @@ def test_source_graph_json_parser_and_archive_exact_boundary(
     # Small equivalent boundaries keep this test independent of fixture volume.
     monkeypatch.setattr(VALIDATOR, "MAX_JSON", 64)
     monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", 128)
-    raw = b"{}" + b" " * (126 + extra)
+    monkeypatch.setattr(VALIDATOR, "MAX_WORKSPACE_GRAPH_JSON", 192)
     limit = VALIDATOR.driver_json_limit(name)
+    raw = b"{}" + b" " * (limit - 2 + extra)
     if extra:
         with pytest.raises(ValueError, match="JSON input exceeds size limit"):
             _ = VALIDATOR.object_json(raw, limit=limit)
@@ -3125,15 +3131,20 @@ def test_source_graph_full_archive_and_nested_parser_allow_retained_pairs_above_
     original = report["semantic_parity_evidence"]["json"]
     # Whitespace changes neither graphs nor receipt semantics, but exercises
     # BOTH real report parsing and its nested exact-byte semantic input path.
-    text = original + " " * (VALIDATOR.MAX_JSON + 1 - len(original.encode()))
+    lower_bound = (
+        VALIDATOR.MAX_SOURCE_GRAPH_JSON
+        if name in VALIDATOR.WORKSPACE_GRAPH_DRIVERS
+        else VALIDATOR.MAX_JSON
+    )
+    text = original + " " * (lower_bound + 1 - len(original.encode()))
     raw = text.encode()
     report["semantic_parity_evidence"] = {"json": text, **VALIDATOR.identity(raw)}
     report["semantic_parity"]["input_sha256"] = VALIDATOR.sha256(raw)
     selected["members"][filename] = encoded(report)
     assert (
-        VALIDATOR.MAX_JSON
+        lower_bound
         < len(selected["members"][filename])
-        < VALIDATOR.MAX_SOURCE_GRAPH_JSON
+        < VALIDATOR.driver_json_limit(name)
     )
     verification = json.loads(selected["members"]["evidence/verification.json"])
     next(step for step in verification["steps"] if step["name"] == name)["evidence"] = {
@@ -3158,20 +3169,27 @@ def test_source_graph_full_archive_rejects_above_its_cap_before_output(
 ) -> None:
     # The archive selection path must actually pass the named cap to read_member.
     raw = selected["members"]["evidence/" + name + ".json"]
-    monkeypatch.setattr(VALIDATOR, "MAX_SOURCE_GRAPH_JSON", len(raw) - 1)
+    limit_name = (
+        "MAX_WORKSPACE_GRAPH_JSON"
+        if name in VALIDATOR.WORKSPACE_GRAPH_DRIVERS
+        else "MAX_SOURCE_GRAPH_JSON"
+    )
+    monkeypatch.setattr(VALIDATOR, limit_name, len(raw) - 1)
     with pytest.raises(ValueError, match="archive JSON exceeds limit"):
         _ = validate(selected)
     assert not (selected["tmp"] / "public-site").exists()
 
 
 @pytest.mark.parametrize("transport", ["archive", "local"])
-def test_timing_full_source_report_above_32mib_keeps_semantic_validation(
+def test_timing_full_source_report_above_64mib_keeps_semantic_validation(
     selected: dict[str, Any], transport: str
 ) -> None:
     filename = "evidence/timing.json"
     original = selected["members"][filename]
-    raw = original + b" " * (VALIDATOR.MAX_JSON + 1 - len(original))
-    assert VALIDATOR.MAX_JSON < len(raw) < VALIDATOR.MAX_SOURCE_GRAPH_JSON
+    raw = original + b" " * (VALIDATOR.MAX_SOURCE_GRAPH_JSON + 1 - len(original))
+    assert (
+        VALIDATOR.MAX_SOURCE_GRAPH_JSON < len(raw) < VALIDATOR.MAX_WORKSPACE_GRAPH_JSON
+    )
     selected["members"][filename] = raw
     verification = json.loads(selected["members"]["evidence/verification.json"])
     next(step for step in verification["steps"] if step["name"] == "timing")[

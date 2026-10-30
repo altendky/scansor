@@ -2,11 +2,11 @@
 // explicit while retaining the complete, unprojected graphs in the report.
 import assert from 'node:assert/strict';
 
-export const SOURCE_GRAPH_SCHEMA = 'scansor-source-graph-semantic-v3';
+export const SOURCE_GRAPH_SCHEMA = 'scansor-source-graph-semantic-v4';
 export const SOURCE_GRAPH_PROJECTION = Object.freeze([
   'recipe', 'token', 'states', 'errors', 'diagnostics', 'memberships',
   'results', 'result', 'derived', 'input_catalogue', 'input_requirements',
-  'input_contracts', 'relationship_contracts',
+  'input_contracts', 'relationship_contracts', 'fit_input_templates',
 ]);
 const transportFields = new Set([
   'revision', 'project_generation', 'required_failures', 'evaluation_running', 'evaluation_error', 'evaluation',
