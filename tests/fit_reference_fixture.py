@@ -88,7 +88,7 @@ def fit_reference_fixture() -> dict[str, Any]:
         source_faces = [face for face in faces if all(index in remap for index in face)]
         points.extend([points[index].copy() for index in source_ids])
         normals.extend([normals[index].copy() for index in source_ids])
-        faces.extend(tuple(remap[index] for index in face) for face in source_faces)
+        faces.extend((remap[a], remap[b], remap[c]) for a, b, c in source_faces)
         ids[name] = list(remap.values())
 
     header = (
