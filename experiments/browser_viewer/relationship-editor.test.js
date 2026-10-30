@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createRelationshipDraft} from './relationship-editor.js';
 import {inputReferenceKey} from './feature-inputs.js';
-import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipNodeInputs} from './relationship-inputs.js';
+import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipNodeInputs,
+  relationshipParticipantPresentation} from './relationship-inputs.js';
 
 const reference = (feature, output, context = feature) => ({feature, output, context});
 const key = (feature, output, context = feature) => inputReferenceKey(reference(feature, output, context));
@@ -38,6 +39,87 @@ function fixture() {
   }
   return state;
 }
+
+function ownershipFixture() {
+  const state = fixture(), field = state.relationship_contracts.direction_alignment.node_fields.reference;
+  Object.assign(field, {use_field: 'reference_use', use_default: 'geometry', use_choices: [
+    {value: 'geometry', label: 'Fixed for this relationship'}, {value: 'binding', label: 'Adjustable property'}]});
+  state.input_contracts.fixed.uses = ['geometry', 'binding'];
+  for (const outputs of Object.values(state.input_requirements)) for (const output of outputs.unavailable) {
+    const direct = output.reference.context === output.reference.feature;
+    output.uses = direct ? ['geometry', 'binding'] : ['geometry'];
+    output.properties = {direction: {binding_eligible: direct, parameter_owner: output.parameter_owner,
+      uses: output.uses}};
+  }
+  return state;
+}
+
+test('reference ownership is explicit, survives saving, and never converts a publication to a binding', () => {
+  const state = ownershipFixture(), node = {operation: 'direction_alignment', sense: 'unsigned',
+    reference: reference('other', 'axis', 'solve'), directions: [reference('fit', 'axis')]},
+    model = createRelationshipDraft({getState: () => state, anchorFeature: 'fit'}),
+    legacy = relationshipDraftForNode(state, node);
+  assert.deepEqual(legacy.roleUses, {reference: 'geometry'});
+  model.reset({kind: 'direction_alignment', draft: legacy});
+  assert.deepEqual(model.inputs(), {...node, reference_use: 'geometry'});
+  assert.equal(model.setRoleUse('reference', 'binding'), true);
+  assert.equal(model.validity().valid, false, 'a fixed publication must be explicitly replaced');
+  const unavailable = model.choices('reference').find(output => output.key === key('other', 'axis', 'solve'));
+  assert.equal(unavailable.compatible, false);
+  assert.equal(model.change('reference', unavailable.key, true), false);
+  model.change('reference', unavailable.key, false);
+  assert.equal(model.change('reference', key('axis', 'axis'), true), true);
+  const saved = model.inputs();
+  assert.equal(saved.reference_use, 'binding');
+  assert.deepEqual(saved.reference, reference('axis', 'axis'));
+  const reopened = relationshipDraftForNode(state, saved);
+  model.reset({kind: 'direction_alignment', draft: reopened});
+  model.refresh(); assert.deepEqual(model.inputs(), saved);
+  const copy = model.snapshot(); copy.draft.roleUses.reference = 'geometry';
+  assert.equal(model.draft.roleUses.reference, 'binding', 'snapshots must not change the authored ownership');
+  assert.equal(model.setRoleUse('reference', 'unknown'), false);
+});
+
+test('fixed reference mode labels direct geometry honestly and excludes binding-only initializers', () => {
+  const state = ownershipFixture(), model = createRelationshipDraft({getState: () => state});
+  for (const outputs of Object.values(state.input_requirements)) for (const output of outputs.unavailable)
+    if (output.reference.feature === 'axis') output.uses = ['binding'];
+  model.reset({kind: 'direction_alignment'});
+  assert.equal(model.choices('reference').some(output => output.key === key('axis', 'axis')), false);
+  const direct = model.choices('reference').find(output => output.key === key('fit', 'axis'));
+  assert.equal(relationshipParticipantPresentation(state, direct).roleLabel, 'Fixed for this relationship');
+  model.setRoleUse('reference', 'binding');
+  const adjustable = model.choices('reference').find(output => output.key === key('axis', 'axis'));
+  assert.equal(adjustable.compatible, true);
+  assert.equal(relationshipParticipantPresentation(state, adjustable).roleLabel, 'Adjustable property');
+  assert.equal(model.choices('reference').some(output => output.reference.context === 'solve'), false);
+});
+
+test('an existing reference fit stays pinned in its role when ownership is edited', () => {
+  const state = ownershipFixture(), node = {operation: 'direction_alignment', sense: 'unsigned',
+    reference: reference('fit', 'axis'), directions: [reference('other', 'axis')]},
+    model = createRelationshipDraft({getState: () => state, anchorFeature: 'fit'});
+  model.reset({kind: 'direction_alignment', draft: relationshipDraftForNode(state, node)});
+  for (const use of ['binding', 'geometry']) {
+    model.setRoleUse('reference', use); model.refresh(); model.clear('reference');
+    assert.deepEqual(model.draft.roles.reference, new Set([key('fit', 'axis')]));
+    assert.deepEqual(model.inputs(), {...node, reference_use: use});
+  }
+});
+
+test('fixed geometry availability is not inherited from corrective binding eligibility', () => {
+  const state = ownershipFixture(), model = createRelationshipDraft({getState: () => state}),
+    output = state.input_requirements.fixed.unavailable.find(output => output.reference.feature === 'fit');
+  output.availability = 'ready';
+  state.input_catalogue.push({...output, availability: 'failed', reason: 'Its provider failed'});
+  model.reset({kind: 'direction_alignment', draft: {roles: {reference: new Set([output.key]),
+    participants: new Set([key('other', 'axis')])}, roleUses: {reference: 'geometry'}}});
+  assert.equal(model.choices('reference').find(candidate => candidate.key === output.key).compatible, false);
+  assert.equal(model.validity().valid, false);
+  model.setRoleUse('reference', 'binding');
+  assert.equal(model.choices('reference').find(candidate => candidate.key === output.key).compatible, true);
+  assert.equal(model.validity().valid, true);
+});
 
 test('fit anchoring follows common role metadata and offers relations before partners exist', () => {
   const state = fixture();

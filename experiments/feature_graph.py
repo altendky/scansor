@@ -646,6 +646,7 @@ class DirectionAlignment(Node):
     operation: Literal["direction_alignment"]
     directions: list[FeatureInput] = Field(min_length=1, max_length=33)
     reference: OutputReference | None = None
+    reference_use: Literal["geometry", "binding"] = "geometry"
     sense: Literal["unsigned"] = "unsigned"
 
     @property
@@ -1366,7 +1367,10 @@ def plane_relationship_endpoints(
         result = (
             [
                 normalize_endpoint(
-                    relationship.reference, nodes, "relationship_direction_reference"
+                    relationship.reference,
+                    nodes,
+                    "relationship_direction_reference",
+                    use=relationship.reference_use,
                 )
             ]
             if relationship.reference is not None
@@ -4873,6 +4877,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if isinstance(node, DirectionAlignment)
                     else {"participants": node.surfaces},
                     recipe,
+                    role_uses={"reference": node.reference_use}
+                    if isinstance(node, DirectionAlignment)
+                    else None,
                 )
                 endpoints = [
                     endpoint for values in endpoints.values() for endpoint in values

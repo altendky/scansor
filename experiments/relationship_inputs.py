@@ -46,6 +46,12 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
                 "encoding": "reference",
                 "multiple": False,
                 "optional": True,
+                "use_field": "reference_use",
+                "use_default": "geometry",
+                "use_choices": [
+                    {"value": "geometry", "label": "Fixed for this relationship"},
+                    {"value": "binding", "label": "Adjustable property"},
+                ],
             },
             "participants": {
                 "name": "directions",
@@ -214,6 +220,8 @@ def normalize_endpoint(
     reference: FeatureInput | dict[str, Any],
     nodes: dict[str, Feature],
     requirement: str = "relationship_plane",
+    *,
+    use: str | None = None,
 ) -> RelationshipEndpoint:
     """Normalize an owner binding without recursing into graph discovery.
 
@@ -221,6 +229,12 @@ def normalize_endpoint(
     declared owner is a parameter binding; every other context is a fixed read.
     """
     contract = REQUIREMENTS[requirement]
+    use = use if use is not None else contract.get("default_use")
+    if use is not None and (
+        use not in {"geometry", "binding"}
+        or use not in contract.get("uses", ["geometry"])
+    ):
+        raise ValueError("relationship input use is unavailable for this role")
     if isinstance(reference, str):
         if reference not in nodes:
             raise ValueError("relationship input refers to a removed feature")
@@ -257,12 +271,21 @@ def normalize_endpoint(
         spec["parameter_owner"]
         if ref.context == ref.feature
         and "binding" in contract.get("uses", ["geometry"])
+        and use != "geometry"
         else None
     )
     if contract.get("property") == "direction" and not spec["properties"].get(
         "direction", {}
     ).get("binding_eligible", False):
         owner = None
+    if use == "binding" and owner is None:
+        if ref.context != ref.feature:
+            raise ValueError(
+                "a binding requires a direct parameter owner, not a solved publication"
+            )
+        raise ValueError(
+            "this property is read-only; binding requires an adjustable parameter owner"
+        )
     descriptor = {
         **spec,
         "reference": ref.model_dump(),
@@ -282,14 +305,20 @@ def relationship_reference(
     reference: FeatureInput | dict[str, Any],
     recipe: Recipe,
     requirement: str = "relationship_plane",
+    *,
+    use: str | None = None,
 ) -> RelationshipEndpoint:
     endpoint = normalize_endpoint(
-        reference, {node.id: node for node in recipe.nodes}, requirement
+        reference, {node.id: node for node in recipe.nodes}, requirement, use=use
     )
     # The pure path establishes identity; this path also checks that the exact
     # non-owner publication is declared rather than guessing a ready overlay.
     if not endpoint.is_binding:
-        _ = validate_output_reference(endpoint.reference, recipe, requirement)
+        descriptor = validate_output_reference(endpoint.reference, recipe, requirement)
+        if "geometry" not in descriptor["uses"]:
+            raise ValueError(
+                "this read-only direction requires its exact published geometry context"
+            )
     return endpoint
 
 
@@ -324,11 +353,16 @@ def validate_relationship_inputs(
     references: Sequence[FeatureInput | dict[str, Any]]
     | Mapping[str, Sequence[FeatureInput | dict[str, Any]]],
     recipe: Recipe,
+    *,
+    role_uses: Mapping[str, str] | None = None,
 ) -> dict[str, list[RelationshipEndpoint]]:
     """Validate explicit roles, preserving legacy unambiguous flat selections."""
     if kind not in RELATIONSHIP_SIGNATURES:
         raise ValueError("unknown relationship signature")
     signature = RELATIONSHIP_SIGNATURES[kind]
+    role_uses = role_uses or {}
+    if set(role_uses) - set(signature["roles"]):
+        raise ValueError("relationship has an unknown input use role")
     if kind == "direction_alignment" and not isinstance(references, Mapping):
         references = {"participants": references}
     explicit_roles = isinstance(references, Mapping)
@@ -352,6 +386,14 @@ def validate_relationship_inputs(
             if members is not None:
                 source_keys.add(reference_key(members[0]))
     for role, requirement in signature["roles"].items():
+        field = signature.get("node_fields", {}).get(role, {})
+        use = role_uses.get(role, field.get("use_default"))
+        if role in role_uses and not field.get("use_field"):
+            raise ValueError("relationship input use is not configurable for this role")
+        if use is not None and use not in {
+            choice["value"] for choice in field.get("use_choices", [])
+        }:
+            raise ValueError("relationship input use is unavailable for this role")
         endpoints: list[RelationshipEndpoint] = []
         candidates = (
             references.get(role, ()) if isinstance(references, Mapping) else references
@@ -361,7 +403,9 @@ def validate_relationship_inputs(
         candidates = expand_relationship_references(candidates, nodes, requirement)
         for index, reference in enumerate(candidates):
             try:
-                endpoint = relationship_reference(reference, recipe, requirement)
+                endpoint = relationship_reference(
+                    reference, recipe, requirement, use=use
+                )
             except ValueError as error:
                 if kind == "direction_alignment":
                     raise ValueError(

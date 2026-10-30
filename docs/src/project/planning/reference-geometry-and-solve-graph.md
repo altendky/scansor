@@ -188,8 +188,12 @@ direction relationships remain a separate solver step.
 Aligned directions accepts 2–33 unique compatible outputs, including axis
 directions and plane normals. Its **Apply to** selection accepts individual
 outputs and live direction collections from Feature reuse. The optional **Same
-direction as** input supplies a fixed upstream reference for this relationship;
-otherwise the participants share an unsigned direction. Compilation uses a
+direction as** input has an explicit **Reference ownership** choice. A fixed
+result is an exact upstream read, while an adjustable property joins the existing
+parameter owner into the connected fit. The authoring reference role itself does
+not freeze geometry. Existing saved references retain fixed semantics until the
+ownership choice is explicitly changed. Without a reference, the participants
+share an unsigned direction. Compilation uses a
 deterministic spanning set of internal alignments without creating additional
 authored relationships. Shared role and cardinality
 metadata also describes peer plane/radius relationships and distinct

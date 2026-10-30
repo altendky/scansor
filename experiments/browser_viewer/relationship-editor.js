@@ -3,12 +3,13 @@ import {relationshipDefinitions, relationshipRoleChoices, relationshipParticipan
   relationshipRoleSelection, relationshipSelectionForFeatures, relationshipValidity, relationshipNodeInputs,
   relationshipFeatureIds, relationshipExpandedOutputs, relationshipCollectionMembers,
   relationshipParticipantPresentation, relationshipSelectionCounts, relationshipOutputValue,
-  directionAlignmentLabel} from './relationship-inputs.js';
+  directionAlignmentLabel, relationshipRoleUse, renderRelationshipRoleUse} from './relationship-inputs.js';
 import {createPickField} from './model-picking.js';
 import {renderRelationshipParticipants} from './action-tree.js';
 
 const copyDraft = draft => ({roles: Object.fromEntries(Object.entries(draft?.roles || {})
-  .map(([role, keys]) => [role, new Set(keys)])), unassigned: new Set(draft?.unassigned || [])});
+  .map(([role, keys]) => [role, new Set(keys)])), unassigned: new Set(draft?.unassigned || []),
+  ...(draft?.roleUses ? {roleUses: {...draft.roleUses}} : {})});
 
 // State and serialization are shared by standalone relationships and any editor
 // that supplies an additional, structurally declared feature as its anchor.
@@ -23,7 +24,8 @@ export function createRelationshipDraft({getState, getNodes, anchorFeature = nul
   function anchorChoice() {
     const id = anchor(), signature = definition();
     if (!id || !signature) return null;
-    const candidates = Object.keys(signature.roles).flatMap(role => relationshipRoleChoices(state(), kind, role, new Set(), nodes())
+    const candidates = Object.keys(signature.roles).flatMap(role => relationshipRoleChoices(state(), kind, role, new Set(), nodes(),
+      relationshipRoleUse(state(), kind, role, draft))
       .filter(output => output.reference.feature === id && (output.reference.context || id) === id)
       .map(output => ({role, output})));
     // An existing fit may itself be the reference. Opening its properties must
@@ -44,7 +46,7 @@ export function createRelationshipDraft({getState, getNodes, anchorFeature = nul
   }
   function choices(role = 'participants') {
     const keys = draft.roles[role] || new Set(), explicit = usesRoles(),
-      outputs = explicit ? relationshipRoleChoices(state(), kind, role, keys, nodes())
+      outputs = explicit ? relationshipRoleChoices(state(), kind, role, keys, nodes(), relationshipRoleUse(state(), kind, role, draft))
         : relationshipParticipantChoices(state(), kind, selected(), nodes());
     const pinned = anchorChoice(), pinnedSingle = explicit && pinned?.role === role &&
       state().input_contracts[definition().roles[role]].max_count === 1;
@@ -115,6 +117,12 @@ export function createRelationshipDraft({getState, getNodes, anchorFeature = nul
       if (role) draft.roles[role]?.clear();
       else {for (const keys of Object.values(draft.roles)) keys.clear(); draft.unassigned.clear();}
       pin();
+    },
+    setRoleUse(role, use) {
+      const field = definition()?.node_fields?.[role];
+      if (!field?.use_field || !(field.use_choices || []).some(choice => choice.value === use)) return false;
+      (draft.roleUses ||= {})[role] = use;
+      pin(); return true;
     },
     removeUnassigned(key) { draft.unassigned.delete(key); pin(); },
     setLabel(value) {label = value;},
@@ -209,6 +217,13 @@ export function createRelationshipEditor({root, prefix = 'relationship', nameId 
       list.setAttribute('aria-label', `${label} choices`); options.append(filter, list); wrapper.append(heading, clear);
       const picker = makePicker(role, label, getState().input_contracts[requirement].max_count !== 1,
         wrapper, options, filter, list);
+      if (signature.node_fields?.[role]?.use_field) {
+        const useLabel = el('label', '', 'Reference ownership'), use = el('select');
+        use.id = `${prefix}-role-${role}-use`; useLabel.htmlFor = use.id; useLabel.append(use);
+        use.setAttribute('aria-label', 'Reference ownership');
+        wrapper.insertBefore(useLabel, picker.field.element);
+        use.onchange = () => api.setRoleUse(role, use.value); picker.use = use;
+      }
       picker.clear = clear; clear.onclick = () => api.clear(role); roles.set(role, picker); elements.roles.append(wrapper);
     }
     if (!roles.has(model.activeRole)) model.setActiveRole(roles.has('participants') ? 'participants' : roles.keys().next().value);
@@ -235,6 +250,11 @@ export function createRelationshipEditor({root, prefix = 'relationship', nameId 
     elements.name.value = model.label; elements.name.readOnly = isLocked;
     renderRoles();
     for (const picker of pickers()) {
+      if (picker.use) {
+        renderRelationshipRoleUse(picker.use, state, model.kind, picker.name,
+          relationshipRoleUse(state, model.kind, picker.name, model.draft));
+        picker.use.disabled = isLocked;
+      }
       const outputs = model.choices(picker.name), keys = model.explicitRoles ? model.draft.roles[picker.name] || new Set() : selected;
       renderRelationshipParticipants(picker.list, {choices: outputs.map(output => ({
         ...relationshipParticipantPresentation(state, output), id: output.key,
@@ -297,6 +317,7 @@ export function createRelationshipEditor({root, prefix = 'relationship', nameId 
     refresh: render,
     setKind(value) {return mutate(() => {onBeforeKindChange(api); model.setKind(value);});},
     change(role, key, included) {return mutate(() => model.change(role, key, included));},
+    setRoleUse(role, use) {return mutate(() => model.setRoleUse(role, use));},
     clear(role) {return mutate(() => model.clear(role));},
     inputs: () => model.inputs(), validity: () => model.validity(), snapshot: () => model.snapshot(),
     picker: role => pickers().find(picker => picker.name === role), pickers, choices: role => model.choices(role),
