@@ -675,6 +675,14 @@ def output_catalogue(
                 )
             reason: str | None = None
             publisher = nodes.get(context)
+            if (
+                availability == "ready"
+                and isinstance(publisher, FeatureReuse)
+                and node.id not in values.get(context, {}).get("outputs", {})
+            ):
+                # Ordinary evaluated reuse need not materialize source ports.
+                # Their first authored consumer requests that private stage.
+                availability = "unevaluated"
             if isinstance(publisher, CoaxialGroup) and publisher.axis in explicit_axes:
                 availability, reason = (
                     "ambiguous",
@@ -822,6 +830,14 @@ def output_catalogue(
                 descriptors.append(descriptor)
     from experiments.relationship_collections import collection_descriptors
 
+    output_states = {
+        (
+            item["reference"]["feature"],
+            item["reference"]["output"],
+            item["reference"]["context"],
+        ): item["availability"]
+        for item in descriptors
+    }
     for node in recipe.nodes:
         if not isinstance(node, FeatureReuse):
             continue
@@ -832,7 +848,11 @@ def output_catalogue(
                 )
             members = descriptor["collection"]["members"]
             member_states = [
-                states.get(member["context"], "unevaluated") for member in members
+                output_states.get(
+                    (member["feature"], member["output"], member["context"]),
+                    states.get(member["context"], "unevaluated"),
+                )
+                for member in members
             ]
             availability = next(
                 (

@@ -1884,6 +1884,41 @@ class ExecutionPlan:
     explicit_axes: set[str]
     prior_solves: dict[str, PriorGeometrySolve]
     read_exclusions: dict[str, set[str]]
+    reuse_source_contexts: frozenset[str]
+
+
+def demanded_reuse_source_contexts(nodes: dict[str, Feature]) -> frozenset[str]:
+    """Find authored reads of a reuse's source ports or live collections."""
+    demanded: set[str] = set()
+    for node in nodes.values():
+        references = (
+            node.surfaces
+            if isinstance(node, (PlaneRelationship, DirectionAlignment))
+            else (node.origin_point, node.primary_reference, node.secondary_reference)
+            if isinstance(node, FrameDefinition)
+            else node.source_points or ()
+            if isinstance(node, AxisDefinition)
+            else tuple(
+                ref
+                for distance in node.distances
+                for ref in (distance.first_point, distance.second_point)
+            )
+            if isinstance(node, ScaleDefinition)
+            else ()
+        )
+        for reference in references:
+            if not isinstance(reference, OutputReference):
+                continue
+            owner = nodes.get(reference.context or reference.feature)
+            if isinstance(owner, FeatureReuse) and (
+                reference.feature in owner.fits
+                or (
+                    reference.feature == owner.id
+                    and reference.output.startswith("direction:")
+                )
+            ):
+                demanded.add(owner.id)
+    return frozenset(demanded)
 
 
 def reuse_transfer_descendants(reuse: str, nodes: dict[str, Feature]) -> set[str]:
@@ -1959,6 +1994,7 @@ def compile_execution_plan(
     """
     nodes = {node.id: node for node in recipe.nodes}
     plane_components = influence.plane_components
+    source_contexts = demanded_reuse_source_contexts(nodes)
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
     named_inputs = {
         node.id: selected_symmetry_inputs(node, nodes)
@@ -2121,11 +2157,13 @@ def compile_execution_plan(
             }
         elif isinstance(node, ReuseSelection):
             reads[node.id] = {node.fit}
-        elif isinstance(node, FeatureReuse):
+        elif isinstance(node, FeatureReuse) and node.id in source_contexts:
             reads[node.id] = {
                 *node.fits,
                 *([node.circular.axis] if node.circular is not None else []),
             }
+        elif isinstance(node, FeatureReuse) and node.circular is not None:
+            reads[node.id] = {node.circular.axis}
         elif isinstance(node, SurfaceIntersection):
             reads[node.id] = {node.first.feature, node.second.feature}
         elif isinstance(node, TrimmedFace):
@@ -2154,6 +2192,8 @@ def compile_execution_plan(
     # component. These results have a reuse-local port, never a global overlay.
     for node in recipe.nodes:
         if not isinstance(node, (ReuseSelection, FeatureReuse)):
+            continue
+        if isinstance(node, FeatureReuse) and node.id not in source_contexts:
             continue
         reuse_id = node.id if isinstance(node, FeatureReuse) else node.reuse
         source_ids = set(node.fits) if isinstance(node, FeatureReuse) else {node.fit}
@@ -2244,7 +2284,7 @@ def compile_execution_plan(
     # Give its raw source fit a private stage before the downstream component
     # replaces the ordinary fit task and consumes transferred observations.
     for owner in recipe.nodes:
-        if not isinstance(owner, FeatureReuse):
+        if not isinstance(owner, FeatureReuse) or owner.id not in source_contexts:
             continue
         after = reuse_transfer_descendants(owner.id, nodes)
         provided = {
@@ -2290,8 +2330,9 @@ def compile_execution_plan(
         # A constrained solve consumes prior-stage values, never its own output.
         excluded = {task}
         if task in nodes:
-            excluded.update(prior_stage_exclusions(nodes[task], nodes))
             node = nodes[task]
+            if not isinstance(node, FeatureReuse) or task in source_contexts:
+                excluded.update(prior_stage_exclusions(node, nodes))
             if isinstance(node, EqualRadii):
                 excluded.update(
                     relation.id
@@ -2406,6 +2447,7 @@ def compile_execution_plan(
         explicit_axes,
         prior_solves,
         read_exclusions,
+        source_contexts,
     )
 
 
@@ -5285,6 +5327,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if old_volumes != new_volumes:
                         affected.add(node.id)
             after_nodes = {n.id: n for n in recipe.nodes}
+            # A first/last source-port consumer changes the reuse publication
+            # and source-stage barriers even when its authored owner is unchanged.
+            affected.update(
+                demanded_reuse_source_contexts(before)
+                ^ demanded_reuse_source_contexts(after_nodes)
+            )
             changed_outputs = affected | (before.keys() - after_nodes.keys())
             # The build action's cached inventory also depends on its children,
             # without introducing a parent/child cycle in the evaluation DAG.
@@ -8609,12 +8657,20 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "reference_selection": node.reference_selection,
                         "target_selections": node.target_selections,
                         "matches": matches,
-                        "outputs": {
-                            key: deepcopy(prior_surfaces[node.id][key])
-                            if key in prior_surfaces.get(node.id, {})
-                            else resolved_result(key, plan.read_exclusions.get(node.id))
-                            for key in node.fits
-                        },
+                        **(
+                            {
+                                "outputs": {
+                                    key: deepcopy(prior_surfaces[node.id][key])
+                                    if key in prior_surfaces.get(node.id, {})
+                                    else resolved_result(
+                                        key, plan.read_exclusions.get(node.id)
+                                    )
+                                    for key in node.fits
+                                }
+                            }
+                            if node.id in plan.reuse_source_contexts
+                            else {}
+                        ),
                     }
                 elif isinstance(node, ReuseSelection):
                     reuse = nodes[node.reuse]

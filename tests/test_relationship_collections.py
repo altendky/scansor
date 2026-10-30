@@ -9,6 +9,8 @@ from experiments.feature_graph import (
     DirectionAlignment,
     FeatureGraph,
     Recipe,
+    compile_execution_plan,
+    describe_geometry_influence,
     plane_relationship_endpoints,
 )
 from experiments.feature_inputs import (
@@ -369,3 +371,80 @@ def test_reconciling_after_source_port_reference_edit_keeps_relation_downstream(
     }
     owner = next(node for node in plan.recipe.nodes if node.id == "pattern")
     assert "alignment" not in owner.model_dump()["lineage"]
+
+
+def test_ready_ordinary_reuse_requests_source_ports_only_for_authored_consumers() -> (
+    None
+):
+    workspace, recipe, _ = pattern()
+    nodes = {node.id: node for node in recipe.nodes}
+    plan = compile_execution_plan(
+        recipe, set(nodes), describe_geometry_influence(nodes)
+    )
+    assert plan.reuse_source_contexts == frozenset()
+    assert not any(stage.standalone for stage in plan.prior_solves.values())
+    graph = FeatureGraph(workspace, recipe)
+    before = cast(
+        dict[str, Any], graph.evaluate(str(graph.snapshot()["token"]), all_actions=True)
+    )
+    assert before["errors"] == {}
+    assert before["states"]["pattern"] == "ready"
+    assert "outputs" not in before["derived"]["pattern"]
+    source_ref = {"feature": "bore", "output": "axis", "context": "pattern"}
+    source = next(
+        item for item in before["input_catalogue"] if item["reference"] == source_ref
+    )
+    aggregate = next(
+        item
+        for item in before["input_catalogue"]
+        if item["reference"] == collection().model_dump()
+    )
+    assert source["availability"] == aggregate["availability"] == "unevaluated"
+    assert source["preview"] is None
+    assert compatibility_reason(source, "relationship_direction_reference") is None
+    assert compatibility_reason(aggregate, "relationship_direction_targets") is None
+
+    authored = grouped(Recipe.model_validate(graph.export_recipe()))
+    pending = cast(dict[str, Any], graph.replace(authored, str(before["token"])))
+    assert pending["states"]["pattern"] == "stale"
+    assert "pattern" not in pending["derived"]
+    after = cast(
+        dict[str, Any], graph.evaluate(str(pending["token"]), target="alignment")
+    )
+    assert after["errors"] == {}
+    assert "bore" in after["derived"]["pattern"]["outputs"]
+
+    removed = graph.export_recipe()
+    removed["nodes"] = [node for node in removed["nodes"] if node["id"] != "alignment"]
+    removed["output"] = "pattern"
+    pending = cast(
+        dict[str, Any],
+        graph.replace(Recipe.model_validate(removed), str(after["token"])),
+    )
+    assert pending["states"]["pattern"] == "stale"
+    assert "pattern" not in pending["derived"]
+    final = cast(
+        dict[str, Any], graph.evaluate(str(pending["token"]), target="pattern")
+    )
+    assert final["errors"] == {}
+    assert "outputs" not in final["derived"]["pattern"]
+
+
+@pytest.mark.parametrize("state", ["failed", "blocked", "running", "stale"])
+def test_unmaterialized_ports_preserve_their_owner_failure_and_progress(
+    state: str,
+) -> None:
+    _, recipe, _ = pattern()
+    states = dict.fromkeys((node.id for node in recipe.nodes), "unevaluated")
+    states["pattern"] = state
+    catalogue = output_catalogue(recipe, states)
+    source = next(
+        item
+        for item in catalogue
+        if item["reference"]
+        == {"feature": "bore", "output": "axis", "context": "pattern"}
+    )
+    aggregate = next(
+        item for item in catalogue if item["reference"] == collection().model_dump()
+    )
+    assert source["availability"] == aggregate["availability"] == state
