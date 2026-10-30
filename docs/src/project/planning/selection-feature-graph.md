@@ -560,6 +560,11 @@ fit of the same type. The action records the selected fits' complete upstream
 lineage and any relationships enclosed wholly by the selected fit set, so
 provenance is not lost while compound-feature semantics remain under design.
 
+Painted reference and target matches use the shared tree/model picker in both
+creation and properties. The reference takes one selection; targets toggle
+multiple selections. Pending selections can be picked from the feature tree
+with Auto evaluation off; model picking uses only current evaluated geometry.
+
 ### Reuse-volume inspection
 
 **Provisional display plan, 2026-09-23.** Reuse regions should remain graph

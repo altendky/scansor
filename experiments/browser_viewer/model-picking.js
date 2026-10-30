@@ -358,7 +358,8 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
   return { element, button, dropdown, popup, feedback, update };
 }
 
-export function bindModelPickControls(root, pick, { modelPickable = () => true, busy = () => false } = {}) {
+export function bindModelPickControls(root, pick, { modelPickable = () => true,
+  treePickable = () => false, busy = () => false } = {}) {
   const fields = new WeakMap();
   const sync = () => {
     for (const control of root.querySelectorAll('select, #body-face-choices, #new-body-face-choices')) {
@@ -377,7 +378,8 @@ export function bindModelPickControls(root, pick, { modelPickable = () => true, 
             [...control.querySelectorAll('input[type="checkbox"]')].map(input => ({ key: input.value,
               label: input.closest('label').textContent.trim(), selected: input.checked,
               disabled: input.disabled || input.matches(':disabled') }));
-          field.update(records.map(record => ({ ...record, modelPickable: modelPickable(control, record.key) })),
+          field.update(records.map(record => ({ ...record, modelPickable: modelPickable(control, record.key),
+            treePickable: treePickable(control, record.key) })),
             { emptyMessage: emptyPickMessage(control), busy: busy(), disabled: !!control.disabled || control.matches(':disabled') ||
             !!control.closest('[hidden], [inert], fieldset[disabled]') });
         };
