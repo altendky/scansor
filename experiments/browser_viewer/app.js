@@ -49,7 +49,7 @@ import { copyFitDomain, parseFitDomain, defaultFitDomain, editableManagedSupport
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
 import { createRelationshipSupportCache, relationshipHighlightParts, relationshipSupportGroups,
-  relationshipAxisSpan, relationshipHighlightColors } from './relationship-highlight.js';
+  relationshipAxisSpan, relationshipDirectionDisplay, relationshipHighlightColors } from './relationship-highlight.js';
 import {
   surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
   geometryAppendOutput, sameSurfaceReference, validGeometryPreview,
@@ -550,6 +550,14 @@ function paintModelPickGuides() {
   for (const choice of choices) {
     const color = choice.key === modelPickHoverKey ? '#ffe45c' : choice.selected ? '#6deda6' : '#78e2ff';
     const before = modelPickGuides.children.length;
+    const common = choice.relationshipOutput || choice.inputOutput;
+    if (common?.ownership === 'relationship') {
+      relationshipAxisGuide(common, color, modelPickGuides);
+      for (const child of modelPickGuides.children.slice(before)) {
+        child.userData.pickGuide = true; child.userData.pickKey = choice.key;
+      }
+      continue;
+    }
     if (choice.inputOutput?.preview) {
       const output = choice.inputOutput, values = output.preview;
       if (output.capability === 'point') pointGuide(values, color, modelPickGuides);
@@ -2320,7 +2328,7 @@ function initializeRelationshipEditors(initialState) {
     inspect = (key, editor) => {
       activateRelationshipEditor(editor); relationshipInspected = key; paintRelationshipPreview();
     },
-    focus = ids => focusRelationshipParticipants(ids),
+    focus = (ids, _editor, outputs) => focusRelationshipParticipants(ids, outputs),
     isPicking = (role, editor) => modelPickMode === 'participant' && currentRelationshipEditor() === editor && relationshipActiveRole === role;
   relationshipEditor = createRelationshipEditor({root: $('relationship-editor'), nameId: 'new-relationship-label',
     getState: () => graphState || initialState, locked, makeLabel: definition => nextFeatureLabel(definition?.baseName || 'Relationship'),
@@ -2409,6 +2417,13 @@ function relationshipAxisGuide(output, color, group = overlays, highlighted = nu
   if (output?.properties?.direction?.projection !== 'axis_direction') return false;
   const value = relationshipOutputValue(graphState, output);
   if (!value) return false;
+  if (output.geometry_kind === 'direction') {
+    const box = mesh.geometry.boundingBox || (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox),
+      guide = relationshipDirectionDisplay(value, highlighted?.support, box && [box.min.toArray(), box.max.toArray()]);
+    if (!guide) return false;
+    axisGuide(guide.values, color, group, guide.display);
+    return true;
+  }
   const geometry = axisGeometry(value), support = highlighted?.support || relationshipSupportCache.read(graphState, positions, value),
     box = mesh.geometry.boundingBox || (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox),
     span = relationshipAxisSpan(geometry.axis, geometry.origin, support, box && [box.min.toArray(), box.max.toArray()]),
@@ -4371,6 +4386,9 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
       else if (provider?.operation === 'fit') drawGuide(fitGuide, provider, surface, palette[index % palette.length]);
     });
   }
+  if (guides) for (const output of graphState.input_catalogue || [])
+    if (output.ownership === 'relationship' && output.reference.feature === inspectedFeatureId &&
+        output.reference.context === inspectedFeatureId) relationshipAxisGuide(output, '#78e2ff');
   for (const [label, value] of metrics ? Object.entries(values) : []) {
     const dt = document.createElement('dt'),
       dd = document.createElement('dd');
@@ -4816,7 +4834,7 @@ function focusFaceTarget() {
   }
   focusGeometryBox(box, $('build-faces-dialog'));
 }
-function focusRelationshipParticipants(ids) {
+function focusRelationshipParticipants(ids, exactOutputs = []) {
   const box = new THREE.Box3(), point = new THREE.Vector3();
   modelRoot.updateMatrixWorld(true);
   for (const id of ids) {
@@ -4829,6 +4847,14 @@ function focusRelationshipParticipants(ids) {
       if (!values) continue;
       const group = new THREE.Group();
       referencePlaneGuide(values, '#78e2ff', group);
+      group.applyMatrix4(modelRoot.matrixWorld);
+      box.union(new THREE.Box3().setFromObject(group));
+      for (const child of group.children) { child.geometry.dispose(); child.material.dispose(); }
+    } else {
+      const selected = exactOutputs.filter(output => output.ownership === 'relationship' && output.reference.feature === id),
+        outputs = selected.length ? selected : (graphState.input_catalogue || []).filter(output => output.ownership === 'relationship' &&
+          output.reference.feature === id && output.reference.context === id), group = new THREE.Group();
+      for (const output of outputs) relationshipAxisGuide(output, '#78e2ff', group);
       group.applyMatrix4(modelRoot.matrixWorld);
       box.union(new THREE.Box3().setFromObject(group));
       for (const child of group.children) { child.geometry.dispose(); child.material.dispose(); }

@@ -2,13 +2,25 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {inputReferenceKey} from './feature-inputs.js';
 import {createRelationshipSupportCache, relationshipHighlightParts, relationshipSupportGroups,
-  relationshipAxisSpan, relationshipHighlightColors} from './relationship-highlight.js';
+  relationshipAxisSpan, relationshipDirectionDisplay, relationshipHighlightColors} from './relationship-highlight.js';
 
 const port = (feature, context = feature) => ({reference: {feature, output: 'axis', context},
   availability: 'ready', compatible: true});
 const source = new Float32Array([0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 const part = (ids, kind = 'hover', feature = 'fit') => ({kind, key: feature,
   output: port(feature), support: {ids}});
+
+test('a common unsigned direction receives only a display anchor and no observation support', () => {
+  const value = {axis_display: [0, 0, 1]}, before = structuredClone(value),
+    sceneBounds = [[-8, -4, 2], [12, 6, 10]],
+    guide = relationshipDirectionDisplay(value, null, sceneBounds);
+  assert.deepEqual(guide.values.axis_display, [0, 0, 1]);
+  assert.deepEqual(guide.values.point_display, [2, 1, 6]);
+  assert(guide.display.extent > 0);
+  assert.deepEqual(value, before);
+  assert.equal(relationshipDirectionDisplay({axis_display: [0, 0, 0]}, null, sceneBounds), null);
+  assert.equal(relationshipDirectionDisplay(value, null, null), null);
+});
 
 test('support resolves the exact published context without reading latest or unrelated ports', () => {
   const output = port('fit', 'old-solve'), old = {ids: [0, 2]}, state = {

@@ -51,6 +51,7 @@ def test_source_profile_is_detached_and_has_shared_owned_closure() -> None:
     assert {
         "experiments/scan_project.py",
         "experiments/scan_workspace.py",
+        "experiments/relationship_outputs.py",
         "src/scansor/mesh_ply.py",
         "src/scansor/mesh_stl.py",
     } <= set(numeric)

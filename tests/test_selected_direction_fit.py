@@ -48,6 +48,39 @@ def unit(value: Array) -> Array:
     return value / np.linalg.norm(value)
 
 
+@pytest.mark.parametrize("attachment", ["surface", "free", "position"])
+def test_direction_only_read_rejects_positional_or_adjustable_axis_roles(
+    attachment: str,
+) -> None:
+    direction = np.array([0.0, 0.0, 1.0])
+    workspace, ids = workspace_for({"patch": plane(direction, 6 * direction)})
+    surface = member(
+        "patch",
+        ids,
+        "plane",
+        axis="direction" if attachment == "surface" else None,
+    )
+    component = SelectedDirectionComponent(
+        (surface,),
+        {
+            "direction": AxisInput(
+                {"axis_display": direction.tolist()},
+                attachment == "free",
+                position_free=attachment == "position",
+                direction_only=True,
+            )
+        },
+        (
+            DirectionAlignmentInput(
+                DirectionOperand("plane", "patch"),
+                DirectionOperand("axis", "direction"),
+            ),
+        ),
+    )
+    with pytest.raises(DirectionFitFailure, match="direction-only"):
+        _ = fit_selected_direction_component(workspace, component)
+
+
 def basis(direction: Array) -> tuple[Array, Array]:
     first = unit(
         np.asarray(

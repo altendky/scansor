@@ -106,3 +106,16 @@ export function relationshipAxisSpan(axis, origin, support, sceneBounds) {
   if (!(extent > 0) || !Number.isFinite(extent) || !center.every(Number.isFinite)) return null;
   return {axis: direction, origin: [...origin], center, extent, arrowLength: extent * 0.16};
 }
+
+// A direction has no physical origin. This anchor is a display choice only;
+// it never becomes an axis-line publication or fitting evidence.
+export function relationshipDirectionDisplay(value, support, sceneBounds) {
+  const axis = value?.axis_display;
+  if (!Array.isArray(axis) || axis.length !== 3 || !axis.every(Number.isFinite) || !(Math.hypot(...axis) > 0)) return null;
+  const bounds = sceneBounds;
+  if (!Array.isArray(bounds) || bounds.length !== 2 || !bounds.every(point =>
+    Array.isArray(point) && point.length === 3 && point.every(Number.isFinite))) return null;
+  const center = support?.center || bounds[0].map((coordinate, index) => (coordinate + bounds[1][index]) / 2),
+    display = relationshipAxisSpan(axis, center, support, bounds);
+  return display ? {values: {axis_display: display.axis, point_display: display.center}, display} : null;
+}

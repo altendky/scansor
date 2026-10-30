@@ -48,6 +48,8 @@ class AxisInput:
     source: str | None = None
     orientation_free: bool | None = None
     position_free: bool | None = None
+    # Selected-direction adapters may read orientation without declaring a line.
+    direction_only: bool = False
 
 
 @dataclass(frozen=True)

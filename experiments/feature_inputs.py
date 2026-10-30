@@ -463,7 +463,9 @@ def declared_output_specs(node: Feature) -> list[dict[str, Any]]:
             )
         ]
     if operation != "fit":
-        return []
+        from experiments.relationship_outputs import common_output_specs
+
+        return common_output_specs(node)
     if kind == "sphere":
         return [
             output("center", ["point"], bind=True),
@@ -507,6 +509,8 @@ def _property_descriptors(
                 binding_reason="A solved publication is read-only geometry",
                 uses=["geometry"],
             )
+            if "binding_aliases" in descriptor:
+                descriptor["binding_aliases"] = []
     return properties
 
 
@@ -647,8 +651,15 @@ def output_catalogue(
         return [node.id for node in recipe.nodes if node.id in seen]
 
     descriptors: list[dict[str, Any]] = []
+    from experiments.relationship_outputs import enrich_aliases
+
+    alias_cache: dict[str, tuple[OutputReference, ...]] = {}
+
     for node in recipe.nodes:
-        specs = declared_output_specs(node)
+        specs = [
+            enrich_aliases(spec, node, nodes, cache=alias_cache)
+            for spec in declared_output_specs(node)
+        ]
         if not specs:
             continue
         primary = specs[0]
@@ -671,8 +682,15 @@ def output_catalogue(
         ]
         if not offered:
             offered = [node.id]
+        if "common_output" in primary:
+            # A relationship has its own publication, rather than a primitive
+            # initializer whose solved geometry exists only in another context.
+            offered = list(dict.fromkeys([node.id, *offered]))
         geometry_contexts = set(offered)
-        if primary["parameter_owner"]:
+        alias_binding = bool(
+            primary["properties"].get("direction", {}).get("binding_aliases")
+        )
+        if primary["parameter_owner"] or alias_binding:
             offered = list(dict.fromkeys([node.id, *offered]))
         for context in offered:
             reference = OutputReference(feature=node.id, output=output, context=context)
@@ -746,8 +764,8 @@ def output_catalogue(
                     "failed": "Repair or retry its failed provider",
                     "blocked": "Repair its blocked provider",
                 }.get(availability, "Output unavailable")
-            constrainable = (
-                context == node.id and primary["parameter_owner"] is not None
+            constrainable = context == node.id and (
+                primary["parameter_owner"] is not None or alias_binding
             )
             descriptors.append(
                 {
@@ -763,7 +781,7 @@ def output_catalogue(
                     "producing_context": {
                         "id": context,
                         "label": node.label,
-                        "kind": "feature",
+                        "kind": "solve" if ownership == "relationship" else "feature",
                     }
                     if context == node.id
                     else producing_contexts[context].copy(),
@@ -774,13 +792,19 @@ def output_catalogue(
                     "ownership": ownership,
                     "constrainable": constrainable,
                     "dependencies": closure(prerequisites),
+                    **(
+                        {"binding_dependencies": closure({node.id})}
+                        if alias_binding and context == node.id
+                        else {}
+                    ),
                     "preview": preview,
                     "capabilities": primary["capabilities"],
                     "properties": _property_descriptors(primary, reference, frame),
                     "uses": (["geometry"] if context in geometry_contexts else [])
                     + (
                         ["binding"]
-                        if context == node.id and primary["parameter_owner"]
+                        if context == node.id
+                        and (primary["parameter_owner"] or alias_binding)
                         else []
                     ),
                     "parameter_owner": primary["parameter_owner"]
@@ -1090,7 +1114,13 @@ def input_choices(
     source: str | None = None,
     frame: str | None = None,
     catalogue: list[dict[str, Any]] | None = None,
+    use: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
+    if use is not None and (
+        use not in {"geometry", "binding"}
+        or use not in REQUIREMENTS[requirement].get("uses", ["geometry"])
+    ):
+        raise ValueError("input use is unavailable for this requirement")
     catalogue = (
         catalogue
         if catalogue is not None
@@ -1111,6 +1141,14 @@ def input_choices(
         )
         descriptor["compatible"] = reason is None
         ref = OutputReference.model_validate(descriptor["reference"])
+        property_spec = descriptor.get("properties", {}).get(
+            REQUIREMENTS[requirement].get("property"), {}
+        )
+        if use is not None and (
+            use not in descriptor.get("uses", ["geometry"])
+            or (property_spec and use not in property_spec.get("uses", ["geometry"]))
+        ):
+            reason = "This output does not provide the requested input use"
         retained_output = reference_key(ref) in retained_keys
         if not retained_output and not set(
             descriptor.get("uses", ["geometry"])
@@ -1128,7 +1166,13 @@ def input_choices(
             continue
         if (
             "binding" in REQUIREMENTS[requirement].get("uses", [])
-            and descriptor.get("parameter_owner")
+            and use != "geometry"
+            and (
+                descriptor.get("parameter_owner")
+                or descriptor.get("properties", {})
+                .get(REQUIREMENTS[requirement].get("property"), {})
+                .get("binding_aliases")
+            )
             and (
                 REQUIREMENTS[requirement].get("property") != "direction"
                 or descriptor["properties"]
@@ -1140,7 +1184,18 @@ def input_choices(
             # coupled publication. A corrective relationship remains authorable.
             descriptor.update(availability="ready", reason=None)
         if reason is None and consumer_id in positions:
-            if consumer_id in descriptor["dependencies"]:
+            alias_binding = (
+                property_spec.get("binding_eligible")
+                and property_spec.get("binding_aliases")
+                and "binding" in REQUIREMENTS[requirement].get("uses", [])
+                and use != "geometry"
+            )
+            dependencies = (
+                descriptor.get("binding_dependencies", descriptor["dependencies"])
+                if alias_binding
+                else descriptor["dependencies"]
+            )
+            if consumer_id in dependencies:
                 reason = "This output would create a dependency cycle"
             elif any(
                 positions[dep] >= positions[consumer_id]
@@ -1262,6 +1317,18 @@ def resolve_output(
             "source": selection_source(node, nodes),
         }
     raw = values[context]
+    if node.operation in {"direction_alignment", "coaxial_group"}:
+        from experiments.relationship_outputs import common_geometry
+
+        specs = declared_output_specs(node)
+        if reference.output not in {spec["output"] for spec in specs}:
+            raise ValueError("unknown relationship output")
+        cached = (
+            raw.get("common_outputs", {}).get(reference.output)
+            if context == node.id
+            else None
+        )
+        return deepcopy(cached) or common_geometry(node, raw, nodes, values)
     if context != reference.feature:
         raw = raw.get("resolved", raw.get("surfaces", {})).get(
             reference.feature, raw.get("outputs", {}).get(reference.feature)
@@ -1391,6 +1458,9 @@ def resolve_property(
     )
     if spec is None or property_name not in spec["properties"]:
         raise ValueError("this output does not provide the requested property")
+    from experiments.relationship_outputs import enrich_aliases
+
+    spec = enrich_aliases(spec, node, nodes)
     descriptor = _property_descriptors(spec, reference, frame)[property_name]
     if required_frame is not None and descriptor["frame"] != required_frame:
         raise ValueError("this property belongs to a different coordinate frame")
