@@ -408,6 +408,26 @@ def reconcile_feature_reuse(
                     "target_selection": target_id,
                     **({"occurrence": occurrence} if occurrence is not None else {}),
                 }
+            elif operation == "direction_alignment":
+
+                def remap_direction_input(value: Any) -> Any:
+                    if isinstance(value, dict):
+                        reference = cast(dict[str, Any], value)
+                        context = reference.get("context") or reference["feature"]
+                        if by_id.get(context, {}).get("operation") == "feature_reuse":
+                            # A source-stage port or collection keeps its exact
+                            # external owner; this reuse does not clone patterns.
+                            return reference.copy()
+                    return remap_input(value)
+
+                copy["directions"] = [
+                    remap_direction_input(value) for value in source["directions"]
+                ]
+                copy["reference"] = (
+                    remap_direction_input(source["reference"])
+                    if source.get("reference")
+                    else None
+                )
             elif operation == "equal":
                 for side in ("left", "right"):
                     copy[side] = {

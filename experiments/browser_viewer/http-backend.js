@@ -9,6 +9,14 @@ export class BackendError extends Error {
   }
 }
 
+export function supportsSurfaceSelectionPolicy(profile, policy = 'seed-normal-envelope-v1') {
+  const seed = 'seed-normal-envelope-v1', local = 'local-boundaries-v1';
+  return profile?.supported === true && profile.version === 1 && profile.policy === seed && profile.max_preview_ids === 2048
+    && (profile.policies === undefined || Array.isArray(profile.policies) && profile.policies.length === 2
+      && new Set(profile.policies).size === 2 && profile.policies.includes(seed) && profile.policies.includes(local))
+    && (policy === seed || policy === local && profile.policies?.includes(local) === true);
+}
+
 function pause(milliseconds, signal) {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -372,9 +380,8 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     ensureGraph: (payload, options) => graphRequest('/api/graph/ensure', payload, options),
     async previewSurfaceSelection(payload, { signal } = {}) {
       const profile = acceptedMetadata?.surface_selection;
-      if (profile?.supported !== true || profile.version !== 1
-        || profile.policy !== 'seed-normal-envelope-v1' || profile.max_preview_ids !== 2048)
-        throw new BackendError('This backend does not support surface selections.', { code: 'unsupported_capability' });
+      if (!supportsSurfaceSelectionPolicy(profile, payload?.policy))
+        throw new BackendError('This backend does not support the requested surface selection mode.', { code: 'unsupported_capability' });
       signal?.throwIfAborted();
       const observation = evaluationObservation;
       let operation, stopping;

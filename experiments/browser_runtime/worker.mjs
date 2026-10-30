@@ -468,10 +468,14 @@ async function dispatch(request) {
       throw Object.assign(new Error('This runtime does not support selection volumes.'), { code: 'unsupported_capability' });
   }
   if (operation === 'previewSurfaceSelection') {
-    const profile = manifest.worker_protocol?.surface_selection;
+    const profile = manifest.worker_protocol?.surface_selection, seed = 'seed-normal-envelope-v1', local = 'local-boundaries-v1',
+      policy = payload.policy === undefined ? seed : payload.policy;
     if (!profile || profile.supported !== true || profile.version !== 1 ||
-      profile.policy !== 'seed-normal-envelope-v1' || profile.max_preview_ids !== 2048)
-      throw Object.assign(new Error('This runtime does not support seed surface selections.'), { code: 'unsupported_capability' });
+      profile.policy !== seed || profile.max_preview_ids !== 2048 ||
+      profile.policies !== undefined && (!Array.isArray(profile.policies) || profile.policies.length !== 2
+        || new Set(profile.policies).size !== 2 || !profile.policies.includes(seed) || !profile.policies.includes(local)) ||
+      !(policy === seed || policy === local && profile.policies?.includes(local)))
+      throw Object.assign(new Error('This runtime does not support the requested surface selection mode.'), { code: 'unsupported_capability' });
   }
   ensureWorkspace();
   if (request.workspaceGeneration !== undefined

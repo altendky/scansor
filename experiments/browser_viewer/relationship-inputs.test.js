@@ -4,6 +4,7 @@ import { inputReferenceKey } from './feature-inputs.js';
 import { relationshipParticipantChoices, relationshipSelectionForFeatures, relationshipValidity,
   relationshipNodeInputs, relationshipOutputValue, relationshipPropertySummary, relationshipInputOptions,
   relationshipParticipantPresentation, relationshipRoleChoices, relationshipRoleSelection } from './relationship-inputs.js';
+import {relationshipCollectionMembers, relationshipExpandedOutputs, relationshipSelectionCounts} from './relationship-inputs.js';
 import { axisFactorAxis, axisFactorMembers, axisSolveInputs, axisSolveValidity } from './relationship-inputs.js';
 import { directionAlignmentLabel, directionJointInputs, directionJointValidity, isDirectionJoint,
   relationshipDefinitions } from './relationship-inputs.js';
@@ -13,6 +14,90 @@ test('relationship property descriptions follow the same role contracts as eligi
     repeated: {property: 'plane_orientation'}}};
   assert.equal(relationshipPropertySummary(state, {requirements: ['orientation', 'plane', 'repeated']}), 'plane orientation, plane');
   assert.equal(relationshipPropertySummary(state, {requirements: ['unknown']}), '');
+});
+
+function collectionState(count = 30) {
+  const source = {reference: {feature: 'bore', output: 'axis', context: '@reuse/bore'}, label: 'Bore upstream axis',
+      availability: 'unevaluated', dependencies: ['bore', 'reuse'], properties: {direction: {binding_eligible: false, uses: ['geometry']}}},
+    copies = Array.from({length: count - 1}, (_, index) => ({reference: {feature: `copy-${index}`, output: 'axis', context: `copy-${index}`},
+      label: `Bore copy ${index + 1}`, availability: 'unevaluated', properties: {direction: {binding_eligible: true, uses: ['geometry', 'binding']}}})),
+    collection = {reference: {feature: 'reuse', output: 'direction:bore', context: 'reuse'}, label: 'Bolt hole axes',
+      availability: 'unevaluated', compatible: true, dependencies: ['reuse'],
+      collection: {property: 'direction', template: 'bore', count, source_count: 1, adjustable_count: count - 1,
+        members: [source, ...copies].map(output => output.reference)}};
+  return {recipe: {nodes: ['bore', 'reuse', ...copies.map(output => output.reference.feature)].map(id => ({id}))},
+    input_catalogue: [source, ...copies, collection],
+    input_contracts: {fixed: {property: 'direction', min_count: 0, max_count: 1},
+      targets: {property: 'direction', min_count: 1, max_count: 33, allow_collections: true}},
+    input_requirements: {fixed: {choices: [], unavailable: [{...source, compatible: true}]},
+      targets: {choices: [], unavailable: [collection, ...copies.map(output => ({...output, compatible: true}))]}},
+    relationship_contracts: {direction_alignment: {operation: 'direction_alignment', roles: {reference: 'fixed', participants: 'targets'},
+      reference_role: 'reference', expanded_min_count: 2, expanded_max_count: 33,
+      node_fields: {reference: {name: 'reference', encoding: 'reference', optional: true, multiple: false},
+        participants: {name: 'directions', encoding: 'reference', multiple: true}}, node_values: {sense: 'unsigned'}}}};
+}
+
+test('a live collection authors one owner and expands only for inspection, counts and validation', () => {
+  const graph = collectionState(), collection = graph.input_catalogue.at(-1), key = inputReferenceKey(collection.reference), selected = new Set([key]);
+  assert.equal(relationshipValidity(graph, 'direction_alignment', selected).valid, true);
+  assert.deepEqual(relationshipNodeInputs(graph, 'direction_alignment', selected), {operation: 'direction_alignment', sense: 'unsigned',
+    reference: null, directions: [collection.reference]});
+  assert.deepEqual(relationshipSelectionForFeatures(graph, 'direction_alignment', ['reuse']), selected);
+  assert.deepEqual(relationshipRoleSelection(graph, 'direction_alignment', selected),
+    {roles: {reference: new Set(), participants: selected}, unassigned: new Set()});
+  const presentation = relationshipParticipantPresentation(graph, collection);
+  assert.equal(presentation.name, 'Bolt hole axes');
+  assert.match(presentation.detail, /30 axes · 1 upstream source \+ 29 copies/);
+  assert.equal(presentation.members.length, 30);
+  assert.deepEqual(relationshipSelectionCounts(graph, [collection]),
+    {authored: 1, expanded: 30, unique: 30, collections: 1, source_count: 1, adjustable_count: 29});
+  assert.equal(relationshipExpandedOutputs(graph, [collection])[4].collectionKey, key);
+  assert.equal(relationshipOutputValue(graph, collection), null);
+  const refreshed = collectionState(6), current = refreshed.input_catalogue.at(-1);
+  assert.equal(inputReferenceKey(current.reference), key);
+  assert.equal(relationshipCollectionMembers(refreshed, current).length, 6);
+  assert.deepEqual(relationshipNodeInputs(refreshed, 'direction_alignment', selected).directions, [collection.reference]);
+});
+
+test('only a collection fixed upstream source can also be the optional reference', () => {
+  const graph = collectionState(), collection = graph.input_catalogue.at(-1), source = graph.input_catalogue[0], copy = graph.input_catalogue[1],
+    selected = {roles: {reference: new Set([inputReferenceKey(source.reference)]),
+      participants: new Set([inputReferenceKey(collection.reference)])}, unassigned: new Set()};
+  assert.equal(relationshipValidity(graph, 'direction_alignment', selected).valid, true);
+  assert.deepEqual(relationshipSelectionCounts(graph, [source, collection]),
+    {authored: 2, expanded: 31, unique: 30, collections: 1, source_count: 1, adjustable_count: 29});
+  selected.roles.participants.add(inputReferenceKey(copy.reference));
+  assert.match(relationshipValidity(graph, 'direction_alignment', selected).reason, /overlap/);
+  selected.roles.participants.delete(inputReferenceKey(copy.reference));
+  graph.input_requirements.fixed.unavailable.push({...copy, compatible: true});
+  selected.roles.reference = new Set([inputReferenceKey(copy.reference)]);
+  assert.match(relationshipValidity(graph, 'direction_alignment', selected).reason, /overlap/);
+  selected.roles.reference = new Set([inputReferenceKey(collection.reference)]);
+  assert.match(relationshipValidity(graph, 'direction_alignment', selected).reason, /distinct output/);
+});
+
+test('collection target overlap, missing exact members and expanded bounds are rejected', () => {
+  const graph = collectionState(), collection = graph.input_catalogue.at(-1), key = inputReferenceKey(collection.reference),
+    duplicate = {...collection, reference: {...collection.reference, output: 'direction:another'}}, selected = new Set([key]);
+  graph.input_requirements.targets.unavailable.push(duplicate);
+  selected.add(inputReferenceKey(duplicate.reference));
+  assert.match(relationshipValidity(graph, 'direction_alignment', selected).reason, /overlap/);
+  selected.delete(inputReferenceKey(duplicate.reference));
+  graph.input_catalogue.splice(1, 1);
+  graph.input_requirements.targets.unavailable.splice(1, 1);
+  assert.match(relationshipValidity(graph, 'direction_alignment', selected).reason, /unavailable collection/);
+  const tooMany = collectionState(34), oversized = tooMany.input_catalogue.at(-1);
+  assert.match(relationshipValidity(tooMany, 'direction_alignment', new Set([inputReferenceKey(oversized.reference)])).reason, /34 selected/);
+  const one = collectionState(1);
+  assert.equal(relationshipValidity(one, 'direction_alignment', new Set([key])).valid, false);
+});
+
+test('optional references are never guessed from preselection but explicit previous assignments survive', () => {
+  const graph = collectionState(), source = graph.input_catalogue[0], key = inputReferenceKey(source.reference), selected = new Set([key]);
+  assert.deepEqual(relationshipRoleSelection(graph, 'direction_alignment', selected),
+    {roles: {reference: new Set(), participants: new Set()}, unassigned: selected});
+  assert.deepEqual(relationshipRoleSelection(graph, 'direction_alignment', selected, {reference: selected}),
+    {roles: {reference: selected, participants: new Set()}, unassigned: new Set()});
 });
 
 test('participant roles describe the requested property rather than the output global owner', () => {

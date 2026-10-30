@@ -14,6 +14,7 @@ from collections.abc import Callable
 from concurrent.futures import Executor, Future, wait
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from pathlib import Path
 from threading import Event, RLock
 from typing import Annotated, Any, ClassVar, Generic, Literal, Self, cast, final
@@ -291,7 +292,10 @@ class SurfaceSelection(Node):
     barriers: list[str] = Field(default_factory=list, max_length=99)
     angle_degrees: float = Field(default=20.0, gt=0, le=90, allow_inf_nan=False)
     setback: float = Field(default=0.0, ge=0, allow_inf_nan=False)
-    policy: Literal["seed-normal-envelope-v1"] = "seed-normal-envelope-v1"
+    policy: Literal["seed-normal-envelope-v1", "local-boundaries-v1"] = (
+        "seed-normal-envelope-v1"
+    )
+    neighborhood_distance: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class SelectionRegion(Node):
@@ -628,12 +632,16 @@ class DirectionAlignment(Node):
     """Exact unsigned parallelism without sharing position or plane offset."""
 
     operation: Literal["direction_alignment"]
-    directions: list[FeatureInput] = Field(min_length=2, max_length=33)
+    directions: list[FeatureInput] = Field(min_length=1, max_length=33)
+    reference: OutputReference | None = None
     sense: Literal["unsigned"] = "unsigned"
 
     @property
     def surfaces(self) -> list[FeatureInput]:
-        return self.directions
+        return [
+            *([self.reference] if self.reference is not None else []),
+            *self.directions,
+        ]
 
 
 GeometryRelationship = PlaneRelationship | DirectionAlignment
@@ -1286,6 +1294,28 @@ def plane_relationship_endpoints(
             else "relationship_plane"
         )
     )
+    from experiments.relationship_inputs import expand_relationship_references
+
+    if isinstance(relationship, DirectionAlignment):
+        targets = expand_relationship_references(
+            relationship.directions, nodes, "relationship_direction_targets"
+        )
+        result = (
+            [
+                normalize_endpoint(
+                    relationship.reference, nodes, "relationship_direction_reference"
+                )
+            ]
+            if relationship.reference is not None
+            else []
+        )
+        for reference in targets:
+            endpoint = normalize_endpoint(
+                reference, nodes, "relationship_direction_targets"
+            )
+            if not any(previous.key == endpoint.key for previous in result):
+                result.append(endpoint)
+        return result
     return [
         normalize_endpoint(reference, nodes, requirement)
         for reference in relationship.surfaces
@@ -1839,6 +1869,7 @@ class PriorGeometrySolve:
     radii: EqualRadii | None
     excluded: set[str]
     radius_groups: tuple[EqualRadii, ...] = ()
+    standalone: bool = False
 
 
 @dataclass(frozen=True)
@@ -1853,6 +1884,41 @@ class ExecutionPlan:
     explicit_axes: set[str]
     prior_solves: dict[str, PriorGeometrySolve]
     read_exclusions: dict[str, set[str]]
+    reuse_source_contexts: frozenset[str]
+
+
+def demanded_reuse_source_contexts(nodes: dict[str, Feature]) -> frozenset[str]:
+    """Find authored reads of a reuse's source ports or live collections."""
+    demanded: set[str] = set()
+    for node in nodes.values():
+        references = (
+            node.surfaces
+            if isinstance(node, (PlaneRelationship, DirectionAlignment))
+            else (node.origin_point, node.primary_reference, node.secondary_reference)
+            if isinstance(node, FrameDefinition)
+            else node.source_points or ()
+            if isinstance(node, AxisDefinition)
+            else tuple(
+                ref
+                for distance in node.distances
+                for ref in (distance.first_point, distance.second_point)
+            )
+            if isinstance(node, ScaleDefinition)
+            else ()
+        )
+        for reference in references:
+            if not isinstance(reference, OutputReference):
+                continue
+            owner = nodes.get(reference.context or reference.feature)
+            if isinstance(owner, FeatureReuse) and (
+                reference.feature in owner.fits
+                or (
+                    reference.feature == owner.id
+                    and reference.output.startswith("direction:")
+                )
+            ):
+                demanded.add(owner.id)
+    return frozenset(demanded)
 
 
 def reuse_transfer_descendants(reuse: str, nodes: dict[str, Feature]) -> set[str]:
@@ -1861,6 +1927,17 @@ def reuse_transfer_descendants(reuse: str, nodes: dict[str, Feature]) -> set[str
         for node in nodes.values()
         if isinstance(node, ReuseSelection) and node.reuse == reuse
     }
+    after.update(
+        node.id
+        for node in nodes.values()
+        if isinstance(node, DirectionAlignment)
+        and any(
+            isinstance(reference, OutputReference)
+            and reference.feature == reuse
+            and reference.output.startswith("direction:")
+            for reference in node.directions
+        )
+    )
     while True:
         expanded = after | {
             node.id for node in nodes.values() if after.intersection(dependencies(node))
@@ -1876,7 +1953,9 @@ def prior_stage_exclusions(node: Feature, nodes: dict[str, Feature]) -> set[str]
     They must not feed back into the source geometry that generated those same
     memberships. Other resolved source relationships still participate.
     """
-    if isinstance(node, ReuseSelection):
+    if isinstance(node, FeatureReuse):
+        reuse = node.id
+    elif isinstance(node, ReuseSelection):
         reuse = node.reuse
     elif (
         isinstance(node, (AxisDefinition, PlaneDefinition))
@@ -1915,6 +1994,7 @@ def compile_execution_plan(
     """
     nodes = {node.id: node for node in recipe.nodes}
     plane_components = influence.plane_components
+    source_contexts = demanded_reuse_source_contexts(nodes)
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
     named_inputs = {
         node.id: selected_symmetry_inputs(node, nodes)
@@ -2077,6 +2157,11 @@ def compile_execution_plan(
             }
         elif isinstance(node, ReuseSelection):
             reads[node.id] = {node.fit}
+        elif isinstance(node, FeatureReuse) and node.id in source_contexts:
+            reads[node.id] = {
+                *node.fits,
+                *([node.circular.axis] if node.circular is not None else []),
+            }
         elif isinstance(node, FeatureReuse) and node.circular is not None:
             reads[node.id] = {node.circular.axis}
         elif isinstance(node, SurfaceIntersection):
@@ -2106,12 +2191,16 @@ def compile_execution_plan(
     # Preserve source-only constraints when a later transfer extends their
     # component. These results have a reuse-local port, never a global overlay.
     for node in recipe.nodes:
-        if not isinstance(node, ReuseSelection):
+        if not isinstance(node, (ReuseSelection, FeatureReuse)):
             continue
+        if isinstance(node, FeatureReuse) and node.id not in source_contexts:
+            continue
+        reuse_id = node.id if isinstance(node, FeatureReuse) else node.reuse
+        source_ids = set(node.fits) if isinstance(node, FeatureReuse) else {node.fit}
         excluded = prior_stage_exclusions(node, nodes)
         if not excluded:
             continue
-        after = reuse_transfer_descendants(node.reuse, nodes)
+        after = reuse_transfer_descendants(reuse_id, nodes)
         prior_nodes: dict[str, Feature] = {}
         joint_prior_radii: set[str] = set()
         for key, value in nodes.items():
@@ -2129,11 +2218,11 @@ def compile_execution_plan(
         for relations, surfaces, members in automatic_plane_relationship_components(
             prior_nodes
         ).values():
-            if node.fit not in {
-                surface.id for surface in surfaces
-            } or not excluded.intersection(relation.id for relation in relations):
+            if not source_ids.intersection(
+                {surface.id for surface in surfaces}
+            ) or not excluded.intersection(relation.id for relation in relations):
                 continue
-            task = "@reuse_planes/" + node.reuse + "/" + relations[0].id
+            task = "@reuse_planes/" + reuse_id + "/" + relations[0].id
             surface_ids = {surface.id for surface in surfaces}
             radius_groups = tuple(
                 relation
@@ -2142,7 +2231,7 @@ def compile_execution_plan(
                 and set(relation.surfaces) <= surface_ids
             )
             prior_solves[task] = PriorGeometrySolve(
-                node.reuse, surfaces, relations, None, excluded, radius_groups
+                reuse_id, surfaces, relations, None, excluded, radius_groups
             )
             joint_prior_radii.update(relation.id for relation in radius_groups)
             task_dependencies[task] = (
@@ -2150,7 +2239,18 @@ def compile_execution_plan(
                 - {relation.id for relation in relations}
                 - {relation.id for relation in radius_groups if relation.id in excluded}
             )
+            if selected_plane_component(relations, surfaces, prior_nodes):
+                task_dependencies[task] = direction_component_inputs(
+                    relations, surfaces, prior_nodes
+                )[0]
             reads[task] = {surface.id for surface in surfaces}
+            task_dependencies[node.id].difference_update(
+                {
+                    *surface_ids,
+                    *(relation.id for relation in relations),
+                    *(relation.id for relation in radius_groups),
+                }
+            )
             task_dependencies[node.id].add(task)
         for key in excluded:
             if key in joint_prior_radii:
@@ -2158,9 +2258,8 @@ def compile_execution_plan(
                 # A later independent radius overlay would restore old axes.
                 continue
             relation = nodes[key]
-            if (
-                not isinstance(relation, EqualRadii)
-                or node.fit not in relation.surfaces
+            if not isinstance(relation, EqualRadii) or not source_ids.intersection(
+                relation.surfaces
             ):
                 continue
             surfaces = [
@@ -2170,23 +2269,70 @@ def compile_execution_plan(
             ]
             if len(surfaces) < 2:
                 continue
-            task = "@reuse_radii/" + node.reuse + "/" + relation.id
+            task = "@reuse_radii/" + reuse_id + "/" + relation.id
             prior_relation = relation.model_copy(
                 update={"surfaces": [surface.id for surface in surfaces]}
             )
             prior_solves[task] = PriorGeometrySolve(
-                node.reuse, surfaces, [], prior_relation, excluded
+                reuse_id, surfaces, [], prior_relation, excluded
             )
             task_dependencies[task] = {surface.id for surface in surfaces}
             reads[task] = task_dependencies[task].copy()
             task_dependencies[node.id].add(task)
 
+    # A one-template equality has no earlier multi-member relation to retain.
+    # Give its raw source fit a private stage before the downstream component
+    # replaces the ordinary fit task and consumes transferred observations.
+    for owner in recipe.nodes:
+        if not isinstance(owner, FeatureReuse) or owner.id not in source_contexts:
+            continue
+        after = reuse_transfer_descendants(owner.id, nodes)
+        provided = {
+            surface.id
+            for stage in prior_solves.values()
+            if stage.reuse == owner.id
+            for surface in stage.surfaces
+        }
+        for source_id in set(owner.fits) - provided:
+            if not any(
+                source_id in provider.aliases
+                and provider.aliases.intersection(after)
+                and provider.solve is not None
+                and provider.solve[0] == "planes"
+                for provider in influence.providers.values()
+            ):
+                continue
+            source = cast(SurfaceFit, nodes[source_id])
+            if source.axis or source.point or source.reference_plane:
+                raise ValueError(
+                    "This pattern source needs an explicit upstream relationship stage before constraining its copies"
+                )
+            task = "@reuse_fit/" + owner.id + "/" + source_id
+            prior_solves[task] = PriorGeometrySolve(
+                owner.id,
+                [source],
+                [],
+                None,
+                prior_stage_exclusions(owner, nodes),
+                standalone=True,
+            )
+            task_dependencies[task] = set(dependencies(source))
+            for consumer in recipe.nodes:
+                if consumer.id == owner.id or (
+                    isinstance(consumer, ReuseSelection)
+                    and consumer.reuse == owner.id
+                    and consumer.fit == source_id
+                ):
+                    task_dependencies[consumer.id].discard(source_id)
+                    task_dependencies[consumer.id].add(task)
+
     for task, references in reads.items():
         # A constrained solve consumes prior-stage values, never its own output.
         excluded = {task}
         if task in nodes:
-            excluded.update(prior_stage_exclusions(nodes[task], nodes))
             node = nodes[task]
+            if not isinstance(node, FeatureReuse) or task in source_contexts:
+                excluded.update(prior_stage_exclusions(node, nodes))
             if isinstance(node, EqualRadii):
                 excluded.update(
                     relation.id
@@ -2301,6 +2447,7 @@ def compile_execution_plan(
         explicit_axes,
         prior_solves,
         read_exclusions,
+        source_contexts,
     )
 
 
@@ -2390,6 +2537,13 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
     )
 
     def referenced_fits(candidate: Feature) -> set[str]:
+        if isinstance(candidate, (PlaneRelationship, DirectionAlignment)):
+            return {
+                endpoint.owner
+                for endpoint in plane_relationship_endpoints(candidate, nodes)
+                if endpoint.owner is not None
+                and isinstance(nodes[endpoint.owner], SurfaceFit)
+            }
         found: set[str] = set()
         pending = list(dependencies(candidate))
         visited: set[str] = set()
@@ -4563,8 +4717,20 @@ class FeatureGraph(Generic[WorkspaceType]):
                     else "coincident_planes"
                 )
                 endpoints = validate_relationship_inputs(
-                    kind, {"participants": node.surfaces}, recipe
-                )["participants"]
+                    kind,
+                    {
+                        "participants": node.directions,
+                        "reference": [node.reference]
+                        if node.reference is not None
+                        else [],
+                    }
+                    if isinstance(node, DirectionAlignment)
+                    else {"participants": node.surfaces},
+                    recipe,
+                )
+                endpoints = [
+                    endpoint for values in endpoints.values() for endpoint in values
+                ]
                 if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
                     raise ValueError("relationship inputs must be unique")
             elif isinstance(node, AxisSolve):
@@ -5161,6 +5327,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if old_volumes != new_volumes:
                         affected.add(node.id)
             after_nodes = {n.id: n for n in recipe.nodes}
+            # A first/last source-port consumer changes the reuse publication
+            # and source-stage barriers even when its authored owner is unchanged.
+            affected.update(
+                demanded_reuse_source_contexts(before)
+                ^ demanded_reuse_source_contexts(after_nodes)
+            )
             changed_outputs = affected | (before.keys() - after_nodes.keys())
             # The build action's cached inventory also depends on its children,
             # without introducing a parent/child cycle in the evaluation DAG.
@@ -7992,12 +8164,40 @@ class FeatureGraph(Generic[WorkspaceType]):
             if key in plan.prior_solves:
                 stage = plan.prior_solves[key]
                 try:
-                    inputs = [
-                        resolved_result(surface.id, stage.excluded)
-                        for surface in stage.surfaces
-                    ]
                     ids = [fitted_ids(surface) for surface in stage.surfaces]
-                    if stage.radii is not None:
+                    if stage.standalone:
+                        if not isinstance(self.workspace, ScanWorkspace):
+                            raise ValueError(
+                                "Standalone pattern source stages require an imported scan"
+                            )
+                        prior = {
+                            "surfaces": {
+                                surface.id: self._prepare_numerical_fit(
+                                    surface,
+                                    surface_ids,
+                                    intent=recovery_recipe,
+                                    reuse_inputs=[
+                                        derived_result(ref)
+                                        for ref in surface.selections
+                                        if isinstance(nodes[ref], ReuseSelection)
+                                    ],
+                                    support=partial(
+                                        effective_support, surface, stage.excluded
+                                    ),
+                                    epoch=epoch,
+                                    stop_fits=stop_fits,
+                                    cancelled=cancelled,
+                                )()
+                                for surface, surface_ids in zip(
+                                    stage.surfaces, ids, strict=True
+                                )
+                            }
+                        }
+                    elif stage.radii is not None:
+                        inputs = [
+                            resolved_result(surface.id, stage.excluded)
+                            for surface in stage.surfaces
+                        ]
                         prior = fit_equal_radii(
                             self.workspace, stage.surfaces, inputs, ids
                         )
@@ -8035,6 +8235,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     note_failure(key, error, failed_consumers)
                     continue
                 prior_surfaces.setdefault(stage.reuse, {}).update(prior["surfaces"])
+                prior_surfaces[stage.reuse].update(prior.get("resolved", {}))
+                prior_surfaces[stage.reuse].update(prior.get("axes", {}))
+                prior_surfaces[stage.reuse].update(prior.get("planes", {}))
                 continue
             if key in plan.solves:
                 try:
@@ -8362,6 +8565,8 @@ class FeatureGraph(Generic[WorkspaceType]):
                         ),
                         angle_degrees=node.angle_degrees,
                         setback=node.setback,
+                        policy=node.policy,
+                        neighborhood_distance=node.neighborhood_distance,
                         cancelled=selection_cancelled,
                     )
                     summary = surface_membership.preview()
@@ -8426,7 +8631,12 @@ class FeatureGraph(Generic[WorkspaceType]):
                 elif isinstance(node, FeatureReuse):
                     if node.circular is not None:
                         matches = circular_placements(
-                            resolved_result(node.circular.axis), node.circular.count
+                            deepcopy(prior_surfaces[node.id][node.circular.axis])
+                            if node.circular.axis in prior_surfaces.get(node.id, {})
+                            else resolved_result(
+                                node.circular.axis, plan.read_exclusions.get(node.id)
+                            ),
+                            node.circular.count,
                         )
                     else:
                         reference_ids = membership(node.reference_selection)
@@ -8447,6 +8657,20 @@ class FeatureGraph(Generic[WorkspaceType]):
                         "reference_selection": node.reference_selection,
                         "target_selections": node.target_selections,
                         "matches": matches,
+                        **(
+                            {
+                                "outputs": {
+                                    key: deepcopy(prior_surfaces[node.id][key])
+                                    if key in prior_surfaces.get(node.id, {})
+                                    else resolved_result(
+                                        key, plan.read_exclusions.get(node.id)
+                                    )
+                                    for key in node.fits
+                                }
+                            }
+                            if node.id in plan.reuse_source_contexts
+                            else {}
+                        ),
                     }
                 elif isinstance(node, ReuseSelection):
                     reuse = nodes[node.reuse]

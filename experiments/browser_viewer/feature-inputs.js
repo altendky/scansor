@@ -89,7 +89,7 @@ export function renderInputChoices(control, outputs, selected = control.value, o
     return;
   }
   const records = inputOptionRecords(outputs, selected, options);
-  control.replaceChildren(new Option('Choose an output…', '', false, !records.some(option => option.selected)),
+  control.replaceChildren(new Option(options.emptyLabel || 'Choose an output…', '', false, !records.some(option => option.selected)),
     ...records.map(record => {
       const option = new Option(record.label, record.key, false, record.selected);
       option.disabled = record.disabled;

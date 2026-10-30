@@ -1,4 +1,4 @@
-import { BackendError } from './http-backend.js';
+import { BackendError, supportsSurfaceSelectionPolicy } from './http-backend.js';
 
 function abortable(promise, signal) {
   if (!signal) return promise;
@@ -497,9 +497,7 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
                   throw new Error('Invalid worker virtual scans profile.');
                 projectArchiveProfile = data.worker_protocol?.project_archive;
                 surfaceSelectionProfile = data.worker_protocol?.surface_selection;
-                if (surfaceSelectionProfile !== undefined && (surfaceSelectionProfile.supported !== true
-                  || surfaceSelectionProfile.version !== 1 || surfaceSelectionProfile.policy !== 'seed-normal-envelope-v1'
-                  || surfaceSelectionProfile.max_preview_ids !== 2048))
+                if (surfaceSelectionProfile !== undefined && !supportsSurfaceSelectionPolicy(surfaceSelectionProfile))
                   throw new Error('Invalid worker surface selection profile.');
                 if (data.worker_protocol?.version === 12 ? !validProjectArchiveProfile(projectArchiveProfile) : projectArchiveProfile !== undefined)
                   throw new Error('Invalid worker project archive profile.');
@@ -784,10 +782,8 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
       if (operation === 'previewSurfaceSelection' && (latestGraph?.evaluation_running || pending.size))
         throw new BackendError('Wait for the current evaluation or edit before previewing a surface selection.',
           { code: 'evaluation_busy', status: 409 });
-      if (operation === 'previewSurfaceSelection' && (surfaceSelectionProfile?.supported !== true
-        || surfaceSelectionProfile.version !== 1 || surfaceSelectionProfile.policy !== 'seed-normal-envelope-v1'
-        || surfaceSelectionProfile.max_preview_ids !== 2048))
-        throw new BackendError('This runtime does not support surface selections.', { code: 'unsupported_capability' });
+      if (operation === 'previewSurfaceSelection' && !supportsSurfaceSelectionPolicy(surfaceSelectionProfile, payload?.policy))
+        throw new BackendError('This runtime does not support the requested surface selection mode.', { code: 'unsupported_capability' });
       if (['previewFeatureReuse', 'applyFeatureReuse'].includes(operation) && (latestGraph?.evaluation_running ||
         [...pending.values()].some(request => mutations.has(request.operation) || ['evaluateGraph', 'ensureGraph'].includes(request.operation))))
         throw new BackendError('Wait for the current evaluation or edit before authoring reuse.', { code: 'evaluation_busy', status: 409 });

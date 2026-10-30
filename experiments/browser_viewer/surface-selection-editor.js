@@ -1,4 +1,5 @@
 export const surfaceSelectionPolicy = 'seed-normal-envelope-v1';
+export const localBoundariesPolicy = 'local-boundaries-v1';
 export const surfaceSelectionPhases = {
   seeds: { label: 'Seeds', color: '#63d9ff' },
   region: { label: 'Region', color: '#ffb14e' },
@@ -17,18 +18,28 @@ export function surfaceSelectionDefinition(values) {
     throw Error('Enter a boundary angle greater than zero and at most 90 degrees.');
   if (String(values.setback).trim() === '' || !Number.isFinite(setback) || setback < 0)
     throw Error('Enter a nonnegative setback in scan length units.');
-  return { seed_selection, barriers, angle_degrees, setback, policy: surfaceSelectionPolicy };
+  const policy = values.policy === undefined ? surfaceSelectionPolicy : values.policy;
+  if (![surfaceSelectionPolicy, localBoundariesPolicy].includes(policy)) throw Error('Choose a supported surface selection mode.');
+  let neighborhood_distance = null;
+  if (policy === localBoundariesPolicy && values.neighborhood_distance !== undefined && values.neighborhood_distance !== null
+      && String(values.neighborhood_distance).trim() !== '') {
+    neighborhood_distance = Number(values.neighborhood_distance);
+    if (typeof values.neighborhood_distance === 'boolean' || !Number.isFinite(neighborhood_distance) || neighborhood_distance <= 0)
+      throw Error('Enter a positive neighborhood size in scan length units, or leave it blank for Automatic.');
+  }
+  return { seed_selection, barriers, angle_degrees, setback, policy, neighborhood_distance };
 }
 
 export function surfaceSelectionSignature(definition, context) {
   return JSON.stringify([definition, context.generation, context.graph.token, context.graph.revision]);
 }
 
-export function validateSurfaceSelectionPreview(response, context) {
+export function validateSurfaceSelectionPreview(response, context, definition = {policy: surfaceSelectionPolicy}) {
   if (response?.token !== context.graph.token || response.project_generation !== context.generation)
     throw Error('The scan or actions changed. Preview the surface selection again.');
   const preview = response.preview;
-  if (preview?.policy !== surfaceSelectionPolicy || !preview.counts || !preview.samples)
+  if (![surfaceSelectionPolicy, localBoundariesPolicy].includes(definition.policy)
+      || preview?.policy !== definition.policy || !preview.counts || !preview.samples)
     throw Error('Invalid surface selection preview.');
   for (const phase of Object.keys(surfaceSelectionPhases)) {
     const count = preview.counts[phase], ids = preview.samples[phase];
@@ -72,7 +83,7 @@ export function createSurfaceSelectionPreview({ read, current, prepare, request,
           status('Finding the connected surface and applying setback…');
           const response = await request({ token: context.graph.token, ...definition }, { signal: controller.signal });
           if (ticket !== serial || !isActive() || signature() !== expected) continue;
-          const preview = validateSurfaceSelectionPreview(response, context);
+          const preview = validateSurfaceSelectionPreview(response, context, definition);
           reviewed = expected; publish(preview); validity(true);
           status(`${preview.counts.inset.toLocaleString()} selected · ${preview.counts.region.toLocaleString()} before setback · ${preview.counts.boundaries.toLocaleString()} boundary vertices`);
         } catch (error) {
@@ -110,15 +121,26 @@ export function createSurfaceSelectionPreview({ read, current, prepare, request,
 export function bindSurfaceSelectionEditor({ root, prefix, backend, current, prepare,
   isActive, onPreview = () => {}, onBusy = () => {}, onValidity = () => {}, onStatus = () => {} }) {
   const doc = root.ownerDocument, find = suffix => doc.getElementById(prefix + suffix);
-  const fields = { seed: find('seed'), barriers: find('barriers'), angle: find('angle'), setback: find('setback') };
+  const fields = { seed: find('seed'), barriers: find('barriers'), angle: find('angle'), setback: find('setback'),
+    policy: find('policy'), neighborhood: find('neighborhood-distance') };
   const message = find('preview-status'), buttons = new Map(), visible = new Set(Object.keys(surfaceSelectionPhases));
   let owner = null, initialDefinition = null, proposal = null, choices = [];
   const fieldValues = () => JSON.stringify([fields.seed.value,
-    [...fields.barriers.selectedOptions].map(option => option.value).sort(), fields.angle.value, fields.setback.value]);
+    [...fields.barriers.selectedOptions].map(option => option.value).sort(), fields.angle.value, fields.setback.value,
+    fields.policy.value, fields.neighborhood.value]);
   let lastFieldValues = fieldValues();
   const read = () => surfaceSelectionDefinition({ seed_selection: fields.seed.value,
     barriers: [...fields.barriers.selectedOptions].map(option => option.value),
-    angle_degrees: fields.angle.value, setback: fields.setback.value });
+    angle_degrees: fields.angle.value, setback: fields.setback.value, policy: fields.policy.value,
+    neighborhood_distance: fields.neighborhood.value });
+  function showModeFields() {
+    const local = fields.policy.value === localBoundariesPolicy;
+    find('neighborhood-row').hidden = !local;
+    fields.neighborhood.disabled = !local;
+    find('mode-hint').textContent = local
+      ? 'Compare normal variation over a local surface neighborhood. Gradual curvature can wrap; sharp changes can stop growth. Neighborhood size uses scan length units; blank chooses a seed-based size. Setback follows mesh edges; seeds are protected and barriers stop traversal.'
+      : 'Setback uses scan length units along mesh edges. Seeds are protected. Barriers stop traversal. Narrow or noisy seed patches can limit growth; this is a surface heuristic.';
+  }
   function paint() { onPreview(proposal ? { preview: proposal, visible: [...visible] } : null); }
   function status(text, error = false) {
     message.textContent = text; message.classList.toggle('error', error);
@@ -146,6 +168,7 @@ export function bindSurfaceSelectionEditor({ root, prefix, backend, current, pre
   }
   for (const field of Object.values(fields)) {
     const changed = () => {
+      showModeFields();
       const value = fieldValues();
       // Number inputs emit input while typing and change again on blur. The
       // latter must not invalidate a reviewed preview just before Apply.
@@ -170,17 +193,21 @@ export function bindSurfaceSelectionEditor({ root, prefix, backend, current, pre
   return {
     show(node, available) {
       choices = available;
-      if (owner !== null && owner === node.id) { refreshChoices(); coordinator.sync(); return; }
+      if (owner !== null && owner === node.id) { showModeFields(); refreshChoices(); coordinator.sync(); return; }
       coordinator.clear(); owner = node.id;
       fields.seed.replaceChildren(new Option(node.seed_selection || '', node.seed_selection || '', false, true));
       fields.barriers.replaceChildren(...(node.barriers || []).map(id => new Option(id, id, false, true)));
       fields.angle.value = node.angle_degrees ?? 20; fields.setback.value = node.setback ?? 0;
+      fields.policy.value = node.policy ?? surfaceSelectionPolicy;
+      fields.neighborhood.value = node.neighborhood_distance ?? '';
+      showModeFields();
       refreshChoices();
       lastFieldValues = fieldValues();
       try { initialDefinition = node.id ? JSON.stringify(read()) : null; } catch { initialDefinition = null; }
       status('Preview the connected surface and setback before applying.');
     },
     sync() {
+      showModeFields();
       if (owner) {
         const accepted = current().graph.recipe.nodes.find(node => node.id === owner);
         try { if (accepted && JSON.stringify(surfaceSelectionDefinition(accepted)) === JSON.stringify(read())) initialDefinition = JSON.stringify(read()); } catch { /* Repair incompatible retained inputs explicitly. */ }
@@ -190,7 +217,7 @@ export function bindSurfaceSelectionEditor({ root, prefix, backend, current, pre
     definition({ reviewed = false } = {}) {
       const value = read();
       if (reviewed && !coordinator.reviewed && (!owner || JSON.stringify(value) !== initialDefinition))
-        throw Error('Preview the current seed, barriers, angle and setback before applying.');
+        throw Error('Preview the current seed, barriers, mode, angle, neighborhood and setback before applying.');
       return value;
     },
     clear() { coordinator.clear(); owner = null; initialDefinition = null; },

@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 from experiments.fit_solver import FitCancelled
 
 POLICY = "seed-normal-envelope-v1"
+LOCAL_POLICY = "local-boundaries-v1"
 MAX_PREVIEW_IDS = 2048
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int32]
@@ -244,7 +245,7 @@ class SurfaceSelectionResult:
             "inset": self.ids,
         }
         return {
-            "policy": POLICY,
+            "policy": self.diagnostics["policy"],
             "counts": {
                 **{key: len(value) for key, value in phases.items()},
                 "protected_seeds": len(self.protected_ids),
@@ -516,9 +517,19 @@ def grow_surface_selection(
     *,
     angle_degrees: float = 20.0,
     setback: float = 0.0,
+    policy: str = POLICY,
+    neighborhood_distance: float | None = None,
     cancelled: Cancel = None,
 ) -> SurfaceSelectionResult:
     _check(cancelled)
+    if policy not in {POLICY, LOCAL_POLICY}:
+        raise ValueError("unknown surface-selection policy")
+    if neighborhood_distance is not None and (
+        isinstance(neighborhood_distance, bool)
+        or not np.isfinite(neighborhood_distance)
+        or neighborhood_distance <= 0
+    ):
+        raise ValueError("surface neighborhood distance must be finite and positive")
     if (
         isinstance(angle_degrees, bool)
         or not np.isfinite(angle_degrees)
@@ -558,7 +569,25 @@ def grow_surface_selection(
             if len(tri)
             else np.empty((0, 3))
         )
-        near[(topology.cuts[start : start + len(rows)] != 0) | (dots < cosine)] = -1
+        cut = topology.cuts[start : start + len(rows)] != 0
+        if policy == POLICY:
+            cut |= dots < cosine
+        near[cut] = -1
+    local_eligible: BoolArray | None = None
+    local_diagnostics: dict[str, Any] | None = None
+    if policy == LOCAL_POLICY:
+        from experiments.local_surface_boundaries import local_boundary_eligibility
+
+        for start in range(0, len(tri), topology.limits.chunk_size):
+            _check(cancelled)
+            near = neighbors[start : start + topology.limits.chunk_size]
+            near[
+                blocked[start : start + len(near), None] | blocked[np.maximum(near, 0)]
+            ] = -1
+        local_eligible, local_diagnostics = local_boundary_eligibility(
+            topology, neighbors, seeds, angle_degrees, neighborhood_distance, cancelled
+        )
+        local_eligible &= topology.valid & ~blocked
     groups, ambiguous, unsupported = _patches(
         topology, seeds, neighbors, blocked, cancelled
     )
@@ -567,7 +596,10 @@ def grow_surface_selection(
     final = np.zeros(count, dtype=bool)
     naturally_retained = np.zeros(count, dtype=bool)
     envelopes: list[dict[str, Any]] = []
-    for patch, group in enumerate(groups):
+    processing_groups = (
+        [np.concatenate(groups)] if policy == LOCAL_POLICY and groups else groups
+    )
+    for patch, group in enumerate(processing_groups):
         _check(cancelled)
         group_mask = np.zeros(count, dtype=bool)
         group_mask[group] = True
@@ -578,47 +610,56 @@ def grow_surface_selection(
             roots_mask[start : start + len(rows)] = group_mask[rows].any(axis=1)
         roots_mask &= topology.valid & ~blocked
         roots = np.flatnonzero(roots_mask).astype(np.int32)
-        n = topology.normals[roots]
-        weights = topology.areas[roots]
-        total_area = float(weights.sum())
-        if not np.isfinite(total_area) or total_area <= 0:
-            raise ValueError("seed face area accumulation is not finite and positive")
-        weights = weights / total_area
-        eigenvalues, basis = np.linalg.eigh((n.T * weights) @ n)
-        direction = basis[:, 0]
-        mode, reason = "band", None
-        if (
-            eigenvalues[1] < np.sin(np.radians(3.0)) ** 2
-            or eigenvalues[0] > 0.1 * eigenvalues[1]
-        ):
-            mode = "cone"
-            reason = "narrow-or-nonplanar-seed-normals"
-            direction = weights @ n
-            length = float(np.linalg.norm(direction))
-            if length <= 1e-12:
-                envelopes.append(
-                    {
-                        "patch": patch,
-                        "mode": "protected-only",
-                        "confidence": "unresolved",
-                        "reason": "opposing-seed-normals",
-                        "seed_vertices": len(group),
-                    }
+        if policy == LOCAL_POLICY:
+            assert local_eligible is not None
+            eligible = local_eligible
+            mode, reason = "local-boundaries", None
+            eigenvalues, direction = np.zeros(3), np.zeros(3)
+        else:
+            n = topology.normals[roots]
+            weights = topology.areas[roots]
+            total_area = float(weights.sum())
+            if not np.isfinite(total_area) or total_area <= 0:
+                raise ValueError(
+                    "seed face area accumulation is not finite and positive"
                 )
-                continue
-            direction /= length
-        if mode == "band" and direction[int(np.argmax(np.abs(direction)))] < 0:
-            direction = -direction
-        del n, weights
-        eligible = topology.valid & ~blocked
-        for start in range(0, len(tri), topology.limits.chunk_size):
-            _check(cancelled)
-            dots = (
-                topology.normals[start : start + topology.limits.chunk_size] @ direction
-            )
-            eligible[start : start + len(dots)] &= (
-                np.abs(dots) <= sine if mode == "band" else dots >= cosine
-            )
+            weights = weights / total_area
+            eigenvalues, basis = np.linalg.eigh((n.T * weights) @ n)
+            direction = basis[:, 0]
+            mode, reason = "band", None
+            if (
+                eigenvalues[1] < np.sin(np.radians(3.0)) ** 2
+                or eigenvalues[0] > 0.1 * eigenvalues[1]
+            ):
+                mode = "cone"
+                reason = "narrow-or-nonplanar-seed-normals"
+                direction = weights @ n
+                length = float(np.linalg.norm(direction))
+                if length <= 1e-12:
+                    envelopes.append(
+                        {
+                            "patch": patch,
+                            "mode": "protected-only",
+                            "confidence": "unresolved",
+                            "reason": "opposing-seed-normals",
+                            "seed_vertices": len(group),
+                        }
+                    )
+                    continue
+                direction /= length
+            if mode == "band" and direction[int(np.argmax(np.abs(direction)))] < 0:
+                direction = -direction
+            del n, weights
+            eligible = topology.valid & ~blocked
+            for start in range(0, len(tri), topology.limits.chunk_size):
+                _check(cancelled)
+                dots = (
+                    topology.normals[start : start + topology.limits.chunk_size]
+                    @ direction
+                )
+                eligible[start : start + len(dots)] &= (
+                    np.abs(dots) <= sine if mode == "band" else dots >= cosine
+                )
         region = _flood(neighbors, eligible, roots, cancelled)
         region_vertices[tri[region].ravel()] = True
         boundary_mask = region[:, None] & (
@@ -650,7 +691,9 @@ def grow_surface_selection(
             {
                 "patch": patch,
                 "mode": mode,
-                "confidence": "supported-band"
+                "confidence": "local-neighborhood"
+                if mode == "local-boundaries"
+                else "supported-band"
                 if mode == "band"
                 else "conservative-cone",
                 "reason": reason,
@@ -675,7 +718,7 @@ def grow_surface_selection(
     protected = seeds[~naturally_retained[seeds]]
     _check(cancelled)
     diagnostics: dict[str, Any] = {
-        "policy": POLICY,
+        "policy": policy,
         "patches": len(groups),
         "envelopes": envelopes,
         "ambiguous_seed_count": len(ambiguous),
@@ -692,6 +735,12 @@ def grow_surface_selection(
         "nonmanifold_halfedges": int((topology.cuts == 3).sum()),
         "estimated_auxiliary_bytes": topology.estimated_auxiliary_bytes,
     }
+    if local_diagnostics is not None:
+        diagnostics["local_boundaries"] = local_diagnostics
+        diagnostics["estimated_auxiliary_bytes"] = max(
+            topology.estimated_auxiliary_bytes,
+            local_diagnostics["estimated_auxiliary_bytes"],
+        )
     return SurfaceSelectionResult(
         _readonly(np.flatnonzero(final).astype(np.int32)),
         _readonly(np.flatnonzero(region_vertices).astype(np.int32)),

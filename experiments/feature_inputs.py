@@ -1,5 +1,8 @@
 """Experimental selectable outputs, distinct from numerical parameter bindings."""
 
+# Collection helpers load lazily after these shared output models initialize.
+# pyright: reportImportCycles=false
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -67,6 +70,22 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
         "uses": ["binding", "geometry"],
         "min_count": 2,
         "max_count": 33,
+        "allow_collections": True,
+    },
+    "relationship_direction_reference": {
+        "capabilities": ["direction"],
+        "property": "direction",
+        "uses": ["geometry"],
+        "min_count": 0,
+        "max_count": 1,
+    },
+    "relationship_direction_targets": {
+        "capabilities": ["direction"],
+        "property": "direction",
+        "uses": ["binding", "geometry"],
+        "min_count": 1,
+        "max_count": 33,
+        "allow_collections": True,
     },
     "point": {"capabilities": ["point"], "min_count": 1, "max_count": 1},
     "plane": {"capabilities": ["plane"], "min_count": 1, "max_count": 1},
@@ -485,6 +504,7 @@ def output_catalogue(
         AxisDefinition,
         AxisSolve,
         CoaxialGroup,
+        FeatureReuse,
         JointFit,
         MirrorSymmetry,
         PlaneDefinition,
@@ -533,7 +553,9 @@ def output_catalogue(
         node.axis for node in nodes.values() if isinstance(node, AxisSolve)
     }
     for node in nodes.values():
-        if isinstance(node, JointFit):
+        if isinstance(node, FeatureReuse):
+            members = node.fits
+        elif isinstance(node, JointFit):
             sides, planes = joint_surfaces(node, nodes)
             members = [member.id for member in [*sides, *planes]]
             direction_component = named_direction_component(node, nodes)
@@ -568,8 +590,10 @@ def output_catalogue(
         context_members[node.id] = {node.id}
         producing_contexts[node.id] = {
             "id": node.id,
-            "label": node.label,
-            "kind": "solve",
+            "label": f"Source geometry · {node.label}"
+            if isinstance(node, FeatureReuse)
+            else node.label,
+            "kind": "reuse_source" if isinstance(node, FeatureReuse) else "solve",
         }
         for member in members:
             contexts.setdefault(member, []).append(node.id)
@@ -651,6 +675,14 @@ def output_catalogue(
                 )
             reason: str | None = None
             publisher = nodes.get(context)
+            if (
+                availability == "ready"
+                and isinstance(publisher, FeatureReuse)
+                and node.id not in values.get(context, {}).get("outputs", {})
+            ):
+                # Ordinary evaluated reuse need not materialize source ports.
+                # Their first authored consumer requests that private stage.
+                availability = "unevaluated"
             if isinstance(publisher, CoaxialGroup) and publisher.axis in explicit_axes:
                 availability, reason = (
                     "ambiguous",
@@ -796,6 +828,58 @@ def output_catalogue(
                             reason="The declared output is unavailable; evaluate its provider",
                         )
                 descriptors.append(descriptor)
+    from experiments.relationship_collections import collection_descriptors
+
+    output_states = {
+        (
+            item["reference"]["feature"],
+            item["reference"]["output"],
+            item["reference"]["context"],
+        ): item["availability"]
+        for item in descriptors
+    }
+    for node in recipe.nodes:
+        if not isinstance(node, FeatureReuse):
+            continue
+        for descriptor in collection_descriptors(node, nodes):
+            for property_descriptor in descriptor["properties"].values():
+                property_descriptor.update(
+                    reference=descriptor["reference"], frame=frame
+                )
+            members = descriptor["collection"]["members"]
+            member_states = [
+                output_states.get(
+                    (member["feature"], member["output"], member["context"]),
+                    states.get(member["context"], "unevaluated"),
+                )
+                for member in members
+            ]
+            availability = next(
+                (
+                    value
+                    for value in (
+                        "failed",
+                        "blocked",
+                        "needs_input",
+                        "running",
+                        "stale",
+                        "unevaluated",
+                    )
+                    if value in member_states
+                ),
+                "ready",
+            )
+            descriptor.update(
+                availability=availability,
+                reason=None,
+                preview=None,
+                source=provenance(node.fits[0]),
+                frame=frame,
+                dependencies=closure(
+                    {node.id, *(member["feature"] for member in members)}
+                ),
+            )
+            descriptors.append(descriptor)
     return descriptors
 
 
@@ -809,6 +893,8 @@ def compatibility_reason(
     if requirement not in REQUIREMENTS:
         raise ValueError(f"unknown input requirement {requirement!r}")
     contract = REQUIREMENTS[requirement]
+    if descriptor.get("collection") and not contract.get("allow_collections"):
+        return "This input needs one geometry output, not a pattern collection"
     if not set(descriptor.get("capabilities", [descriptor["capability"]])).intersection(
         contract["capabilities"]
     ):
@@ -821,7 +907,9 @@ def compatibility_reason(
             return "This input requires a direct datum context; solved publications cannot be stored as a fit reference"
     uses = contract.get("uses", ["geometry"])
     if (
-        requirement == "relationship_direction"
+        contract.get("property") == "direction"
+        and "binding" in uses
+        and not descriptor.get("collection")
         and not descriptor.get("properties", {})
         .get("direction", {})
         .get("binding_eligible", False)
@@ -981,7 +1069,7 @@ def input_choices(
             "binding" in REQUIREMENTS[requirement].get("uses", [])
             and descriptor.get("parameter_owner")
             and (
-                requirement != "relationship_direction"
+                REQUIREMENTS[requirement].get("property") != "direction"
                 or descriptor["properties"]
                 .get("direction", {})
                 .get("binding_eligible", False)

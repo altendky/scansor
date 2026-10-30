@@ -1,11 +1,23 @@
 """Worker/native parity requires identical selection membership and policy."""
 
+import runpy
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
 from experiments.browser_runtime.probe import compare_surface_selections
 from experiments.browser_runtime.seed_surface_probe import seed_surface_probe
+from experiments.seed_surface_authoring import SURFACE_SELECTION_PROFILE
+
+
+def test_packaged_worker_advertises_the_shared_surface_selection_policies() -> None:
+    builder = runpy.run_path(
+        str(Path(__file__).resolve().parents[1] / "scripts/build-browser-runtime.py")
+    )
+    assert (
+        builder["worker_protocol"]()["surface_selection"] == SURFACE_SELECTION_PROFILE
+    )
 
 
 def test_seed_surface_probe_refits_and_reopens_both_setback_cases() -> None:

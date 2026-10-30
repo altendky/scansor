@@ -23,6 +23,82 @@ export function seedSurfaceGrid() {
   return Buffer.concat([header, data]);
 }
 
+async function exerciseSurfaceSelectionModes({page, expect, read, edit, evaluateAll, derived, membership}) {
+  const seed = 'seed-normal-envelope-v1', local = 'local-boundaries-v1',
+    mode = page.locator('#surface-selection-policy'), distance = page.locator('#surface-selection-neighborhood-distance'),
+    diagnostics = page.locator('#surface-selection-diagnostics'), status = page.locator('#surface-selection-preview-status'),
+    node = async () => (await read()).graph.recipe.nodes.find(node => node.id === derived.id),
+    preview = async policy => {
+      await page.locator('#surface-selection-preview').click();
+      await expect(status).toContainText('selected');
+      assert.equal(JSON.parse(await diagnostics.textContent()).policy, policy);
+    },
+    apply = async (policy, neighborhood_distance) => {
+      await page.locator('#apply-properties').click();
+      await expect.poll(async () => ({policy: (await node()).policy, neighborhood_distance: (await node()).neighborhood_distance}))
+        .toEqual({policy, neighborhood_distance});
+      await evaluateAll.click();
+      await expect.poll(async () => Object.values((await read()).graph.states).every(state => state === 'ready')).toBe(true);
+    };
+  await edit(derived.id);
+  await expect(mode).toHaveValue(seed);
+  await expect(page.locator('#surface-selection-neighborhood-row')).toBeHidden();
+  await expect(distance).toBeDisabled();
+  await preview(seed);
+  await mode.selectOption(local);
+  await expect(diagnostics).toHaveText('');
+  await expect(page.locator('#surface-selection-neighborhood-row')).toBeVisible();
+  await expect(distance).toBeEnabled();
+  await expect(distance).toHaveValue('');
+  await expect(page.locator('#surface-selection-mode-hint')).toContainText('Gradual curvature can wrap');
+  await expect(status).toContainText('selected');
+  assert.equal(JSON.parse(await diagnostics.textContent()).policy, local);
+  assert.equal((await node()).policy, seed, 'A Local preview must not change the accepted definition');
+  await distance.fill('1.5');
+  await expect(diagnostics).toHaveText('');
+  await expect(status).toContainText('selected');
+  await page.locator('#surface-selection-setback').fill('0');
+  await expect(diagnostics).toHaveText('');
+  await expect(status).toContainText('selected');
+  await apply(local, 1.5);
+  const localMembership = (await read()).graph.memberships[derived.id];
+  assert(localMembership.includes(38));
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', {name: 'Save actions', exact: true}).click();
+  let savedText = '';
+  for await (const part of await (await downloading).createReadStream()) savedText += part.toString();
+  const localDefinition = JSON.parse(savedText).nodes.find(node => node.id === derived.id);
+  assert.equal(localDefinition.policy, local);
+  assert.equal(localDefinition.neighborhood_distance, 1.5);
+  assert(!('ids' in localDefinition));
+  await mode.selectOption(seed);
+  await expect(distance).toBeDisabled();
+  await preview(seed);
+  await apply(seed, null);
+  // Reopen a different saved definition so the assertion cannot pass against
+  // the still-accepted recipe before asynchronous import completes.
+  await page.locator('#file').setInputFiles({name: 'local-boundaries-actions.json', mimeType: 'application/json', buffer: Buffer.from(savedText)});
+  await expect.poll(async () => (await node()).policy).toBe(local);
+  assert.equal((await node()).neighborhood_distance, 1.5);
+  await evaluateAll.click();
+  await expect.poll(async () => (await read()).graph.states[derived.id]).toBe('ready');
+  assert.deepEqual((await read()).graph.memberships[derived.id], localMembership);
+  await edit(derived.id);
+  await expect(mode).toHaveValue(local);
+  await expect(distance).toHaveValue('1.5');
+  await distance.fill('');
+  await preview(local);
+  await apply(local, null);
+  // Restore the legacy definition and membership after testing both new paths.
+  await mode.selectOption(seed);
+  await page.locator('#surface-selection-setback').fill('1.2');
+  await preview(seed);
+  await apply(seed, null);
+  assert.deepEqual((await read()).graph.memberships[derived.id], membership);
+  return {legacy_default: true, local_policy: local, explicit_neighborhood: 1.5,
+    local_reopened_ids: localMembership, automatic_neighborhood: null, seed_mode_clears_neighborhood: true};
+}
+
 export async function exerciseSeedSurfaceUi({page, expect}) {
   const read = () => page.evaluate(() => globalThis.__seedSurface.read());
   const evaluateAll = page.getByRole('button', {name: 'Evaluate all', exact: true});
@@ -63,6 +139,8 @@ export async function exerciseSeedSurfaceUi({page, expect}) {
   await page.locator('#apply-properties').click();
   await expect.poll(() => page.evaluate(() => globalThis.__seedSurfaceSubmit)).toBe(1);
   await page.getByRole('button', {name: 'Surface selection', exact: true}).click();
+  await expect(page.locator('#new-surface-selection-policy')).toHaveValue('seed-normal-envelope-v1');
+  await expect(page.locator('#new-surface-selection-neighborhood-row')).toBeHidden();
   await page.locator('#new-surface-selection-seed').selectOption('seeds');
   await page.locator('#new-surface-selection-barriers').selectOption('barriers');
   await expect(page.locator('#create-surface-selection')).toBeDisabled();
@@ -132,6 +210,7 @@ export async function exerciseSeedSurfaceUi({page, expect}) {
   await evaluateAll.click();
   await expect.poll(async () => (await read()).graph.states[fitted.id]).toBe('ready');
   assert.deepEqual((await read()).graph.memberships[derived.id], membership);
+  const modes = await exerciseSurfaceSelectionModes({page, expect, read, edit, evaluateAll, derived, membership});
   return {narrowAngle, beforeInset, afterInset, membership, seed_ids: [38], barriers, derived: saved.nodes.find(node => node.id === derived.id),
-    fitted_ids: (await read()).graph.results[fitted.id].ids, reopened_ids: (await read()).graph.memberships[derived.id]};
+    fitted_ids: (await read()).graph.results[fitted.id].ids, reopened_ids: (await read()).graph.memberships[derived.id], modes};
 }

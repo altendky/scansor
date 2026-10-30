@@ -79,9 +79,12 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     await page.locator('#relationship-kind').selectOption(kind);
     if (await page.locator('#clear-relationship-participants').isEnabled())
       await page.locator('#clear-relationship-participants').click();
-    await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+    const inputs = kind === 'direction_alignment'
+      ? page.locator('[data-relationship-role="participants"] input[data-participant-id]')
+      : page.locator('#relationship-participants input');
+    await page.getByRole('button', {name: kind === 'direction_alignment' ? 'Show Apply to choices' : 'Show Participants choices', exact: true}).click();
     for (const participant of participants) {
-      const inputs = page.locator('#relationship-participants input'), index = await inputs.evaluateAll(
+      const index = await inputs.evaluateAll(
         (elements, wanted) => elements.findIndex(element => element.dataset.participantId === wanted), key(participant));
       assert(index >= 0, `Missing exact relationship participant ${key(participant)}`);
       await expect(inputs.nth(index)).toBeEnabled();

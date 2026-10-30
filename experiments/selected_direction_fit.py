@@ -75,6 +75,8 @@ if TYPE_CHECKING:
 Array = NDArray[np.float64]
 DIRECTION_POLICY_VERSION = "selected-direction-component-recovery-v1"
 _CHART = "independent-member-direction-starts-v1"
+# One ppm of the component normalization length for dimensional comparisons.
+_EQUIVALENCE_TOLERANCE = 1e-6
 
 
 def private_direction_axis(fit_id: str) -> str:
@@ -576,6 +578,7 @@ def _fit_selected_direction_component(
         "support": {key: support_record(value) for key, value in supports.items()},
         "support_policy": SUPPORT_POLICY_VERSION,
         "gradient_tolerance": component.gradient_tolerance,
+        "equivalence_tolerance": _EQUIVALENCE_TOLERANCE,
     }
     binding = initialization_binding(
         workspace.source_sha256,
@@ -882,7 +885,7 @@ def _fit_selected_direction_component(
         )
 
     def equivalent(left: dict[str, Any], right: dict[str, Any]) -> bool:
-        tolerance = 1e-7
+        tolerance = _EQUIVALENCE_TOLERANCE
         for key, member in members.items():
             a, b = left["surfaces"][key], right["surfaces"][key]
             if member.selection.kind == "sphere":
@@ -939,6 +942,7 @@ def _fit_selected_direction_component(
     output = recovered.result
     initialization = {
         "algorithm": DIRECTION_POLICY_VERSION,
+        "equivalence_tolerance": _EQUIVALENCE_TOLERANCE,
         "chart": _CHART,
         "binding_sha256": binding.sha256,
         "recovery": recovered.diagnostics.json(),

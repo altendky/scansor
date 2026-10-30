@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHttpBackend } from './http-backend.js';
+import { createHttpBackend, supportsSurfaceSelectionPolicy } from './http-backend.js';
 
 const surfaceProfile = { supported: true, version: 1, policy: 'seed-normal-envelope-v1', max_preview_ids: 2048 };
 const payload = { token: 'accepted', seed_selection: 'seed', barriers: ['stop'], angle_degrees: 20,
@@ -40,6 +40,28 @@ test('HTTP surface preview negotiates its bounded profile before starting owned 
     await assert.rejects(f.backend.previewSurfaceSelection(payload), error => error.code === 'unsupported_capability');
     assert.equal(f.calls.length, 3); f.backend.close();
   }
+});
+
+test('surface modes are explicitly advertised while legacy profiles retain Seed orientation only', async () => {
+  const local = 'local-boundaries-v1', both = {...surfaceProfile, policies: [surfaceProfile.policy, local]};
+  assert.equal(supportsSurfaceSelectionPolicy(surfaceProfile), true);
+  assert.equal(supportsSurfaceSelectionPolicy(surfaceProfile, local), false);
+  assert.equal(supportsSurfaceSelectionPolicy(both, local), true);
+  for (const policies of [null, [local], [surfaceProfile.policy, surfaceProfile.policy], [surfaceProfile.policy, 'unknown']])
+    assert.equal(supportsSurfaceSelectionPolicy({...surfaceProfile, policies}), false);
+  const old = await surfaceHttp({fetch: () => assert.fail('Unadvertised Local mode must not start a request')});
+  await assert.rejects(old.backend.previewSurfaceSelection({...payload, policy: local, neighborhood_distance: 1.5}),
+    error => error.code === 'unsupported_capability');
+  assert.equal(old.calls.length, 3); old.backend.close();
+  const enabled = await surfaceHttp({profile: both, fetch: async path => {
+    if (path.endsWith('/preview')) return Response.json(previewState('queued'));
+    if (path.includes('/preview/')) return Response.json(previewState('complete', {preview: {policy: local}}));
+    assert.fail(`unexpected route ${path}`);
+  }});
+  const value = {...payload, policy: local, neighborhood_distance: 1.5};
+  assert.equal((await enabled.backend.previewSurfaceSelection(value)).preview.policy, local);
+  assert.deepEqual(JSON.parse(enabled.calls.find(call => call.path.endsWith('/preview')).init.body), value);
+  enabled.backend.close();
 });
 
 test('HTTP surface preview uses source fences and keeps accepted graph state out of its private result', async () => {

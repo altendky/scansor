@@ -24,8 +24,11 @@ from experiments.feature_reuse_authoring import (
     preview_feature_reuse,
     reconcile_feature_reuse,
 )
+from experiments.selection_entries import VolumeReference
 from experiments.selection_volume import apply_selection_volume, build_selection_volume
+from experiments.selection_volume_authoring import authoring_fingerprint, resolve_volume
 from experiments.selection_volume_operations import dispatch
+from experiments.selection_volume_transactions import staged_refresh
 from tests.circular_reuse_fixture import circular_fixture
 
 
@@ -204,6 +207,60 @@ def test_volume_option_and_axis_edits_invalidate_placed_memberships_and_fits() -
     )
     assert refreshed["states"]["pattern"] == "ready"
     assert set(owned(Recipe.model_validate(refreshed["recipe"]))) == set(children)
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_source_selection_edit_refreshes_volume_and_refits_existing_pattern(
+    grouped: bool,
+) -> None:
+    _, workspace, recipe, circular, _ = circular_fixture()
+    graph = FeatureGraph(workspace, recipe)
+    applied = apply_feature_reuse(graph, request(graph, circular))
+    _ = graph.ensure_current(str(applied["token"]), all_actions=True)
+    before = graph.snapshot()
+    saved = Recipe.model_validate(before["recipe"])
+    children = owned(saved)
+    reference = VolumeReference.model_validate(circular["volumes"][0]["volume"])
+    old_volume = resolve_volume(saved, reference)[2]
+    payload = saved.model_dump(mode="json")
+    source = next(node for node in payload["nodes"] if node["id"] == "bore_input")
+    if grouped:
+        payload["groups"].append({"id": "source_group", "label": "Source inputs"})
+        source["group_id"] = "source_group"
+    source["entries"][0]["ids"].pop()
+    edited = Recipe.model_validate(payload)
+    _ = graph.replace(edited, str(before["token"]))
+    pending = graph.snapshot()
+
+    # Capture remains private, even with the already-authored downstream pattern.
+    candidate, errors = staged_refresh(graph, edited)
+    assert errors == {}
+    assert graph.snapshot() == pending
+    owner, entry, refreshed_volume = resolve_volume(candidate, reference)
+    assert refreshed_volume.archive.sha256 != old_volume.archive.sha256
+    assert refreshed_volume.id == old_volume.id
+    assert refreshed_volume.options == old_volume.options
+    assert refreshed_volume.authoring_fingerprint == authoring_fingerprint(
+        candidate, owner, entry, refreshed_volume
+    )
+
+    state = cast(
+        dict[str, Any],
+        graph.ensure_current(str(pending["token"]), all_actions=True),
+    )
+    assert state["errors"] == {}
+    assert all(value == "ready" for value in state["states"].values())
+    updated = Recipe.model_validate(state["recipe"])
+    assert set(owned(updated)) == set(children)
+    assert {node.id for node in owned(updated).values()} == {
+        node.id for node in children.values()
+    }
+    assert resolve_volume(updated, reference)[2] == refreshed_volume
+    assert updated.groups == edited.groups
+    updated_source = next(node for node in updated.nodes if node.id == "bore_input")
+    assert (
+        updated_source.model_dump()["entries"][0]["ids"] == source["entries"][0]["ids"]
+    )
 
 
 def test_missing_occurrence_keeps_empty_selection_and_inspectable_fit_failure() -> None:

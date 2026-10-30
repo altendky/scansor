@@ -303,6 +303,20 @@ def _authoring_closure(
     )
 
 
+def authoring_context_recipe(
+    recipe: Recipe, owner: Selection, entry: SelectionEntry, volume: VolumeIntent
+) -> Recipe:
+    """Keep the exact capture closure and give its private graph a valid output."""
+    context = _authoring_closure(recipe, owner, entry, volume)
+    groups = {node.group_id for node in context.nodes}
+    return context.model_copy(
+        update={
+            "output": volume.fit.feature if volume.fit is not None else owner.id,
+            "groups": [group for group in recipe.groups if group.id in groups],
+        }
+    )
+
+
 def authoring_selection_ids(
     recipe: Recipe, owner: Selection, entry: SelectionEntry, volume: VolumeIntent
 ) -> set[str]:

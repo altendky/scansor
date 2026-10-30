@@ -17,6 +17,7 @@ import { relationshipDefinitions as relationshipDefinitionChoices, relationshipP
   relationshipValidity as relationshipInputValidity, relationshipSelectionForFeatures,
   relationshipNodeInputs, relationshipFeatureIds, relationshipOutputValue,
   relationshipRoleChoices, relationshipRoleSelection,
+  relationshipCollectionMembers, relationshipExpandedOutputs, relationshipSelectionCounts,
   axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
@@ -202,6 +203,7 @@ function fieldPickChoice(control, option) {
     const output = matchingInputOutput(option.key,
       requirementOutputs(graphState, control.dataset.inputRequirement));
     return { ...option, reference: output?.reference, inputOutput: output,
+      ...(output?.collection ? {relationshipOutput: output} : {}),
       icon: output?.capability || 'point' };
   }
   let reference, exactReference = false;
@@ -214,6 +216,9 @@ function fieldPickChoice(control, option) {
 function fieldOptionModelPickable(control, key) {
   if (!graphState || !key) return false;
   const choice = fieldPickChoice(control, { key });
+  if (choice.relationshipOutput?.collection)
+    return relationshipExpandedOutputs(graphState, [choice.relationshipOutput])
+      .some(output => !!relationshipOutputValue(graphState, output));
   if (choice.inputOutput) return !!choice.inputOutput.preview;
   return modelPickParts(choice).some(({ node, fitted }) => {
     if (node.operation === 'surface_intersection')
@@ -248,10 +253,12 @@ function modelPickChoices({ tree = false } = {}) {
   return [...role.list.querySelectorAll('.relationship-participant')].flatMap(row => {
     const checkbox = row.querySelector('input'), key = checkbox?.dataset.participantId,
       output = choices.find(choice => choice.key === key), node = graphNode(output?.reference?.feature),
-      fitted = relationshipOutputValue(graphState, output);
+      expanded = output ? relationshipExpandedOutputs(graphState, [output]) : [],
+      values = expanded.map(member => relationshipOutputValue(graphState, member)),
+      fitted = values.some(Boolean);
     return output?.compatible && row.dataset.compatible !== 'false' && checkbox && !checkbox.disabled && (tree || fitted) ? [{
       label: relationshipParticipantPresentation(graphState, output).choiceLabel, key, icon: node?.kind || node?.operation,
-      reference: output.reference, checkbox, ids: fitted?.ids,
+      reference: output.reference, checkbox, ids: values.flatMap(value => value?.ids || []),
       relationshipOutput: output,
       ...(output.preview?.plane_equation ? { inputOutput: output } : {}),
     }] : [];
@@ -423,13 +430,19 @@ function initializeSpecializedPickFields() {
   $('relationship-participant-field').append(relationshipParticipantField.element);
 }
 function modelPickParts(choice) {
+  if (choice.relationshipOutput?.collection) return relationshipExpandedOutputs(graphState, [choice.relationshipOutput])
+    .flatMap(output => {
+      const node = graphNode(output.reference.feature), fitted = relationshipOutputValue(graphState, output);
+      return node && fitted ? [{node, fitted, reference: output.reference}] : [];
+    });
   // Named geometry outputs never inherit supporting observations or unrelated
   // members of a provider's numerical result.
   if (choice.inputOutput) return [];
   if (choice.relationshipOutput) {
-    const node = graphNode(choice.relationshipOutput.reference.feature),
-      fitted = relationshipOutputValue(graphState, choice.relationshipOutput);
-    return node && fitted ? [{ node, fitted, reference: choice.reference }] : [];
+    return relationshipExpandedOutputs(graphState, [choice.relationshipOutput]).flatMap(output => {
+      const node = graphNode(output.reference.feature), fitted = relationshipOutputValue(graphState, output);
+      return node && fitted ? [{node, fitted, reference: output.reference}] : [];
+    });
   }
   const reference = choice.reference || choice.candidate?.reference;
   const node = graphNode(reference?.surface || reference?.feature);
@@ -567,7 +580,7 @@ function modelPicksAt(event) {
     const face = hits.find(hit => hit.object.userData.sourceFace);
     const node = graphNode(face?.object.userData.sourceFace);
     if (node) for (const choice of choices) {
-      if (choice.inputOutput) continue;
+      if (choice.inputOutput && !choice.relationshipOutput?.collection) continue;
       const reference = choice.reference || choice.candidate?.reference;
       if (choice.key === node.id || sameSurfaceReference(reference, node.surface) ||
           modelPickParts(choice).some(part => sameSurfaceReference(part.reference, node.surface)) ||
@@ -2058,7 +2071,8 @@ function geometryInputChoices(id, requirement, nodes, selected) {
     control.dataset.inputConsumer = editingFeatureId || '';
   else delete control.dataset.inputConsumer;
   renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected,
-    relationshipInputOptions(graphState, requirement));
+    {...relationshipInputOptions(graphState, requirement),
+      ...(graphState.input_contracts?.[requirement]?.min_count === 0 ? {emptyLabel: 'None (optional)'} : {})});
 }
 function frameGeometry(nodes) {
   return {
@@ -2240,7 +2254,8 @@ function ensureRelationshipRoleFields() {
     wrapper.append(heading, clear, field.element);
     $('relationship-role-fields').append(wrapper);
   }
-  relationshipActiveRole = relationshipRoleFields.keys().next().value || 'participants';
+  relationshipActiveRole = relationshipRoleFields.has('participants') ? 'participants'
+    : relationshipRoleFields.keys().next().value || 'participants';
 }
 function renderUnassignedRelationshipParticipants() {
   const container = $('relationship-unassigned');
@@ -2287,11 +2302,16 @@ function renderRelationshipBuilder() {
     locked: () => featureTreeLocked() || relationshipApplying,
     change: (id, included) => changeRelationshipParticipant(picker.name, id, included),
     inspect: (id) => { relationshipInspected = id; paintRelationshipPreview(); },
-    focus: (id) => focusRelationshipParticipants(relationshipFeatureIds([id])),
+    focus: (id) => focusRelationshipParticipants(relationshipFocusIds(new Set([id]))),
   });
   renderUnassignedRelationshipParticipants();
   filterRelationshipParticipants();
   updateRelationshipSelection();
+}
+function relationshipFocusIds(selected = relationshipParticipantIds) {
+  const outputs = relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)
+    .filter(output => selected.has(output.key));
+  return [...new Set(relationshipExpandedOutputs(graphState, outputs).map(output => output.reference.feature))];
 }
 function filterRelationshipParticipants() {
   const allRows = [];
@@ -2316,8 +2336,13 @@ function updateRelationshipParticipantField() {
     picker.field.update(relationshipPickerChoices(picker.name).map(output => ({
     key: output.key, label: relationshipParticipantPresentation(graphState, output).name,
     detail: relationshipParticipantPresentation(graphState, output).detail,
+    members: output.collection ? relationshipCollectionMembers(graphState, output).map(member => {
+      const presentation = relationshipParticipantPresentation(graphState, member);
+      return [presentation.name, presentation.detail].filter(Boolean).join(' — ');
+    }) : undefined,
     selected: selected.has(output.key), disabled: !output.compatible,
-    modelPickable: !!relationshipOutputValue(graphState, output),
+    modelPickable: relationshipExpandedOutputs(graphState, [output])
+      .some(member => !!relationshipOutputValue(graphState, member)),
     treePickable: output.compatible,
   })), { disabled: !graphState || featureTreeLocked() || relationshipApplying,
     busy: !!graphState && (featureTreeLocked() || relationshipApplying),
@@ -2339,7 +2364,12 @@ function updateRelationshipSelection() {
     $('relationship-summary').textContent += $('auto-evaluate').checked
       ? ' Pending inputs will be evaluated after adding the relationship.'
       : ' This relationship will need evaluation.';
-  $('relationship-count').textContent = `${participants.length} selected`;
+  const selectedOutputs = relationshipParticipantChoices(graphState, selectedRelationshipKind, new Set(participants))
+    .filter(output => relationshipParticipantIds.has(output.key)),
+    counts = relationshipSelectionCounts(graphState, selectedOutputs);
+  $('relationship-count').textContent = counts.collections
+    ? `${participants.length} ${participants.length === 1 ? 'selection' : 'selections'} · ${counts.unique} outputs`
+    : `${participants.length} selected`;
   const locked = featureTreeLocked() || relationshipApplying;
   $('relationship-kind').disabled = relationshipApplying;
   $('new-relationship-label').readOnly = relationshipApplying;
@@ -2365,10 +2395,11 @@ function paintRelationshipPreview() {
   if ($('relationship-dialog').open) {
     const selected = new Set(relationshipParticipantIds);
     if (relationshipInspected) selected.add(relationshipInspected);
-    for (const output of relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)) {
-      if (!selected.has(output.key)) continue;
+    const chosen = relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)
+      .filter(output => selected.has(output.key));
+    for (const output of relationshipExpandedOutputs(graphState, chosen)) {
       const node = graphNode(output.reference?.feature), values = relationshipOutputValue(graphState, output),
-        color = output.key === relationshipInspected ? '#ffe45c' : '#78e2ff';
+        color = (output.collectionKey || output.key) === relationshipInspected ? '#ffe45c' : '#78e2ff';
       if (!node || !values) continue;
       if (relationshipAxisGuide(output, color, relationshipOverlays) ||
           relationshipPlaneGuide(output, color, relationshipOverlays)) continue;
@@ -2420,8 +2451,26 @@ function fitReferenceChoices(id, kind, nodes, selected) {
 }
 function updateDirectionPropertiesHint() {
   const outputs = requirementOutputs(graphState, 'relationship_direction'),
-    selected = chosen('direction-alignment-inputs').map(key => matchingInputOutput(readInputReference(key), outputs));
-  $('direction-alignment-hint').textContent = `${directionAlignmentLabel(selected)}. Either direction sign is accepted. Positions, centerlines, plane offsets and radii are independent.`;
+    selected = chosen('direction-alignment-inputs').map(key => matchingInputOutput(readInputReference(key), outputs)).filter(Boolean),
+    counts = relationshipSelectionCounts(graphState, selected),
+    hasReference = !!$('direction-alignment-reference').value;
+  $('direction-alignment-hint').textContent = `${directionAlignmentLabel(selected)}. ${counts.unique} direction outputs${hasReference ? ' follow the selected upstream result' : ' align with each other'}. Either direction sign is accepted. Positions, centerlines, plane offsets and radii are independent.`;
+  if (counts.collections) $('direction-alignment-hint').textContent += ' The original is an upstream source; this relationship adjusts the copies. Align the original upstream if its direction also needs to change.';
+  const inspection = $('direction-alignment-collections');
+  const expanded = new Set([...inspection.querySelectorAll('details[open]')].map(details => details.dataset.collectionKey));
+  inspection.replaceChildren(...selected.filter(output => output.collection).map(output => {
+    const details = document.createElement('details'), summary = document.createElement('summary'), list = document.createElement('ul');
+    details.dataset.collectionKey = output.key;
+    details.open = expanded.has(output.key);
+    summary.textContent = `Inspect ${relationshipParticipantPresentation(graphState, output).name}`;
+    list.replaceChildren(...relationshipCollectionMembers(graphState, output).map(member => {
+      const row = document.createElement('li'), presentation = relationshipParticipantPresentation(graphState, member);
+      row.textContent = [presentation.name, presentation.detail].filter(Boolean).join(' — ');
+      return row;
+    }));
+    details.append(summary, list); return details;
+  }));
+  inspection.hidden = !inspection.childElementCount;
 }
 function setFitReference(node, id, nodes = graphState.recipe.nodes) {
   try {
@@ -3114,6 +3163,7 @@ function showProperties(force = false) {
   for (const id of ['fit-reference', 'fit-reference-mode'])
     $(id).disabled = $('fit-properties').hidden;
   $('direction-alignment-inputs').disabled = $('direction-alignment-properties').hidden;
+  $('direction-alignment-reference').disabled = $('direction-alignment-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
@@ -3368,7 +3418,8 @@ function showProperties(force = false) {
       node.surfaces,
     );
   } else if (node.operation === 'direction_alignment') {
-    geometryInputChoices('direction-alignment-inputs', 'relationship_direction', earlier, node.directions);
+    geometryInputChoices('direction-alignment-inputs', 'relationship_direction_targets', earlier, node.directions);
+    geometryInputChoices('direction-alignment-reference', 'relationship_direction_reference', earlier, node.reference || null);
     updateDirectionPropertiesHint();
   } else if (node.operation === 'plane_relationship') {
     $('plane-relationship-kind').value = node.relation;
@@ -4017,10 +4068,11 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
         : node.relation === 'parallel' ? 'parallel_planes' : 'coincident_planes',
         requirement = graphState.relationship_contracts[kind].roles.participants,
         outputs = requirementOutputs(graphState, requirement);
-      (node.directions || node.surfaces).forEach((reference, index) => {
-        const output = typeof reference === 'string'
+      const chosen = [...(node.reference ? [node.reference] : []), ...(node.directions || node.surfaces)]
+        .map(reference => typeof reference === 'string'
           ? outputs.find(output => output.parameter_owner?.feature === reference)
-          : matchingInputOutput(reference, outputs);
+          : matchingInputOutput(reference, outputs)).filter(Boolean);
+      relationshipExpandedOutputs(graphState, chosen).forEach((output, index) => {
         if (!guides || !output) return;
         const color = palette[index % palette.length], value = relationshipOutputValue(graphState, output),
           provider = graphNode(output.reference.feature);
@@ -4179,7 +4231,8 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
       drawGuide(referencePlaneGuide, plane, '#ff8fe5');
     for (const plane of Object.values(result.reference_planes || {}))
       drawGuide(referencePlaneGuide, plane, '#ff8fe5');
-    values['Combined RMS'] = (result.fit?.weighted_rms ?? result.weighted_rms).toFixed(5);
+    const combinedRms = result.fit?.weighted_rms ?? result.weighted_rms;
+    if (Number.isFinite(combinedRms)) values['Combined RMS'] = combinedRms.toFixed(5);
     Object.entries(result.surfaces).forEach(([id, s], i) => {
       drawGuide(fitGuide, graphNode(id), s, palette[i % palette.length]);
       values[graphNode(id).label + ' adjusted RMS'] = s.weighted_rms.toFixed(5);
@@ -4235,8 +4288,9 @@ function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true }
       const outputs = requirementOutputs(graphState, 'relationship_direction');
       values['Relationship'] = directionAlignmentLabel(node.directions.map(reference => matchingInputOutput(reference, outputs)));
       values['Direction sense'] = 'Unsigned';
-      for (const reference of node.directions) {
-        const output = matchingInputOutput(reference, outputs);
+      const chosen = [...(node.reference ? [node.reference] : []), ...node.directions]
+        .map(reference => matchingInputOutput(reference, outputs)).filter(Boolean);
+      for (const output of relationshipExpandedOutputs(graphState, chosen)) {
         if (!guides || !output) continue;
         const selected = output.reference;
         if (selected.context === selected.feature && result.resolved?.[selected.feature]) continue;
@@ -5029,7 +5083,7 @@ async function start(recoveredState) {
     relationshipInspected = null;
     renderRelationshipBuilder();
   };
-  $('focus-relationship').onclick = () => focusRelationshipParticipants(relationshipFeatureIds(relationshipParticipantIds));
+  $('focus-relationship').onclick = () => focusRelationshipParticipants(relationshipFocusIds());
   const surfaceEditorOptions = (owner, isActive, onValidity = () => {}) => ({ backend,
     current: () => ({ graph: graphState, generation: workspaceGeneration, vertices: metadata.vertices }),
     prepare: definition => ensureCurrent([definition.seed_selection, ...definition.barriers]),
@@ -5920,6 +5974,7 @@ async function start(recoveredState) {
   $('new-axis-solve-axis').onchange = updateAxisSolveFactors;
   $('new-joint-mode').onchange = updateAxisSolveFactors;
   $('direction-alignment-inputs').onchange = updateDirectionPropertiesHint;
+  $('direction-alignment-reference').onchange = updateDirectionPropertiesHint;
   $('new-fit-kind').onchange = () => {
     fitReferenceChoices('new-fit-reference', $('new-fit-kind').value, graphState.recipe.nodes);
     syncModelPickControls();
@@ -6704,7 +6759,9 @@ async function start(recoveredState) {
     }
     if (node.operation === 'direction_alignment') {
       try { Object.assign(node, relationshipNodeInputs(graphState, 'direction_alignment',
-        new Set(chosen('direction-alignment-inputs')), recipe.nodes.slice(0, recipe.nodes.indexOf(node)))); }
+        {roles: {participants: new Set(chosen('direction-alignment-inputs')),
+          reference: new Set([$('direction-alignment-reference').value].filter(Boolean))}},
+        recipe.nodes.slice(0, recipe.nodes.indexOf(node)))); }
       catch (error) { status(error.message, true); return; }
     }
     if (node.operation === 'joint_fit') {

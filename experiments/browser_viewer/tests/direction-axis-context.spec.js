@@ -107,9 +107,9 @@ test('automatic solved-axis contexts render compact direction previews in builde
   const options = page.locator('#relationship-dialog details');
   if (!await options.evaluate(node => node.open)) await options.locator('summary').click();
   await page.locator('#new-relationship-label').fill('Exact automatic axis read');
-  await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+  await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
   for (const reference of [fixedReference, freeReference]) {
-    const inputs = page.locator('#relationship-participants input'), key = JSON.stringify(reference),
+    const inputs = page.locator('[data-relationship-role="participants"] input[data-participant-id]'), key = JSON.stringify(reference),
       index = await inputs.evaluateAll((elements, key) => elements.findIndex(element => element.dataset.participantId === key), key);
     assert(index >= 0, `Missing exact reference ${key}`);
     await inputs.nth(index).check();

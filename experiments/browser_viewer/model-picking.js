@@ -43,7 +43,7 @@ export const geometrySelectorIds = new Set(`
   equal-distance-surface new-equal-distance-surface equal-distance-reference new-equal-distance-reference
   rotation-axis rotation-input-0 rotation-input-1 rotation-input-2 rotation-joint
   rotation-plane-0 rotation-plane-1 rotation-plane-2 new-joint-side new-joint-plane new-joint-extra joint-add-fits
-  plane-relationship-surfaces direction-alignment-inputs equal-radii-surfaces joint-inputs reuse-selection-fit reuse-selection-source
+  plane-relationship-surfaces direction-alignment-inputs direction-alignment-reference equal-radii-surfaces joint-inputs reuse-selection-fit reuse-selection-source
   intersection-first intersection-second new-intersection-first new-intersection-second
   face-surface new-face-surface build-faces-surfaces export-target export-origin-plane export-transform
 `.trim().split(/\s+/));
@@ -269,6 +269,8 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
     feedback.textContent = pickFieldFeedback(records, { label, disabled: locked, busy, emptyMessage });
     feedback.hidden = !feedback.textContent;
     selected.hidden = !multiple;
+    const expandedMembers = new Set([...selected.querySelectorAll('.selection-field-members[open]')]
+      .map(details => details.closest('[data-selection-key]').dataset.selectionKey));
     if (multiple) selected.replaceChildren(...chosen.map((record, index) => {
       const row = root.createElement('li'), name = root.createElement('button'), remove = root.createElement('button');
       row.className = 'selection-field-row';
@@ -294,6 +296,18 @@ export function createPickField(root, { label, multiple = false, onPick, onChang
       remove.onclick = () => { onRemove(record.key); button.focus(); };
       if (record.disabled) row.classList.add('selection-field-unavailable');
       row.append(name, remove);
+      if (record.members?.length) {
+        row.classList.add('selection-field-collection');
+        const details = root.createElement('details'), summary = root.createElement('summary'), list = root.createElement('ul');
+        details.className = 'selection-field-members';
+        details.open = expandedMembers.has(record.key);
+        summary.textContent = `Inspect ${record.members.length} members`;
+        summary.setAttribute('aria-label', `Inspect members of ${record.label}`);
+        for (const member of record.members) {
+          const item = root.createElement('li'); item.textContent = member; list.append(item);
+        }
+        details.append(summary, list); row.append(details);
+      }
       return row;
     }));
     if (popupContent) {

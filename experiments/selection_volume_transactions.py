@@ -31,6 +31,7 @@ from experiments.selection_entries import (
 from experiments.selection_entry_runtime import VolumeCache, resolve_membership
 from experiments.selection_volume import VolumeOptions, update_selection_volume_options
 from experiments.selection_volume_authoring import (
+    authoring_context_recipe,
     authoring_fingerprint,
     authoring_recipe_intent,
     authoring_selection_ids,
@@ -172,14 +173,15 @@ def _context_graph(
     intent: VolumeIntent,
     cancelled: Callable[[], bool] | None,
 ) -> FeatureGraph[Any]:
-    """Flatten every Selection while retaining the ordinary constraint graph."""
-    needed = authoring_selection_ids(recipe, owner, entry, intent)
+    """Flatten capture inputs while retaining their ordinary constraint graph."""
+    context = authoring_context_recipe(recipe, owner, entry, intent)
+    needed = {node.id for node in context.nodes if isinstance(node, Selection)}
     captured = intent.captured_inputs.copy()
     if intent.captured_ids is not None:
         captured[owner.id] = intent.captured_ids
     cache = VolumeCache()
-    payload = recipe.model_dump(mode="json")
-    by_id = {node.id: node for node in recipe.nodes}
+    payload = context.model_dump(mode="json")
+    by_id = {node.id: node for node in context.nodes}
     for raw in cast(list[dict[str, Any]], payload["nodes"]):
         check_cancelled(cancelled)
         node = by_id[raw["id"]]

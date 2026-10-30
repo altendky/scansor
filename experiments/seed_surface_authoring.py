@@ -23,6 +23,7 @@ SURFACE_SELECTION_PROFILE: dict[str, Any] = {
     "supported": True,
     "version": 1,
     "policy": "seed-normal-envelope-v1",
+    "policies": ["seed-normal-envelope-v1", "local-boundaries-v1"],
     "max_preview_ids": 2048,
 }
 
@@ -33,7 +34,10 @@ class SurfaceSelectionPreviewRequest(Record):
     barriers: list[str] = Field(default_factory=list, max_length=99)
     angle_degrees: float = Field(default=20.0, gt=0, le=90, allow_inf_nan=False)
     setback: float = Field(default=0.0, ge=0, allow_inf_nan=False)
-    policy: Literal["seed-normal-envelope-v1"] = "seed-normal-envelope-v1"
+    policy: Literal["seed-normal-envelope-v1", "local-boundaries-v1"] = (
+        "seed-normal-envelope-v1"
+    )
+    neighborhood_distance: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 # Weak identity keys avoid NumPy-backed workspace hashing and release topology
@@ -56,6 +60,10 @@ def surface_selection_result(
     *,
     angle_degrees: float,
     setback: float,
+    policy: Literal["seed-normal-envelope-v1", "local-boundaries-v1"] = (
+        "seed-normal-envelope-v1"
+    ),
+    neighborhood_distance: float | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> SurfaceSelectionResult:
     check_cancelled(cancelled)
@@ -91,6 +99,8 @@ def surface_selection_result(
         barriers,
         angle_degrees=angle_degrees,
         setback=setback,
+        policy=policy,
+        neighborhood_distance=neighborhood_distance,
         cancelled=cancelled,
     )
 
@@ -125,6 +135,8 @@ def prepare_surface_selection_preview(
             barriers,
             angle_degrees=request.angle_degrees,
             setback=request.setback,
+            policy=request.policy,
+            neighborhood_distance=request.neighborhood_distance,
             cancelled=stopped,
         )
         check_cancelled(cancelled)

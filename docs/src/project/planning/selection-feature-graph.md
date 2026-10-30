@@ -152,6 +152,30 @@ semantic surface recognition: noisy or narrow seeds can restrict coverage, and
 smooth transitions within the envelope can still be included. Tessellation and
 the angle affect both boundaries and the amount of fillet retained.
 
+The separate **Local boundaries** policy (`local-boundaries-v1`) has no frozen
+seed-orientation envelope. It measures normal variation over a characteristic
+surface-distance neighborhood, then floods from the seeds through faces below
+the boundary-angle threshold. Gradual curvature may accumulate around a complete
+cylinder. Mesh connectivity, barriers, winding defects and nonmanifold cuts still
+bound traversal; geometrically close but disconnected sheets do not connect.
+
+Neighborhood size uses scan length units. A blank value chooses a physical scale
+from the median traversable face-to-face path length near the seeds. Normal
+averaging uses a screened diffusion on the area-weighted face graph, with paths
+through shared edge midpoints. Its neighborhood has decaying tails rather than a
+strict geodesic-radius cutoff. The boundary angle measures local normal
+dispersion, not an accumulated angle from the original seed. This can tolerate
+isolated noisy facets while detecting a crease or a tightly curved transition.
+It does not identify a cylinder's center, radius or semantic face boundary.
+
+Larger neighborhoods can exclude a wider band around a crease, including before
+the explicit setback is applied. A smooth transition can remain connected if
+its normal variation at the chosen scale is below the angle. Seeds excluded by
+the local test remain protected observations, but cannot bridge that boundary.
+Both policy and neighborhood size are saved with the selection and replayed by
+native and worker evaluation. Existing recipes retain **Seed orientation** unless
+the user explicitly changes their mode.
+
 Setback uses multi-source shortest paths along reached mesh edges, weighted by
 source-space edge length, from stopping boundaries including barriers and open
 borders. These edge paths approximate surface distance and can overestimate true
