@@ -191,7 +191,11 @@ def serve() -> None:
 
     def status() -> dict[str, Any]:
         with gate_lock:
-            return {"entered": entered.is_set(), "requests": list(requests)}
+            return {
+                "entered": entered.is_set(),
+                "released": release.is_set(),
+                "requests": list(requests),
+            }
 
     def prepare(
         graph: FeatureGraph, request: DisplayRefinementRequest
@@ -216,7 +220,7 @@ def serve() -> None:
         @override
         def do_GET(self) -> None:
             if self.path == "/__test/cad-display":
-                self.json_reply(200, status())
+                self.json_reply(200, {**status(), "busy": self.app.busy()})
             else:
                 super().do_GET()
 

@@ -52,3 +52,62 @@ test('CAD quality refines a real tapered flange and holes without changing physi
   const filename = testInfo.outputPath('cad-display-quality-ui.json'); await writeFile(filename, JSON.stringify(report, null, 2) + '\n');
   await testInfo.attach('cad-display-quality-ui', {path: filename, contentType: 'application/json'});
 });
+
+test('failed body inspection opens before a gated background CAD refinement retires without mutating the graph', async ({page, cadFixture}, testInfo) => {
+  test.setTimeout(120000); page.setDefaultTimeout(30000);
+  const errors = [], mutations = [], read = () => page.evaluate(() => globalThis.__cadDisplayUi.read()),
+    accepted = state => ({token: state.token, revision: state.revision, recipe: state.recipe,
+      results: state.results, states: state.states, errors: state.errors}),
+    controlGate = async action => {
+      const response = await page.request.post(cadFixture.origin + '/__test/cad-display', {data: {action}});
+      expect(response.ok()).toBe(true);
+    }, gateStatus = async () => (await (await page.request.get(cadFixture.origin + '/__test/cad-display')).json());
+  page.on('pageerror', error => errors.push(String(error))); page.on('dialog', dialog => dialog.accept());
+  await page.route('**/app.js', async route => {
+    const response = await route.fetch(); await route.fulfill({response, body: await response.text() + cadDisplayQualityObserver});
+  });
+  await page.goto(cadFixture.origin);
+  await expect(page.locator('#load')).toBeEnabled();
+  await page.getByRole('checkbox', {name: 'Auto', exact: true}).uncheck();
+  await page.locator('#viewport .display-options > summary').click();
+  await page.locator('#cad-display-quality').selectOption('draft');
+  await page.locator('#scan-file').setInputFiles({name: cadFixture.fixture.filename, mimeType: 'application/octet-stream',
+    buffer: Buffer.from(cadFixture.fixture.raw_base64, 'base64')});
+  await expect(page.locator('#source-progress')).toBeHidden();
+  await expect.poll(async () => (await read()).graph.recipe.nodes.some(node => node.operation === 'source')).toBe(true);
+  const recipe = structuredClone(cadFixture.fixture.recipe), source = recipe.nodes.find(node => node.operation === 'source'), oldSource = source.id;
+  Object.assign(source, (await read()).graph.recipe.nodes.find(node => node.operation === 'source'));
+  for (const node of recipe.nodes) if (node.source === oldSource) node.source = source.id;
+  recipe.nodes.push({id: 'failed-body', label: 'Open single-cap body', operation: 'body', faces: ['flange-top-face'], sewing_tolerance: 1e-6});
+  await page.locator('#file').setInputFiles({name: 'failed-body-priority.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recipe))});
+  await expect.poll(async () => (await read()).graph.recipe.nodes.some(node => node.id === 'failed-body')).toBe(true);
+  await page.getByRole('button', {name: 'Evaluate all', exact: true}).click();
+  await expect.poll(async () => (await read()).graph.states['failed-body'], {timeout: 60000}).toBe('failed');
+  await expect(page.getByRole('button', {name: 'Evaluate all', exact: true})).toBeEnabled();
+  if (await page.locator('#clear-feature-selection').isEnabled()) await page.locator('#clear-feature-selection').click();
+  const before = accepted((await read()).graph);
+  page.on('request', request => {
+    if (request.method() === 'POST' && /^\/api\/graph(?:\/import)?$/.test(new URL(request.url()).pathname)) mutations.push(request.url());
+  });
+  try {
+    await controlGate('arm'); await page.locator('#cad-display-quality').selectOption('standard');
+    await expect.poll(async () => (await gateStatus()).entered).toBe(true);
+    expect((await gateStatus()).released).toBe(false);
+    await page.locator('.action-select[data-action-id="failed-body"]').dblclick();
+    await expect(page.locator('#body-diagnostics')).toBeVisible({timeout: 5000});
+    await expect(page.locator('#body-diagnostics')).toContainText(/open|free|closed|edge/i);
+    await expect(page.locator('#feature-properties-panel')).toHaveAttribute('data-edit-owner', 'failed-body');
+    const held = await gateStatus();
+    expect(held.entered).toBe(true); expect(held.released).toBe(false); expect(held.busy).toBe(true);
+    expect(accepted((await read()).graph)).toEqual(before); expect(mutations).toEqual([]); expect(errors).toEqual([]);
+    await testInfo.attach('failed-body-inspection-before-refinement-retirement', {contentType: 'application/json',
+      body: JSON.stringify({inspector_open_while_kernel_held: true, gate: held, graph_unchanged: true, graph_mutations: mutations})});
+  } finally {
+    await controlGate('release');
+    await expect.poll(async () => (await gateStatus()).busy).toBe(false);
+    if (await page.locator('#close-edit').isVisible()) await page.locator('#close-edit').click();
+    await page.locator('#cad-display-quality').selectOption('draft');
+    await page.getByRole('button', {name: 'Project toolbar options', exact: true}).click();
+    await page.getByRole('menuitem', {name: 'New project', exact: true}).click();
+  }
+});

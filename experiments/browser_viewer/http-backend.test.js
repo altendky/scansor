@@ -100,6 +100,85 @@ test('native display terminal reply is fenced by a newer accepted same-source gr
   await rejected; f.backend.close();
 });
 
+test('an explicit surface preview waits for owned display retirement even before its start receipt', async () => {
+  const start = deferred(), retirement = deferred();
+  const next = (state, extra = {}) => {
+    const value = previewState(state, extra);
+    Object.assign(value.evaluation, {id: 'preview-2', sequence: 2});
+    return value;
+  };
+  const f = await surfaceHttp({fetch: async path => {
+    if (path === '/api/graph/display/refine') return start.promise;
+    if (path === '/api/graph/cancel') return retirement.promise;
+    return Response.json(path.endsWith('/preview') ? next('queued') : next('complete', {preview: {ids: [7]}}));
+  }});
+  const refining = f.backend.refineDisplay(displayPayload),
+    cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled'),
+    previewing = f.backend.previewSurfaceSelection(payload);
+  await flush(); assert.equal(f.calls.filter(call => call.path.includes('surface-selection')).length, 0);
+  start.resolve(Response.json(displayState('running'))); await flush();
+  assert.equal(f.calls.filter(call => call.path.includes('surface-selection')).length, 0);
+  retirement.resolve(Response.json(displayState('cancelled')));
+  await cancelled;
+  assert.deepEqual((await previewing).preview.ids, [7]); f.backend.close();
+});
+
+for (const mode of ['abort', 'source-publication']) test(`queued native work preserves its ${mode} fence while display retires`, async () => {
+  const start = deferred(), retirement = deferred(), controller = new AbortController();
+  const f = await surfaceHttp({fetch: async path => {
+    if (path === '/api/graph/display/refine') return start.promise;
+    if (path === '/api/graph/cancel') return retirement.promise;
+    if (path === '/api/examples/select') return Response.json({active: 'other'});
+    return Response.json(snapshot());
+  }});
+  const reason = new DOMException('Work changed', 'AbortError'),
+    refining = f.backend.refineDisplay(displayPayload),
+    cancelled = assert.rejects(refining, error => error.code === (mode === 'abort' ? 'computation_cancelled' : 'observation_superseded')),
+    previewing = f.backend.previewFaces({token: 'accepted'}, {signal: controller.signal}),
+    rejected = assert.rejects(previewing, error => mode === 'abort' ? error === reason : error.code === 'observation_superseded');
+  await flush(); start.resolve(Response.json(displayState('running'))); await flush();
+  if (mode === 'abort') controller.abort(reason);
+  else await f.backend.selectExample({token: 'accepted', example: 'other'});
+  retirement.resolve(Response.json(displayState('cancelled')));
+  await Promise.all([cancelled, rejected]);
+  assert.equal(f.calls.filter(call => call.path === '/api/graph/build-faces/preview').length, 0);
+  f.backend.close();
+});
+
+test('unconfirmed native cancellation never admits an explicit graph POST', async () => {
+  const poll = deferred();
+  const f = await surfaceHttp({fetch: async path => {
+    if (path === '/api/graph/display/refine') return Response.json(displayState('running'));
+    if (path === '/api/graph/cancel') return Response.json({error: {code: 'cannot_stop', message: 'Retirement unconfirmed'}}, {status: 503});
+    return poll.promise;
+  }});
+  const refining = f.backend.refineDisplay(displayPayload),
+    failed = assert.rejects(refining, error => error.code === 'cannot_stop');
+  await flush();
+  const explicit = f.backend.previewFaces({token: 'accepted'}),
+    rejected = assert.rejects(explicit, error => error.code === 'cannot_stop');
+  await flush();
+  poll.resolve(Response.json(displayState('cancel-requested')));
+  await Promise.all([failed, rejected]);
+  assert.equal(f.calls.filter(call => call.path === '/api/graph/build-faces/preview').length, 0);
+  f.backend.close();
+});
+
+test('a lost display start receipt does not imply that its native lease retired', async () => {
+  const start = deferred();
+  const f = await surfaceHttp({fetch: async path => {
+    if (path === '/api/graph/display/refine') { await start.promise; throw new Error('Start receipt lost'); }
+    return Response.json(displayState('running'));
+  }});
+  const refining = f.backend.refineDisplay(displayPayload),
+    cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled'),
+    explicit = f.backend.previewFaces({token: 'accepted'}),
+    rejected = assert.rejects(explicit, error => error.code === 'evaluation_busy');
+  start.resolve(); await Promise.all([cancelled, rejected]);
+  assert.equal(f.calls.filter(call => call.path === '/api/graph/build-faces/preview').length, 0);
+  assert.equal(f.backend.getLifecycle().canCancel, true); f.backend.close();
+});
+
 test('surface modes are explicitly advertised while legacy profiles retain Seed orientation only', async () => {
   const local = 'local-boundaries-v1', both = {...surfaceProfile, policies: [surfaceProfile.policy, local]};
   assert.equal(supportsSurfaceSelectionPolicy(surfaceProfile), true);

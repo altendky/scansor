@@ -771,13 +771,24 @@ export function createWorkerBackend({ runtimeURL, cad = false, sourceActions = f
     'evaluateGraph', 'ensureGraph', 'getExampleRecipe', 'listExamples', 'selectExample', 'previewFeatureReuse', 'applyFeatureReuse', 'previewSurfaceSelection', 'refineDisplay',
     'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'exportProject', ...volumeOperations]) {
     backend[operation] = async (payload = {}, options = {}) => {
-      const signal = options.signal || payload.signal, serial = cancellationSerial;
+      const signal = options.signal || payload.signal;
+      let serial = cancellationSerial;
       signal?.throwIfAborted();
       await abortable(recovery || cancellation || backend.initialize(), signal);
       if (closed || terminalError) throw unavailable();
       if (serial !== cancellationSerial) throw cancelled();
       signal?.throwIfAborted();
       if (sourceOperation) throw sourceBusy();
+      if (!['getGraph', 'refineDisplay'].includes(operation) &&
+        [...pending.values()].some(request => request.operation === 'refineDisplay')) {
+        const cursor = acceptedGeneration, publication = generation;
+        const stopping = backend.cancelComputation(), ownSerial = cancellationSerial;
+        await abortable(stopping, signal);
+        signal?.throwIfAborted();
+        if (ownSerial !== cancellationSerial || generation !== publication + 1) throw cancelled();
+        if (cursor !== acceptedGeneration) throw superseded();
+        serial = cancellationSerial;
+      }
       if ((mutations.has(operation) || ['evaluateGraph', 'ensureGraph'].includes(operation))
         && [...pending.values()].some(request => ['previewSurfaceSelection', 'refineDisplay'].includes(request.operation)))
         throw new BackendError('Wait for the surface selection preview before editing or evaluating.',

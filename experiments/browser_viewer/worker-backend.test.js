@@ -2004,3 +2004,34 @@ test('worker display Abort preserves its private owner until safe cancellation r
   value.worker.reply({id: cancel.id, generation: cancel.generation, ok: true, result: sourceGraph()});
   await rejected; assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe); value.backend.close();
 });
+
+for (const operation of ['previewFaces', 'getSelectionVolumePreview'])
+  test(`explicit worker ${operation} waits for display retirement before sending work`, async () => {
+    const value = await cadDisplayFixture(), refining = value.backend.refineDisplay(cadDisplayPayload),
+      cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled');
+    await settle();
+    const working = value.backend[operation]({token: 'empty'});
+    await settle(); const stopping = value.worker.calls.at(-1);
+    assert.equal(stopping.operation, 'cancel'); assert.equal(stopping.payload.operation, 'refineDisplay');
+    assert.equal(value.worker.calls.filter(call => call.operation === operation).length, 0);
+    value.worker.reply({id: stopping.id, generation: stopping.generation, ok: true, result: sourceGraph()});
+    await cancelled; await settle();
+    const next = value.worker.calls.at(-1); assert.equal(next.operation, operation);
+    value.worker.reply({id: next.id, generation: next.generation, ok: true, result: {token: 'empty', complete: true}});
+    assert.equal((await working).complete, true); value.backend.close();
+  });
+
+test('aborting queued explicit worker work never sends it after display cancellation', async () => {
+  const value = await cadDisplayFixture(), controller = new AbortController(),
+    refining = value.backend.refineDisplay(cadDisplayPayload),
+    cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled');
+  await settle(); const reason = new DOMException('New work changed', 'AbortError'),
+    working = value.backend.previewFaces({token: 'empty'}, {signal: controller.signal}),
+    rejected = assert.rejects(working, error => error === reason);
+  await settle(); const stopping = value.worker.calls.at(-1);
+  assert.equal(stopping.operation, 'cancel'); controller.abort(reason);
+  await Promise.all([cancelled, rejected]);
+  value.worker.reply({id: stopping.id, generation: stopping.generation, ok: true, result: sourceGraph()});
+  await settle(); assert.equal(value.worker.calls.filter(call => call.operation === 'previewFaces').length, 0);
+  value.backend.close();
+});

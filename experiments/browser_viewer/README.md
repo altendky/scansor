@@ -1095,8 +1095,10 @@ physically sewn by a display operation.
 Refinement runs one feature at a time, with status and **Cancel refinement**
 under Display. Cancellation waits for the current safe boundary; it does not
 claim to interrupt inside an OCCT call. Completed displays remain available;
-**Retry** resumes after cancellation or failure. Numerical evaluation takes
-priority over refinement. Scene, token, revision and quality fences reject late
+**Retry** resumes after cancellation or failure. Inspection remains available;
+opening an edit pauses background refinement. Explicit modeling operations take
+priority and wait for safe cancellation. Source changes remain guarded until
+display work retires. Scene, token, revision and quality fences reject late
 replies. The renderer retains at most 64 MiB of refined buffers, with 16 MiB
 per feature; output and topology limits also bound each meshing request. A
 failed or over-budget refinement keeps its previous display and reports why.

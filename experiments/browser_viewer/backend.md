@@ -89,6 +89,13 @@ delivery, including when a terminal reply was delayed in transport. Body
 triangle ranges are a complete contiguous partition and identify authored
 source faces through the actual sewing, copy and transform histories.
 
+Explicit graph, CAD and volume operations preempt an owned display request and
+await confirmed retirement before taking a new evaluation cursor. The caller's
+original source-publication and Abort fences still apply during that wait.
+Unconfirmed cancellation rejects the queued operation without sending its POST.
+Read-only inspection uses accepted results immediately; source transitions keep
+their separate busy guard.
+
 Selections remain recipe edits; authoritative fitting remains graph evaluation.
 Explicit user `replaceRecipe` edits reconcile circular reuse source definitions
 atomically through `FeatureGraph.replace_authored`. Import, source recovery,

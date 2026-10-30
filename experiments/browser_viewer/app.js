@@ -21,7 +21,7 @@ import { relationshipDefinitions as relationshipDefinitionChoices, relationshipP
   axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
-  prepareEditSession, showEditWorkflow, editWorkflowApplied, activeEditWorkflow,
+  prepareEditSession, showEditWorkflow as presentEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation, stoppedEvaluationDisplay } from './graph-evaluation.js';
@@ -149,6 +149,16 @@ const cadDisplay = createCadDisplay({
     if (viewerSetup) updateEvaluationControls();
   },
 });
+function showEditWorkflow(...args) {
+  const result = presentEditWorkflow(...args);
+  refreshCadDisplay();
+  return result;
+}
+function cadDisplayRunning() {
+  const lifecycle = backend.getLifecycle();
+  return cadDisplay.busy || lifecycle.operation === 'refineDisplay' &&
+    ['queued', 'running', 'cancel-requested'].includes(lifecycle.state);
+}
 function refreshCadDisplay() {
   if (!viewerSetup || !graphState) return;
   const targets = new Set(cadDisplayTargets);
@@ -161,7 +171,8 @@ function refreshCadDisplay() {
   }
   const lifecycle = backend.getLifecycle(), blocked = busy || sourceTransitionBusy || selectionDrawing || selectionPending ||
     graphState.evaluation_running && lifecycle.operation !== 'refineDisplay' || surfacePreviewRunning() || authoringApplying || featurePropertiesApplying ||
-    featureOrganizationPending || (['queued', 'running', 'cancel-requested'].includes(lifecycle.state) && lifecycle.operation !== 'refineDisplay');
+    featureOrganizationPending || !!activeEditWorkflow() || !!modelPickMode ||
+    (['queued', 'running', 'cancel-requested'].includes(lifecycle.state) && lifecycle.operation !== 'refineDisplay');
   cadDisplay.refresh({generation: workspaceGeneration, token: graphState.token,
     revision: graphState.revision, quality: $('cad-display-quality').value}, [...targets],
   {enabled: backend.capabilities.displayRefinement === true && targets.size > 0, blocked});
@@ -2861,7 +2872,8 @@ function acceptGraph(state) {
   sourceProject?.refresh();
 }
 function featureTreeLocked() {
-  return cadDisplay.busy || busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running || surfacePreviewRunning() ||
+  const displayOnly = backend.getLifecycle().operation === 'refineDisplay';
+  return busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running && !displayOnly || surfacePreviewRunning() ||
     featureDeletionPending || relationshipApplying || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
 }
 function focusContextFeature() {
@@ -4615,8 +4627,8 @@ function paint() {
 function updateEvaluationControls() {
   updateActionTreeLocks();
   const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
-  const privatePreview = ['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation);
-  const evaluationLocked = cadDisplay.busy || busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
+  const privatePreview = ['preview', 'previewSurfaceSelection', 'refineDisplay'].includes(backend.getLifecycle().operation);
+  const evaluationLocked = cadDisplayRunning() || busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('fit-recovery-settings').disabled = featureTreeLocked();
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
@@ -7606,7 +7618,7 @@ async function start(recoveredState) {
   sourceProject = createSourceProjectController({
     backend,
     getCurrent: () => ({ generation: workspaceGeneration, token: graphState.token, recipe: graphState.recipe, metadata }),
-    canTransition: () => !featureTreeLocked() && !activeGraphEvaluation,
+    canTransition: () => !cadDisplayRunning() && !featureTreeLocked() && !activeGraphEvaluation,
     setTransitionBusy: value => {
       sourceTransitionBusy = value;
       if (value) evaluationIntent++;
