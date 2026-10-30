@@ -9,6 +9,7 @@ function graph() {
     token: 'authored-token', states: { source: 'ready', plane: 'ready' }, errors: {}, diagnostics: {},
     memberships: {}, results: { plane: { weighted_rms: 0 } }, result: null, derived: {},
     input_catalogue: [], input_requirements: {}, revision: 7, project_generation: 3,
+    fit_input_templates: {plane: {feature: '@fit-draft', input_catalogue: []}},
     input_contracts: { relationship_plane_orientation: { capabilities: ['plane_orientation'], min_count: 2 } },
     relationship_contracts: { parallel_planes: { operation: 'plane_relationship', relation: 'parallel', roles: { participants: 'relationship_plane_orientation' } } },
     evaluation_running: false, required_failures: [] };
@@ -22,7 +23,7 @@ test('fixed source projection retains every semantic field and leaves raw transp
   delete native.project_generation; delete native.required_failures; delete native.evaluation_running;
   const snapshots = { ...graphs(), scene: original, scene_replayed: replayed, native_scene: native };
   const before = structuredClone(snapshots), cases = sourceSemanticCases(snapshots);
-  assert.equal(SOURCE_GRAPH_SCHEMA, 'scansor-source-graph-semantic-v3');
+  assert.equal(SOURCE_GRAPH_SCHEMA, 'scansor-source-graph-semantic-v4');
   assert.deepEqual(cases.map(item => [item.id, item.profile, item.path]), [
     ['scene', 'graph-snapshot', 'scene.graph'], ['scene-replayed', 'graph-snapshot', 'scene.replayed_graph'],
     ['scene-actions', 'graph-snapshot', 'actions.scene_opened'],
@@ -44,7 +45,7 @@ for (const key of SOURCE_GRAPH_PROJECTION) test('missing semantic field rejects 
   }
 });
 
-for (const key of ['input_contracts', 'relationship_contracts']) test('published contract changes remain semantic: ' + key, () => {
+for (const key of ['input_contracts', 'relationship_contracts', 'fit_input_templates']) test('published contract changes remain semantic: ' + key, () => {
   for (const side of snapshotKeys) {
     const snapshots = graphs();
     snapshots[side][key] = {};

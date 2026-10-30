@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { SOURCE_GRAPH_PROJECTION, projectSourceGraph } from './source-semantic.mjs';
 
-export const WORKSPACE_GRAPH_SCHEMA = 'scansor-workspace-graph-semantic-v2';
+export const WORKSPACE_GRAPH_SCHEMA = 'scansor-workspace-graph-semantic-v3';
 export const WORKSPACE_GRAPH_PROJECTION = SOURCE_GRAPH_PROJECTION;
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const epoch = value => Number.isSafeInteger(value) && value >= 0;
