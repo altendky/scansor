@@ -1142,6 +1142,7 @@ class Handler(BaseHTTPRequestHandler):
         "/feature-inputs.js": ("feature-inputs.js", "text/javascript"),
         "/fit-reference.js": ("fit-reference.js", "text/javascript"),
         "/relationship-inputs.js": ("relationship-inputs.js", "text/javascript"),
+        "/relationship-highlight.js": ("relationship-highlight.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/surface-trims.js": ("surface-trims.js", "text/javascript"),
