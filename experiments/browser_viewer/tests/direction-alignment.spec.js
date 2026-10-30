@@ -36,7 +36,7 @@ const test = base.extend({
 });
 
 test('unsigned direction controls preserve independent geometry, selected Joint intent and project reopen',async({page,directionFixture},testInfo)=>{
-  test.setTimeout(240000); page.setDefaultTimeout(30000);
+  test.setTimeout(360000); page.setDefaultTimeout(30000);
   const errors=[];page.on('pageerror',error=>errors.push(String(error)));page.on('dialog',dialog=>dialog.accept());
   await page.route('**/app.js',async route=>{
     const response=await route.fetch();

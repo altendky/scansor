@@ -28,6 +28,13 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "operation": "direction_alignment",
         "sense": "unsigned",
         "joint_modes": ["direction"],
+        "common_outputs": {
+            "direction": {
+                "capabilities": ["direction"],
+                "geometry_kind": "direction",
+                "binding_rule": "direction_members",
+            }
+        },
         "roles": {
             "reference": "relationship_direction_reference",
             "participants": "relationship_direction_targets",
@@ -156,6 +163,13 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "semantic_check": "same_axis",
     },
     "coaxial": {
+        "common_outputs": {
+            "axis": {
+                "capabilities": ["axis_line", "direction"],
+                "geometry_kind": "axis",
+                "binding_rule": "coaxial_axis",
+            }
+        },
         "label": "Coaxial",
         "base_name": "Coaxial",
         "summary": "Same axis line; independent radii and taper.",
@@ -194,6 +208,7 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
 class RelationshipEndpoint:
     reference: OutputReference
     owner: str | None
+    binding_aliases: tuple[OutputReference, ...] = ()
 
     @property
     def feature(self) -> str:
@@ -213,7 +228,7 @@ class RelationshipEndpoint:
 
     @property
     def is_binding(self) -> bool:
-        return self.owner is not None
+        return self.owner is not None or bool(self.binding_aliases)
 
 
 def normalize_endpoint(
@@ -222,6 +237,8 @@ def normalize_endpoint(
     requirement: str = "relationship_plane",
     *,
     use: str | None = None,
+    _alias_path: frozenset[str] | None = None,
+    _alias_cache: dict[str, tuple[OutputReference, ...]] | None = None,
 ) -> RelationshipEndpoint:
     """Normalize an owner binding without recursing into graph discovery.
 
@@ -267,6 +284,21 @@ def normalize_endpoint(
     )
     if spec is None:
         raise ValueError("relationship input refers to an unavailable output")
+    from experiments.relationship_outputs import enrich_aliases
+
+    spec = enrich_aliases(spec, node, nodes, _alias_path, _alias_cache)
+    aliases = (
+        tuple(
+            OutputReference.model_validate(alias)
+            for alias in spec["properties"]
+            .get(contract.get("property"), {})
+            .get("binding_aliases", [])
+        )
+        if ref.context == ref.feature
+        and "binding" in contract.get("uses", [])
+        and use != "geometry"
+        else ()
+    )
     owner = (
         spec["parameter_owner"]
         if ref.context == ref.feature
@@ -278,7 +310,7 @@ def normalize_endpoint(
         "direction", {}
     ).get("binding_eligible", False):
         owner = None
-    if use == "binding" and owner is None:
+    if use == "binding" and owner is None and not aliases:
         if ref.context != ref.feature:
             raise ValueError(
                 "a binding requires a direct parameter owner, not a solved publication"
@@ -290,15 +322,15 @@ def normalize_endpoint(
         **spec,
         "reference": ref.model_dump(),
         "capability": spec["capabilities"][0],
-        "uses": ["binding"] if owner else ["geometry"],
-        "constrainable": owner is not None,
+        "uses": ["binding"] if owner or aliases else ["geometry"],
+        "constrainable": owner is not None or bool(aliases),
         "source": None,
         "frame": "workspace",
     }
     reason = compatibility_reason(descriptor, requirement)
     if reason:
         raise ValueError(reason)
-    return RelationshipEndpoint(ref, ref.feature if owner else None)
+    return RelationshipEndpoint(ref, ref.feature if owner else None, aliases)
 
 
 def relationship_reference(

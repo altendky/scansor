@@ -187,9 +187,13 @@ def _provider_intent(value: AxisInput | PlaneInput | PointInput) -> dict[str, An
         record.update(
             orientation_free=value.orientation_free, position_free=value.position_free
         )
+        if value.direction_only:
+            record["direction_only"] = True
         if "direction_reversed" in value.result:
             record["direction_reversed"] = value.result["direction_reversed"]
-        if not (value.free if value.position_free is None else value.position_free):
+        if not value.direction_only and not (
+            value.free if value.position_free is None else value.position_free
+        ):
             geometry["point_display"] = value.result.get("point_display")
         if not _orientation_free(value):
             geometry["axis_display"] = value.result.get("axis_display")
@@ -229,10 +233,66 @@ def fit_selected_direction_component(
     policy: RecoveryPolicy | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    """Fit observed members; fixed direction-only reads use a private chart anchor.
+
+    That anchor contributes neither variables nor positional equations and is
+    removed from accepted output. Direction-only records cannot attach surfaces.
+    """
     try:
-        return _fit_selected_direction_component(
+        direction_only = {
+            key
+            for key, axis in component.axes.items()
+            if isinstance(cast(object, axis), AxisInput) and axis.direction_only
+        }
+        if direction_only:
+            full_axes = {
+                member.axis for member in component.surfaces if member.axis is not None
+            }
+            full_axes.update(
+                plane.axis
+                for plane in component.planes.values()
+                if plane.axis is not None
+            )
+            full_axes.update(rotation.axis for rotation in component.rotations)
+            full_axes.update(
+                axis.source
+                for axis in component.axes.values()
+                if axis.source is not None
+            )
+            if direction_only.intersection(full_axes) or any(
+                component.axes[key].free
+                or component.axes[key].source is not None
+                or component.axes[key].orientation_free is True
+                or component.axes[key].position_free is True
+                for key in direction_only
+            ):
+                raise DirectionFitFailure(
+                    "invalid-input",
+                    "a direction-only read cannot provide an adjustable or positional axis",
+                )
+            # A fixed direction has no physical origin. The existing internal
+            # axis chart needs an anchor, unused by its orientation equations.
+            # This adapter never exposes that chart anchor as published geometry.
+            component = replace(
+                component,
+                axes={
+                    key: replace(
+                        axis, result={**axis.result, "point_display": [0.0, 0.0, 0.0]}
+                    )
+                    if key in direction_only
+                    else axis
+                    for key, axis in component.axes.items()
+                },
+            )
+        output = _fit_selected_direction_component(
             workspace, component, policy=policy, cancelled=cancelled
         )
+        for key in direction_only:
+            output["axes"][key] = {
+                "axis_display": output["axes"][key]["axis_display"],
+                "direction_only": True,
+            }
+        return output
     except DirectionFitFailure:
         raise
     except FitBudgetExhausted as error:

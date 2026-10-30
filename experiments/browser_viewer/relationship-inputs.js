@@ -10,6 +10,12 @@ export function relationshipPropertySummary(state, output) {
     .filter(Boolean))].map(property => property.replaceAll('_', ' ')).join(', ');
 }
 
+export function relationshipPropertyAdjustable(output, property) {
+  const reference = output.reference || {}, descriptor = output.properties?.[property];
+  return (reference.context || reference.feature) === reference.feature && descriptor?.binding_eligible &&
+    descriptor.uses?.includes('binding') && !!(descriptor.parameter_owner || descriptor.binding_aliases?.length);
+}
+
 // Collections retain their authored owner reference. Expansion is only for
 // validation, inspection and geometry; it must never become a saved snapshot.
 export function relationshipCollectionMembers(state, output) {
@@ -66,7 +72,7 @@ export function relationshipParticipantPresentation(state, output) {
     bindings = requirements.filter(contract => {
       const property = output.properties?.[contract.property];
       return direct && (contract.uses || ['geometry']).includes('binding') &&
-        (property ? property.binding_eligible && property.parameter_owner && property.uses?.includes('binding')
+        (property ? relationshipPropertyAdjustable(output, contract.property)
           : !contract.property && output.parameter_owner && output.uses?.includes('binding'));
     }),
     adjustable = output.relationship_use !== 'geometry' && bindings.length > 0, group = adjustable ? 'constrain' : 'reference',
@@ -77,7 +83,8 @@ export function relationshipParticipantPresentation(state, output) {
       (direct ? 'Feature output' : 'Published output'),
     name = output.feature_label ? `${output.feature_label} — ${(reference.output || '').replaceAll('_', ' ')}` : output.label,
     pending = output.availability !== 'ready' || state.states?.[reference.context] && state.states[reference.context] !== 'ready',
-    detail = [relationshipPropertySummary(state, output), roleLabel, contextLabel,
+    detail = [relationshipPropertySummary(state, output), roleLabel,
+      output.ownership === 'relationship' ? 'Common relationship property' : '', contextLabel,
       adjustable ? '' : 'Provider updates still apply',
       pending ? 'Needs evaluation' : '', output.compatible ? '' : output.reason || 'Incompatible'].filter(Boolean).join(' · ');
   return {name, accessibleName: output.label, group, groupLabel, roleLabel, contextLabel, detail,
@@ -179,9 +186,9 @@ export function relationshipParticipantChoices(state, kind, selected = new Set()
   return relationshipChoicesForRequirements(state, requirements, selected, nodes);
 }
 
-function relationshipChoicesForRequirements(state, requirements, selected, nodes) {
+function relationshipChoicesForRequirements(state, requirements, selected, nodes, use) {
   const records = new Map();
-  for (const requirement of requirements) for (const output of inputChoices(state, requirement, nodes)) {
+  for (const requirement of requirements) for (const output of inputChoices(state, requirement, nodes, {use})) {
     const key = inputReferenceKey(output.reference), previous = records.get(key),
       contract = state.input_contracts?.[requirement],
       compatible = inputCanBeReferenced(output, {allowPending: true}) && (!output.collection ||
@@ -223,7 +230,7 @@ export function relationshipRoleChoices(state, kind, role, selected = new Set(),
     property = state.input_contracts[requirement]?.property,
     publications = requestedUse === 'geometry' ? new Map((state.input_catalogue || [])
       .map(output => [inputReferenceKey(output.reference), output])) : null;
-  return relationshipChoicesForRequirements(state, [requirement], selected, nodes).flatMap(output => {
+  return relationshipChoicesForRequirements(state, [requirement], selected, nodes, requestedUse).flatMap(output => {
     if (!requestedUse) return [output];
     if (requestedUse === 'geometry') {
       // Corrective binding eligibility is independent of a failed/stale result.
@@ -234,10 +241,8 @@ export function relationshipRoleChoices(state, kind, role, selected = new Set(),
         (availability === 'ready' ? null : state.errors?.[context] || output.reason)};
       output.compatible &&= inputCanBeReferenced(output, {allowPending: true});
     }
-    const descriptor = output.properties?.[property],
-      compatibleUse = (output.uses || ['geometry']).includes(requestedUse) &&
-        (requestedUse !== 'binding' || (output.reference.context || output.reference.feature) === output.reference.feature &&
-          descriptor?.binding_eligible && descriptor?.parameter_owner && descriptor.uses?.includes('binding'));
+    const compatibleUse = (output.uses || ['geometry']).includes(requestedUse) &&
+      (requestedUse !== 'binding' || relationshipPropertyAdjustable(output, property));
     if (!compatibleUse && !selected.has(output.key)) return [];
     return [{...output, relationship_use: requestedUse, compatible: output.compatible && !!compatibleUse,
       ...(!compatibleUse ? {reason: requestedUse === 'binding' ? 'Choose an adjustable property owner.'
@@ -410,6 +415,8 @@ export function relationshipOutputValue(state, output) {
   const context = reference.context || reference.feature;
   if (state.states?.[context] && state.states[context] !== 'ready') return null;
   let value = state.derived?.[context];
+  if (output.ownership === 'relationship') return output.preview ||
+    (context === reference.feature ? value?.common_outputs?.[reference.output] : null) || null;
   if (context !== reference.feature) value = (value?.resolved || value?.surfaces || value?.outputs)?.[reference.feature];
   return value || output.preview || null;
 }

@@ -211,6 +211,19 @@ with duplicate source/reference leaves counted once. These collection inputs
 currently apply to Aligned directions; scalar geometry consumers do not accept
 them.
 
+Aligned directions also exposes one common unsigned **direction** owned by the
+relationship. Coaxial exposes its common **axis**, including its direction.
+Direction relationships can reference these common properties as fixed results
+or adjustable aliases to the existing constrained parameters. Authored references
+retain the relationship identity, so member changes propagate without replacing
+the reference with a saved member list. Aliases add no parameters or observations.
+
+This experimental slice supports directional consumers. Legacy datum-only
+Coaxial and fit-axis fields still require their existing explicit datums. A common
+direction has no physical origin or axis line; its viewport anchor serves display
+and picking only. Exact fixed reads retain their publisher context and remain
+one-way dependencies.
+
 Analytic elements reference this geometry rather than privately duplicating it.
 For example, a cylinder references an axis line and a radius. A plane used as a
 fitting target may itself be the reference plane, or a bounded element may wrap

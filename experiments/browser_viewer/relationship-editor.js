@@ -135,8 +135,11 @@ export function createRelationshipDraft({getState, getNodes, anchorFeature = nul
           output.reference.feature === anchor() && (output.reference.context || anchor()) === anchor())));
     },
     focusIds(keys = selected()) {
-      return [...new Set(relationshipExpandedOutputs(state(), relationshipParticipantChoices(state(), kind, keys, nodes())
-        .filter(output => keys.has(output.key))).map(output => output.reference.feature))];
+      return [...new Set(api.focusOutputs(keys).map(output => output.reference.feature))];
+    },
+    focusOutputs(keys = selected()) {
+      return relationshipExpandedOutputs(state(), relationshipParticipantChoices(state(), kind, keys, nodes())
+        .filter(output => keys.has(output.key)));
     },
     snapshot() {return {kind, draft: copyDraft(draft), selected: selected(), activeRole, label, validity: validity()};},
     get kind() {return kind;}, get draft() {return copyDraft(draft);}, get selected() {return selected();},
@@ -263,7 +266,8 @@ export function createRelationshipEditor({root, prefix = 'relationship', nameId 
         compatible: output.compatible,
       })).sort((a, b) => Number(a.group === 'reference') - Number(b.group === 'reference')),
       selected: keys, multiple: picker.multiple, locked, change: (key, included) => api.change(picker.name, key, included),
-      inspect: key => onInspect(key, api), focus: key => onFocus(model.focusIds(new Set([key])), api)});
+      inspect: key => onInspect(key, api), focus: key => onFocus(model.focusIds(new Set([key])), api,
+        model.focusOutputs(new Set([key])))});
       picker.field.update(outputs.map(output => {
         const presentation = relationshipParticipantPresentation(state, output);
         return {key: output.key, label: presentation.name, detail: presentation.detail,
@@ -329,7 +333,7 @@ export function createRelationshipEditor({root, prefix = 'relationship', nameId 
   elements.kind.onchange = () => api.setKind(elements.kind.value);
   elements.name.oninput = () => mutate(() => model.setLabel(elements.name.value));
   elements.clear.onclick = () => api.clear();
-  elements.focus.onclick = () => onFocus(model.focusIds(), api);
+  elements.focus.onclick = () => onFocus(model.focusIds(), api, model.focusOutputs());
   model.reset(); render();
   return api;
 }

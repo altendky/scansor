@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createRelationshipDraft} from './relationship-editor.js';
 import {inputReferenceKey} from './feature-inputs.js';
-import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipNodeInputs,
+import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipNodeInputs, relationshipOutputValue,
   relationshipParticipantPresentation} from './relationship-inputs.js';
 
 const reference = (feature, output, context = feature) => ({feature, output, context});
@@ -119,6 +119,55 @@ test('fixed geometry availability is not inherited from corrective binding eligi
   model.setRoleUse('reference', 'binding');
   assert.equal(model.choices('reference').find(candidate => candidate.key === output.key).compatible, true);
   assert.equal(model.validity().valid, true);
+});
+
+test('a relationship common property is one authored alias with exact fixed publication access', () => {
+  const state = ownershipFixture(), alias = {reference: reference('solve', 'direction'),
+    key: key('solve', 'direction'), label: 'Shared direction', ownership: 'relationship', geometry_kind: 'direction',
+    compatible: true, availability: 'ready', parameter_owner: null, dependencies: ['solve'],
+    binding_dependencies: ['solve', 'fit', 'other'], uses: ['geometry', 'binding'],
+    properties: {direction: {binding_eligible: true, parameter_owner: null, uses: ['geometry', 'binding'],
+      binding_aliases: [reference('fit', 'axis'), reference('other', 'axis')]}}};
+  state.input_catalogue.push(alias);
+  for (const role of ['direction', 'fixed']) state.input_requirements[role].unavailable.push(alias);
+  const model = createRelationshipDraft({getState: () => state});
+  model.reset({kind: 'direction_alignment'});
+  model.setRoleUse('reference', 'binding');
+  assert.equal(model.change('reference', alias.key, true), true);
+  assert.equal(model.change('participants', key('axis', 'axis'), true), true);
+  assert.deepEqual(model.inputs().reference, alias.reference);
+  assert.equal(model.inputs().directions.length, 1);
+  const presentation = relationshipParticipantPresentation(state, model.choices('reference').find(item => item.key === alias.key));
+  assert.equal(presentation.group, 'constrain');
+  assert.match(presentation.detail, /Common relationship property/);
+  assert.equal(relationshipDraftForNode(state, model.inputs()).roles.reference.size, 1);
+  state.derived = {solve: {surfaces: {fit: {ids: [0, 1]}}, common_outputs: {direction: {axis_display: [0, 0, 1]}}}};
+  assert.deepEqual(relationshipOutputValue(state, alias), {axis_display: [0, 0, 1]});
+  delete state.derived.solve.common_outputs.direction;
+  assert.equal(relationshipOutputValue(state, alias), null, 'Do not substitute the whole solved component for a missing port');
+  state.derived.named = {common_outputs: {direction: {axis_display: [1, 0, 0]}}};
+  const named = {...alias, reference: {...alias.reference, context: 'named'}, preview: {axis_display: [0, 1, 0]}};
+  assert.deepEqual(relationshipOutputValue(state, named), named.preview, 'Named contexts use the exact owner-specific projected port');
+  assert.equal(relationshipOutputValue(state, {...named, preview: undefined}), null,
+    'A shared output name in a named Joint must not substitute another relationship’s value');
+  state.states = {solve: 'stale'};
+  assert.equal(relationshipOutputValue(state, {...alias, preview: {axis_display: [1, 0, 0]}}), null);
+});
+
+test('an adjustable alias uses structural dependencies while fixed reads retain publication dependencies', () => {
+  const state = ownershipFixture(), alias = {reference: reference('solve', 'direction'),
+    key: key('solve', 'direction'), label: 'Shared direction', ownership: 'relationship',
+    compatible: true, availability: 'ready', parameter_owner: null, dependencies: ['solve', 'later'],
+    binding_dependencies: ['solve', 'fit'], uses: ['geometry', 'binding'],
+    properties: {direction: {binding_eligible: true, parameter_owner: null, uses: ['geometry', 'binding'],
+      binding_aliases: [reference('fit', 'axis')]}}};
+  state.input_catalogue.push(alias);
+  state.input_requirements.fixed.unavailable.push(alias);
+  const model = createRelationshipDraft({getState: () => state});
+  model.reset({kind: 'direction_alignment'});
+  assert.equal(model.choices('reference').some(item => item.key === alias.key && item.compatible), false);
+  model.setRoleUse('reference', 'binding');
+  assert.equal(model.choices('reference').find(item => item.key === alias.key).compatible, true);
 });
 
 test('fit anchoring follows common role metadata and offers relations before partners exist', () => {

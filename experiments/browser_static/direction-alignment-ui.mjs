@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 // Observation only. Product controls own all edits, solves, and file operations.
 export const directionAlignmentObserver = `\nlet directionObservedGraph, directionObservedPublication = 0;
 Object.defineProperty(globalThis, '__directionAlignmentUi', {value: {
+  guidePoints: key => {
+    modelRoot.updateMatrixWorld(true); camera.updateMatrixWorld(true);
+    const canvas = renderer.domElement, box = canvas.getBoundingClientRect();
+    return modelPickGuides.children.filter(child => child.isLine && child.userData.pickKey === key)
+      .flatMap(child => {
+        const points = child.geometry.getAttribute('position');
+        return [.2, .4, .6, .8].map(fraction => {
+          const start = new THREE.Vector3().fromBufferAttribute(points, 0),
+            end = new THREE.Vector3().fromBufferAttribute(points, points.count - 1),
+            point = start.lerp(end, fraction).applyMatrix4(child.matrixWorld).project(camera),
+            x = box.left + (point.x + 1) * box.width / 2, y = box.top + (1 - point.y) * box.height / 2;
+          return point.z >= -1 && point.z <= 1 && document.elementFromPoint(x, y) === canvas ? {x, y} : null;
+        }).filter(Boolean);
+      });
+  },
   read: () => {
     if (graphState !== directionObservedGraph) {
       directionObservedGraph = graphState; directionObservedPublication++;
@@ -247,6 +262,116 @@ async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph,
     reference_ownership_reopened: true};
 }
 
+async function exerciseCommonRelationshipProperties({page, expect, fixture, read, graph, evaluateReady, edit, report}) {
+  const evaluations = [], auto = page.getByRole('checkbox', {name: 'Auto', exact: true});
+  page.on('request', request => {
+    if (request.method() === 'POST' && /\/api\/graph\/(ensure|evaluate)$/.test(request.url())) evaluations.push(request.url());
+  });
+  const ownerChoice = (root, key) => root.locator(`input[data-participant-id=${JSON.stringify(key)}]`),
+    target = reference('joint-plane', 'plane');
+  for (const family of ['coaxial', 'direction']) {
+    report.phase = `common-${family}-pending-authoring`;
+    if (await page.locator('#close-edit').isVisible()) await page.locator('#close-edit').click();
+    await auto.uncheck();
+    const recipe = structuredClone(fixture.recipe), id = `shared-${family}`, label = `Common ${family} property`;
+    if (family === 'coaxial') {
+      recipe.nodes.splice(recipe.nodes.findIndex(node => node.operation === 'fit'), 0,
+        {id: 'common-axis', label: 'Common axis owner', operation: 'axis', initial_parameters: [8, -3, 0, 0]});
+      recipe.nodes.push({id, label, operation: 'coaxial_group', axis: 'common-axis', surfaces: ['axis-cylinder']});
+    } else recipe.nodes.push({id, label, operation: 'direction_alignment',
+      directions: [JSON.parse(reference('axis-cylinder')), JSON.parse(reference('joint-cylinder'))]});
+    recipe.output = id;
+    await page.locator('#file').setInputFiles({name: `common-${family}.json`, mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(recipe))});
+    await expect(page.locator('#source-progress')).toBeHidden();
+    await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.id === id)).toBe(true);
+    const key = reference(id, family === 'coaxial' ? 'axis' : 'direction'), before = evaluations.length;
+    await page.getByRole('button', {name: 'Relationship…', exact: true}).click();
+    await page.locator('#relationship-kind').selectOption('direction_alignment');
+    if (await page.locator('#clear-relationship-participants').isEnabled()) await page.locator('#clear-relationship-participants').click();
+    const referenceRole = page.locator('#relationship-dialog [data-relationship-role="reference"]'),
+      targets = page.locator('#relationship-dialog [data-relationship-role="participants"]');
+    await referenceRole.getByLabel('Reference ownership', {exact: true}).selectOption('binding');
+    await referenceRole.locator('.model-field-pick').click();
+    await page.locator(`#action-list .action-select[data-action-id="${id}"]`).click();
+    await expect(ownerChoice(referenceRole, key)).toBeChecked();
+    await targets.locator('.model-field-pick').click();
+    await page.locator('#action-list .action-select[data-action-id="joint-plane"]').click();
+    await expect(ownerChoice(targets, target)).toBeChecked();
+    assert.deepEqual(await page.evaluate(key => globalThis.__directionAlignmentUi.guidePoints(key), key), [],
+      'Pending relationship properties must not expose stale model geometry');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#add-relationship')).toBeEnabled(); await page.locator('#add-relationship').click();
+    await expect(page.locator('#relationship-dialog')).toBeHidden();
+    assert.equal(evaluations.length, before, 'Pending alias authoring must not evaluate');
+    let state = await graph();
+    const consumer = state.recipe.nodes.at(-1);
+    assert.deepEqual(consumer.reference, JSON.parse(key)); assert.equal(consumer.reference_use, 'binding');
+    assert.deepEqual(consumer.directions, [JSON.parse(target)]);
+    state = await evaluateReady(consumer.id);
+    const common = state.derived[id].common_outputs[family === 'coaxial' ? 'axis' : 'direction'];
+    assert(norm(cross(common.axis_display, state.results['joint-plane'].plane_equation.slice(0, 3))) < 1e-7);
+    if (family === 'direction') {
+      assert.equal(common.point_display, undefined, 'Common direction must not invent an axis position');
+      assert.equal(common.plane_equation, undefined);
+      await edit(id);
+      await page.locator('#direction-alignment-inputs').selectOption([reference('axis-cylinder'), reference('plane-cylinder')]);
+      await page.locator('#apply-properties').click();
+      await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === id).directions
+        .some(ref => ref.feature === 'plane-cylinder')).toBe(true);
+      await page.locator('#close-edit').click();
+      state = await evaluateReady(consumer.id);
+      assert.deepEqual(state.recipe.nodes.find(node => node.id === consumer.id).reference, JSON.parse(key),
+        'Changing upstream membership must not rewrite the downstream reference');
+    }
+    report.phase = `common-${family}-ready-model-picking`;
+    // A fresh draft exercises the actual ready guide, leaving the accepted consumer intact.
+    await page.getByRole('button', {name: 'Relationship…', exact: true}).click();
+    await page.locator('#relationship-kind').selectOption('direction_alignment');
+    if (await page.locator('#clear-relationship-participants').isEnabled()) await page.locator('#clear-relationship-participants').click();
+    await referenceRole.getByLabel('Reference ownership', {exact: true}).selectOption('binding');
+    if (await page.locator('#dock-edit').isVisible()) await page.locator('#dock-edit').click();
+    await referenceRole.locator('.model-field-pick').click();
+    await expect.poll(async () => (await page.evaluate(key => globalThis.__directionAlignmentUi.guidePoints(key), key)).length).toBeGreaterThan(0);
+    const point = (await page.evaluate(key => globalThis.__directionAlignmentUi.guidePoints(key), key))[0];
+    await page.mouse.click(point.x, point.y);
+    const chooser = page.locator('#model-pick-choices');
+    if (await chooser.isVisible()) await chooser.getByRole('button').filter({hasText: label}).click();
+    await expect(ownerChoice(referenceRole, key)).toBeChecked();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', {name: 'Reset layout', exact: true}).click();
+    // Ownership edits keep one logical provider reference through snapshots and persistence.
+    report.phase = `common-${family}-fixed-and-reopen`;
+    await edit(consumer.id);
+    await page.locator('#direction-alignment-reference-use').selectOption('geometry');
+    await expect(page.locator('#direction-alignment-reference')).toHaveValue(key);
+    await page.locator('#apply-properties').click();
+    await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === consumer.id).reference_use).toBe('geometry');
+    await page.locator('#close-edit').click();
+    state = await evaluateReady(consumer.id);
+    assert.deepEqual(state.recipe.nodes.find(node => node.id === consumer.id).reference, JSON.parse(key));
+    const saved = structuredClone(state.recipe);
+    const downloading = page.waitForEvent('download'); await page.getByRole('button', {name: 'Save actions', exact: true}).click();
+    const bytes = await downloadBytes(await downloading); assert.deepEqual(JSON.parse(bytes), saved);
+    await page.locator('#file').setInputFiles({name: `common-${family}-reopened.json`, mimeType: 'application/json', buffer: bytes});
+    await expect(page.locator('#source-progress')).toBeHidden(); await evaluateReady(consumer.id);
+    assert.deepEqual((await graph()).recipe, saved);
+    const archiveDownload = page.waitForEvent('download');
+    await page.getByRole('button', {name: 'Save project', exact: true}).click();
+    const archive = await downloadBytes(await archiveDownload), generation = (await read()).generation;
+    await page.locator('#project-file').setInputFiles({name: `common-${family}.scansor`, mimeType: 'application/zip', buffer: archive});
+    await expect.poll(async () => (await read()).generation).toBeGreaterThan(generation);
+    await expect(page.locator('#source-progress')).toBeHidden(); await evaluateReady(consumer.id);
+    assert.deepEqual((await graph()).recipe, saved);
+    await edit(consumer.id);
+    await expect(page.locator('#direction-alignment-reference')).toHaveValue(key);
+    await expect(page.locator('#direction-alignment-reference-use')).toHaveValue('geometry');
+  }
+  return {pending_tree_picking: true, ready_model_picking: true, logical_owner_reference: true,
+    fixed_and_adjustable: true, membership_updates: true, unsigned_direction_has_no_origin: true,
+    actions_reopened: true, project_reopened: true};
+}
+
 export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
   const report = {complete: false, phase: 'initialization'};
   const read = () => page.evaluate(() => globalThis.__directionAlignmentUi.read());
@@ -418,6 +543,7 @@ export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
       new Set([reference('axis-cylinder'),reference('fixed-plane','plane')]));
     assert(Math.abs(dot(cylinderDirection, planeNormal)) > 1-1e-8);
     report.groups = await exerciseRelationshipGroupsUi({page, expect, fixture, read, graph, evaluateReady, edit, report});
+    report.common_properties = await exerciseCommonRelationshipProperties({page, expect, fixture, read, graph, evaluateReady, edit, report});
     return {...report, complete:true, phase:'complete', vertices:fixture.vertices, triangles:fixture.triangles,
       fixed_axis:true, fixed_plane:true, independent_positions:true, selected_joint:true, both_members_influence:true,
       explicit_fit_factors_once:true, edited:true, actions_reopened:true, project_reopened:true,

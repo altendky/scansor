@@ -38,11 +38,16 @@ export function matchingInputOutput(reference, outputs) {
   return outputs.find(output => inputReferenceKey(output.reference) === inputReferenceKey(parsed)) || null;
 }
 
-export function inputChoices(state, requirement, nodes = state?.recipe.nodes || []) {
+export function inputChoices(state, requirement, nodes = state?.recipe.nodes || [], {use} = {}) {
   const allowed = new Set(nodes.map(node => node.id));
   return requirementOutputs(state, requirement).filter(output => allowed.has(output.reference.feature))
     .map(output => {
-      const dependencies = output.dependencies || [output.reference.feature, output.reference.context].filter(Boolean);
+      const contract = state.input_contracts?.[requirement], property = output.properties?.[contract?.property],
+        bindingAlias = use !== 'geometry' && (use === 'binding' || contract?.uses?.includes('binding')) &&
+          (output.reference.context || output.reference.feature) === output.reference.feature &&
+          property?.binding_eligible && property.binding_aliases?.length,
+        dependencies = (bindingAlias ? output.binding_dependencies : null) || output.dependencies ||
+          [output.reference.feature, output.reference.context].filter(Boolean);
       return dependencies.every(id => allowed.has(id)) ? output : { ...output,
         availability: 'blocked', reason: 'This output depends on a later feature' };
     });

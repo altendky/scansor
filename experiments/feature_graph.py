@@ -1382,7 +1382,12 @@ def plane_relationship_endpoints(
             )
             if not any(previous.key == endpoint.key for previous in result):
                 result.append(endpoint)
-        return result
+        from experiments.relationship_outputs import physical_endpoints
+
+        physical = [
+            item for endpoint in result for item in physical_endpoints(endpoint, nodes)
+        ]
+        return list({endpoint.key: endpoint for endpoint in physical}.values())
     return [
         normalize_endpoint(reference, nodes, requirement)
         for reference in relationship.surfaces
@@ -1393,12 +1398,14 @@ def automatic_plane_relationship_components(
     nodes: dict[str, Feature],
     *,
     include_radii: bool = True,
+    relationship_ids: set[str] | None = None,
 ) -> dict[str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]]:
     """Relationships join through shared geometry, not just plane feature IDs."""
     relationships = [
         node
         for node in nodes.values()
         if isinstance(node, (PlaneRelationship, DirectionAlignment))
+        and (relationship_ids is None or node.id in relationship_ids)
     ]
     axis_bindings = coaxial_axis_bindings(nodes)
     seeds = [relationship.id for relationship in relationships]
@@ -2742,13 +2749,24 @@ def named_direction_component(
         raise ValueError(
             "direction joints require direction, plane, or radius relationship factors"
         )
+    from experiments.relationship_outputs import binding_relationship_dependencies
+
+    active = set(node.constraints)
+    pending = list(active)
+    while pending:
+        required = (
+            binding_relationship_dependencies(nodes[pending.pop()], nodes) - active
+        )
+        active.update(required)
+        pending.extend(required)
     selected = {
         key: value
         for key, value in nodes.items()
-        if not isinstance(value, (DirectionAlignment, PlaneRelationship, EqualRadii))
-        or key in node.constraints
+        if not isinstance(value, EqualRadii) or key in active
     }
-    components = automatic_plane_relationship_components(selected)
+    components = automatic_plane_relationship_components(
+        selected, relationship_ids=active
+    )
     first = next(
         key for key in node.constraints if isinstance(nodes[key], DirectionAlignment)
     )
@@ -4648,6 +4666,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                     raise ValueError("coaxial group members must share one source")
                 for candidate in nodes.values():
                     if isinstance(candidate, JointFit):
+                        if named_direction_component(candidate, nodes) is not None:
+                            # Direction joints retain this declared line and
+                            # selected observations in the same component.
+                            continue
                         sides, _ = joint_surfaces(candidate, nodes)
                         if set(node.surfaces).intersection(
                             surface.id for surface in sides
@@ -5141,7 +5163,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                 "outputs": outputs,
                 "surfaces": solve.get("surfaces", {}),
             }
-        return values
+        from experiments.relationship_outputs import common_publication_values
+
+        return common_publication_values(nodes, values, self._states)
 
     def input_choices(
         self,
@@ -5299,6 +5323,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                     ),
                 }
             publication_values = self._input_values()
+            derived = deepcopy(self._derived)
             resolved = deepcopy({**self._derived, **self._results})
             for axis_id, solve in self._connected_solves.items():
                 axis_node = next(
@@ -5393,6 +5418,21 @@ class FeatureGraph(Generic[WorkspaceType]):
                 frame=self.reference_sha256,
                 coordinates=self.workspace.local,
             )
+            for node in self._recipe.nodes:
+                if (
+                    node.id in publication_values
+                    and "common_outputs" in publication_values[node.id]
+                ):
+                    resolved[node.id] = {
+                        **resolved.get(node.id, {}),
+                        "common_outputs": deepcopy(
+                            publication_values[node.id]["common_outputs"]
+                        ),
+                    }
+                    if node.id in derived:
+                        derived[node.id]["common_outputs"] = deepcopy(
+                            publication_values[node.id]["common_outputs"]
+                        )
             return {
                 **(
                     {}
@@ -5412,7 +5452,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 "result": deepcopy(self._results.get(self._recipe.output))
                 if self._recipe.output is not None
                 else None,
-                "derived": deepcopy(self._derived),
+                "derived": derived,
                 "results": resolved,
                 "input_catalogue": catalogue,
                 "input_contracts": deepcopy(REQUIREMENTS),
@@ -7418,7 +7458,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                     if "plane_equation" in value:
                         planes[endpoint.key] = PlaneInput(value, False)
                         return DirectionOperand("plane", endpoint.key)
-                    axes[endpoint.key] = AxisInput(value, False)
+                    axes[endpoint.key] = AxisInput(
+                        value,
+                        False,
+                        direction_only=nodes[endpoint.feature].operation
+                        == "direction_alignment"
+                        and endpoint.output == "direction",
+                    )
                     return DirectionOperand("axis", endpoint.key)
                 node = nodes[key]
                 if isinstance(node, AxisDefinition):
