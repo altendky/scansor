@@ -69,7 +69,7 @@ export function relationshipParticipantPresentation(state, output) {
         (property ? property.binding_eligible && property.parameter_owner && property.uses?.includes('binding')
           : !contract.property && output.parameter_owner && output.uses?.includes('binding'));
     }),
-    adjustable = bindings.length > 0, group = adjustable ? 'constrain' : 'reference',
+    adjustable = output.relationship_use !== 'geometry' && bindings.length > 0, group = adjustable ? 'constrain' : 'reference',
     groupLabel = adjustable ? 'Features to constrain' : 'Results to reference',
     roleLabel = adjustable ? 'Adjustable property' : 'Fixed for this relationship',
     producer = output.producing_context,
@@ -142,7 +142,9 @@ export function relationshipDraftForNode(state, node) {
       }
     }
   }
-  return {roles, unassigned: new Set()};
+  const roleUses = Object.fromEntries(fields.filter(([, field]) => field.use_field)
+    .map(([role, field]) => [role, node[field.use_field] ?? field.use_default]));
+  return {roles, unassigned: new Set(), ...(Object.keys(roleUses).length ? {roleUses} : {})};
 }
 
 export function isDirectionJoint(node, nodes) {
@@ -199,9 +201,48 @@ function relationshipChoicesForRequirements(state, requirements, selected, nodes
   return [...records.values()].filter(output => output.compatible || selected.has(output.key));
 }
 
-export function relationshipRoleChoices(state, kind, role, selected = new Set(), nodes = state?.recipe?.nodes || []) {
+export function relationshipRoleUse(state, kind, role, draft = {}) {
+  const field = state?.relationship_contracts?.[kind]?.node_fields?.[role];
+  return field?.use_field ? draft.roleUses?.[role] ?? field.use_default : undefined;
+}
+
+export function renderRelationshipRoleUse(control, state, kind, role, value) {
+  const field = state?.relationship_contracts?.[kind]?.node_fields?.[role];
+  control.replaceChildren(...(field?.use_choices || []).map(choice =>
+    new Option(choice.label, choice.value, false, choice.value === value)));
+  if (value && ![...control.options].some(option => option.value === value))
+    control.append(new Option('Unavailable ownership choice', value, false, true));
+  control.value = value || field?.use_default || '';
+}
+
+export function relationshipRoleChoices(state, kind, role, selected = new Set(), nodes = state?.recipe?.nodes || [], use) {
   const requirement = state?.relationship_contracts?.[kind]?.roles?.[role];
-  return requirement ? relationshipChoicesForRequirements(state, [requirement], selected, nodes) : [];
+  if (!requirement) return [];
+  const field = state.relationship_contracts[kind].node_fields?.[role],
+    requestedUse = use ?? (field?.use_field ? field.use_default : undefined),
+    property = state.input_contracts[requirement]?.property,
+    publications = requestedUse === 'geometry' ? new Map((state.input_catalogue || [])
+      .map(output => [inputReferenceKey(output.reference), output])) : null;
+  return relationshipChoicesForRequirements(state, [requirement], selected, nodes).flatMap(output => {
+    if (!requestedUse) return [output];
+    if (requestedUse === 'geometry') {
+      // Corrective binding eligibility is independent of a failed/stale result.
+      // Fixed reads use the actual publication's availability, never that upgrade.
+      const publication = publications.get(output.key), context = output.reference.context || output.reference.feature;
+      const availability = publication?.availability || state.states?.[context] || output.availability;
+      output = {...output, availability, reason: publication?.reason ||
+        (availability === 'ready' ? null : state.errors?.[context] || output.reason)};
+      output.compatible &&= inputCanBeReferenced(output, {allowPending: true});
+    }
+    const descriptor = output.properties?.[property],
+      compatibleUse = (output.uses || ['geometry']).includes(requestedUse) &&
+        (requestedUse !== 'binding' || (output.reference.context || output.reference.feature) === output.reference.feature &&
+          descriptor?.binding_eligible && descriptor?.parameter_owner && descriptor.uses?.includes('binding'));
+    if (!compatibleUse && !selected.has(output.key)) return [];
+    return [{...output, relationship_use: requestedUse, compatible: output.compatible && !!compatibleUse,
+      ...(!compatibleUse ? {reason: requestedUse === 'binding' ? 'Choose an adjustable property owner.'
+        : 'Choose an exact fixed geometry result.'} : {})}];
+  });
 }
 
 export function relationshipRoleSelection(state, kind, selected, previous = {}) {
@@ -260,9 +301,12 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
   if (outputs.some(output => !output.compatible))
     return { valid: false, reason: 'Remove or replace unavailable or incompatible outputs.' };
   for (const [role, requirement] of Object.entries(signature.roles)) {
+    const use = relationshipRoleUse(state, kind, role, explicit ? selected : {}), field = signature.node_fields?.[role];
+    if (field?.use_field && !(field.use_choices || []).some(choice => choice.value === use))
+      return {valid: false, reason: 'Choose a supported reference ownership.', roles};
     const contract = state.input_contracts[requirement],
       selectedKeys = explicit ? new Set(assigned[role] || []) : union,
-      members = explicit ? relationshipRoleChoices(state, kind, role, selectedKeys, nodes)
+      members = explicit ? relationshipRoleChoices(state, kind, role, selectedKeys, nodes, use)
         .filter(output => selectedKeys.has(output.key) && output.compatible)
         : contract.min_count === 0 ? [] : outputs.filter(output => output.requirements.includes(requirement));
     roles[role] = members;
@@ -329,6 +373,8 @@ export function relationshipNodeInputs(state, kind, selected, nodes = state?.rec
       const values = validity.roles[role].map(output => field.encoding === 'reference' ? output.reference : feature(output));
       return [field.name, field.multiple ? values : values[0] ?? (field.optional ? null : undefined)];
     })),
+    ...Object.fromEntries(Object.entries(signature.node_fields).filter(([, field]) => field.use_field)
+      .map(([role, field]) => [field.use_field, relationshipRoleUse(state, kind, role, selected)])),
   };
   if (signature.operation === 'direction_alignment') return {
     operation: signature.operation, directions: validity.roles.participants.map(output => output.reference), sense: 'unsigned',

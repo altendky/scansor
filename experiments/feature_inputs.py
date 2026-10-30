@@ -76,7 +76,8 @@ REQUIREMENTS: dict[str, dict[str, Any]] = {
     "relationship_direction_reference": {
         "capabilities": ["direction"],
         "property": "direction",
-        "uses": ["geometry"],
+        "uses": ["geometry", "binding"],
+        "default_use": "geometry",
         "min_count": 0,
         "max_count": 1,
     },

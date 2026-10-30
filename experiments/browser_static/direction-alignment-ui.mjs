@@ -187,10 +187,64 @@ async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph,
   assert.deepEqual([...firstIds, ...secondIds].sort((a, b) => a - b), original);
   await roundTrip(coaxial.id, 'explicit-roles');
   assert.equal((await graph()).recipe.nodes.find(node => node.id === coaxial.id).axis, 'role-axis');
+  report.phase = 'reference-ownership-authoring';
+  const beforeOwnership = evaluations.length, beforeDirection = (await graph()).results['role-axis'].axis_display;
+  await begin('direction_alignment', 'Adjustable reference direction');
+  const referenceRole = page.locator('#relationship-dialog [data-relationship-role="reference"]'),
+    ownership = referenceRole.getByLabel('Reference ownership', {exact: true}),
+    directAxis = reference('role-axis'), planeTarget = reference('joint-plane', 'plane');
+  await expect(ownership).toHaveValue('geometry');
+  assert.equal(await input(referenceRole, directAxis).count(), 0, 'An initializer is not another fixed solved result');
+  await ownership.selectOption('binding');
+  await referenceRole.locator('.model-field-pick').click();
+  await page.locator('#action-list .action-select[data-action-id="role-axis"]').click();
+  await expect(input(referenceRole, directAxis)).toBeChecked();
+  const directionTargets = page.locator('#relationship-dialog [data-relationship-role="participants"]');
+  await directionTargets.locator('.model-field-pick').click();
+  await page.locator('#action-list .action-select[data-action-id="joint-plane"]').click();
+  await expect(input(directionTargets, planeTarget)).toBeChecked();
+  await page.locator('#stop-model-picking').click();
+  const adjustableReference = await add('Adjustable reference direction');
+  assert.equal(adjustableReference.reference_use, 'binding');
+  assert.deepEqual(adjustableReference.reference, JSON.parse(directAxis));
+  assert.equal(evaluations.length, beforeOwnership, 'Choosing an adjustable reference remains pending with Auto off');
+  state = await evaluateReady(adjustableReference.id);
+  const sharedDirection = state.results['role-axis'].axis_display;
+  assert(norm(cross(sharedDirection, state.results['joint-plane'].plane_equation.slice(0, 3))) < 1e-7);
+  assert(norm(cross(sharedDirection, beforeDirection)) > 1e-4, 'Target observations must influence the adjustable reference');
+  await edit(adjustableReference.id);
+  await expect(page.locator('#direction-alignment-reference-use')).toHaveValue('binding');
+  await evaluateReady(adjustableReference.id);
+  await expect(page.locator('#direction-alignment-reference-use')).toHaveValue('binding');
+  await expect(page.locator('#direction-alignment-reference')).toHaveValue(directAxis);
+  assert((await page.locator('#direction-alignment-reference option').evaluateAll(options =>
+    options.filter(option => option.value && !option.disabled).map(option => JSON.parse(option.value))))
+    .every(ref => ref.context === ref.feature), 'A snapshot must not add fixed publications to an adjustable picker');
+  await page.locator('#direction-alignment-reference-use').selectOption('geometry');
+  const fixedAxis = reference('role-axis', 'axis', coaxial.id);
+  await page.locator('#direction-alignment-reference').selectOption(fixedAxis);
+  await evaluateReady(adjustableReference.id);
+  await expect(page.locator('#direction-alignment-reference-use')).toHaveValue('geometry');
+  await expect(page.locator('#direction-alignment-reference')).toHaveValue(fixedAxis);
+  assert.equal(await page.locator('#direction-alignment-reference option').evaluateAll((options, direct) =>
+    options.some(option => option.value === direct && !option.disabled), directAxis), false,
+  'A snapshot must not add a binding-only initializer to a fixed picker');
+  await page.locator('#apply-properties').click();
+  await expect.poll(async () => (await graph()).recipe.nodes.find(node => node.id === adjustableReference.id).reference_use).toBe('geometry');
+  await page.locator('#close-edit').click();
+  state = await evaluateReady(adjustableReference.id);
+  assert(norm(cross(state.results['role-axis'].axis_display, beforeDirection)) < 1e-7,
+    'Fixed mode must restore the upstream optimum without feedback from the target');
+  await roundTrip(adjustableReference.id, 'reference-ownership');
+  await edit(adjustableReference.id);
+  await expect(page.locator('#direction-alignment-reference-use')).toHaveValue('geometry');
+  await expect(page.locator('#direction-alignment-reference')).toHaveValue(fixedAxis);
   return {mixed_four_participants: true, all_endpoints_constrained: true, three_member_edit: true,
     order_invariant: true, group_actions_and_project_reopened: true, explicit_reference_and_targets: true,
     reference_replacement_preserves_targets: true, one_and_two_targets: true, reference_remains_adjustable: true,
-    role_actions_and_project_reopened: true, disjoint_observations_preserved: true};
+    role_actions_and_project_reopened: true, disjoint_observations_preserved: true,
+    explicit_reference_ownership: true, adjustable_reference_moves: true, fixed_reference_is_one_way: true,
+    reference_ownership_reopened: true};
 }
 
 export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {

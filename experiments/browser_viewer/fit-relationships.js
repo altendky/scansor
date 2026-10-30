@@ -1,6 +1,6 @@
 import {createRelationshipEditor} from './relationship-editor.js';
 import {projectedFitState} from './fit-input-state.js';
-import {relationshipDefinitionForNode, relationshipDraftForNode,
+import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipRoleUse,
   relationshipFeatureIds} from './relationship-inputs.js';
 import {uniqueFeatureLabel} from './feature-names.js';
 import {readInputReference} from './feature-inputs.js';
@@ -23,6 +23,7 @@ export function stagedRelationshipState(state, originalIds, drafts) {
         return field.encoding === 'feature' && typeof reference !== 'string' ? reference?.feature : reference;
       });
       node[field.name] = field.multiple ? values : values[0] ?? null;
+      if (field.use_field) node[field.use_field] = relationshipRoleUse(state, row.kind, role, row.draft);
     }
     return [row.id, node];
   }));

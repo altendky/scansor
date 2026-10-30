@@ -22,7 +22,8 @@ import { relationshipDefinitions as relationshipDefinitionChoices, relationshipP
   relationshipCollectionMembers, relationshipExpandedOutputs, relationshipSelectionCounts,
   axisSolveInputs, axisSolveValidity, relationshipParticipantPresentation, directionAlignmentLabel,
   directionJointInputs, directionJointValidity, isDirectionJoint, relationshipInputOptions } from './relationship-inputs.js';
-import {relationshipDefinitionForNode, relationshipDraftForNode} from './relationship-inputs.js';
+import {relationshipDefinitionForNode, relationshipDraftForNode, relationshipRoleUse,
+  renderRelationshipRoleUse} from './relationship-inputs.js';
 import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, workspaceToolbars,
   prepareEditSession, showEditWorkflow as presentEditWorkflow, editWorkflowApplied, activeEditWorkflow,
   forceEndEditSession, prepareWorkspaceTransition, createHeadlessFeatureTree } from './workspace.js';
@@ -2149,13 +2150,13 @@ function addFaceBoundary(prefix) {
     if (prefix === 'new-face') $('trimmed-face-error').textContent = error.message;
   }
 }
-function geometryInputChoices(id, requirement, nodes, selected) {
+function geometryInputChoices(id, requirement, nodes, selected, outputs = null) {
   const control = typeof id === 'string' ? $(id) : id;
   control.dataset.inputRequirement = requirement;
   if (nodes.length < graphState.recipe.nodes.length)
     control.dataset.inputConsumer = editingFeatureId || '';
   else delete control.dataset.inputConsumer;
-  renderInputChoices(control, inputChoices(graphState, requirement, nodes), selected,
+  renderInputChoices(control, outputs || inputChoices(graphState, requirement, nodes), selected,
     {...relationshipInputOptions(graphState, requirement),
       ...(graphState.input_contracts?.[requirement]?.min_count === 0 ? {emptyLabel: 'None (optional)'} : {})});
 }
@@ -2440,8 +2441,11 @@ function updateDirectionPropertiesHint() {
   const outputs = requirementOutputs(graphState, 'relationship_direction'),
     selected = chosen('direction-alignment-inputs').map(key => matchingInputOutput(readInputReference(key), outputs)).filter(Boolean),
     counts = relationshipSelectionCounts(graphState, selected),
-    hasReference = !!$('direction-alignment-reference').value;
-  $('direction-alignment-hint').textContent = `${directionAlignmentLabel(selected)}. ${counts.unique} direction outputs${hasReference ? ' follow the selected upstream result' : ' align with each other'}. Either direction sign is accepted. Positions, centerlines, plane offsets and radii are independent.`;
+    hasReference = !!$('direction-alignment-reference').value,
+    adjustable = $('direction-alignment-reference-use').value === 'binding';
+  $('direction-alignment-hint').textContent = `${directionAlignmentLabel(selected)}. ${counts.unique} direction outputs${hasReference
+    ? adjustable ? ' align jointly with the adjustable reference' : ' follow the selected upstream result'
+    : ' align with each other'}. Either direction sign is accepted. Positions, centerlines, plane offsets and radii are independent.`;
   if (counts.collections) $('direction-alignment-hint').textContent += ' The original is an upstream source; this relationship adjusts the copies. Align the original upstream if its direction also needs to change.';
   const inspection = $('direction-alignment-collections');
   const expanded = new Set([...inspection.querySelectorAll('details[open]')].map(details => details.dataset.collectionKey));
@@ -2458,6 +2462,12 @@ function updateDirectionPropertiesHint() {
     details.append(summary, list); return details;
   }));
   inspection.hidden = !inspection.childElementCount;
+}
+function directionReferenceChoices(nodes, selected) {
+  const use = $('direction-alignment-reference-use').value,
+    keys = new Set([inputReferenceKey(selected)].filter(Boolean)),
+    outputs = relationshipRoleChoices(graphState, 'direction_alignment', 'reference', keys, nodes, use);
+  geometryInputChoices('direction-alignment-reference', 'relationship_direction_reference', nodes, selected, outputs);
 }
 function setFitReference(node, id, nodes = graphState.recipe.nodes) {
   try {
@@ -3073,6 +3083,11 @@ function showProperties(force = false) {
     for (const control of $('action-properties').querySelectorAll('select[data-input-requirement]')) {
       if (control.dataset.fitReferenceEditor) continue;
       const selected = control.multiple ? [...control.selectedOptions].map(option => option.value) : control.value;
+      if (control.id === 'direction-alignment-reference') {
+        directionReferenceChoices(graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node)),
+          readInputReference(selected));
+        continue;
+      }
       renderInputChoices(control, inputChoices(graphState, control.dataset.inputRequirement,
         graphState.recipe.nodes.slice(0, graphState.recipe.nodes.indexOf(node))), selected,
         relationshipInputOptions(graphState, control.dataset.inputRequirement));
@@ -3174,6 +3189,7 @@ function showProperties(force = false) {
     $(id).disabled = $('fit-properties').hidden || $('fit-legacy-binding').hidden;
   $('direction-alignment-inputs').disabled = $('direction-alignment-properties').hidden;
   $('direction-alignment-reference').disabled = $('direction-alignment-properties').hidden;
+  $('direction-alignment-reference-use').disabled = $('direction-alignment-properties').hidden;
   if (node.operation === 'surface_intersection') {
     populateSurfaceReferences('intersection-first', earlier, node.first);
     populateSurfaceReferences('intersection-second', earlier, node.second);
@@ -3432,7 +3448,9 @@ function showProperties(force = false) {
     );
   } else if (node.operation === 'direction_alignment') {
     geometryInputChoices('direction-alignment-inputs', 'relationship_direction_targets', earlier, node.directions);
-    geometryInputChoices('direction-alignment-reference', 'relationship_direction_reference', earlier, node.reference || null);
+    renderRelationshipRoleUse($('direction-alignment-reference-use'), graphState, 'direction_alignment', 'reference',
+      relationshipRoleUse(graphState, 'direction_alignment', 'reference', relationshipDraftForNode(graphState, node)));
+    directionReferenceChoices(earlier, node.reference || null);
     updateDirectionPropertiesHint();
   } else if (node.operation === 'plane_relationship') {
     $('plane-relationship-kind').value = node.relation;
@@ -6044,6 +6062,11 @@ async function start(recoveredState) {
   $('new-joint-mode').onchange = updateAxisSolveFactors;
   $('direction-alignment-inputs').onchange = updateDirectionPropertiesHint;
   $('direction-alignment-reference').onchange = updateDirectionPropertiesHint;
+  $('direction-alignment-reference-use').onchange = () => {
+    const nodes = graphState.recipe.nodes, index = nodes.findIndex(node => node.id === editingFeatureId);
+    directionReferenceChoices(nodes.slice(0, index), readInputReference($('direction-alignment-reference').value));
+    setModelPickMode(null); updateDirectionPropertiesHint();
+  };
   $('new-fit-kind').onchange = () => {
     newFitRelationships.refresh();
     syncModelPickControls();
@@ -6850,7 +6873,8 @@ async function start(recoveredState) {
     }
     if (node.operation === 'direction_alignment') {
       try { Object.assign(node, relationshipNodeInputs(graphState, 'direction_alignment',
-        {roles: {participants: new Set(chosen('direction-alignment-inputs')),
+        {roleUses: {reference: $('direction-alignment-reference-use').value},
+          roles: {participants: new Set(chosen('direction-alignment-inputs')),
           reference: new Set([$('direction-alignment-reference').value].filter(Boolean))}},
         recipe.nodes.slice(0, recipe.nodes.indexOf(node)))); }
       catch (error) { status(error.message, true); return; }

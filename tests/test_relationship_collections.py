@@ -240,9 +240,10 @@ def test_source_port_precedes_constraints_that_already_couple_original_and_copie
     assert abs(current - source) > 0.001
 
 
-def test_reuse_clones_optional_fixed_reference_into_the_matching_owned_context() -> (
-    None
-):
+@pytest.mark.parametrize("use", [None, "geometry", "binding"])
+def test_reuse_clones_optional_reference_ownership_into_the_matching_owned_context(
+    use: str | None,
+) -> None:
     _, _, recipe, circular, _ = circular_fixture(count=4)
     payload = recipe.model_dump()
     payload["nodes"].append(
@@ -252,6 +253,7 @@ def test_reuse_clones_optional_fixed_reference_into_the_matching_owned_context()
             "operation": "direction_alignment",
             "reference": {"feature": "pattern_axis", "output": "axis"},
             "directions": [{"feature": "bore", "output": "axis"}],
+            **({"reference_use": use} if use is not None else {}),
         }
     )
     payload["output"] = "upstream"
@@ -273,6 +275,7 @@ def test_reuse_clones_optional_fixed_reference_into_the_matching_owned_context()
     assert isinstance(copied, DirectionAlignment)
     axis = children["datum/occurrence_1/pattern_axis"]
     assert copied.reference == OutputReference(feature=axis.id, output="axis")
+    assert copied.reference_use == (use or "geometry")
 
 
 def test_expanded_capacity_counts_members_instead_of_authored_chips() -> None:
