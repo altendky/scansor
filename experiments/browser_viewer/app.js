@@ -26,6 +26,7 @@ import { requestWorkspaceClose, revealWorkspacePanel, workspaceEditingPanels, wo
 import { unobscuredViewport } from './workspace-state.js';
 import { ensureGraphCurrent, waitForGraphEvaluation, stoppedEvaluationDisplay } from './graph-evaluation.js';
 import { getBackend } from './backend.js';
+import { createCadDisplay } from './cad-display.js';
 import { createSourceProjectController } from './source-project.js';
 import { createSelectionOwnedEditor, ownedKey } from './selection-owned-editor.js';
 import { renderFeatureGraph } from './feature-graph-view.js';
@@ -87,7 +88,8 @@ const backend = getBackend();
 let evaluationIntent = 0;
 window.addEventListener('scansor-computation-stop', event => {
   evaluationIntent++;
-  if (viewerSetup && graphState && !['preview', 'previewSurfaceSelection'].includes(event.detail?.operation))
+  if (viewerSetup && event.detail?.operation === 'refineDisplay') cadDisplay.cancel();
+  if (viewerSetup && graphState && !['preview', 'previewSurfaceSelection', 'refineDisplay'].includes(event.detail?.operation))
     acceptGraph(stoppedEvaluationDisplay(graphState));
 });
 function queueEnsureAll() {
@@ -126,6 +128,44 @@ window.addEventListener('scansor-runtime-lock', () => sourceProject?.lockRuntime
 window.addEventListener('scansor-computation-lifecycle', () => { if (viewerSetup) updateEvaluationControls(); });
 let resetSourcePicking = () => {};
 let constructedFaces, constructedFacesState = null;
+const cadDisplayTargets = new Set();
+const cadDisplay = createCadDisplay({
+  refine: async (payload, options) => {
+    const owner = graphNode(payload.feature), bodyFaces = owner?.operation === 'body' ? new Set(owner.faces) : null,
+      reply = await backend.refineDisplay(payload, options);
+    if (bodyFaces && payload.quality !== 'draft' && (!reply.display?.face_ranges?.length ||
+      reply.display.face_ranges.some(range => !Array.isArray(range.face_ids) || range.face_ids.some(id => !bodyFaces.has(id)))))
+      throw new Error('CAD display cannot identify its accepted Body faces.');
+    return reply;
+  },
+  onChange: () => {
+    if (!viewerSetup) return;
+    constructedFacesState = modelPickSourceState = null; modelPickGeometryKey = null;
+    clearModelPickHover(); showResult(); paintModelPickGuides(); paint();
+  },
+  onStatus: ({busy: refining, message}) => {
+    $('cad-display-status').textContent = message;
+    $('cancel-cad-display').disabled = !refining;
+    if (viewerSetup) updateEvaluationControls();
+  },
+});
+function refreshCadDisplay() {
+  if (!viewerSetup || !graphState) return;
+  const targets = new Set(cadDisplayTargets);
+  if ($('faces-only').checked) {
+    const bodies = graphState.recipe.nodes.filter(node => node.operation === 'body' &&
+      graphState.states[node.id] === 'ready' && graphState.results[node.id]?.valid === true),
+      bodyFaces = new Set(bodies.flatMap(node => node.faces));
+    for (const {node} of faceDisplayEntries(graphState)) if (!bodyFaces.has(node.id)) targets.add(node.id);
+    for (const node of bodies) targets.add(node.id);
+  }
+  const lifecycle = backend.getLifecycle(), blocked = busy || sourceTransitionBusy || selectionDrawing || selectionPending ||
+    graphState.evaluation_running && lifecycle.operation !== 'refineDisplay' || surfacePreviewRunning() || authoringApplying || featurePropertiesApplying ||
+    featureOrganizationPending || (['queued', 'running', 'cancel-requested'].includes(lifecycle.state) && lifecycle.operation !== 'refineDisplay');
+  cadDisplay.refresh({generation: workspaceGeneration, token: graphState.token,
+    revision: graphState.revision, quality: $('cad-display-quality').value}, [...targets],
+  {enabled: backend.capabilities.displayRefinement === true && targets.size > 0, blocked});
+}
 let bodyInspection;
 let fitQualityLimit = null, fitQualityStorageKey = null, fitQualityCache = null;
 let selectedFeatureIds = new Set();
@@ -553,9 +593,9 @@ function paintModelPickGuides() {
   draw();
 }
 function paintModelPickSourceFaces() {
-  // A sewn body has one merged display mesh. Use identified source previews
-  // as pick proxies, without changing body/export topology. Hover changes must
-  // not rebuild these potentially large tessellations.
+  // Body triangle ranges retain exact source-face identities through sewing
+  // and display meshing. Proxies share that mesh's vertex buffer and select
+  // the triangles actually drawn, without altering the accepted CAD record.
   const state = modelPickMode && $('faces-only').checked ? graphState : null;
   if (state === modelPickSourceState) return;
   modelPickSourceState = state;
@@ -564,11 +604,28 @@ function paintModelPickSourceFaces() {
     child.geometry.dispose();
     child.material.dispose();
   }
+  const represented = new Set();
+  if (state) for (const node of state.recipe.nodes.filter(node => node.operation === 'body' && state.states[node.id] === 'ready')) {
+    const approximation = cadDisplay.lookup(node.id);
+    if (!approximation?.face_ranges) continue;
+    const attribute = new THREE.BufferAttribute(approximation.preview.positions, 3);
+    for (const range of approximation.face_ranges) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', attribute);
+      geometry.setIndex(new THREE.BufferAttribute(approximation.preview.indices.subarray(range.start, range.start + range.count), 1));
+      const proxy = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false}));
+      proxy.userData.sourceFaces = range.face_ids;
+      modelPickSourceFaces.add(proxy);
+      for (const id of range.face_ids) represented.add(id);
+    }
+  }
   if (state) for (const { node, result } of faceDisplayEntries(state)) {
-    if (graphState.states[node.id] !== 'ready' || !validGeometryPreview(result.preview)) continue;
+    const approximation = cadDisplay.lookup(node.id), preview = approximation?.preview || result.preview;
+    if (represented.has(node.id) || graphState.states[node.id] !== 'ready' || !(approximation || validGeometryPreview(preview))) continue;
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(result.preview.positions, 3));
-    geometry.setIndex(result.preview.indices);
+    geometry.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(preview.positions), 3));
+    geometry.setIndex(ArrayBuffer.isView(preview.indices) ? new THREE.BufferAttribute(preview.indices, 1) : preview.indices);
     const proxy = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
       side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false }));
     proxy.userData.sourceFace = node.id;
@@ -595,14 +652,17 @@ function modelPicksAt(event) {
   for (const hit of hits) if (hit.object.userData.pickKey &&
       (hit.object.material.depthTest === false || hit.distance <= nearest + 1e-5)) matches.add(hit.object.userData.pickKey);
   if ($('faces-only').checked) {
-    const face = hits.find(hit => hit.object.userData.sourceFace);
-    const node = graphNode(face?.object.userData.sourceFace);
-    if (node) for (const choice of choices) {
-      if (choice.inputOutput && !choice.relationshipOutput?.collection) continue;
-      const reference = choice.reference || choice.candidate?.reference;
-      if (choice.key === node.id || sameSurfaceReference(reference, node.surface) ||
-          modelPickParts(choice).some(part => sameSurfaceReference(part.reference, node.surface)) ||
-          graphNode(reference?.feature)?.faces?.includes(node.id)) matches.add(choice.key);
+    const face = hits.find(hit => hit.object.userData.sourceFace || hit.object.userData.sourceFaces);
+    const ids = face?.object.userData.sourceFaces || [face?.object.userData.sourceFace];
+    for (const id of ids) {
+      const node = graphNode(id);
+      if (node) for (const choice of choices) {
+        if (choice.inputOutput && !choice.relationshipOutput?.collection) continue;
+        const reference = choice.reference || choice.candidate?.reference;
+        if (choice.key === node.id || sameSurfaceReference(reference, node.surface) ||
+            modelPickParts(choice).some(part => sameSurfaceReference(part.reference, node.surface)) ||
+            graphNode(reference?.feature)?.faces?.includes(node.id)) matches.add(choice.key);
+      }
     }
   } else if (mesh.visible) {
     const hit = raycaster.intersectObject(mesh, false)[0];
@@ -2678,6 +2738,7 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
+  if (graphState && (state.token !== graphState.token || state.revision !== graphState.revision)) cadDisplay.reset();
   if (state !== relationshipPreviewState || positions !== relationshipPreviewPositions) {
     relationshipSupportCache.clear();
     relationshipPreviewState = relationshipPreviewPositions = null; relationshipPreviewKey = null;
@@ -2800,7 +2861,7 @@ function acceptGraph(state) {
   sourceProject?.refresh();
 }
 function featureTreeLocked() {
-  return busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running || surfacePreviewRunning() ||
+  return cadDisplay.busy || busy || sourceTransitionBusy || selectionDrawing || selectionPending || graphState.evaluation_running || surfacePreviewRunning() ||
     featureDeletionPending || relationshipApplying || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
 }
 function focusContextFeature() {
@@ -3961,16 +4022,32 @@ function physicalGeometryGuide(node, fitted, color = '#66dbe9', group = overlays
     }
     return;
   }
-  if (!validGeometryPreview(fitted.preview) || !fitted.preview.positions.length) return;
+  cadDisplayTargets.add(node.id);
+  const approximation = cadDisplay.lookup(node.id), preview = approximation?.preview || fitted.preview;
+  if (!(approximation || validGeometryPreview(preview)) || !preview.positions.length) return;
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(fitted.preview.positions, 3));
-  geometry.setIndex(fitted.preview.indices);
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(preview.positions, 3));
+  geometry.setIndex(ArrayBuffer.isView(preview.indices) ? new THREE.BufferAttribute(preview.indices, 1) : preview.indices);
   geometry.computeVertexNormals();
-  group.add(new THREE.Mesh(geometry, solid
+  const cadMesh = new THREE.Mesh(geometry, solid
     ? new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.75,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
     : new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide,
-      transparent: true, opacity: 0.32, depthWrite: false })));
+      transparent: true, opacity: 0.32, depthWrite: false }));
+  cadMesh.userData.cadFeature = node.id;
+  cadMesh.userData.cadQuality = approximation?.quality || 'draft';
+  group.add(cadMesh);
+  if (approximation) {
+    for (const edge of approximation.edges) {
+      const lineGeometry = new THREE.BufferGeometry();
+      lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edge.positions, 3));
+      const Line = edge.closed ? THREE.LineLoop : THREE.Line,
+        line = new Line(lineGeometry, new THREE.LineBasicMaterial({color: solid ? '#243641' : color, depthTest: solid}));
+      Object.assign(line.userData, {cadFeature: node.id, cadQuality: approximation.quality, cadEdge: true});
+      group.add(line);
+    }
+    return;
+  }
   if (node.operation === 'body') {
     for (const edge of bodyEdgePaths(fitted)) {
       const geometry = new THREE.BufferGeometry();
@@ -4090,6 +4167,7 @@ function updateSelectedResult() {
   result = selectedFeatureIds.size === 1 ? graphState.results[selectedFeatureId] || null : null;
 }
 function showResult() {
+  cadDisplayTargets.clear();
   updateSelectedResult();
   showConstructedFaces();
   clearBodyInspection();
@@ -4532,12 +4610,13 @@ function paint() {
   $('use-growth').disabled = busy || !graphState.results[editingFeatureId];
   updateEvaluationControls();
   draw();
+  refreshCadDisplay();
 }
 function updateEvaluationControls() {
   updateActionTreeLocks();
   const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
   const privatePreview = ['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation);
-  const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
+  const evaluationLocked = cadDisplay.busy || busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
   $('fit-recovery-settings').disabled = featureTreeLocked();
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
@@ -4563,6 +4642,7 @@ async function ensureAll() {
 }
 async function evaluateGraph(allActions, target = null, retry = true) {
   const intent = evaluationIntent;
+  if (cadDisplay.busy) { cadDisplay.cancel(); await cadDisplay.settled(); }
   while (activeGraphEvaluation) await activeGraphEvaluation;
   if (busy || sourceTransitionBusy || surfacePreviewRunning() || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
   activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
@@ -4720,6 +4800,7 @@ function prepareWorkspace(bundle) {
     if (installed || disposed) throw new Error('This workspace display has already been installed or released.');
     // Every allocation and source validation finished before the controller
     // deliberately ends the approved draft and invokes this synchronous swap.
+    cadDisplay.reset(); cadDisplayTargets.clear();
     resetSourcePicking();
     clearOwnedSelection();
     setModelPickMode(null);
@@ -7170,6 +7251,12 @@ async function start(recoveredState) {
     showConstructedFaces();
     paint();
   };
+  $('cad-display-quality').onchange = () => {
+    refreshCadDisplay(); constructedFacesState = modelPickSourceState = null; modelPickGeometryKey = null;
+    showResult(); paintModelPickGuides(); paint();
+  };
+  $('cancel-cad-display').onclick = () => cadDisplay.cancel();
+  $('retry-cad-display').onclick = () => { cadDisplay.retry(); refreshCadDisplay(); };
   $('all-guides').onchange = () => {
     showResult();
     paint();
@@ -7576,7 +7663,7 @@ export function initializeViewer({ recoveredState, isCurrent = () => true } = {}
     }
     acceptGraph(recoveredState || await backend.getGraph());
     $('save').disabled = false;
-    status(['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation)
+    status(['preview', 'previewSurfaceSelection', 'refineDisplay'].includes(backend.getLifecycle().operation)
       ? 'Preview cancelled. Accepted actions and results retained.'
       : 'Committed actions restored. Derived results were discarded; evaluate when ready.');
   });

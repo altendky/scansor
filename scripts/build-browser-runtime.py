@@ -56,6 +56,11 @@ def worker_protocol() -> dict[str, Any]:
             "policies": ["seed-normal-envelope-v1", "local-boundaries-v1"],
             "max_preview_ids": 2048,
         },
+        "display_refinement": {
+            "supported": True,
+            "version": 1,
+            "qualities": ["draft", "standard", "fine"],
+        },
         "virtual_scans": {"supported": True, "version": 1, "max_sources": 2},
         "project_archive": projects["project_archive_profile"](),
         "replace_scan": {

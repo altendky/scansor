@@ -291,9 +291,10 @@ completion step. Editing another parameter ends picking without moving focus.
 usual unapplied-change confirmation. Picking runs the same input change handler
 as the dropdown and does not apply the form.
 
-In Faces only mode, identified source-face previews map a click back to a face,
-its fitted surface or containing body. Source-face previews are used even when a
-sewn body replaces them in the display; they are pick proxies, not changes to the
+In Faces only mode, identified triangles map a click back to a face,
+its fitted surface or containing body. Refined sewn Bodies retain exact
+source-face triangle ranges through meshing, so pick proxies use the displayed
+mesh. Draft uses the accepted source previews. These proxies do not change the
 body or exported topology. Options without evaluated geometric output remain
 list-only; arbitrary infinite carriers and metadata are not click targets.
 
@@ -1075,6 +1076,32 @@ deleted, or failed outputs never retain that temporary display.
 their boundaries, hiding the scan mesh, vertex markers, fit/reference guides,
 and reuse volumes. Other display preferences are restored when it is turned off;
 interactive face-review highlights remain available.
+
+**Display → CAD display quality** starts at **Standard** for each page session.
+It refines rendered constructed faces and their outlines independently of
+accepted geometry, face-review selectors and exports. **Fine** provides closer
+approximations; **Draft** uses the existing accepted previews. Quality changes
+do not evaluate the recipe or alter fitting and physical tolerances.
+Standard requests chord deflection `10⁻⁴ × model scale` with a `0.04` radian
+angular limit; Fine uses `10⁻⁵ × model scale` and `0.02` radians. Model scale is
+the active scan's local bounding-box diagonal. Private copies are normalized
+before meshing, so changing scan units preserves the relative quality. Failed
+triangulations retain bounded finer and edge-relative retries, including thin
+cells. Outlines use the same triangulation's edge vertices; a sewn Body is
+meshed as one shared shape. Independently constructed neighbors retain their
+own topology and satisfy the selected approximation quality rather than being
+physically sewn by a display operation.
+
+Refinement runs one feature at a time, with status and **Cancel refinement**
+under Display. Cancellation waits for the current safe boundary; it does not
+claim to interrupt inside an OCCT call. Completed displays remain available;
+**Retry** resumes after cancellation or failure. Numerical evaluation takes
+priority over refinement. Scene, token, revision and quality fences reject late
+replies. The renderer retains at most 64 MiB of refined buffers, with 16 MiB
+per feature; output and topology limits also bound each meshing request. A
+failed or over-budget refinement keeps its previous display and reports why.
+Zoom-aware refinement is not implemented in this initial control.
+
 Filter neighbors by name or type. Focus explicitly
 frames the target; inspection and
 selection do not move the camera. Unrelated geometry is dimmed during guided

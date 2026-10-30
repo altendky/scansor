@@ -1963,3 +1963,44 @@ test('a mutation during binary transfer confirmation rejects the obsolete export
   await applied;
   value.backend.close();
 });
+
+async function cadDisplayFixture() {
+  const value = fixture({cad: true, initialMode: 'empty'}), loading = value.backend.initialize(), response = projectReady();
+  response.worker_protocol.display_refinement = {supported: true, version: 1, qualities: ['draft', 'standard', 'fine']};
+  value.worker.reply(response); await loading;
+  return value;
+}
+const cadDisplayPayload = {token: 'empty', revision: 3, feature: 'face', quality: 'standard'};
+test('worker display replies are read-only and preserve accepted recovery authority', async () => {
+  const value = await cadDisplayFixture(), pending = value.backend.refineDisplay(cadDisplayPayload);
+  await settle(); const request = value.worker.calls.at(-1);
+  value.worker.reply({id: request.id, generation: request.generation, ok: true,
+    result: {...cadDisplayPayload, display: {}, recipe: {nodes: [{id: 'private'}]}}});
+  await assert.rejects(pending, error => error.code === 'invalid_operation');
+  assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe);
+  value.backend.close();
+});
+test('worker display terminal replies are fenced by newer same-source accepted revisions', async () => {
+  const value = await cadDisplayFixture(), pending = value.backend.refineDisplay(cadDisplayPayload),
+    rejected = assert.rejects(pending, error => error.code === 'observation_superseded');
+  await settle(); const display = value.worker.calls.at(-1), reading = value.backend.getGraph();
+  await settle(); const graphRead = value.worker.calls.at(-1);
+  value.worker.reply({id: graphRead.id, generation: graphRead.generation, ok: true, result: {...sourceGraph(), revision: 4}});
+  await reading;
+  value.worker.reply({id: display.id, generation: display.generation, ok: true, result: {...cadDisplayPayload, display: {}}});
+  await rejected; value.backend.close();
+});
+test('worker display Abort preserves its private owner until safe cancellation retires', async () => {
+  const value = await cadDisplayFixture(), controller = new AbortController(), reason = new DOMException('Stopped', 'AbortError'),
+    pending = value.backend.refineDisplay(cadDisplayPayload, {signal: controller.signal});
+  let retired = false;
+  const rejected = assert.rejects(pending, error => error === reason).then(() => { retired = true; });
+  await settle(); const display = value.worker.calls.at(-1);
+  controller.abort(reason); await settle(); const cancel = value.worker.calls.at(-1);
+  assert.equal(cancel.operation, 'cancel'); assert.equal(cancel.payload.operation, 'refineDisplay');
+  assert.equal(retired, false);
+  value.worker.reply({id: display.id, generation: display.generation, ok: true, result: {...cadDisplayPayload, display: {}}});
+  await settle(); assert.equal(retired, false);
+  value.worker.reply({id: cancel.id, generation: cancel.generation, ok: true, result: sourceGraph()});
+  await rejected; assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe); value.backend.close();
+});

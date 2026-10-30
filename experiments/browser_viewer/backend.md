@@ -68,6 +68,7 @@ Optional operation options can carry an `AbortSignal`.
 | `previewFaces(payload, options)` | Existing face-preview payload and result |
 | `applyFaces(payload, options)` | Reviewed face payload; updated graph |
 | `exportCad(payload, options)` | Existing export settings; ZIP `ArrayBuffer` |
+| `refineDisplay({token, revision, feature, quality}, {signal})` | Read-only renderer approximation for one ready face or Body; same cursor/feature/quality plus `display.preview`, matching `display.edges`, bounded stats and exact Body `display.face_ranges` |
 | `addScan({file, generation, token}, {signal, onProgress})` | Original File/Blob payload and expected accepted cursor; accepted workspace bundle |
 | `getSourceOperation({operationId}, {signal})` | Status/progress for one opaque source operation |
 | `cancelSourceOperation({operationId, generation, token}, {signal})` | Explicit cooperative import Cancel, using the reservation's original cursor |
@@ -75,6 +76,18 @@ Optional operation options can carry an `AbortSignal`.
 | `inspectActions({recipe, generation, token}, {signal})` | Read-only source/schema classification and normalized definitions; no reservation |
 | `openActions({recipe, file?, generation, token, confirmedDiscard:true}, {signal, onProgress})` | Atomic whole-project opening, with optional explicitly located original File; accepted workspace bundle |
 | `close()` | Stop this connection's requests/observations |
+
+`displayRefinement` is an optional CAD capability. Its version-1
+`display_refinement` profile advertises Draft, Standard and Fine. Native
+refinement uses `POST /api/graph/display/refine` and polls the returned private
+operation at `GET /api/graph/display/refine/<id>`. Worker refinement uses the
+same single-feature request and result. Both preserve accepted results and
+revision on completion, failure and cooperative cancellation; display replies
+cannot become accepted graph publications. The signal owns cancellation and
+waits for safe retirement. Generation, token and revision must still match at
+delivery, including when a terminal reply was delayed in transport. Body
+triangle ranges are a complete contiguous partition and identify authored
+source faces through the actual sewing, copy and transform histories.
 
 Selections remain recipe edits; authoritative fitting remains graph evaluation.
 Explicit user `replaceRecipe` edits reconcile circular reuse source definitions

@@ -12,7 +12,7 @@ let workspaceLoaded = false;
 let workspaceCadEnabled = false;
 let workspaceHasCad = false;
 let cadInitialization;
-const cadOperations = new Set(['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad']);
+const cadOperations = new Set(['faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'refineDisplay']);
 const selectionVolumeOperations = new Set(['authorSelectionVolume', 'setSelectionVolumeOptions',
   'chooseSelectionVolume', 'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume']);
 const cadActions = new Set(['surface_intersection', 'trimmed_face', 'arranged_face', 'build_faces', 'body']);

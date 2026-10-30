@@ -374,6 +374,11 @@ class BrowserWorkspace:
             "selection_entries": {"version": 1},
             "selection_volumes": {"version": 1, "max_preview_cells": 2048},
             "surface_selection": dict(SURFACE_SELECTION_PROFILE),
+            "display_refinement": {
+                "supported": self.cad_enabled,
+                "version": 1,
+                "qualities": ["draft", "standard", "fine"],
+            },
             "virtual_scans": virtual_scan_metadata(source.project.accepted)
             if source.project is not None and self._scan_limits is not None
             else {"supported": False, "version": 1},
@@ -1334,7 +1339,8 @@ class BrowserWorkspace:
         self, recipe_json: str, operation: str | None = None
     ) -> dict[str, Any]:
         self._check_open()
-        if operation not in {None, "previewSurfaceSelection"}:
+        private_operations = {"previewSurfaceSelection", "refineDisplay"}
+        if operation is not None and operation not in private_operations:
             raise WorkspaceError("Invalid cancellation operation.", "invalid_recovery")
         checkpoint = self._operation_checkpoint
         if checkpoint is None:
@@ -1354,8 +1360,8 @@ class BrowserWorkspace:
             self._evaluation_lease.close()
             self._evaluation_lease = None
         if (
-            checkpoint.operation == "previewSurfaceSelection"
-            or operation == "previewSurfaceSelection"
+            checkpoint.operation in private_operations
+            or operation in private_operations
         ) and self.graph.export_recipe() == recipe.model_dump():
             # Preview owns no accepted graph publications. Retain earlier ready
             # results while fencing only its private result and cancellation.
@@ -1735,7 +1741,13 @@ class BrowserWorkspace:
             request = ReuseAuthoringRequest.model_validate(payload)
             state = apply_feature_reuse(self.graph, request)
             return {**self._snapshot(), "reuse_authoring": state["reuse_authoring"]}
-        if operation in {"faceCandidates", "previewFaces", "applyFaces", "exportCad"}:
+        if operation in {
+            "faceCandidates",
+            "previewFaces",
+            "applyFaces",
+            "exportCad",
+            "refineDisplay",
+        }:
             if operation == "applyFaces":
                 self._check_mutation()
             return self._cad_call(operation, payload)
@@ -1757,6 +1769,25 @@ class BrowserWorkspace:
                 "evaluation_busy",
                 409,
             )
+        if operation == "refineDisplay":
+            if self._candidate is not None or self._preparing_source:
+                raise ScanImportError(
+                    "Wait for source changes before refining display.", "source_busy"
+                )
+            from experiments.display_geometry import (
+                DisplayRefinementRequest,
+                prepare_display_refinement,
+            )
+
+            request = DisplayRefinementRequest.model_validate(payload)
+            preview = prepare_display_refinement(self.graph, request)
+            with ExitStack() as lease:
+                if self._source.project is not None:
+                    _ = lease.enter_context(self._source.project.evaluation())
+                return {
+                    **preview(None),
+                    "project_generation": self._workspace_generation,
+                }
         if operation == "faceCandidates":
             from experiments.guided_face_candidates import (
                 FaceCandidatesRequest,
