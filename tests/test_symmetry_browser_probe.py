@@ -19,6 +19,7 @@ from experiments.browser_runtime.symmetry_probe import (
     symmetry_graph_probe,
     symmetry_graph_probes,
 )
+from experiments.feature_graph import Recipe
 from tests.symmetry_fixture import raw_symmetry_fixture
 from tests.test_scan_symmetry_graph import symmetry_recipe
 
@@ -53,10 +54,9 @@ def test_frozen_symmetry_source_and_authored_recipe_are_reproducible(case: str) 
         fixture.incident_weights, record["incident_weights"], rtol=1e-14, atol=0
     )
     assert fixture.quantization_bound == record["quantization_bound"]
-    assert (
-        symmetry_recipe(fixture, **record["recipe_options"]).model_dump(mode="json")
-        == record["recipe"]
-    )
+    assert symmetry_recipe(fixture, **record["recipe_options"]).model_dump(
+        mode="json"
+    ) == Recipe.model_validate(record["recipe"]).model_dump(mode="json")
 
 
 @pytest.mark.parametrize("case", CASES)
