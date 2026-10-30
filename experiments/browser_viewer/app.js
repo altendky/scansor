@@ -122,7 +122,7 @@ let featureOrganizationPending = false;
 let authoringApplying = false;
 let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
-let exampleCatalogue = null, exampleSwitchPending = false, exampleEnsureDeferred = false;
+let exampleCatalogue = null, exampleChooserOpening = false, exampleSwitchPending = false, exampleEnsureDeferred = false;
 let sourceProject, workspaceGeneration, sourceTransitionBusy = false;
 window.addEventListener('scansor-runtime-lock', () => sourceProject?.lockRuntime());
 window.addEventListener('scansor-computation-lifecycle', () => { if (viewerSetup) updateEvaluationControls(); });
@@ -171,7 +171,7 @@ function refreshCadDisplay() {
   }
   const lifecycle = backend.getLifecycle(), blocked = busy || sourceTransitionBusy || selectionDrawing || selectionPending ||
     graphState.evaluation_running && lifecycle.operation !== 'refineDisplay' || surfacePreviewRunning() || authoringApplying || featurePropertiesApplying ||
-    featureOrganizationPending || !!activeEditWorkflow() || !!modelPickMode || exampleSwitchPending || $('example-dialog').open ||
+    featureOrganizationPending || !!activeEditWorkflow() || !!modelPickMode || exampleChooserOpening || exampleSwitchPending || $('example-dialog').open ||
     (['queued', 'running', 'cancel-requested'].includes(lifecycle.state) && lifecycle.operation !== 'refineDisplay');
   cadDisplay.refresh({generation: workspaceGeneration, token: graphState.token,
     revision: graphState.revision, quality: $('cad-display-quality').value}, [...targets],
@@ -4633,7 +4633,7 @@ function updateEvaluationControls() {
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
   $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
-  $('choose-example').disabled = featureTreeLocked();
+  $('choose-example').disabled = exampleChooserOpening || featureTreeLocked();
   for (const id of ['add-selection', 'new-surface-selection', 'new-fit', 'new-point', 'new-axis', 'new-reference-plane',
     'new-frame', 'new-build-faces', 'new-surface-intersection', 'new-trimmed-face', 'new-feature-group',
     'new-feature-reuse', 'new-selection-region', 'new-region-selection', 'new-relationship',
@@ -4659,7 +4659,7 @@ async function evaluateGraph(allActions, target = null, retry = true) {
   if (busy || sourceTransitionBusy || surfacePreviewRunning() || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
   // Auto can be queued by restoring an example while its chooser is opening.
   // Do not lock a visible chooser after its controls have become available.
-  if (!retry && ($('example-dialog').open || exampleSwitchPending)) { exampleEnsureDeferred = true; return; }
+  if (!retry && (exampleChooserOpening || $('example-dialog').open || exampleSwitchPending)) { exampleEnsureDeferred = true; return; }
   activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
   try { await activeGraphEvaluation; }
   finally { activeGraphEvaluation = null; sourceProject?.refresh(); }
@@ -6740,8 +6740,10 @@ async function start(recoveredState) {
     if (await sourceProject.restoreExample() && $('auto-evaluate').checked) queueEnsureAll();
   };
   $('choose-example').onclick = async () => {
-    if (featureTreeLocked()) return;
+    if (exampleChooserOpening || featureTreeLocked()) return;
+    exampleChooserOpening = true;
     $('choose-example').disabled = true;
+    refreshCadDisplay();
     try {
       exampleCatalogue = await backend.listExamples();
       const choices = exampleCatalogue.examples.map(example => new Option(example.label, example.id));
@@ -6757,7 +6759,12 @@ async function start(recoveredState) {
       $('example-dialog').showModal();
       refreshCadDisplay();
     } catch (error) { status(error.message, true); }
-    finally { updateEvaluationControls(); }
+    finally {
+      exampleChooserOpening = false;
+      refreshCadDisplay();
+      if (!$('example-dialog').open && exampleEnsureDeferred) { exampleEnsureDeferred = false; queueEnsureAll(); }
+      updateEvaluationControls();
+    }
   };
   $('example-choice').onchange = () => {
     $('open-example').disabled = !$('example-choice').value ||

@@ -142,3 +142,122 @@ test('failed switch pauses editing and preserves the current mesh and actions', 
   await page.getByRole('button', { name: 'Choose example…', exact: true }).click();
   await expect(page.locator('#example-choice')).toHaveValue('nozzle');
 });
+
+test('opening the example chooser defers queued Auto work until cancellation, list failure or switching completes', async ({ page }, testInfo) => {
+  test.setTimeout(120000);
+  const observer = `
+let chooserAutoAttempts = 0, chooserAutoCompleted = 0;
+const chooserReportedErrors = [];
+new MutationObserver(() => {
+  if ($('status').classList.contains('error')) chooserReportedErrors.push($('status').textContent);
+}).observe($('status'), {childList: true, subtree: true, attributes: true});
+const originalChooserEvaluate = evaluateGraph;
+evaluateGraph = async (...args) => {
+  const auto = args[2] === false;
+  if (auto) chooserAutoAttempts++;
+  try { return await originalChooserEvaluate(...args); }
+  finally { if (auto) chooserAutoCompleted++; }
+};
+globalThis.__exampleChooserRace = {
+  queue: queueEnsureAll,
+  read: () => ({opening: typeof exampleChooserOpening !== 'undefined' && exampleChooserOpening,
+    deferred: exampleEnsureDeferred, busy, active: !!activeGraphEvaluation,
+    attempts: chooserAutoAttempts, completed: chooserAutoCompleted, reportedErrors: [...chooserReportedErrors]}),
+};`;
+  await page.route('**/app.js', async route => {
+    const response = await route.fetch();
+    await route.fulfill({response, body: await response.text() + observer});
+  });
+  const probe = () => page.evaluate(() => globalThis.__exampleChooserRace.read()),
+    ensureTokens = [], switches = [], errors = [], evidence = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  page.on('request', request => {
+    if (request.method() !== 'POST') return;
+    const path = new URL(request.url()).pathname;
+    if (path === '/api/graph/ensure') ensureTokens.push(request.postDataJSON().token);
+    if (path === '/api/examples/select') switches.push(request.postDataJSON());
+  });
+  let pendingList = null;
+  await page.route('**/api/examples', async route => {
+    const response = await route.fetch(), gate = pendingList;
+    if (!gate) return route.fulfill({response});
+    gate.entered(); await gate.wait;
+    if (gate.fail) return route.fulfill({status: 503, contentType: 'application/json',
+      body: JSON.stringify({error: 'Example catalogue unavailable for this test'})});
+    await route.fulfill({response});
+  });
+  await page.goto('/'); await ready(page);
+  await expect.poll(async () => (await probe()).active).toBe(false);
+  const original = await read(page), active = (await (await page.request.get('/api/examples')).json()).active;
+  const holdOpening = async (fail = false) => {
+    let entered, release;
+    const requested = new Promise(resolve => { entered = resolve; }),
+      wait = new Promise(resolve => { release = resolve; });
+    pendingList = {entered, release, wait, fail};
+    await page.getByRole('button', {name: 'Choose example…', exact: true}).click();
+    await requested;
+    await expect(page.getByRole('button', {name: 'Choose example…', exact: true})).toBeDisabled();
+    const before = await probe(), requests = ensureTokens.length;
+    await page.evaluate(() => globalThis.__exampleChooserRace.queue());
+    await expect.poll(async () => (await probe()).completed).toBeGreaterThan(before.completed);
+    const held = await probe();
+    expect(held).toMatchObject({opening: true, deferred: true, busy: false, active: false});
+    await expect(page.getByRole('button', {name: 'Choose example…', exact: true})).toBeDisabled();
+    expect(ensureTokens).toHaveLength(requests);
+    expect((await read(page)).token).toBe(original.token);
+    evidence.push({phase: fail ? 'catalogue failure' : 'held catalogue', ...held, ensure_requests_while_held: 0});
+    pendingList = null; release();
+    return held.completed;
+  };
+  try {
+    let completed = await holdOpening();
+    await expect(page.locator('#example-dialog')).toBeVisible();
+    await page.locator('#cancel-example').click();
+    await expect.poll(async () => (await probe()).completed).toBeGreaterThan(completed);
+    expect(await probe()).toMatchObject({opening: false, deferred: false, busy: false, active: false});
+    expect((await read(page)).recipe).toEqual(original.recipe);
+
+    completed = await holdOpening(true);
+    await expect.poll(async () => (await probe()).reportedErrors).toContain('Example catalogue unavailable for this test');
+    await expect(page.locator('#example-dialog')).toBeHidden();
+    await expect.poll(async () => (await probe()).completed).toBeGreaterThan(completed);
+    expect(await probe()).toMatchObject({opening: false, deferred: false, busy: false, active: false});
+    expect((await read(page)).token).toBe(original.token);
+
+    await holdOpening();
+    await expect(page.locator('#example-dialog')).toBeVisible();
+    await page.locator('#example-choice').selectOption('repeated-boss');
+    const ensureIndex = ensureTokens.length, completedBeforeSwitch = (await probe()).completed;
+    page.once('dialog', confirmation => confirmation.accept());
+    await page.locator('#open-example').click();
+    await expect(page.locator('#example-dialog')).toBeHidden();
+    await ready(page);
+    await expect.poll(() => ensureTokens.length).toBeGreaterThan(ensureIndex);
+    await expect.poll(async () => (await probe()).completed).toBeGreaterThan(completedBeforeSwitch);
+    await expect.poll(async () => (await probe()).active).toBe(false);
+    const switched = await read(page);
+    expect(switches).toEqual([{example: 'repeated-boss', token: original.token}]);
+    expect((await (await page.request.get('/api/examples')).json()).active).toBe('repeated-boss');
+    expect(switched.recipe).toMatchObject(savedRecipes['repeated-boss']);
+    expect(ensureTokens.slice(ensureIndex).every(token => token === switched.token)).toBe(true);
+    expect(errors).toEqual([]);
+    await testInfo.attach('queued-auto-while-example-list-pending', {contentType: 'application/json',
+      body: JSON.stringify({held: evidence, switched_example: 'repeated-boss',
+        switch_used_current_token: true, deferred_auto_uses_new_token: true, page_errors: errors})});
+  } finally {
+    pendingList?.release(); pendingList = null;
+    await expect.poll(async () => (await probe()).opening).toBe(false);
+    if (await page.locator('#example-dialog').isVisible()) await page.locator('#cancel-example').click();
+    await expect.poll(async () => (await probe()).active).toBe(false);
+    if (!await page.locator('#cad-display-quality').isVisible())
+      await page.locator('#viewport .display-options > summary').click();
+    await page.locator('#cad-display-quality').selectOption('draft');
+    await expect(page.locator('#cancel-cad-display')).toBeDisabled();
+    const state = await read(page);
+    await page.request.post('/api/examples/select', {headers: {'X-Scansor-Request': '1'},
+      data: {example: active, token: state.token}});
+    const restored = await read(page);
+    await page.request.post('/api/graph', {headers: {'X-Scansor-Request': '1'},
+      data: {token: restored.token, recipe: original.recipe}});
+  }
+});
