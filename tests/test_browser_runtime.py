@@ -1069,6 +1069,7 @@ def test_frozen_support_transfer_preserves_physical_bounds_and_recipe(
             "input_requirements",
             "input_contracts",
             "relationship_contracts",
+            "fit_input_templates",
         } <= replay[side].keys()
         for key in report["state"]:
             assert json.loads(json.dumps(replay[side][key])) == encoded["state"][key]

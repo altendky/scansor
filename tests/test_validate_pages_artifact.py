@@ -66,6 +66,7 @@ def semantic_report(
         "input_requirements": {},
         "input_contracts": {},
         "relationship_contracts": {},
+        "fit_input_templates": {},
         "revision": 1,
     }
     profile, ids = VALIDATOR.SEMANTIC_DRIVERS[name]
@@ -280,6 +281,7 @@ def source_authoring_fixture() -> dict[str, Any]:
             "input_requirements": {},
             "input_contracts": {},
             "relationship_contracts": {},
+            "fit_input_templates": {},
             "required_failures": [],
         }
         native[key] = copy.deepcopy(graph)

@@ -119,8 +119,8 @@ SOURCE_GRAPH_DRIVERS = (
     "numerical-source-import-isolated",
 )
 WORKSPACE_GRAPH_DRIVERS = ("workspace", "numerical-workspace", "timing")
-SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v3"
-WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v2"
+SOURCE_GRAPH_SCHEMA = "scansor-source-graph-semantic-v4"
+WORKSPACE_GRAPH_SCHEMA = "scansor-workspace-graph-semantic-v3"
 SOURCE_GRAPH_PROJECTION = (
     "recipe",
     "token",
@@ -135,6 +135,7 @@ SOURCE_GRAPH_PROJECTION = (
     "input_requirements",
     "input_contracts",
     "relationship_contracts",
+    "fit_input_templates",
 )
 SOURCE_GRAPH_TRANSPORT = {
     "revision",
