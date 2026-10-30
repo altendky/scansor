@@ -4106,6 +4106,16 @@ function showResult() {
 function showFeatureResult(inspectedFeatureId, { guides = true, metrics = true } = {}) {
   const result = graphState.results[inspectedFeatureId] || null;
   const drawGuide = (guide, ...args) => { if (guides) guide(...args); };
+  const equivalence = graphState.diagnostics?.[inspectedFeatureId]?.geometric_equivalence;
+  if (metrics && equivalence) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd'),
+      number = value => Number.isFinite(value) ? value.toPrecision(6) : 'nonfinite',
+      difference = equivalence.first_difference;
+    dt.textContent = 'Recovery equivalence';
+    dd.textContent = `${number(equivalence.ppm)} ppm; normalization length ${number(equivalence.normalization_length)} scan units; length cutoff ${number(equivalence.dimensional_tolerance)}.`;
+    if (difference) dd.textContent += ` ${graphNode(difference.member)?.label || difference.member}: ${difference.metric.replaceAll('_', ' ')} difference ${number(difference.difference)} exceeds ${number(difference.limit)}.`;
+    $('metrics').append(dt, dd);
+  }
   if (metrics && graphNode(inspectedFeatureId)?.operation === 'body')
     showBodyDiagnostics(graphState.diagnostics?.[inspectedFeatureId]);
   if (!result) {
@@ -4528,6 +4538,7 @@ function updateEvaluationControls() {
   const hasSource = graphState.recipe.nodes.some(node => node.operation === 'source');
   const privatePreview = ['preview', 'previewSurfaceSelection'].includes(backend.getLifecycle().operation);
   const evaluationLocked = busy || sourceTransitionBusy || graphState.evaluation_running && !privatePreview || featurePropertiesApplying || authoringApplying || featureOrganizationPending;
+  $('fit-recovery-settings').disabled = featureTreeLocked();
   $('action-property-fields').disabled = evaluationLocked;
   $('selection-edit-fields').disabled = evaluationLocked || !activeSelection();
   $('build-faces-surfaces').disabled = evaluationLocked || buildFacesApplying;
@@ -5082,6 +5093,35 @@ async function start(recoveredState) {
   $('evaluate-all').onclick = evaluateAll;
   $('auto-evaluate').onchange = () => {
     if ($('auto-evaluate').checked) void ensureAll();
+  };
+  $('fit-recovery-settings').onclick = () => {
+    if (featureTreeLocked() || !prepareEditSession()) return;
+    $('fit-recovery-ppm').value = String(graphState.recipe.fit_recovery?.geometric_equivalence_ppm ?? 1);
+    $('fit-recovery-ppm').setCustomValidity('');
+    $('fit-recovery-error').textContent = '';
+    $('fit-recovery-dialog').showModal();
+  };
+  $('fit-recovery-ppm').oninput = () => {
+    const input = $('fit-recovery-ppm'), value = input.valueAsNumber;
+    input.setCustomValidity(Number.isFinite(value) && value > 0 ? '' : 'Enter a positive finite tolerance in ppm.');
+  };
+  $('fit-recovery-form').onsubmit = async event => {
+    event.preventDefault();
+    $('fit-recovery-ppm').oninput();
+    if (!$('fit-recovery-form').reportValidity() || featureTreeLocked()) return;
+    const recipe = structuredClone(graphState.recipe);
+    recipe.fit_recovery = {...recipe.fit_recovery, geometric_equivalence_ppm: $('fit-recovery-ppm').valueAsNumber};
+    authoringApplying = true;
+    $('fit-recovery-fields').disabled = true;
+    updateEvaluationControls();
+    try {
+      if (await replaceRecipe(recipe)) $('fit-recovery-dialog').close();
+      else $('fit-recovery-error').textContent = $('status').textContent;
+    } finally {
+      authoringApplying = false;
+      $('fit-recovery-fields').disabled = false;
+      updateEvaluationControls();
+    }
   };
   $('clear-feature-selection').onclick = () => {
     selectOnly(null);

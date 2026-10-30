@@ -2226,7 +2226,13 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
         "input_contracts",
         "relationship_contracts",
     }
-    assert set(recipe.model_dump()) == {"schema_version", "nodes", "groups", "output"}
+    assert set(recipe.model_dump()) == {
+        "schema_version",
+        "nodes",
+        "groups",
+        "output",
+        "fit_recovery",
+    }
     loaded = FeatureGraph(
         graph.workspace, Recipe.model_validate_json(recipe.model_dump_json())
     )

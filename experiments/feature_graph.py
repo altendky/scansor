@@ -96,7 +96,10 @@ from experiments.scan_workspace import (
     Workspace,
     check_cancelled,
 )
-from experiments.selected_direction_fit import DirectionFitFailure
+from experiments.selected_direction_fit import (
+    DEFAULT_GEOMETRIC_EQUIVALENCE_PPM,
+    DirectionFitFailure,
+)
 from experiments.selected_symmetry_fit import (
     SelectedSurface,
     SelectedSymmetryGroup,
@@ -780,11 +783,21 @@ Feature = Annotated[
 ]
 
 
+class FitRecoverySettings(Record):
+    geometric_equivalence_ppm: float = Field(
+        default=DEFAULT_GEOMETRIC_EQUIVALENCE_PPM,
+        gt=0,
+        allow_inf_nan=False,
+        strict=True,
+    )
+
+
 class Recipe(Record):
     schema_version: Literal[2] = 2
     nodes: list[Feature] = Field(default_factory=list, max_length=MAX_RECIPE_ACTIONS)
     groups: list[FeatureGroup] = Field(default_factory=list, max_length=100)
     output: str | None = None
+    fit_recovery: FitRecoverySettings = Field(default_factory=FitRecoverySettings)
 
     @model_validator(mode="before")
     @classmethod
@@ -5348,6 +5361,18 @@ class FeatureGraph(Generic[WorkspaceType]):
             after_influence = describe_geometry_influence(after_nodes)
             before_memberships = before_influence.memberships()
             after_memberships = after_influence.memberships()
+            if self._recipe.fit_recovery != recipe.fit_recovery:
+                for influence, definitions in (
+                    (before_influence, before),
+                    (after_influence, after_nodes),
+                ):
+                    for (
+                        relations,
+                        surfaces,
+                        members,
+                    ) in influence.plane_components.values():
+                        if selected_plane_component(relations, surfaces, definitions):
+                            affected.update(members)
             for publisher in before_memberships.keys() | after_memberships.keys():
                 before_members = before_memberships.get(publisher, frozenset())
                 after_members = after_memberships.get(publisher, frozenset())
@@ -7253,6 +7278,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 directions=directions,
                 relationships=plane_relations,
                 radii=radii,
+                geometric_equivalence_ppm=recipe.fit_recovery.geometric_equivalence_ppm,
                 semantic_intent={
                     "recipe": recovery_recipe(),
                     "support_policy_version": SUPPORT_POLICY_VERSION,

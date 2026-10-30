@@ -6,6 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {prepareReports, sha256, startPreview, verifySite} from './server.mjs';
 import {independentPlaneObserver, exerciseIndependentPlaneUi} from './independent-plane-ui.mjs';
+import {fitRecoverySettingsObserver, exerciseFitRecoverySettingsUi} from './fit-recovery-settings-ui.mjs';
 
 const options = {};
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -25,6 +26,7 @@ const fixture = JSON.parse(execFileSync(options['--native-python'] || path.join(
 const report = {schema: 'scansor-independent-plane-ui-v1', complete: false, manifest_sha256: site.manifest_sha256,
   runner_sha256: sha256(await readFile(new URL(import.meta.url))),
   harness_sha256: sha256(await readFile(new URL('./independent-plane-ui.mjs', import.meta.url))),
+  settings_harness_sha256: sha256(await readFile(new URL('./fit-recovery-settings-ui.mjs', import.meta.url))),
   fixture_sha256: sha256(await readFile(path.join(repository, 'tests/direction_ui_fixture.py'))),
   profiles: [], external_requests: [], api_requests: [], page_errors: [], cleanup_errors: []};
 let browser, preview;
@@ -43,18 +45,20 @@ try {
         const relative = url.pathname.slice(prefix.length), record = site.records.get(relative); assert(record);
         const bytes = await readFile(path.join(site.root, relative));
         assert.equal(bytes.length, record.bytes); assert.equal(sha256(bytes), record.sha256);
-        await route.fulfill({status: 200, contentType: 'text/javascript', body: Buffer.concat([bytes, Buffer.from(independentPlaneObserver)]),
+        await route.fulfill({status: 200, contentType: 'text/javascript', body: Buffer.concat([bytes, Buffer.from(independentPlaneObserver + fitRecoverySettingsObserver)]),
           headers: isolation ? {'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp'} : {}});
       });
       const page = await context.newPage(); page.setDefaultTimeout(60000);
       page.on('dialog', dialog => dialog.accept()); page.on('pageerror', error => report.page_errors.push(String(error)));
       await page.goto(preview.origin + prefix + 'app/');
       profile.workflow = await exerciseIndependentPlaneUi({page, expect: expect.configure({timeout: 60000}), fixture});
+      profile.fit_recovery_settings = await exerciseFitRecoverySettingsUi({page, expect: expect.configure({timeout: 60000}), fixture});
       profile.isolation_actual = {page: await page.evaluate(() => crossOriginIsolated), worker: await page.workers()[0].evaluate(() => crossOriginIsolated)};
       assert.deepEqual(profile.isolation_actual, {page: isolation, worker: isolation}); profile.complete = true;
     } finally {await context.close(); await preview.close(); preview = null;}
   }
   assert.deepEqual(report.profiles[0].workflow, report.profiles[1].workflow);
+  assert.deepEqual(report.profiles[0].fit_recovery_settings, report.profiles[1].fit_recovery_settings);
   assert.deepEqual(report.external_requests, []); assert.deepEqual(report.api_requests, []); assert.deepEqual(report.page_errors, []);
   report.complete = true;
 } catch (error) {report.failure = String(error); throw error;}

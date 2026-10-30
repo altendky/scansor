@@ -563,6 +563,74 @@ def test_direction_edit_invalidates_its_members_without_changing_old_accepted_ge
     assert set(before["surfaces"]) == {"left", "cap"}
 
 
+def test_project_recovery_setting_invalidates_only_affected_geometry(
+    fixture: tuple[NozzleWorkspace, list[dict[str, Any]]],
+) -> None:
+    graph = graph_with(fixture, aligned("alignment", "left", "cap", "axis", "plane"))
+    initial = evaluated(graph)
+    assert initial["states"]["alignment"] == "ready", initial["errors"]
+    before = initial["derived"]["alignment"]["initialization"]
+    assert before["geometric_equivalence_ppm"] == 1
+    saved = graph.export_recipe()
+    unchanged = graph.replace(Recipe.model_validate(saved), str(initial["token"]))
+    assert unchanged["states"] == initial["states"]
+    saved["fit_recovery"]["geometric_equivalence_ppm"] = 0.25
+    pending = graph.replace(Recipe.model_validate(saved), str(unchanged["token"]))
+    states = cast(dict[str, str], pending["states"])
+    assert all(states[key] == "stale" for key in ("left", "cap", "alignment"))
+    assert states["scan"] == "ready"
+    assert states["right"] == initial["states"]["right"]
+    assert "alignment" not in cast(dict[str, Any], pending["derived"])
+    final = evaluated(graph)
+    assert final["states"]["alignment"] == "ready", final["errors"]
+    after = final["derived"]["alignment"]["initialization"]
+    assert after["geometric_equivalence_ppm"] == 0.25
+    assert after["binding_sha256"] != before["binding_sha256"]
+    reopened = FeatureGraph(fixture[0], Recipe.model_validate(graph.export_recipe()))
+    restored = evaluated(reopened)
+    assert (
+        restored["derived"]["alignment"]["initialization"]["binding_sha256"]
+        == after["binding_sha256"]
+    )
+
+
+def test_project_recovery_setting_clears_settled_failure_and_diagnostics(
+    fixture: tuple[NozzleWorkspace, list[dict[str, Any]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from experiments import selected_direction_fit
+    from experiments.selected_direction_fit import DirectionFitFailure
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise DirectionFitFailure("ambiguous", "competing geometry")
+
+    original = selected_direction_fit.fit_selected_direction_component
+    monkeypatch.setattr(
+        selected_direction_fit, "fit_selected_direction_component", fail
+    )
+    graph = graph_with(fixture, aligned("alignment", "left", "cap", "axis", "plane"))
+    with pytest.raises(DirectionFitFailure, match="competing geometry"):
+        _ = evaluated(graph)
+    failed = cast(dict[str, Any], graph.snapshot())
+    assert failed["states"]["alignment"] == "failed"
+    assert failed["diagnostics"]["alignment"]["code"] == "ambiguous"
+    saved = graph.export_recipe()
+    saved["fit_recovery"]["geometric_equivalence_ppm"] = 2.0
+    pending = graph.replace(Recipe.model_validate(saved), str(failed["token"]))
+    assert cast(dict[str, str], pending["states"])["alignment"] == "stale"
+    assert "alignment" not in cast(dict[str, Any], pending["diagnostics"])
+    assert "alignment" not in cast(dict[str, Any], pending["errors"])
+    monkeypatch.setattr(
+        selected_direction_fit, "fit_selected_direction_component", original
+    )
+    final = evaluated(graph)
+    assert final["states"]["alignment"] == "ready", final["errors"]
+    assert (
+        final["derived"]["alignment"]["initialization"]["geometric_equivalence_ppm"]
+        == 2
+    )
+
+
 def test_existing_coaxial_full_line_binding_is_retained_in_direction_component(
     fixture: tuple[NozzleWorkspace, list[dict[str, Any]]],
 ) -> None:

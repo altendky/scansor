@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
+from math import isfinite
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
@@ -75,8 +76,7 @@ if TYPE_CHECKING:
 Array = NDArray[np.float64]
 DIRECTION_POLICY_VERSION = "selected-direction-component-recovery-v1"
 _CHART = "independent-member-direction-starts-v1"
-# One ppm of the component normalization length for dimensional comparisons.
-_EQUIVALENCE_TOLERANCE = 1e-6
+DEFAULT_GEOMETRIC_EQUIVALENCE_PPM = 1.0
 
 
 def private_direction_axis(fit_id: str) -> str:
@@ -125,8 +125,18 @@ class SelectedDirectionComponent:
     radius_distances: tuple[RadiusDistanceInput, ...] = ()
     semantic_intent: dict[str, Any] | None = None
     gradient_tolerance: float | None = None
+    geometric_equivalence_ppm: float = DEFAULT_GEOMETRIC_EQUIVALENCE_PPM
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.geometric_equivalence_ppm, bool)
+            or not isinstance(
+                cast(object, self.geometric_equivalence_ppm), (int, float)
+            )
+            or not isfinite(self.geometric_equivalence_ppm)
+            or self.geometric_equivalence_ppm <= 0
+        ):
+            raise ValueError("geometric_equivalence_ppm must be positive and finite")
         for name in (
             "surfaces",
             "directions",
@@ -297,6 +307,7 @@ def _fit_selected_direction_component(
                 "algorithm": DIRECTION_POLICY_VERSION,
                 "initializer": "authored-datums",
                 "observations": 0,
+                "geometric_equivalence_ppm": component.geometric_equivalence_ppm,
             },
             selected_area={},
             session={"source_sha256": workspace.source_sha256, "schema_version": 2},
@@ -342,6 +353,22 @@ def _fit_selected_direction_component(
     frame = CoordinateFrame.from_observations(
         workspace.local[selected_ids], workspace.data.weights[selected_ids]
     )
+    tolerance = component.geometric_equivalence_ppm * 1e-6
+    dimensional_tolerance = tolerance * frame.length
+    if not (
+        isfinite(tolerance)
+        and tolerance > 0
+        and isfinite(dimensional_tolerance)
+        and dimensional_tolerance > 0
+    ):
+        raise DirectionFitFailure(
+            "invalid-input",
+            "geometric equivalence tolerance is not representable at this component scale",
+            {
+                "geometric_equivalence_ppm": component.geometric_equivalence_ppm,
+                "normalization_length": frame.length,
+            },
+        )
     q = {key: (value - frame.origin) / frame.length for key, value in points.items()}
     maximum_weight = float(np.max(workspace.data.weights[selected_ids]))
     for key in members:
@@ -578,7 +605,8 @@ def _fit_selected_direction_component(
         "support": {key: support_record(value) for key, value in supports.items()},
         "support_policy": SUPPORT_POLICY_VERSION,
         "gradient_tolerance": component.gradient_tolerance,
-        "equivalence_tolerance": _EQUIVALENCE_TOLERANCE,
+        "geometric_equivalence_ppm": component.geometric_equivalence_ppm,
+        "equivalence_tolerance": component.geometric_equivalence_ppm * 1e-6,
     }
     binding = initialization_binding(
         workspace.source_sha256,
@@ -884,14 +912,32 @@ def _fit_selected_direction_component(
             solver["iterations"],
         )
 
+    equivalence_failure: dict[str, Any] | None = None
+
+    def within(member: str, metric: str, difference: float, limit: float) -> bool:
+        nonlocal equivalence_failure
+        if not isfinite(difference) or difference > limit:
+            if equivalence_failure is None:
+                equivalence_failure = {
+                    "member": member,
+                    "metric": metric,
+                    "difference": difference if isfinite(difference) else "nonfinite",
+                    "limit": limit,
+                }
+            return False
+        return True
+
     def equivalent(left: dict[str, Any], right: dict[str, Any]) -> bool:
-        tolerance = _EQUIVALENCE_TOLERANCE
         for key, member in members.items():
             a, b = left["surfaces"][key], right["surfaces"][key]
             if member.selection.kind == "sphere":
-                if (
-                    np.linalg.norm(np.asarray(a["parameters"]) - b["parameters"])
-                    > tolerance * frame.length
+                if not within(
+                    key,
+                    "sphere_parameter_distance",
+                    float(
+                        np.linalg.norm(np.asarray(a["parameters"]) - b["parameters"])
+                    ),
+                    tolerance * frame.length,
                 ):
                     return False
             elif member.selection.kind == "plane":
@@ -901,10 +947,16 @@ def _fit_selected_direction_component(
                 )
                 if ea[:3] @ eb[:3] < 0:
                     eb = -eb
-                if (
-                    np.linalg.norm(ea[:3] - eb[:3]) > tolerance
-                    or abs(ea[3] - eb[3] - (ea[:3] - eb[:3]) @ frame.origin)
-                    > tolerance * frame.length
+                if not within(
+                    key,
+                    "plane_normal_chord",
+                    float(np.linalg.norm(ea[:3] - eb[:3])),
+                    tolerance,
+                ) or not within(
+                    key,
+                    "plane_offset_at_normalization_origin",
+                    float(abs(ea[3] - eb[3] - (ea[:3] - eb[:3]) @ frame.origin)),
+                    tolerance * frame.length,
                 ):
                     return False
             else:
@@ -916,10 +968,30 @@ def _fit_selected_direction_component(
                 rb = gb["radius"] + gb["slope"] * float((mean - ob) @ db)
                 sign = 1 if da @ db >= 0 else -1
                 if (
-                    np.linalg.norm(np.cross(da, db)) > tolerance
-                    or np.linalg.norm(np.cross(ob - oa, da)) > tolerance * frame.length
-                    or abs(ra - rb) > tolerance * frame.length
-                    or abs(ga["slope"] - sign * gb["slope"]) > tolerance
+                    not within(
+                        key,
+                        "axis_direction_sine",
+                        float(np.linalg.norm(np.cross(da, db))),
+                        tolerance,
+                    )
+                    or not within(
+                        key,
+                        "centerline_distance",
+                        float(np.linalg.norm(np.cross(ob - oa, da))),
+                        tolerance * frame.length,
+                    )
+                    or not within(
+                        key,
+                        "radius_at_observation_mean",
+                        abs(ra - rb),
+                        tolerance * frame.length,
+                    )
+                    or not within(
+                        key,
+                        "taper_difference",
+                        abs(ga["slope"] - sign * gb["slope"]),
+                        tolerance,
+                    )
                 ):
                     return False
         return True
@@ -936,13 +1008,24 @@ def _fit_selected_direction_component(
         raise DirectionFitFailure(
             error.code,
             str(error),
-            {"recovery": error.diagnostics.json(), "attempt_failures": failures},
+            {
+                "recovery": error.diagnostics.json(),
+                "attempt_failures": failures,
+                "geometric_equivalence": {
+                    "ppm": component.geometric_equivalence_ppm,
+                    "dimensionless_tolerance": tolerance,
+                    "normalization_length": frame.length,
+                    "dimensional_tolerance": tolerance * frame.length,
+                    "first_difference": equivalence_failure,
+                },
+            },
         ) from error
     guard.checkpoint()
     output = recovered.result
     initialization = {
         "algorithm": DIRECTION_POLICY_VERSION,
-        "equivalence_tolerance": _EQUIVALENCE_TOLERANCE,
+        "geometric_equivalence_ppm": component.geometric_equivalence_ppm,
+        "equivalence_tolerance": tolerance,
         "chart": _CHART,
         "binding_sha256": binding.sha256,
         "recovery": recovered.diagnostics.json(),
