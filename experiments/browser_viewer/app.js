@@ -43,6 +43,8 @@ import { copyFitDomain, parseFitDomain, defaultFitDomain, editableManagedSupport
   fitSupportChanges } from './fit-intent.js';
 import { scanFitCandidates, isModelClick, bindModelPickControls, createPickField, nativePickOptions,
   commitNativePick, segmentDistance } from './model-picking.js';
+import { createRelationshipSupportCache, relationshipHighlightParts, relationshipSupportGroups,
+  relationshipAxisSpan, relationshipHighlightColors } from './relationship-highlight.js';
 import {
   surfaceReferenceChoices, eligibleIntersections, boundaryKeepOptions,
   geometryAppendOutput, sameSurfaceReference, validGeometryPreview,
@@ -132,6 +134,8 @@ let displayTransformKey = 'identity';
 let buildFacesProposal = null, buildFacesOwnerId = null, buildFacesRequest = 0;
 let buildFacesReview = new Map(), buildFacesOverlays;
 let relationshipOverlays, relationshipInspected = null, relationshipApplying = false;
+let relationshipOverlapKeys = [], relationshipPreviewState = null, relationshipPreviewKey = null, relationshipPreviewPositions = null;
+const relationshipSupportCache = createRelationshipSupportCache();
 let buildFacesRegionInspected = null;
 let buildFacesAdjacencyDraft = [], buildFacesScopeDraft = [];
 let buildFacesApplying = false;
@@ -265,8 +269,9 @@ function modelPickChoices({ tree = false } = {}) {
   });
 }
 function clearModelPickHover() {
-  if (modelPickHoverKey === null) return;
+  if (modelPickHoverKey === null && !relationshipOverlapKeys.length && relationshipInspected === null) return;
   modelPickHoverKey = null;
+  relationshipOverlapKeys = [];
   buildFacesSurfacePreview = null;
   inspectFaceCandidate(null);
   relationshipInspected = null;
@@ -276,7 +281,8 @@ function clearModelPickHover() {
 }
 function inspectModelPick(choice) {
   const key = choice?.key || null;
-  if (key === modelPickHoverKey) return;
+  if (key === modelPickHoverKey && !relationshipOverlapKeys.length &&
+      (modelPickMode !== 'participant' || relationshipInspected === key)) return;
   clearModelPickHover();
   modelPickHoverKey = key;
   if (!choice) return;
@@ -287,6 +293,17 @@ function inspectModelPick(choice) {
   else if (modelPickMode === 'participant') { relationshipInspected = choice.key; paintRelationshipPreview(); }
   paintModelPickGuides();
   choice.checkbox?.closest('.face-candidate, .relationship-participant')?.classList.add('model-pick-hover');
+}
+function inspectModelPickMatches(matches) {
+  if (modelPickMode !== 'participant' || matches.length < 2) {
+    inspectModelPick(matches.length === 1 ? matches[0] : null);
+    return;
+  }
+  const keys = matches.map(choice => choice.key);
+  if (JSON.stringify(keys) === JSON.stringify(relationshipOverlapKeys)) return;
+  clearModelPickHover();
+  relationshipOverlapKeys = keys;
+  paintRelationshipPreview();
 }
 function setModelPickMode(mode, { restoreFocus = true } = {}) {
   const previousField = modelPickField;
@@ -2387,21 +2404,48 @@ function updateRelationshipSelection() {
 }
 function paintRelationshipPreview() {
   if (!relationshipOverlays) return;
+  const key = JSON.stringify([$('relationship-dialog').open, selectedRelationshipKind, relationshipActiveRole,
+    [...relationshipParticipantIds], relationshipInspected, relationshipOverlapKeys, $('faces-only').checked]);
+  if (relationshipPreviewState === graphState && relationshipPreviewKey === key && relationshipPreviewPositions === positions) return;
+  relationshipPreviewState = graphState; relationshipPreviewKey = key; relationshipPreviewPositions = positions;
+  const geometries = new Set();
   for (const child of [...relationshipOverlays.children]) {
     relationshipOverlays.remove(child);
-    child.geometry.dispose();
+    geometries.add(child.geometry);
     child.material.dispose();
   }
+  geometries.forEach(geometry => geometry.dispose());
   if ($('relationship-dialog').open) {
     const selected = new Set(relationshipParticipantIds);
     if (relationshipInspected) selected.add(relationshipInspected);
+    relationshipOverlapKeys.forEach(key => selected.add(key));
     const chosen = relationshipParticipantChoices(graphState, selectedRelationshipKind, selected)
-      .filter(output => selected.has(output.key));
-    for (const output of relationshipExpandedOutputs(graphState, chosen)) {
-      const node = graphNode(output.reference?.feature), values = relationshipOutputValue(graphState, output),
-        color = (output.collectionKey || output.key) === relationshipInspected ? '#ffe45c' : '#78e2ff';
-      if (!node || !values) continue;
-      if (relationshipAxisGuide(output, color, relationshipOverlays) ||
+      .filter(output => selected.has(output.key)),
+      kinds = new Map(relationshipOverlapKeys.map(key => [key, 'overlap']));
+    if (relationshipInspected) kinds.set(relationshipInspected, 'hover');
+    const parts = relationshipHighlightParts(graphState, chosen, positions, relationshipSupportCache, kinds);
+    if (!$('faces-only').checked) for (const support of relationshipSupportGroups(parts, positions)) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(support.coordinates, 3));
+      const hovered = support.kind !== 'selected', order = hovered ? 232 : 228,
+        halo = new THREE.Points(geometry, new THREE.PointsMaterial({color: '#101820',
+          size: hovered ? 11 : 9, sizeAttenuation: false, depthTest: false, depthWrite: false})),
+        markers = new THREE.Points(geometry, new THREE.PointsMaterial({color: relationshipHighlightColors[support.kind],
+          size: hovered ? 7 : 5, sizeAttenuation: false, depthTest: false, depthWrite: false}));
+      halo.renderOrder = order; markers.renderOrder = order + 1;
+      halo.userData.relationshipSupportHalo = true;
+      markers.userData.relationshipSupport = {kind: support.kind, ids: Array.from(support.ids),
+        keys: support.keys, references: support.references, totalVertices: support.totalVertices, sampled: support.sampled};
+      relationshipOverlays.add(halo, markers);
+    }
+    const drawn = new Set();
+    const priority = {selected: 0, overlap: 1, hover: 2};
+    for (const part of [...parts].sort((a, b) => priority[b.kind] - priority[a.kind])) {
+      const {output, value: values} = part, node = graphNode(output.reference?.feature),
+        exact = inputReferenceKey(output.reference), color = relationshipHighlightColors[part.kind];
+      if (!node || drawn.has(exact)) continue;
+      drawn.add(exact);
+      if (relationshipAxisGuide(output, color, relationshipOverlays, part) ||
           relationshipPlaneGuide(output, color, relationshipOverlays)) continue;
       if (node.operation === 'fit') fitGuide(node, values, color, relationshipOverlays);
     }
@@ -2423,12 +2467,18 @@ function relationshipPlaneGuide(output, color, group = overlays) {
     basis_u_display: u.toArray(), basis_v_display: v.toArray(), construction: 'perpendicular_to_axis' }, color, group);
   return true;
 }
-function relationshipAxisGuide(output, color, group = overlays) {
+function relationshipAxisGuide(output, color, group = overlays, highlighted = null) {
   if (output?.properties?.direction?.projection !== 'axis_direction') return false;
   const value = relationshipOutputValue(graphState, output);
   if (!value) return false;
-  const geometry = axisGeometry(value);
-  axisGuide({axis_display: geometry.axis, point_display: geometry.origin}, color, group);
+  const geometry = axisGeometry(value), support = highlighted?.support || relationshipSupportCache.read(graphState, positions, value),
+    box = mesh.geometry.boundingBox || (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox),
+    span = relationshipAxisSpan(geometry.axis, geometry.origin, support, box && [box.min.toArray(), box.max.toArray()]),
+    before = group.children.length;
+  axisGuide({axis_display: geometry.axis, point_display: span?.center || geometry.origin}, color, group, span);
+  if (span) for (const child of group.children.slice(before)) child.userData.relationshipGuide = {
+    key: highlighted?.key || output.collectionKey || output.key || inputReferenceKey(output.reference),
+    reference: output.reference, ...span, kind: highlighted?.kind || 'selected'};
   return true;
 }
 function axialDatumPlanes(nodes) {
@@ -2627,6 +2677,10 @@ async function appendActions(nodes, autoEvaluate = true, preserveTransformOutput
   return saved;
 }
 function acceptGraph(state) {
+  if (state !== relationshipPreviewState || positions !== relationshipPreviewPositions) {
+    relationshipSupportCache.clear();
+    relationshipPreviewState = relationshipPreviewPositions = null; relationshipPreviewKey = null;
+  }
   const workflow = activeEditWorkflow();
   const authoringDraft = workflow?.tagName === 'DIALOG' &&
     !['build-faces-dialog', 'relationship-dialog'].includes(workflow.id)
@@ -2651,6 +2705,7 @@ function acceptGraph(state) {
     $('build-faces-candidate-status').textContent = 'Actions changed. Find candidate neighbors again before previewing.';
   }
   graphState = state;
+  if (modelPickMode === 'participant') { clearModelPickHover(); modelPickGeometryKey = null; }
   circularCreateEditor?.sync(); circularPropertiesEditor?.sync();
   surfaceSelectionCreateEditor?.sync(); surfaceSelectionPropertiesEditor?.sync();
   buildFacesAcceptedContext = buildFacesAcceptedContext.filter((saved) => saved.token === state.token &&
@@ -3595,11 +3650,11 @@ function showProperties(force = false) {
   $('propose-growth').hidden = node.operation !== 'fit' || !isStandaloneFit(node);
   $('use-growth').hidden = node.operation !== 'growth';
 }
-function axisGuide(axisValues, color = '#ffd166', group = overlays) {
+function axisGuide(axisValues, color = '#ffd166', group = overlays, display = null) {
   const axis = new THREE.Vector3(...axisValues.axis_display).normalize();
   const point = new THREE.Vector3(...axisValues.point_display);
   const domain = metadata?.axial_domain || [-2, 5];
-  const extent = Math.max(...domain.map(Math.abs), 1),
+  const extent = display?.extent ?? Math.max(...domain.map(Math.abs), 1),
     endpoints = [-extent, extent].map((distance) =>
       point.clone().addScaledVector(axis, distance),
     );
@@ -3620,7 +3675,7 @@ function axisGuide(axisValues, color = '#ffd166', group = overlays) {
       new THREE.PointsMaterial({ color, depthTest: false, size: 7, sizeAttenuation: false }),
     ),
   );
-  const arrowLength = Math.min(Math.max(extent * 0.16, 0.45), 2.0),
+  const arrowLength = display?.arrowLength ?? Math.min(Math.max(extent * 0.16, 0.45), 2.0),
     arrow = new THREE.Mesh(
       new THREE.ConeGeometry(arrowLength * 0.32, arrowLength, 12),
       new THREE.MeshBasicMaterial({ color, depthTest: false }),
@@ -7050,6 +7105,7 @@ async function start(recoveredState) {
   $('faces-only').onchange = () => {
     modelPickGeometryKey = null;
     paintModelPickGuides();
+    paintRelationshipPreview();
     showConstructedFaces();
     paint();
   };
@@ -7241,7 +7297,7 @@ async function start(recoveredState) {
           event.clientY - modelPickGesture.clientY) > 5) modelPickGesture = null;
       if (event.buttons || $('model-pick-choices').matches(':popover-open')) return;
       const matches = modelPicksAt(event);
-      inspectModelPick(matches.length === 1 ? matches[0] : null);
+      inspectModelPickMatches(matches);
       $('model-pick-message').textContent = matches.length === 1 ? matches[0].label :
         matches.length > 1 ? `${matches.length} items here. Click to choose.` : 'Click a scan patch or visible guide. Esc to stop.';
       return;
