@@ -67,7 +67,7 @@ import {
 } from './surface-trims.js';
 import * as THREE from 'three';
 import { onshapeNavigation } from './navigation.js';
-import { viewPlaneAnchor } from './navigation-math.js';
+import { viewPlaneAnchor, zoomDepthReference } from './navigation-math.js';
 import {
   editSelectionGroups,
   selectionProjection,
@@ -99,6 +99,7 @@ function queueEnsureAll() {
 const viewport = $('viewport');
 viewport.append($('model-pick-hint'));
 let renderer, scene, camera, controls, modelRoot, mesh, selectedPoints, overlays, reuseVolumes;
+let navigationCursorAnchor;
 let circularReusePreview, circularCreateEditor, circularPropertiesEditor, circularSourceFitEditor;
 let surfaceSelectionPreview, surfaceSelectionCreateEditor, surfaceSelectionPropertiesEditor;
 const surfacePreviewOwners = new Set();
@@ -4877,11 +4878,17 @@ async function start(recoveredState) {
   camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
   camera.up.set(0, 0, 1);
   const raycaster = new THREE.Raycaster();
-  controls = onshapeNavigation(camera, renderer.domElement, draw, (event, fallback) => {
+  let zoomContext = null, recentSurface = null;
+  navigationCursorAnchor = (event, fallback, purpose) => {
     if (!mesh) return null;
     const bounds = renderer.domElement.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return null;
     camera.updateMatrixWorld();
     modelRoot.updateMatrixWorld(true);
+    const facesOnly = $('faces-only').checked,
+      context = JSON.stringify([workspaceGeneration, graphState?.token, graphState?.revision,
+        mesh.geometry.uuid, modelRoot.matrixWorld.elements, facesOnly]);
+    if (context !== zoomContext) { recentSurface = null; zoomContext = context; }
     raycaster.near = camera.near;
     raycaster.far = camera.far;
     raycaster.setFromCamera(
@@ -4891,13 +4898,27 @@ async function start(recoveredState) {
       ),
       camera,
     );
-    const hit = $('faces-only').checked
-      ? raycaster.intersectObjects(constructedFaces.children.filter((child) => child.isMesh), false)[0]
+    const candidates = facesOnly ? constructedFaces.children.filter(child => child.isMesh && child.visible) : [mesh],
+      hit = facesOnly
+      ? raycaster.intersectObjects(candidates, false)[0]
       : raycaster.intersectObject(mesh, false)[0];
-    return (
-      hit?.point ?? (fallback ? viewPlaneAnchor(raycaster.ray, camera, controls.target) : null)
-    );
-  });
+    if (hit?.point) { recentSurface = hit.point.clone(); return hit.point; }
+    if (!fallback) return null;
+    let reference = controls.target;
+    if (purpose === 'zoom') {
+      // Use real display geometry, excluding axes and other overlay guides.
+      // A nearby orbit pivot is not a useful depth for distant visible surfaces.
+      const worldBounds = new THREE.Box3();
+      for (const object of candidates) {
+        const geometry = object.geometry;
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        if (geometry.boundingBox) worldBounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
+      }
+      reference = zoomDepthReference(camera, controls.target, worldBounds, recentSurface);
+    }
+    return viewPlaneAnchor(raycaster.ray, camera, reference);
+  };
+  controls = onshapeNavigation(camera, renderer.domElement, draw, navigationCursorAnchor);
   $('cursor-zoom').onchange = () => {
     controls.options.zoomAtCursor = $('cursor-zoom').checked;
   };

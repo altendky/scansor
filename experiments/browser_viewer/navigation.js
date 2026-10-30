@@ -130,7 +130,7 @@ export function onshapeNavigation(camera, canvas, redraw, cursorAnchor) {
     try {
       if (selectionPointer !== null) return;
       update();
-      const anchor = !dragging && options.zoomAtCursor ? cursorAnchor(event, true) : null;
+      const anchor = !dragging && options.zoomAtCursor ? cursorAnchor(event, true, 'zoom') : null;
       const previousTarget = free.target.clone(), previousDistance = camera.position.distanceTo(free.target);
       const factor = wheelZoomFactor(event.deltaY, event.deltaMode, canvas.getBoundingClientRect().height);
       const distance = Math.max(free.minDistance, Math.min(free.maxDistance, previousDistance * factor));
