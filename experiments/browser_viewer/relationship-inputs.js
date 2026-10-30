@@ -99,6 +99,52 @@ export function relationshipDefinitions(state) {
   })).sort((a, b) => Number(a.operation === 'direction_alignment') - Number(b.operation === 'direction_alignment'));
 }
 
+export function relationshipDefinitionForNode(state, node) {
+  const definitions = relationshipDefinitions(state).filter(definition => definition.operation === node?.operation);
+  if (definitions.length === 1) return definitions[0];
+  // Creation defaults (for example symmetric extents) are editable values, not
+  // relationship identities. Only values distinguishing sibling signatures are
+  // discriminators, such as Parallel versus Coincident plane relationships.
+  const fields = [...new Set(definitions.flatMap(definition => Object.keys(definition.node_values || {})))]
+    .filter(field => new Set(definitions.map(definition => JSON.stringify(definition.node_values?.[field]))).size > 1),
+    matching = definitions.filter(definition => fields.every(field =>
+      JSON.stringify(node[field]) === JSON.stringify(definition.node_values?.[field])));
+  return matching.length === 1 ? matching[0] : null;
+}
+
+// Reverse the common serializer without guessing a named publication from a
+// retained feature identity. Unavailable saved values stay removable in the UI.
+export function relationshipDraftForNode(state, node) {
+  const definition = relationshipDefinitionForNode(state, node);
+  if (!definition) throw new Error('This saved relationship is not supported by the current runtime.');
+  const roles = Object.fromEntries(Object.keys(definition.roles).map(role => [role, new Set()]));
+  const fields = Object.entries(definition.node_fields || {});
+  if (!fields.length && definition.operation === 'equal') {
+    const radius = [node.left, node.right].find(value => value?.measurement === 'radius'),
+      plane = [node.left, node.right].find(value => value?.measurement === 'plane_distance');
+    for (const [role, value] of [['radius', radius?.surface], ['plane', plane?.surface], ['datum', plane?.reference_plane]]) {
+      if (!value) continue;
+      const candidates = relationshipRoleChoices(state, definition.id, role)
+        .filter(output => output.reference.feature === value && output.reference.context === value);
+      roles[role].add(candidates.length === 1 ? candidates[0].key : inputReferenceKey(value));
+    }
+    return {roles, unassigned: new Set()};
+  }
+  for (const [role, field] of fields) {
+    const values = field.multiple ? node[field.name] || [] : node[field.name] == null ? [] : [node[field.name]];
+    for (const value of values) {
+      const parsed = readInputReference(value);
+      if (field.encoding === 'reference' && typeof parsed !== 'string') roles[role].add(inputReferenceKey(parsed));
+      else {
+        const feature = referenceFeature(parsed), candidates = relationshipRoleChoices(state, definition.id, role)
+          .filter(output => output.reference.feature === feature && (output.reference.context || feature) === feature);
+        roles[role].add(candidates.length === 1 ? candidates[0].key : inputReferenceKey(value));
+      }
+    }
+  }
+  return {roles, unassigned: new Set()};
+}
+
 export function isDirectionJoint(node, nodes) {
   return node?.operation === 'joint_fit' && node.constraints.some(id =>
     nodes.find(candidate => candidate.id === id)?.operation === 'direction_alignment');
@@ -263,6 +309,13 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
   if (signature.semantic_check === 'compatible_axis' && nodes.some(node => node.operation === 'coaxial_group' &&
     node.axis !== roles.axis[0].reference.feature && roles.members.some(output => node.surfaces.includes(output.reference.feature))))
     return { valid: false, reason: 'A member belongs to another Coaxial relationship using a different axis. Edit that relationship or choose the same axis.', roles };
+  if (signature.semantic_check === 'compatible_point' && roles.members.some(output =>
+    nodes.find(node => node.id === output.reference.feature)?.point &&
+    nodes.find(node => node.id === output.reference.feature).point !== roles.point[0].reference.feature))
+    return {valid: false, reason: 'A member already uses another center point. Remove its binding or choose that point; fit types and bindings are not changed automatically.', roles};
+  if (signature.semantic_check === 'compatible_point' && nodes.some(node => node.operation === 'shared_center_group' &&
+    node.point !== roles.point[0].reference.feature && roles.members.some(output => node.surfaces.includes(output.reference.feature))))
+    return {valid: false, reason: 'A member belongs to another Shared center relationship using a different point. Edit that relationship or choose the same point.', roles};
   return { valid: true, roles, expandedRoles };
 }
 

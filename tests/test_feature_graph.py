@@ -2225,6 +2225,7 @@ def test_save_load_has_current_graph_only_and_independent_snapshots(
         "input_requirements",
         "input_contracts",
         "relationship_contracts",
+        "fit_input_templates",
     }
     assert set(recipe.model_dump()) == {
         "schema_version",

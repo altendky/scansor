@@ -24,6 +24,7 @@ const paths = {
   reuse_selection: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-3-3 3 3-3 3',
   coaxial: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
   coaxial_group: 'M12 2v20M5 7c0-4 14-4 14 0s-14 4-14 0Zm0 10c0-4 14-4 14 0s-14 4-14 0Z',
+  shared_center_group: 'M12 2v20M2 12h20M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z',
   perpendicular: 'M6 3v15h15M6 13h5v5',
   rotational_symmetry: 'M20 8a9 9 0 1 0 1 7M20 3v5h-5M12 8v4l3 2',
   mirror_symmetry: 'M12 2v20M4 7l6 5-6 5m16-10-6 5 6 5',
@@ -71,6 +72,7 @@ const operations = {
   reuse_selection: 'Reused selection',
   coaxial: 'Coaxial constraint',
   coaxial_group: 'Coaxial relationship',
+  shared_center_group: 'Shared center relationship',
   perpendicular: 'Perpendicular constraint',
   rotational_symmetry: 'Rotational symmetry',
   mirror_symmetry: 'Mirror relationship',
@@ -107,7 +109,7 @@ export const featureIconLegend = [
     'build_faces', 'surface_intersection', 'trimmed_face', 'arranged_face', 'body', 'group',
   ] },
   { title: 'Relationships and solve', icons: [
-    'plane_relationship', 'direction_alignment', 'parallel', 'perpendicular', 'coaxial', 'coaxial_group', 'equal', 'equal_radii',
+    'plane_relationship', 'direction_alignment', 'parallel', 'perpendicular', 'coaxial', 'coaxial_group', 'shared_center_group', 'equal', 'equal_radii',
     'mirror_symmetry', 'rotational_symmetry', 'axis_solve', 'joint_fit',
   ] },
   { title: 'Evaluation status', icons: Object.keys(states) },
@@ -238,6 +240,7 @@ export function nodeReferences(node) {
     return [node.reuse, node.fit, node.source_selection,...(node.occurrence != null ? [] : [node.target_selection])];
   if (node.operation === 'coaxial') return [node.surface, node.reference];
   if (node.operation === 'coaxial_group') return [node.axis, ...node.surfaces];
+  if (node.operation === 'shared_center_group') return [node.point, ...node.surfaces];
   if (node.operation === 'perpendicular') return [node.lateral, node.plane];
   if (node.operation === 'rotational_symmetry') return [node.axis, ...node.planes];
   if (node.operation === 'mirror_symmetry') return [node.plane, ...node.surfaces];

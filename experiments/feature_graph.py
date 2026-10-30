@@ -37,6 +37,7 @@ from experiments.feature_inputs import (
     REQUIREMENTS,
     FeatureInput,
     OutputReference,
+    fit_input_templates,
     input_choices,
     output_catalogue,
     reference_dependencies,
@@ -379,6 +380,14 @@ class CoaxialGroup(Node):
 
     operation: Literal["coaxial_group"]
     axis: str
+    surfaces: list[str] = Field(min_length=1, max_length=32)
+
+
+class SharedCenterGroup(Node):
+    """Independent sphere radii share one explicit point datum."""
+
+    operation: Literal["shared_center_group"]
+    point: str
     surfaces: list[str] = Field(min_length=1, max_length=32)
 
 
@@ -759,6 +768,7 @@ Feature = Annotated[
     | Perpendicular
     | Coaxial
     | CoaxialGroup
+    | SharedCenterGroup
     | RotationalSymmetry
     | JointFit
     | AxisDefinition
@@ -983,6 +993,8 @@ def dependencies(node: Feature) -> list[str]:
         return [node.surface, node.reference]
     if isinstance(node, CoaxialGroup):
         return [node.axis, *node.surfaces]
+    if isinstance(node, SharedCenterGroup):
+        return [node.point, *node.surfaces]
     if isinstance(node, RotationalSymmetry):
         return [node.axis, *node.planes]
     if isinstance(node, JointFit):
@@ -1124,7 +1136,7 @@ def surface_reference_kind(
             if endpoint.is_binding
             and isinstance(nodes[endpoint.feature], PlaneDefinition)
         )
-    elif isinstance(feature, (EqualRadii, CoaxialGroup)):
+    elif isinstance(feature, (EqualRadii, CoaxialGroup, SharedCenterGroup)):
         if isinstance(feature, CoaxialGroup) and any(
             isinstance(node, AxisSolve) and node.axis == feature.axis
             for node in nodes.values()
@@ -1234,6 +1246,40 @@ def fit_axis(
     return None
 
 
+def shared_center_bindings(nodes: dict[str, Feature]) -> dict[str, str]:
+    """Compile shared-center declarations without rewriting saved fit fields."""
+    bindings: dict[str, str] = {}
+    for group in nodes.values():
+        if not isinstance(group, SharedCenterGroup):
+            continue
+        point = nodes.get(group.point)
+        if not isinstance(point, PointDefinition):
+            raise ValueError("shared center requires an explicit point datum")
+        if len(set(group.surfaces)) != len(group.surfaces):
+            raise ValueError("shared-center members must be distinct")
+        for key in group.surfaces:
+            surface = nodes.get(key)
+            if not isinstance(surface, SurfaceFit) or surface.kind != "sphere":
+                raise ValueError("shared-center members require sphere fit owners")
+            existing = bindings.get(key, surface.point)
+            if existing not in (None, group.point):
+                raise ValueError(
+                    f"{surface.label}: conflicting point datums in shared-center relationships"
+                )
+            # A point initialized from a member remains an upstream fixed read;
+            # binding that initializer back to its own datum would make a cycle.
+            if point.source_fit != key:
+                bindings[key] = group.point
+    return bindings
+
+
+def fit_point(
+    node: SurfaceFit, nodes: dict[str, Feature], bindings: dict[str, str] | None = None
+) -> str | None:
+    bindings = shared_center_bindings(nodes) if bindings is None else bindings
+    return bindings.get(node.id, node.point)
+
+
 def automatic_axis_components(
     nodes: dict[str, Feature],
 ) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
@@ -1266,17 +1312,21 @@ def automatic_axis_components(
 def automatic_point_components(
     nodes: dict[str, Feature],
 ) -> dict[str, tuple[list[SurfaceFit], set[str]]]:
-    """Sphere evidence that jointly refines each manually initialized free point."""
+    """Sphere evidence on free points and explicitly shared fixed centers."""
     components: dict[str, tuple[list[SurfaceFit], set[str]]] = {}
+    bindings = shared_center_bindings(nodes)
+    declared_points = set(bindings.values())
     for point in nodes.values():
-        if not isinstance(point, PointDefinition) or point.source_fit is not None:
+        if not isinstance(point, PointDefinition) or (
+            point.source_fit is not None and point.id not in declared_points
+        ):
             continue
         factors = [
             node
             for node in nodes.values()
             if isinstance(node, SurfaceFit)
             and node.kind == "sphere"
-            and node.point == point.id
+            and fit_point(node, nodes, bindings) == point.id
         ]
         if factors:
             components[point.id] = (factors, {point.id, *(fit.id for fit in factors)})
@@ -1358,6 +1408,19 @@ def automatic_plane_relationship_components(
             for surface in nodes.values()
         )
     )
+    # A shared center and a shared radius must optimize the same observations
+    # together; fitting the center first and averaging radii is not stationary.
+    if include_radii:
+        seeds.extend(
+            node.id
+            for node in nodes.values()
+            if isinstance(node, SharedCenterGroup)
+            and any(
+                isinstance(relation, EqualRadii)
+                and set(node.surfaces).intersection(relation.surfaces)
+                for relation in nodes.values()
+            )
+        )
     pending = set(seeds)
     endpoints = {
         relationship.id: plane_relationship_endpoints(relationship, nodes)
@@ -1367,7 +1430,15 @@ def automatic_plane_relationship_components(
         key: {endpoint.owner for endpoint in values if endpoint.owner is not None}
         for key, values in endpoints.items()
     }
-    bindings.update({key: {key} for key in seeds if key not in bindings})
+    for key in seeds:
+        if key in bindings:
+            continue
+        node = nodes[key]
+        bindings[key] = (
+            {node.point, *node.surfaces}
+            if isinstance(node, SharedCenterGroup)
+            else {key}
+        )
     direction_owners = {
         owner
         for relation in relationships
@@ -1405,7 +1476,7 @@ def automatic_plane_relationship_components(
         points = {
             point
             for surface in surfaces
-            if (point := cast(SurfaceFit, surface).point) is not None
+            if (point := fit_point(cast(SurfaceFit, surface), nodes)) is not None
         }
         axes.update(
             node.id
@@ -1472,7 +1543,7 @@ def automatic_plane_relationship_components(
                 if isinstance(node, SurfaceFit)
                 and (
                     fit_axis(node, nodes, axis_bindings) in axes
-                    or node.point in points
+                    or fit_point(node, nodes) in points
                     or (
                         node.reference_plane in owner_ids
                         and cast(
@@ -1511,7 +1582,7 @@ def automatic_plane_relationship_components(
                 not isinstance(node, SurfaceFit)
                 or (
                     fit_axis(node, nodes, axis_bindings) not in expanded_axes
-                    and node.point not in expanded_points
+                    and fit_point(node, nodes) not in expanded_points
                     and not (
                         node.reference_plane in expanded_owners
                         and cast(
@@ -1568,6 +1639,13 @@ def automatic_plane_relationship_components(
                 and node.axis in axes
                 and set(node.surfaces) <= owner_ids
             )
+        members.update(
+            node.id
+            for node in nodes.values()
+            if isinstance(node, SharedCenterGroup)
+            and node.point in points
+            and set(node.surfaces) <= owner_ids
+        )
         for relationship_id in relation_ids:
             components[relationship_id] = (
                 component_relationships,
@@ -1582,25 +1660,39 @@ def selected_plane_component(
     surfaces: list[SurfaceFit],
     nodes: dict[str, Feature],
 ) -> bool:
-    """Independent plane owners consume raw evidence, like direction factors."""
-    return any(
-        isinstance(relation, DirectionAlignment) for relation in relations
-    ) or any(
-        isinstance(nodes[key], PlaneDefinition)
-        and cast(PlaneDefinition, nodes[key]).construction == "independent"
-        for key in {
-            *(
-                surface.reference_plane
-                for surface in surfaces
-                if surface.reference_plane
-            ),
-            *(
-                endpoint.feature
-                for relation in relations
-                for endpoint in plane_relationship_endpoints(relation, nodes)
-                if endpoint.is_binding
-            ),
-        }
+    """Raw evidence also drives independent planes and composed center/radius fits."""
+    surface_ids = {surface.id for surface in surfaces}
+    shared_radius_center = any(
+        isinstance(node, SharedCenterGroup)
+        and set(node.surfaces) <= surface_ids
+        and any(
+            isinstance(relation, EqualRadii)
+            and set(relation.surfaces) <= surface_ids
+            and set(node.surfaces).intersection(relation.surfaces)
+            for relation in nodes.values()
+        )
+        for node in nodes.values()
+    )
+    return (
+        shared_radius_center
+        or any(isinstance(relation, DirectionAlignment) for relation in relations)
+        or any(
+            isinstance(nodes[key], PlaneDefinition)
+            and cast(PlaneDefinition, nodes[key]).construction == "independent"
+            for key in {
+                *(
+                    surface.reference_plane
+                    for surface in surfaces
+                    if surface.reference_plane
+                ),
+                *(
+                    endpoint.feature
+                    for relation in relations
+                    for endpoint in plane_relationship_endpoints(relation, nodes)
+                    if endpoint.is_binding
+                ),
+            }
+        )
     )
 
 
@@ -1656,7 +1748,11 @@ def direction_component_inputs(
             elif not isinstance(nodes[endpoint.feature], SurfaceFit):
                 require_binding(endpoint.feature)
     for surface in surfaces:
-        for ref in (fit_axis(surface, nodes), surface.point, surface.reference_plane):
+        for ref in (
+            fit_axis(surface, nodes),
+            fit_point(surface, nodes),
+            surface.reference_plane,
+        ):
             if ref is not None:
                 require_binding(ref)
     return prerequisites, reads
@@ -1759,15 +1855,27 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
         )
     for point, (_, members) in points.items():
         task = "@point/" + point
-        aliases = frozenset(members)
+        groups = [
+            node.id
+            for node in nodes.values()
+            if isinstance(node, SharedCenterGroup) and node.point == point
+        ]
+        aliases = frozenset(
+            members
+            if cast(PointDefinition, nodes[point]).source_fit is None
+            else {key for key in members if isinstance(nodes[key], SurfaceFit)}
+        )
         providers[task] = ProviderInfluence(
             task,
             ("point", point),
+            frozenset(members),
             aliases,
-            aliases,
-            aliases,
+            frozenset(members),
             frozenset(),
-            {task: aliases},
+            {
+                task: frozenset(members),
+                **{group: frozenset(members) for group in groups},
+            },
         )
     for key, members in automatic_equal_radius_components(nodes).items():
         relation = nodes[key]
@@ -1778,7 +1886,13 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
             key, None, aliases, aliases, surfaces, surfaces, {key: aliases}
         )
     for key, (relations, surfaces, members) in planes.items():
-        first = relations[0].id if relations else key
+        first = (
+            relations[0].id
+            if relations
+            else next(
+                seed for seed in nodes if seed in planes and planes[seed][2] is members
+            )
+        )
         task = ("@planes/" if relations else "@plane/") + first
         if task in providers:
             continue
@@ -1801,7 +1915,9 @@ def describe_geometry_influence(nodes: dict[str, Feature]) -> GeometryInfluence:
             relations, surfaces, nodes
         )
         publishers = (relation_ids or frozenset({task})) | frozenset(
-            key for key in members if isinstance(nodes[key], (EqualRadii, CoaxialGroup))
+            key
+            for key in members
+            if isinstance(nodes[key], (EqualRadii, CoaxialGroup, SharedCenterGroup))
         )
         providers[task] = ProviderInfluence(
             task,
@@ -2538,6 +2654,7 @@ def discover_reuse_lineage(fit_ids: list[str], nodes: dict[str, Feature]) -> lis
         Perpendicular,
         Coaxial,
         CoaxialGroup,
+        SharedCenterGroup,
         RotationalSymmetry,
         JointFit,
         MirrorSymmetry,
@@ -3288,6 +3405,8 @@ def fit_sphere_at_point(
     surface: SurfaceFit,
     ids: list[int],
     point: dict[str, Any],
+    *,
+    point_id: str | None = None,
 ) -> dict[str, Any]:
     """Fit only a sphere radius while retaining an explicit fixed center."""
     if len(ids) < 4:
@@ -3309,7 +3428,7 @@ def fit_sphere_at_point(
         "residuals": residuals.tolist(),
         "weighted_rms": float(np.sqrt(weights @ residuals**2)),
         "condition": 1.0,
-        "point": surface.point,
+        "point": point_id if point_id is not None else surface.point,
     }
 
 
@@ -3942,6 +4061,7 @@ class FeatureGraph(Generic[WorkspaceType]):
     def validate(self, recipe: Recipe) -> Recipe:
         nodes = {node.id: node for node in recipe.nodes}
         _ = coaxial_axis_bindings(nodes)
+        _ = shared_center_bindings(nodes)
         positions = {node.id: index for index, node in enumerate(recipe.nodes)}
         if len(nodes) != len(recipe.nodes):
             raise ValueError("duplicate feature ID")
@@ -4531,6 +4651,19 @@ class FeatureGraph(Generic[WorkspaceType]):
                             raise ValueError(
                                 "coaxial group members already belong to a legacy joint; use an axis solve"
                             )
+            elif isinstance(node, SharedCenterGroup):
+                _ = validate_relationship_inputs(
+                    "shared_center",
+                    {"point": [node.point], "members": node.surfaces},
+                    recipe,
+                )
+                sources = {
+                    selection_source(nodes[key], nodes)
+                    for ref in node.surfaces
+                    for key in cast(SurfaceFit, nodes[ref]).selections
+                }
+                if len(sources) != 1:
+                    raise ValueError("shared-center members must share one source")
             elif isinstance(node, AxisDefinition):
                 if node.source_fit is not None:
                     source_fit = nodes[node.source_fit]
@@ -5277,6 +5410,10 @@ class FeatureGraph(Generic[WorkspaceType]):
                 "input_catalogue": catalogue,
                 "input_contracts": deepcopy(REQUIREMENTS),
                 "relationship_contracts": deepcopy(RELATIONSHIP_SIGNATURES),
+                "fit_input_templates": fit_input_templates(
+                    frame=self.reference_sha256,
+                    reserved_ids={node.id for node in self._recipe.nodes},
+                ),
                 "input_requirements": {
                     name: input_choices(
                         self._recipe, requirement=name, catalogue=catalogue
@@ -6329,6 +6466,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         AxisSolve,
                         EqualRadii,
                         CoaxialGroup,
+                        SharedCenterGroup,
                         PlaneRelationship,
                         DirectionAlignment,
                         SurfaceIntersection,
@@ -6432,7 +6570,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                 point_id = (
                     node.id
                     if isinstance(node, PointDefinition)
-                    else node.point
+                    else fit_point(node, nodes)
                     if isinstance(node, SurfaceFit)
                     else None
                 )
@@ -7018,6 +7156,21 @@ class FeatureGraph(Generic[WorkspaceType]):
             if len(sources) != 1:
                 raise ValueError("connected fits on a free point must share one source")
             point_result = derived_result(point_id)
+            if cast(PointDefinition, nodes[point_id]).source_fit is not None:
+                return {
+                    "format": "scansor-shared-sphere-center-v1",
+                    "point": deepcopy(point_result),
+                    "surfaces": {
+                        surface.id: fit_sphere_at_point(
+                            self.workspace,
+                            surface,
+                            fitted_ids(surface),
+                            point_result,
+                            point_id=point_id,
+                        )
+                        for surface in fitted_factors
+                    },
+                }
             return fit_spheres_to_free_point(
                 self.workspace,
                 point_id,
@@ -7209,15 +7362,22 @@ class FeatureGraph(Generic[WorkspaceType]):
                 )
             centers: dict[str, PointInput] = {}
             for surface in surfaces:
-                key = surface.point
+                key = fit_point(surface, nodes)
                 if key is None:
                     continue
                 source = active_direction_datum_source(key, surface_ids, nodes)
                 centers[key] = (
-                    PointInput({}, False, source="@direction-point:" + source)
+                    PointInput(
+                        {},
+                        False,
+                        source=fit_point(cast(SurfaceFit, nodes[source]), nodes)
+                        or "@direction-point:" + source,
+                    )
                     if source is not None
                     else PointInput(
-                        resolved_result(key, excluded), key in point_components
+                        resolved_result(key, excluded),
+                        key in point_components
+                        and cast(PointDefinition, nodes[key]).source_fit is None,
                     )
                 )
             selected_surfaces: list[SelectedDirectionSurface] = []
@@ -7235,7 +7395,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         selection=selected(surface),
                         axis=axis_id,
                         datum=None if independent_normal else surface.reference_plane,
-                        point=surface.point,
+                        point=fit_point(surface, nodes),
                         construction=cast(
                             PlaneDefinition, nodes[surface.reference_plane]
                         ).construction
@@ -7435,6 +7595,22 @@ class FeatureGraph(Generic[WorkspaceType]):
                             **{key: fitted["surfaces"][key] for key in node.surfaces},
                         },
                     }
+                elif (
+                    isinstance(node, SharedCenterGroup)
+                    and node.point in centers
+                    and set(node.surfaces) <= surface_ids
+                ):
+                    resolved[node.id] = {
+                        "format": "scansor-shared-center-group-v1",
+                        "point": node.point,
+                        "surfaces": {
+                            key: fitted["surfaces"][key] for key in node.surfaces
+                        },
+                        "resolved": {
+                            node.point: fitted["points"][node.point],
+                            **{key: fitted["surfaces"][key] for key in node.surfaces},
+                        },
+                    }
             return {
                 **fitted,
                 "format": "scansor-direction-component-v1",
@@ -7515,10 +7691,16 @@ class FeatureGraph(Generic[WorkspaceType]):
                 for key in axis_ids
             }
             point_ids = dict.fromkeys(
-                surface.point for surface in surfaces if surface.point is not None
+                key
+                for surface in surfaces
+                if (key := fit_point(surface, nodes)) is not None
             )
             centers = {
-                key: PointInput(resolved_result(key, excluded), key in point_components)
+                key: PointInput(
+                    resolved_result(key, excluded),
+                    key in point_components
+                    and cast(PointDefinition, nodes[key]).source_fit is None,
+                )
                 for key in point_ids
             }
             datum_records: dict[str, PlaneInput] = {}
@@ -7583,7 +7765,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                         effective_support(surface, excluded)
                     )
                 axis_id = fit_axis(surface, nodes)
-                point_id = surface.point
+                point_id = fit_point(surface, nodes)
                 if axis_id is None and surface.kind in {"cylinder", "cone"}:
                     axis_id = "@" + surface.id
                     geometry = revolution_geometry(value)
@@ -7873,7 +8055,9 @@ class FeatureGraph(Generic[WorkspaceType]):
                     error_ids.update(
                         key
                         for key in members
-                        if isinstance(nodes[key], (EqualRadii, CoaxialGroup))
+                        if isinstance(
+                            nodes[key], (EqualRadii, CoaxialGroup, SharedCenterGroup)
+                        )
                     )
             with self.lock:
                 if epoch != self._epoch:
@@ -8044,6 +8228,7 @@ class FeatureGraph(Generic[WorkspaceType]):
 
         def evaluate_surface_fit(node: SurfaceFit) -> dict[str, Any] | None:
             ids = fitted_ids(node)
+            point_id = fit_point(node, nodes)
             if node.reference_plane is not None:
                 derived = fit_plane_to_reference(
                     self.workspace,
@@ -8051,12 +8236,13 @@ class FeatureGraph(Generic[WorkspaceType]):
                     ids,
                     derived_result(node.reference_plane),
                 )
-            elif node.point is not None:
+            elif point_id is not None:
                 derived = fit_sphere_at_point(
                     self.workspace,
                     node,
                     ids,
-                    derived_result(node.point),
+                    derived_result(point_id),
+                    point_id=point_id,
                 )
             elif node.axis is None and isinstance(self.workspace, ScanWorkspace):
                 run_fit = self._prepare_numerical_fit(
@@ -8323,6 +8509,7 @@ class FeatureGraph(Generic[WorkspaceType]):
                             relation.id
                             for relation in plane_relationship_components[identifier][0]
                         }
+                        or plane_relationship_components[identifier][2]
                     )
                     note_failure(key, error, causes)
                 continue
@@ -8878,6 +9065,17 @@ class FeatureGraph(Generic[WorkspaceType]):
                                 **deepcopy(solve.get("reference_planes", {})),
                             },
                         }
+                elif isinstance(node, SharedCenterGroup):
+                    point = resolved_result(node.point, {node.id})
+                    surfaces = {
+                        key: resolved_result(key, {node.id}) for key in node.surfaces
+                    }
+                    derived = {
+                        "format": "scansor-shared-center-group-v1",
+                        "point": node.point,
+                        "surfaces": surfaces,
+                        "resolved": {node.point: point, **surfaces},
+                    }
                 elif isinstance(node, EqualRadii):
                     surfaces = [cast(SurfaceFit, nodes[ref]) for ref in node.surfaces]
                     surface_ids = [fitted_ids(surface) for surface in surfaces]

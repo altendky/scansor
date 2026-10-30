@@ -67,8 +67,15 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     await page.locator('#new-fit-label').fill(label);
     await page.locator('#new-fit-kind').selectOption(kind);
     await page.locator('#new-fit-inputs').selectOption(selection);
-    await page.locator('#new-fit-reference-mode').selectOption(datum ? 'fit_plane_orientation' : '');
-    if (datum) await page.locator('#new-fit-reference').selectOption(key(reference(datum)));
+    if (datum) {
+      await page.locator('#new-fit-relationship-add').click();
+      const relationship = page.locator('#new-fit-relationships [data-fit-relationship]').last();
+      await relationship.locator('select[id$="-kind"]').selectOption('direction_alignment');
+      const targets = relationship.locator('[data-relationship-role="participants"]');
+      await targets.locator('.selection-field-dropdown').click();
+      await targets.locator(`input[data-participant-id=${JSON.stringify(key(reference(datum)))}]`).check();
+      await page.keyboard.press('Escape');
+    }
     await page.locator('#add-fit-form').getByRole('button', {name: 'Add fit', exact: true}).click();
     await expect(page.locator('#fit-dialog')).toBeHidden();
     await expect.poll(async () => (await graph()).recipe.nodes.some(node => node.label === label)).toBe(true);
@@ -80,7 +87,7 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     if (await page.locator('#clear-relationship-participants').isEnabled())
       await page.locator('#clear-relationship-participants').click();
     const inputs = kind === 'direction_alignment'
-      ? page.locator('[data-relationship-role="participants"] input[data-participant-id]')
+      ? page.locator('#relationship-dialog [data-relationship-role="participants"] input[data-participant-id]')
       : page.locator('#relationship-participants input');
     await page.getByRole('button', {name: kind === 'direction_alignment' ? 'Show Apply to choices' : 'Show Participants choices', exact: true}).click();
     for (const participant of participants) {
@@ -182,7 +189,10 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     report.phase = 'pending-plane-context';
     const bound = await addFit('Plane observations on datum', 'plane', 'joint-plane-selection', datum.id);
     const cylinder = await addFit('Direction follower cylinder', 'cylinder', 'axis-cylinder-selection');
-    const exact = reference(datum.id, 'plane', '@plane/'+datum.id), cylinderReference = reference(cylinder.id, 'axis');
+    const planeAlignment = (await graph()).recipe.nodes.find(node => node.operation === 'direction_alignment' &&
+      node.directions.some(value => value.feature === bound.id));
+    assert(planeAlignment, 'The fit must retain its ordinary plane-direction relationship');
+    const exact = reference(datum.id, 'plane', planeAlignment.id), cylinderReference = reference(cylinder.id, 'axis');
     const pending = (await graph()).input_requirements.relationship_direction.unavailable.find(output => key(output.reference) === key(exact));
     assert(pending?.compatible && ['stale', 'unevaluated'].includes(pending.availability));
     const alignment = await addRelationship('direction_alignment', 'Cylinder follows exact plane output', [exact, cylinderReference], exact);
@@ -212,7 +222,7 @@ export async function exerciseIndependentPlaneUi({page, expect, fixture}) {
     await assertObservations();
     report.phase = 'exact-fixed-plane-coincident-offset';
     await auto.uncheck();
-    const fixedPlane = reference(bound.id, 'plane', '@plane/'+datum.id);
+    const fixedPlane = reference(bound.id, 'plane', planeAlignment.id);
     const fixedEquation = structuredClone(state.results[bound.id].plane_equation);
     const fixedFollower = await addIndependent('Exact published plane follower', [0, 1, 0], 30);
     const fixedCoincident = await addRelationship('coincident_planes', 'Follower joins exact published plane',

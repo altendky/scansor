@@ -79,7 +79,7 @@ export async function exercisePatternRelationshipUi({page, expect, fixture}) {
     await page.getByRole('button', {name: 'Relationship…', exact: true}).click();
     await page.locator('#relationship-kind').selectOption('direction_alignment');
     if (await page.locator('#clear-relationship-participants').isEnabled()) await page.locator('#clear-relationship-participants').click();
-    const targets = page.locator('[data-relationship-role="participants"]');
+    const targets = page.locator('#relationship-dialog [data-relationship-role="participants"]');
     await targets.getByRole('button', {name: /^Pick Apply to in (?:the tree or )?model$/}).click();
     await page.locator(`.managed-owner-summary[data-action-id="${owner}"]`).click();
     await expect(targets.locator('.selection-field-selected > li')).toHaveCount(1);
