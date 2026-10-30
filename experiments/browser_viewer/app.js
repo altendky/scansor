@@ -122,7 +122,7 @@ let featureOrganizationPending = false;
 let authoringApplying = false;
 let updateActionTreeLocks = () => {};
 let activeGraphEvaluation = null, faceContinuationPending = false;
-let exampleCatalogue = null, exampleSwitchPending = false;
+let exampleCatalogue = null, exampleSwitchPending = false, exampleEnsureDeferred = false;
 let sourceProject, workspaceGeneration, sourceTransitionBusy = false;
 window.addEventListener('scansor-runtime-lock', () => sourceProject?.lockRuntime());
 window.addEventListener('scansor-computation-lifecycle', () => { if (viewerSetup) updateEvaluationControls(); });
@@ -171,7 +171,7 @@ function refreshCadDisplay() {
   }
   const lifecycle = backend.getLifecycle(), blocked = busy || sourceTransitionBusy || selectionDrawing || selectionPending ||
     graphState.evaluation_running && lifecycle.operation !== 'refineDisplay' || surfacePreviewRunning() || authoringApplying || featurePropertiesApplying ||
-    featureOrganizationPending || !!activeEditWorkflow() || !!modelPickMode ||
+    featureOrganizationPending || !!activeEditWorkflow() || !!modelPickMode || exampleSwitchPending || $('example-dialog').open ||
     (['queued', 'running', 'cancel-requested'].includes(lifecycle.state) && lifecycle.operation !== 'refineDisplay');
   cadDisplay.refresh({generation: workspaceGeneration, token: graphState.token,
     revision: graphState.revision, quality: $('cad-display-quality').value}, [...targets],
@@ -4654,9 +4654,12 @@ async function ensureAll() {
 }
 async function evaluateGraph(allActions, target = null, retry = true) {
   const intent = evaluationIntent;
-  if (cadDisplay.busy) { cadDisplay.cancel(); await cadDisplay.settled(); }
+  if (cadDisplay.busy) { cadDisplay.suspend(); await cadDisplay.settled(); }
   while (activeGraphEvaluation) await activeGraphEvaluation;
   if (busy || sourceTransitionBusy || surfacePreviewRunning() || !graphState.recipe.nodes.length || intent !== evaluationIntent) return;
+  // Auto can be queued by restoring an example while its chooser is opening.
+  // Do not lock a visible chooser after its controls have become available.
+  if (!retry && ($('example-dialog').open || exampleSwitchPending)) { exampleEnsureDeferred = true; return; }
   activeGraphEvaluation = runGraphEvaluation(allActions, target, retry, intent);
   try { await activeGraphEvaluation; }
   finally { activeGraphEvaluation = null; sourceProject?.refresh(); }
@@ -6752,6 +6755,7 @@ async function start(recoveredState) {
       $('example-error').textContent = '';
       $('open-example').disabled = true;
       $('example-dialog').showModal();
+      refreshCadDisplay();
     } catch (error) { status(error.message, true); }
     finally { updateEvaluationControls(); }
   };
@@ -6761,6 +6765,10 @@ async function start(recoveredState) {
   };
   $('example-dialog').addEventListener('cancel', event => {
     if (exampleSwitchPending) event.preventDefault();
+  });
+  $('example-dialog').addEventListener('close', () => {
+    refreshCadDisplay();
+    if (exampleEnsureDeferred) { exampleEnsureDeferred = false; queueEnsureAll(); }
   });
   $('example-form').onsubmit = async event => {
     event.preventDefault();
@@ -6774,6 +6782,9 @@ async function start(recoveredState) {
     renderActions();
     paint();
     try {
+      // Opening the chooser suspends cosmetic work. Wait for its actual
+      // retirement before the source controller checks its transition fence.
+      await cadDisplay.settled();
       if (await sourceProject.selectExample(example)) {
         $('example-dialog').close();
         if ($('auto-evaluate').checked) queueEnsureAll();

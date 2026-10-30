@@ -124,6 +124,9 @@ export function createCadDisplay({refine, onChange = () => {}, onStatus = () => 
       schedule();
     },
     lookup(id) { return quality === 'draft' ? null : cached(id) || visible.get(id) || null; },
+    // Explicit graph work temporarily owns the backend. Unlike user Cancel,
+    // this must resume after an ensure that leaves the graph cursor unchanged.
+    suspend() { blocked = true; abort(); },
     cancel() { paused = true; abort(); notify('Stopping CAD display refinement at a safe boundary…'); },
     retry() { paused = false; failures.clear(); failureReason = ''; completed.clear(); schedule(); },
     reset() { abort(); clear(); scene = undefined; enabled = false; },

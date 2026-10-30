@@ -111,3 +111,51 @@ test('failed body inspection opens before a gated background CAD refinement reti
     await page.getByRole('menuitem', {name: 'New project', exact: true}).click();
   }
 });
+
+test('reloading an already-ready native project automatically renders Standard CAD without Retry or a quality change', async ({page, cadFixture}, testInfo) => {
+  test.setTimeout(120000); page.setDefaultTimeout(30000);
+  const errors = [], refinements = [], read = () => page.evaluate(() => globalThis.__cadDisplayUi.read()),
+    accepted = graph => structuredClone({token: graph.token, revision: graph.revision, recipe: graph.recipe,
+      states: graph.states, results: graph.results, errors: graph.errors, diagnostics: graph.diagnostics, derived: graph.derived});
+  page.on('pageerror', error => errors.push(String(error))); page.on('dialog', dialog => dialog.accept());
+  page.on('request', request => {if (request.method() === 'POST' && /\/api\/graph\/display\/refine$/.test(new URL(request.url()).pathname)) refinements.push(request.url());});
+  await page.route('**/app.js', async route => {
+    const response = await route.fetch(); await route.fulfill({response, body: await response.text() + cadDisplayQualityObserver});
+  });
+  await page.goto(cadFixture.origin); await expect(page.locator('#load')).toBeEnabled();
+  await page.getByRole('checkbox', {name: 'Auto', exact: true}).uncheck();
+  await page.locator('#viewport .display-options > summary').click(); await page.locator('#cad-display-quality').selectOption('draft');
+  await page.locator('#scan-file').setInputFiles({name: cadFixture.fixture.filename, mimeType: 'application/octet-stream',
+    buffer: Buffer.from(cadFixture.fixture.raw_base64, 'base64')});
+  await expect(page.locator('#source-progress')).toBeHidden();
+  await expect.poll(async () => (await read()).graph.recipe.nodes.some(node => node.operation === 'source')).toBe(true);
+  const recipe = structuredClone(cadFixture.fixture.recipe), source = recipe.nodes.find(node => node.operation === 'source'), oldSource = source.id;
+  Object.assign(source, (await read()).graph.recipe.nodes.find(node => node.operation === 'source'));
+  for (const node of recipe.nodes) if (node.source === oldSource) node.source = source.id;
+  await page.locator('#file').setInputFiles({name: 'ready-reload-flange.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(recipe))});
+  await expect.poll(async () => (await read()).graph.recipe.nodes.some(node => node.id === 'flange-body')).toBe(true);
+  await page.getByRole('button', {name: 'Evaluate all', exact: true}).click();
+  await expect.poll(async () => (await read()).graph.states['flange-body'], {timeout: 60000}).toBe('ready');
+  const before = accepted((await read()).graph), priorRefinements = refinements.length;
+  try {
+    await page.reload(); await expect(page.locator('#load')).toBeEnabled();
+    await expect(page.getByRole('checkbox', {name: 'Auto', exact: true})).toBeChecked();
+    await page.locator('#viewport .display-options > summary').click();
+    await expect(page.locator('#cad-display-quality')).toHaveValue('standard');
+    await page.locator('#faces-only').check();
+    await expect.poll(async () => {
+      const state = await read(); return !state.busy && state.cached?.quality === 'standard'
+        && state.rendered.some(mesh => mesh.group === 0 && mesh.feature === 'flange-body' && mesh.type === 'Mesh' && mesh.quality === 'standard');
+    }, {timeout: 30000}).toBe(true);
+    expect(refinements.length).toBeGreaterThan(priorRefinements);
+    expect(accepted((await read()).graph)).toEqual(before); expect(errors).toEqual([]);
+    await testInfo.attach('ready-reload-automatic-standard', {contentType: 'application/json', body: JSON.stringify({
+      automatic_standard_rendered: true, no_retry_or_quality_change: true, accepted_graph_unchanged: true,
+      refinement_requests_after_reload: refinements.length - priorRefinements})});
+  } finally {
+    await page.locator('#cad-display-quality').selectOption('draft');
+    await page.getByRole('checkbox', {name: 'Auto', exact: true}).uncheck();
+    await page.getByRole('button', {name: 'Project toolbar options', exact: true}).click();
+    await page.getByRole('menuitem', {name: 'New project', exact: true}).click();
+  }
+});

@@ -104,6 +104,25 @@ test('failed or mismatched refinement keeps the previous complete display withou
   assert.equal(controller.lookup('a').quality, 'fine');
 });
 
+test('temporary backend suspension resumes unchanged ready geometry without overriding user cancellation', async () => {
+  let release, calls = 0;
+  const controller = createCadDisplay({refine: request => {
+    calls++;
+    if (calls === 1) return new Promise(resolve => { release = () => resolve(answer(request)); });
+    return Promise.resolve(answer(request));
+  }});
+  controller.refresh(context(), ['a']); await delay();
+  controller.suspend(); release(); await done(controller);
+  assert.equal(calls, 1); assert.equal(controller.lookup('a'), null);
+  await delay(); assert.equal(calls, 1, 'no restart before explicit graph work finishes');
+  controller.refresh(context(), ['a']); await done(controller);
+  assert.equal(calls, 2); assert.equal(controller.lookup('a').quality, 'standard');
+  controller.cancel(); controller.suspend();
+  controller.refresh(context(), ['a', 'b']); await done(controller);
+  assert.equal(calls, 2, 'suspension does not clear a previous user Cancel');
+  controller.retry(); await done(controller); assert.ok(controller.lookup('b'));
+});
+
 test('blocked/disabled work starts only when requested and scene reset discards buffers', async () => {
   let calls = 0;
   const controller = createCadDisplay({refine: async request => { calls++; return answer(request); }});
