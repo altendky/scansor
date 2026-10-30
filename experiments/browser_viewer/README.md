@@ -143,6 +143,12 @@ An edit stays attached to its original feature while tree selection or model
 picking changes. Background graph publication retains parameter drafts. Switching
 or closing workflows asks before discarding unapplied changes.
 
+Move an undocked popup with its title-bar grip. Focus the grip to move it with
+the arrow keys, or use the title-bar **Reset** button to return it to its initial location.
+Escape cancels an in-progress drag. Moving the popup retains its controls,
+unapplied values and preview; Dock and Close keep their usual behavior. Popup
+positions reset when the page reloads.
+
 The feature tree uses chevrons to expand organizational groups and generated
 outputs. Click a row to toggle its selection; click its chevron to expand or
 collapse. Drag a row to reorder it with its generated outputs, subject to the

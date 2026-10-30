@@ -74,11 +74,15 @@ body.docking-workspace { height: 100dvh; overflow: hidden; }
    form below its content and place Cancel over the overflowing controls. */
 #workspace-root .workspace-dialog[open]:has(> button[data-close-dialog]),
 #edit-host > dialog.workspace-dialog[open]:has(> button[data-close-dialog]) { display: block; }
-#edit-popup { position: fixed; inset: 72px 12px auto auto; margin: 0; width: min(380px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 92px); padding: 0; overflow: hidden; z-index: 15; }
+#edit-popup { position: fixed; inset: 72px 12px auto auto; margin: 0; width: min(380px, calc(100vw - 16px)); max-width: none; max-height: calc(100dvh - 16px); padding: 0; overflow: hidden; z-index: 15; }
 #edit-popup[open] { display: flex; flex-direction: column; }
-.edit-popup-header { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid #344351; }
-.edit-popup-header strong { flex: 1; }
-.edit-popup-header button { font-size: 12px; padding: 4px 7px; }
+.edit-popup-header { display: flex; flex: none; align-items: center; gap: 6px; min-width: 0; padding: 7px 10px; border-bottom: 1px solid #344351; }
+.edit-popup-header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-popup-header button { flex: none; font-size: 12px; padding: 4px 7px; }
+#move-edit { cursor: grab; touch-action: none; }
+#move-edit:focus-visible { outline: 2px solid #79d8ee; outline-offset: 1px; }
+.edit-popup-dragging { user-select: none; }
+.edit-popup-dragging #move-edit { cursor: grabbing; }
 #edit-popup > #edit-host { flex: 1; min-height: 0; height: auto; overflow: auto; }
 #edit-popup #feature-properties-panel { max-height: calc(100dvh - 145px); }
 #edit-popup #build-faces-dialog > form { max-height: calc(100dvh - 160px); }

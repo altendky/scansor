@@ -34,6 +34,12 @@ async function expectReachable(control) {
   await control.scrollIntoViewIfNeeded();
   await expect.poll(() => control.evaluate(element => {
     const box = element.getBoundingClientRect();
+    if (box.top < -1 || box.left < -1 || box.bottom > innerHeight + 1 || box.right > innerWidth + 1) return false;
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (!['auto', 'scroll', 'hidden', 'clip'].includes(getComputedStyle(parent).overflowY)) continue;
+      const clip = parent.getBoundingClientRect(), top = clip.top + parent.clientTop;
+      if (box.top < top - 1 || box.bottom > top + parent.clientHeight + 1) return false;
+    }
     return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
   })).toBe(true);
   await control.click({ trial: true });
@@ -44,12 +50,23 @@ async function expectOrderedActions(dialog, hint, submit, cancel) {
     const [help, add, close] = await Promise.all([hint.boundingBox(), submit.boundingBox(), cancel.boundingBox()]);
     return !!help && !!add && !!close && help.y + help.height <= add.y && add.y + add.height <= close.y;
   }).toBe(true);
-  for (const action of [submit, cancel]) await expectReachable(action);
-  expect(await dialog.evaluate(element => {
-    for (let parent = element; parent && parent !== document.body; parent = parent.parentElement)
-      if (parent.scrollHeight > parent.clientHeight + 1 && ['auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) return true;
-    return false;
-  })).toBe(true);
+  for (const control of [hint, submit, cancel]) await expectReachable(control);
+  const layout = await dialog.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    let top = 0, bottom = innerHeight, scrollable = false;
+    for (let parent = element; parent && parent !== document.body; parent = parent.parentElement) {
+      const overflow = getComputedStyle(parent).overflowY, clip = parent.getBoundingClientRect();
+      if (['auto', 'scroll', 'hidden', 'clip'].includes(overflow)) {
+        top = Math.max(top, clip.top + parent.clientTop);
+        bottom = Math.min(bottom, clip.top + parent.clientTop + parent.clientHeight);
+      }
+      if (parent.scrollHeight > parent.clientHeight + 1 && ['auto', 'scroll'].includes(overflow)
+        && parent.clientHeight > 0 && clip.top >= -1 && clip.bottom <= innerHeight + 1) scrollable = true;
+    }
+    return {fits: element.scrollHeight <= element.clientHeight + 1 && box.top >= top - 1 && box.bottom <= bottom + 1, scrollable};
+  });
+  expect(layout.fits || layout.scrollable, 'content fits its visible bounds or has bounded vertical scrolling').toBe(true);
+  return layout;
 }
 
 for (const docked of [false, true]) {
@@ -82,6 +99,25 @@ for (const docked of [false, true]) {
       expect(submissions).toEqual([]);
     });
   }
+}
+
+for (const height of [320, 900]) {
+  test(`popup plane actions remain reachable with ${height === 320 ? 'overflowing' : 'fully fitting'} content`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height });
+    const submissions = await ready(page);
+    await page.getByRole('button', { name: 'Plane', exact: true }).click();
+    const dialog = page.locator('#reference-plane-dialog'),
+      hint = page.locator('#new-reference-plane-hint'),
+      submit = dialog.getByRole('button', { name: 'Add plane', exact: true }),
+      cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    await page.locator('#new-reference-plane-construction').selectOption('perpendicular_to_axis');
+    const layout = await expectOrderedActions(dialog, hint, submit, cancel);
+    expect(layout[height === 320 ? 'scrollable' : 'fits']).toBe(true);
+    page.once('dialog', confirmation => confirmation.accept());
+    await cancel.click();
+    await expect(dialog).toBeHidden();
+    expect(submissions).toEqual([]);
+  });
 }
 
 test('Enter submits the rehosted plane form once and keeps native button ownership', async ({ page }) => {
