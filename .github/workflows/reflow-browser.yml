@@ -42,7 +42,8 @@ jobs:
   static:
     name: Static worker Chromium verification
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # Full worker profiles and archive UI checks need headroom on slower runners.
+    timeout-minutes: 90
     env:
       PYTHON_VERSION: ${{ inputs.primary-python }}
     steps:
