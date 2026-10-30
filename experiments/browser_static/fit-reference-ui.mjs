@@ -213,7 +213,12 @@ export async function exerciseFitReferenceUi({page, expect, fixture}) {
   const projectDownload = page.waitForEvent('download'); await page.getByRole('button', {name: 'Save project', exact: true}).click();
   const archive = await downloadBytes(await projectDownload), beforeArchive = await read();
   const openProject = page.locator('#open-project'); await expect(openProject).toBeEnabled();
-  const chooseProject = page.waitForEvent('filechooser'); await openProject.click();
+  const chooseProject = page.waitForEvent('filechooser');
+  if (await openProject.isVisible()) await openProject.click();
+  else {
+    await page.getByRole('button', {name: 'Project toolbar options', exact: true}).click();
+    await page.getByRole('menuitem', {name: 'Open project', exact: true}).click();
+  }
   await (await chooseProject).setFiles({name: 'reopened-fit.scansor', mimeType: 'application/zip', buffer: archive});
   await expect.poll(async () => (await read()).publication, {timeout: 60000}).toBeGreaterThan(beforeArchive.publication);
   await expect(page.locator('#status')).toHaveText('Project opened. Evaluate to refresh dependent results.');
