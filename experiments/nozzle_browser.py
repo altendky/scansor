@@ -31,6 +31,10 @@ from experiments.browser_examples import (
     example_identity,
     example_recipe_path,
 )
+from experiments.display_geometry import (
+    DisplayRefinementRequest,
+    prepare_display_refinement,
+)
 from experiments.face_builder import (
     FacesApplyRequest,
     FacesPreviewRequest,
@@ -190,6 +194,8 @@ class NativeEvaluation:
     cancel: threading.Event
     state: EvaluationState = "queued"
     future: Future[dict[str, object]] | None = None
+    operation: Literal["previewSurfaceSelection", "refineDisplay"] | None = None
+    input_revision: int | None = None
 
     def descriptor(self, *, done: bool | None = None) -> dict[str, object]:
         future = self.future
@@ -212,6 +218,7 @@ class NativeEvaluation:
             "state": self.state,
             "kind": self.kind,
             "roots": sorted(self.roots),
+            **({"operation": self.operation} if self.operation is not None else {}),
         }
 
 
@@ -949,6 +956,9 @@ class NozzleServer(ThreadingHTTPServer):
         kind: Literal["evaluate", "ensure", "preview"],
         roots: frozenset[str],
         callback: Callable[[Callable[[], bool]], dict[str, object]],
+        *,
+        operation: Literal["previewSurfaceSelection", "refineDisplay"] | None = None,
+        input_revision: int | None = None,
     ) -> dict[str, Any]:
         with self.lock:
             accepted = self.accepted()
@@ -964,6 +974,8 @@ class NozzleServer(ThreadingHTTPServer):
                 graph.failure_checkpoint(),
                 self.graph_job_errors.copy(),
                 threading.Event(),
+                operation=operation,
+                input_revision=input_revision,
             )
 
             def run() -> dict[str, object]:
@@ -996,15 +1008,45 @@ class NozzleServer(ThreadingHTTPServer):
                 "preview",
                 frozenset([request.seed_selection, *request.barriers]),
                 prepared,
+                operation="previewSurfaceSelection",
             )
 
     def surface_preview(self, evaluation_id: str) -> dict[str, Any]:
+        return self._private_preview(evaluation_id, "previewSurfaceSelection")
+
+    def start_display_refinement(
+        self, request: DisplayRefinementRequest
+    ) -> dict[str, Any]:
+        with self.lock:
+            if self.busy() or self.source_imports.busy:
+                raise ScanImportError(
+                    "Wait for active work before refining display.", "source_busy"
+                )
+            prepared = prepare_display_refinement(self.graph, request)
+            return self._start_operation(
+                request.token,
+                "preview",
+                frozenset([request.feature]),
+                prepared,
+                operation="refineDisplay",
+                input_revision=request.revision,
+            )
+
+    def display_refinement(self, evaluation_id: str) -> dict[str, Any]:
+        return self._private_preview(evaluation_id, "refineDisplay")
+
+    def _private_preview(
+        self,
+        evaluation_id: str,
+        operation: Literal["previewSurfaceSelection", "refineDisplay"],
+    ) -> dict[str, Any]:
         with self.lock:
             accepted = self.accepted()
             record = self.evaluation
             if (
                 record is None
                 or record.kind != "preview"
+                or record.operation != operation
                 or record.id != evaluation_id
                 or record.generation != accepted.generation
                 or record.graph is not accepted.graph
@@ -1013,8 +1055,19 @@ class NozzleServer(ThreadingHTTPServer):
                     "The preview is no longer current.", "stale_evaluation"
                 )
             _ = record.graph.export_recipe(record.checkpoint.token)
+            if record.input_revision is not None:
+                record.graph.assert_display_current(
+                    record.checkpoint.token, record.input_revision
+                )
             state = self.evaluation_snapshot(
-                {"token": record.checkpoint.token, "preview": None}
+                {
+                    "token": record.checkpoint.token,
+                    **(
+                        {"display": None, "revision": record.input_revision}
+                        if operation == "refineDisplay"
+                        else {"preview": None}
+                    ),
+                }
             )
             descriptor = cast(dict[str, object], state["evaluation"])
             future = record.future
@@ -1023,7 +1076,15 @@ class NozzleServer(ThreadingHTTPServer):
             elif descriptor["state"] == "failed" and future is not None:
                 error = future.exception()
                 state["error"] = {
-                    "code": str(getattr(error, "code", "surface_selection_failed")),
+                    "code": str(
+                        getattr(
+                            error,
+                            "code",
+                            "display_refinement_failed"
+                            if operation == "refineDisplay"
+                            else "surface_selection_failed",
+                        )
+                    ),
                     "message": str(error)[:1200],
                 }
             return state
@@ -1143,6 +1204,7 @@ class Handler(BaseHTTPRequestHandler):
         "/fit-reference.js": ("fit-reference.js", "text/javascript"),
         "/relationship-inputs.js": ("relationship-inputs.js", "text/javascript"),
         "/relationship-highlight.js": ("relationship-highlight.js", "text/javascript"),
+        "/cad-display.js": ("cad-display.js", "text/javascript"),
         "/residual-display.js": ("residual-display.js", "text/javascript"),
         "/reuse-volume.js": ("reuse-volume.js", "text/javascript"),
         "/surface-trims.js": ("surface-trims.js", "text/javascript"),
@@ -1336,6 +1398,11 @@ class Handler(BaseHTTPRequestHandler):
             metadata["selection_entries"] = {"version": 1}
             metadata["selection_volumes"] = {"version": 1, "max_preview_cells": 2048}
             metadata["surface_selection"] = dict(SURFACE_SELECTION_PROFILE)
+            metadata["display_refinement"] = {
+                "supported": True,
+                "version": 1,
+                "qualities": ["draft", "standard", "fine"],
+            }
             metadata["source_replacement"] = {
                 "supported": isinstance(state.workspace, ScanWorkspace)
                 and state.workspace.descriptor is not None,
@@ -1347,13 +1414,21 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/graph/example":
             with self.app.lock:
                 self.json_reply(200, self.app.example_recipe.model_dump())
-        elif parsed.path.startswith("/api/graph/surface-selection/preview/"):
+        elif parsed.path.startswith(
+            ("/api/graph/surface-selection/preview/", "/api/graph/display/refine/")
+        ):
             try:
                 with self.app.lock:
                     _ = self.fence_source()
-                    state = self.app.surface_preview(
-                        parsed.path.removeprefix(
-                            "/api/graph/surface-selection/preview/"
+                    state = (
+                        self.app.display_refinement(
+                            parsed.path.removeprefix("/api/graph/display/refine/")
+                        )
+                        if parsed.path.startswith("/api/graph/display/refine/")
+                        else self.app.surface_preview(
+                            parsed.path.removeprefix(
+                                "/api/graph/surface-selection/preview/"
+                            )
                         )
                     )
                 self.json_reply(200, state)
@@ -1666,6 +1741,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/ensure",
             "/api/graph/cancel",
             "/api/graph/surface-selection/preview",
+            "/api/graph/display/refine",
             "/api/graph/feature-reuse/preview",
             "/api/graph/feature-reuse/apply",
             "/api/graph/selection-volumes/author",
@@ -1720,6 +1796,13 @@ class Handler(BaseHTTPRequestHandler):
                 with self.app.lock:
                     _ = self.fence_source()
                     state = self.app.start_surface_preview(preview)
+                self.json_reply(202, state)
+                return
+            if self.path == "/api/graph/display/refine":
+                refinement = DisplayRefinementRequest.model_validate_json(body)
+                with self.app.lock:
+                    _ = self.fence_source()
+                    state = self.app.start_display_refinement(refinement)
                 self.json_reply(202, state)
                 return
             if self.path == "/api/graph/import":

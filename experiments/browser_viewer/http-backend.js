@@ -17,6 +17,12 @@ export function supportsSurfaceSelectionPolicy(profile, policy = 'seed-normal-en
     && (policy === seed || policy === local && profile.policies?.includes(local) === true);
 }
 
+export function supportsDisplayRefinement(profile) {
+  return profile?.supported === true && profile.version === 1 && Array.isArray(profile.qualities)
+    && profile.qualities.length === 3 && new Set(profile.qualities).size === 3
+    && ['draft', 'standard', 'fine'].every(quality => profile.qualities.includes(quality));
+}
+
 function pause(milliseconds, signal) {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -32,12 +38,15 @@ function pause(milliseconds, signal) {
   });
 }
 
+const evaluationOperation = value => value.operation === 'refineDisplay' ? value.operation : value.kind;
+
 export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
   pollInterval = 150, wait = pause, onLifecycle = () => {} } = {}) {
   const lifetime = new AbortController();
   let nextRequestId = 0;
   let sourcePublication = 0, acceptedGeneration, acceptedMetadata, latestGraph;
   let evaluationObservation = 0, evaluationVersion = 0, evaluation, cancellation, runtimeLifetime = 0;
+  let displayOwner = null;
   let lifecycle = Object.freeze({ state: 'complete', lifetime: runtimeLifetime,
     canCancel: false, canForce: false, interrupts: false });
   const cancelled = () => new BackendError('Computation was cancelled. Evaluate again when ready.',
@@ -71,7 +80,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     evaluation = next;
     const activeState = cancellation?.id === next?.id && ['queued', 'running'].includes(next?.state)
       ? 'cancel-requested' : next?.state || 'complete';
-    publishLifecycle(activeState, next ? { operation: next.kind, roots: [...next.roots],
+    publishLifecycle(activeState, next ? { operation: evaluationOperation(next), roots: [...next.roots],
       evaluationId: next.id, generation: next.generation } : {});
   }
   const signalFor = signal => signal
@@ -148,6 +157,26 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     if (result?.graph?.states) result.graph = rememberGraph(result.graph, known, version);
     return result;
   };
+  async function retireDisplay(signal) {
+    signal?.throwIfAborted();
+    const owner = displayOwner;
+    if (!owner) return;
+    owner.controller.abort(cancelled());
+    if (!signal) await owner.retired;
+    else {
+      let stopped;
+      try {
+        await Promise.race([owner.retired, new Promise((_, reject) => {
+          stopped = () => reject(signal.reason);
+          signal.addEventListener('abort', stopped, {once: true});
+          if (signal.aborted) stopped();
+        })]);
+      } finally { signal.removeEventListener('abort', stopped); }
+    }
+    if (owner.failure) throw owner.failure;
+    if (evaluation?.operation === 'refineDisplay' && ['queued', 'running', 'cancel-requested'].includes(evaluation.state))
+      throw new BackendError('Display retirement could not be confirmed. Use Cancel before retrying.', {code: 'evaluation_busy', status: 409});
+  }
   const volumeRequest = (path, payload, options) => {
     const profile = acceptedMetadata?.selection_volumes;
     if (!profile || Object.keys(profile).length !== 2 || profile.version !== 1 || profile.max_preview_cells !== 2048)
@@ -256,7 +285,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     capabilities: Object.freeze({ numerical: true, cad: true, examples: true,
       progress: 'snapshots', cancelComputation: true, forceRestart: false, sources: 'single-scan-and-retained-examples',
       sourceImport: true, sourceActions: true, sourceReplacement: true, selectionVolumes: true, virtualScans: true,
-      projectArchives: true, seedSurfaceSelection: true }),
+      projectArchives: true, seedSurfaceSelection: true, displayRefinement: true }),
     async loadWorkspace({ generation, token, ...options } = {}) {
       const publication = sourcePublication, observation = evaluationObservation, version = evaluationVersion;
       const metadata = await request('/api/meta', undefined, { ...options, publication, sourceMutation: true });
@@ -312,13 +341,13 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
           return state;
         } catch (error) {
           if (observation === evaluationObservation && evaluation?.id === operation.id && !lifetime.signal.aborted)
-            publishLifecycle('cancel-requested', { operation: operation.kind, roots: [...operation.roots],
+            publishLifecycle('cancel-requested', { operation: evaluationOperation(operation), roots: [...operation.roots],
               evaluationId: operation.id, generation: operation.generation, canCancel: true, retryCancel: true,
               message: 'Cancellation could not be confirmed. Retry Cancel; native work may still be running.' });
           throw error;
         } finally { if (cancellation === operationRecord) cancellation = undefined; }
       })();
-      publishLifecycle('cancel-requested', { operation: operation.kind, roots: [...operation.roots],
+      publishLifecycle('cancel-requested', { operation: evaluationOperation(operation), roots: [...operation.roots],
         evaluationId: operation.id, generation: operation.generation });
       return operationRecord.promise;
     },
@@ -378,6 +407,65 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     },
     evaluateGraph: (payload, options) => graphRequest('/api/graph/evaluate', payload, options),
     ensureGraph: (payload, options) => graphRequest('/api/graph/ensure', payload, options),
+    async refineDisplay(payload, { signal: callerSignal } = {}) {
+      callerSignal?.throwIfAborted();
+      if (displayOwner) throw new BackendError('CAD display refinement is already running.', {code: 'evaluation_busy', status: 409});
+      if (acceptedMetadata && !supportsDisplayRefinement(acceptedMetadata.display_refinement))
+        throw new BackendError('This backend does not support CAD display refinement.', { code: 'unsupported_capability' });
+      if (latestGraph && (latestGraph.token !== payload.token || latestGraph.revision !== payload.revision)) throw superseded();
+      let retired;
+      const owner = {controller: new AbortController(), retired: new Promise(resolve => { retired = resolve; })};
+      displayOwner = owner;
+      const signal = callerSignal ? AbortSignal.any([callerSignal, owner.controller.signal]) : owner.controller.signal;
+      const observation = evaluationObservation, publication = sourcePublication;
+      const displayRequest = async (path, value) => {
+        const version = evaluationVersion;
+        const state = await request(path, value, {observation, publication, generation: acceptedGeneration});
+        if (state?.recipe || state?.states || state?.graph)
+          throw new BackendError('Display refinement cannot publish graph changes.', {code: 'invalid_operation'});
+        observeEvaluation(state, version);
+        return state;
+      };
+      let operation, stopping;
+      const stopOwned = () => {
+        if (!stopping && operation && evaluation?.id === operation.id &&
+          ['queued', 'running', 'cancel-requested'].includes(evaluation.state)) {
+          stopping = backend.cancelComputation();
+          void stopping.catch(error => { owner.failure = error; });
+        }
+      };
+      signal?.addEventListener('abort', stopOwned);
+      try {
+        const started = await displayRequest('/api/graph/display/refine', payload);
+        operation = started.evaluation;
+        if (!operation || operation.kind !== 'preview' || operation.operation !== 'refineDisplay' || started.token !== payload.token)
+          throw new BackendError('Invalid display refinement operation.', { code: 'invalid_operation' });
+        while (true) {
+          if (signal?.aborted) { stopOwned(); await stopping; signal.throwIfAborted(); }
+          const state = await displayRequest(`/api/graph/display/refine/${operation.id}`);
+          if (state.evaluation?.id !== operation.id || state.token !== payload.token) throw superseded();
+          if (signal?.aborted) { stopOwned(); await stopping; signal.throwIfAborted(); }
+          if (state.error) throw new BackendError(state.error.message || 'CAD display refinement failed.',
+            { code: state.error.code || 'display_failed' });
+          if (state.display) {
+            if (state.revision !== payload.revision || state.feature !== payload.feature || state.quality !== payload.quality) throw superseded();
+            if (latestGraph && (latestGraph.token !== payload.token || latestGraph.revision !== payload.revision)) throw superseded();
+            return state;
+          }
+          if (!['queued', 'running', 'cancel-requested'].includes(state.evaluation.state))
+            throw new BackendError('Display refinement stopped without a result.', { code: 'computation_cancelled' });
+          await wait(pollInterval, signalFor(signal));
+        }
+      } catch (error) {
+        if (!operation) await backend.getGraph().catch(() => {});
+        if (signal?.aborted) { stopOwned(); await stopping; throw signal.reason; }
+        throw error;
+      } finally {
+        signal.removeEventListener('abort', stopOwned);
+        if (displayOwner === owner) displayOwner = null;
+        retired();
+      }
+    },
     async previewSurfaceSelection(payload, { signal } = {}) {
       const profile = acceptedMetadata?.surface_selection;
       if (!supportsSurfaceSelectionPolicy(profile, payload?.policy))
@@ -511,5 +599,18 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       publishLifecycle('closed');
     },
   };
+  for (const name of ['replaceRecipe', 'importRecipe', 'evaluateGraph', 'ensureGraph',
+    'previewFeatureReuse', 'applyFeatureReuse', 'previewSurfaceSelection',
+    'faceCandidates', 'previewFaces', 'applyFaces', 'exportCad', 'exportProject',
+    'authorSelectionVolume', 'setSelectionVolumeOptions', 'chooseSelectionVolume',
+    'getSelectionVolumeChoices', 'getSelectionVolumePreview', 'deleteSelectionVolume']) {
+    const invoke = backend[name];
+    backend[name] = async (...args) => {
+      const publication = sourcePublication, signal = args[1]?.signal || args[0]?.signal;
+      if (displayOwner) await retireDisplay(signal);
+      checkPublication(publication); signal?.throwIfAborted();
+      return invoke(...args);
+    };
+  }
   return backend;
 }

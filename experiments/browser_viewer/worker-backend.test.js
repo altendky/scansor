@@ -1963,3 +1963,75 @@ test('a mutation during binary transfer confirmation rejects the obsolete export
   await applied;
   value.backend.close();
 });
+
+async function cadDisplayFixture() {
+  const value = fixture({cad: true, initialMode: 'empty'}), loading = value.backend.initialize(), response = projectReady();
+  response.worker_protocol.display_refinement = {supported: true, version: 1, qualities: ['draft', 'standard', 'fine']};
+  value.worker.reply(response); await loading;
+  return value;
+}
+const cadDisplayPayload = {token: 'empty', revision: 3, feature: 'face', quality: 'standard'};
+test('worker display replies are read-only and preserve accepted recovery authority', async () => {
+  const value = await cadDisplayFixture(), pending = value.backend.refineDisplay(cadDisplayPayload);
+  await settle(); const request = value.worker.calls.at(-1);
+  value.worker.reply({id: request.id, generation: request.generation, ok: true,
+    result: {...cadDisplayPayload, display: {}, recipe: {nodes: [{id: 'private'}]}}});
+  await assert.rejects(pending, error => error.code === 'invalid_operation');
+  assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe);
+  value.backend.close();
+});
+test('worker display terminal replies are fenced by newer same-source accepted revisions', async () => {
+  const value = await cadDisplayFixture(), pending = value.backend.refineDisplay(cadDisplayPayload),
+    rejected = assert.rejects(pending, error => error.code === 'observation_superseded');
+  await settle(); const display = value.worker.calls.at(-1), reading = value.backend.getGraph();
+  await settle(); const graphRead = value.worker.calls.at(-1);
+  value.worker.reply({id: graphRead.id, generation: graphRead.generation, ok: true, result: {...sourceGraph(), revision: 4}});
+  await reading;
+  value.worker.reply({id: display.id, generation: display.generation, ok: true, result: {...cadDisplayPayload, display: {}}});
+  await rejected; value.backend.close();
+});
+test('worker display Abort preserves its private owner until safe cancellation retires', async () => {
+  const value = await cadDisplayFixture(), controller = new AbortController(), reason = new DOMException('Stopped', 'AbortError'),
+    pending = value.backend.refineDisplay(cadDisplayPayload, {signal: controller.signal});
+  let retired = false;
+  const rejected = assert.rejects(pending, error => error === reason).then(() => { retired = true; });
+  await settle(); const display = value.worker.calls.at(-1);
+  controller.abort(reason); await settle(); const cancel = value.worker.calls.at(-1);
+  assert.equal(cancel.operation, 'cancel'); assert.equal(cancel.payload.operation, 'refineDisplay');
+  assert.equal(retired, false);
+  value.worker.reply({id: display.id, generation: display.generation, ok: true, result: {...cadDisplayPayload, display: {}}});
+  await settle(); assert.equal(retired, false);
+  value.worker.reply({id: cancel.id, generation: cancel.generation, ok: true, result: sourceGraph()});
+  await rejected; assert.deepEqual(await value.backend.exportRecipe(), sourceGraph().recipe); value.backend.close();
+});
+
+for (const operation of ['previewFaces', 'getSelectionVolumePreview'])
+  test(`explicit worker ${operation} waits for display retirement before sending work`, async () => {
+    const value = await cadDisplayFixture(), refining = value.backend.refineDisplay(cadDisplayPayload),
+      cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled');
+    await settle();
+    const working = value.backend[operation]({token: 'empty'});
+    await settle(); const stopping = value.worker.calls.at(-1);
+    assert.equal(stopping.operation, 'cancel'); assert.equal(stopping.payload.operation, 'refineDisplay');
+    assert.equal(value.worker.calls.filter(call => call.operation === operation).length, 0);
+    value.worker.reply({id: stopping.id, generation: stopping.generation, ok: true, result: sourceGraph()});
+    await cancelled; await settle();
+    const next = value.worker.calls.at(-1); assert.equal(next.operation, operation);
+    value.worker.reply({id: next.id, generation: next.generation, ok: true, result: {token: 'empty', complete: true}});
+    assert.equal((await working).complete, true); value.backend.close();
+  });
+
+test('aborting queued explicit worker work never sends it after display cancellation', async () => {
+  const value = await cadDisplayFixture(), controller = new AbortController(),
+    refining = value.backend.refineDisplay(cadDisplayPayload),
+    cancelled = assert.rejects(refining, error => error.code === 'computation_cancelled');
+  await settle(); const reason = new DOMException('New work changed', 'AbortError'),
+    working = value.backend.previewFaces({token: 'empty'}, {signal: controller.signal}),
+    rejected = assert.rejects(working, error => error === reason);
+  await settle(); const stopping = value.worker.calls.at(-1);
+  assert.equal(stopping.operation, 'cancel'); controller.abort(reason);
+  await Promise.all([cancelled, rejected]);
+  value.worker.reply({id: stopping.id, generation: stopping.generation, ok: true, result: sourceGraph()});
+  await settle(); assert.equal(value.worker.calls.filter(call => call.operation === 'previewFaces').length, 0);
+  value.backend.close();
+});

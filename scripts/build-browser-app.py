@@ -46,6 +46,7 @@ UI_FILES = (
     "fit-reference.js",
     "relationship-inputs.js",
     "relationship-highlight.js",
+    "cad-display.js",
     "residual-display.js",
     "reuse-volume.js",
     "surface-trims.js",

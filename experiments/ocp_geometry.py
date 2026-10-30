@@ -16,8 +16,10 @@ from numpy.typing import NDArray
 from OCP import Standard
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Tool
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_Copy,
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeWire,
@@ -34,12 +36,14 @@ from OCP.Geom import (
     Geom_Surface,
     Geom_TrimmedCurve,
 )
+from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Ellipse, GeomAbs_Line
 from OCP.GeomAPI import GeomAPI_IntSS
 from OCP.gp import gp_Ax2, gp_Ax3, gp_Circ, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf
 from OCP.IMeshData import IMeshData_Failure
-from OCP.TopAbs import TopAbs_REVERSED
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+from OCP.TopExp import TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
-from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Shape, TopoDS_Wire
+from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Wire
 
 from experiments.surface_primitives import basis, primitive, revolution_geometry
 
@@ -295,6 +299,216 @@ def tessellate_face(face: TopoDS_Face, scale: float) -> dict[str, Any]:
     return {
         "positions": positions.ravel().tolist(),
         "indices": triangles.ravel().tolist(),
+    }
+
+
+@kernel_operation
+def tessellate_display_shape(
+    shape: TopoDS_Shape,
+    deflection: float,
+    angle: float,
+    *,
+    max_faces: int,
+    max_edges: int,
+    max_triangles: int,
+    max_vertices: int,
+    max_edge_points: int,
+    max_scalars: int,
+    omitted_edges: list[TopoDS_Edge] | None = None,
+    source_faces: list[tuple[TopoDS_Face, list[str]]] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Mesh one private shape and take its outlines from that triangulation.
+
+    This is a renderer operation. The semantic ``tessellate_face`` policy above
+    remains unchanged. A whole solid retains shared edges throughout copying,
+    normalization and meshing; no sewing or physical healing is performed.
+    """
+    from experiments.scan_workspace import check_cancelled
+
+    if not math.isfinite(deflection) or deflection <= 0 or not 0 < angle < math.pi:
+        raise ValueError("display deflection and angle must be positive and finite")
+
+    def collect(value: TopoDS_Shape, kind: Any, maximum: int) -> list[TopoDS_Shape]:
+        result: list[TopoDS_Shape] = []
+        explorer = TopExp_Explorer(value, kind)
+        while explorer.More():
+            if len(result) >= maximum:
+                raise ValueError("display topology exceeds the refinement limit")
+            result.append(explorer.Current())
+            explorer.Next()
+        return result
+
+    check_cancelled(cancelled)
+    if not collect(shape, TopAbs_FACE, max_faces):
+        raise ValueError("display shape has no faces")
+    source_edges = collect(shape, TopAbs_EDGE, max_edges)
+    # Refuse obviously oversized patterned boundaries before entering the
+    # native mesher. Counts include repeated uses, conservatively accounting
+    # for both adjacent face meshes. Actual output limits are checked again.
+    angular_points = 0
+    for raw_edge in source_edges:
+        check_cancelled(cancelled)
+        edge = TopoDS.Edge(raw_edge)
+        if BRep_Tool.Degenerated_s(edge):
+            continue
+        curve = BRepAdaptor_Curve(edge)
+        if curve.GetType() in (GeomAbs_Circle, GeomAbs_Ellipse):
+            span = abs(curve.LastParameter() - curve.FirstParameter())
+            if not math.isfinite(span):
+                raise ValueError("display edge has an unbounded parameter interval")
+            angular_points += math.ceil(2 * span / angle) + 1
+        else:
+            angular_points += 2 if curve.GetType() == GeomAbs_Line else 128
+        if angular_points > max_edge_points or 6 * angular_points > max_scalars:
+            raise ValueError("display boundary preflight exceeds the refinement limit")
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape, box, False)
+    lower, upper = (
+        np.asarray(box.CornerMin().Coord()),
+        np.asarray(box.CornerMax().Coord()),
+    )
+    center = lower / 2 + upper / 2
+    scale = math.hypot(*(upper - lower))
+    if not math.isfinite(scale) or scale <= 0 or not np.isfinite(center).all():
+        raise ValueError("display shape scale is not representable")
+    normalized_deflection = deflection / scale
+    if not math.isfinite(normalized_deflection) or normalized_deflection <= 0:
+        raise ValueError("display deflection is not representable at this scale")
+    # OCCT's absolute confusion threshold is expressed in the private local
+    # chart. An error request below it cannot be truthfully advertised.
+    if normalized_deflection < 1e-7:
+        raise ValueError(
+            "display deflection is below the kernel's normalized resolution"
+        )
+    attempts = [
+        (relative, normalized_deflection / factor)
+        for relative in (False, True)
+        for factor in (1, 10, 100)
+    ]
+    for relative, chord in attempts:
+        check_cancelled(cancelled)
+        copied = BRepBuilderAPI_Copy(shape, True, False)
+        transform = gp_Trsf()
+        matrix = np.eye(4)
+        matrix[:3, :3] /= scale
+        matrix[:3, 3] = -center / scale
+        transform.SetValues(*map(float, matrix[:3].ravel()))
+        transformed = BRepBuilderAPI_Transform(copied.Shape(), transform, True)
+        display = transformed.Shape()
+        mesh = BRepMesh_IncrementalMesh(display, chord, relative, angle, False)
+        check_cancelled(cancelled)
+        if not mesh.IsDone() or mesh.GetStatusFlags() & int(IMeshData_Failure):
+            continue
+        pieces: list[tuple[TopoDS_Face, Any, TopLoc_Location]] = []
+        vertices = triangles = 0
+        for raw_face in collect(display, TopAbs_FACE, max_faces):
+            face = TopoDS.Face(raw_face)
+            location = TopLoc_Location()
+            triangulation = BRep_Tool.Triangulation_s(face, location)
+            if not triangulation or triangulation.NbTriangles() <= 0:
+                break
+            vertices += triangulation.NbNodes()
+            triangles += triangulation.NbTriangles()
+            if (
+                vertices > max_vertices
+                or triangles > max_triangles
+                or 3 * (vertices + triangles) > max_scalars
+            ):
+                raise ValueError("display mesh exceeds the refinement limit")
+            pieces.append((face, triangulation, location))
+        else:
+            break
+    else:
+        raise ValueError("display preview meshing failed or has no triangles")
+    excluded = [
+        transformed.ModifiedShape(copied.ModifiedShape(edge))
+        for edge in omitted_edges or []
+    ]
+    mapped_sources: dict[int, list[tuple[TopoDS_Shape, list[str]]]] = {}
+    for original_face, identifiers in source_faces or []:
+        if not identifiers:
+            raise ValueError("display face has no authored source provenance")
+        mapped = transformed.ModifiedShape(copied.ModifiedShape(original_face))
+        mapped_sources.setdefault(hash(mapped), []).append((mapped, identifiers))
+    positions: list[float] = []
+    indices: list[int] = []
+    outlines: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
+    seen: dict[int, list[TopoDS_Edge]] = {}
+    edge_points = 0
+    for face, triangulation, location in pieces:
+        check_cancelled(cancelled)
+        transform = location.Transformation()
+        points = np.asarray(
+            [
+                triangulation.Node(i).Transformed(transform).Coord()
+                for i in range(1, triangulation.NbNodes() + 1)
+            ]
+        )
+        points = points * scale + center
+        if not np.isfinite(points).all():
+            raise ValueError("display preview coordinates overflow")
+        offset = len(positions) // 3
+        positions.extend(points.ravel().tolist())
+        start = len(indices)
+        for number in range(1, triangulation.NbTriangles() + 1):
+            triangle = list(triangulation.Triangle(number).Get())
+            if face.Orientation() == TopAbs_REVERSED:
+                triangle.reverse()
+            indices.extend(index - 1 + offset for index in triangle)
+        if source_faces is not None:
+            identifiers = sorted(
+                {
+                    identifier
+                    for mapped, owners in mapped_sources.get(hash(face), [])
+                    if face.IsSame(mapped)
+                    for identifier in owners
+                }
+            )
+            if not identifiers:
+                raise ValueError(
+                    "display triangulation lost its authored face provenance"
+                )
+            ranges.append(
+                {"face_ids": identifiers, "start": start, "count": len(indices) - start}
+            )
+        for raw_edge in collect(face, TopAbs_EDGE, max_edges):
+            edge = TopoDS.Edge(raw_edge)
+            if (
+                BRep_Tool.Degenerated_s(edge)
+                or BRep_Tool.IsClosed_s(edge, face)
+                or any(edge.IsSame(item) for item in excluded)
+            ):
+                continue
+            bucket = seen.setdefault(hash(edge), [])
+            if any(edge.IsSame(item) for item in bucket):
+                continue
+            bucket.append(edge)
+            polygon = BRep_Tool.PolygonOnTriangulation_s(edge, triangulation, location)
+            if not polygon or polygon.NbNodes() < 2:
+                raise ValueError("display edge has no matching mesh polygon")
+            count = polygon.NbNodes()
+            edge_points += count
+            if (
+                edge_points > max_edge_points
+                or len(positions) + len(indices) + 3 * edge_points > max_scalars
+            ):
+                raise ValueError("display outlines exceed the refinement limit")
+            outline = points[[polygon.Node(i) - 1 for i in range(1, count + 1)]]
+            outlines.append(
+                {"positions": outline.ravel().tolist(), "closed": bool(edge.Closed())}
+            )
+    return {
+        "preview": {"positions": positions, "indices": indices},
+        "edges": outlines,
+        **({"face_ranges": ranges} if source_faces is not None else {}),
+        "meshing": {
+            "relative_fallback": relative,
+            "normalized_deflection": chord,
+            "normalization_length": scale,
+            "angular_deflection": angle,
+        },
     }
 
 

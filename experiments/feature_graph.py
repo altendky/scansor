@@ -5056,6 +5056,50 @@ class FeatureGraph(Generic[WorkspaceType]):
                 raise StaleGraph("the recipe changed before export")
             return self._recipe.model_dump()
 
+    def assert_display_current(self, token: str, revision: int) -> None:
+        """Fence a private display result against the exact accepted publication."""
+        with self.lock:
+            if token != self._token() or revision != self._revision:
+                raise StaleGraph("graph changed during display refinement")
+
+    def ready_display_inputs(
+        self, token: str, revision: int, feature: str
+    ) -> dict[str, Any]:
+        """Copy only ready CAD inputs; display work never evaluates or publishes."""
+        with self.lock:
+            self.assert_display_current(token, revision)
+            nodes = {node.id: node for node in self._recipe.nodes}
+            node = nodes.get(feature)
+            if not isinstance(node, (TrimmedFace, ArrangedFace, Body)):
+                raise ValueError(
+                    "display refinement requires a constructed face or Body"
+                )
+            references = [feature, *(node.faces if isinstance(node, Body) else [])]
+            if any(self._states.get(key) != "ready" for key in references):
+                raise ValueError(
+                    "Evaluate display inputs before refining their display"
+                )
+            records = {key: self._derived.get(key) for key in references}
+            if any(not record for record in records.values()):
+                raise ValueError("ready display geometry is unavailable")
+            points = self.workspace.local
+            if not len(points):
+                raise ValueError("display refinement requires finite source bounds")
+            span = points.max(axis=0) - points.min(axis=0)
+            scale = math.hypot(*span)
+            if not math.isfinite(scale) or scale <= 0:
+                raise ValueError(
+                    "display refinement requires positive finite source bounds"
+                )
+            return {
+                "record": deepcopy(records[feature]),
+                "faces": {
+                    key: deepcopy(records[key])
+                    for key in (node.faces if isinstance(node, Body) else [])
+                },
+                "scale": scale,
+            }
+
     def ready_selection_inputs(
         self, token: str, references: list[str]
     ) -> tuple[str, dict[str, list[int]]]:

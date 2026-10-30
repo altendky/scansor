@@ -170,6 +170,7 @@
       "experiments/scan_replacement.py"
     ],
     "cad": [
+      "experiments/display_geometry.py",
       "experiments/arrangement_face_proposals.py",
       "experiments/body_geometry.py",
       "experiments/browser_runtime/cad_cases.py",

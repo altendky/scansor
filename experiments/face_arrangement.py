@@ -1438,6 +1438,38 @@ def select_face(
 
 @kernel_operation
 @native_replay_scope()
+def normalized_display_face(
+    record: dict[str, Any],
+) -> tuple[TopoDS_Face, Array, float, list[TopoDS_Edge]]:
+    """Replay the accepted cell for display, including its finite carrier.
+
+    Artificial carrier boundaries remain excluded from outlines. They do not
+    become physical caps, and this helper never changes the stored selector.
+    """
+    intent = record["bounds"]["arrangement"]
+    cell, center, scale = _selected(intent, intent["selector"])
+    omitted: list[TopoDS_Edge] = []
+    wires = TopExp_Explorer(cell["face"], TopAbs_WIRE)
+    for loop in cell["loops"]:
+        if not wires.More():
+            raise ValueError("display arrangement wire provenance changed")
+        edges = BRepTools_WireExplorer(TopoDS.Wire(wires.Current()), cell["face"])
+        for description in loop["edges"]:
+            if not edges.More():
+                raise ValueError("display arrangement edge provenance changed")
+            if description.get("artificial"):
+                omitted.append(edges.Current())
+            edges.Next()
+        if edges.More():
+            raise ValueError("display arrangement edge provenance changed")
+        wires.Next()
+    if wires.More():
+        raise ValueError("display arrangement wire provenance changed")
+    return cell["face"], center, scale, omitted
+
+
+@kernel_operation
+@native_replay_scope()
 def face_from_record(record: dict[str, Any]) -> TopoDS_Face:
     if not record.get("bounded"):
         raise ValueError(

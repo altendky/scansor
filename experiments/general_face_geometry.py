@@ -636,6 +636,14 @@ def _normalized_face(record: dict[str, Any]) -> tuple[TopoDS_Face, Array, float]
 
 
 @kernel_operation
+def normalized_display_face(record: dict[str, Any]) -> tuple[TopoDS_Face, Array, float]:
+    """Reconstruct a private display face without a distant world round trip."""
+    if not record.get("bounded"):
+        raise ValueError("general display face requires finite closed boundaries")
+    return _normalized_face(record)
+
+
+@kernel_operation
 def face_from_boundaries(
     geometry: dict[str, Any],
     boundaries: list[tuple[dict[str, Any], dict[str, Any]]],

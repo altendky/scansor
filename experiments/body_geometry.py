@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from copy import deepcopy
 from hashlib import sha256
 from typing import Any
@@ -36,6 +37,7 @@ from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_So
 from experiments.face_geometry import face_from_record
 from experiments.native_replay import cached_native_replay
 from experiments.ocp_geometry import kernel_operation, tessellate_face
+from experiments.scan_workspace import check_cancelled
 
 
 class BodyAssemblyError(ValueError):
@@ -198,8 +200,14 @@ def _interference_problems(
 
 @kernel_operation
 def _assemble_native(
-    records: dict[str, dict[str, Any]], tolerance: float
+    records: dict[str, dict[str, Any]],
+    tolerance: float,
+    *,
+    include_preview: bool = True,
+    cancelled: Callable[[], bool] | None = None,
+    display_faces: list[tuple[TopoDS_Face, list[str]]] | None = None,
 ) -> tuple[TopoDS_Solid, dict[str, Any]]:
+    check_cancelled(cancelled)
     if not math.isfinite(tolerance) or tolerance <= 0:
         raise ValueError("body sewing tolerance must be positive and finite")
     if not records:
@@ -208,6 +216,7 @@ def _assemble_native(
         )
     faces: dict[str, TopoDS_Face] = {}
     for identifier, record in records.items():
+        check_cancelled(cancelled)
         if record.get("bounded") is not True:
             raise _failure(
                 [
@@ -256,6 +265,7 @@ def _assemble_native(
     for face in faces.values():
         sewing.Add(face)
     sewing.Perform()
+    check_cancelled(cancelled)
     shape = sewing.SewedShape()
     if shape.IsNull():
         raise _failure(
@@ -267,6 +277,7 @@ def _assemble_native(
     }
     problems: list[dict[str, Any]] = []
     for edge, uses in _edges_with_uses(shape):
+        check_cancelled(cancelled)
         if len(uses) != 2:
             code = "free_edge" if len(uses) == 1 else "nonmanifold_edge"
             problems.append(
@@ -301,6 +312,7 @@ def _assemble_native(
     orientation = ShapeFix_Shell()
     orientation.Init(shell)
     _ = orientation.FixFaceOrientation(shell, False, False)
+    check_cancelled(cancelled)
     shell = orientation.Shell()
     if not orientation.ErrorFaces().IsNull() or orientation.NbShells() != 1:
         raise _failure(
@@ -332,6 +344,7 @@ def _assemble_native(
     checker.SetArguments(arguments)
     checker.SetLevelOfCheck(5)
     checker.Perform()
+    check_cancelled(cancelled)
     if checker.HasErrors() or checker.DS().Interferences().Extent():
         raise _failure(
             _interference_problems(checker, modified),
@@ -379,25 +392,36 @@ def _assemble_native(
             ],
             tolerance,
         )
+    if display_faces is not None:
+        for raw_face in _shapes(solid, TopAbs_FACE):
+            check_cancelled(cancelled)
+            face = TopoDS.Face(raw_face)
+            sources = _source_ids([face], modified)
+            if not sources:
+                raise ValueError(
+                    "Body display face lost its authored source provenance"
+                )
+            display_faces.append((face, sources))
     box = Bnd_Box()
     BRepBndLib.Add_s(solid, box, False)
     scale = float(
         np.linalg.norm(np.subtract(box.CornerMax().Coord(), box.CornerMin().Coord()))
     )
     preview: dict[str, Any] = {"positions": [], "indices": [], "edges": []}
-    for raw_face in _shapes(solid, TopAbs_FACE):
-        piece = tessellate_face(TopoDS.Face(raw_face), scale)
-        offset = len(preview["positions"]) // 3
-        preview["positions"].extend(piece["positions"])
-        preview["indices"].extend(index + offset for index in piece["indices"])
-    for edge, uses in _edges_with_uses(solid):
-        preview["edges"].append(
-            {
-                **_edge_preview(edge),
-                "source_faces": _source_ids(uses, modified),
-                "kind": "boundary",
-            }
-        )
+    if include_preview:
+        for raw_face in _shapes(solid, TopAbs_FACE):
+            piece = tessellate_face(TopoDS.Face(raw_face), scale)
+            offset = len(preview["positions"]) // 3
+            preview["positions"].extend(piece["positions"])
+            preview["indices"].extend(index + offset for index in piece["indices"])
+        for edge, uses in _edges_with_uses(solid):
+            preview["edges"].append(
+                {
+                    **_edge_preview(edge),
+                    "source_faces": _source_ids(uses, modified),
+                    "kind": "boundary",
+                }
+            )
     result = {
         "kind": "body",
         "valid": True,
@@ -459,3 +483,35 @@ def body_from_record(
             "Body face inputs changed since assembly; evaluate the Body again"
         )
     return _replay(faces, tolerance)[0]
+
+
+def body_display_shape(
+    record: dict[str, Any],
+    faces: dict[str, dict[str, Any]],
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> tuple[TopoDS_Solid, list[tuple[TopoDS_Face, list[str]]]]:
+    """Reconstruct topology and exact sewing provenance for renderer picking."""
+    if record.get("kind") != "body" or record.get("valid") is not True:
+        raise ValueError("body display requires a successfully evaluated Body")
+    if set(record.get("face_ids", [])) != set(faces) or len(record["face_ids"]) != len(
+        faces
+    ):
+        raise ValueError("Body face inputs do not match its evaluated result")
+    tolerance = float(record["sewing_tolerance"])
+    key = body_input_fingerprint(faces, tolerance)
+    if key != record.get("input_fingerprint"):
+        raise ValueError("Body face inputs changed since assembly")
+
+    def construct() -> tuple[TopoDS_Solid, list[tuple[TopoDS_Face, list[str]]]]:
+        provenance: list[tuple[TopoDS_Face, list[str]]] = []
+        solid, _ = _assemble_native(
+            faces,
+            tolerance,
+            include_preview=False,
+            cancelled=cancelled,
+            display_faces=provenance,
+        )
+        return solid, provenance
+
+    return cached_native_replay(("body-display", key), construct)

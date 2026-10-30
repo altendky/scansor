@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {prepareReports, sha256, startPreview, verifySite} from './server.mjs';
 import {independentPlaneObserver, exerciseIndependentPlaneUi} from './independent-plane-ui.mjs';
 import {fitRecoverySettingsObserver, exerciseFitRecoverySettingsUi} from './fit-recovery-settings-ui.mjs';
+import {cadDisplayQualityObserver, exerciseCadDisplayQualityUi} from './cad-display-quality-ui.mjs';
 
 const options = {};
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -23,10 +24,17 @@ const output = await prepareReports(options['--output'], [site.root, repository]
 const fixture = JSON.parse(execFileSync(options['--native-python'] || path.join(repository, '.venv/bin/python'),
   ['-m', 'tests.direction_ui_fixture'], {cwd: repository, env: {...process.env,
     PYTHONPATH: [repository, path.join(repository, 'src')].join(path.delimiter), OPENBLAS_NUM_THREADS: '1', OMP_NUM_THREADS: '1'}}));
+const nativePython = options['--native-python'] || path.join(repository, '.venv/bin/python'),
+  fixtureEnvironment = {...process.env, PYTHONPATH: [repository, path.join(repository, 'src')].join(path.delimiter), OPENBLAS_NUM_THREADS: '1', OMP_NUM_THREADS: '1'},
+  cadFixture = JSON.parse(execFileSync(nativePython, ['-m', 'tests.cad_display_fixture'], {cwd: repository, env: fixtureEnvironment})),
+  inspectExport = data => JSON.parse(execFileSync(nativePython, ['-m', 'tests.cad_display_fixture', '--inspect-export'],
+    {cwd: repository, env: fixtureEnvironment, input: data}).toString().trim().split('\n').at(-1));
 const report = {schema: 'scansor-independent-plane-ui-v1', complete: false, manifest_sha256: site.manifest_sha256,
   runner_sha256: sha256(await readFile(new URL(import.meta.url))),
   harness_sha256: sha256(await readFile(new URL('./independent-plane-ui.mjs', import.meta.url))),
   settings_harness_sha256: sha256(await readFile(new URL('./fit-recovery-settings-ui.mjs', import.meta.url))),
+  cad_harness_sha256: sha256(await readFile(new URL('./cad-display-quality-ui.mjs', import.meta.url))),
+  cad_fixture_sha256: sha256(await readFile(path.join(repository, 'tests/cad_display_fixture.py'))),
   fixture_sha256: sha256(await readFile(path.join(repository, 'tests/direction_ui_fixture.py'))),
   profiles: [], external_requests: [], api_requests: [], page_errors: [], cleanup_errors: []};
 let browser, preview;
@@ -45,7 +53,7 @@ try {
         const relative = url.pathname.slice(prefix.length), record = site.records.get(relative); assert(record);
         const bytes = await readFile(path.join(site.root, relative));
         assert.equal(bytes.length, record.bytes); assert.equal(sha256(bytes), record.sha256);
-        await route.fulfill({status: 200, contentType: 'text/javascript', body: Buffer.concat([bytes, Buffer.from(independentPlaneObserver + fitRecoverySettingsObserver)]),
+        await route.fulfill({status: 200, contentType: 'text/javascript', body: Buffer.concat([bytes, Buffer.from(independentPlaneObserver + fitRecoverySettingsObserver + cadDisplayQualityObserver)]),
           headers: isolation ? {'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp'} : {}});
       });
       const page = await context.newPage(); page.setDefaultTimeout(60000);
@@ -53,12 +61,14 @@ try {
       await page.goto(preview.origin + prefix + 'app/');
       profile.workflow = await exerciseIndependentPlaneUi({page, expect: expect.configure({timeout: 60000}), fixture});
       profile.fit_recovery_settings = await exerciseFitRecoverySettingsUi({page, expect: expect.configure({timeout: 60000}), fixture});
+      profile.cad_display_quality = await exerciseCadDisplayQualityUi({page, expect: expect.configure({timeout: 60000}), fixture: cadFixture, inspectExport});
       profile.isolation_actual = {page: await page.evaluate(() => crossOriginIsolated), worker: await page.workers()[0].evaluate(() => crossOriginIsolated)};
       assert.deepEqual(profile.isolation_actual, {page: isolation, worker: isolation}); profile.complete = true;
     } finally {await context.close(); await preview.close(); preview = null;}
   }
   assert.deepEqual(report.profiles[0].workflow, report.profiles[1].workflow);
   assert.deepEqual(report.profiles[0].fit_recovery_settings, report.profiles[1].fit_recovery_settings);
+  assert.deepEqual(report.profiles[0].cad_display_quality, report.profiles[1].cad_display_quality);
   assert.deepEqual(report.external_requests, []); assert.deepEqual(report.api_requests, []); assert.deepEqual(report.page_errors, []);
   report.complete = true;
 } catch (error) {report.failure = String(error); throw error;}
