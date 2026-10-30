@@ -227,9 +227,14 @@ def test_roles_and_counts_have_one_authoritative_contract() -> None:
                 assert field["name"]
                 assert field["encoding"] in {"reference", "feature"}
                 assert type(field["multiple"]) is bool
-        for requirement in signature["roles"].values():
+        for role, requirement in signature["roles"].items():
             assert requirement in REQUIREMENTS
-            assert REQUIREMENTS[requirement]["min_count"] >= 1
+            minimum = REQUIREMENTS[requirement]["min_count"]
+            assert minimum >= 0
+            if minimum == 0:
+                field = signature["node_fields"][role]
+                assert field["optional"] is True
+                assert field["multiple"] is False
             assert (
                 REQUIREMENTS[requirement]["max_count"]
                 >= REQUIREMENTS[requirement]["min_count"]

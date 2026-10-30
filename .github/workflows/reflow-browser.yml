@@ -156,6 +156,22 @@ jobs:
           --output "${{ runner.temp }}/agents/scansor-static/stale-relationship-ui"
           --native-python .venv/bin/python
 
+      - name: Verify live pattern direction collections in plain and isolated workers
+        run: >-
+          node experiments/browser_static/validate-pattern-relationship-ui.mjs
+          --directory "${{ runner.temp }}/agents/scansor-static/work/site"
+          --output "${{ runner.temp }}/agents/scansor-static/pattern-relationship-ui"
+          --native-python .venv/bin/python
+
+      - name: Upload pattern relationship UI acceptance
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pattern-relationship-ui-acceptance
+          path: ${{ runner.temp }}/agents/scansor-static/pattern-relationship-ui/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload pending relationship UI acceptance
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

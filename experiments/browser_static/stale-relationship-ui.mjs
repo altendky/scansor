@@ -18,15 +18,16 @@ const reference = (feature, output, context = feature) => ({feature, output, con
 const key = value => JSON.stringify(value);
 const sameReferences = values => values.map(key).sort();
 const longMemberLabel = 'bolt hole surface at Occurrence 123456789 — independently fitted patterned hole';
+const participantChoicesId = 'relationship-role-direction_alignment-participants-choices';
 
 async function exerciseParticipantScrolling({page, expect, read, openBuilder, participantRow}) {
   const originalViewport = page.viewportSize(), before = await read(), profiles = [],
     seeds = Array.from({length: 4}, (_, index) => reference(`scroll-plane-${index + 1}`, 'plane')),
-    popup = page.locator('.selection-field-options').filter({has: page.locator('#relationship-filter')}),
-    list = page.locator('#relationship-participants'), search = page.locator('#relationship-filter'),
-    dropdown = page.getByRole('button', {name: 'Show Participants choices', exact: true});
+    popup = page.locator('.selection-field-options').filter({has: page.locator(`#${participantChoicesId}`)}),
+    list = page.locator(`#${participantChoicesId}`), search = popup.locator('input[type="search"]'),
+    dropdown = page.getByRole('button', {name: 'Show Apply to choices', exact: true});
   const geometry = () => popup.evaluate(element => {
-    const box = element.getBoundingClientRect(), search = element.querySelector('#relationship-filter').getBoundingClientRect(),
+    const box = element.getBoundingClientRect(), search = element.querySelector('input[type="search"]').getBoundingClientRect(),
       list = element.querySelector('[data-picker-scroll]'), field = element.closest('.selection-field').getBoundingClientRect(),
       scrollOwners = [element, ...element.querySelectorAll('*')].filter(child =>
         ['auto', 'scroll'].includes(getComputedStyle(child).overflowY) && child.scrollHeight > child.clientHeight + 1);
@@ -51,7 +52,7 @@ async function exerciseParticipantScrolling({page, expect, read, openBuilder, pa
     await list.focus(); await page.keyboard.press('Home');
     await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0);
     const initial = await geometry();
-    assert.deepEqual(initial.scrollOwners, ['relationship-participants'], 'Only the choices list should own vertical scrolling');
+    assert.deepEqual(initial.scrollOwners, [participantChoicesId], 'Only the choices list should own vertical scrolling');
     await list.hover(); await page.mouse.wheel(0, 100000);
     await expect.poll(() => list.evaluate(element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2)).toBe(true);
     const scrolled = await geometry();
@@ -154,7 +155,7 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     await page.locator('#relationship-kind').selectOption('direction_alignment');
     if (await page.locator('#clear-relationship-participants').isEnabled())
       await page.locator('#clear-relationship-participants').click();
-    if (list) await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+    if (list) await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
   };
   const treeParticipant = async value => {
     const before = await read(), choices = before.treeChoices.filter(choice => choice.reference.feature === value.feature),
@@ -174,9 +175,13 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert.deepEqual((await read()).selection, before.selection, 'Participant picking must preserve general feature selection');
     return choices.length;
   };
-  const participantRow = value => page.locator('#relationship-participants .relationship-participant')
+  const participantRow = value => page.locator(`#${participantChoicesId} .relationship-participant`)
     .filter({has: page.locator(`input[data-participant-id=${JSON.stringify(key(value))}]`)});
-  const selectedParticipant = value => page.locator(`#relationship-participant-field .selection-field-row[data-selection-key=${JSON.stringify(key(value))}]`);
+  const selectedParticipant = value => page.locator('[data-relationship-role="participants"]:visible, #relationship-participant-field:visible')
+    .locator(`.selection-field-row[data-selection-key=${JSON.stringify(key(value))}]`);
+  const participantField = page.locator('[data-relationship-role="participants"]'),
+    participantFilter = participantField.locator('input[type="search"]'),
+    participantPick = participantField.locator('.model-field-pick');
   const assertReadable = async (locator, text) => {
     await expect(locator).toBeVisible();
     await expect(locator).toContainText(text);
@@ -239,8 +244,8 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     await openBuilder();
     const rawAxis = reference('auto-axis', 'axis'), publishedAxisRef = reference('auto-axis', 'axis', '@axis/auto-axis'),
       publishedAlias = reference('axis-cylinder', 'axis', '@axis/auto-axis'),
-      groups = page.locator('#relationship-participants .relationship-participant-group'),
-      dropdown = page.getByRole('button', {name: 'Show Participants choices', exact: true});
+      groups = page.locator(`#${participantChoicesId} .relationship-participant-group`),
+      dropdown = page.getByRole('button', {name: 'Show Apply to choices', exact: true});
     await expect(groups.filter({hasText: 'Features to constrain'})).toBeVisible();
     await expect(groups.filter({hasText: 'Results to reference'})).toBeVisible();
     await expect(participantRow(rawAxis)).toHaveAttribute('data-participant-group', 'constrain');
@@ -251,12 +256,12 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     }
     await expect(participantRow(rawAxis).locator('.face-candidate-name')).toHaveText('Observed shared axis — axis');
     await expect(participantRow(publishedAxisRef).locator('.face-candidate-name')).toHaveText('Observed shared axis — axis');
-    await page.locator('#relationship-filter').fill('Shared-axis solve');
+    await participantFilter.fill('Shared-axis solve');
     await expect(participantRow(publishedAxisRef)).toBeVisible();
     await expect(participantRow(publishedAlias)).toBeVisible();
     await expect(participantRow(rawAxis)).toBeHidden();
     await expect(groups.filter({hasText: 'Features to constrain'})).toBeHidden();
-    await page.locator('#relationship-filter').fill('123456789');
+    await participantFilter.fill('123456789');
     await expect(participantRow(publishedAxisRef)).toBeHidden();
     await expect(participantRow(member)).toHaveAttribute('data-participant-group', 'constrain');
     await assertReadable(participantRow(member).locator('.face-candidate-name'), '123456789');
@@ -266,7 +271,7 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     await expect(selectedParticipant(member).locator('.selection-field-detail')).toContainText('Adjustable property');
     await page.locator('#clear-relationship-participants').click();
     await dropdown.click();
-    await page.locator('#relationship-filter').fill('');
+    await participantFilter.fill('');
     await participantRow(rawAxis).locator('input').check();
     await participantRow(publishedAxisRef).locator('input').check();
     await page.keyboard.press('Escape');
@@ -288,8 +293,8 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     const beforeCreate = evaluations.length;
     await openBuilder({list: false});
     const beforeTree = await read();
-    await expect(page.locator('#pick-relationship-participant')).toBeEnabled();
-    await page.locator('#pick-relationship-participant').click();
+    await expect(participantPick).toBeEnabled();
+    await participantPick.click();
     await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', 'participant');
     assert.equal((await read()).modelChoices.length, 0, 'All pending participants have no pickable 3D output');
     assert.equal((await read()).pickGuides, 0);
@@ -313,9 +318,9 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert.deepEqual(afterTree.graph.results, beforeTree.graph.results);
     assert.equal(evaluations.length, beforeCreate);
     assert.equal(afterTree.pickGuides, 0);
-    await page.locator('#stop-model-picking').click();
-    await expect(page.locator('#relationship-summary')).toContainText('will need evaluation');
     await page.keyboard.press('Escape');
+    await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
+    await expect(page.locator('#relationship-summary')).toContainText('will need evaluation');
     const options = page.locator('#relationship-dialog details');
     if (!await options.evaluate(node => node.open)) await options.locator('summary').click();
     await page.locator('#new-relationship-label').fill('Pending exact plane normal');
@@ -357,7 +362,7 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     report.phase = 'stale-builder-preview';
     await openBuilder({list: false});
     const beforeMixed = await read(), beforeMixedEvaluation = evaluations.length;
-    await page.locator('#pick-relationship-participant').click();
+    await participantPick.click();
     const mixed = await read();
     assert(mixed.modelChoices.length > 0, 'Mixed state retains ready 3D choices');
     assert(!mixed.modelChoices.some(choice => choice.key === key(plane)), 'Stale output cannot enter 3D picking');
@@ -371,7 +376,8 @@ export async function exerciseStaleRelationshipUi({page, expect, fixture}) {
     assert.deepEqual(afterMixed.graph.recipe, beforeMixed.graph.recipe);
     assert.deepEqual(afterMixed.graph.states, beforeMixed.graph.states);
     assert.equal(evaluations.length, beforeMixedEvaluation);
-    await page.locator('#stop-model-picking').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#viewport canvas')).toHaveAttribute('data-model-pick', '');
     await expect.poll(async () => (await read()).relationshipGuides).toBe(0);
     for (const pending of (await read()).pendingGeometry) assert.equal(pending.value, null);
     await close();

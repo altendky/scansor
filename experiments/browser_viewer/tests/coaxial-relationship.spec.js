@@ -113,6 +113,7 @@ test('Coaxial combines model and list picks, edits its axis, and survives save/l
 
   await row(page, group.id).dblclick();
   await expect(page.locator('#coaxial-group-properties')).toBeVisible();
+  await expect(page.locator('#metrics dt').filter({ hasText: /^Combined RMS$/ })).toHaveCount(1);
   await page.locator('#coaxial-group-axis').selectOption(axisRef('other_axis'));
   await page.locator('#coaxial-group-members').selectOption([axisRef('side'), axisRef('replacement')]);
   await page.locator('#apply-properties').click();
@@ -158,6 +159,41 @@ test('an unavailable saved Coaxial member stays visible and selected until expli
   await expect(page.locator('#coaxial-group-axis')).toHaveValue(axisRef('reference_axis'));
   expect(await page.locator('#coaxial-group-members').evaluate(control => [...control.selectedOptions].map(option => option.value)))
     .toEqual([axisRef('side'), axisRef('replacement')]);
+});
+
+test('Coaxial inspection retains member metrics when a direction component has no combined RMS', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const state = await read(page), nodes = state.recipe.nodes.map(node => node.id === 'reference_axis'
+    ? { ...node, source_fit: null, initial_parameters: [0, 0, 0, 0] } : node);
+  nodes.push(
+    { id: 'independent_plane', label: 'Independent plane', operation: 'reference_plane',
+      construction: 'independent', initial_normal: [0, 0, 1], offset: 0 },
+    { id: 'coaxial_component', label: 'Component Coaxial', operation: 'coaxial_group',
+      axis: 'reference_axis', surfaces: ['side', 'inner'] },
+    { id: 'aligned_component', label: 'Component directions', operation: 'direction_alignment', directions: [
+      { feature: 'reference_axis', output: 'axis', context: 'reference_axis' },
+      { feature: 'independent_plane', output: 'plane', context: 'independent_plane' },
+    ] },
+  );
+  await replace(page, { ...state.recipe, nodes, output: 'aligned_component' });
+  await page.reload();
+  await settled(page);
+  const graph = await read(page), result = graph.derived.coaxial_component;
+  expect(graph.states.coaxial_component, JSON.stringify(graph.errors)).toBe('ready');
+  expect(result.weighted_rms).toBeUndefined();
+  expect(result.fit?.weighted_rms).toBeUndefined();
+  await row(page, 'coaxial_component').dblclick();
+  for (const id of ['side', 'inner']) {
+    const label = graph.recipe.nodes.find(node => node.id === id).label + ' adjusted RMS',
+      metric = page.locator('#metrics dt').filter({ hasText: label });
+    await expect(metric).toBeVisible();
+    await expect(metric.locator('+ dd')).toHaveText(result.surfaces[id].weighted_rms.toFixed(5));
+  }
+  await expect(page.locator('#metrics dt').filter({ hasText: /^Combined RMS$/ })).toHaveCount(0);
+  await expect(page.locator('#status')).not.toContainText('toFixed');
+  await expect(page.locator('#evaluate-all')).toBeEnabled();
+  expect(errors).toEqual([]);
 });
 
 test('Joint axis and snapshot refresh preserve the draft and accept a Coaxial group alone', async ({ page }) => {

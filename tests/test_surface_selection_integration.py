@@ -151,6 +151,7 @@ def test_surface_is_a_real_observation_dependency_and_saved_definitions_exclude_
         "angle_degrees",
         "setback",
         "policy",
+        "neighborhood_distance",
     }
     reopened = FeatureGraph(
         owner.accepted.workspace, Recipe.model_validate_json(json.dumps(saved))
@@ -168,6 +169,39 @@ def test_surface_is_a_real_observation_dependency_and_saved_definitions_exclude_
         "surface" not in invalidated["results"]
         and "plane" not in invalidated["results"]
     )
+
+
+def test_local_surface_preview_replay_and_parameter_invalidation() -> None:
+    owner = project()
+    graph = owner.accepted.graph
+    payload = graph.export_recipe()
+    payload["nodes"][3].update(policy="local-boundaries-v1", neighborhood_distance=0.5)
+    _ = graph.replace(Recipe.model_validate(payload), state(graph)["token"])
+    ready = cast(dict[str, Any], graph.ensure_current(state(graph)["token"], ["plane"]))
+    assert not ready["errors"]
+    assert ready["results"]["surface"]["policy"] == "local-boundaries-v1"
+    request = SurfaceSelectionPreviewRequest(
+        token=ready["token"],
+        seed_selection="seeds",
+        policy="local-boundaries-v1",
+        neighborhood_distance=0.5,
+    )
+    preview = prepare_surface_selection_preview(graph, request)(None)["preview"]
+    assert isinstance(preview, dict)
+    assert preview["policy"] == "local-boundaries-v1"
+    assert preview["counts"]["inset"] == len(ready["memberships"]["surface"])
+    saved = graph.export_recipe()
+    assert "ids" not in saved["nodes"][3]
+    reopened = FeatureGraph(owner.accepted.workspace, Recipe.model_validate(saved))
+    replay = cast(
+        dict[str, Any], reopened.ensure_current(state(reopened)["token"], ["plane"])
+    )
+    assert replay["memberships"]["surface"] == ready["memberships"]["surface"]
+    saved["nodes"][3]["neighborhood_distance"] = 1.0
+    invalidated = cast(
+        dict[str, Any], graph.replace(Recipe.model_validate(saved), ready["token"])
+    )
+    assert invalidated["states"]["surface"] == invalidated["states"]["plane"] == "stale"
 
 
 def test_surface_can_drive_an_existing_reusable_region() -> None:

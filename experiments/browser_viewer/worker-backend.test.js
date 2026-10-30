@@ -131,10 +131,10 @@ function sourceReady(extra = {}) {
 
 const surfaceSelectionProfile = { supported: true, version: 1,
   policy: 'seed-normal-envelope-v1', max_preview_ids: 2048 };
-async function surfaceSelectionFixture() {
+async function surfaceSelectionFixture(profile = surfaceSelectionProfile) {
   const value = fixture({ initialMode: 'empty' }), loading = value.backend.initialize();
   const readiness = projectReady();
-  readiness.worker_protocol.surface_selection = surfaceSelectionProfile;
+  readiness.worker_protocol.surface_selection = profile;
   value.worker.reply(readiness); await loading;
   return value;
 }
@@ -146,7 +146,7 @@ test('surface preview profiles are negotiated before private worker work', async
   assert.equal(old.worker.calls.length, 1); old.backend.close();
   for (const profile of [null, { ...surfaceSelectionProfile, supported: false },
     { ...surfaceSelectionProfile, version: true }, { ...surfaceSelectionProfile, policy: 'other' },
-    { ...surfaceSelectionProfile, max_preview_ids: 2049 }]) {
+    { ...surfaceSelectionProfile, max_preview_ids: 2049 }, {...surfaceSelectionProfile, policies: ['unknown']}]) {
     const value = fixture({ initialMode: 'empty' }), loading = value.backend.initialize();
     const readiness = projectReady(); readiness.worker_protocol.surface_selection = profile;
     value.worker.reply(readiness);
@@ -154,6 +154,22 @@ test('surface preview profiles are negotiated before private worker work', async
     assert.equal(value.worker.calls.length, 1);
     assert.equal(value.worker.terminated, 1); value.backend.close();
   }
+});
+
+test('Local boundaries worker previews require advertised policy and retain automatic distance', async () => {
+  const local = 'local-boundaries-v1', old = await surfaceSelectionFixture();
+  await assert.rejects(old.backend.previewSurfaceSelection({token: 'empty', policy: local}),
+    error => error.code === 'unsupported_capability');
+  assert.equal(old.worker.calls.length, 1); old.backend.close();
+  const value = await surfaceSelectionFixture({...surfaceSelectionProfile, policies: [surfaceSelectionProfile.policy, local]}),
+    payload = {token: 'empty', seed_selection: 'seed', policy: local, neighborhood_distance: null},
+    pending = value.backend.previewSurfaceSelection(payload);
+  await settle(); const request = value.worker.calls.at(-1);
+  assert.equal(request.operation, 'previewSurfaceSelection');
+  assert.deepEqual(request.payload, payload);
+  const result = {token: 'empty', project_generation: 0, preview: {policy: local}};
+  value.worker.reply({id: request.id, generation: request.generation, ok: true, result});
+  assert.deepEqual(await pending, result); value.backend.close();
 });
 
 test('surface preview result cannot replace accepted worker actions or recovery graph', async () => {

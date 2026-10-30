@@ -7,11 +7,72 @@ import pytest
 
 from experiments.fit_solver import FitCancelled
 from experiments.seed_surface_selection import (
+    LOCAL_POLICY,
     SurfaceSelectionLimits,
     build_surface_topology,
     grow_surface_selection,
 )
 from tests.seed_surface_fixture import cylinder_lip, grid
+
+
+def test_local_mode_wraps_from_one_narrow_seed_without_a_global_envelope() -> None:
+    points, faces, _, labels = cylinder_lip()
+    topology = build_surface_topology(points, faces)
+    seed = [2 * 64]
+    legacy = grow_surface_selection(topology, seed, [])
+    assert legacy.diagnostics["envelopes"][0]["mode"] == "cone"
+    local = grow_surface_selection(
+        topology, seed, [], policy=LOCAL_POLICY, neighborhood_distance=0.2
+    )
+    assert np.isin(np.unique(faces[labels == "cylinder"]), local.ids).all()
+    assert not np.isin(np.unique(faces[labels == "plane"]), local.region_ids).any()
+    assert len(local.ids) > len(legacy.ids)
+    assert local.preview()["policy"] == LOCAL_POLICY
+    assert local.diagnostics["local_boundaries"]["neighborhood_distance"] == 0.2
+    assert grow_surface_selection(topology, seed, []).preview() == legacy.preview()
+
+
+def test_local_mode_preserves_barriers_disconnected_surfaces_and_seed_protection() -> (
+    None
+):
+    points, faces = grid()
+    offset = len(points)
+    topology = build_surface_topology(
+        np.vstack((points, points + np.asarray([0, 0, 0.001]))),
+        np.vstack((faces, faces + offset)),
+    )
+    barriers = list(range(7, offset, 15))
+    result = grow_surface_selection(
+        topology, [108], barriers, policy=LOCAL_POLICY, neighborhood_distance=1
+    )
+    assert np.max(result.ids) < offset
+    assert np.max(points[result.ids, 0]) < 7
+    assert not np.isin(barriers, result.ids).any()
+    protected = grow_surface_selection(
+        topology,
+        [108],
+        barriers,
+        policy=LOCAL_POLICY,
+        neighborhood_distance=1,
+        setback=100,
+    )
+    assert protected.ids.tolist() == [108]
+
+
+def test_local_policy_and_neighborhood_validation() -> None:
+    points, faces = grid()
+    topology = build_surface_topology(points, faces)
+    with pytest.raises(ValueError, match="unknown"):
+        _ = grow_surface_selection(topology, [112], [], policy="unknown")
+    for distance in (0, -1, float("inf"), float("nan"), True):
+        with pytest.raises(ValueError, match="neighborhood"):
+            _ = grow_surface_selection(
+                topology,
+                [112],
+                [],
+                policy=LOCAL_POLICY,
+                neighborhood_distance=distance,
+            )
 
 
 def test_plane_isolated_seed_border_inset_and_protection() -> None:

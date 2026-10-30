@@ -71,8 +71,8 @@ async function exerciseRelationshipGroupsUi({page, expect, fixture, read, graph,
   const participants = [reference('axis-cylinder'), reference('plane-cylinder'), reference('joint-plane', 'plane'), reference('fixed-axis')],
     label = 'Four mixed aligned directions', beforeGroup = evaluations.length;
   await begin('direction_alignment', label);
-  await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
-  for (const value of participants) await input(page.locator('#relationship-participants'), value).check();
+  await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
+  for (const value of participants) await input(page.locator('[data-relationship-role="participants"]'), value).check();
   await expect(page.locator('#relationship-count')).toHaveText('4 selected');
   await page.keyboard.press('Escape');
   const alignment = await add(label);
@@ -249,9 +249,9 @@ export async function exerciseDirectionAlignmentUi({page, expect, fixture}) {
       const options = page.locator('#relationship-dialog details');
       if (!await options.evaluate(node => node.open)) await options.locator('summary').click();
       await page.locator('#new-relationship-label').fill(label);
-      await page.getByRole('button', {name: 'Show Participants choices', exact: true}).click();
+      await page.getByRole('button', {name: 'Show Apply to choices', exact: true}).click();
       for (const key of [first, second]) {
-        const inputs = page.locator('#relationship-participants input');
+        const inputs = page.locator('[data-relationship-role="participants"] input');
         const index = await inputs.evaluateAll((elements, key) => elements.findIndex(element => element.dataset.participantId === key), key);
         assert(index >= 0, `Missing exact direction choice ${key}`);
         await inputs.nth(index).check();

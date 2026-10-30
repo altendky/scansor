@@ -10,7 +10,57 @@ export function relationshipPropertySummary(state, output) {
     .filter(Boolean))].map(property => property.replaceAll('_', ' ')).join(', ');
 }
 
+// Collections retain their authored owner reference. Expansion is only for
+// validation, inspection and geometry; it must never become a saved snapshot.
+export function relationshipCollectionMembers(state, output) {
+  if (!output?.collection) return [];
+  const catalogue = new Map();
+  for (const record of [...(state.input_catalogue || []),
+    ...Object.values(state.input_requirements || {}).flatMap(value => [...(value.choices || []), ...(value.unavailable || [])])]) {
+    const key = inputReferenceKey(record.reference);
+    if (!catalogue.has(key)) catalogue.set(key, record);
+  }
+  return (output.collection.members || []).map(reference => {
+    const key = inputReferenceKey(reference), member = catalogue.get(key);
+    return member ? {...member, compatible: member.compatible ?? output.compatible,
+      requirements: member.requirements || output.requirements || Object.keys(state.input_contracts || {}).filter(requirement => {
+        const contract = state.input_contracts[requirement];
+        return contract.allow_collections && contract.property === output.collection.property;
+      }), key, id: key} : {reference, key, id: key, compatible: false,
+      availability: 'unavailable', label: 'Unavailable collection member', reason: 'Reevaluate or repair the collection provider'};
+  });
+}
+
+export function relationshipExpandedOutputs(state, outputs) {
+  return [...outputs].flatMap(output => output.collection
+    ? relationshipCollectionMembers(state, output).map(member => ({...member,
+      collectionKey: output.key || inputReferenceKey(output.reference), collectionReference: output.reference,
+      collectionLabel: output.label}))
+    : [{...output, key: output.key || inputReferenceKey(output.reference)}]);
+}
+
+export function relationshipSelectionCounts(state, outputs) {
+  const authored = [...outputs], expanded = relationshipExpandedOutputs(state, authored),
+    collections = authored.filter(output => output.collection);
+  return {authored: authored.length, expanded: expanded.length, unique: new Set(expanded.map(output => output.key)).size,
+    collections: collections.length,
+    source_count: collections.reduce((sum, output) => sum + (output.collection.source_count || 0), 0),
+    adjustable_count: collections.reduce((sum, output) => sum + (output.collection.adjustable_count || 0), 0)};
+}
+
 export function relationshipParticipantPresentation(state, output) {
+  if (output.collection) {
+    const collection = output.collection, members = relationshipCollectionMembers(state, output),
+      count = members.length, sources = collection.source_count || 0, copies = collection.adjustable_count || 0,
+      name = output.label || output.feature_label || 'Direction collection',
+      summary = `${count} ${collection.property === 'direction' ? 'axes' : 'outputs'} · ${sources} upstream source${sources === 1 ? '' : 's'} + ${copies} ${copies === 1 ? 'copy' : 'copies'}`,
+      group = copies ? 'constrain' : 'reference', groupLabel = copies ? 'Features to constrain' : 'Results to reference',
+      detail = [summary, output.availability === 'ready' ? '' : 'Needs evaluation',
+        output.compatible ? '' : output.reason || 'Incompatible'].filter(Boolean).join(' · ');
+    return {name, accessibleName: name, group, groupLabel, roleLabel: 'Live collection',
+      contextLabel: output.producing_context?.label || output.feature_label || 'Feature reuse', detail,
+      choiceLabel: `${name} · ${summary}`, members: members.map(member => member.label || member.reference.feature)};
+  }
   const reference = output.reference || {}, direct = reference.context === reference.feature,
     requirements = (output.requirements || []).map(requirement => state.input_contracts?.[requirement] || {}),
     bindings = requirements.filter(contract => {
@@ -85,7 +135,10 @@ function relationshipChoicesForRequirements(state, requirements, selected, nodes
   const records = new Map();
   for (const requirement of requirements) for (const output of inputChoices(state, requirement, nodes)) {
     const key = inputReferenceKey(output.reference), previous = records.get(key),
-      compatible = inputCanBeReferenced(output, {allowPending: true});
+      contract = state.input_contracts?.[requirement],
+      compatible = inputCanBeReferenced(output, {allowPending: true}) && (!output.collection ||
+        contract?.allow_collections === true && output.collection.property === contract.property &&
+        output.collection.members?.length > 0 && output.collection.count === output.collection.members.length);
     if (!previous || (!previous.compatible && compatible)) records.set(key, {
       ...output, key, id: key, compatible, requirements: previous?.requirements || [],
     });
@@ -113,7 +166,9 @@ export function relationshipRoleSelection(state, kind, selected, previous = {}) 
   for (const key of selected) {
     const compatible = Object.keys(roles).filter(role => choices[role].has(key)),
       retained = compatible.filter(role => previous[role]?.has(key));
-    const role = retained.length === 1 ? retained[0] : compatible.length === 1 ? compatible[0] : null;
+    const automatic = compatible.filter(role =>
+      state.input_contracts[state.relationship_contracts[kind].roles[role]].min_count !== 0),
+      role = retained.length === 1 ? retained[0] : automatic.length === 1 ? automatic[0] : null;
     if (role) roles[role].add(key);
     else unassigned.add(key);
   }
@@ -163,7 +218,7 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
       selectedKeys = explicit ? new Set(assigned[role] || []) : union,
       members = explicit ? relationshipRoleChoices(state, kind, role, selectedKeys, nodes)
         .filter(output => selectedKeys.has(output.key) && output.compatible)
-        : outputs.filter(output => output.requirements.includes(requirement));
+        : contract.min_count === 0 ? [] : outputs.filter(output => output.requirements.includes(requirement));
     roles[role] = members;
     if (explicit && members.length !== selectedKeys.size)
       return {valid: false, reason: `${signature.role_labels?.[role] || role}: remove or replace incompatible outputs.`, roles};
@@ -175,6 +230,28 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
   }
   if (new Set(Object.values(roles).flat().map(output => output.key)).size !== union.size)
     return { valid: false, reason: 'Every participant must satisfy a relationship input role.', roles };
+  const expandedRoles = Object.fromEntries(Object.entries(roles).map(([role, members]) =>
+    [role, relationshipExpandedOutputs(state, members)])), seen = new Map();
+  for (const [role, members] of Object.entries(expandedRoles)) for (const member of members) {
+    if (member.collectionKey && (!inputCanBeReferenced(member, {allowPending: true}) || member.collection))
+      return {valid: false, reason: 'Remove or repair unavailable collection members.', roles};
+    const previousMembers = seen.get(member.key) || [];
+    for (const previous of previousMembers) {
+      const referenceRole = signature.reference_role || 'reference',
+        collectionMember = member.collectionKey ? member : previous.member,
+        otherRole = member.collectionKey ? previous.role : role,
+        owner = Object.values(roles).flat().find(output => output.key === collectionMember.collectionKey),
+        property = collectionMember.properties?.[owner?.collection?.property],
+        fixedSource = owner && collectionMember.reference.feature === owner.collection.template &&
+          (collectionMember.reference.context || collectionMember.reference.feature) !== collectionMember.reference.feature &&
+          property?.binding_eligible === false;
+      if (!(otherRole === referenceRole && previous.role !== role && fixedSource))
+        return {valid: false, reason: 'Choose distinct expanded outputs; selected targets overlap.', roles};
+    }
+    seen.set(member.key, [...previousMembers, {role, member}]);
+  }
+  if (seen.size < (signature.expanded_min_count ?? 0) || seen.size > (signature.expanded_max_count ?? Infinity))
+    return {valid: false, reason: `Choose ${signature.expanded_min_count ?? 0}–${signature.expanded_max_count ?? 'any number of'} distinct directions; ${seen.size} selected.`, roles};
   if (signature.semantic_check === 'same_geometry_kind' &&
       new Set(roles.members.map(output => output.geometry_kind)).size !== 1)
     return { valid: false, reason: 'Mirror members must have the same geometry kind.', roles };
@@ -186,7 +263,7 @@ export function relationshipValidity(state, kind, selected, nodes = state?.recip
   if (signature.semantic_check === 'compatible_axis' && nodes.some(node => node.operation === 'coaxial_group' &&
     node.axis !== roles.axis[0].reference.feature && roles.members.some(output => node.surfaces.includes(output.reference.feature))))
     return { valid: false, reason: 'A member belongs to another Coaxial relationship using a different axis. Edit that relationship or choose the same axis.', roles };
-  return { valid: true, roles };
+  return { valid: true, roles, expandedRoles };
 }
 
 export function relationshipNodeInputs(state, kind, selected, nodes = state?.recipe?.nodes || []) {
@@ -197,7 +274,7 @@ export function relationshipNodeInputs(state, kind, selected, nodes = state?.rec
     operation: signature.operation, ...signature.node_values,
     ...Object.fromEntries(Object.entries(signature.node_fields).map(([role, field]) => {
       const values = validity.roles[role].map(output => field.encoding === 'reference' ? output.reference : feature(output));
-      return [field.name, field.multiple ? values : values[0]];
+      return [field.name, field.multiple ? values : values[0] ?? (field.optional ? null : undefined)];
     })),
   };
   if (signature.operation === 'direction_alignment') return {
@@ -228,7 +305,7 @@ export function relationshipFeatureIds(selected) {
 }
 
 export function relationshipOutputValue(state, output) {
-  if (!output || output.availability !== 'ready' || !inputCanBeReferenced(output)) return null;
+  if (!output || output.collection || output.availability !== 'ready' || !inputCanBeReferenced(output)) return null;
   const reference = output?.reference;
   if (!reference || typeof reference === 'string') return null;
   const context = reference.context || reference.feature;

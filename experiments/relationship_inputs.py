@@ -28,15 +28,30 @@ RELATIONSHIP_SIGNATURES: dict[str, dict[str, Any]] = {
         "operation": "direction_alignment",
         "sense": "unsigned",
         "joint_modes": ["direction"],
-        "roles": {"participants": "relationship_direction"},
-        "selection_pattern": "peers",
-        "role_labels": {"participants": "Participants"},
+        "roles": {
+            "reference": "relationship_direction_reference",
+            "participants": "relationship_direction_targets",
+        },
+        "selection_pattern": "reference_targets",
+        "reference_role": "reference",
+        "expanded_min_count": 2,
+        "expanded_max_count": 33,
+        "role_labels": {
+            "reference": "Same direction as (optional)",
+            "participants": "Apply to",
+        },
         "node_fields": {
+            "reference": {
+                "name": "reference",
+                "encoding": "reference",
+                "multiple": False,
+                "optional": True,
+            },
             "participants": {
                 "name": "directions",
                 "encoding": "reference",
                 "multiple": True,
-            }
+            },
         },
         "node_values": {"sense": "unsigned"},
     },
@@ -222,8 +237,13 @@ def normalize_endpoint(
     )
     if spec is None:
         raise ValueError("relationship input refers to an unavailable output")
-    owner = spec["parameter_owner"] if ref.context == ref.feature else None
-    if requirement == "relationship_direction" and not spec["properties"].get(
+    owner = (
+        spec["parameter_owner"]
+        if ref.context == ref.feature
+        and "binding" in contract.get("uses", ["geometry"])
+        else None
+    )
+    if contract.get("property") == "direction" and not spec["properties"].get(
         "direction", {}
     ).get("binding_eligible", False):
         owner = None
@@ -257,6 +277,32 @@ def relationship_reference(
     return endpoint
 
 
+def expand_relationship_references(
+    references: Sequence[FeatureInput | dict[str, Any]],
+    nodes: dict[str, Feature],
+    requirement: str,
+) -> list[FeatureInput | dict[str, Any]]:
+    from experiments.relationship_collections import collection_members
+
+    expanded: list[FeatureInput | dict[str, Any]] = []
+    for value in references:
+        ref = (
+            value
+            if isinstance(value, (str, OutputReference))
+            else OutputReference.model_validate(value)
+        )
+        members = None if isinstance(ref, str) else collection_members(ref, nodes)
+        if members is not None:
+            if not REQUIREMENTS[requirement].get("allow_collections"):
+                raise ValueError(
+                    "This relationship role does not accept pattern collections"
+                )
+            expanded.extend(members)
+        else:
+            expanded.append(value)
+    return expanded
+
+
 def validate_relationship_inputs(
     kind: str,
     references: Sequence[FeatureInput | dict[str, Any]]
@@ -267,12 +313,28 @@ def validate_relationship_inputs(
     if kind not in RELATIONSHIP_SIGNATURES:
         raise ValueError("unknown relationship signature")
     signature = RELATIONSHIP_SIGNATURES[kind]
+    if kind == "direction_alignment" and not isinstance(references, Mapping):
+        references = {"participants": references}
     explicit_roles = isinstance(references, Mapping)
     if explicit_roles and set(references) - set(signature["roles"]):
         raise ValueError("relationship has an unknown input role")
     roles: dict[str, list[RelationshipEndpoint]] = {}
     assigned: set[int] = set()
     seen: set[str] = set()
+    nodes = {node.id: node for node in recipe.nodes}
+    source_keys: set[str] = set()
+    if kind == "direction_alignment" and isinstance(references, Mapping):
+        from experiments.relationship_collections import collection_members
+
+        for value in references.get("participants", ()):
+            ref = (
+                value
+                if isinstance(value, (str, OutputReference))
+                else OutputReference.model_validate(value)
+            )
+            members = None if isinstance(ref, str) else collection_members(ref, nodes)
+            if members is not None:
+                source_keys.add(reference_key(members[0]))
     for role, requirement in signature["roles"].items():
         endpoints: list[RelationshipEndpoint] = []
         candidates = (
@@ -280,6 +342,7 @@ def validate_relationship_inputs(
         )
         if isinstance(candidates, (str, OutputReference, Mapping)):
             raise ValueError("relationship role inputs must be a sequence")
+        candidates = expand_relationship_references(candidates, nodes, requirement)
         for index, reference in enumerate(candidates):
             try:
                 endpoint = relationship_reference(reference, recipe, requirement)
@@ -309,7 +372,14 @@ def validate_relationship_inputs(
             )
         if len({endpoint.key for endpoint in endpoints}) != len(endpoints):
             raise ValueError("relationship output references must be distinct")
-        if seen.intersection(endpoint.key for endpoint in endpoints):
+        overlap = seen.intersection(endpoint.key for endpoint in endpoints)
+        if overlap and kind == "direction_alignment" and role == "participants":
+            allowed = overlap & source_keys
+            endpoints = [
+                endpoint for endpoint in endpoints if endpoint.key not in allowed
+            ]
+            overlap -= allowed
+        if overlap:
             raise ValueError(
                 "relationship output references must be distinct across roles"
             )
@@ -317,7 +387,15 @@ def validate_relationship_inputs(
         roles[role] = endpoints
     if not explicit_roles and len(assigned) != len(references):
         raise ValueError("relationship has an unavailable or incompatible input")
-    nodes = {node.id: node for node in recipe.nodes}
+    if (
+        kind == "direction_alignment"
+        and not signature["expanded_min_count"]
+        <= len(seen)
+        <= signature["expanded_max_count"]
+    ):
+        raise ValueError(
+            "Aligned directions requires 2 to 33 distinct expanded outputs"
+        )
     if (
         signature.get("semantic_check") == "same_geometry_kind"
         and len(

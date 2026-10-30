@@ -168,13 +168,27 @@ existing Coaxial relationship continues to bind the complete line. Fit-reference
 and relationship controls consume this metadata as described above. Additional
 direction relationships remain a separate solver step.
 
-Aligned directions is one peer relationship over 2–33 compatible outputs,
-including axis directions and plane normals. Compilation uses a deterministic
-spanning set of internal alignments; it does not create additional authored
-relationships or a privileged fixed participant. Shared role and cardinality
+Aligned directions accepts 2–33 unique compatible outputs, including axis
+directions and plane normals. Its **Apply to** selection accepts individual
+outputs and live direction collections from Feature reuse. The optional **Same
+direction as** input supplies a fixed upstream reference for this relationship;
+otherwise the participants share an unsigned direction. Compilation uses a
+deterministic spanning set of internal alignments without creating additional
+authored relationships. Shared role and cardinality
 metadata also describes peer plane/radius relationships and distinct
 reference/target or measurement roles. Explicit roles preserve exact output
 contexts and can be validated from declarations before numerical evaluation.
+
+A pattern collection is stored as one reference to the owner and source Fit,
+not as a saved list of generated child IDs. Its membership follows authored count
+changes and can be inspected before evaluation. The original occurrence is a
+fixed source-stage output of Feature reuse; generated copies remain adjustable
+downstream. This keeps the relationship from feeding back into the source or
+placement geometry that created those copies. The fixed source still follows
+upstream edits. Collection counts and the 33-output limit include that source,
+with duplicate source/reference leaves counted once. These collection inputs
+currently apply to Aligned directions; scalar geometry consumers do not accept
+them.
 
 Analytic elements reference this geometry rather than privately duplicating it.
 For example, a cylinder references an axis line and a radius. A plane used as a

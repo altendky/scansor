@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import struct
+from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
@@ -11,7 +12,9 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from experiments.fit_initialization import RecoveryPolicy
+from experiments import selected_direction_fit as direction_fit
+from experiments.fit_coordinates import CoordinateFrame
+from experiments.fit_initialization import RecoveryPolicy, recover_fit
 from experiments.fit_relationship_component import (
     AxisInput,
     DirectionAlignmentInput,
@@ -173,6 +176,53 @@ def check_rows(
     )
     assert output["initialization"]["observations"] == sum(map(len, ids.values()))
     assert output["session"]["source_sha256"] == workspace.source_sha256
+
+
+def test_direction_equivalence_accepts_sub_ppm_drift_but_rejects_larger_geometry_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    direction = np.array([0.0, 0, 1])
+    workspace, ids = workspace_for(
+        {
+            "a": lateral(direction, np.zeros(3), 2),
+            "cap": plane(direction, 6 * direction),
+        }
+    )
+    rows = ids["a"] + ids["cap"]
+    length = CoordinateFrame.from_observations(
+        workspace.local[rows], workspace.data.weights[rows]
+    ).length
+    recover = recover_fit
+
+    def check_equivalence(problem: Any, fresh: Any, **kwargs: Any) -> Any:
+        recovered = recover(problem, fresh, **kwargs)
+        baseline = recovered.result
+        for ppm, expected in [(0.5, True), (2.0, False)]:
+            for field in ("radius", "origin"):
+                changed = deepcopy(baseline)
+                geometry = changed["surfaces"]["a"]["analytic"]
+                delta = ppm * 1e-6 * length
+                if field == "radius":
+                    geometry["radius"] += delta
+                else:
+                    perpendicular = basis(np.asarray(geometry["axis"]))[0]
+                    geometry["origin"] = (
+                        np.asarray(geometry["origin"]) + delta * perpendicular
+                    ).tolist()
+                assert problem.equivalent(baseline, changed) is expected
+        return recovered
+
+    monkeypatch.setattr(direction_fit, "recover_fit", check_equivalence)
+    axis = private_direction_axis("a")
+    output = fit_selected_direction_component(
+        workspace,
+        SelectedDirectionComponent(
+            (member("a", ids, "cylinder", axis=axis), member("cap", ids, "plane")),
+            {axis: AxisInput({}, True)},
+            (relation(axis, "cap", right_plane=True),),
+        ),
+    )
+    assert output["initialization"]["equivalence_tolerance"] == 1e-6
 
 
 @pytest.mark.parametrize("oblique", [False, True])

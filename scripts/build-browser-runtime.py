@@ -53,6 +53,7 @@ def worker_protocol() -> dict[str, Any]:
             "supported": True,
             "version": 1,
             "policy": "seed-normal-envelope-v1",
+            "policies": ["seed-normal-envelope-v1", "local-boundaries-v1"],
             "max_preview_ids": 2048,
         },
         "virtual_scans": {"supported": True, "version": 1, "max_sources": 2},

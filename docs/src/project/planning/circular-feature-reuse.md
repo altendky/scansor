@@ -61,6 +61,17 @@ symmetry. Circular selection propagation is not limited to the numerical solver'
 historical three-member rotational-symmetry factor. This feature adds no general
 arbitrary-count exact-pose constraint.
 
+To align a pattern's directions, select its Feature reuse action in **Aligned
+directions → Apply to**. Each compatible source Fit offers a live collection of
+the original direction and all generated copies, shown as one selection with an
+inspectable member list. An optional **Same direction as** input chooses an
+upstream axis or plane normal. The original occurrence stays fixed at the
+pattern's source stage and the copies are constrained downstream; upstream edits
+still update that source. Changing the pattern count updates membership without
+reselecting children. This direction relationship does not constrain centers,
+radii or angular positions, and collection support for other relationship types
+is separate work.
+
 ## Ownership and supported lineage
 
 One Feature reuse action owns the generated occurrence children. Stable ownership
