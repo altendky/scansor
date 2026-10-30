@@ -287,6 +287,12 @@ function fieldOptionModelPickable(control, key) {
     return !!fitted.ids?.length || ['axis', 'point', 'frame', 'transform', 'reference_plane'].includes(node.operation);
   });
 }
+function fieldOptionTreePickable(control, key) {
+  // Match inputs describe selections even before their observations have been
+  // evaluated. Native options still own ordering and generated-child eligibility.
+  return /^(?:new-)?feature-reuse-(?:reference|target)$/.test(control.id) &&
+    selectionOperations.includes(graphNode(key)?.operation);
+}
 function modelPickChoices({ tree = false } = {}) {
   if (!modelPickMode || !graphState || featureTreeLocked() ||
       buildFacesApplying || relationshipApplying) return [];
@@ -435,7 +441,7 @@ function syncModelPickControls() {
   $('model-pick-hint').hidden = !modelPickMode;
   $('stop-model-picking').textContent = 'Stop picking';
   $('model-pick-message').textContent = modelPickMode === 'field' ?
-    `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the model.` :
+    `Pick ${modelPickField.control.getAttribute('aria-label') || modelPickField.control.labels?.[0]?.childNodes[0]?.textContent?.trim() || 'items'} in the tree or model.` :
     modelPickMode === 'target' ? 'Pick a fitted scan patch for Surface.' :
     modelPickMode === 'neighbor' ? 'Click fitted scan patches to toggle neighbors.' :
       `Click features in the tree or evaluated geometry to choose ${activeRelationshipPicker().label.toLowerCase()}.`;
@@ -5165,6 +5171,7 @@ async function start(recoveredState) {
   initializeSpecializedPickFields(state);
   $('stop-model-picking').onclick = () => setModelPickMode(null);
   bindModelPickControls(document, startFieldPick, { modelPickable: fieldOptionModelPickable,
+    treePickable: fieldOptionTreePickable,
     busy: () => !!graphState && (featureTreeLocked() || buildFacesApplying || relationshipApplying) });
   // Picking owns only the active geometry input. Normal editing and workflow
   // actions remain available and keep their existing draft/discard guards.

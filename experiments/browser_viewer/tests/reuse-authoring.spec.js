@@ -1,5 +1,26 @@
 import { test, expect } from '@playwright/test';
 
+const field = (page, id) => page.locator(`.selection-field[data-selection-control="${id}"]`);
+const tree = (page, id) => page.locator(`.action-select[data-action-id="${id}"]`);
+
+async function visibleMatch(page, label) {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const point = await page.evaluate(label => {
+    const canvas = document.querySelector('#viewport canvas'), box = canvas.getBoundingClientRect();
+    for (let y = box.y + 85; y < box.bottom - 55; y += 14) {
+      for (let x = box.x + 10; x < box.right - 10; x += 14) {
+        if (document.elementFromPoint(x, y) !== canvas) continue;
+        canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, pointerId: 1 }));
+        const message = document.querySelector('#model-pick-message').textContent;
+        if (message.includes(label) || /^\d+ items here/.test(message)) return { x, y };
+      }
+    }
+    return null;
+  }, label);
+  expect(point, `visible selection: ${label}`).toBeTruthy();
+  return point;
+}
+
 test('reuse creation, edits and equality use backend authoring with stable child IDs', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#evaluate-all')).toBeEnabled();
@@ -23,17 +44,31 @@ test('reuse creation, edits and equality use backend authoring with stable child
     const source = original.recipe.nodes.find(node => node.operation === 'source');
     const selection = original.recipe.nodes.find(node => node.id === 'outer_band');
     await replace({ schema_version: 2, groups: [{ id: 'group', label: 'Copies' }],
-      nodes: [source, ...['a', 'b', 'c'].map(id => ({ ...selection, id, label: id })),
+      nodes: [source, ...['a', 'b', 'c'].map(id => ({ ...selection, id, label: `Match ${id.toUpperCase()}` })),
         { id: 'outer', label: 'Outer', operation: 'fit', kind: 'cylinder', selections: ['a'] }],
       output: 'outer' });
     await page.reload();
     await expect(page.locator('#evaluate-all')).toBeEnabled();
     await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
     await page.getByRole('button', { name: 'Feature reuse', exact: true }).click();
+    await page.locator('#dock-edit').click();
     await page.locator('#new-feature-reuse-label').fill('Copies');
     await page.locator('#new-feature-reuse-fits').selectOption('outer');
-    await page.locator('#new-feature-reuse-reference').selectOption('a');
-    await page.locator('#new-feature-reuse-target').selectOption('b');
+    await field(page, 'new-feature-reuse-reference').locator('.model-field-pick').click();
+    await tree(page, 'c').click();
+    await expect(page.locator('#new-feature-reuse-reference')).toHaveValue('c');
+    await field(page, 'new-feature-reuse-reference').locator('.model-field-pick').click();
+    await tree(page, 'a').click();
+    await expect(page.locator('#new-feature-reuse-reference')).toHaveValue('a');
+    await field(page, 'new-feature-reuse-target').locator('.model-field-pick').click();
+    const point = await visibleMatch(page, 'Match C');
+    await page.mouse.click(point.x, point.y);
+    // Identical observations legitimately offer three distinct selection owners.
+    await page.locator('#model-pick-choices').getByRole('button', { name: 'Match C', exact: true }).click();
+    await expect(page.locator('#new-feature-reuse-target')).toHaveValues(['b', 'c']);
+    await tree(page, 'c').click();
+    await expect(page.locator('#new-feature-reuse-target')).toHaveValues(['b']);
+    await page.locator('#stop-model-picking').click();
     await page.locator('#new-feature-reuse-equal-dimensions').uncheck();
     expect(await page.locator('#add-feature-reuse-form').evaluate(form => [...form.elements]
       .filter(control => control.willValidate && !control.checkValidity())
@@ -91,4 +126,61 @@ test('reuse creation, edits and equality use backend authoring with stable child
   } finally {
     await replace(original.recipe);
   }
+});
+
+test('pending reuse matches can be picked from the tree in create and edit forms without evaluation', async ({ page }) => {
+  const original = await (await page.request.get('/api/graph')).json(),
+    source = original.recipe.nodes.find(node => node.operation === 'source'),
+    selection = original.recipe.nodes.find(node => node.id === 'outer_band'),
+    selections = ['a', 'b', 'c'].map(id => ({ ...selection, id, label: `Pending ${id}` })),
+    fit = { id: 'outer', label: 'Outer', operation: 'fit', kind: 'cylinder', selections: ['a'] },
+    owner = { id: 'copies', label: 'Pending copies', operation: 'feature_reuse', fits: ['outer'], lineage: [],
+      reference_selection: 'a', target_selections: ['b'], equal_corresponding_dimensions: false,
+      tangent_margin: 0.4, normal_margin: 0.5, normal_angle_degrees: 30 },
+    graph = { ...original, evaluation_running: false, results: {}, derived: {}, errors: {},
+      recipe: { ...original.recipe, groups: [], nodes: [source, ...selections, fit, owner], output: 'outer' } };
+  graph.states = Object.fromEntries(graph.recipe.nodes.map(node => [node.id, 'stale']));
+  graph.states[source.id] = 'ready';
+  page.on('dialog', dialog => dialog.accept());
+  await page.route(/\/api\/graph(?:\?.*)?$/, route => route.fulfill({ json: graph }));
+  await page.route('**/api/graph/ensure', route => route.fulfill({ json: graph }));
+  await page.goto('/');
+  await expect(page.locator('#evaluate-all')).toBeEnabled();
+  await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  const evaluationRequests = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && /\/api\/graph\/(ensure|evaluate)$/.test(request.url()))
+      evaluationRequests.push(request.url());
+  });
+  await page.getByRole('button', { name: 'Feature reuse', exact: true }).click();
+  await page.locator('#new-feature-reuse-label').fill('Keep this draft');
+  for (const [prefix, edit] of [['new-', false], ['', true]]) {
+    if (edit) {
+      await page.locator('#feature-reuse-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+      await tree(page, 'copies').dblclick();
+      await expect(page.locator('#properties-title')).toHaveText('Pending copies');
+    }
+    const reference = field(page, `${prefix}feature-reuse-reference`),
+      targets = field(page, `${prefix}feature-reuse-target`);
+    await expect(reference.locator('.selection-field-feedback')).toContainText('Pick compatible features in the tree');
+    await reference.locator('.model-field-pick').click();
+    await tree(page, 'c').click();
+    await expect(page.locator(`#${prefix}feature-reuse-reference`)).toHaveValue('c');
+    await reference.locator('.model-field-pick').click();
+    await tree(page, 'a').click();
+    await expect(page.locator(`#${prefix}feature-reuse-reference`)).toHaveValue('a');
+    await targets.locator('.model-field-pick').click();
+    await tree(page, 'c').click();
+    await expect(page.locator(`#${prefix}feature-reuse-target`)).toHaveValues(['b', 'c']);
+    await tree(page, 'b').click();
+    await expect(page.locator(`#${prefix}feature-reuse-target`)).toHaveValues(['c']);
+    await page.locator('#stop-model-picking').click();
+    await page.locator(`#${prefix}feature-reuse-mode`).selectOption('circular');
+    await expect(targets).toBeHidden();
+    await page.locator(`#${prefix}feature-reuse-mode`).selectOption('matched');
+    await expect(page.locator(`#${prefix}feature-reuse-reference`)).toHaveValue('a');
+    await expect(page.locator(`#${prefix}feature-reuse-target`)).toHaveValues(['c']);
+    if (!edit) await expect(page.locator('#new-feature-reuse-label')).toHaveValue('Keep this draft');
+  }
+  expect(evaluationRequests).toEqual([]);
 });
