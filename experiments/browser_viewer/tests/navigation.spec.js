@@ -4,7 +4,7 @@ test.beforeEach(async ({ page }) => {
   // Inspect the real camera without adding a production debugging interface.
   await page.route('**/app.js', async route => {
     const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nexport { camera, controls, mesh };` });
+    await route.fulfill({ response, body: `${await response.text()}\nexport { camera, controls, mesh, modelRoot, navigationCursorAnchor };` });
   });
   await page.goto('/');
   await expect(page.locator('#viewport canvas')).toBeVisible();
@@ -13,9 +13,8 @@ test.beforeEach(async ({ page }) => {
 
 async function zoomPoint(page, hit = false) {
   return page.evaluate(async wantHit => {
-    const { camera, controls, mesh } = await import('/app.js');
+    const { camera, mesh, navigationCursorAnchor } = await import('/app.js');
     const { Raycaster, Vector2 } = await import('three');
-    const { viewPlaneAnchor } = await import('/navigation-math.js');
     const canvas = document.querySelector('#viewport canvas'), box = canvas.getBoundingClientRect();
     camera.updateMatrixWorld(); mesh.updateMatrixWorld(true);
     const ray = new Raycaster();
@@ -26,7 +25,7 @@ async function zoomPoint(page, hit = false) {
       ray.setFromCamera(new Vector2(...screen), camera);
       const pick = ray.intersectObject(mesh, false)[0];
       if (!!pick === wantHit) return { x: clientX, y: clientY, hit: !!pick,
-        anchor: (pick?.point || viewPlaneAnchor(ray.ray, camera, controls.target)).toArray(),
+        anchor: navigationCursorAnchor({clientX, clientY}, true, 'zoom').toArray(),
         screen };
     }
     throw new Error(`No visible ${wantHit ? 'mesh hit' : 'background miss'} in fixture`);
@@ -48,9 +47,8 @@ async function cameraState(page, anchor = [0, 0, 0]) {
 async function silhouetteMiss(page) {
   const hit = await zoomPoint(page, true);
   return page.evaluate(async start => {
-    const { camera, controls, mesh } = await import('/app.js');
+    const { camera, mesh, navigationCursorAnchor } = await import('/app.js');
     const { Raycaster, Vector2 } = await import('three');
-    const { viewPlaneAnchor } = await import('/navigation-math.js');
     const canvas = document.querySelector('#viewport canvas'), box = canvas.getBoundingClientRect(), ray = new Raycaster();
     for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
       for (let step = 1; step < 800; step++) {
@@ -59,7 +57,7 @@ async function silhouetteMiss(page) {
         const screen = [(x - box.left) / box.width * 2 - 1, 1 - (y - box.top) / box.height * 2];
         ray.setFromCamera(new Vector2(...screen), camera);
         if (!ray.intersectObject(mesh, false).length) return { x, y, screen,
-          anchor: viewPlaneAnchor(ray.ray, camera, controls.target).toArray() };
+          anchor: navigationCursorAnchor({clientX: x, clientY: y}, true, 'zoom').toArray() };
       }
     }
     throw new Error('No silhouette transition in fixture');
@@ -136,6 +134,71 @@ test('wheel anchoring stays stable across the silhouette and distant background'
     for (let i = 0; i < 2; i++) expect(after.screen[i]).toBeCloseTo(point.screen[i], 7);
   }
 });
+
+async function nearCameraPivot(page, scale = 1) {
+  return page.evaluate(async scale => {
+    const { camera, controls, mesh, modelRoot } = await import('/app.js');
+    const { Box3, Vector3 } = await import('three');
+    // Scale the isolated scene and viewing pose together: the projected scan
+    // stays identical, while the fallback must operate in world units.
+    modelRoot.matrix.makeScale(scale, scale, scale);
+    modelRoot.updateMatrixWorld(true);
+    camera.position.multiplyScalar(scale);
+    controls.target.multiplyScalar(scale);
+    camera.near *= scale; camera.far *= scale; camera.updateProjectionMatrix();
+    const forward = camera.getWorldDirection(new Vector3()), bounds = new Box3().setFromObject(mesh),
+      depth = bounds.getCenter(new Vector3()).sub(camera.position).dot(forward);
+    if (!(depth > 0)) throw Error('The visible fixture must be in front of the camera');
+    // Preserve the rendered orientation and geometry, but reproduce a pivot
+    // that has crept almost onto the camera after earlier navigation.
+    controls.target.copy(camera.position).addScaledVector(forward, depth * 1e-7);
+    controls.update(); camera.updateMatrixWorld();
+    return {forward: forward.toArray(), depth};
+  }, scale);
+}
+
+function forwardTravel(before, after, forward) {
+  return after.position.reduce((sum, value, index) => sum + (value - before.position[index]) * forward[index], 0);
+}
+
+for (const scale of [.001, 1, 1000]) {
+  test(`background zoom uses scan depth with a near-camera pivot at scene scale ${scale}`, async ({ page }) => {
+    const travels = {};
+    // Reload between trials so the first background gesture has no remembered
+    // raycast hit. The outcome assertion measures real camera motion rather
+    // than consulting the implementation's chosen-anchor helper.
+    for (const hit of [false, true]) {
+      if (hit) {
+        await page.reload();
+        await expect(page.locator('#evaluate-all')).toBeEnabled();
+      }
+      if (scale === 1) {
+        const background = await zoomPoint(page);
+        await page.mouse.move(background.x, background.y); await page.mouse.down({button: 'right'});
+        await page.mouse.move(background.x + 8, background.y + 5); await page.mouse.up({button: 'right'});
+      }
+      const {forward, depth} = await nearCameraPivot(page, scale), point = await zoomPoint(page, hit),
+        before = await cameraState(page);
+      await page.mouse.move(point.x, point.y); await page.mouse.wheel(0, -120);
+      const after = await cameraState(page), travel = forwardTravel(before, after, forward);
+      expect(travel / depth).toBeGreaterThan(.005);
+      expect(travel / depth).toBeLessThan(.15);
+      stableZoom(before, after, true);
+      travels[hit ? 'hit' : 'background'] = travel;
+      // Repeated background ticks after a real hit must continue approaching
+      // the scan, without repeatedly replacing its depth with a fallback miss.
+      if (hit) for (let tick = 0; tick < 5; tick++) {
+        const miss = await zoomPoint(page), previous = await cameraState(page, miss.anchor);
+        await page.mouse.move(miss.x, miss.y); await page.mouse.wheel(0, -120);
+        const next = await cameraState(page, miss.anchor);
+        expect(forwardTravel(previous, next, forward) / depth).toBeGreaterThan(.002);
+        for (let axis = 0; axis < 2; axis++) expect(next.screen[axis]).toBeCloseTo(miss.screen[axis], 7);
+      }
+    }
+    expect(travels.background / travels.hit).toBeGreaterThan(.1);
+    expect(travels.background / travels.hit).toBeLessThan(10);
+  });
+}
 
 test('a wheel event still cancels an unfinished painted selection', async ({ page }) => {
   await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();

@@ -320,9 +320,12 @@ The always-visible Navigation panel at the upper-right has separate **Zoom at
 cursor** and **Rotate at cursor** toggles, both on by default. Rotation picks a
 surface anchor at drag start and keeps that pivot for the gesture without
 recentering the view. Zoom keeps the picked surface point under the cursor.
-Over empty space, rotation uses the current view target; zoom uses the cursor ray
-at the current target depth. Only the scan is picked, not guides or selection
-markers. Turning a toggle off uses the current view target for that operation.
+Over empty space, rotation uses the current view target. Cursor zoom uses a plane
+at the most recent valid surface depth; before a surface has been picked, the
+displayed geometry's bounds supply an approximate depth. This keeps background
+zoom useful when the orbit pivot is much closer than the model. Geometry anchors
+come from the displayed scan or Faces-only geometry. Turning a toggle off uses
+the current view target for that operation.
 Wheel and trackpad deltas use a bounded positive exponential scale (with line
 and page deltas converted to pixels), so a large inward gesture still zooms.
 Each event changes distance by at most a factor of exp(0.5); repeated events

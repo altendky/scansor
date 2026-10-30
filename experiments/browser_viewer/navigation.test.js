@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PerspectiveCamera, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
-import { anchorRotation, anchorZoom, viewPlaneAnchor, panByPixels, wheelZoomFactor } from './navigation-math.js';
+import { Box3, Matrix4, PerspectiveCamera, Quaternion, Raycaster, Vector2, Vector3 } from 'three';
+import { anchorRotation, anchorZoom, viewPlaneAnchor, zoomDepthReference, panByPixels, wheelZoomFactor } from './navigation-math.js';
 
 test('wheel scaling normalizes units and keeps extreme gestures positive', () => {
   assert.equal(wheelZoomFactor(16, 0, 800), wheelZoomFactor(1, 1, 800));
@@ -75,3 +75,117 @@ for (const [width,height,fov,zoom,depth] of [[1200,600,45,1,8],[500,900,70,2,3],
     assert.ok(camera.quaternion.equals(rotation));
   });
 }
+
+function nearTargetSetup(scale = 1) {
+  const camera = new PerspectiveCamera(45, 1.5, .01 * scale, 1000 * scale),
+    target = new Vector3(0, 0, 99.99 * scale);
+  camera.position.set(0, 0, 100 * scale); camera.lookAt(target); camera.updateMatrixWorld();
+  return {camera, target, bounds: new Box3(new Vector3(-10, -10, -1).multiplyScalar(scale), new Vector3(10, 10, 0).multiplyScalar(scale))};
+}
+
+function wheelStep(camera, target, anchor, factor) {
+  const previousTarget = target.clone(), distance = camera.position.distanceTo(target);
+  camera.position.sub(target).multiplyScalar(factor).add(target);
+  anchorZoom(camera, target, anchor, distance, previousTarget);
+}
+
+test('surface-scale background depth fixes the near-target 10000x zoom slowdown without changing its factor', () => {
+  const factor = wheelZoomFactor(-120, 0, 800), old = nearTargetSetup(), next = nearTargetSetup(),
+    raycaster = new Raycaster();
+  raycaster.setFromCamera(new Vector2(0, 0), old.camera);
+  const oldAnchor = viewPlaneAnchor(raycaster.ray, old.camera, old.target),
+    reference = zoomDepthReference(next.camera, next.target, next.bounds),
+    newAnchor = viewPlaneAnchor(raycaster.ray, next.camera, reference);
+  wheelStep(old.camera, old.target, oldAnchor, factor);
+  wheelStep(next.camera, next.target, newAnchor, factor);
+  const oldMovement = 100 - old.camera.position.z, newMovement = 100 - next.camera.position.z;
+  assert(Math.abs(newMovement / oldMovement - 10000) < 1e-5);
+  assert(Math.abs(next.camera.position.z - 100 * factor) < 1e-10);
+  assert.deepEqual(reference.toArray(), [0, 0, 0]);
+});
+
+test('recent real depth and bounds give continuous background anchors over repeated wheel ticks', () => {
+  const {camera, target, bounds} = nearTargetSetup(), recent = new Vector3(5, -4, 0),
+    savedRecent = recent.clone(), factor = wheelZoomFactor(-80, 0, 900), raycaster = new Raycaster(),
+    cursor = new Vector2(.35, -.2);
+  let previousDepth = 100;
+  for (let tick = 0; tick < 12; tick++) {
+    raycaster.setFromCamera(cursor, camera);
+    const reference = zoomDepthReference(camera, target, bounds, recent),
+      anchor = viewPlaneAnchor(raycaster.ray, camera, reference), before = anchor.clone().project(camera),
+      depth = reference.clone().sub(camera.position).dot(camera.getWorldDirection(new Vector3()));
+    assert(depth > 0 && depth <= previousDepth + 1e-9); previousDepth = depth;
+    const fromBounds = viewPlaneAnchor(raycaster.ray, camera, zoomDepthReference(camera, target, bounds));
+    assert(anchor.distanceTo(fromBounds) < 1e-9);
+    wheelStep(camera, target, anchor, factor);
+    sameScreen(before, anchor.clone().project(camera));
+    assert(Math.abs(camera.position.z - 100 * factor ** (tick + 1)) < 1e-10);
+  }
+  assert.deepEqual(recent, savedRecent);
+});
+
+test('invalid, empty and behind-camera bounds retain a cloned target; recent behind or clipped hits are ignored', () => {
+  const {camera, target, bounds} = nearTargetSetup(), invalid = [null, new Box3(),
+    new Box3(new Vector3(5, 5, 5), new Vector3(-5, -5, -5)),
+    new Box3(new Vector3(NaN, 0, 0), new Vector3(1, 1, 1)),
+    new Box3(new Vector3(-1, -1, 101), new Vector3(1, 1, 110)),
+    new Box3(new Vector3(-1, -1, 99.995), new Vector3(1, 1, 99.999))];
+  for (const box of invalid) {
+    const reference = zoomDepthReference(camera, target, box);
+    assert.deepEqual(reference, target); assert.notEqual(reference, target);
+  }
+  for (const hit of [new Vector3(0, 0, 101), new Vector3(0, 0, 100),
+    new Vector3(0, 0, 99.999), new Vector3(NaN, 0, 0)])
+    assert.deepEqual(zoomDepthReference(camera, target, bounds, hit).toArray(), [0, 0, 0]);
+  const validRecent = new Vector3(3, 4, -20);
+  assert.deepEqual(zoomDepthReference(camera, target, bounds, validRecent), validRecent);
+});
+
+test('camera-inside bounds uses a positive center depth, then far depth when the center is not ahead', () => {
+  const camera = new PerspectiveCamera(45, 1, .01, 100), target = new Vector3(0, 0, -10),
+    bounds = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+  camera.position.set(0, 0, .75); camera.lookAt(target);
+  assert.deepEqual(zoomDepthReference(camera, target, bounds).toArray(), [0, 0, 0]);
+  camera.position.set(0, 0, -.75); camera.lookAt(target);
+  assert.deepEqual(zoomDepthReference(camera, target, bounds).toArray(), [0, 0, -1]);
+  camera.position.set(2, 0, 0); camera.lookAt(new Vector3(2, 0, -10));
+  assert.deepEqual(zoomDepthReference(camera, target, bounds).toArray(), [2, 0, -1]);
+});
+
+test('a clipped positive near bound cannot recreate the shallow background reference', () => {
+  const {camera, target} = nearTargetSetup(), bounds = new Box3(new Vector3(-1, -1, 80), new Vector3(1, 1, 99.999));
+  assert.deepEqual(zoomDepthReference(camera, target, bounds).toArray(), [0, 0, 80]);
+  const recent = new Vector3(3, -4, 90), saved = recent.clone(),
+    reference = zoomDepthReference(camera, target, bounds, recent);
+  assert.deepEqual(reference, recent); assert.notEqual(reference, recent); assert.deepEqual(recent, saved);
+});
+
+test('rotated world bounds use their projected depth interval, with the reference on the forward ray', () => {
+  const {camera, target} = setup(), rotation = new Quaternion().setFromAxisAngle(new Vector3(1, 2, 3).normalize(), .63),
+    translation = new Vector3(100, -50, 20), transform = new Matrix4().compose(translation, rotation, new Vector3(1, 1, 1)),
+    bounds = new Box3(new Vector3(-3, -2, -1), new Vector3(3, 2, 4)).applyMatrix4(transform);
+  camera.position.applyMatrix4(transform); target.applyMatrix4(transform); camera.quaternion.premultiply(rotation);
+  camera.updateMatrixWorld();
+  const direction = camera.getWorldDirection(new Vector3()), depths = [];
+  for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y])
+    for (const z of [bounds.min.z, bounds.max.z]) depths.push(new Vector3(x, y, z).sub(camera.position).dot(direction));
+  const reference = zoomDepthReference(camera, target, bounds), delta = reference.clone().sub(camera.position);
+  assert(Math.abs(delta.dot(direction) - Math.min(...depths)) < 1e-10);
+  assert(delta.clone().cross(direction).length() < 1e-10);
+  assert(delta.dot(direction) > camera.near);
+});
+
+test('bounds depth references are read-only and preserve scale, rotation and translation', () => {
+  for (const scale of [1e-6, 1, 1e3]) {
+    const {camera, target, bounds} = nearTargetSetup(scale), rotation = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2),
+      offset = new Vector3(40, -20, 10).multiplyScalar(scale),
+      corners = [bounds.min, bounds.max].map(point => point.clone().applyQuaternion(rotation).add(offset));
+    bounds.setFromPoints(corners);
+    camera.position.applyQuaternion(rotation).add(offset); target.applyQuaternion(rotation).add(offset);
+    camera.quaternion.premultiply(rotation); camera.updateMatrixWorld();
+    const saved = {camera: camera.toJSON(), target: target.clone(), bounds: bounds.clone()},
+      reference = zoomDepthReference(camera, target, bounds), expected = offset;
+    assert(reference.distanceTo(expected) < scale * 1e-10);
+    assert.deepEqual(camera.toJSON(), saved.camera); assert.deepEqual(target, saved.target); assert.deepEqual(bounds, saved.bounds);
+  }
+});
