@@ -26,6 +26,19 @@ The UI uses an internal [backend operation interface](backend.md). The current
 implementation keeps HTTP/native Python as the default; worker execution and
 static hosting remain separate experiments.
 
+**Fit settings…** in the Project toolbar sets the project's recovery-equivalence
+tolerance, saved with both actions and project files. The default is **1 ppm**.
+For aligned-direction and independent-plane recovery, dimensional differences
+are compared with `ppm × 10⁻⁶ × component RMS normalization length`; this scale
+comes from the selected observations and is not a cylinder's diameter. Direction
+differences use the same numeric value in approximately microradians, and
+dimensionless taper-slope differences use `ppm × 10⁻⁶`. The setting compares
+recovered solutions without changing RMS acceptance, convergence or objective
+tie thresholds. Applying a change invalidates affected results and their
+dependents; **Auto** controls whether they are immediately evaluated. Existing
+actions without this setting use 1 ppm. Other fitting kernels retain their
+existing recovery policies.
+
 **Provisional.** A local browser frontend for the captured simplified nozzle and
 bounded generated fixture examples.
 This is an experiment in selection and fitting interaction, not a browser-only

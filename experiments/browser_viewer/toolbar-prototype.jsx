@@ -16,6 +16,7 @@ const COMMANDS = {
   project: [['save-project', 'Save project', 'download'], ['open-project', 'Open project', 'upload'],
     ['save', 'Save actions', 'download'], ['load', 'Load actions', 'upload'],
     ['reset', 'Restore example', 'restore'], ['choose-example', 'Choose example…', 'source'],
+    ['fit-recovery-settings', 'Fit settings…', 'plane_relationship'],
     ['workspace-show', 'Show panel', 'show_panel'],
     ['workspace-reset', 'Reset layout', 'restore'], ['show-icon-legend', 'Icon legend', 'arranged_face']],
   create: [

@@ -178,14 +178,21 @@ def check_rows(
     assert output["session"]["source_sha256"] == workspace.source_sha256
 
 
+@pytest.mark.parametrize("tolerance_ppm", [0.1, 1.0, 10.0])
+@pytest.mark.parametrize("scale", [0.01, 100.0])
 def test_direction_equivalence_accepts_sub_ppm_drift_but_rejects_larger_geometry_changes(
     monkeypatch: pytest.MonkeyPatch,
+    tolerance_ppm: float,
+    scale: float,
 ) -> None:
     direction = np.array([0.0, 0, 1])
     workspace, ids = workspace_for(
         {
-            "a": lateral(direction, np.zeros(3), 2),
-            "cap": plane(direction, 6 * direction),
+            name: (points * scale, normals)
+            for name, (points, normals) in {
+                "a": lateral(direction, np.zeros(3), 2),
+                "cap": plane(direction, 6 * direction),
+            }.items()
         }
     )
     rows = ids["a"] + ids["cap"]
@@ -197,7 +204,7 @@ def test_direction_equivalence_accepts_sub_ppm_drift_but_rejects_larger_geometry
     def check_equivalence(problem: Any, fresh: Any, **kwargs: Any) -> Any:
         recovered = recover(problem, fresh, **kwargs)
         baseline = recovered.result
-        for ppm, expected in [(0.5, True), (2.0, False)]:
+        for ppm, expected in [(0.5 * tolerance_ppm, True), (2 * tolerance_ppm, False)]:
             for field in ("radius", "origin"):
                 changed = deepcopy(baseline)
                 geometry = changed["surfaces"]["a"]["analytic"]
@@ -210,6 +217,18 @@ def test_direction_equivalence_accepts_sub_ppm_drift_but_rejects_larger_geometry
                         np.asarray(geometry["origin"]) + delta * perpendicular
                     ).tolist()
                 assert problem.equivalent(baseline, changed) is expected
+            changed = deepcopy(baseline)
+            equation = changed["surfaces"]["cap"]["plane_equation"]
+            equation[3] += ppm * 1e-6 * length
+            assert problem.equivalent(baseline, changed) is expected
+            changed = deepcopy(baseline)
+            geometry = changed["surfaces"]["a"]["analytic"]
+            axis = np.asarray(geometry["axis"])
+            angle = ppm * 1e-6
+            geometry["axis"] = (
+                np.cos(angle) * axis + np.sin(angle) * basis(axis)[0]
+            ).tolist()
+            assert problem.equivalent(baseline, changed) is expected
         return recovered
 
     monkeypatch.setattr(direction_fit, "recover_fit", check_equivalence)
@@ -220,9 +239,153 @@ def test_direction_equivalence_accepts_sub_ppm_drift_but_rejects_larger_geometry
             (member("a", ids, "cylinder", axis=axis), member("cap", ids, "plane")),
             {axis: AxisInput({}, True)},
             (relation(axis, "cap", right_plane=True),),
+            geometric_equivalence_ppm=tolerance_ppm,
         ),
     )
-    assert output["initialization"]["equivalence_tolerance"] == 1e-6
+    assert output["initialization"]["equivalence_tolerance"] == tolerance_ppm * 1e-6
+    assert output["initialization"]["geometric_equivalence_ppm"] == tolerance_ppm
+
+
+@pytest.mark.parametrize("tolerance_ppm", [0.1, 1.0])
+@pytest.mark.parametrize("drift_ppm", [0.225, 10_000.0])
+def test_controlled_candidate_drift_uses_configured_equivalence_and_reports_metric(
+    monkeypatch: pytest.MonkeyPatch,
+    tolerance_ppm: float,
+    drift_ppm: float,
+) -> None:
+    direction = np.array([0.0, 0, 1])
+    workspace, ids = workspace_for(
+        {
+            "a": lateral(direction, np.zeros(3), 2),
+            "cap": plane(direction, 6 * direction),
+        }
+    )
+    recover = recover_fit
+
+    def near_equal_candidates(problem: Any, fresh: Any, **kwargs: Any) -> Any:
+        proposals = list(fresh)
+        recovered = recover(problem, proposals, **kwargs)
+        baseline = recovered.result
+        changed = deepcopy(baseline)
+        rows = ids["a"] + ids["cap"]
+        length = CoordinateFrame.from_observations(
+            workspace.local[rows], workspace.data.weights[rows]
+        ).length
+        # Compare both sub-ppm roundoff and clearly distinct candidate geometries.
+        # The symmetric large changes have equal independently measured scores.
+        changed["surfaces"]["a"]["analytic"]["radius"] += drift_ppm * 1e-6 * length
+        if drift_ppm > 1:
+            baseline = deepcopy(baseline)
+            baseline["surfaces"]["a"]["analytic"]["radius"] -= drift_ppm * 1e-6 * length
+            assert problem.assess(baseline).objective == pytest.approx(
+                problem.assess(changed).objective, abs=1e-12
+            )
+        values = iter([baseline, changed])
+
+        def solve(_candidate: Any, _control: Any) -> dict[str, Any]:
+            return next(values)
+
+        return recover(
+            replace(problem, solve=solve),
+            proposals[:2],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(direction_fit, "recover_fit", near_equal_candidates)
+    axis = private_direction_axis("a")
+    component = SelectedDirectionComponent(
+        (member("a", ids, "cylinder", axis=axis), member("cap", ids, "plane")),
+        {axis: AxisInput({}, True)},
+        (relation(axis, "cap", right_plane=True),),
+        geometric_equivalence_ppm=tolerance_ppm,
+    )
+    if tolerance_ppm == 0.1 or drift_ppm > 1:
+        with pytest.raises(DirectionFitFailure) as caught:
+            _ = fit_selected_direction_component(workspace, component)
+        assert caught.value.code == "ambiguous"
+        diagnostic = caught.value.diagnostic["geometric_equivalence"]
+        assert diagnostic["ppm"] == tolerance_ppm
+        difference = diagnostic["first_difference"]
+        assert difference["member"] == "a"
+        assert difference["metric"] == "radius_at_observation_mean"
+        assert difference["difference"] > difference["limit"]
+        assert diagnostic["dimensional_tolerance"] == pytest.approx(difference["limit"])
+    else:
+        output = fit_selected_direction_component(workspace, component)
+        assert output["initialization"]["geometric_equivalence_ppm"] == tolerance_ppm
+
+
+@pytest.mark.parametrize("ppm,scale", [(5e-324, 1.0), (1e308, 1e10)])
+def test_unrepresentable_equivalence_cutoff_fails_before_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    ppm: float,
+    scale: float,
+) -> None:
+    direction = np.array([0.0, 0, 1])
+    workspace, ids = workspace_for({"a": lateral(direction, np.zeros(3), 2)})
+    if scale > 1:
+
+        def large_frame(
+            _cls: type[CoordinateFrame], _points: Any, _weights: Any
+        ) -> CoordinateFrame:
+            return CoordinateFrame(np.zeros(3), scale)
+
+        monkeypatch.setattr(
+            CoordinateFrame, "from_observations", classmethod(large_frame)
+        )
+    axis = private_direction_axis("a")
+
+    def unexpected_recovery(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError(
+            "unrepresentable tolerance must be rejected before recovery"
+        )
+
+    monkeypatch.setattr(direction_fit, "recover_fit", unexpected_recovery)
+    component = SelectedDirectionComponent(
+        (member("a", ids, "cylinder", axis=axis),),
+        {
+            axis: AxisInput({}, True),
+            "fixed": AxisInput({"axis_display": direction.tolist()}, False),
+        },
+        (relation(axis, "fixed"),),
+        geometric_equivalence_ppm=ppm,
+    )
+    with pytest.raises(DirectionFitFailure, match="not representable"):
+        _ = fit_selected_direction_component(workspace, component)
+
+
+@pytest.mark.parametrize("scale", [0.01, 1.0])
+@pytest.mark.parametrize("tolerance_ppm", [0.1, 1.0])
+def test_large_radius_partial_cylinder_recovers_with_project_tolerance(
+    scale: float,
+    tolerance_ppm: float,
+) -> None:
+    angle, height = np.meshgrid(np.linspace(-0.25, 0.25, 24), np.linspace(-20, 20, 7))
+    normals = np.stack(
+        [np.cos(angle), np.sin(angle), np.zeros_like(angle)], axis=-1
+    ).reshape(-1, 3)
+    center = np.array([1000.0, -2000.0, 3000.0])
+    points = center + 104.22203 * normals
+    points[:, 2] += height.ravel()
+    workspace, ids = workspace_for({"patch": (scale * points, normals)})
+    axis = private_direction_axis("patch")
+    component = SelectedDirectionComponent(
+        (member("patch", ids, "cylinder", axis=axis),),
+        {
+            axis: AxisInput({}, True),
+            "fixed": AxisInput(
+                {"axis_display": [0, 0, 1], "point_display": [0, 0, 0]}, False
+            ),
+        },
+        (relation(axis, "fixed"),),
+        geometric_equivalence_ppm=tolerance_ppm,
+    )
+    output = fit_selected_direction_component(workspace, component)
+    assert output["surfaces"]["patch"]["analytic"]["radius"] == pytest.approx(
+        104.22203 * scale, rel=2e-5
+    )
+    assert output["initialization"]["geometric_equivalence_ppm"] == tolerance_ppm
+    assert output["weighted_rms"] / scale < 1e-3
 
 
 @pytest.mark.parametrize("oblique", [False, True])
