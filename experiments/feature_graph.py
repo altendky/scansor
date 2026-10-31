@@ -1409,6 +1409,17 @@ def automatic_plane_relationship_components(
         and (relationship_ids is None or node.id in relationship_ids)
     ]
     axis_bindings = coaxial_axis_bindings(nodes)
+    point_bindings: dict[str, str] | None = None
+
+    def bound_point(surface: SurfaceFit) -> str | None:
+        nonlocal point_bindings
+        # A filtered source stage can retain downstream center declarations
+        # without their fits. As before, validate them only when a component
+        # actually needs point bindings, and reuse that scan within this call.
+        if point_bindings is None:
+            point_bindings = shared_center_bindings(nodes)
+        return fit_point(surface, nodes, point_bindings)
+
     seeds = [relationship.id for relationship in relationships]
     seeds.extend(
         node.id
@@ -1488,7 +1499,7 @@ def automatic_plane_relationship_components(
         points = {
             point
             for surface in surfaces
-            if (point := fit_point(cast(SurfaceFit, surface), nodes)) is not None
+            if (point := bound_point(cast(SurfaceFit, surface))) is not None
         }
         axes.update(
             node.id
@@ -1555,7 +1566,7 @@ def automatic_plane_relationship_components(
                 if isinstance(node, SurfaceFit)
                 and (
                     fit_axis(node, nodes, axis_bindings) in axes
-                    or fit_point(node, nodes) in points
+                    or bound_point(node) in points
                     or (
                         node.reference_plane in owner_ids
                         and cast(
@@ -1594,7 +1605,7 @@ def automatic_plane_relationship_components(
                 not isinstance(node, SurfaceFit)
                 or (
                     fit_axis(node, nodes, axis_bindings) not in expanded_axes
-                    and fit_point(node, nodes) not in expanded_points
+                    and bound_point(node) not in expanded_points
                     and not (
                         node.reference_plane in expanded_owners
                         and cast(
@@ -2088,32 +2099,49 @@ def reuse_transfer_descendants(reuse: str, nodes: dict[str, Feature]) -> set[str
         after = expanded
 
 
-def prior_stage_exclusions(node: Feature, nodes: dict[str, Feature]) -> set[str]:
+def reuse_stage_owner(node: Feature) -> str | None:
+    if isinstance(node, FeatureReuse):
+        return node.id
+    if isinstance(node, ReuseSelection):
+        return node.reuse
+    if (
+        isinstance(node, (AxisDefinition, PlaneDefinition))
+        and node.placement is not None
+    ):
+        return node.placement.reuse
+    return None
+
+
+def prior_stage_exclusions(
+    node: Feature,
+    nodes: dict[str, Feature],
+    *,
+    after: set[str] | None = None,
+    plane_components: dict[
+        str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]
+    ]
+    | None = None,
+) -> set[str]:
     """Generated reuse dimensions constrain fits AFTER membership transfer.
 
     They must not feed back into the source geometry that generated those same
     memberships. Other resolved source relationships still participate.
     """
-    if isinstance(node, FeatureReuse):
-        reuse = node.id
-    elif isinstance(node, ReuseSelection):
-        reuse = node.reuse
-    elif (
-        isinstance(node, (AxisDefinition, PlaneDefinition))
-        and node.placement is not None
-    ):
-        reuse = node.placement.reuse
-    else:
+    reuse = reuse_stage_owner(node)
+    if reuse is None:
         return set()
-    after = reuse_transfer_descendants(reuse, nodes)
+    after = reuse_transfer_descendants(reuse, nodes) if after is None else after
     excluded = {
         candidate.id
         for candidate in nodes.values()
         if isinstance(candidate, EqualRadii) and candidate.id in after
     }
-    for relations, _, members in automatic_plane_relationship_components(
-        nodes
-    ).values():
+    components = (
+        automatic_plane_relationship_components(nodes)
+        if plane_components is None
+        else plane_components
+    )
+    for relations, _, members in components.values():
         if members.intersection(after):
             excluded.update(relation.id for relation in relations)
     return excluded
@@ -2135,6 +2163,66 @@ def compile_execution_plan(
     """
     nodes = {node.id: node for node in recipe.nodes}
     plane_components = influence.plane_components
+    # Every generated selection and placed datum reads the same source stage
+    # for its reuse. Keep analysis local to this immutable compilation input.
+    descendants: dict[str, set[str]] = {}
+    exclusions: dict[str, set[str]] = {}
+    prior_components: dict[
+        str,
+        tuple[
+            dict[str, Feature],
+            dict[str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]],
+        ],
+    ] = {}
+
+    def transfer_descendants(reuse: str) -> set[str]:
+        if reuse not in descendants:
+            descendants[reuse] = reuse_transfer_descendants(reuse, nodes)
+        return descendants[reuse]
+
+    def stage_exclusions(node: Feature) -> set[str]:
+        reuse = reuse_stage_owner(node)
+        if reuse is None:
+            return set()
+        if reuse not in exclusions:
+            exclusions[reuse] = prior_stage_exclusions(
+                node,
+                nodes,
+                after=transfer_descendants(reuse),
+                plane_components=plane_components,
+            )
+        # PriorGeometrySolve and read exclusions have independent mutable sets.
+        return exclusions[reuse].copy()
+
+    def source_components(
+        reuse: str,
+    ) -> tuple[
+        dict[str, Feature],
+        dict[str, tuple[list[GeometryRelationship], list[SurfaceFit], set[str]]],
+    ]:
+        if reuse not in prior_components:
+            after = transfer_descendants(reuse)
+            prior_nodes: dict[str, Feature] = {}
+            for key, value in nodes.items():
+                if (
+                    isinstance(
+                        value, (PlaneRelationship, DirectionAlignment, SurfaceFit)
+                    )
+                    and key in after
+                ):
+                    continue
+                if isinstance(value, EqualRadii):
+                    prior_members = [ref for ref in value.surfaces if ref not in after]
+                    if len(prior_members) < 2:
+                        continue
+                    value = value.model_copy(update={"surfaces": prior_members})
+                prior_nodes[key] = value
+            prior_components[reuse] = (
+                prior_nodes,
+                automatic_plane_relationship_components(prior_nodes),
+            )
+        return prior_components[reuse]
+
     source_contexts = demanded_reuse_source_contexts(nodes)
     task_dependencies = {key: set(dependencies(node)) for key, node in nodes.items()}
     named_inputs = {
@@ -2338,27 +2426,13 @@ def compile_execution_plan(
             continue
         reuse_id = node.id if isinstance(node, FeatureReuse) else node.reuse
         source_ids = set(node.fits) if isinstance(node, FeatureReuse) else {node.fit}
-        excluded = prior_stage_exclusions(node, nodes)
+        excluded = stage_exclusions(node)
         if not excluded:
             continue
-        after = reuse_transfer_descendants(reuse_id, nodes)
-        prior_nodes: dict[str, Feature] = {}
+        after = transfer_descendants(reuse_id)
+        prior_nodes, components = source_components(reuse_id)
         joint_prior_radii: set[str] = set()
-        for key, value in nodes.items():
-            if (
-                isinstance(value, (PlaneRelationship, DirectionAlignment, SurfaceFit))
-                and key in after
-            ):
-                continue
-            if isinstance(value, EqualRadii):
-                prior_members = [ref for ref in value.surfaces if ref not in after]
-                if len(prior_members) < 2:
-                    continue
-                value = value.model_copy(update={"surfaces": prior_members})
-            prior_nodes[key] = value
-        for relations, surfaces, members in automatic_plane_relationship_components(
-            prior_nodes
-        ).values():
+        for relations, surfaces, members in components.values():
             if not source_ids.intersection(
                 {surface.id for surface in surfaces}
             ) or not excluded.intersection(relation.id for relation in relations):
@@ -2427,7 +2501,7 @@ def compile_execution_plan(
     for owner in recipe.nodes:
         if not isinstance(owner, FeatureReuse) or owner.id not in source_contexts:
             continue
-        after = reuse_transfer_descendants(owner.id, nodes)
+        after = transfer_descendants(owner.id)
         provided = {
             surface.id
             for stage in prior_solves.values()
@@ -2454,7 +2528,7 @@ def compile_execution_plan(
                 [source],
                 [],
                 None,
-                prior_stage_exclusions(owner, nodes),
+                stage_exclusions(owner),
                 standalone=True,
             )
             task_dependencies[task] = set(dependencies(source))
@@ -2473,7 +2547,7 @@ def compile_execution_plan(
         if task in nodes:
             node = nodes[task]
             if not isinstance(node, FeatureReuse) or task in source_contexts:
-                excluded.update(prior_stage_exclusions(node, nodes))
+                excluded.update(stage_exclusions(node))
             if isinstance(node, EqualRadii):
                 excluded.update(
                     relation.id
