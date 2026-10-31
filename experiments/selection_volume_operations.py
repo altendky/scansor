@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal, Self, cast
 
 import numpy as np
@@ -18,23 +19,30 @@ from experiments.feature_graph import (
     FeatureGraph,
     Recipe,
     Selection,
+    Source,
     StaleGraph,
     SurfaceReference,
     surface_reference_kind,
 )
+from experiments.feature_inputs import output_catalogue
 from experiments.scan_workspace import check_cancelled
 from experiments.selection_entries import (
     Digest,
     EntryRecord,
     Identifier,
     SelectionEntry,
+    SourceBinding,
     SurfaceAuthoringReference,
     VolumeIntent,
     VolumeReference,
     active_entry,
+    initial_entry_id,
     source_binding,
 )
-from experiments.selection_entry_runtime import entry_diagnostic, volume_frame
+from experiments.selection_entry_runtime import (
+    entry_diagnostic_for_binding,
+    volume_frame,
+)
 from experiments.selection_volume import VolumeOptions
 from experiments.selection_volume_authoring import (
     authoring_fingerprint,
@@ -102,6 +110,17 @@ class OptionsRequest(ReferenceRequest):
 class ChoicesRequest(VolumeRequest):
     selection: Identifier
     entry: Identifier | None = None
+
+
+@dataclass(frozen=True)
+class ChoiceQueryInputs:
+    """Detached per-query metadata; no workspace, source arrays or live caches."""
+
+    token: str
+    revision: int
+    recipe: Recipe
+    states: dict[str, str]
+    binding: SourceBinding
 
 
 class ChooseRequest(ChoicesRequest):
@@ -237,7 +256,10 @@ def choose(
 
 
 def _cyclic_choices(
-    recipe: Recipe, owner: Selection, entry: SelectionEntry
+    recipe: Recipe,
+    owner: Selection,
+    entry: SelectionEntry,
+    cancelled: Callable[[], bool] | None = None,
 ) -> set[tuple[str, str, str]]:
     """Find choices that would close an unfrozen authoring-input cycle.
 
@@ -255,6 +277,7 @@ def _cyclic_choices(
             continue
         for author_entry in node.entries or []:
             for volume in author_entry.volumes:
+                check_cancelled(cancelled)
                 key = node.id, author_entry.id, volume.id
                 for identifier in authoring_selection_ids(
                     recipe, node, author_entry, volume
@@ -287,17 +310,68 @@ def _cyclic_choices(
     return blocked
 
 
-def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]:
-    state, original = _state(graph, request.token)
-    recipe = convert_selection(original, graph.workspace, request.selection)
+def prepare_choices(
+    graph: FeatureGraph[Any], request: ChoicesRequest
+) -> ChoiceQueryInputs:
+    recipe, states, binding, revision = graph.read_query_metadata(request.token)
     owner = _owner(recipe, request.selection)
-    entry = _entry(owner, graph, request.entry)
-    loaded = entry.scan.key == source_binding(graph.workspace).key
-    diagnostic = entry_diagnostic(recipe, owner, graph.workspace) if loaded else None
+    if owner.entries is None:
+        source = next((node for node in recipe.nodes if node.id == owner.source), None)
+        if not isinstance(source, Source) or (
+            source.source_sha256 != binding.source_sha256
+            or source.reference_sha256 != binding.reference_sha256
+        ):
+            raise ValueError("painted selection does not belong to the loaded scan")
+        entry = SelectionEntry(
+            id=initial_entry_id(owner.id, binding.key),
+            scan=binding,
+            mode="painted",
+            ids=owner.ids.copy(),
+            depth=owner.depth,
+        )
+        converted = owner.model_copy(
+            update={"entries": [entry], "ids": [], "depth": "through_all"}
+        )
+        recipe = recipe.model_copy(
+            update={
+                "nodes": [
+                    converted if node.id == owner.id else node for node in recipe.nodes
+                ]
+            }
+        )
+    return ChoiceQueryInputs(request.token, revision, recipe, states, binding)
+
+
+def compute_choices(
+    inputs: ChoiceQueryInputs,
+    request: ChoicesRequest,
+    cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Discover choices from a detached publication with cooperative cancellation."""
+    check_cancelled(cancelled)
+    recipe = inputs.recipe
+    owner = _owner(recipe, request.selection)
+    entry = (
+        active_entry(owner.entries or [], inputs.binding.key)
+        if request.entry is None
+        else next(
+            (item for item in owner.entries or [] if item.id == request.entry), None
+        )
+    )
+    if entry is None:
+        raise ValueError("Selection has no entry for that scan")
+    loaded = entry.scan.key == inputs.binding.key
+    diagnostic = (
+        entry_diagnostic_for_binding(recipe, owner, inputs.binding) if loaded else None
+    )
     surfaces: list[dict[str, Any]] = []
     seen: set[tuple[str, str | None]] = set()
     nodes = {node.id: node for node in recipe.nodes}
-    for descriptor in state["input_catalogue"]:
+    catalogue = output_catalogue(
+        recipe, inputs.states, frame=inputs.binding.reference_sha256
+    )
+    for descriptor in catalogue:
+        check_cancelled(cancelled)
         if "surface" not in descriptor["capabilities"]:
             continue
         output = descriptor["reference"]
@@ -335,7 +409,7 @@ def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]
                     reason = (
                         "This surface's authoring solve does not use this Selection"
                     )
-                elif state["states"].get(reference.feature) in {
+                elif inputs.states.get(reference.feature) in {
                     "failed",
                     "blocked",
                     "needs_input",
@@ -362,7 +436,7 @@ def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]
                 }
             )
     volumes: list[dict[str, Any]] = []
-    blocked = _cyclic_choices(recipe, owner, entry)
+    blocked = _cyclic_choices(recipe, owner, entry, cancelled)
     for saved_entry in owner.entries or []:
         source_label = (
             saved_entry.scan.descriptor.filename
@@ -370,6 +444,7 @@ def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]
             else saved_entry.scan.source_sha256[:12]
         )
         for volume in saved_entry.volumes:
+            check_cancelled(cancelled)
             cyclic = (owner.id, saved_entry.id, volume.id) in blocked
             volumes.append(
                 {
@@ -390,7 +465,7 @@ def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]
                     else "refresh_required",
                 }
             )
-    _ = _state(graph, request.token)
+    check_cancelled(cancelled)
     return {
         "token": request.token,
         "selection": owner.id,
@@ -398,6 +473,18 @@ def choices(graph: FeatureGraph[Any], request: ChoicesRequest) -> dict[str, Any]
         "surfaces": surfaces,
         "volumes": volumes,
     }
+
+
+def choices(
+    graph: FeatureGraph[Any],
+    request: ChoicesRequest,
+    cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    check_cancelled(cancelled)
+    inputs = prepare_choices(graph, request)
+    result = compute_choices(inputs, request, cancelled)
+    graph.assert_read_current(inputs.token, inputs.revision)
+    return result
 
 
 def preview(
@@ -522,7 +609,7 @@ def dispatch(
             cancelled=cancelled,
         )
     if operation == "getSelectionVolumeChoices":
-        return choices(graph, ChoicesRequest.model_validate(payload))
+        return choices(graph, ChoicesRequest.model_validate(payload), cancelled)
     if operation == "getSelectionVolumePreview":
         return preview(graph, PreviewRequest.model_validate(payload), cancelled)
     if operation == "deleteSelectionVolume":

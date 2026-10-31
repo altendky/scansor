@@ -89,7 +89,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     { code: 'observation_superseded', status: 409 });
   const checkPublication = publication => { if (publication !== sourcePublication) throw superseded(); };
   async function request(path, value, { signal, binary = false, blob = false, message, raw = false,
-    generation, publication = sourcePublication, expectedGeneration, sourceMutation = false, observation } = {}) {
+    generation, publication = sourcePublication, expectedGeneration, sourceMutation = false, observation, queryId } = {}) {
     const requestId = ++nextRequestId, active = signalFor(signal);
     active.throwIfAborted();
     checkPublication(publication);
@@ -103,6 +103,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
           method: 'POST',
           headers: { 'Content-Type': raw ? 'application/octet-stream' : 'application/json',
             'X-Scansor-Request': '1',
+            ...(queryId === undefined ? {} : { 'X-Scansor-Query-Id': queryId }),
             ...(generation === undefined ? {} : { 'X-Scansor-Generation': String(generation) }) },
           body: raw ? value : JSON.stringify(value),
         }),
@@ -183,6 +184,32 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
       return Promise.reject(new BackendError('This backend does not support selection volumes.', { code: 'unsupported_capability' }));
     return graphRequest(`/api/graph/selection-volumes/${path}`, payload, options);
   };
+  async function volumeChoices(payload, options = {}) {
+    const signal = signalFor(options.signal);
+    signal.throwIfAborted();
+    const queryId = `choices_${crypto.randomUUID().replaceAll('-', '')}`,
+      generation = acceptedGeneration, token = payload.token;
+    let pending = true;
+    const stopOwned = () => {
+      if (!pending) return;
+      pending = false;
+      // This control request must survive the aborted observation/backend.
+      // Its original cursor scopes it to this read; an acknowledgement is not
+      // evidence of retirement and never changes numerical-evaluation state.
+      void Promise.resolve().then(() => fetchResponse('/api/graph/selection-volumes/choices/cancel', {
+        method: 'POST', signal: AbortSignal.timeout(5000),
+        headers: { 'Content-Type': 'application/json', 'X-Scansor-Request': '1',
+          ...(generation === undefined ? {} : { 'X-Scansor-Generation': String(generation) }) },
+        body: JSON.stringify({ token, query_id: queryId }),
+      })).then(response => response.arrayBuffer()).catch(() => {});
+    };
+    signal.addEventListener('abort', stopOwned, { once: true });
+    try {
+      return await volumeRequest('choices', payload, { ...options, signal, queryId });
+    } finally {
+      pending = false; signal.removeEventListener('abort', stopOwned);
+    }
+  }
   const operationPath = operationId => {
     if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(operationId))
       throw new BackendError('Invalid source operation identity.', { code: 'invalid_operation' });
@@ -356,7 +383,7 @@ export function createHttpBackend({ fetch: fetchResponse = globalThis.fetch,
     authorSelectionVolume: (payload, options) => volumeRequest('author', payload, options),
     setSelectionVolumeOptions: (payload, options) => volumeRequest('options', payload, options),
     chooseSelectionVolume: (payload, options) => volumeRequest('choose', payload, options),
-    getSelectionVolumeChoices: (payload, options) => volumeRequest('choices', payload, options),
+    getSelectionVolumeChoices: volumeChoices,
     getSelectionVolumePreview: (payload, options) => volumeRequest('preview', payload, options),
     deleteSelectionVolume: (payload, options) => volumeRequest('delete', payload, options),
     async inspectActions(payload, options) {
