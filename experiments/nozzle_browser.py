@@ -7,10 +7,11 @@ import json
 import tempfile
 import threading
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager, suppress
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, BinaryIO, ClassVar, Literal, cast, override
@@ -95,6 +96,12 @@ from experiments.seed_surface_authoring import (
     SurfaceSelectionPreviewRequest,
     prepare_surface_selection_preview,
 )
+from experiments.selection_volume_operations import (
+    ChoiceQueryInputs,
+    ChoicesRequest,
+    compute_choices,
+    prepare_choices,
+)
 from experiments.selection_volume_operations import dispatch as volume_operation
 from experiments.virtual_scan_reduction import ReductionSettings
 from scansor.selection_bundle import SelectionBundle
@@ -174,6 +181,26 @@ class NativeAccepted:
     import_warnings: tuple[ImportWarning, ...] = ()
     project_source: ReplayableInput | None = None
     legacy_reference: dict[str, Any] | None = None
+
+
+class ChoiceQueryCancelRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", strict=True)
+    token: str = Field(min_length=1, max_length=128)
+    query_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+@dataclass(frozen=True)
+class NativeChoiceQuery:
+    query_id: str
+    generation: int
+    graph: FeatureGraph[Any]
+    request: ChoicesRequest
+    inputs: ChoiceQueryInputs
+    cancel: threading.Event = field(default_factory=threading.Event)
+
+
+MAX_CHOICE_QUERIES = 64
+MAX_CHOICE_CANCELLATIONS = 128
 
 
 EvaluationState = Literal[
@@ -309,6 +336,9 @@ class NozzleServer(ThreadingHTTPServer):
         self._generation_offset: int = 0
         self._legacy: NativeAccepted | None = None
         self._active_computations: int = 0
+        self._choice_queries: dict[str, NativeChoiceQuery] = {}
+        self._choice_cancellations: OrderedDict[str, tuple[int, str]] = OrderedDict()
+        self._choice_queries_closing: bool = False
         self.active_example: str | None = example_identity(example_path)
         self.worker: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
         # One graph coordinator owns publication; independent selected-data
@@ -428,6 +458,114 @@ class NozzleServer(ThreadingHTTPServer):
                 "Source generation changed; reload the workspace.", "stale_source"
             )
         return state
+
+    def prepare_choice_query(
+        self,
+        accepted: NativeAccepted,
+        request: ChoicesRequest,
+        query_id: str | None,
+    ) -> NativeChoiceQuery:
+        """Register a read with a brief source/graph capture, never an evaluation lease."""
+        identity = ChoiceQueryCancelRequest(
+            token=request.token,
+            query_id=query_id if query_id is not None else uuid.uuid4().hex,
+        )
+        with self.lock:
+            if self._choice_queries_closing:
+                raise ScanImportError(
+                    "Selection-volume choice query cancelled.", "choice_query_cancelled"
+                )
+            current = self.accepted()
+            if (
+                current.generation != accepted.generation
+                or current.graph is not accepted.graph
+            ):
+                raise ScanImportError(
+                    "Source generation changed during read query.", "stale_source"
+                )
+            if identity.query_id in self._choice_queries:
+                raise StaleGraph("selection-volume query ID is already active")
+            cursor = accepted.generation, request.token
+            cancelled_cursor = self._choice_cancellations.get(identity.query_id)
+            if cancelled_cursor is not None and cancelled_cursor != cursor:
+                raise StaleGraph("selection-volume query ID belongs to another cursor")
+            if len(self._choice_queries) >= MAX_CHOICE_QUERIES:
+                raise ScanImportError(
+                    "Too many selection-volume choice queries. Wait or cancel before retrying.",
+                    "choice_query_busy",
+                )
+            inputs = prepare_choices(accepted.graph, request)
+            record = NativeChoiceQuery(
+                identity.query_id, accepted.generation, accepted.graph, request, inputs
+            )
+            if cancelled_cursor is not None:
+                record.cancel.set()
+            self._choice_queries[record.query_id] = record
+            return record
+
+    def _choice_query_cancelled(self, record: NativeChoiceQuery) -> bool:
+        if record.cancel.is_set():
+            return True
+        with self.lock:
+            if self._choice_queries_closing or record.cancel.is_set():
+                return True
+            accepted = self.accepted()
+            if (
+                accepted.generation != record.generation
+                or accepted.graph is not record.graph
+            ):
+                raise ScanImportError(
+                    "Source generation changed during read query.", "stale_source"
+                )
+            record.graph.assert_read_current(
+                record.inputs.token, record.inputs.revision
+            )
+            return record.cancel.is_set()
+
+    def run_choice_query(self, record: NativeChoiceQuery) -> dict[str, Any]:
+        """Compute from detached metadata while writes and cancellation remain available."""
+        try:
+            result = compute_choices(
+                record.inputs,
+                record.request,
+                lambda: self._choice_query_cancelled(record),
+            )
+            check_cancelled(lambda: self._choice_query_cancelled(record))
+            return result
+        except ScanCancelled as error:
+            raise ScanImportError(
+                "Selection-volume choice query cancelled.", "choice_query_cancelled"
+            ) from error
+        finally:
+            with self.lock:
+                if self._choice_queries.get(record.query_id) is record:
+                    del self._choice_queries[record.query_id]
+
+    def cancel_choice_query(
+        self, request: ChoiceQueryCancelRequest, generation: int
+    ) -> dict[str, Any]:
+        """Acknowledge an exact read's cancellation request, including early arrival."""
+        with self.lock:
+            record = self._choice_queries.get(request.query_id)
+            cursor = generation, request.token
+            previous = self._choice_cancellations.get(request.query_id)
+            if record is not None:
+                if (record.generation, record.inputs.token) != cursor:
+                    raise StaleGraph(
+                        "cancellation cursor does not match its read query"
+                    )
+                record.cancel.set()
+            elif previous is not None and previous != cursor:
+                raise StaleGraph("cancellation cursor does not match its read query")
+            self._choice_cancellations[request.query_id] = cursor
+            self._choice_cancellations.move_to_end(request.query_id)
+            while len(self._choice_cancellations) > MAX_CHOICE_CANCELLATIONS:
+                _ = self._choice_cancellations.popitem(last=False)
+            return {
+                "query_id": request.query_id,
+                "token": request.token,
+                "cancel_requested": True,
+            }
 
     def import_context(self) -> NativeImportContext:
         if self.busy():
@@ -1163,6 +1301,11 @@ class NozzleServer(ThreadingHTTPServer):
 
     @override
     def server_close(self) -> None:
+        with self.lock:
+            self._choice_queries_closing = True
+            for query in self._choice_queries.values():
+                query.cancel.set()
+            self._choice_cancellations.clear()
         self.source_imports.begin_close()
         super().server_close()
         self.worker.shutdown(wait=True, cancel_futures=True)
@@ -1522,7 +1665,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def source_error(self, error: ScanImportError) -> None:
         status = (
-            404
+            429
+            if error.code == "choice_query_busy"
+            else 404
             if error.code == "unknown_operation"
             else 409
             if error.code
@@ -1532,6 +1677,7 @@ class Handler(BaseHTTPRequestHandler):
                 "source_exists",
                 "source_busy",
                 "import_closed",
+                "choice_query_cancelled",
             }
             else 422
         )
@@ -1751,6 +1897,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/graph/selection-volumes/options",
             "/api/graph/selection-volumes/choose",
             "/api/graph/selection-volumes/choices",
+            "/api/graph/selection-volumes/choices/cancel",
             "/api/graph/selection-volumes/preview",
             "/api/graph/selection-volumes/delete",
             "/api/graph/build-faces/preview",
@@ -1827,11 +1974,53 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply_generation = self.app.accepted().generation
                 self.json_reply(200, {"active": self.app.active_example})
                 return
+            if self.path in {
+                "/api/graph/selection-volumes/choices",
+                "/api/graph/selection-volumes/choices/cancel",
+            }:
+                try:
+                    if self.path.endswith("/cancel"):
+                        cancellation = ChoiceQueryCancelRequest.model_validate_json(
+                            body
+                        )
+                        with self.app.lock:
+                            accepted = self.fence_source()
+                            state = self.app.cancel_choice_query(
+                                cancellation, accepted.generation
+                            )
+                    else:
+                        choice_request = ChoicesRequest.model_validate_json(body)
+                        with self.app.lock:
+                            accepted = self.fence_source()
+                            if (
+                                self.app.graph_job is not None
+                                and not self.app.graph_job.done()
+                            ):
+                                self.json_reply(
+                                    409,
+                                    {
+                                        "error": "wait for graph evaluation before editing volumes"
+                                    },
+                                )
+                                return
+                            query = self.app.prepare_choice_query(
+                                accepted,
+                                choice_request,
+                                self.headers.get("X-Scansor-Query-Id"),
+                            )
+                        state = self.app.run_choice_query(query)
+                    with suppress(BrokenPipeError, ConnectionResetError):
+                        self.json_reply(200, state)
+                except StaleGraph as error:
+                    with suppress(BrokenPipeError, ConnectionResetError):
+                        self.json_reply(
+                            409, {"error": str(error), "code": "stale_graph"}
+                        )
+                return
             volume_routes = {
                 "/api/graph/selection-volumes/author": "authorSelectionVolume",
                 "/api/graph/selection-volumes/options": "setSelectionVolumeOptions",
                 "/api/graph/selection-volumes/choose": "chooseSelectionVolume",
-                "/api/graph/selection-volumes/choices": "getSelectionVolumeChoices",
                 "/api/graph/selection-volumes/preview": "getSelectionVolumePreview",
                 "/api/graph/selection-volumes/delete": "deleteSelectionVolume",
             }

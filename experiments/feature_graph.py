@@ -109,6 +109,7 @@ from experiments.selected_symmetry_fit import (
 )
 from experiments.selection_entries import (
     SelectionEntry,
+    SourceBinding,
     VolumeReference,
     membership_projection,
     source_binding,
@@ -5219,6 +5220,26 @@ class FeatureGraph(Generic[WorkspaceType]):
             if token is not None and token != self._token():
                 raise StaleGraph("the recipe changed before export")
             return self._recipe.model_dump()
+
+    def read_query_metadata(
+        self, token: str
+    ) -> tuple[Recipe, dict[str, str], SourceBinding, int]:
+        """Detach authored metadata for a read without retaining source buffers."""
+        with self.lock:
+            if token != self._token():
+                raise StaleGraph("graph changed before read query")
+            return (
+                self._recipe.model_copy(deep=True),
+                self._states.copy(),
+                source_binding(self.workspace),
+                self._revision,
+            )
+
+    def assert_read_current(self, token: str, revision: int) -> None:
+        """Fence a read against the exact captured authored/publication cursor."""
+        with self.lock:
+            if token != self._token() or revision != self._revision:
+                raise StaleGraph("graph changed during read query")
 
     def assert_display_current(self, token: str, revision: int) -> None:
         """Fence a private display result against the exact accepted publication."""

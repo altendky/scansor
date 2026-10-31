@@ -130,6 +130,28 @@ test('pending choices are shared across author controls and preserve drafts when
   assert.equal(f.byId('owned-author-target').children[1].value, referenceKey(reference));
 });
 
+test('closing, hiding or replacing a choice field aborts only its obsolete request', async () => {
+  for (const action of ['close', 'hide', 'publication', 'source']) {
+    const f = fixture(), pending = deferred(), signals = [], original = f.backend.getSelectionVolumeChoices;
+    f.backend.getSelectionVolumeChoices = async (payload, { signal }) => {
+      signals.push(signal); const value = await original(payload); await pending.promise; return value;
+    };
+    f.editor.show({ selection: 'selection' }); f.editor.author();
+    f.byId('owned-volume-kind').value = 'plane'; f.byId('owned-volume-kind').onchange();
+    assert.equal(signals.length, 1); assert.equal(signals[0].aborted, false);
+    if (action === 'close') f.editor.clear();
+    if (action === 'hide') { f.byId('owned-volume-kind').value = 'mesh'; f.byId('owned-volume-kind').onchange(); }
+    if (action === 'publication') { f.state.graph = { ...f.state.graph, revision: 2 }; f.editor.refresh(); }
+    if (action === 'source') { f.state.generation = 2; f.editor.refresh(); }
+    assert.equal(signals[0].aborted, true);
+    if (action === 'publication' || action === 'source') {
+      assert.equal(signals.length, 2); assert.equal(signals[1].aborted, false);
+    }
+    pending.resolve(); await settle();
+    if (signals.length === 2) assert.equal(signals[1].aborted, false, 'Finishing the old request cannot abort its replacement');
+  }
+});
+
 test('late choice replies and failures cannot publish after source, publication or editor changes', async () => {
   for (const change of ['token', 'generation', 'revision', 'selection', 'close', 'hide']) {
     for (const fail of [false, true]) {

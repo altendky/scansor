@@ -91,7 +91,7 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
   confirmDelete = label => window.confirm(`Delete volume “${label}”? This cannot be undone. Linked volumes must be cleared from their generated entries first.`) }) {
   const doc = root.ownerDocument;
   let context = null, renderedKey = null, token = null, generation = null, revision = null, choices = null, choiceSequence = 0,
-    choicesKey = null, pendingChoicesKey = null,
+    choicesKey = null, pendingChoicesKey = null, choiceController = null,
     applying = false, preview = null, controls = {}, author = null, sourcePrefilled = false;
   const element = (tag, text, className) => {
     const node = doc.createElement(tag); if (text !== undefined) node.textContent = text;
@@ -200,28 +200,41 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
   // Inspecting painted membership has no candidate input to populate.
   const needsChoices = () => !!context && (!!sourceChoice || !!author &&
     (author.mode.value === 'replace' || author.kind.value !== 'mesh'));
+  function cancelChoices() {
+    if (!choiceController) return;
+    const controller = choiceController;
+    choiceController = null; pendingChoicesKey = null; choiceSequence++;
+    controller.abort();
+  }
   async function loadChoices() {
-    if (!needsChoices()) return;
+    if (!needsChoices()) { cancelChoices(); return; }
     const state = getCurrent(), requestToken = state.graph.token, requestGeneration = state.generation, requestRevision = state.graph.revision,
       selection = context.selection, entry = author ? active()?.id : context.entry,
       // Evaluation can change eligibility without changing the authored token.
       requestKey = JSON.stringify([requestGeneration, requestToken, requestRevision, selection, entry]);
     if (choicesKey === requestKey) { populateChoices(); return; }
     if (pendingChoicesKey === requestKey) return;
-    const ticket = ++choiceSequence, key = renderedKey, draft = draftSignature();
+    cancelChoices();
+    const ticket = ++choiceSequence, key = renderedKey, draft = draftSignature(),
+      controller = new AbortController();
+    choiceController = controller;
     pendingChoicesKey = requestKey;
     const current = () => ticket === choiceSequence && key === renderedKey && needsChoices() &&
       requestToken === getCurrent().graph.token && requestGeneration === getCurrent().generation &&
       requestRevision === getCurrent().graph.revision;
     try {
-      const value = await backend.getSelectionVolumeChoices({ token: requestToken, selection, ...(entry ? { entry } : {}) });
+      const value = await backend.getSelectionVolumeChoices({ token: requestToken, selection, ...(entry ? { entry } : {}) },
+        { signal: controller.signal });
       if (!current()) return;
       if (value.token !== requestToken || value.selection !== selection) throw Error('Volume choices belong to an outdated selection.');
       const untouched = draft === draftSignature();
       choices = value; choicesKey = requestKey; populateChoices();
       if (untouched && !author) onApplied();
     } catch (error) { if (current()) message.textContent = error.message; }
-    finally { if (ticket === choiceSequence) pendingChoicesKey = null; }
+    finally {
+      if (choiceController === controller) choiceController = null;
+      if (ticket === choiceSequence) pendingChoicesKey = null;
+    }
   }
   async function loadPreview() {
     const reference = currentPreview();
@@ -237,7 +250,7 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       try { draftOptions = readVolumeOptions(controls); }
       catch (error) { message.textContent = error.message; onStatus(error.message, true); return; }
     }
-    choiceSequence++;
+    cancelChoices(); choiceSequence++;
     pendingChoicesKey = null;
     const acceptedPreview = preview;
     reader.clear(); root.replaceChildren(); message = hint('');
@@ -280,7 +293,7 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
     const key = JSON.stringify(next);
     context = next ? { ...next } : null;
     if (!force && key === renderedKey) return refresh();
-    renderedKey = key; choiceSequence++; reader.clear(); choices = null; choicesKey = pendingChoicesKey = null; author = null; sourcePrefilled = false;
+    cancelChoices(); renderedKey = key; choiceSequence++; reader.clear(); choices = null; choicesKey = pendingChoicesKey = null; author = null; sourcePrefilled = false;
     controls = {}; sourceChoice = fitChoice = fitFeedback = targetChoice = previewStatus = null;
     root.replaceChildren(); root.hidden = !context;
     if (!context) return;

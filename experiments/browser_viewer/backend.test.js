@@ -82,6 +82,68 @@ test('HTTP rejects malformed volume profiles before mutation and preserves struc
   backend.close();
 });
 
+test('abandoning native choice observation cancels only its read using the original cursor', async () => {
+  for (const action of ['abort', 'close', 'source']) {
+    const calls = [], entered = deferred(), controller = new AbortController();
+    let generation = 12;
+    const backend = createHttpBackend({ fetch: async (path, init) => {
+      calls.push({ path, init });
+      if (path === '/api/meta') return Response.json({ project_generation: generation,
+        selection_volumes: { version: 1, max_preview_cells: 2048 },
+        graph: { token: 'recipe', revision: 1, project_generation: generation, states: {}, recipe: { nodes: [] } },
+        positions: { url: '/positions' }, indices: { url: '/indices' } });
+      if (path === '/positions' || path === '/indices') return new Response(new ArrayBuffer(0),
+        { headers: { 'X-Scansor-Generation': String(generation) } });
+      if (path.endsWith('/choices/cancel')) return Response.json({ cancel_requested: true });
+      entered.resolve();
+      return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+    } });
+    await backend.loadWorkspace();
+    const payload = { token: 'recipe', selection: 'selection', entry: 'entry' },
+      pending = backend.getSelectionVolumeChoices(payload, { signal: controller.signal });
+    await entered.promise;
+    const original = calls.at(-1), queryId = original.init.headers['X-Scansor-Query-Id'];
+    assert.match(queryId, /^choices_[a-f0-9]{32}$/);
+    assert.deepEqual(JSON.parse(original.init.body), payload);
+    payload.token = 'caller-mutated';
+    if (action === 'source') { generation = 13; await backend.loadWorkspace(); }
+    if (action === 'close') backend.close(); else controller.abort();
+    await assert.rejects(pending, error => action === 'close' ? error.code === 'backend_closed' : error.name === 'AbortError');
+    await new Promise(resolve => setImmediate(resolve));
+    const controls = calls.filter(({ path }) => path.endsWith('/choices/cancel'));
+    assert.equal(controls.length, 1);
+    assert.deepEqual(JSON.parse(controls[0].init.body), { token: 'recipe', query_id: queryId });
+    assert.equal(controls[0].init.headers['X-Scansor-Generation'], '12');
+    assert.equal(controls[0].init.headers['X-Scansor-Request'], '1');
+    assert.equal(controls[0].init.signal.aborted, false);
+    assert.equal(calls.some(({ path }) => path === '/api/graph/cancel'), false);
+    assert.equal(backend.getLifecycle().state, action === 'close' ? 'closed' : 'complete',
+      'A read cancellation never claims numerical retirement');
+    backend.close();
+  }
+});
+
+test('native choices neither start pre-aborted reads nor cancel already completed reads', async () => {
+  const calls = [], controller = new AbortController();
+  const backend = createHttpBackend({ fetch: async (path, init) => {
+    calls.push({ path, init });
+    if (path === '/api/meta') return Response.json({ selection_volumes: { version: 1, max_preview_cells: 2048 },
+      positions: { url: '/p' }, indices: { url: '/i' } });
+    if (path === '/p' || path === '/i') return new Response(new ArrayBuffer(0));
+    return Response.json({ token: 'recipe', selection: 's', surfaces: [], volumes: [] });
+  } });
+  await backend.loadWorkspace();
+  controller.abort();
+  await assert.rejects(backend.getSelectionVolumeChoices({ token: 'recipe', selection: 's' }, { signal: controller.signal }),
+    error => error.name === 'AbortError');
+  assert.equal(calls.length, 3);
+  const completed = new AbortController();
+  await backend.getSelectionVolumeChoices({ token: 'recipe', selection: 's' }, { signal: completed.signal });
+  completed.abort(); backend.close();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.filter(({ path }) => path.endsWith('/choices/cancel')).length, 0);
+});
+
 test('workspace and CAD results expose owned buffers rather than URLs or HTTP responses', async () => {
   const positions = new Float32Array([1, 2, 3]), indices = new Uint32Array([0, 0, 0]),
     bytes = new Uint8Array([80, 75, 3, 4]);

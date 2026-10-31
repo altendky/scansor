@@ -228,6 +228,53 @@ globalThis.__selectionSave411 = {
   expect(evaluations).toEqual([]); expect(errors).toEqual([]);
 });
 
+test('hiding analytic volume choices sends a scoped native cancellation before delayed query arrival', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  await imported(page, memoryFile('cancel-grid.ply', fixture.dense));
+  await page.getByRole('button', { name: 'Selection', exact: true }).click();
+  await page.locator('#selection-shape').selectOption('rectangle');
+  await page.locator('#selection-depth').selectOption('through_all');
+  await page.locator('#tool').selectOption('add');
+  await page.locator('#top').click();
+  const canvas = await page.locator('#viewport canvas').boundingBox();
+  await page.mouse.move(canvas.x + 8, canvas.y + 8); await page.mouse.down();
+  await page.mouse.move(canvas.x + canvas.width - 8, canvas.y + canvas.height - 8, { steps: 5 }); await page.mouse.up();
+  await expect.poll(async () => Object.values((await graph(page)).memberships).some(ids => ids?.length === 30)).toBe(true);
+  const editor = page.locator('#selection-owned-editor');
+  await editor.getByRole('button', { name: 'Create volume…', exact: true }).click();
+  let observe, release;
+  const entered = new Promise(resolve => { observe = resolve; }), stopped = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/graph/selection-volumes/choices', async route => {
+    const request = route.request();
+    observe({ payload: request.postDataJSON(), headers: await request.allHeaders() });
+    await stopped;
+    await route.abort().catch(() => {});
+  });
+  await page.locator('#owned-volume-kind').selectOption('plane');
+  const query = await entered, queryId = query.headers['x-scansor-query-id'];
+  expect(queryId).toMatch(/^choices_[a-f0-9]{32}$/);
+  const cancelled = page.waitForResponse(response => new URL(response.url()).pathname === '/api/graph/selection-volumes/choices/cancel');
+  await page.locator('#owned-volume-kind').selectOption('mesh');
+  const acknowledgement = await cancelled;
+  expect(acknowledgement.ok()).toBe(true);
+  expect(await acknowledgement.json()).toMatchObject({ token: query.payload.token, query_id: queryId, cancel_requested: true });
+  release();
+  // Deliver the original read after cancellation, independently of the aborted
+  // browser observation. The native tombstone must stop it before computation.
+  const late = await page.request.post(new URL('/api/graph/selection-volumes/choices', page.url()).href, {
+    headers: { 'X-Scansor-Request': '1', 'X-Scansor-Generation': query.headers['x-scansor-generation'],
+      'X-Scansor-Query-Id': queryId }, data: query.payload,
+  });
+  expect(late.status()).toBe(409);
+  expect(await late.json()).toMatchObject({ error: 'Selection-volume choice query cancelled.', code: 'choice_query_cancelled' });
+  await expect(page.locator('#owned-volume-kind')).toHaveValue('mesh');
+  await expect(page.getByRole('button', { name: 'Evaluate all', exact: true })).toBeEnabled();
+  expect((await graph(page)).evaluation_running).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test('Replace scan toolbar chooser preserves cancelled drafts and retains definitions with pending new entries', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

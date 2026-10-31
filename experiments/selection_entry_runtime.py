@@ -14,6 +14,7 @@ from experiments.scan_workspace import Workspace, check_cancelled
 from experiments.selection_entries import (
     SelectionEntry,
     SelectionVolume,
+    SourceBinding,
     active_entry,
     source_binding,
 )
@@ -111,7 +112,16 @@ def entry_diagnostic(
     """Cheap setup check: no volume expansion or numerical evaluation."""
     if selection.entries is None:
         return None
-    entry = current_entry(selection, workspace)
+    return entry_diagnostic_for_binding(recipe, selection, source_binding(workspace))
+
+
+def entry_diagnostic_for_binding(
+    recipe: Recipe, selection: Selection, binding: SourceBinding
+) -> dict[str, Any] | None:
+    """Use captured scan identity without accessing a live workspace's buffers."""
+    if selection.entries is None:
+        return None
+    entry = active_entry(selection.entries, binding.key)
     base: dict[str, Any] = {
         "code": "needs_input",
         "selection": selection.id,
@@ -134,7 +144,7 @@ def entry_diagnostic(
     owner, original, volume = resolve_volume(recipe, entry.source_volume)
     fingerprint = authoring_fingerprint(recipe, owner, original, volume)
     if fingerprint != volume.authoring_fingerprint:
-        loaded = original.scan.key == source_binding(workspace).key
+        loaded = original.scan.key == binding.key
         return {
             **base,
             "action": "refresh_source_volume",
