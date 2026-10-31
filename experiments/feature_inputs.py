@@ -826,7 +826,15 @@ def output_catalogue(
                     extra["output"],
                     extra["capabilities"][0],
                 )
-                descriptor = deepcopy(descriptors[-1])
+                # Both fields are replaced below; traversing the previous
+                # output's geometry and property metadata cannot contribute.
+                descriptor = deepcopy(
+                    {
+                        key: value
+                        for key, value in descriptors[-1].items()
+                        if key not in {"preview", "properties"}
+                    }
+                )
                 descriptor.update(
                     reference=OutputReference(
                         feature=node.id, output=extra_output, context=context
@@ -1135,35 +1143,35 @@ def input_choices(
         if isinstance(ref, dict)
     }
     for original in catalogue:
-        descriptor = deepcopy(original)
-        reason = compatibility_reason(
-            descriptor, requirement, source=source, frame=frame
-        )
-        descriptor["compatible"] = reason is None
-        ref = OutputReference.model_validate(descriptor["reference"])
-        property_spec = descriptor.get("properties", {}).get(
+        reason = compatibility_reason(original, requirement, source=source, frame=frame)
+        ref = OutputReference.model_validate(original["reference"])
+        property_spec = original.get("properties", {}).get(
             REQUIREMENTS[requirement].get("property"), {}
         )
         if use is not None and (
-            use not in descriptor.get("uses", ["geometry"])
+            use not in original.get("uses", ["geometry"])
             or (property_spec and use not in property_spec.get("uses", ["geometry"]))
         ):
             reason = "This output does not provide the requested input use"
         retained_output = reference_key(ref) in retained_keys
         if not retained_output and not set(
-            descriptor.get("uses", ["geometry"])
+            original.get("uses", ["geometry"])
         ).intersection(REQUIREMENTS[requirement].get("uses", ["geometry"])):
             continue
         if (
             reason is not None
             and not retained_output
             and not set(
-                descriptor.get("capabilities", [descriptor["capability"]])
+                original.get("capabilities", [original["capability"]])
             ).intersection(REQUIREMENTS[requirement]["capabilities"])
         ):
             # Outputs of another capability are noise, whereas ownership
             # restrictions explain why otherwise relevant geometry is rejected.
             continue
+        # The filters above only read catalogue metadata. Detach every returned
+        # descriptor before applying this consumer's availability and reasons.
+        descriptor = deepcopy(original)
+        descriptor["compatible"] = reason is None
         if (
             "binding" in REQUIREMENTS[requirement].get("uses", [])
             and use != "geometry"
