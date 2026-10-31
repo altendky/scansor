@@ -90,7 +90,8 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
   isLocked = () => false, newId = () => `volume-${crypto.randomUUID()}`,
   confirmDelete = label => window.confirm(`Delete volume “${label}”? This cannot be undone. Linked volumes must be cleared from their generated entries first.`) }) {
   const doc = root.ownerDocument;
-  let context = null, renderedKey = null, token = null, choices = null, choiceSequence = 0,
+  let context = null, renderedKey = null, token = null, generation = null, revision = null, choices = null, choiceSequence = 0,
+    choicesKey = null, pendingChoicesKey = null,
     applying = false, preview = null, controls = {}, author = null, sourcePrefilled = false;
   const element = (tag, text, className) => {
     const node = doc.createElement(tag); if (text !== undefined) node.textContent = text;
@@ -196,17 +197,31 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
     if (detail && !choices?.volumes?.length && record().entry?.mode === 'generated')
       detail.textContent = 'No source volumes are available. Load an authoring scan and explicitly create a mesh or analytic volume under its Selection entry.';
   }
+  // Inspecting painted membership has no candidate input to populate.
+  const needsChoices = () => !!context && (!!sourceChoice || !!author &&
+    (author.mode.value === 'replace' || author.kind.value !== 'mesh'));
   async function loadChoices() {
-    const ticket = ++choiceSequence, state = getCurrent(), key = renderedKey, draft = draftSignature();
+    if (!needsChoices()) return;
+    const state = getCurrent(), requestToken = state.graph.token, requestGeneration = state.generation, requestRevision = state.graph.revision,
+      selection = context.selection, entry = author ? active()?.id : context.entry,
+      // Evaluation can change eligibility without changing the authored token.
+      requestKey = JSON.stringify([requestGeneration, requestToken, requestRevision, selection, entry]);
+    if (choicesKey === requestKey) { populateChoices(); return; }
+    if (pendingChoicesKey === requestKey) return;
+    const ticket = ++choiceSequence, key = renderedKey, draft = draftSignature();
+    pendingChoicesKey = requestKey;
+    const current = () => ticket === choiceSequence && key === renderedKey && needsChoices() &&
+      requestToken === getCurrent().graph.token && requestGeneration === getCurrent().generation &&
+      requestRevision === getCurrent().graph.revision;
     try {
-      const entry = author ? active()?.id : context.entry;
-      const value = await backend.getSelectionVolumeChoices({ token: state.graph.token, selection: context.selection, ...(entry ? { entry } : {}) });
-      if (ticket !== choiceSequence || key !== renderedKey || state.graph.token !== getCurrent().graph.token) return;
-      if (value.token !== state.graph.token || value.selection !== context.selection) throw Error('Volume choices belong to an outdated selection.');
+      const value = await backend.getSelectionVolumeChoices({ token: requestToken, selection, ...(entry ? { entry } : {}) });
+      if (!current()) return;
+      if (value.token !== requestToken || value.selection !== selection) throw Error('Volume choices belong to an outdated selection.');
       const untouched = draft === draftSignature();
-      choices = value; populateChoices();
+      choices = value; choicesKey = requestKey; populateChoices();
       if (untouched && !author) onApplied();
-    } catch (error) { if (ticket === choiceSequence && key === renderedKey) message.textContent = error.message; }
+    } catch (error) { if (current()) message.textContent = error.message; }
+    finally { if (ticket === choiceSequence) pendingChoicesKey = null; }
   }
   async function loadPreview() {
     const reference = currentPreview();
@@ -223,8 +238,10 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       catch (error) { message.textContent = error.message; onStatus(error.message, true); return; }
     }
     choiceSequence++;
+    pendingChoicesKey = null;
     const acceptedPreview = preview;
     reader.clear(); root.replaceChildren(); message = hint('');
+    sourceChoice = fitChoice = fitFeedback = targetChoice = null; author = null;
     const current = record(), loaded = active();
     const unavailable = text => { hint(text); button('Back to selection', () => { show(context, true); onApplied(); }); };
     if (!loaded && current.selection.entries) { unavailable('Load an authoring scan before creating or replacing a volume.'); return; }
@@ -246,7 +263,10 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
     hint('Auto values are recomputed from the current scan when captured. Previously saved defaults are shown only as a reference.');
     optionFields(draftOptions || current.volume?.options);
     if (acceptedPreview) updateControls(acceptedPreview);
-    const sync = () => { targetChoice.parentElement.hidden = mode.value !== 'replace'; fitChoice.parentElement.hidden = kind.value === 'mesh'; populateChoices(); };
+    const sync = () => {
+      targetChoice.parentElement.hidden = mode.value !== 'replace'; fitChoice.parentElement.hidden = kind.value === 'mesh';
+      populateChoices(); void loadChoices();
+    };
     mode.onchange = sync; kind.onchange = () => { author.fit = null; sync(); }; sync();
     const footer = element('div', undefined, 'owned-editor-footer'); root.append(footer);
     button('Capture volume', () => mutate(() => backend.authorSelectionVolume(volumeAuthorPayload({
@@ -255,17 +275,16 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       kind: kind.value, fit: fitChoice.value ? JSON.parse(fitChoice.value) : null, options: readVolumeOptions(controls),
     }))), footer);
     button('Cancel', () => { show(context, true); onApplied(); }, footer);
-    loadChoices();
   }
   function show(next, force = false) {
     const key = JSON.stringify(next);
     context = next ? { ...next } : null;
     if (!force && key === renderedKey) return refresh();
-    renderedKey = key; choiceSequence++; reader.clear(); choices = null; author = null; sourcePrefilled = false;
+    renderedKey = key; choiceSequence++; reader.clear(); choices = null; choicesKey = pendingChoicesKey = null; author = null; sourcePrefilled = false;
     controls = {}; sourceChoice = fitChoice = fitFeedback = targetChoice = previewStatus = null;
     root.replaceChildren(); root.hidden = !context;
     if (!context) return;
-    token = getCurrent().graph.token;
+    token = getCurrent().graph.token; generation = getCurrent().generation; revision = getCurrent().graph.revision;
     const { selection, entry, volume } = record();
     if (!selection || context.entry && !entry || context.volume && !volume) { hint('This selection item is no longer available.'); return; }
     message = hint(''); root.append(element('h3', volume?.label || (entry ? 'Scan selection entry' : 'Selection entries')));
@@ -332,10 +351,13 @@ export function createSelectionOwnedEditor({ root, backend, getCurrent, onGraph,
       coverage = related ? state.graph.derived?.[selection.id]?.coverage : null;
     if (message && !applying) message.textContent = diagnostic?.message || (coverage
       ? `${coverage.partial ? 'Partial coverage warning' : 'Estimated coverage'}: ${(100 * coverage.fraction).toFixed(1)}% of saved support (${coverage.samples.toLocaleString()} area samples). Sampling can miss small gaps; valid fits remain available.` : '');
-    if (token !== state.graph.token) {
-      token = state.graph.token; reader.clear();
+    const inputsChanged = token !== state.graph.token || generation !== state.generation;
+    if (inputsChanged) {
+      token = state.graph.token; generation = state.generation; reader.clear();
       if (context.volume && !author) void loadPreview();
-      if (!context.volume || author) void loadChoices();
+    }
+    if (inputsChanged || revision !== state.graph.revision) {
+      revision = state.graph.revision; void loadChoices();
     }
   }
   return { show, refresh, author: authorForm, clear: () => show(null, true),

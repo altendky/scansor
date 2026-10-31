@@ -21,7 +21,7 @@ function fixture() {
     volume = { id: 'saved', label: 'Saved support', kind: 'mesh', options: { inward_thickness: null }, archive: { sha256: 'digest' } },
     entry = { id: 'original', scan: binding, mode: 'painted', ids: [1, 2], depth: 'through_all', volumes: [volume] },
     selection = { id: 'selection', operation: 'selection', source: 'scan', entries: [entry] },
-    state = { graph: { token: 'before', recipe: { nodes: [scan, selection] }, derived: {}, diagnostics: {} }, metadata: { vertices: 12 }, generation: 1 },
+    state = { graph: { token: 'before', revision: 1, recipe: { nodes: [scan, selection] }, derived: {}, diagnostics: {} }, metadata: { vertices: 12 }, generation: 1 },
     calls = [], publications = [];
   const backend = {
     async getSelectionVolumeChoices(payload) { calls.push(['choices', payload]); return { ...payload,
@@ -49,6 +49,112 @@ function previewResponse(payload) {
     bounds: { min: [0, 0, 0], max: [1, 1, 0] } };
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('ordinary root and painted-entry edits never request hidden volume choices', async () => {
+  for (const context of [{ selection: 'selection' }, { selection: 'selection', entry: 'original' }]) {
+    const f = fixture();
+    f.editor.show(context); await settle();
+    for (const id of [3, 4]) {
+      f.entry.ids = [...f.entry.ids, id];
+      f.state.graph = { ...f.state.graph, token: `paint-${id}`, revision: f.state.graph.revision + 1 };
+      f.editor.show(context); await settle();
+    }
+    f.state.graph = { ...f.state.graph, revision: f.state.graph.revision + 1 };
+    f.editor.refresh(); await settle();
+    f.state.generation = 2; f.editor.refresh(); await settle();
+    assert.deepEqual(f.entry.ids, [1, 2, 3, 4]);
+    assert.deepEqual(f.calls, []);
+    assert.ok(f.button(context.entry ? 'Create / replace volume…' : 'Create volume…'));
+  }
+});
+
+test('authoring loads current choices only when analytic or replacement controls need them', async () => {
+  const f = fixture(); f.editor.show({ selection: 'selection' }); f.editor.author(); await settle();
+  assert.equal(f.calls.length, 0, 'Create mesh support has no candidate picker');
+  const kind = f.byId('owned-volume-kind'), mode = f.byId('owned-author-mode');
+  kind.value = 'plane'; kind.onchange(); await settle();
+  assert.deepEqual(f.calls.filter(([name]) => name === 'choices').map(([, payload]) => payload),
+    [{ token: 'before', selection: 'selection', entry: 'original' }]);
+  assert.equal(f.byId('owned-volume-fit').children[1].textContent, 'Plane');
+  kind.value = 'mesh'; kind.onchange(); mode.value = 'replace'; mode.onchange(); await settle();
+  assert.equal(f.byId('owned-author-target').children[1].value, referenceKey(reference));
+  assert.equal(f.calls.length, 1, 'Current catalogue is shared across visible author controls');
+  f.state.graph = { ...f.state.graph, token: 'changed', revision: 2 };
+  f.editor.refresh(); await settle();
+  assert.equal(f.calls.at(-1)[1].token, 'changed'); assert.equal(f.calls.length, 2);
+  mode.value = 'create'; mode.onchange();
+  f.state.graph = { ...f.state.graph, token: 'hidden', revision: 3 };
+  f.editor.refresh(); await settle();
+  assert.equal(f.calls.length, 2, 'Hidden author controls do not refresh candidates');
+});
+
+test('same-token publications refresh visible source and analytic choices without rebuilding drafts', async () => {
+  for (const mode of ['source', 'analytic']) {
+    const f = fixture();
+    if (mode === 'source') { f.entry.mode = 'generated'; delete f.entry.ids; f.entry.source_volume = null; }
+    f.editor.show({ selection: 'selection', entry: 'original' });
+    if (mode === 'analytic') {
+      f.editor.author(); f.byId('owned-volume-kind').value = 'plane'; f.byId('owned-volume-kind').onchange();
+    }
+    await settle(); assert.equal(f.calls.length, 1);
+    const control = f.byId(mode === 'source' ? 'owned-source-volume' : 'owned-volume-label');
+    control.value = mode === 'source' ? referenceKey(reference) : 'Keep this name';
+    const original = f.backend.getSelectionVolumeChoices;
+    f.backend.getSelectionVolumeChoices = async payload => {
+      const value = await original(payload); value.surfaces[0].label = 'Fresh plane'; value.volumes[0].label = 'Fresh support'; return value;
+    };
+    f.state.graph = { ...f.state.graph, revision: 2 };
+    f.editor.refresh(); await settle();
+    assert.equal(f.calls.length, 2); assert.equal(f.byId(control.id), control);
+    assert.equal(control.value, mode === 'source' ? referenceKey(reference) : 'Keep this name');
+    assert.equal(f.byId(mode === 'source' ? 'owned-source-volume' : 'owned-volume-fit').children[1].textContent,
+      mode === 'source' ? 'selection / scan.ply / Fresh support' : 'Fresh plane');
+    f.state.generation = 2; f.editor.refresh(); await settle();
+    assert.equal(f.calls.length, 3, 'A replacement source cannot reuse the old source catalogue');
+    assert.equal(f.byId(control.id), control);
+  }
+});
+
+test('pending choices are shared across author controls and preserve drafts when they arrive', async () => {
+  const f = fixture(), pending = deferred(), original = f.backend.getSelectionVolumeChoices;
+  f.backend.getSelectionVolumeChoices = async payload => { const value = await original(payload); await pending.promise; return value; };
+  f.editor.show({ selection: 'selection' }); f.editor.author();
+  const kind = f.byId('owned-volume-kind'), mode = f.byId('owned-author-mode'), name = f.byId('owned-volume-label');
+  kind.value = 'plane'; kind.onchange(); mode.value = 'replace'; mode.onchange();
+  name.value = 'Pending draft'; f.byId('owned-edge_padding-mode').value = 'override'; f.byId('owned-edge_padding').value = '0.3';
+  assert.equal(f.calls.length, 1);
+  pending.resolve(); await settle();
+  assert.equal(f.byId('owned-volume-label'), name); assert.equal(name.value, 'Pending draft');
+  assert.equal(f.byId('owned-edge_padding').value, '0.3');
+  assert.equal(f.byId('owned-volume-fit').children[1].textContent, 'Plane');
+  assert.equal(f.byId('owned-author-target').children[1].value, referenceKey(reference));
+});
+
+test('late choice replies and failures cannot publish after source, publication or editor changes', async () => {
+  for (const change of ['token', 'generation', 'revision', 'selection', 'close', 'hide']) {
+    for (const fail of [false, true]) {
+      const f = fixture(), pending = deferred(), original = f.backend.getSelectionVolumeChoices;
+      f.backend.getSelectionVolumeChoices = async payload => {
+        const value = await original(payload); await pending.promise;
+        if (fail) throw Error('Abandoned choices failed');
+        value.surfaces[0].label = 'Abandoned plane'; return value;
+      };
+      f.editor.show({ selection: 'selection' }); f.editor.author();
+      f.byId('owned-volume-kind').value = 'plane'; f.byId('owned-volume-kind').onchange();
+      if (change === 'token') f.state.graph = { ...f.state.graph, token: 'new' };
+      if (change === 'generation') f.state.generation = 2;
+      if (change === 'revision') f.state.graph = { ...f.state.graph, revision: 2 };
+      if (change === 'selection') {
+        f.state.graph.recipe.nodes.push({ ...f.selection, id: 'other' }); f.editor.show({ selection: 'other' });
+      }
+      if (change === 'close') f.editor.clear();
+      if (change === 'hide') { f.byId('owned-volume-kind').value = 'mesh'; f.byId('owned-volume-kind').onchange(); }
+      pending.resolve(); await settle();
+      assert.doesNotMatch(f.text(), /Abandoned plane|Abandoned choices failed/);
+      assert.equal(f.calls.length, 1);
+    }
+  }
+});
 
 test('owned identity stays separate from feature identity and reference property order', () => {
   assert.equal(ownedKey({ selection: 's', entry: 'e' }), 'selection-entry/s/e');
