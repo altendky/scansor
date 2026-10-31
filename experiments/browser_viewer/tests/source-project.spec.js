@@ -166,6 +166,68 @@ test.beforeEach(async ({ page, sourceOrigin }) => {
   await expect(page.locator('#startup-error')).toBeHidden();
 });
 
+test('Auto-off paint saves do not discover hidden volume choices in root or entry inspection', async ({ page }) => {
+  const errors = [], choices = [], evaluations = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (request.method() !== 'POST') return;
+    if (new URL(request.url()).pathname === '/api/graph/selection-volumes/choices') choices.push(request.postDataJSON());
+    if (/\/api\/graph\/(ensure|evaluate)$/.test(new URL(request.url()).pathname)) evaluations.push(request.url());
+  });
+  await page.route('**/app.js', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: await response.text() + `
+globalThis.__selectionSave411 = {
+ pending: () => selectionPending || selectionDrawing,
+ point: id => {
+  const vector = new THREE.Vector3().fromArray(positions, id * 3), box = renderer.domElement.getBoundingClientRect();
+  camera.updateMatrixWorld(); mesh.updateMatrixWorld(); vector.applyMatrix4(mesh.matrixWorld).project(camera);
+  return { x: box.x + (vector.x + 1) * viewport.clientWidth / 2, y: box.y + (1 - vector.y) * viewport.clientHeight / 2 };
+ }
+};
+` });
+  });
+  await page.reload();
+  await expect(page.locator('[data-add-scan]')).toBeEnabled();
+  await page.getByRole('checkbox', { name: 'Auto', exact: true }).uncheck();
+  await imported(page, memoryFile('paint-grid.ply', fixture.dense));
+  await page.getByRole('button', { name: 'Selection', exact: true }).click();
+  await expect(page.locator('#selection-tools')).toBeVisible();
+  if (await page.locator('#dock-edit').isVisible()) await page.locator('#dock-edit').click();
+  await page.locator('#selection-shape').selectOption('paint');
+  await page.locator('#selection-depth').selectOption('first_surface');
+  await page.locator('#brush-size').fill('40');
+  await page.locator('#tool').selectOption('add');
+  await page.locator('#top').click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const editor = page.locator('#selection-owned-editor'), selection = (await graph(page)).recipe.nodes.find(node => node.operation === 'selection');
+  for (const [index, id] of [14, 15].entries()) {
+    const point = await page.evaluate(id => globalThis.__selectionSave411.point(id), id);
+    await page.mouse.move(point.x, point.y); await page.mouse.down();
+    await page.mouse.move(point.x + 2, point.y + 1); await page.mouse.up();
+    await page.waitForFunction(() => !globalThis.__selectionSave411.pending());
+    await expect.poll(async () => {
+      const current = await metadata(page), node = current.graph.recipe.nodes.find(node => node.id === selection.id);
+      return painted(node, current.graph, current).ids;
+    }).toEqual([14, 15].slice(0, index + 1));
+    if (index === 0) {
+      await editor.getByRole('button', { name: 'paint-grid.ply · painted', exact: true }).click();
+      await expect(editor).toContainText('1 painted vertices');
+      await page.locator('#tool').selectOption('add');
+    }
+  }
+  expect(choices).toEqual([]); expect(evaluations).toEqual([]);
+  await editor.getByRole('button', { name: 'Create / replace volume…', exact: true }).click();
+  expect(choices, 'Create mesh support does not display a candidate picker').toEqual([]);
+  const requested = page.waitForResponse(response => new URL(response.url()).pathname === '/api/graph/selection-volumes/choices');
+  await page.locator('#owned-volume-kind').selectOption('plane');
+  expect((await requested).ok()).toBe(true);
+  await expect(editor).toContainText('No eligible plane surface');
+  expect(choices).toHaveLength(1); expect(choices[0].selection).toBe(selection.id);
+  expect(choices[0].token).toBe((await graph(page)).token);
+  expect(evaluations).toEqual([]); expect(errors).toEqual([]);
+});
+
 test('Replace scan toolbar chooser preserves cancelled drafts and retains definitions with pending new entries', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
