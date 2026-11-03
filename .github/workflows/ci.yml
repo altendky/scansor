@@ -70,7 +70,7 @@ jobs:
 
       # Inspect every locked package, including dependencies for other platforms,
       # without installing or executing dependency code.
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5
         with:
           install_args: python uv
           cache: false
