@@ -116,14 +116,18 @@ def packages(lock: dict[str, Any]) -> tuple[dict[str, dict], dict[str, dict]]:
     return runtime, helpers
 
 
-def root_notices(archive: tarfile.TarFile) -> set[str]:
+def archive_notices(archive: tarfile.TarFile) -> set[str]:
+    """Find notice members throughout the archive, including vendored packages."""
     return {
         member.name
         for member in archive.getmembers()
-        if member.name.count("/") == 1
-        and re.fullmatch(
-            r"(?i)package/(?:licen[sc]e|notice|copying|copyright)(?:[._-].*)?",
-            member.name,
+        if re.fullmatch(
+            r"(?i)(?:licen[sc]es?|notices?|copying|copyright)(?:[._-].*)?",
+            member.name.rsplit("/", 1)[-1],
+        )
+        or any(
+            re.fullmatch(r"(?i)(?:licen[sc]es?|notices?|copying|copyright)", part)
+            for part in member.name.split("/")[:-1]
         )
     }
 
@@ -248,7 +252,7 @@ def refresh(inventory: dict, lock_bytes: bytes, fetch: Fetch = fetch_https) -> d
                     metadata.get("repository", {}).get("url")
                     not in HEADLESS_REPOSITORIES
                     or not re.fullmatch(r"[0-9a-f]{40}", head)
-                    or root_notices(archive)
+                    or archive_notices(archive)
                 ):
                     raise ValueError(
                         f"{name}: publisher notice correspondence needs review"
@@ -268,13 +272,14 @@ def refresh(inventory: dict, lock_bytes: bytes, fetch: Fetch = fetch_https) -> d
                 replacements[old_path] = record["path"]
             else:
                 expected_notices = {
-                    member["archive_path"]
-                    for member in record["members"]
-                    if member["archive_path"].count("/") == 1
+                    member["archive_path"] for member in record["members"]
                 }
-                if root_notices(archive) != expected_notices:
+                actual_notices = archive_notices(archive)
+                if actual_notices != expected_notices:
                     raise ValueError(
-                        f"{name}: changed archive notice coverage needs review"
+                        f"{name}: changed archive notice coverage needs review: "
+                        f"new={sorted(actual_notices - expected_notices)}, "
+                        f"missing={sorted(expected_notices - actual_notices)}"
                     )
                 for member in record["members"]:
                     matches = [

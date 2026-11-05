@@ -138,7 +138,11 @@ def scenario() -> Scenario:
     responses: dict[str, bytes] = {}
 
     def change(
-        name: str, *, notice: bytes | None = None, extra_notice: bool = False
+        name: str,
+        *,
+        notice: bytes | None = None,
+        extra_notice: bool = False,
+        nested_notice: str | None = None,
     ) -> dict[str, Any]:
         _, version = VERSIONS[name]
         content = (
@@ -151,6 +155,8 @@ def scenario() -> Scenario:
             files = {"package/package.json": b"{}"}
         if extra_notice:
             files["package/NOTICE"] = b"New, unreviewed notice\n"
+        if nested_notice is not None:
+            files[nested_notice] = b"SPDX-License-Identifier: GPL-3.0-only\n"
         raw = archive_bytes(files)
         current = package(name, version, raw)
         lock["packages"]["node_modules/" + name].update(current)
@@ -309,6 +315,31 @@ def test_new_archive_notice_member_requires_review(scenario: Scenario) -> None:
     _ = change("three", extra_notice=True)
     with pytest.raises(ValueError, match="changed archive notice coverage"):
         REFRESH(inventory, encoded(lock), fetch)
+
+
+@pytest.mark.parametrize(
+    "name,path",
+    [
+        ("three", "package/vendor/LICENSE"),
+        ("three", "package/vendor/nested/NOTICE.txt"),
+        ("three", "package/vendor/COPYING.LESSER"),
+        ("three", "package/vendor/LICENSES/GPL-3.0-only.txt"),
+        ("three", "package/vendor/NOTICES/third-party.txt"),
+        (HEADLESS, "package/vendor/LICENSE"),
+    ],
+)
+def test_unreviewed_nested_notice_refuses_with_root_notice_unchanged(
+    scenario: Scenario, name: str, path: str
+) -> None:
+    inventory, lock, change, fetch, _ = scenario
+    before = copy.deepcopy(inventory)
+    _ = change(name, nested_notice=path)
+    with pytest.raises(
+        ValueError,
+        match=r"changed archive notice coverage|publisher notice correspondence",
+    ):
+        REFRESH(inventory, encoded(lock), fetch)
+    assert inventory == before
 
 
 def test_custom_correspondence_basis_is_never_automatically_replaced(
