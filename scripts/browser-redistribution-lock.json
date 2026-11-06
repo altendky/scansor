@@ -3100,35 +3100,35 @@
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "react",
       "group": "ui",
-      "integrity": "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==",
+      "integrity": "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1088,
-          "path": "notices/ui-notices/react/19.3.0/LICENSE",
+          "path": "notices/ui-notices/react/19.3.1/LICENSE",
           "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
         }
       ],
-      "url": "https://registry.npmjs.org/react/-/react-19.3.0.tgz",
-      "version": "19.3.0"
+      "url": "https://registry.npmjs.org/react/-/react-19.3.1.tgz",
+      "version": "19.3.1"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "react-dom",
       "group": "ui",
-      "integrity": "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==",
+      "integrity": "sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1088,
-          "path": "notices/ui-notices/react-dom/19.3.0/LICENSE",
+          "path": "notices/ui-notices/react-dom/19.3.1/LICENSE",
           "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
         }
       ],
-      "url": "https://registry.npmjs.org/react-dom/-/react-dom-19.3.0.tgz",
-      "version": "19.3.0"
+      "url": "https://registry.npmjs.org/react-dom/-/react-dom-19.3.1.tgz",
+      "version": "19.3.1"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
@@ -3456,7 +3456,7 @@
   },
   "bindings": {
     "runtime_lock_sha256": "f0c7f39ce2425231a85f45ced30fb8dd41dbe8ce6e38684875bdb0549c29d83b",
-    "ui_package_lock_sha256": "c8157ca4c1fec7b92531677853a296bb5f83ac07acea60800ea630f60c1c428d"
+    "ui_package_lock_sha256": "b835f2c620a40a68f9f52420661d9a616eca294546ee1218b6d3407e39b8a908"
   },
   "covered_sources": [
     {
@@ -4486,18 +4486,18 @@
         "version": "1.0.1"
       },
       {
-        "integrity": "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==",
+        "integrity": "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw==",
         "license": "MIT",
         "name": "react",
-        "resolved": "https://registry.npmjs.org/react/-/react-19.3.0.tgz",
-        "version": "19.3.0"
+        "resolved": "https://registry.npmjs.org/react/-/react-19.3.1.tgz",
+        "version": "19.3.1"
       },
       {
-        "integrity": "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==",
+        "integrity": "sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==",
         "license": "MIT",
         "name": "react-dom",
-        "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-19.3.0.tgz",
-        "version": "19.3.0"
+        "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-19.3.1.tgz",
+        "version": "19.3.1"
       },
       {
         "integrity": "sha512-Iqb9NjCCTt6Hf+vOdNIZGdTiH1QSqr27H/Ek9sv/a97gfueI/5h1s3yRi1nngzMUaOOToin5dI1dXKdXiF+u0Q==",
@@ -5225,10 +5225,10 @@
         "notices/ui-notices/detect-node-es/1.1.0/LICENSE",
         "notices/ui-notices/flexlayout-react/0.11.1/LICENSE",
         "notices/ui-notices/get-nonce/1.0.1/LICENSE",
-        "notices/ui-notices/react-dom/19.3.0/LICENSE",
+        "notices/ui-notices/react-dom/19.3.1/LICENSE",
         "notices/ui-notices/react-remove-scroll/2.7.2/LICENSE",
         "notices/ui-notices/react-style-singleton/2.2.3/LICENSE",
-        "notices/ui-notices/react/19.3.0/LICENSE",
+        "notices/ui-notices/react/19.3.1/LICENSE",
         "notices/ui-notices/scheduler/0.28.0/LICENSE",
         "notices/ui-notices/three/0.186.1/LICENSE",
         "notices/ui-notices/tslib/2.8.1/CopyrightNotice.txt",
