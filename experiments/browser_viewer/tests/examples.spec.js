@@ -13,6 +13,17 @@ async function ready(page) {
 
 const read = async page => (await page.request.get('/api/graph')).json();
 
+async function readyForRecipeEdit(page) {
+  await ready(page);
+  // Raw API edits bypass the UI's retirement of cosmetic CAD work. Draft
+  // prevents another refinement from starting between the idle check and POST.
+  if (!await page.locator('#cad-display-quality').isVisible())
+    await page.locator('#viewport .display-options > summary').click();
+  await page.locator('#cad-display-quality').selectOption('draft');
+  await expect(page.locator('#cancel-cad-display')).toBeDisabled();
+  await expect.poll(async () => (await read(page)).evaluation_running).toBe(false);
+}
+
 async function openExample(page, id) {
   await page.getByRole('button', { name: 'Choose example…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Choose example', exact: true });
@@ -27,7 +38,7 @@ async function openExample(page, id) {
 test('example chooser loads both saved feature recipes and restore preserves their definitions', async ({ page }) => {
   test.setTimeout(240000);
   await page.goto('/');
-  await ready(page);
+  await readyForRecipeEdit(page);
   const original = await read(page),
     nozzleMesh = await (await page.request.get('/mesh/positions')).body();
   try {
@@ -56,7 +67,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     });
     expect(response.ok(), await response.text()).toBe(true);
     await page.reload();
-    await ready(page);
+    await readyForRecipeEdit(page);
     expect((await read(page)).recipe.nodes.slice(0, 131)).toEqual(repeated.recipe.nodes);
     expect((await read(page)).recipe.nodes).toHaveLength(132);
     const restored = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
@@ -67,7 +78,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     expect((await read(page)).recipe).toEqual(repeated.recipe);
     expect((await read(page)).recipe).toMatchObject(savedRecipes['repeated-boss']);
     expect((await (await page.request.get('/mesh/positions')).body()).equals(repeatedMesh)).toBe(true);
-    await ready(page);
+    await readyForRecipeEdit(page);
     await openExample(page, 'nozzle');
     expect((await (await page.request.get('/api/examples')).json()).active).toBe('nozzle');
     expect((await (await page.request.get('/mesh/positions')).body()).equals(nozzleMesh)).toBe(true);
@@ -76,7 +87,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     expect(nozzle.recipe.nodes).toHaveLength(30);
     expect(nozzle.recipe.nodes.filter(node => node.operation === 'fit')).toHaveLength(11);
     await page.reload();
-    await ready(page);
+    await readyForRecipeEdit(page);
     expect((await read(page)).recipe).toMatchObject(savedRecipes.nozzle);
     const edited = await page.request.post('/api/graph', {
       headers: { 'X-Scansor-Request': '1' }, data: { token: nozzle.token,
@@ -85,7 +96,7 @@ test('example chooser loads both saved feature recipes and restore preserves the
     });
     expect(edited.ok(), await edited.text()).toBe(true);
     await page.reload();
-    await ready(page);
+    await readyForRecipeEdit(page);
     const restoredNozzle = page.waitForResponse(response => response.url().endsWith('/api/graph') &&
       response.request().method() === 'POST');
     page.once('dialog', confirmation => confirmation.accept());
@@ -93,10 +104,13 @@ test('example chooser loads both saved feature recipes and restore preserves the
     expect((await restoredNozzle).ok()).toBe(true);
     expect((await read(page)).recipe).toEqual(nozzle.recipe);
     expect((await read(page)).recipe).toMatchObject(savedRecipes.nozzle);
-    await ready(page);
+    await readyForRecipeEdit(page);
     await page.getByRole('button', { name: 'Choose example…', exact: true }).click();
     await expect(page.locator('#example-choice')).toHaveValue('nozzle');
   } finally {
+    const chooser = page.getByRole('dialog', { name: 'Choose example', exact: true });
+    if (await chooser.isVisible()) await chooser.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await readyForRecipeEdit(page);
     const state = await read(page);
     await page.request.post('/api/examples/select', {
       headers: { 'X-Scansor-Request': '1' }, data: { example: 'nozzle', token: state.token },
