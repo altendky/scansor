@@ -118,17 +118,14 @@ def packages(lock: dict[str, Any]) -> tuple[dict[str, dict], dict[str, dict]]:
 
 def archive_notices(archive: tarfile.TarFile) -> set[str]:
     """Find notice members throughout the archive, including vendored packages."""
+    notice_name = re.compile(
+        r"(?i)(?:(?:third[._ -]*party[._ -]*)?(?:licen[sc]es?|notices?)"
+        r"|unlicen[sc]e|copying|copyright)(?:[._-].*)?"
+    )
     return {
         member.name
         for member in archive.getmembers()
-        if re.fullmatch(
-            r"(?i)(?:licen[sc]es?|notices?|copying|copyright)(?:[._-].*)?",
-            member.name.rsplit("/", 1)[-1],
-        )
-        or any(
-            re.fullmatch(r"(?i)(?:licen[sc]es?|notices?|copying|copyright)", part)
-            for part in member.name.split("/")[:-1]
-        )
+        if any(notice_name.fullmatch(part) for part in member.name.split("/"))
     }
 
 

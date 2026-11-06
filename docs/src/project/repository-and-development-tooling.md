@@ -477,9 +477,11 @@ notice.
 The Vite 8.3.6 baseline is a specific reviewed notice refresh: its bundled notice
 removes the Apache-2.0 detect-agent notice, adds an MIT std-env notice and updates
 two attribution lines. Its identifiers remain within the existing reviewed set
-(BSD-2-Clause, CC0-1.0, ISC and MIT). Rolldown 1.2.16's notice bytes match the
-previous reviewed baseline. This refresh grants no approval for future changed
-notices or additional components.
+(BSD-2-Clause, CC0-1.0, ISC and MIT). Rolldown 1.2.16's main notice matches the
+previous reviewed baseline. Its previously omitted `THIRD-PARTY-LICENSE` contains
+MIT attributions for Rollup contributors and Evan Wallace; the reviewed bytes
+are identical in Rolldown 1.2.12 and 1.2.16 and are now included. This refresh
+grants no approval for future changed notices or additional components.
 
 ## Packaging, Documentation, and Release Deferrals
 
