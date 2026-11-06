@@ -45,6 +45,16 @@
       "groupName": "Python 3.13"
     },
     {
+      "matchManagers": ["npm"],
+      "matchFileNames": ["experiments/browser_viewer/package.json"],
+      "postUpgradeTasks": {
+        "commands": ["uv run --no-project scripts/update-browser-ui-redistribution.py"],
+        "installTools": { "uv": {} },
+        "fileFilters": ["scripts/browser-redistribution-lock.json"],
+        "executionMode": "branch"
+      }
+    },
+    {
       "matchManagers": ["mise", "custom.regex"],
       "postUpgradeTasks": {
         "commands": [

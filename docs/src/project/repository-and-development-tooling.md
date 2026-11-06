@@ -462,6 +462,27 @@ build. Changes to those artifacts require explicit license/approval review;
 the baseline does not grant a new exception. No general GPL-family exception or
 unknown-license bypass is provided.
 
+Browser dependency updates also run the standalone companion command
+`uv run --no-project scripts/update-browser-ui-redistribution.py`. It verifies
+changed known runtime and Vite/Rolldown helper notices against the npm lock's
+integrity and the reviewed notice bytes before refreshing their identities,
+paths and UI lock binding. It does not synchronize project dependencies or
+change native, numeric or CAD approvals. `--check` verifies the inventory without
+writing. New runtime packages, changed notice bytes, license identifiers or
+custom source correspondence need a reviewed inventory change; there is no
+automatic approval option. Headless Tree retains its exact npm publisher
+`gitHead` notice basis rather than assuming that a nearby release has the same
+notice.
+
+The Vite 8.3.6 baseline is a specific reviewed notice refresh: its bundled notice
+removes the Apache-2.0 detect-agent notice, adds an MIT std-env notice and updates
+two attribution lines. Its identifiers remain within the existing reviewed set
+(BSD-2-Clause, CC0-1.0, ISC and MIT). Rolldown 1.2.16's main notice matches the
+previous reviewed baseline. Its previously omitted `THIRD-PARTY-LICENSE` contains
+MIT attributions for Rollup contributors and Evan Wallace; the reviewed bytes
+are identical in Rolldown 1.2.12 and 1.2.16 and are now included. This refresh
+grants no approval for future changed notices or additional components.
+
 ## Packaging, Documentation, and Release Deferrals
 
 The internal CLI fixture uses `uv_build` only to expose its source package and
