@@ -3456,7 +3456,7 @@
   },
   "bindings": {
     "runtime_lock_sha256": "f0c7f39ce2425231a85f45ced30fb8dd41dbe8ce6e38684875bdb0549c29d83b",
-    "ui_package_lock_sha256": "7dfde17be44927f43ed809337db4f4ed036269e7db11ce3d9a235146e3ab017b"
+    "ui_package_lock_sha256": "40ca610810bd0f2f9e93e000e4a435cb0197e6fff715e48ea45ce7ba5c1665bc"
   },
   "covered_sources": [
     {
