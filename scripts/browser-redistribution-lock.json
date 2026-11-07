@@ -2299,103 +2299,103 @@
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/abstract",
       "group": "ui",
-      "integrity": "sha512-hi13iMJgjPX/KDYVKg5VeDIhmYiV6buc9bAX+tCLYf4QdyYjPbsXjn2sPo6m7fQ6SGJBEFgHJ2PemeKDUbwBaA==",
+      "integrity": "sha512-KZQ2vftkO9BHupVzlUqB5d7JETL7ITlvslx3hrj4aObwjliAzuzV/n5wCpQllNd0Hxvg7FaQtLekJ8dplqKwbA==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/abstract/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/abstract/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/abstract/-/abstract-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/abstract/-/abstract-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/collision",
       "group": "ui",
-      "integrity": "sha512-xUqRn3lS7oqLkT0AnnHS/STh/Czvwe1UapZFYiLbsUGxopMsQd4teaPCzPouOThoMdGEe+dHWjfqJl6t9iG4mQ==",
+      "integrity": "sha512-DBo8czkI72xnsHRWOMTn/GAyYgSWy9bmde85mrZ7ShqLhcbIbcu4PVJ3ZU9MBikePCSAVOoUTZE2gS40jogrEw==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/collision/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/collision/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/collision/-/collision-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/collision/-/collision-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/dom",
       "group": "ui",
-      "integrity": "sha512-f2xFJp5SYQ8EW/Fbtaa8iBb66hpkWc7qa8vU826KW11/tb44sH+AisZnGtwOOTWTQ0GraqBDr5ixTErww+eKXw==",
+      "integrity": "sha512-JJe+Qu/JmofGzHes3np91sQYwp5spvLcknjRkq+VO59JTqSnQNPXlhHXavRXTwQFabaaRyRzXyH/faAvubCNGw==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/dom/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/dom/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/dom/-/dom-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/dom/-/dom-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/geometry",
       "group": "ui",
-      "integrity": "sha512-ubHQS1CiSDH8ssYH2xG5BnpwPSFP1tStXXjug7/Ba6qnQdu/EUH47l6QXKIksQnnanfVfDf0aGeevRxgZlj28A==",
+      "integrity": "sha512-U+zscNjoHfJ1xUV+XDGF89jPCoILLivWSb/U9mfM7h83f6o3X9AS9uIwG46bXUpCqPvlI/9JcOlyga5uvfyjgw==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/geometry/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/geometry/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/geometry/-/geometry-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/geometry/-/geometry-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/react",
       "group": "ui",
-      "integrity": "sha512-abQPLI8lmfVE+v/n+pqy5WFxrw6T2Yg0UQZsL78dp5DKci7dKTVDjvLWqvass+XTFtzJmsZEjk1NdqE6xG8Jiw==",
+      "integrity": "sha512-BGn6bakgcRSoKMRQP8cRIGu59e5lGC3/sL0zVWmDMo/9CMPSxgjCcQltDn5TDTwAARnEbuwNEksor4rLtH/yEg==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/react/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/react/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/react/-/react-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/react/-/react-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@dnd-kit/state",
       "group": "ui",
-      "integrity": "sha512-y7XbabQqjF58Lk8YmDQuR8l6QjN+Kh4qlGEjUvHuIeasLk1QP+9L5diXS98VMxQIivyMmUtX2//f+3N7qPJX4w==",
+      "integrity": "sha512-NJTQkBglAT/SXLc+IOLiKwNvsTrWmPG5AO+7Gn0F0n8XyVaf4VCbTCuPuU48sDBfcpg23O0tfGkfZNiZbYTvMw==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1075,
-          "path": "notices/ui-notices/@dnd-kit/state/0.5.0/LICENSE",
+          "path": "notices/ui-notices/@dnd-kit/state/0.5.3/LICENSE",
           "sha256": "537607e3f1533ad2c5b12978967f5ab27f34ffb7e626e321017a7ccca6cc24ff"
         }
       ],
-      "url": "https://registry.npmjs.org/@dnd-kit/state/-/state-0.5.0.tgz",
-      "version": "0.5.0"
+      "url": "https://registry.npmjs.org/@dnd-kit/state/-/state-0.5.3.tgz",
+      "version": "0.5.3"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
@@ -2469,18 +2469,18 @@
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
       "component": "@preact/signals-core",
       "group": "ui",
-      "integrity": "sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==",
+      "integrity": "sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE",
           "bytes": 1086,
-          "path": "notices/ui-notices/@preact/signals-core/1.14.4/LICENSE",
+          "path": "notices/ui-notices/@preact/signals-core/1.14.5/LICENSE",
           "sha256": "a11fc89e4c6b118854c7a667734a0b2e6bf2af5e45c6686de31adbccc8f3ae8d"
         }
       ],
-      "url": "https://registry.npmjs.org/@preact/signals-core/-/signals-core-1.14.4.tgz",
-      "version": "1.14.4"
+      "url": "https://registry.npmjs.org/@preact/signals-core/-/signals-core-1.14.5.tgz",
+      "version": "1.14.5"
     },
     {
       "alternative": "Use npm-ci installed package files with exact notice-file hash validation and locked package version/integrity provenance.",
@@ -3456,7 +3456,7 @@
   },
   "bindings": {
     "runtime_lock_sha256": "f0c7f39ce2425231a85f45ced30fb8dd41dbe8ce6e38684875bdb0549c29d83b",
-    "ui_package_lock_sha256": "f4e40f0fb5eee98552394b710e34ca624158b7f639611cbedf86ffcff16aca5c"
+    "ui_package_lock_sha256": "d00b9f1c933647e5bd71f50770daf302a5604f793d0b9a61fe4fb4b7ff3bc584"
   },
   "covered_sources": [
     {
@@ -4150,46 +4150,46 @@
     },
     "ui_packages": [
       {
-        "integrity": "sha512-hi13iMJgjPX/KDYVKg5VeDIhmYiV6buc9bAX+tCLYf4QdyYjPbsXjn2sPo6m7fQ6SGJBEFgHJ2PemeKDUbwBaA==",
+        "integrity": "sha512-KZQ2vftkO9BHupVzlUqB5d7JETL7ITlvslx3hrj4aObwjliAzuzV/n5wCpQllNd0Hxvg7FaQtLekJ8dplqKwbA==",
         "license": "MIT",
         "name": "@dnd-kit/abstract",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/abstract/-/abstract-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/abstract/-/abstract-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
-        "integrity": "sha512-xUqRn3lS7oqLkT0AnnHS/STh/Czvwe1UapZFYiLbsUGxopMsQd4teaPCzPouOThoMdGEe+dHWjfqJl6t9iG4mQ==",
+        "integrity": "sha512-DBo8czkI72xnsHRWOMTn/GAyYgSWy9bmde85mrZ7ShqLhcbIbcu4PVJ3ZU9MBikePCSAVOoUTZE2gS40jogrEw==",
         "license": "MIT",
         "name": "@dnd-kit/collision",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/collision/-/collision-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/collision/-/collision-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
-        "integrity": "sha512-f2xFJp5SYQ8EW/Fbtaa8iBb66hpkWc7qa8vU826KW11/tb44sH+AisZnGtwOOTWTQ0GraqBDr5ixTErww+eKXw==",
+        "integrity": "sha512-JJe+Qu/JmofGzHes3np91sQYwp5spvLcknjRkq+VO59JTqSnQNPXlhHXavRXTwQFabaaRyRzXyH/faAvubCNGw==",
         "license": "MIT",
         "name": "@dnd-kit/dom",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/dom/-/dom-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/dom/-/dom-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
-        "integrity": "sha512-ubHQS1CiSDH8ssYH2xG5BnpwPSFP1tStXXjug7/Ba6qnQdu/EUH47l6QXKIksQnnanfVfDf0aGeevRxgZlj28A==",
+        "integrity": "sha512-U+zscNjoHfJ1xUV+XDGF89jPCoILLivWSb/U9mfM7h83f6o3X9AS9uIwG46bXUpCqPvlI/9JcOlyga5uvfyjgw==",
         "license": "MIT",
         "name": "@dnd-kit/geometry",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/geometry/-/geometry-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/geometry/-/geometry-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
-        "integrity": "sha512-abQPLI8lmfVE+v/n+pqy5WFxrw6T2Yg0UQZsL78dp5DKci7dKTVDjvLWqvass+XTFtzJmsZEjk1NdqE6xG8Jiw==",
+        "integrity": "sha512-BGn6bakgcRSoKMRQP8cRIGu59e5lGC3/sL0zVWmDMo/9CMPSxgjCcQltDn5TDTwAARnEbuwNEksor4rLtH/yEg==",
         "license": "MIT",
         "name": "@dnd-kit/react",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/react/-/react-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/react/-/react-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
-        "integrity": "sha512-y7XbabQqjF58Lk8YmDQuR8l6QjN+Kh4qlGEjUvHuIeasLk1QP+9L5diXS98VMxQIivyMmUtX2//f+3N7qPJX4w==",
+        "integrity": "sha512-NJTQkBglAT/SXLc+IOLiKwNvsTrWmPG5AO+7Gn0F0n8XyVaf4VCbTCuPuU48sDBfcpg23O0tfGkfZNiZbYTvMw==",
         "license": "MIT",
         "name": "@dnd-kit/state",
-        "resolved": "https://registry.npmjs.org/@dnd-kit/state/-/state-0.5.0.tgz",
-        "version": "0.5.0"
+        "resolved": "https://registry.npmjs.org/@dnd-kit/state/-/state-0.5.3.tgz",
+        "version": "0.5.3"
       },
       {
         "integrity": "sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==",
@@ -4227,11 +4227,11 @@
         "version": "1.7.0"
       },
       {
-        "integrity": "sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==",
+        "integrity": "sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg==",
         "license": "MIT",
         "name": "@preact/signals-core",
-        "resolved": "https://registry.npmjs.org/@preact/signals-core/-/signals-core-1.14.4.tgz",
-        "version": "1.14.4"
+        "resolved": "https://registry.npmjs.org/@preact/signals-core/-/signals-core-1.14.5.tgz",
+        "version": "1.14.5"
       },
       {
         "integrity": "sha512-rqWnm76nYT8HoNNqEjpgJ7Pw/DrBj5iBTrmEPo6HTX5+VJyBNOqTdv4g89G63HuR5g0AaENoAcH7Is5fF2kZ8Q==",
@@ -5178,17 +5178,17 @@
       "basis": "Conservative58non-dev package-lock closure; no module-level tree shaking attribution.",
       "kind": "assets",
       "paths": [
-        "notices/ui-notices/@dnd-kit/abstract/0.5.0/LICENSE",
-        "notices/ui-notices/@dnd-kit/collision/0.5.0/LICENSE",
-        "notices/ui-notices/@dnd-kit/dom/0.5.0/LICENSE",
-        "notices/ui-notices/@dnd-kit/geometry/0.5.0/LICENSE",
-        "notices/ui-notices/@dnd-kit/react/0.5.0/LICENSE",
-        "notices/ui-notices/@dnd-kit/state/0.5.0/LICENSE",
+        "notices/ui-notices/@dnd-kit/abstract/0.5.3/LICENSE",
+        "notices/ui-notices/@dnd-kit/collision/0.5.3/LICENSE",
+        "notices/ui-notices/@dnd-kit/dom/0.5.3/LICENSE",
+        "notices/ui-notices/@dnd-kit/geometry/0.5.3/LICENSE",
+        "notices/ui-notices/@dnd-kit/react/0.5.3/LICENSE",
+        "notices/ui-notices/@dnd-kit/state/0.5.3/LICENSE",
         "notices/ui-notices/@floating-ui/core/1.8.0/LICENSE",
         "notices/ui-notices/@floating-ui/dom/1.8.0/LICENSE",
         "notices/ui-notices/@floating-ui/react-dom/2.1.9/LICENSE",
         "notices/ui-notices/@floating-ui/utils/0.2.12/LICENSE",
-        "notices/ui-notices/@preact/signals-core/1.14.4/LICENSE",
+        "notices/ui-notices/@preact/signals-core/1.14.5/LICENSE",
         "notices/ui-notices/@radix-ui/primitive/1.1.7/LICENSE",
         "notices/ui-notices/@radix-ui/react-arrow/1.1.16/LICENSE",
         "notices/ui-notices/@radix-ui/react-collection/1.1.16/LICENSE",
