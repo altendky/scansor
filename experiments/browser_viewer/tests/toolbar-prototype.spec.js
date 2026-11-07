@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { initialWorkspace, panelTab } from '../workspace-state.js';
 
-async function ready(page) {
-  await page.goto('/');
+async function ready(page, { navigate = true } = {}) {
+  if (navigate) await page.goto('/');
   await expect(page.locator('.prototype-toolbar[data-toolbar-id="create"] [data-command-id="new-point"]')).toBeEnabled();
   await expect(page.locator('#viewport canvas')).toBeVisible();
 }
@@ -608,7 +608,11 @@ test('horizontal wrapped ordering previews before/after, persists, cancels and h
   expect(await page.evaluate(() => window.orderedCanvas === document.querySelector('#viewport canvas'))).toBe(true);
   expect(evaluations).toEqual([]);
   await page.reload();
+  await ready(page, { navigate: false });
   expect(await savedOrder(page)).toEqual(['project', 'output', 'create', 'faces', 'features']);
+  // Coordinates must come from the measured toolbar arrangement after reload,
+  // rather than the first visible render while its preferred sizes are pending.
+  await page.getByRole('button', { name: 'Move Feature tools toolbar', exact: true }).click({ trial: true });
   const features = await page.locator('.prototype-toolbar[data-toolbar-id="features"]').boundingBox();
   await startStripDrag(page, 'Run / output');
   await page.mouse.move(features.x + features.width + 20, features.y + features.height / 2, { steps: 20 });
