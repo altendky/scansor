@@ -3456,7 +3456,7 @@
   },
   "bindings": {
     "runtime_lock_sha256": "f0c7f39ce2425231a85f45ced30fb8dd41dbe8ce6e38684875bdb0549c29d83b",
-    "ui_package_lock_sha256": "d00b9f1c933647e5bd71f50770daf302a5604f793d0b9a61fe4fb4b7ff3bc584"
+    "ui_package_lock_sha256": "baaab7b2266bed13f45252700734e77513d93fa5597dbfb5237ed4f48604c1ab"
   },
   "covered_sources": [
     {
@@ -3730,9 +3730,9 @@
       "basis": "Exact npm gitHead publisher notice",
       "bytes": 1067,
       "group": "ui",
-      "path": "notices/ui/@headless-tree/core/1.7.0/LICENSE",
+      "path": "notices/ui/@headless-tree/core/1.8.0/LICENSE",
       "sha256": "cac45d63b6a0bf68f7aba2219c0d74470135ead032a0872e533476492abb2559",
-      "url": "https://raw.githubusercontent.com/lukasbach/headless-tree/11b0bb0859c4a0e6bc7c41f74aa3a5096c1a69df/LICENSE"
+      "url": "https://raw.githubusercontent.com/lukasbach/headless-tree/8a96358a139c4793f8e572201fd714d1a2d26e83/LICENSE"
     },
     {
       "bytes": 1023,
@@ -4220,11 +4220,11 @@
         "version": "0.2.12"
       },
       {
-        "integrity": "sha512-LxcX7LNepwfOPrZcs4PNfDwCzbi326uCAX5jYBfw94jI+pZQA7ANaE/No3LW0XFgcBcQtK/G2bInbVEhLF1C/Q==",
+        "integrity": "sha512-mTTTzA94KzIYbJ2605IIcAZiJ075qe4FiPHop72KKC/XXe7gv7CBGY/WIB7k8CmlDnJEZulp8nm6pmGXLenu5A==",
         "license": "MIT",
         "name": "@headless-tree/core",
-        "resolved": "https://registry.npmjs.org/@headless-tree/core/-/core-1.7.0.tgz",
-        "version": "1.7.0"
+        "resolved": "https://registry.npmjs.org/@headless-tree/core/-/core-1.8.0.tgz",
+        "version": "1.8.0"
       },
       {
         "integrity": "sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg==",
@@ -4977,7 +4977,7 @@
       "basis": "Exact npm gitHead publisher license.",
       "kind": "assets",
       "paths": [
-        "notices/ui/@headless-tree/core/1.7.0/LICENSE"
+        "notices/ui/@headless-tree/core/1.8.0/LICENSE"
       ]
     },
     "modified-library-replacement-proof": {
@@ -5235,7 +5235,7 @@
         "notices/ui-notices/tslib/2.8.1/LICENSE.txt",
         "notices/ui-notices/use-callback-ref/1.3.3/LICENSE",
         "notices/ui-notices/use-sidecar/1.1.3/LICENSE",
-        "notices/ui/@headless-tree/core/1.7.0/LICENSE",
+        "notices/ui/@headless-tree/core/1.8.0/LICENSE",
         "notices/ui/react-remove-scroll-bar/2.3.8/LICENSE"
       ]
     },
