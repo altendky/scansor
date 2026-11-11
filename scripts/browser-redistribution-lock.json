@@ -3258,19 +3258,19 @@
     {
       "component": "vite",
       "group": "ui",
-      "integrity": "sha512-oxh0dMxrayBr33ScJvvBJ2HBQ2jc1TBrXKR2NyL/MJ9WPuX19mN2DXWUmywKdyw5RFVQBo8hmtb2FMC0LHrnng==",
+      "integrity": "sha512-LzOn3h9rG/0vhLdXrV4yJ4QFA9eEoqCl+Yx+kGJd7aB9w6nfNgVHKSYwLPZUHrz4ZGa+t+kXjV9itvcHDLQouA==",
       "license": "MIT",
       "members": [
         {
           "archive_path": "package/LICENSE.md",
           "bytes": 98196,
-          "path": "notices/ui-build-helper-notices/vite/8.3.7/LICENSE.md",
+          "path": "notices/ui-build-helper-notices/vite/8.3.8/LICENSE.md",
           "sha256": "a22152baa1aef74402443008e767e7c689a524c0909d19b0431d97f5ab066a13"
         }
       ],
       "scope": "Conservative notice for possible generated runtime helpers; build-only compiler dependencies not claimed to be shipped.",
-      "url": "https://registry.npmjs.org/vite/-/vite-8.3.7.tgz",
-      "version": "8.3.7"
+      "url": "https://registry.npmjs.org/vite/-/vite-8.3.8.tgz",
+      "version": "8.3.8"
     },
     {
       "component": "rolldown",
@@ -3456,7 +3456,7 @@
   },
   "bindings": {
     "runtime_lock_sha256": "f0c7f39ce2425231a85f45ced30fb8dd41dbe8ce6e38684875bdb0549c29d83b",
-    "ui_package_lock_sha256": "adfe53dc917571dc41f1cc3eb8a078be5b2bd25aa64870f16a7ab0b81b692cb8"
+    "ui_package_lock_sha256": "7321e769ed6004197b90740b75d6621194f079a24decd1dfe9902b48f026a23a"
   },
   "covered_sources": [
     {
@@ -4665,7 +4665,7 @@
       "paths": [
         "notices/ui-build-helper-notices/rolldown/1.2.18/LICENSE",
         "notices/ui-build-helper-notices/rolldown/1.2.18/THIRD-PARTY-LICENSE",
-        "notices/ui-build-helper-notices/vite/8.3.7/LICENSE.md"
+        "notices/ui-build-helper-notices/vite/8.3.8/LICENSE.md"
       ]
     },
     "existing-core-and-wheel-notices": {
